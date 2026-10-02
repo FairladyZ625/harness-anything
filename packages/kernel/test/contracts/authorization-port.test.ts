@@ -1,240 +1,60 @@
 // harness-test-tier: contract
-import { rejectedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_POLICY, durablePolicyActions } from "../../src/domain/default-policy.ts";
-import { validateWriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
-import { createAuthorizationPort } from "../../src/ports/authorization-port.ts";
-import { currentActionEnvelopeVersion, type ActorIdentity, type AuthorizationContext } from "../../src/index.ts";
+import { durablePolicyActions } from "../../src/domain/action-declaration.ts";
+import { authorizationPort } from "../../src/ports/authorization-port.ts";
+import { currentActionEnvelopeVersion, type AuthorizationDecision } from "../../src/index.ts";
 
-const actor: ActorIdentity = { principal: { personId: "person-authorized" }, executor: null },
-  outsider: ActorIdentity = { principal: { personId: "person-outsider" }, executor: null },
-  port = createAuthorizationPort(DEFAULT_POLICY);
-
-function action(kind: string, actionActor = actor) {
+const actor = { principal: { personId: "person-authorized" }, executor: null },
+  cut = "canonical:17";
+function action(kind: string) {
   return {
     version: currentActionEnvelopeVersion,
     actionId: `action-${kind}`,
     kind,
     target: "settings/repository" as const,
-    actor: actionActor,
-    authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
-    idempotencyKey: `once-${kind}`,
+    actor,
+    authorizationRef: "keycloak-policy@1",
+    idempotencyKey: kind,
   };
 }
-
-function roleContext(role: string, roleActor = actor): AuthorizationContext {
+function decision(kind: string): AuthorizationDecision {
   return {
-    roleBindings: [
-      {
-        actor: { kind: "person", id: roleActor.principal.personId },
-        role,
-        target: "settings/repository",
-        source: "declared",
-        expiresAt: null,
-      },
-    ],
-    roleBindingTargets: ["settings/repository"],
-    target: {},
-    evaluatedAtCut: "canonical:17",
+    policyRef: "keycloak-policy@1",
+    actor,
+    subject: "settings/repository",
+    outcome: "allowed",
+    bindingsUsed: [{ authority: "keycloak", scope: kind }],
+    reasonCodes: ["keycloak_allowed"],
+    nextActions: [],
+    evaluatedAtCut: cut,
   };
 }
-
-test("the default Policy covers the frozen durable inventory exactly once", () => {
-  // 这个数字是有意手写的安全棘轮:durable inventory 就是授权面,它变大必须有人显式确认一次。
-  // 从数组自算会退化成恒等式,任何新增 Action 都自动放行——那正是这条断言要防的事。
-  // 2026-09-02 W1-D:Relation reconfirm 进入 durable inventory(CEO 确认),106 → 107。
-  // 2026-09-02 事故恢复:relation-events-migrate / decision-digests-migrate 两个一次性历史迁移
-  // Action 进入 durable inventory(CEO 确认,与 rekey-facts 同角色),107 → 109。
-  // task_046460a29d5a147d3c9ecf7f92:dispatch-records-migrate 从 canonical 派工副本恢复事件,109 → 110。
-  // 2026-09-03 W1-F:center-only Squad migration 进入 durable inventory(CEO 已裁 cutover),110 → 111。
-  // 2026-09-05:声明实体 update / archive 进入 durable inventory(CEO 已确认),111 → 113。
-  // 2026-09-05:vertical declaration migrate / kind upsert / kind retire 进入 durable inventory,113 → 116。
-  // 2026-09-05:schedule-definitions-migrate 修复存量 schedule 声明形状,116 → 117。
-  // 2026-09-05:settings-wal-flush-migrate 补齐存量 Settings WAL 快照,117 → 118。
-  // CEO ruling 2 retires eight historical rewrite actions at the SQLite cutover: 118 → 110.
-  // agent-delete / squad-delete 在 d7436c38a 进了清单却没动这个数字,所以 110 这个断言在本轮之前就是红的
-  // (110 → 112,来源不是本任务)。task_32bd4f355db19eb6c553ec7662 再加两条:vertical-kind-publish-schema
-  // 此前已经活在 CLI / GUI / daemon 路由上却不在 durable inventory 里;entity-delete 是声明实体内容退休的
-  // 写入口。112 → 114。2026-09-09:Root 已明确确认这四条属于既有 built-in/generic Entity CRUD 范围,
-  // 四条都有真实未授权调用者被 policy 拒绝的证据(agent-action / entity-content-lifecycle /
-  // entity-kind-content-declared 三个 integration 测试),不是把数字改对就算数。
-  // 2026-09-12: task-closeout retired with its packet protocol; complete is the sole closeout mutation, 114 → 113.
-  // 2026-09-15 task_288b0a29: repository unbind replaces daemon-repo-unregister (same count) and adds the admin-only
-  // repo-purge at the user's request, CEO confirmed; a reader calling daemon.repo.purge is refused
-  // with authorization_denied in json-rpc-task-settlement.integration.test.ts, 113 → 114.
-  // 2026-09-15 task_569d4d4c: task-annotate enters the durable inventory (CEO confirmed) — append-only execution
-  // annotations are repository writes gated under repo-write alongside the other task lifecycle actions, 114 → 115.
-  // 2026-09-15 task_5a50cbd3 / dec_102D74524FEF2F36FAD73B0EB7: ledger backup and restore drill move into the daemon as
-  // admin-only host Actions ledger-backup / ledger-restore-drill (owner ruling); a reader calling daemon.repo.backup or
-  // daemon.repo.restoreDrill is refused with authorization_denied in json-rpc-task-settlement.integration.test.ts, 115 → 117.
-  // 2026-09-15 task_5e5eea52: task-review-dispatch enters the durable inventory (task is the change's own authority) —
-  // a first-class task action that spawns reviewer dispatches bound to submitted cuts, gated under repo-write alongside
-  // the other task lifecycle actions, 117 → 118.
-  // PR #2785: CEO confirms one repo-write task-settle entry, reusing existing submission authority: 118 → 119.
-  // task_f603213ecf586dcb87d9c99649: CEO confirms decision-, fact-, and task-rematerialize as repo-write Actions that
-  // re-render existing entity documents from the canonical projection, alongside the other entity writes, 119 → 122.
-  // task_fc1f592d353e92d6df93f3dc80 / dec_59FA45A407F850E2B167A192D7: CEO confirms task-attest as the repo-write Action
-  // that records a manual-attest gate witness against a submitted cut, alongside the other task lifecycle actions, 122 → 123.
-  // task_fa06621b7aca98a95cfbaa5680 / dec_62CAE6CA9786104145A468ED88 (owner-approved): fact-archive and
-  // fact-unarchive enter the durable inventory as repo-write Actions alongside the other Fact writes — archiving
-  // retires a Fact's managed document and the decision requires it to be reversible; a repo-read actor is
-  // refused below, 123 → 125.
-  // task_b21092c1c09c16117806ea62af: owner requires entity_pinned/entity_unpinned durable audit events, 125 → 127.
-  // task_dcf07acd47f00a30691722e276 (owner adjudication 2026-09-19, derives dec_13FF6AEF): task-adjudicate
-  // enters the durable inventory as the repo-write owner gate between submit and review — the CEO's forward
-  // and return orders; a repo-read actor is refused below, 127 → 128.
-  // dec_A64B14D6B7DDCF6A459CCC7A00 CH3/CH5 adds Decision review, response, override, and dispatch
-  // Actions while moving accept/defer to repo-write; the owner-approved inventory grows 128 → 132.
-  // dec_D60FAA451F24160E970323B6F3 adds the admin-only rbac-bootstrap host Action; CEO confirmed 132 → 133.
-  // S2 classifies the five daemon registry mutations by their host-local declarations while preserving an
-  // auditable admin policy decision for each socket-owner operation (dec_D60FAA451F24160E970323B6F3), +5;
-  // task_f2f6f35cfb02adcf4df7fd1ad1 (CEO ruling on task_e971401b34093fe6efe4d412a5) deletes ha agent create
-  // and its agent-create Action whole-chain, -1; S2 adds daemon-repo-update, yielding 138 declarations.
-  // RBAC v2 S4 (dec_D60FAA451F24160E970323B6F3, slice S4 "删除的生产路径") deletes the RolePolicy and RoleBinding
-  // write Actions people-set-role and people-bind; Keycloak policy groups and grants replace them, 138 → 136.
-  // dec_089F1AE27C5DC0A3969062FE0D CH5 adds the host-local daemon-service-install and daemon-service-uninstall
-  // Actions for the resident service unit, 136 → 138.
+test("existing durable inventory size fence", () => {
   assert.equal(durablePolicyActions.length, 138);
-  for (const kind of ["entity-pin", "entity-unpin"] as const) {
-    assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
-    assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");
-  }
-  for (const kind of ["fact-archive", "fact-unarchive"] as const) {
-    assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
-    assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");
-  }
-  assert.equal(port.authorize(action("task-settle"), roleContext("repo-write")).outcome, "allowed");
-  assert.equal(port.authorize(action("task-settle"), roleContext("repo-read")).outcome, "denied");
-  // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
-  // 且每个 durable Action 恰好被一条 rule 覆盖。
+});
+test("every durable action requires a matching authority decision", () => {
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);
-  assert.deepEqual((DEFAULT_POLICY.rules ?? []).map((rule) => rule.action).sort(), [...durablePolicyActions].sort());
-});
-
-test("RoleBinding qualification is actor, target, and role scoped", () => {
-  const allowed = port.authorize(action("fact-record"), roleContext("repo-write"));
-  assert.equal(allowed.outcome, "allowed");
-  assert.equal(allowed.policyRef, "default@5");
-  assert.equal(allowed.evaluatedAtCut, "canonical:17");
-  assert.equal(
-    allowed.bindingsUsed.some((binding) => binding.predicate === "hasRoleBinding"),
-    true,
-  );
-  assert.equal(port.authorize(action("fact-record", outsider), roleContext("repo-write")).outcome, "denied");
-  assert.equal(port.authorize(action("decision-accept"), roleContext("repo-write")).outcome, "allowed");
-  assert.equal(port.authorize(action("decision-accept"), roleContext("arbiter")).outcome, "denied");
-});
-
-test("arriving through a node qualifies nobody: only the person's own binding does", () => {
-  const context: AuthorizationContext = {
-    writeSource: { kind: "assignment", nodeId: "node-a", assignmentId: "assignment-a" },
-    target: {},
-    evaluatedAtCut: "canonical:22",
-  };
-  const decision = port.authorize(action("task-submit"), context);
-  assert.equal(decision.outcome, "denied");
-  assert.equal(
-    decision.bindingsUsed.some((binding) => binding.satisfied),
-    false,
-  );
-  assert.equal(
-    port.authorize(action("task-submit"), { ...context, ...roleContext("repo-write") }).outcome,
-    "allowed",
-    "the same node carries the write once its person holds the role",
-  );
-});
-
-test("closing a task answers to the maintainer tier, not to who created it", () => {
-  for (const kind of ["task-adjudicate", "task-review-consent", "task-complete"] as const) {
-    assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "denied", kind);
-    assert.equal(port.authorize(action(kind, outsider), roleContext("arbiter")).outcome, "denied", kind);
-    assert.equal(port.authorize(action(kind), roleContext("arbiter")).outcome, "allowed", kind);
-    assert.equal(port.authorize(action(kind), roleContext("owner")).outcome, "allowed", kind);
+  for (const kind of durablePolicyActions) {
+    assert.equal(authorizationPort.authorize(action(kind), { evaluatedAtCut: cut }).outcome, "denied");
+    assert.equal(
+      authorizationPort.authorize(action(kind), { decision: decision(kind), evaluatedAtCut: cut }).outcome,
+      "allowed",
+    );
   }
 });
-
-test("the local default binding preserves unconfigured actors without bypassing explicit RBAC", () => {
-  const defaultContext: AuthorizationContext = {
-    defaultBinding: { principalPersonId: actor.principal.personId, source: "local" },
-    writeSource: "local",
-    target: {},
-    evaluatedAtCut: "canonical:23",
-  };
-  const allowed = port.authorize(action("task-create"), defaultContext);
-  assert.equal(allowed.outcome, "allowed");
-  assert.deepEqual(allowed.bindingsUsed, [
-    {
-      predicate: "hasDefaultBinding",
-      satisfied: true,
-      principal: { personId: actor.principal.personId },
-      source: "local",
-    },
-  ]);
-  assert.equal(port.authorize(action("runtime-instance-list"), defaultContext).outcome, "allowed");
-  assert.equal(port.authorize(action("task-review-execution"), defaultContext).outcome, "allowed");
-  const { defaultBinding: _defaultBinding, ...declaredContext } = defaultContext;
-  assert.equal(port.authorize(action("task-create"), { ...declaredContext, roleBindings: [] }).outcome, "denied");
-  assert.equal(
-    port.authorize(action("task-create"), {
-      ...defaultContext,
-      defaultBinding: { principalPersonId: outsider.principal.personId, source: "local" },
-    }).outcome,
-    "denied",
-  );
-});
-
-test("lease and review facts do not change Policy qualification", () => {
-  const base = roleContext("repo-write"),
-    altered: AuthorizationContext = {
-      ...base,
-      target: { canonicalExecutionExists: false, executionActor: outsider, proposalActor: actor },
-      writeSource: "remote_direct",
-    };
-  assert.equal(port.authorize(action("task-submit"), base).outcome, "allowed");
-  assert.equal(port.authorize(action("task-submit"), altered).outcome, "allowed");
-});
-
-test("public WriteReceipt rejects a missing or null AuthorizationDecision", () => {
-  const decision = port.authorize(action("fact-record"), roleContext("repo-write")),
-    receipt = {
-      ...rejectedAcceptance,
-      outcome: "op_rejected",
-      opId: "op-authorized",
-      code: "state_conflict",
-      origin: "test",
-      evidence: "criteria:state-conflict",
-      nextAction: "Refresh the canonical state.",
-      authorizationDecision: decision,
-    } as const;
-  assert.deepEqual(validateWriteReceipt(receipt), []);
-  const { authorizationDecision: _missing, ...missing } = receipt;
-  assert.match(validateWriteReceipt(missing).join("\n"), /AuthorizationDecision/u);
-  assert.match(validateWriteReceipt({ ...receipt, authorizationDecision: null }).join("\n"), /AuthorizationDecision/u);
-});
-
-test("public WriteReceipt accepts only structured unmet criteria", () => {
-  const decision = port.authorize(action("task-submit"), roleContext("repo-write")),
-    receipt = {
-      ...rejectedAcceptance,
-      outcome: "op_rejected",
-      opId: "op-unmet-criterion",
-      code: "invalid_transition",
-      origin: "test",
-      evidence: "criteria:revision",
-      nextAction: "Refresh and retry.",
-      authorizationDecision: decision,
-      unmetCriteria: [
-        {
-          ref: "task-lifecycle-contract-support/revisionIssues",
-          failureCode: "invalid_transition",
-          explain: "The expected revision must match the current Task revision.",
-        },
-      ],
-    } as const;
-  assert.deepEqual(validateWriteReceipt(receipt), []);
-  assert.match(
-    validateWriteReceipt({ ...receipt, unmetCriteria: ["task-lifecycle-contract-support/revisionIssues"] }).join("\n"),
-    /structured criterion explanations/u,
-  );
+test("an authority decision cannot cross actor, action, target or write cut", () => {
+  const request = action("task-create"),
+    allowed = decision(request.kind);
+  for (const candidate of [
+    { ...allowed, policyRef: "default@5" },
+    { ...allowed, actor: { principal: { personId: "another" }, executor: null } },
+    { ...allowed, actor: { principal: actor.principal, executor: { kind: "agent" as const, id: "another-runtime" } } },
+    { ...allowed, subject: "task/other" as const },
+    { ...allowed, evaluatedAtCut: "canonical:16" },
+    { ...allowed, bindingsUsed: [{ scope: "task-delete" }] },
+  ])
+    assert.equal(authorizationPort.authorize(request, { decision: candidate, evaluatedAtCut: cut }).outcome, "denied");
+  const denied = { ...allowed, outcome: "denied" as const, reasonCodes: ["keycloak_denied"] };
+  assert.deepEqual(authorizationPort.authorize(request, { decision: denied, evaluatedAtCut: cut }), denied);
 });

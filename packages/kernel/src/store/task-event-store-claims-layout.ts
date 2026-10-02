@@ -15,7 +15,7 @@ import { isEntityDocumentEvent } from "../domain/entity-document-event.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
-import { isPeopleEvent } from "../domain/people-event.ts";
+import { isRetiredPeopleEvent } from "../domain/people-event.ts";
 import {
   isDecisionEvent,
   isDocEvent,
@@ -44,7 +44,7 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
     return "declarationDocumentClaim" in event.payload ? [event.payload.declarationDocumentClaim] : [];
   if (isSettingsEvent(event)) return [event.payload.harnessDocumentClaim];
   if (isVerticalDeclarationEvent(event)) return [event.payload.declarationDocumentClaim];
-  if (isPeopleEvent(event)) return [event.payload.peopleDocumentClaim];
+  if (isRetiredPeopleEvent(event)) return [event.payload.peopleDocumentClaim];
   return isDocEvent(event)
     ? event.payload.changes.flatMap(({ path: target, candidate }) =>
         candidate === null ? [] : [{ path: target, ...candidate }],
@@ -150,7 +150,7 @@ export function canonicalDocumentMode(event: CanonicalEventV1, documentPath: str
     ? "120000"
     : "100644";
 }
-export function contentClaims(event: CanonicalEventV1): readonly {
+export function contentClaims(event: PersistedCanonicalEventV1): readonly {
   readonly sha256: string;
   readonly size: number;
   readonly mediaType: string;
@@ -161,7 +161,7 @@ export function contentClaims(event: CanonicalEventV1): readonly {
     return "declarationDocumentClaim" in event.payload ? [event.payload.declarationDocumentClaim] : [];
   if (isSettingsEvent(event)) return [event.payload.harnessDocumentClaim];
   if (isVerticalDeclarationEvent(event)) return [event.payload.declarationDocumentClaim];
-  if (isPeopleEvent(event)) return [event.payload.peopleDocumentClaim];
+  if (isRetiredPeopleEvent(event)) return [event.payload.peopleDocumentClaim];
   const claims = isDocEvent(event)
     ? event.payload.changes.flatMap((change) => (change.candidate === null ? [] : [change.candidate]))
     : isEntityEvent(event)

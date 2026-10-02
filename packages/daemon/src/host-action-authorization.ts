@@ -40,7 +40,7 @@ export async function evaluateFleetAction(input: {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === input.kind);
     if (
       input.binding.source === "local" &&
-      input.binding.authorizationBindingMode === "default" &&
+      input.binding.daemonSocketOwner === true &&
       declaration &&
       declaration.residency.scope !== "canonical"
     )

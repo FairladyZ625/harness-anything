@@ -37,7 +37,7 @@ import { openPersistentWriterEpoch, type WriterEpochFenceDescriptor } from "../.
 import { openWriterSupervisor } from "../../src/writer-supervisor.ts";
 import { openRepoCell } from "../../src/repo-cell.ts";
 import { openBootstrappedRepoCell } from "../repo-settings.fixture.ts";
-import { withRoleBinding } from "../role-binding.fixtures.ts";
+import { serveKeycloak } from "../keycloak.fixtures.ts";
 import { git, initRepo } from "../task-surface.fixtures.ts";
 import { realizedDecisionBody, realizedTaskPlan } from "../../../../tools/fixtures/task-plan.mjs";
 import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./g1-cost-probe.mjs";
@@ -62,16 +62,11 @@ const actor = {
   principal: { personId: "person-g1-cost" },
   executor: { kind: "agent" as const, id: "g1-cost-scaling" },
 };
-const writeBinding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
 // A decision's proposer cannot also accept it; the arbiter binding must be a distinct actor.
 const arbiterActor = {
   principal: { personId: "person-g1-arbiter" },
   executor: { kind: "agent" as const, id: "g1-cost-arbiter" },
 };
-const ownerArbiterBinding = withRoleBinding(
-  { actor: { principal: arbiterActor.principal, executor: null }, source: "local" as const },
-  "arbiter",
-);
 const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 function factIdFor(index: number): string {
@@ -443,7 +438,25 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
   const parent = mkdtempSync(path.join(tmpdir(), "ha-g1-cost-")),
     repoDir = path.join(parent, "repo"),
     stateRoot = path.join(parent, "writer-epochs"),
-    repoId = workspaceId(`g1-cost-${eventCount}`);
+    repoId = workspaceId(`g1-cost-${eventCount}`),
+    realm = await serveKeycloak();
+  const fixtureBinding = (personId: string) => ({
+      actor: { principal: { personId }, executor: null },
+      source: "local" as const,
+      keycloakAuthorization: {
+        session: {
+          personId,
+          accessToken: realm.keycloak.account(personId),
+          url: realm.url,
+          realm: "harness",
+          clientId: "harness-center",
+        },
+      },
+    }),
+    writeBinding = fixtureBinding(actor.principal.personId),
+    ownerArbiterBinding = fixtureBinding(arbiterActor.principal.personId);
+  for (const binding of [writeBinding, ownerArbiterBinding])
+    realm.keycloak.permit(binding.actor.principal.personId, repoId, G1_WRITE_OPERATIONS);
   mkdirSync(repoDir, { recursive: true });
   initRepo(repoDir);
   // task-show reads a materialized worktree's `.git` pointer; relative, it is the same length under every temp root,
@@ -495,12 +508,20 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
       measure = writerMeasure(handle.worker);
     try {
       await handle.supervisor.request("settlePendingMaterialization", "g1 warmup");
-      const run = (action: Record<string, unknown>, binding = writeBinding) =>
-        handle.supervisor.request<{ readonly opId: string; readonly packagePath: string; readonly evidence: string }>(
-          "run",
-          { action },
-          binding,
-        );
+      const run = (action: Record<string, unknown>, binding = writeBinding) => {
+        const target =
+          typeof action.taskId === "string"
+            ? `task/${action.taskId}`
+            : typeof action.decisionId === "string"
+              ? `decision/${action.decisionId}`
+              : null;
+        if (target) realm.keycloak.permit(binding.actor.principal.personId, `${repoId}:${target}`, G1_WRITE_OPERATIONS);
+        return handle.supervisor.request<{
+          readonly opId: string;
+          readonly packagePath: string;
+          readonly evidence: string;
+        }>("run", { action }, binding);
+      };
 
       await each(
         "task-create",
@@ -628,6 +649,7 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
     }
     return { eventCount, counts, firstCall };
   } finally {
+    await realm.close();
     rmSync(parent, { recursive: true, force: true });
   }
 }

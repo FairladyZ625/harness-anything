@@ -239,3 +239,8 @@ if (actionDeclarationByCatalogId.size !== actionDeclarations.filter(({ catalogId
 export function getActionDeclarationByCatalogId(catalogId: string): ActionDeclaration | undefined {
   return actionDeclarationByCatalogId.get(catalogId);
 }
+
+/** Non-read policy scopes derive solely from ActionDeclaration. */
+export const durablePolicyActions = Object.freeze(
+  actionDeclarations.flatMap(({ policyAction }) => (policyAction === null ? [] : [policyAction])),
+);

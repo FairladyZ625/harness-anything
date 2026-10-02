@@ -1,5 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import {
   makePersonActionExplanationService,
   makeSquadActionExplanationService,
@@ -7,14 +5,10 @@ import {
 } from "@harness-anything/application";
 import {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
-  consumeKnownError,
-  isPeopleEvent,
-  parsePeopleRosterDocument,
   parseEntityRef,
   parseSquadDeclarationV1,
   projectBaseEntityAtCut,
   requireEntityTypeContract,
-  resolveHarnessLayout,
   validateEntityActionExplainRequest,
   validateEntityActionExplanationSet,
   type BaseEntity,
@@ -25,7 +19,6 @@ import {
   type EntityActionExplanationSetV1,
   type EntityActionExplanationSubjectV1,
   type EntityRef,
-  type PeopleRosterDocumentV1,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
@@ -70,30 +63,6 @@ export function readTaskActionExplanation(
   const headRevision = dependencies.store.readHead()?.revision ?? 0,
     cut = `canonical:${headRevision}`,
     evaluatedAt = dependencies.now(),
-    authorize = ({
-      action,
-      target,
-      evaluatedAtCut,
-    }: {
-      readonly action: EntityActionContract;
-      readonly target: EntityRef;
-      readonly evaluatedAtCut: string;
-    }) => {
-      const ingress = action.execution?.ingress;
-      if (!ingress) throw new Error(`${action.target.kind} Action ${action.id} has no executable ingress.`);
-      const targetId = target.slice(`${action.target.kind}/`.length);
-      return authorizeRepoCellAction({
-        action: {
-          kind: ingress,
-          ...(action.target.kind === "task" ? { taskId: targetId } : { personId: targetId }),
-        },
-        binding,
-        actionId: `explain:${evaluatedAtCut}:${target}:${action.id}`,
-        revision: headRevision,
-        now: evaluatedAt,
-        targetOverride: target,
-      });
-    },
     taskService = makeTaskActionExplanationService({
       actor: binding.actor,
       authorize: ({ action, target, evaluatedAtCut }) =>
@@ -105,7 +74,6 @@ export function readTaskActionExplanation(
       authorize: ({ action, target, evaluatedAtCut }) =>
         explainAuthorization(action, target, evaluatedAtCut, "squad", binding, headRevision, evaluatedAt),
     }),
-    personService = makePersonActionExplanationService({ actor: binding.actor, authorize }),
     parsed = request.refs.map((ref) => ({ ref, parsed: parseEntityRef(ref) })),
     supported = parsed.filter(
       ({ parsed: entity }) =>
@@ -129,9 +97,6 @@ export function readTaskActionExplanation(
       const [event] = dependencies.projection.readCanonicalEvents(revision - 1, 1).events;
       return event !== undefined && event.workspaceRevision === revision ? event : undefined;
     },
-    personCut = parsed.some(({ parsed: entity }) => entity?.kind === "person" && !entity.externalHarness)
-      ? personRosterAtCut(dependencies.rootDir, dependencies.store.read().events, headRevision, binding, evaluatedAt)
-      : null,
     cache = new Map<string, EntityActionExplanationSubjectV1>(),
     subjects = parsed.map(({ ref, parsed: entity }) => {
       const cached = cache.get(ref);
@@ -158,42 +123,13 @@ export function readTaskActionExplanation(
           ["Use catalog mode to discover the supported Entity Action surfaces."],
         );
       else if (entity.kind === "person") {
-        const person = personCut?.roster.people.find(({ personId }) => personId === entity.id);
-        if (!personCut)
-          subject = failure(
-            "person",
-            entity.raw as EntityRef,
-            "projection_pending",
-            `The authoritative People roster has no readable witness at ${cut}.`,
-            ["Restore people.yaml or retry after the canonical People event settles."],
-          );
-        else if (!person)
-          subject = failure(
-            "person",
-            entity.raw as EntityRef,
-            "entity_not_found",
-            `Person ${entity.id} was not found.`,
-            ["Choose an existing Person identity from people.yaml."],
-          );
-        else {
-          const entityWitness = projectBaseEntityAtCut<BaseEntity<"person">>(requireEntityTypeContract("person"), {
-              kind: "person",
-              id: entity.id,
-              workspaceRevision: personCut.revision,
-              occurredAt: personCut.occurredAt,
-              actor: personCut.actor,
-              source: personCut.source,
-              pinned: false,
-              disposition: "active",
-            }),
-            explained = personService.object({
-              entity: entityWitness,
-              roster: personCut.roster,
-              evaluatedAtCut: cut,
-              evaluatedAt,
-            });
-          subject = explained.subjects[0]!;
-        }
+        subject = failure(
+          "person",
+          entity.raw as EntityRef,
+          "unsupported_explain_target",
+          "Person object explanations require Keycloak profile provenance, which is unavailable in this read path.",
+          ["Use Person catalog mode to inspect the declared actions."],
+        );
       } else if (!projectionReady)
         subject = failure(
           entity.kind,
@@ -293,44 +229,6 @@ export function readTaskActionExplanation(
     resultIssues = validateEntityActionExplanationSet(result);
   if (resultIssues.length > 0) throw new Error(`Invalid daemon Entity Action explanation: ${resultIssues.join("; ")}`);
   return Object.freeze(result);
-}
-
-function personRosterAtCut(
-  rootDir: string,
-  events: ReturnType<CanonicalEventStore["read"]>["events"],
-  streamRevision: number,
-  binding: RepoCellBinding,
-  evaluatedAt: string,
-): {
-  readonly roster: PeopleRosterDocumentV1;
-  readonly revision: number;
-  readonly occurredAt: string;
-  readonly actor: RepoCellBinding["actor"];
-  readonly source: RepoCellBinding["source"];
-} | null {
-  const peopleEvent = events.filter(isPeopleEvent).at(-1);
-  if (peopleEvent)
-    return {
-      roster: peopleEvent.payload.roster,
-      revision: peopleEvent.workspaceRevision,
-      occurredAt: peopleEvent.occurredAt,
-      actor: peopleEvent.actor,
-      source: peopleEvent.source,
-    };
-  const rosterPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "people.yaml");
-  if (!existsSync(rosterPath) || streamRevision < 1) return null;
-  try {
-    return {
-      roster: parsePeopleRosterDocument(readFileSync(rosterPath, "utf8")),
-      revision: streamRevision,
-      occurredAt: evaluatedAt,
-      actor: binding.actor,
-      source: binding.source,
-    };
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
 }
 
 function catalogExplanation(

@@ -30,19 +30,6 @@ export {
   type FleetEdgeView,
 } from "./fleet/edge.ts";
 export { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "./fleet/contract.ts";
-export { loadPeopleRoster, peopleRosterFromDocument } from "./identity/people-roster.ts";
-export {
-  makeTransportDerivedIdentityProvider,
-  type TransportDerivedIdentityProviderOptions,
-} from "./identity/transport-derived-provider.ts";
-export type {
-  AuthenticatedActor,
-  CredentialRef,
-  IdentityProvider,
-  PeopleRoster,
-  PersonProfile,
-  RolePolicy,
-} from "./identity/types.ts";
 export { createJsonRpcProtocolServer, type JsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
 export { jsonRpcMethodContracts } from "./protocol/daemon-protocol.contract.ts";
 export type {

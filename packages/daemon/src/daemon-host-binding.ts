@@ -1,5 +1,5 @@
 /** @daemon-transport-authority Transport-derived actor binding for local sessions and fleet nodes. */
-import { actionDeclarations, projectDeclaredRoleBindings } from "@harness-anything/kernel";
+import { actionDeclarations } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
 import { type RepoCellBinding } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
@@ -14,16 +14,6 @@ export function localSystemBinding(
   if (typeof ownerUid !== "number" && process.platform !== "win32")
     throw hostCodedError("credential_unavailable", "Local system binding requires a Unix socket owner boundary.");
   return defaultLocalBinding(ownerUid ?? 0, executor);
-}
-
-/** Internal Schedule writes run as the daemon, independently of the socket owner's roster. */
-export function localScheduleBinding(): RepoCellBinding {
-  const actor = { principal: { personId: "system:daemon-scheduler" }, executor: null };
-  return {
-    actor,
-    source: "local",
-    roleBindings: projectDeclaredRoleBindings({ actor, roleIds: ["repo-write"], target: "settings/repository" }),
-  };
 }
 
 /** Daemon socket-owner authority for actions whose declaration keeps all writes outside a repository cell. */
@@ -61,7 +51,7 @@ export function withDaemonWriterEpochFence(
 function defaultLocalBinding(ownerUid: number, executor: RepoCellBinding["actor"]["executor"]): RepoCellBinding {
   return {
     actor: { principal: { personId: `local-user-${ownerUid}` }, executor },
-    authorizationBindingMode: "default",
+    daemonSocketOwner: true,
     source: "local",
   };
 }
@@ -76,8 +66,6 @@ export function localDefaultBinding(
   return withSessionEnvironment(
     {
       actor: { principal: { personId: auth.oidcPrincipal.personId }, executor },
-      roleBindings: [],
-      authorizationBindingMode: "declared",
       source: "local",
     },
     auth,

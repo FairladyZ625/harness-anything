@@ -28,7 +28,7 @@ export {
   encodeAuthorizationResource,
 } from "./policy-groups.ts";
 export type { AuthorizationResource, PolicyGroup } from "./policy-groups.ts";
-export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
+export { durablePolicyActions } from "./action-declaration.ts";
 export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
 export { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle.contract.ts";
 export type { CompleteTaskCommand } from "./task-lifecycle.contract.ts";
@@ -123,8 +123,6 @@ export { compileEntityPinEvent } from "./entity-pin-event.ts";
 export { buildCausalGraphView } from "./causal-graph-view.ts";
 export type { CausalGraphEdgeInput, CausalGraphNodeInfo } from "./causal-graph-view.ts";
 
-export { projectDeclaredRoleBindings, roleBindingActorMatches, roleBindingExpired } from "./role-binding.ts";
-export type { RoleBinding } from "./role-binding.ts";
 export { verifyDelegatedExecutionToken } from "./delegated-execution-token.ts";
 export type { DelegatedExecutionToken, DelegatedExecutionTokenReasonCode } from "./delegated-execution-token.ts";
 
@@ -293,21 +291,7 @@ export type { VerticalDefinition } from "./vertical-definition.ts";
 export { settingsActionLocale, settingsUpdateInputFields } from "./settings-action-contract.ts";
 export { repositorySettingsActionValues } from "./settings-action-values.ts";
 export type { SettingsActionDraft } from "./settings-action-contract.ts";
-export {
-  applyPeopleRosterAction,
-  mergePeopleRosterDocuments,
-  parsePeopleRosterDocument,
-  PEOPLE_ROSTER_PATH,
-} from "./people-roster.ts";
-export type {
-  CredentialKind,
-  CredentialRef,
-  PeopleCommandClass,
-  PeopleRosterDocumentV1,
-  PersonProfile,
-  RolePolicy,
-} from "./people-roster.ts";
-export { compilePeopleRosterActionEvent, isPeopleEvent } from "./people-event.ts";
+
 export {
   evaluatePersonActionCapability,
   personActionCriterionRef,

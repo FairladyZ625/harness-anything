@@ -11,7 +11,7 @@ import type { EntityDocumentEventV1 } from "./entity-document-event.ts";
 import type { FactEventV1 } from "./fact-event.ts";
 import type { LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
 import type { MigrationDocumentClaim, MigrationImportEventV1 } from "./migration-import-event.ts";
-import type { PeopleEventV1 } from "./people-event.ts";
+import type { RetiredPeopleEventV1 } from "./people-event.ts";
 import type { PresetSnapshotUpgradeEventV1 } from "./preset-snapshot-upgrade-event.ts";
 import type { RelationEventV1 } from "./relation-event.ts";
 import type { ScheduleEventV1 } from "./schedule-event.ts";
@@ -65,7 +65,6 @@ export const docRouteRegistry = Object.freeze([
   { prefix: "events/", requiredRoute: "canonical-event" },
   { prefix: "objects/", requiredRoute: "content-blob" },
   { prefix: "harness.yaml", requiredRoute: "workspace-config" },
-  { prefix: "people.yaml", requiredRoute: "people-registry" },
 ] as const);
 
 export const docRegionPolicyRegistry = Object.freeze([
@@ -189,7 +188,6 @@ export type CanonicalEventV1 =
   | SettingsEventV1
   | VerticalDeclarationEventV1
   | ExecutionDelegationEventV1
-  | PeopleEventV1
   | EntityEventV1
   | TaskBootstrapEventV1
   | TaskProgressEventV1
@@ -204,7 +202,7 @@ export type CanonicalEventV1 =
   | CiRunObservationEventV3;
 
 /** Canonical events plus retired envelopes that remain readable in append-only history. */
-export type PersistedCanonicalEventV1 = CanonicalEventV1 | LegacyAgentEntityEventV1;
+export type PersistedCanonicalEventV1 = CanonicalEventV1 | LegacyAgentEntityEventV1 | RetiredPeopleEventV1;
 
 export interface DocumentState {
   readonly path: PortableDocumentPath;

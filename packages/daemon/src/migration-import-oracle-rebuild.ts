@@ -34,7 +34,6 @@ import {
   stableStringify,
   taskEntryToRow,
   eventShapeMigrations,
-  type CanonicalEventV1,
   type CanonicalWriteBundle,
   type MigrationImportEventV1,
   type PersistedCanonicalEventV1,
@@ -45,7 +44,7 @@ import { restateTaskContract } from "./migration-import-task-restatement.ts";
 import type { MigrationFormatObservation } from "./migration-import-types.ts";
 
 export interface MigrationEventInspection {
-  readonly events: readonly CanonicalEventV1[];
+  readonly events: readonly PersistedCanonicalEventV1[];
   readonly eventHeadRevision: number | null;
   readonly observations: readonly MigrationFormatObservation[];
   readonly syntheticBlobs: ReadonlyMap<string, Uint8Array>;
@@ -92,7 +91,7 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
     eventsRoot = path.join(layout.authoredRoot, "events"),
     observations: MigrationFormatObservation[] = [],
     syntheticBlobs = new Map<string, Uint8Array>(),
-    events: CanonicalEventV1[] = [],
+    events: PersistedCanonicalEventV1[] = [],
     normalizedRelationMigrationEntities = new Map<string, MigrationImportEventV1["payload"]["entity"]>(),
     ambiguousNormalizedRelations = new Set<string>(),
     normalizedRelationAliases = new Set<string>(),
@@ -109,7 +108,7 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
     }
     const legacyTask = containsSchema(raw, "task/v1"),
       legacyMigrationTaskWithoutProvenance = isLegacyMigrationTaskWithoutProvenance(raw);
-    let event: CanonicalEventV1;
+    let event: PersistedCanonicalEventV1;
     try {
       event = normalizePersistedCanonicalEvent(parseCanonicalEvent(`${stableStringify(raw)}\n`));
     } catch (error) {
@@ -209,8 +208,10 @@ function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspec
       ? (`sha256:${sha256Text(serializePersistedCanonicalEvent(inspection.events.at(-1)!))}` as const)
       : null;
   let projection: ReturnType<typeof makeTaskProjection> | undefined;
-  const upcastRelationShape = (event: CanonicalEventV1): CanonicalEventV1 =>
-    eventShapeMigrations["relation-events-migrate"].rewrite(event, projection!)?.event ?? event;
+  const upcastRelationShape = (event: PersistedCanonicalEventV1): PersistedCanonicalEventV1 =>
+    event.schema !== "relation-event/v1" && event.schema !== "migration-import-event/v1"
+      ? event
+      : (eventShapeMigrations["relation-events-migrate"].rewrite(event, projection!)?.event ?? event);
   try {
     const eventStore = {
       readHead: () => (sourceRevision === 0 || eventDigest === null ? null : { revision: sourceRevision, eventDigest }),
@@ -225,7 +226,7 @@ function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspec
           cursor: done ? null : String(next),
           done,
           accessedItems: batch.length,
-          prefetchContent: (requested: readonly CanonicalEventV1[]) => {
+          prefetchContent: (requested: readonly PersistedCanonicalEventV1[]) => {
             const hashes = new Set(requested.flatMap(contentHashes));
             return new Map([...hashes].map((hash) => [hash, readSourceBlob(hash)]));
           },
@@ -431,7 +432,10 @@ function emptyOracle(inspection: MigrationEventInspection): MigrationProjectionO
   };
 }
 
-function normalizeKnownLegacyEvent(raw: unknown, syntheticBlobs: Map<string, Uint8Array>): CanonicalEventV1 | null {
+function normalizeKnownLegacyEvent(
+  raw: unknown,
+  syntheticBlobs: Map<string, Uint8Array>,
+): PersistedCanonicalEventV1 | null {
   if (!isMigrationImportRecord(raw) || !isMigrationImportRecord(raw.payload)) return null;
   if (raw.schema === "fact-event/v1") {
     const payload = raw.payload;
@@ -517,11 +521,11 @@ function normalizeKnownLegacyEvent(raw: unknown, syntheticBlobs: Map<string, Uin
 
 function normalizeScheduleFacet(
   sourceRoot: string,
-  event: CanonicalEventV1,
+  event: PersistedCanonicalEventV1,
   sourcePath: string,
   observations: MigrationFormatObservation[],
   syntheticBlobs: Map<string, Uint8Array>,
-): CanonicalEventV1 {
+): PersistedCanonicalEventV1 {
   if (event.schema !== "schedule-event/v1" || !("declarationDocumentClaim" in event.payload)) return event;
   const claim = event.payload.declarationDocumentClaim,
     readBlob = sourceBlobReader(sourceRoot, syntheticBlobs),
@@ -546,7 +550,7 @@ function normalizeScheduleFacet(
         ...event.payload,
         declarationDocumentClaim: { ...claim, sha256, size: Buffer.byteLength(body) },
       },
-    } as CanonicalEventV1;
+    } as PersistedCanonicalEventV1;
   syntheticBlobs.set(sha256, Buffer.from(body));
   observations.push({
     code: "schedule_definition_facet_mismatch",
@@ -577,7 +581,7 @@ function sourceBlobReader(sourceRoot: string, synthetic: ReadonlyMap<string, Uin
   };
 }
 
-function contentHashes(event: CanonicalEventV1): readonly string[] {
+function contentHashes(event: PersistedCanonicalEventV1): readonly string[] {
   const values: string[] = [];
   const visit = (value: unknown): void => {
     if (Array.isArray(value)) return value.forEach(visit);
@@ -589,7 +593,7 @@ function contentHashes(event: CanonicalEventV1): readonly string[] {
   return [...new Set(values)];
 }
 
-function earliestTaskEvents(events: readonly CanonicalEventV1[]) {
+function earliestTaskEvents(events: readonly PersistedCanonicalEventV1[]) {
   const rows = new Map<
     string,
     { readonly eventId: string; readonly occurredAt: string; readonly workspaceRevision: number }
@@ -730,13 +734,8 @@ export function createMigrationPlanningWorkspace(sourceRoot: string): {
 function stageAuthored(bundle: CanonicalWriteBundle, authoredRoot: string): void {
   const blobs = new Map(bundle.blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)]));
   const entity = bundle.event.schema === "migration-import-event/v1" ? bundle.event.payload.entity : null,
-    claims =
-      entity && "documentClaim" in entity
-        ? [entity.documentClaim]
-        : bundle.event.schema === "people-event/v1"
-          ? [bundle.event.payload.peopleDocumentClaim]
-          : [];
-  if (!entity && bundle.event.schema !== "people-event/v1")
+    claims = entity && "documentClaim" in entity ? [entity.documentClaim] : [];
+  if (!entity)
     throw migrationImportError("invalid_store", `migration staging received unsupported ${bundle.event.schema}`);
   for (const claim of claims) {
     const body = blobs.get(claim.sha256);

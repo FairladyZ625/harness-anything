@@ -161,6 +161,7 @@ export async function performOpenRegistered(
       defaultWriterEpochFence: context.writerEpochFence(repo.repoId),
       ...(context.input.now ? { now: context.input.now } : {}),
       runtimeDaemonRoute: context.runtimeDaemonRoute,
+      keycloakCenter: context.keycloakCenter,
       authoredBranch: repo.authoredBranch,
       ...(context.input.shutdownRequested ? { shouldStop: context.input.shutdownRequested } : {}),
       ...(context.input.recordLifecycle ? { recordLifecycle: context.input.recordLifecycle } : {}),
@@ -194,10 +195,6 @@ export async function performOpenRegistered(
     const cell = opened;
     opened = undefined;
     context.cells.set(repo.repoId, cell);
-    // A local or remote-center attach owns the canonical cell, so the system schedules seed
-    // here; fleet mirrors (remote-edge) never seed. A seed rejection must not fail the attach
-    // itself — the next attach retries.
-    if (repo.mode !== "remote-edge") await context.seedBuiltinSchedules(cell, repo);
     await context.scheduleScheduler.refresh();
     context.settleWarming(repo.repoId);
     context.unavailable.delete(repo.repoId);

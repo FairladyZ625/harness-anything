@@ -1,6 +1,4 @@
 import { isDecisionEvent, isMigrationImportEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
-import { isPeopleEvent } from "../domain/people-event.ts";
-import { serializePeopleRosterDocument } from "../domain/people-roster.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { writeRepositorySettingsFacet } from "../domain/settings.ts";
 import { localGitWorktreeSettlement } from "./local-version-control-system.ts";
@@ -29,7 +27,6 @@ export function assertAuthorizedReplacements(
   const requiresAuthorization = (event: CanonicalEventV1) =>
     isDecisionEvent(event) ||
     isSettingsEvent(event) ||
-    isPeopleEvent(event) ||
     canonicalDocumentRetirements(event).length > 0 ||
     (isMigrationImportEvent(event) &&
       event.payload.entity.kind === "repo-document" &&
@@ -108,15 +105,6 @@ function authorize(
         "invalid_write_plan",
         "Settings may change only their owned harness.yaml facet fields",
       );
-    return;
-  }
-  if (isPeopleEvent(event)) {
-    const base = current(event.payload.peopleDocumentClaim.path),
-      candidate = blobs.find((blob) => blob.sha256 === event.payload.peopleDocumentClaim.sha256)?.body;
-    if ((base?.sha256 ?? null) !== event.payload.baseDocumentSha256)
-      throw new TaskEventStoreError("revision_conflict", "people.yaml changed before the People write committed");
-    if (typeof candidate !== "string" || candidate !== serializePeopleRosterDocument(event.payload.roster))
-      throw new TaskEventStoreError("invalid_write_plan", "People may replace only the canonical people roster");
     return;
   }
   for (const retirement of canonicalDocumentRetirements(event)) {

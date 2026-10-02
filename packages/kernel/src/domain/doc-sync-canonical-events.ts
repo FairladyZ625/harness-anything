@@ -27,7 +27,7 @@ import { validateCurrentTaskProgressEvent, validateTaskProgressEvent } from "./t
 import { validateCurrentScheduleEvent, validateScheduleEvent } from "./schedule-event.ts";
 import { validateCurrentSettingsEvent, validateSettingsEvent } from "./settings-event.ts";
 import { validateCurrentVerticalDeclarationEvent, validateVerticalDeclarationEvent } from "./vertical-declaration.ts";
-import { validateCurrentPeopleEvent, validatePeopleEvent } from "./people-event.ts";
+import { validateRetiredPeopleEvent } from "./people-event.ts";
 import { validateCurrentRelationEvent, validateRelationEvent } from "./relation-event.ts";
 import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
 import { normalizePersistedTimestamp } from "./timestamp.ts";
@@ -86,8 +86,7 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
   },
   {
     schema: "people-event/v1",
-    validate: validatePeopleEvent,
-    validateCurrent: validateCurrentPeopleEvent,
+    validate: validateRetiredPeopleEvent,
   },
   {
     schema: "task-bootstrap-event/v1",
@@ -168,7 +167,7 @@ export function serializePersistedCanonicalEvent(event: PersistedCanonicalEventV
   return serializeCanonicalEventUnchecked(event);
 }
 
-export function parseCanonicalEvent(body: string): CanonicalEventV1 {
+export function parseCanonicalEvent(body: string): PersistedCanonicalEventV1 {
   let value: unknown;
   try {
     value = JSON.parse(body);
@@ -182,7 +181,7 @@ export function parseCanonicalEvent(body: string): CanonicalEventV1 {
   if (errors.length) throw new Error(errors.join("; "));
   if (serializeCanonicalEventUnchecked(value as unknown as CanonicalEventV1) !== body)
     throw new Error("canonical event bytes are not canonical");
-  return value as unknown as CanonicalEventV1;
+  return value as unknown as PersistedCanonicalEventV1;
 }
 
 export function normalizePersistedCanonicalEvent<Event extends PersistedCanonicalEventV1>(event: Event): Event {
@@ -219,10 +218,10 @@ export function serializeCanonicalEventUnchecked(event: PersistedCanonicalEventV
   return `${JSON.stringify(canonicalizeWriteValue(event))}\n`;
 }
 
-export function isTaskEvent(event: CanonicalEventV1): event is TaskEventV1 {
+export function isTaskEvent(event: { readonly schema: string }): event is TaskEventV1 {
   return event.schema === "task-event/v1";
 }
 
-export function isDocEvent(event: CanonicalEventV1): event is DocEventV1 {
+export function isDocEvent(event: { readonly schema: string }): event is DocEventV1 {
   return event.schema === "doc-event/v1";
 }

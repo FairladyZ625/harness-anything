@@ -28,6 +28,7 @@ import {
 } from "./protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "./protocol/gui-result-validation.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
+import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { openRepoCell, type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
@@ -85,7 +86,7 @@ export function createDaemonHostRepositoryApi(
               ...(registeredPersonId ? { personId: registeredPersonId } : {}),
             }
           : request,
-        auth,
+        await context.oidc.bind(auth),
       );
       await context.waitForWarming(prepared.repoId);
       if (context.warming.has(prepared.repoId))
@@ -102,6 +103,7 @@ export function createDaemonHostRepositoryApi(
           ownerId: context.input.daemonId,
           defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
           runtimeDaemonRoute: context.runtimeDaemonRoute,
+          keycloakCenter: context.keycloakCenter,
           bootstrap: prepared,
           onBootstrap: (receipt) => {
             published = receipt;
@@ -154,6 +156,11 @@ export function createDaemonHostRepositoryApi(
           registryChanged: registered.changed,
           ...reportedReceipt,
         };
+      if (!request.configureOnly)
+        await seedBuiltinSchedules({
+          cell,
+          binding: await context.binding(prepared.rootDir, auth, null, prepared.repoId),
+        });
       const steps = ["publication-readback"];
       try {
         const layout = resolveHarnessLayout(prepared.rootDir),

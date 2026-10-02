@@ -1044,11 +1044,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               idempotencyKey: `${fallback.rootIdempotencyKey}:fallback:${String(nextAttemptIndex)}`,
             },
             continuationBinding =
-              input.authorizeRuntimeContinuation?.(
+              (await input.authorizeRuntimeContinuation?.(
                 continuationPayload,
                 binding,
                 `runtime-continuation:${header.dispatchId}:${nextAttemptIndex}`,
-              ) ?? binding;
+              )) ?? binding;
           const receipt = await spawnAttempt(
             continuationPayload,
             continuationBinding,

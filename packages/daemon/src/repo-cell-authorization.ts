@@ -6,9 +6,7 @@ import {
   parseEntityRef,
   taskIsDescendantOf,
   stableStringify,
-  DEFAULT_POLICY,
   verifyDelegatedExecutionToken,
-  type ActorIdentity,
   type AuthorizationDecision,
   type AuthorizationResource,
   type DelegatedExecutionToken,
@@ -122,48 +120,10 @@ export function authorizeRepoCellAction(input: {
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     }),
     decision = input.binding.authorizationDecision;
-  if (keycloakAllowsAction(decision, input.action.kind, envelope.actor)) return decision;
-  if (input.binding.keycloakAuthorization)
-    return keycloakDecision(envelope, `canonical:${input.revision}`, "denied", "keycloak_denied");
-  return legacyBindingDecision(envelope, input.binding, target, input.now, `canonical:${input.revision}`);
-}
-
-/** An admitted decision speaks for the person it was evaluated for and for no one else. */
-function keycloakAllowsAction(
-  decision: AuthorizationDecision | undefined,
-  action: string,
-  actor: ActorIdentity,
-): decision is AuthorizationDecision {
-  return (
-    decision?.policyRef === "keycloak-policy@1" &&
-    decision.outcome === "allowed" &&
-    decision.actor.principal.personId === actor.principal.personId &&
-    decision.bindingsUsed.some((binding) => binding.scope === action)
-  );
-}
-
-function legacyBindingDecision(
-  action: ReturnType<typeof composeDurableActionEnvelope>,
-  binding: RepoCellBinding,
-  target: EntityRef,
-  now: string,
-  evaluatedAtCut: string,
-): AuthorizationDecision {
-  const decision = authorizeAction(
-    { ...action, authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}` },
-    {
-      roleBindings: binding.roleBindings,
-      roleBindingTargets: [target, repositoryTarget],
-      evaluatedAt: now,
-      delegatedExecutionToken: binding.delegatedExecutionToken,
-      writeSource: binding.source,
-      target: {},
-      evaluatedAtCut,
-    },
-  );
-  return !binding.roleBindings?.length && !binding.delegatedExecutionToken
-    ? { ...decision, reasonCodes: ["authentication_required"] }
-    : decision;
+  return authorizeAction(envelope, {
+    decision,
+    evaluatedAtCut: `canonical:${input.revision}`,
+  });
 }
 
 export function keycloakDecision(
@@ -477,9 +437,6 @@ export function bindVerifiedExecutorClaim(input: {
       Object.keys(raw).some((field) => field !== "kind" && field !== "id")
     )
       throw invalidExecutorBindingFor(input, raw, "Executor claims must use a valid agent id.");
-    // Host-derived bindings always declare how authorization was projected. A binding without
-    // that marker is the legacy direct RepoCell API, where action.executor was never authoritative.
-    if (input.binding.authorizationBindingMode === undefined) return { action, binding: input.binding };
     const claimedActor = {
         principal: input.binding.actor.principal,
         executor: { kind: "agent" as const, id: raw.id },

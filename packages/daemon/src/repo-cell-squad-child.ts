@@ -13,7 +13,7 @@ import { publishDocIntent } from "./doc-sync-publication.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 
 /** Called only inside the repository's serial queue, under its current parent execution lease. */
-export function createSquadChild(
+export async function createSquadChild(
   cell: RepoCellActionContext,
   child: {
     readonly parentTaskId: string;
@@ -23,8 +23,8 @@ export function createSquadChild(
     readonly ownedPaths: readonly string[];
   },
   binding: RepoCellBinding,
-  authorize: (action: RepoTaskAction, binding: RepoCellBinding, actionId: string) => RepoCellBinding,
-): string {
+  authorize: (action: RepoTaskAction, binding: RepoCellBinding, actionId: string) => Promise<RepoCellBinding>,
+): Promise<string> {
   const action = {
       kind: "task-create",
       title: `Squad assignment for ${child.workerId}`,
@@ -32,14 +32,14 @@ export function createSquadChild(
       idempotencyKey: child.key,
       surfaces: child.ownedPaths,
     },
-    receipt = cell.createTask(action, authorize(action, binding, `${child.key}:create`)),
+    receipt = cell.createTask(action, await authorize(action, binding, `${child.key}:create`)),
     taskId = (receipt as typeof receipt & { readonly taskId?: string }).taskId;
   // A retried assignment reuses its child task through the idempotency key and writes nothing.
   if ((receipt.outcome !== "applied" && receipt.outcome !== "no_changes") || !taskId)
     throw cell.cellCodedError(receipt.code ?? "squad_child_create_failed", JSON.stringify(receipt));
   const plan = readTaskTransitionDocument({ projection: cell.projection, taskId, slot: "task.plan" });
   if (plan.body !== child.prompt)
-    publishSquadChildDocument(
+    await publishSquadChildDocument(
       cell,
       {
         parentTaskId: child.parentTaskId,
@@ -53,7 +53,7 @@ export function createSquadChild(
   return taskId;
 }
 
-export function publishSquadChildDocument(
+export async function publishSquadChildDocument(
   cell: RepoCellActionContext,
   document: {
     readonly parentTaskId: string;
@@ -62,8 +62,8 @@ export function publishSquadChildDocument(
     readonly body: string;
   },
   binding: RepoCellBinding,
-  authorize: (action: RepoTaskAction, binding: RepoCellBinding, actionId: string) => RepoCellBinding,
-): void {
+  authorize: (action: RepoTaskAction, binding: RepoCellBinding, actionId: string) => Promise<RepoCellBinding>,
+): Promise<void> {
   const projected = cell.projection.readDocument(document.path).document;
   if (projected?.body === document.body) return;
   const lease =
@@ -101,7 +101,7 @@ export function publishSquadChildDocument(
         projection: cell.projection,
         now: cell.now,
         action,
-        binding: authorize(action, binding, `squad-document:${document.path}:${sha256}`),
+        binding: await authorize(action, binding, `squad-document:${document.path}:${sha256}`),
       },
       intent,
       [Buffer.from(document.body)],

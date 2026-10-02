@@ -12,7 +12,6 @@ import {
   type EntityActionExplanationSetV1,
   type EntityActionExplanationV1,
   type EntityRef,
-  type PeopleRosterDocumentV1,
 } from "@harness-anything/kernel";
 
 export interface PersonActionExplanationServiceDependencies {
@@ -44,13 +43,10 @@ export function makePersonActionExplanationService(dependencies: PersonActionExp
       }),
     object: (input: {
       readonly entity: BaseEntity<"person">;
-      readonly roster: PeopleRosterDocumentV1;
       readonly evaluatedAtCut: string;
       readonly evaluatedAt: string;
     }): EntityActionExplanationSetV1 => {
-      const target = input.entity.ref as EntityRef,
-        person = input.roster.people.find(({ personId }) => personId === input.entity.id);
-      if (!person) throw new Error("Person Action explanation requires its Person in the same-cut People roster.");
+      const target = input.entity.ref as EntityRef;
       return personChecked({
         schema: ENTITY_ACTION_EXPLANATION_SCHEMA.id,
         mode: "object",
@@ -108,7 +104,6 @@ function personObjectRow(
   action: EntityActionContract,
   input: {
     readonly entity: BaseEntity<"person">;
-    readonly roster: PeopleRosterDocumentV1;
     readonly evaluatedAtCut: string;
     readonly evaluatedAt: string;
   },

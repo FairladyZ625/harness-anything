@@ -5,7 +5,7 @@ import {
   serializePersistedCanonicalEvent,
 } from "../domain/doc-sync-canonical-events.ts";
 import { validateCurrentCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
-import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
+import type { CanonicalEventV1, PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localEvidenceFileSystem, localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
@@ -512,7 +512,7 @@ function arraySnapshotStore(
       cursor: null,
       done: true,
       accessedItems: events.length,
-      prefetchContent: (replay: readonly CanonicalEventV1[]) =>
+      prefetchContent: (replay: readonly PersistedCanonicalEventV1[]) =>
         new Map(
           replay.flatMap((event) =>
             contentClaims(event).map((claim) => [claim.sha256, readContent(claim.sha256)!] as const),

@@ -7,7 +7,7 @@ import {
   serializePersistedCanonicalEvent,
   validateCurrentCanonicalEvent,
 } from "../domain/doc-sync-canonical-events.ts";
-import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
+import type { CanonicalEventV1, PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import type { MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem as files } from "../local/local-layout-file-system.ts";
@@ -462,7 +462,7 @@ function verify(
             cursor: done ? null : String(end),
             done,
             accessedItems: batch.length,
-            prefetchContent: (selected: readonly CanonicalEventV1[]) =>
+            prefetchContent: (selected: readonly PersistedCanonicalEventV1[]) =>
               new Map(
                 selected.flatMap((event) =>
                   contentClaims(event).map(

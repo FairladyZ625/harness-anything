@@ -64,8 +64,7 @@ import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
-import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
-import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
+import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
@@ -107,6 +106,7 @@ export interface RepoCellOpenInput {
   readonly authoredBranch?: string;
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
+  readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch?: (
     instanceId: string,
@@ -417,28 +417,24 @@ export async function openRepoWriterCell(
   let handoffTaskLease: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["handoffTaskLease"]> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell task lease handoff is not ready.");
   };
-  const authorizeRuntimeAction = (
+  const onlineBinding = async (binding: RepoCellBinding): Promise<RepoCellBinding> => ({
+    ...binding,
+    ...(binding.keycloakAuthorization
+      ? {}
+      : input.keycloakCenter
+        ? { keycloakAuthorization: { center: await input.keycloakCenter() } }
+        : {}),
+  });
+  const authorizeRuntimeAction = async (
     action: RepoTaskAction,
     binding: RuntimeAttemptTerminal["binding"],
     actionId: string,
-  ): RuntimeAttemptTerminal["binding"] => {
+  ): Promise<RepoCellBinding> => {
     const { authorizationDecision: _previousDecision, ...unframed } = binding,
-      currentBinding =
-        binding.source !== "local" || binding.authorizationBindingMode !== "declared"
-          ? unframed
-          : (() => {
-              const {
-                  roleBindings: _previousRoleBindings,
-                  authorizationBindingMode: _previousBindingMode,
-                  ...local
-                } = unframed,
-                roleBindings = declaredRoleBindingsForActor(rootDir, binding.actor);
-              return roleBindings === undefined
-                ? { ...local, authorizationBindingMode: "default" as const }
-                : { ...local, authorizationBindingMode: "declared" as const, roleBindings };
-            })(),
+      currentBinding = await onlineBinding(unframed),
       revision = store.readHead()?.revision ?? 0,
-      authorizationDecision = authorizeRepoCellAction({
+      authorizationDecision = await evaluateRepoCellAction({
+        repoId: input.repoId,
         action,
         binding: currentBinding,
         actionId,
@@ -487,8 +483,8 @@ export async function openRepoWriterCell(
       input.onAttemptTerminal?.(terminal);
     },
     handoffTaskLease: (handoff) => handoffTaskLease(handoff),
-    authorizeRuntimeContinuation: (payload, binding, actionId) =>
-      authorizeRuntimeAction({ ...payload, kind: "runtime-spawn" }, binding, actionId),
+    authorizeRuntimeContinuation: async (payload, binding, actionId) =>
+      await authorizeRuntimeAction({ ...payload, kind: "runtime-spawn" }, binding, actionId),
     commitRuntimeEvent: async (draft, binding) => {
       const action = { kind: "event" as const, ...draft },
         receipt = runtimeSessionActionIds.includes(draft.type as never)
@@ -502,8 +498,8 @@ export async function openRepoWriterCell(
         receipt: runtimeReceipt,
       };
     },
-    authorizeRuntimeEvent: ({ type, payload, opId, binding }) =>
-      authorizeRuntimeAction(
+    authorizeRuntimeEvent: async ({ type, payload, opId, binding }) =>
+      await authorizeRuntimeAction(
         {
           kind: "runtime-run",
           runtimeEventType: type,
@@ -514,8 +510,8 @@ export async function openRepoWriterCell(
         binding,
         `runtime-event:${opId}`,
       ),
-    authorizeRuntimeArchive: (archive, binding) =>
-      authorizeRuntimeAction(
+    authorizeRuntimeArchive: async (archive, binding) =>
+      await authorizeRuntimeAction(
         {
           kind: "runtime-run",
           taskId: archive.taskId,
@@ -542,7 +538,7 @@ export async function openRepoWriterCell(
       const action = { kind: "task-release", taskId, reason: "Squad workers hold independent child leases." },
         receipt = await extracted.taskSurfaceWrite(
           action,
-          authorizeRuntimeAction(action, binding, `squad-release:${taskId}:${lease.version}`),
+          await authorizeRuntimeAction(action, binding, `squad-release:${taskId}:${lease.version}`),
         );
       if (receipt.outcome !== "applied")
         throw cellCodedError(receipt.code ?? "lease_conflict", `Squad could not release ${taskId}.`);
@@ -550,7 +546,7 @@ export async function openRepoWriterCell(
     recordOwnershipCheck: async (child, binding) => {
       const packagePath = projection.read(child.taskId).packagePath;
       if (!packagePath) throw cellCodedError("task_not_found", child.taskId);
-      publishSquadChildDocument(
+      await publishSquadChildDocument(
         extracted,
         {
           parentTaskId: child.parentTaskId,
@@ -567,13 +563,14 @@ export async function openRepoWriterCell(
         taskId,
         binding,
         snapshot: projection.read(taskId).snapshot as Snapshot,
-        start: (executionId) => {
+        start: async (executionId) => {
           extracted.assertTaskWipCapacity(taskId, "active");
           const action = { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
             revision = store.readHead()?.revision ?? 0,
-            authorizationDecision = authorizeRepoCellAction({
+            authorizationDecision = await evaluateRepoCellAction({
+              repoId: input.repoId,
               action,
-              binding,
+              binding: await onlineBinding(binding),
               actionId: `squad-task-start:${taskId}:${revision}`,
               revision,
               now: now(),
@@ -589,7 +586,11 @@ export async function openRepoWriterCell(
     },
     publishSynthesisReport: async (report, binding) => {
       const action = { kind: "task-artifact-add", taskId: report.taskId },
-        authorizedBinding = authorizeRuntimeAction(action, binding, `squad-synthesis-report:${report.squadRunId}`),
+        authorizedBinding = await authorizeRuntimeAction(
+          action,
+          binding,
+          `squad-synthesis-report:${report.squadRunId}`,
+        ),
         receipt = publishTaskArtifact(
           {
             binding: authorizedBinding,
@@ -613,12 +614,13 @@ export async function openRepoWriterCell(
         );
     },
     runtimeSpawner: () => ({
-      spawn: (payload, binding) => {
+      spawn: async (payload, binding) => {
         const action = { kind: "runtime-spawn", ...payload },
           revision = store.readHead()?.revision ?? 0,
-          authorizationDecision = authorizeRepoCellAction({
+          authorizationDecision = await evaluateRepoCellAction({
+            repoId: input.repoId,
             action,
-            binding,
+            binding: await onlineBinding(binding),
             actionId: `squad-runtime-spawn:${String(payload.idempotencyKey ?? "current")}:${revision}`,
             revision,
             now: now(),
@@ -632,12 +634,13 @@ export async function openRepoWriterCell(
           );
         return runtimeSpawner.spawnCoordinated(payload, { ...binding, authorizationDecision });
       },
-      cancel: (payload, binding) => {
+      cancel: async (payload, binding) => {
         const action = { kind: "runtime-cancel", ...payload },
           revision = store.readHead()?.revision ?? 0,
-          authorizationDecision = authorizeRepoCellAction({
+          authorizationDecision = await evaluateRepoCellAction({
+            repoId: input.repoId,
             action,
-            binding,
+            binding: await onlineBinding(binding),
             actionId: `squad-runtime-cancel:${String(payload.runtimeSessionId ?? "current")}:${revision}`,
             revision,
             now: now(),
@@ -821,7 +824,7 @@ export async function openRepoWriterCell(
           taskId,
           reason: `Runtime dispatch hands execution ${lease.executionId} to ${runtimeSessionId}.`,
         },
-        releaseBinding = authorizeRuntimeAction(
+        releaseBinding = await authorizeRuntimeAction(
           releaseAction,
           lease.phase === "orphaned" ? binding : { ...binding, actor: lease.actor },
           `runtime-task-handoff-release:${taskId}:${runtimeSessionId}:${String(lease.version)}`,
@@ -838,7 +841,7 @@ export async function openRepoWriterCell(
     }
     operationalContext.assertTaskWipCapacity(taskId, "active");
     const startAction = { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
-      startBinding = authorizeRuntimeAction(
+      startBinding = await authorizeRuntimeAction(
         startAction,
         runtimeBinding,
         `runtime-task-handoff-start:${taskId}:${runtimeSessionId}`,
@@ -874,7 +877,7 @@ export async function openRepoWriterCell(
         ...(detail ? { detail } : {}),
         idempotencyKey: `${terminal.runtimeSessionId}:attempt-terminal`,
       },
-      binding = authorizeRuntimeAction(
+      binding = await authorizeRuntimeAction(
         { kind: "schedule-settle", ...settlement },
         terminal.binding,
         `runtime-schedule-settle:${terminal.runtimeSessionId}`,
@@ -915,7 +918,7 @@ export async function openRepoWriterCell(
         terminalRuntimeSessionId: runtimeSessionId,
         reason: `Runtime session ${runtimeSessionId} reached a terminal dispatch state.`,
       },
-      binding = authorizeRuntimeAction(action, terminalBinding, `runtime-task-release:${runtimeSessionId}`),
+      binding = await authorizeRuntimeAction(action, terminalBinding, `runtime-task-release:${runtimeSessionId}`),
       settled = taskSurfaceWriteAt(extracted, action, binding, occurredAt);
     if (settled.outcome !== "applied")
       throw cellCodedError("runtime_lease_release_failed", `Runtime terminal lease settlement was ${settled.outcome}.`);
@@ -940,8 +943,8 @@ export async function openRepoWriterCell(
           rootDir,
           projection,
           readTask: (taskId) => projection.read(taskId).snapshot.task,
-          cancel: (action, binding, actionId) =>
-            operationalContext.lifecycleAction(action, authorizeRuntimeAction(action, binding, actionId)),
+          cancel: async (action, binding, actionId) =>
+            operationalContext.lifecycleAction(action, await authorizeRuntimeAction(action, binding, actionId)),
         }),
     }),
   );

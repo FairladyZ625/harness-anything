@@ -2,6 +2,7 @@
 import path from "node:path";
 import {
   consumeKnownError,
+  validateScheduleV1,
   readDaemonRegistry,
   registerDaemonRepo,
   type DaemonRepoMode,
@@ -20,12 +21,7 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import {
-  binding as deriveBinding,
-  localSystemBinding,
-  localScheduleBinding,
-  withDaemonWriterEpochFence,
-} from "./daemon-host-binding.ts";
+import { binding as deriveBinding, localSystemBinding, withDaemonWriterEpochFence } from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -80,7 +76,6 @@ import { causeClassOf, latchReprobeThrottleMs, openRepoCell, type RepoCell, type
 import { type RepoModeAdmission } from "./repo-mode.ts";
 import type { RuntimeLauncher } from "./runtime-spawn.ts";
 import { makeScheduleScheduler } from "./schedule-scheduler.ts";
-import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import type { DaemonAuthenticationContext, KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-host-context.ts";
 import { openRemoteProxyManager } from "./remote-proxy.ts";
@@ -253,9 +248,21 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     scheduleScheduler = makeScheduleScheduler({
       cells,
       now,
-      localBinding: (repoId, rootDir, required) => {
-        const base = localScheduleBinding();
-        return required === "repo-read" ? base : daemonWriterBinding(repoId, base);
+      localBinding: async (repoId, rootDir, action) => {
+        const system = localSystemBinding(rootDir);
+        if (action.kind === "schedule-list") return system;
+        const cell = cells.get(repoId);
+        if (!cell) throw hostCodedError("repo_unavailable", `Schedule repository ${repoId} is unavailable.`);
+        const receipt = await cell.run({ kind: "schedule-show", scheduleId: action.scheduleId }, system),
+          schedule = (receipt as unknown as { readonly schedule?: import("@harness-anything/kernel").ScheduleV1 })
+            .schedule;
+        if (!schedule || validateScheduleV1(schedule).length)
+          throw hostCodedError("invalid_schedule", "Schedule execution requires its canonical creator identity.");
+        return daemonWriterBinding(repoId, {
+          actor: { principal: schedule.createdBy.principal, executor: null },
+          source: "local",
+          keycloakAuthorization: { center: await keycloakCenter() },
+        });
       },
       remoteEdgeAction: async (repoId, rootDir, action) => {
         const config = readFleetEdgeConfig(rootDir);
@@ -274,11 +281,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         return edgeRuntimeFor(request).run(request.method, action);
       },
     });
-  // The system builtin schedules are seeded on canonical attach with the same writer binding the
-  // scheduler fires occurrences through, so seeding and firing share one authority.
-  const seedBuiltinSchedulesOnAttach = async (repoId: string, rootDir: string, cell: RepoCell): Promise<void> => {
-    await seedBuiltinSchedules({ cell, binding: daemonWriterBinding(repoId, localScheduleBinding()) });
-  };
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
   // Fleet roster snapshot retained when the center is admitted (daemon-fleet-center-start).
@@ -377,9 +379,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     writerEpochFence,
     runtimePorts,
     runtimeDaemonRoute,
+    keycloakCenter,
     scheduleScheduler,
     edgeRuntimeFor,
-    seedBuiltinSchedules: (cell, repo) => seedBuiltinSchedulesOnAttach(repo.repoId, repo.canonicalRoot, cell),
     invalidRepoId,
     closeCell,
     unavailableProbes,
