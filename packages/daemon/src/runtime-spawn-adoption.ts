@@ -143,7 +143,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
             signal: active.lossSignal,
           });
         await consumeDurableOutput(context, active);
-        await context.publishExit(active, active.lossExitCode);
+        await context.publishExit(active, active.lossExitCode, session.liveness === "exited");
         continue;
       }
       if (fullStream) attachActiveRuntime(context, active);

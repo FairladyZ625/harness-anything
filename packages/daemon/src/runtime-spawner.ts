@@ -917,8 +917,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   function markProtocolError(active: ActiveRuntime): void {
     return markProtocolErrorImpl(extracted, active);
   }
-  async function publishExit(active: ActiveRuntime, code: number | null): Promise<void> {
-    return publishExitImpl(extracted, active, code);
+  async function publishExit(active: ActiveRuntime, code: number | null, resumePublishedExit = false): Promise<void> {
+    return publishExitImpl(extracted, active, code, resumePublishedExit);
   }
   function runtimeResultText(
     active: ActiveRuntime,
