@@ -37,6 +37,7 @@ import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 
 /** 单文件读写上限:按「一篇文档」设定,超限给页内错误而非卡死渲染或吞掉超大写入。 */
 export const LOCAL_DOC_MAX_BYTES = 2 * 1024 * 1024;
+export const LOCAL_DOC_PREVIEW_MAX_BYTES = 16 * 1024 * 1024;
 
 /** 二进制嗅探窗口:UTF-8 解码后前 4 KiB 内替换字符占比超过该阈值判定为二进制。 */
 const BINARY_SNIFF_WINDOW = 4096;
@@ -152,7 +153,6 @@ export async function readLocalDocument(
   rawPath: string,
   services: LocalDocServices = { homeDir: homedir },
 ): Promise<LocalDocReadResult> {
-  const maxBytes = services.maxBytes ?? LOCAL_DOC_MAX_BYTES;
   const expanded = expandHomePath(rawPath, services.homeDir());
   if (!path.isAbsolute(expanded))
     return {
@@ -169,6 +169,8 @@ export async function readLocalDocument(
     return fsFailure(classifyLocalDocFsError(cause), expanded, cause);
   }
 
+  const mediaType = mediaTypeForPath(realPath);
+  const maxBytes = services.maxBytes ?? (mediaType === null ? LOCAL_DOC_MAX_BYTES : LOCAL_DOC_PREVIEW_MAX_BYTES);
   let size: number, isFile: boolean;
   try {
     const info = await stat(realPath);
@@ -199,7 +201,6 @@ export async function readLocalDocument(
     return fsFailure(classifyLocalDocFsError(cause), realPath, cause);
   }
   const content = bytes.toString("utf8");
-  const mediaType = mediaTypeForPath(realPath);
   if (looksBinary(content) && mediaType === null)
     return {
       ok: false,
@@ -228,7 +229,7 @@ export async function extractLegacyWordText(payload: unknown): Promise<string> {
     Object.keys(record).length !== 1 ||
     typeof record.bytes !== "string" ||
     record.bytes.length === 0 ||
-    record.bytes.length > Math.ceil((16 * 1024 * 1024) / 3) * 4 ||
+    record.bytes.length > Math.ceil(LOCAL_DOC_PREVIEW_MAX_BYTES / 3) * 4 ||
     record.bytes.length % 4 !== 0 ||
     !/^[A-Za-z0-9+/]+={0,2}$/u.test(record.bytes)
   )

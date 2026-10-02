@@ -195,7 +195,7 @@
   "components.localDoc.errorNotARegularFile": "不是常规文件(目录或特殊文件):{path}",
   "components.localDoc.errorNotReadable": "没有读取权限或读取失败:{path}",
   "components.localDoc.errorBinaryFile": "文件不是文本,无法在 GUI 内阅读:{path}",
-  "components.localDoc.errorTooLarge": "文件超过 GUI 内阅读上限(2 MiB):{path}",
+  "components.localDoc.errorTooLarge": "文件超过预览上限（文本 2 MiB；图片、PDF、Word 16 MiB）：{path}",
   "components.localDoc.errorRequestRejected": "请求被拒绝:{message}",
   "components.localDoc.errorBridgeUnavailable": "本机文档读取通道不可用(需要 Electron 壳)。",
   "components.primitives.expand": "展开",

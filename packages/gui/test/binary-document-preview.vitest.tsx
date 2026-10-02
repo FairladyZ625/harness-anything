@@ -4,7 +4,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { BinaryDocumentPreview } from "../src/renderer/components/BinaryDocumentPreview.tsx";
-const loaders = vi.hoisted(() => ({ pdf: vi.fn(), docx: vi.fn() }));
+import { BinaryArtifactPanel } from "../src/renderer/components/BinaryArtifactPanel.tsx";
+const loaders = vi.hoisted(() => ({ pdf: vi.fn(), docx: vi.fn(), open: vi.fn() }));
+vi.mock("../src/renderer/artifact-open-client.ts", () => ({ openArtifactExternally: loaders.open }));
 vi.mock("pdfjs-dist", () => ({ getDocument: loaders.pdf, GlobalWorkerOptions: {} }));
 vi.mock("docx-preview", () => ({ renderAsync: loaders.docx }));
 let host: HTMLDivElement;
@@ -14,6 +16,7 @@ beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   loaders.pdf.mockReset();
   loaders.docx.mockReset();
+  loaders.open.mockReset();
   vi.spyOn(console, "error").mockImplementation(() => {});
   host = document.createElement("div");
   document.body.append(host);
@@ -77,4 +80,40 @@ it("does not let an older DOCX render replace the current document", async () =>
   await act(async () => finishOld());
   expect(host.textContent).toContain("Current document");
   expect(host.textContent).not.toContain("Obsolete document");
+});
+
+it("keeps the original-file action reachable when an inline PDF cannot be parsed", async () => {
+  loaders.pdf.mockImplementationOnce(() => ({
+    promise: Promise.reject(new Error("Invalid PDF")),
+    destroy: vi.fn(async () => {}),
+  }));
+  loaders.open.mockResolvedValue({ error: null });
+  await act(async () =>
+    root.render(
+      <BinaryArtifactPanel
+        repoId="remote-repo"
+        taskId="task-one"
+        path="artifacts/broken.pdf"
+        packagePath="tasks/task-one"
+        read={
+          {
+            bytes: "YQ==",
+            mediaType: "application/pdf",
+            size: 1,
+            blobSha256: null,
+            repositoryPath: "tasks/task-one/artifacts/broken.pdf",
+          } as never
+        }
+      />,
+    ),
+  );
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("Invalid PDF");
+  const open = host.querySelector<HTMLButtonElement>('[data-testid="task-document-binary-open"]')!;
+  expect(open.disabled).toBe(false);
+  await act(async () => open.click());
+  expect(loaders.open).toHaveBeenCalledWith({
+    repoId: "remote-repo",
+    taskId: "task-one",
+    path: "tasks/task-one/artifacts/broken.pdf",
+  });
 });

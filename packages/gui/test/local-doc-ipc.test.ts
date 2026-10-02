@@ -14,6 +14,7 @@ import {
   extractLegacyWordText,
   expandHomePath,
   LOCAL_DOC_MAX_BYTES,
+  LOCAL_DOC_PREVIEW_MAX_BYTES,
   looksBinary,
   readLocalDocument,
   registerLocalDocIpc,
@@ -204,6 +205,18 @@ test("missing files, directories, binary files and oversize files fail typed", a
   const tooLarge = await readLocalDocument(oversize, { homeDir: () => "/home/ce", maxBytes: 64 });
   assert.deepEqual({ ok: tooLarge.ok, code: tooLarge.ok ? null : tooLarge.code }, { ok: false, code: "too_large" });
   assert.equal(LOCAL_DOC_MAX_BYTES, 2 * 1024 * 1024);
+});
+
+test("binary preview admits documents above the text-edit limit but rejects oversized previews", async () => {
+  const pdf = path.join(root, "large-preview.pdf");
+  writeFileSync(pdf, Buffer.alloc(LOCAL_DOC_MAX_BYTES + 1, 0x20));
+  const accepted = await readLocalDocument(pdf, { homeDir: () => "/home/ce" });
+  assert.equal(accepted.ok, true);
+  if (accepted.ok) assert.equal(accepted.contentKind, "binary");
+  writeFileSync(pdf, Buffer.alloc(LOCAL_DOC_PREVIEW_MAX_BYTES + 1, 0x20));
+  const rejected = await readLocalDocument(pdf, { homeDir: () => "/home/ce" });
+  assert.equal(rejected.ok, false);
+  if (!rejected.ok) assert.equal(rejected.code, "too_large");
 });
 
 test("relative and non-owner-tilde paths are rejected typed at read time", async () => {
