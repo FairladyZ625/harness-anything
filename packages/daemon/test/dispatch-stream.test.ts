@@ -443,6 +443,7 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
           ],
         }),
         processes: adopted,
+        exiting: new Set<string>(),
       };
     await adoptRuntimes(context);
     assert.equal(adopted.size, 1);
@@ -615,6 +616,7 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
           },
         },
         processes: adopted,
+        exiting: new Set<string>(),
         reconcileFallback: () => undefined,
       };
     await adoptRuntimes(context);
@@ -658,6 +660,7 @@ test("runtime cancel settles a live projection whose recorded process already ex
           ],
         }),
         processes: new Map(),
+        exiting: new Set<string>(),
         reconcileFallback: () => undefined,
         restoreDurableOutputRecords: () => undefined,
         consumeLine: async () => undefined,

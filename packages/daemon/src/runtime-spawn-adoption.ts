@@ -27,6 +27,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
     : context.requiredRuntimeProjection(context.input).readRuntimeSessions();
   const byId = new Map(sessions.map((session) => [session.runtimeSessionId, session]));
   for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
+    if (context.processes.has(header.runtimeSessionId) || context.exiting.has(header.runtimeSessionId)) continue;
     const fallbackSummary = header.fallbackAttempt
       ? readDispatchStreamSummary(context.input.rootDir, header.dispatchId)
       : null;
@@ -108,44 +109,50 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
       providerSessionId: stream.providerSessionId,
     });
     context.processes.set(active.runtimeSessionId, active);
-    context.input.recordLifecycle?.({
-      event: "runtime_spawn",
-      runtimeSessionId: active.runtimeSessionId,
-      dispatchId: active.dispatchId,
-      // A session adopted without a recorded process has no pid to report; the drain count follows
-      // live pids, so reporting a placeholder would keep counting a runtime that does not exist.
-      ...(processState ? { pid: processState.pid } : {}),
-    });
-    await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
-    if (session.liveness !== "live") {
-      await context.publishRuntimeEvent(
-        "runtime_session_liveness_changed",
-        { runtimeSessionId: active.runtimeSessionId, liveness: "live" },
-        `${active.dispatchOpId}-adopt-${String(context.input.daemonGeneration)}`,
-        active.binding,
-      );
+    try {
+      context.input.recordLifecycle?.({
+        event: "runtime_spawn",
+        runtimeSessionId: active.runtimeSessionId,
+        dispatchId: active.dispatchId,
+        // A session adopted without a recorded process has no pid to report; the drain count follows
+        // live pids, so reporting a placeholder would keep counting a runtime that does not exist.
+        ...(processState ? { pid: processState.pid } : {}),
+      });
+      await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
+      if (session.liveness !== "live") {
+        await context.publishRuntimeEvent(
+          "runtime_session_liveness_changed",
+          { runtimeSessionId: active.runtimeSessionId, liveness: "live" },
+          `${active.dispatchOpId}-adopt-${String(context.input.daemonGeneration)}`,
+          active.binding,
+        );
+      }
+      if (!processState || processState.exited || !runtimePidIsAlive(processState.pid)) {
+        const reason = processState
+          ? `runtime process ${String(processState.pid)} is no longer alive after daemon restart`
+          : "runtime process was never recorded before daemon restart";
+        active.lossReason = processState?.exited ? null : reason;
+        active.lossExitCode = processState?.exitCode ?? null;
+        active.lossSignal = processState?.signal ?? null;
+        removeRuntimeCallbackRelay(context.input.rootDir, active.dispatchId);
+        if (!processState?.exited)
+          appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
+            kind: "process_lost",
+            occurredAt: context.input.now(),
+            reason,
+            exitCode: active.lossExitCode,
+            signal: active.lossSignal,
+          });
+        await consumeDurableOutput(context, active);
+        await context.publishExit(active, active.lossExitCode);
+        continue;
+      }
+      if (fullStream) attachActiveRuntime(context, active);
+    } catch (error) {
+      if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+      throw error;
     }
-    if (!processState || processState.exited || !runtimePidIsAlive(processState.pid)) {
-      const reason = processState
-        ? `runtime process ${String(processState.pid)} is no longer alive after daemon restart`
-        : "runtime process was never recorded before daemon restart";
-      active.lossReason = processState?.exited ? null : reason;
-      active.lossExitCode = processState?.exitCode ?? null;
-      active.lossSignal = processState?.signal ?? null;
-      removeRuntimeCallbackRelay(context.input.rootDir, active.dispatchId);
-      if (!processState?.exited)
-        appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
-          kind: "process_lost",
-          occurredAt: context.input.now(),
-          reason,
-          exitCode: active.lossExitCode,
-          signal: active.lossSignal,
-        });
-      await consumeDurableOutput(context, active);
-      await context.publishExit(active, active.lossExitCode);
-      continue;
-    }
-    if (fullStream) attachActiveRuntime(context, active);
   }
 }
 
