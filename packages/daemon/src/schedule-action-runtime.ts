@@ -2,6 +2,7 @@ import {
   getExecutableEntityAction,
   isScheduleEvent,
   nextScheduleOccurrence,
+  parseAgentDeclarationV1,
   type EntityActionCompileInput,
   type ScheduleActionDraft,
   type ScheduleV1,
@@ -54,8 +55,18 @@ export function makeScheduleActionRuntime(
     if (!existing) return null;
     const receipt = cell.receiptForOperation(opId, binding);
     if (!isScheduleEvent(existing)) return receipt;
-    const schedule = cell.projection.getEntity("schedule", existing.entity.id)?.value ?? existing.payload.schedule;
-    return { ...receipt, scheduleId: existing.entity.id, schedule } as WriteReceipt;
+    const schedule = (cell.projection.getEntity("schedule", existing.entity.id)?.value ??
+        existing.payload.schedule) as ScheduleV1,
+      trustedAgent =
+        action.kind === "schedule-run-now" && cell.mode === "remote-center" && schedule.spec.target.kind === "agent"
+          ? trustedScheduleAgent(cell, schedule.spec.target.agentId)
+          : undefined;
+    return {
+      ...receipt,
+      scheduleId: existing.entity.id,
+      schedule,
+      ...(trustedAgent === undefined ? {} : { trustedAgent }),
+    } as WriteReceipt;
   };
   const runInternal = async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
     const contract = getExecutableEntityAction(action.kind);
@@ -117,12 +128,45 @@ export function makeScheduleActionRuntime(
       } satisfies EntityActionCompileInput);
     if (compiled.kind !== "schedule")
       throw cell.cellCodedError("invalid_store", `${action.kind} compiled a non-Schedule action draft.`);
-    const receipt = publishScheduleDraft(cell, operationAction, compiled.result, binding);
+    const compiledSchedule =
+        compiled.result.kind === "no-changes"
+          ? compiled.result.schedule
+          : compiled.result.bundle.event.payload.schedule,
+      target = compiledSchedule.spec.target,
+      trustedAgent =
+        contract.id === "run-now" && cell.mode === "remote-center" && target.kind === "agent"
+          ? trustedScheduleAgent(cell, target.agentId)
+          : undefined,
+      receipt = publishScheduleDraft(cell, operationAction, compiled.result, binding);
     return contract.id === "run-now"
-      ? dispatchClaimedReceipt(cell, readWorktreeSetup, receipt, idempotencyKey, binding, runInternal)
+      ? dispatchClaimedReceipt(
+          cell,
+          readWorktreeSetup,
+          trustedAgent === undefined ? receipt : ({ ...receipt, trustedAgent } as WriteReceipt),
+          idempotencyKey,
+          binding,
+          runInternal,
+        )
       : receipt;
   };
   return runtime;
+}
+
+function trustedScheduleAgent(cell: RepoCellRuntimeContext, agentId: string) {
+  const row = cell.projection.getEntity("agent", agentId);
+  if (!row)
+    throw cell.cellCodedError(
+      "schedule_agent_unavailable",
+      `Schedule Agent ${agentId} is unavailable at the claimed center cut.`,
+    );
+  try {
+    return parseAgentDeclarationV1(row.value);
+  } catch {
+    throw cell.cellCodedError(
+      "schedule_agent_unavailable",
+      `Schedule Agent ${agentId} projection evidence is invalid.`,
+    );
+  }
 }
 
 async function dispatchClaimedReceipt(
