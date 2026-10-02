@@ -83,15 +83,37 @@ export function registerLocalDocIpc(
       throw new Error("PPTX preview requires authorized bytes.");
     const bytes = Buffer.from((payload as { bytes: string }).bytes, "base64");
     if (bytes.byteLength > LOCAL_DOC_PREVIEW_MAX_BYTES) throw new Error("PPTX preview exceeds the 16 MiB limit.");
-    const { materializePptxPresentation } = await import("@silurus/ooxml/node");
-    const presentation = await materializePptxPresentation(bytes);
+    const { openPptxPresentation } = await import("@silurus/ooxml/node");
+    const session = await openPptxPresentation(bytes);
     try {
-      const resources: Record<string, string> = {};
-      const model = presentation as unknown as { slideWidth: number; slideHeight: number; slides: readonly unknown[] };
-      return { slideWidth: model.slideWidth, slideHeight: model.slideHeight, slides: model.slides, resources };
+      const slides = [];
+      const images = new Map<string, string>();
+      // Images can occur in pictures, fills and bullets, including nested groups.
+      const collectImages = (value: unknown): void => {
+        if (typeof value !== "object" || value === null) return;
+        const record = value as Record<string, unknown>;
+        if (typeof record.imagePath === "string" && typeof record.mimeType === "string")
+          images.set(record.imagePath, record.mimeType);
+        if (typeof record.svgImagePath === "string") images.set(record.svgImagePath, "image/svg+xml");
+        for (const child of Object.values(record)) collectImages(child);
+      };
+      const { slideWidth, slideHeight } = session;
+      const resources: Record<string, { bytes: string; mediaType: string }> = Object.create(null);
+      for await (const slide of session.slides()) {
+        if (slide.parseError) throw new Error(`PPTX parse failed: ${slide.parseError}`);
+        slides.push(slide);
+        collectImages(slide);
+        // The library closes its session when iteration ends; consume resources before advancing.
+        for (const [path, mediaType] of images) {
+          if (resources[path]) continue;
+          const blob = await session.getImage(path, mediaType);
+          resources[path] = { bytes: Buffer.from(await blob.arrayBuffer()).toString("base64"), mediaType: blob.type };
+        }
+      }
+      if (slides.length === 0) throw new Error("PPTX contains no readable slides.");
+      return { slideWidth, slideHeight, slides, resources };
     } finally {
-      const close = (presentation as { close?: () => Promise<void> }).close;
-      if (close) await close.call(presentation);
+      await session.close();
     }
   });
 }

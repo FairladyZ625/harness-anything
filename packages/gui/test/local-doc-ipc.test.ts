@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  LOCAL_DOC_PPTX_CHANNEL,
   LOCAL_DOC_READ_CHANNEL,
   LOCAL_DOC_WRITE_CHANNEL,
   LOCAL_DOC_EXTRACT_WORD_CHANNEL,
@@ -52,7 +53,12 @@ test.after(() => {
 test("local document read, byte preview and write channels are registered once each", () => {
   const channels: string[] = [];
   registerLocalDocIpc({ handle: (channel) => channels.push(channel) }, { homeDir: () => "/home" }, trustedPolicy);
-  assert.deepEqual(channels, [LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_EXTRACT_WORD_CHANNEL, LOCAL_DOC_WRITE_CHANNEL]);
+  assert.deepEqual(channels, [
+    LOCAL_DOC_READ_CHANNEL,
+    LOCAL_DOC_EXTRACT_WORD_CHANNEL,
+    LOCAL_DOC_WRITE_CHANNEL,
+    LOCAL_DOC_PPTX_CHANNEL,
+  ]);
 });
 
 test("an untrusted renderer cannot reach any document channel", async () => {
@@ -320,4 +326,27 @@ test("directory targets, missing parents, relative paths and oversize content fa
   });
   assert.deepEqual({ ok: tooLarge.ok, code: tooLarge.ok ? null : tooLarge.code }, { ok: false, code: "too_large" });
   assert.equal(LOCAL_DOC_MAX_BYTES, 2 * 1024 * 1024);
+});
+
+test("PPTX IPC materializes Chinese slides and embedded image bytes, then recovers after corrupt input", async () => {
+  const handlers = new Map<string, (event: typeof trustedEvent, payload: unknown) => Promise<unknown>>();
+  registerLocalDocIpc(
+    { handle: (channel, listener) => handlers.set(channel, listener) },
+    { homeDir: () => "/home" },
+    trustedPolicy,
+  );
+  const parse = handlers.get(LOCAL_DOC_PPTX_CHANNEL)!;
+  await assert.rejects(() => parse(trustedEvent, { path: "/tmp/secret.pptx" }), /authorized bytes/u);
+  await assert.rejects(() => parse(trustedEvent, { bytes: Buffer.from("not a zip").toString("base64") }));
+  const bytes = readFileSync(new URL("./fixtures/pptx/chinese-shape-image.pptx", import.meta.url)).toString("base64");
+  const result = (await parse(trustedEvent, { bytes })) as Awaited<
+    ReturnType<import("../src/api/local-doc-contract.ts").LocalDocApi["pptx"]>
+  >;
+  assert.equal(result.slides.length, 2);
+  assert.match(JSON.stringify(result.slides), /中文/u);
+  assert.ok(result.slides[0].elements.some((element) => element.type === "shape"));
+  const resources = Object.values(result.resources);
+  assert.equal(resources.length, 1);
+  assert.equal(resources[0].mediaType, "image/png");
+  assert.deepEqual([...Buffer.from(resources[0].bytes, "base64").subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 });

@@ -1,3 +1,4 @@
+import type { Slide } from "@silurus/ooxml/pptx";
 export const LOCAL_DOC_READ_CHANNEL = "harness:localDoc:read";
 export const LOCAL_DOC_EXTRACT_WORD_CHANNEL = "harness:localDoc:extractWord";
 export const LOCAL_DOC_WRITE_CHANNEL = "harness:localDoc:write";
@@ -94,7 +95,7 @@ export interface LocalDocApi {
   readonly pptx: (input: { readonly bytes: string }) => Promise<{
     readonly slideWidth: number;
     readonly slideHeight: number;
-    readonly slides: readonly unknown[];
-    readonly resources: Readonly<Record<string, string>>;
+    readonly slides: readonly Slide[];
+    readonly resources: Readonly<Record<string, { readonly bytes: string; readonly mediaType: string }>>;
   }>;
 }

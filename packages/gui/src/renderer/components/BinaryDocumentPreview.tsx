@@ -74,11 +74,20 @@ function PptxDocumentPreview({ path, bytes }: { readonly path: string; readonly 
       for (const slide of preview.slides) {
         if (cancelled) return;
         const canvas = document.createElement("canvas");
-        canvas.width = Math.ceil(preview.slideWidth);
-        canvas.height = Math.ceil(preview.slideHeight);
+        // OOXML dimensions are EMUs, not pixels; render to a bounded reading surface.
+        const width = 960;
         canvas.className = "mx-auto mb-4 block max-w-full bg-white shadow";
         target.append(canvas);
-        await renderSlide(canvas, slide as never, preview.slideWidth, preview.slideHeight);
+        await renderSlide(canvas, slide, preview.slideWidth, preview.slideHeight, {
+          width,
+          fetchImage: async (imagePath) => {
+            const resource = preview.resources[imagePath];
+            if (!resource) throw new Error(`Missing PPTX image: ${imagePath}`);
+            return new Blob([Uint8Array.from(atob(resource.bytes), (character) => character.charCodeAt(0))], {
+              type: resource.mediaType,
+            });
+          },
+        });
       }
     };
     void render().catch((cause) => {
