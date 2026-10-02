@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   assertTransitionDocumentReady,
+  consumeKnownError,
   entitySlug,
   openEntityStore,
   readSettingsFacet,
@@ -155,6 +156,10 @@ export function openFleetEdgeRuntime(input: {
       readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8"));
   let entityStore: EntityStore | undefined;
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
+  const terminalRetries = new Map<
+    string,
+    { readonly terminal: Parameters<NonNullable<RuntimeSpawnerInput["onAttemptTerminal"]>>[0]; attempts: number }
+  >();
   const getEntityStore = (): EntityStore => (entityStore ??= openEntityStore(request.workspaceRoot));
   let tail = Promise.resolve();
   const schedule = (work: () => void | Promise<void>): void => {
@@ -320,56 +325,85 @@ export function openFleetEdgeRuntime(input: {
         entityStore: getEntityStore(),
       }),
     onAttemptTerminal: async (terminal) => {
-      if (terminal.task) {
-        const waitMs = runtimeReadTimeoutMs ?? 30_000,
-          { taskId, executionId } = terminal.task,
-          settled = await runFleetTaskCommandClient({
-            ...peer,
-            repoId: request.repoId,
-            taskId,
-            opId: `runtime-terminal-${terminal.runtimeSessionId}`,
-            waitMs,
-            action: {
-              kind: "task-release",
+      const retryKey = terminal.runtimeSessionId;
+      const settle = async (): Promise<void> => {
+        if (terminal.task) {
+          const waitMs = runtimeReadTimeoutMs ?? 30_000,
+            { taskId, executionId } = terminal.task,
+            settled = await runFleetTaskCommandClient({
+              ...peer,
+              repoId: request.repoId,
               taskId,
-              terminalExecutionId: executionId,
-              terminalRuntimeSessionId: terminal.runtimeSessionId,
-              reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
-            },
-          });
-        if (
-          settled.outcome !== "applied" &&
-          settled.code !== "lease_not_found" &&
-          settled.code !== "runtime_terminal_superseded"
-        )
-          throw edgeRuntimeError(
-            "runtime_lease_release_failed",
-            `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
-          );
-      }
-      const scheduled = terminal.schedule;
-      if (!scheduled) return;
-      const detail = await scheduleSettlementDetail(
-        request.workspaceRoot,
-        scheduled,
-        terminal.resultRef ?? terminal.reason,
-      );
-      const response = await runFleetScheduleCommandClient({
-        ...peer,
-        repoId: request.repoId,
-        scheduleId: scheduled.scheduleId,
-        opId: `${terminal.runtimeSessionId}-schedule-attempt-terminal`,
-        action: {
-          kind: "schedule-settle",
+              opId: `runtime-terminal-${terminal.runtimeSessionId}`,
+              waitMs,
+              action: {
+                kind: "task-release",
+                taskId,
+                terminalExecutionId: executionId,
+                terminalRuntimeSessionId: terminal.runtimeSessionId,
+                reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
+              },
+            });
+          if (
+            settled.outcome !== "applied" &&
+            settled.code !== "lease_not_found" &&
+            settled.code !== "runtime_terminal_superseded"
+          )
+            throw edgeRuntimeError(
+              "runtime_lease_release_failed",
+              `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
+            );
+        }
+        const scheduled = terminal.schedule;
+        if (!scheduled) return;
+        const detail = await scheduleSettlementDetail(
+          request.workspaceRoot,
+          scheduled,
+          terminal.resultRef ?? terminal.reason,
+        );
+        const response = await runFleetScheduleCommandClient({
+          ...peer,
+          repoId: request.repoId,
           scheduleId: scheduled.scheduleId,
-          claimFence: scheduled.claimFence,
-          outcome: terminal.outcome,
-          endedAt: terminal.endedAt,
-          ...(detail ? { detail } : {}),
-        },
-      });
-      if (response.outcome !== "applied")
-        throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule settlement was ${response.outcome}.`);
+          opId: `${terminal.runtimeSessionId}-schedule-attempt-terminal`,
+          action: {
+            kind: "schedule-settle",
+            scheduleId: scheduled.scheduleId,
+            claimFence: scheduled.claimFence,
+            outcome: terminal.outcome,
+            endedAt: terminal.endedAt,
+            ...(detail ? { detail } : {}),
+          },
+        });
+        if (response.outcome !== "applied")
+          throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule settlement was ${response.outcome}.`);
+      };
+      try {
+        await settle();
+        terminalRetries.delete(retryKey);
+      } catch (error) {
+        const pending = terminalRetries.get(retryKey) ?? { terminal, attempts: 0 };
+        pending.attempts += 1;
+        terminalRetries.set(retryKey, pending);
+        if (pending.attempts <= 8) {
+          const delayMs = Math.min(8_000, 250 * 2 ** (pending.attempts - 1));
+          setTimeout(() => {
+            schedule(async () => {
+              const current = terminalRetries.get(retryKey);
+              if (!current) return;
+              try {
+                await settle();
+                terminalRetries.delete(retryKey);
+              } catch (retryError) {
+                consumeKnownError(retryError);
+                // The original failure remains observable; the next scheduled attempt reuses
+                // the same idempotency keys and can complete after the center recovers.
+              }
+            });
+          }, delayMs).unref();
+        }
+        throw error;
+      }
     },
     ...(input.launch ? { launch: input.launch } : {}),
     schedule,
