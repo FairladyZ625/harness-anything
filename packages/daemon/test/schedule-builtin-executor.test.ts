@@ -355,13 +355,17 @@ test("a partially written backup of the same occurrence is retaken, a verified o
         settledActions.push(action);
         return { outcome: "applied", opId: `op-${settledActions.length}`, revision: settledActions.length };
       };
-      const executorCell = { rootDir: canonicalRoot(root), now: () => new Date().toISOString() };
+      const executorCell = {
+        rootDir: canonicalRoot(root),
+        now: () => new Date().toISOString(),
+        runSnapshot: async <T>(work: () => T) => work(),
+      };
       // A previous attempt died mid-copy: the partial directory is owned by this very
       // occurrence and must be removed and retaken, not drilled against.
       const partial = path.join(
         root,
         scheduledLedgerBackupRoot,
-        claimed.status.activeRun!.occurrenceId.replace("manual_", "ledger-backup-"),
+        `ledger-backup-${claimed.status.activeRun!.occurrenceId}`,
       );
       mkdirSync(partial, { recursive: true });
       writeFileSync(path.join(partial, "ledger.sqlite"), "half a copy");

@@ -7,7 +7,6 @@ import {
   type ScheduleV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { executeBuiltinScheduleOccurrence } from "./schedule-builtin-executor.ts";
 import {
   scheduleDeleteJsonAllowedFields,
   scheduleDeleteJsonFields,
@@ -137,12 +136,8 @@ async function dispatchClaimedReceipt(
   const schedule = (claimed as WriteReceipt & { readonly schedule?: ScheduleV1 }).schedule,
     active = schedule?.status.activeRun;
   if (claimed.outcome !== "applied" || !schedule || !active) return claimed;
-  // A builtin occurrence executes in-process right here — no workspace, no spawn — and settles
-  // before the claim returns. This branch precedes the remote-center hand-off because the node
-  // holding the canonical cell executes it, a center included; an edge can never claim one (the
-  // kernel rejects assignment-sourced claims).
-  if (schedule.spec.target.kind === "builtin")
-    return executeBuiltinScheduleOccurrence({ cell, schedule, idempotencyKey, binding, runInternal });
+  // The API continues builtins after the claim's publication turn has left the queue.
+  if (schedule.spec.target.kind === "builtin") return claimed;
   if (cell.mode === "remote-center") return claimed;
   if (active.dispatchId && active.runtimeSessionId) return claimed;
   let workspace: ScheduleOccurrenceWorkspace;

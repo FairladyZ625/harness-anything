@@ -1,14 +1,14 @@
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import {
-  applyLedgerBackupRetention,
   readVerifiedLedgerBackup,
   type LedgerBackupRetentionPolicyV1,
   type ScheduleBuiltinParamsV1,
   type ScheduleV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
+import { backupRepo } from "./repo-all-purge.ts";
+import { finishLedgerBackup } from "./schedule-backup-worker.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 /** Root (relative to the repository root) holding scheduled backups, per the established convention. */
@@ -23,9 +23,10 @@ export const defaultLedgerBackupRetention: LedgerBackupRetentionPolicyV1 = { kee
 export interface BuiltinExecutorCell {
   readonly rootDir: string;
   readonly now: () => string;
+  readonly runSnapshot: <T>(work: () => T) => Promise<T>;
 }
 
-type RunInternal = (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>;
+type RunInternal<Receipt extends WriteReceipt> = (action: RepoTaskAction, binding: RepoCellBinding) => Promise<Receipt>;
 
 /** One registered in-process executor; the registry is a fixed map, not a plugin surface. */
 type BuiltinExecutor = (input: {
@@ -44,18 +45,17 @@ const builtinExecutors: Readonly<Record<string, BuiltinExecutor>> = Object.freez
 });
 
 /**
- * Execute a claimed builtin occurrence in-process and settle it. The caller is the write-queue
- * turn of the claiming run-now action, so the backup runs serialized against every other ledger
- * write — exactly the serialization `cell.backup` would add — without re-entering the queue.
- * No occurrence workspace is prepared and no runtime is spawned.
+ * Execute a claimed builtin after its claim leaves the write queue. Only runSnapshot
+ * enters the queue; drill/retention run on a temporary worker, and settlement re-enters
+ * through the caller's normal command runner. No occurrence workspace or runtime is spawned.
  */
-export async function executeBuiltinScheduleOccurrence(input: {
+export async function executeBuiltinScheduleOccurrence<Receipt extends WriteReceipt>(input: {
   readonly cell: BuiltinExecutorCell;
   readonly schedule: ScheduleV1;
   readonly idempotencyKey: string;
   readonly binding: RepoCellBinding;
-  readonly runInternal: RunInternal;
-}): Promise<WriteReceipt> {
+  readonly runInternal: RunInternal<Receipt>;
+}): Promise<Receipt> {
   const active = input.schedule.status.activeRun,
     target = input.schedule.spec.target,
     executor = target.kind === "builtin" ? builtinExecutors[target.builtinId] : undefined;
@@ -63,7 +63,7 @@ export async function executeBuiltinScheduleOccurrence(input: {
     throw new Error(`Schedule ${input.schedule.scheduleId} has no built-in occurrence to execute.`);
   // Every terminal branch settles the occurrence — a thrown executor error becomes the settle
   // detail of a failed outcome, never a swallowed failure or an abandoned claim.
-  const settleOccurrence = async (result: BuiltinExecutionResult): Promise<WriteReceipt> => {
+  const settleOccurrence = async (result: BuiltinExecutionResult): Promise<Receipt> => {
     const settled = await input.runInternal(
       {
         kind: "schedule-settle",
@@ -76,7 +76,7 @@ export async function executeBuiltinScheduleOccurrence(input: {
       },
       input.binding,
     );
-    return result.outcome === "succeeded" ? settled : ({ ...settled, code: "schedule_builtin_failed" } as WriteReceipt);
+    return result.outcome === "succeeded" ? settled : ({ ...settled, code: "schedule_builtin_failed" } as Receipt);
   };
   if (executor === undefined)
     return settleOccurrence({
@@ -116,32 +116,26 @@ async function executeLedgerBackup(input: {
     backupRoot = path.join(input.cell.rootDir, scheduledLedgerBackupRoot),
     backupDir = path.join(backupRoot, `ledger-backup-${input.occurrenceId}`),
     startedAt = performance.now();
-  let bytes = 0;
-  const reusedSnapshot = existingSnapshotIsVerified(backupDir);
-  const backupStartedAt = performance.now();
-  if (!reusedSnapshot) {
-    const manifest = await backupRepo({ rootDir: input.cell.rootDir, backupDir });
-    bytes = manifest.files.reduce((total, file) => total + file.size, 0);
-  }
-  const backupMs = Math.round(performance.now() - backupStartedAt),
-    drillStartedAt = performance.now();
-  await drillRepoBackup({ rootDir: input.cell.rootDir, backupDir });
-  const drillMs = Math.round(performance.now() - drillStartedAt),
-    // The drill verified this backup; only then is older data eligible for cleanup.
-    cleanupStartedAt = performance.now(),
-    retention = applyLedgerBackupRetention({
+  const backupStartedAt = performance.now(),
+    snapshot = await input.cell.runSnapshot(() => {
+      const reusedSnapshot = existingSnapshotIsVerified(backupDir);
+      const manifest = reusedSnapshot ? null : backupRepo({ rootDir: input.cell.rootDir, backupDir });
+      return { reusedSnapshot, bytes: manifest?.files.reduce((total, file) => total + file.size, 0) ?? 0 };
+    }),
+    backupMs = Math.round(performance.now() - backupStartedAt),
+    { drillMs, cleanupMs, retention } = await finishLedgerBackup({
+      rootDir: input.cell.rootDir,
+      backupDir,
       backupRoot,
       now: input.cell.now(),
       policy,
-      protectedDirs: [backupDir],
-    }),
-    cleanupMs = Math.round(performance.now() - cleanupStartedAt);
+    });
   return {
     outcome: "succeeded",
     detail: JSON.stringify({
       builtin: target.builtinId,
       backupDir: path.relative(input.cell.rootDir, backupDir),
-      ...(reusedSnapshot ? { reusedSnapshot: true } : { bytes }),
+      ...(snapshot.reusedSnapshot ? { reusedSnapshot: true } : { bytes: snapshot.bytes }),
       backupMs,
       drillMs,
       cleanupMs,
