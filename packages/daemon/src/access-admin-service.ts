@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import {
   actionDeclarations,
@@ -77,6 +77,8 @@ interface Plan {
   readonly expect: Expectation;
   /** Whatever the write returns is handed to the caller once and never journaled. */
   readonly apply: () => Promise<Readonly<Record<string, unknown>> | void>;
+  /** Releases local-only preparation when the write never started: its intent could not be recorded. */
+  readonly abandon?: () => void;
 }
 
 interface Conflict {
@@ -291,9 +293,14 @@ export class AccessAdminService {
         return { ok: false, code: "version_conflict", ...receipt };
       }
       // The intent lands before Keycloak changes, so a lost receipt can be reconciled without replaying the write.
-      this.#ports.journal.append(
-        JSON.stringify({ ...base, phase: "intent", expect: planned.expect, recordedAt: this.#ports.now() }),
-      );
+      try {
+        this.#ports.journal.append(
+          JSON.stringify({ ...base, phase: "intent", expect: planned.expect, recordedAt: this.#ports.now() }),
+        );
+      } catch (error) {
+        planned.abandon?.();
+        throw error;
+      }
       const issued = await planned.apply();
       return { ...this.#settle({ ...base, expect: planned.expect }, "applied"), ...issued };
     });
@@ -474,25 +481,38 @@ export class AccessAdminService {
       next = { nodeId, personId };
     if ((request.expectedVersion ?? "") !== currentVersion)
       return { conflict: { nodeId, expectedVersion: request.expectedVersion ?? "", currentVersion } };
-    // Only creating the node mints a credential. Its file is reserved before the intent is recorded
-    // and before Keycloak is written, so a path that cannot take it refuses the whole registration.
-    const reserved =
-      currentVersion === "" && request.credentialFile !== undefined
-        ? credentialReservation(request.credentialFile)
-        : undefined;
+    if (currentVersion !== "")
+      return {
+        expect: { kind: "node", nodeId, version: nodeVersion(next) },
+        // The node already holds its credential; moving it to another owner never touches it.
+        apply: () => session.adapter.moveNode(session.token, next),
+      };
+    // Only creating the node mints a credential, and a minted credential never travels in a
+    // receipt: without a file to hold it the registration is refused before anything is reserved,
+    // journaled, or written, so a first registration cannot end half-registered.
+    if (request.credentialFile === undefined)
+      throw coded(
+        "credential_file_required",
+        "A first node registration writes the node's machine credential into --credential-file; nothing was registered.",
+      );
+    const reserved = credentialReservation(request.credentialFile);
     return {
       expect: { kind: "node", nodeId, version: nodeVersion(next) },
+      abandon: () => reserved.discard(),
       apply: async () => {
-        let credential: string | undefined;
+        // The minted credential is 32 random bytes in the shape real Keycloak 26 was probed with
+        // (F-2CBA6A96). Every fallible local step ends before Keycloak is written: once the client
+        // exists, nothing stands between it and the operator holding this credential.
+        const credential = randomBytes(32).toString("base64url");
         try {
-          credential = await session.adapter.writeNode(session.token, next);
+          reserved.keep(credential);
         } catch (error) {
-          reserved?.discard();
+          reserved.discard();
           throw error;
         }
-        if (credential === undefined) return undefined;
-        if (!reserved) return { credential };
-        reserved.keep(credential);
+        // A POST that fails here may still have created the client, so the credential stays in its
+        // file and the intent stays unsettled: reconcile settles the operation by what Keycloak shows.
+        await session.adapter.createNode(session.token, next, credential);
         return { credentialFile: reserved.file };
       },
     };
