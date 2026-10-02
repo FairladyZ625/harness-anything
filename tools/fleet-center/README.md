@@ -109,8 +109,8 @@ ha bootstrap --operation node-list
 
 The first registration of a node mints its machine credential once and writes
 it to `--credential-file`, a new file readable only by its owner (`0600`). The
-receipt names the file and never carries the credential. The command is
-refused without `--credential-file`, and refused with
+receipt names the file and never carries the credential. The registration is
+refused with `credential_file_required` without `--credential-file`, and with
 `credential_file_unavailable` when the file already exists; in both cases
 nothing is registered. Use one directory per node and never share a credential
 between nodes. `<node-id>` must be the `nodeId` of the roster assignment.
@@ -145,10 +145,12 @@ To remove a node:
 ha bootstrap --operation node-unregister --node-id <node-id> --expected-version <version>
 ```
 
-A stale version answers `version_conflict`. After removal the credential is
-rejected on new connections. A connection that was already open may still get
-answers to some frames (tracked as `task_957ec2cdea3f65a73487641bdb`), and
-leases the node holds are reclaimed by their existing timeout, not revoked.
+A stale version answers `version_conflict`. Once removal settles, the
+credential is rejected on new connections and the node's live TLS sessions at
+the center are cut before the operation returns, their buffered frames neither
+processed nor answered; a removal settled later by `receipt-reconcile` cuts
+them too. Leases the node holds are reclaimed by their existing timeout, not
+revoked.
 
 ### When a first sync is refused
 

@@ -88,9 +88,10 @@ ha bootstrap --operation node-list
 ```
 
 节点首次注册会一次性铸造机器凭据，写入 `--credential-file` 指定的新文件，仅属主可读
-（`0600`）。回执只点名文件、绝不携带凭据本身。不带 `--credential-file` 会被拒绝；文件已
-存在时以 `credential_file_unavailable` 拒绝——两种情况下都不会注册任何内容。每个节点用
-独立目录，绝不共享凭据。`<node-id>` 必须是名册 assignment 的 `nodeId`。
+（`0600`）。回执只点名文件、绝不携带凭据本身。不带 `--credential-file` 以
+`credential_file_required` 拒绝；文件已存在时以 `credential_file_unavailable` 拒绝——两种
+情况下都不会注册任何内容。每个节点用独立目录，绝不共享凭据。`<node-id>` 必须是名册
+assignment 的 `nodeId`。
 
 把你信任的通道把文件送到边缘机器后，删除中心侧副本。在边缘，凭据写进工作区的
 `fleet-edge.json`（`credential`），或以 `ha daemon fleet edge sync --credential` 传入；
@@ -116,9 +117,9 @@ Fleet 节点以机器身份认证，即使其属主是人。来自该连接的 `
 ha bootstrap --operation node-unregister --node-id <node-id> --expected-version <version>
 ```
 
-版本过期会得到 `version_conflict`。移除后凭据对新连接立即失效；已建立的连接可能仍能应答
-部分帧（跟踪于 `task_957ec2cdea3f65a73487641bdb`），节点持有的 lease 由既有超时回收，而非
-立即吊销。
+版本过期会得到 `version_conflict`。移除结算后，凭据对新连接立即失效，节点在中心的现存
+TLS 会话也会在操作返回前被切断，已缓冲的帧不再处理或应答；经 `receipt-reconcile` 迟后结算
+的移除同样切断。节点持有的 lease 由既有超时回收，而非立即吊销。
 
 ### 首次同步被拒绝时
 

@@ -481,36 +481,39 @@ export class AccessAdminService {
       next = { nodeId, personId };
     if ((request.expectedVersion ?? "") !== currentVersion)
       return { conflict: { nodeId, expectedVersion: request.expectedVersion ?? "", currentVersion } };
-    // Only creating the node mints a credential. Its file is reserved before the intent is recorded
-    // and before Keycloak is written, so a path that cannot take it refuses the whole registration.
-    const reserved =
-      currentVersion === "" && request.credentialFile !== undefined
-        ? credentialReservation(request.credentialFile)
-        : undefined;
+    if (currentVersion !== "")
+      return {
+        expect: { kind: "node", nodeId, version: nodeVersion(next) },
+        // The node already holds its credential; moving it to another owner never touches it.
+        apply: () => session.adapter.moveNode(session.token, next),
+      };
+    // Only creating the node mints a credential, and a minted credential never travels in a
+    // receipt: without a file to hold it the registration is refused before anything is reserved,
+    // journaled, or written, so a first registration cannot end half-registered.
+    if (request.credentialFile === undefined)
+      throw coded(
+        "credential_file_required",
+        "A first node registration writes the node's machine credential into --credential-file; nothing was registered.",
+      );
+    const reserved = credentialReservation(request.credentialFile);
     return {
       expect: { kind: "node", nodeId, version: nodeVersion(next) },
-      abandon: reserved ? () => reserved.discard() : undefined,
+      abandon: () => reserved.discard(),
       apply: async () => {
-        if (currentVersion !== "") {
-          await session.adapter.moveNode(session.token, next);
-          return undefined;
-        }
         // The minted credential is 32 random bytes in the shape real Keycloak 26 was probed with
         // (F-2CBA6A96). Every fallible local step ends before Keycloak is written: once the client
         // exists, nothing stands between it and the operator holding this credential.
         const credential = randomBytes(32).toString("base64url");
-        if (reserved) {
-          try {
-            reserved.keep(credential);
-          } catch (error) {
-            reserved.discard();
-            throw error;
-          }
+        try {
+          reserved.keep(credential);
+        } catch (error) {
+          reserved.discard();
+          throw error;
         }
         // A POST that fails here may still have created the client, so the credential stays in its
         // file and the intent stays unsettled: reconcile settles the operation by what Keycloak shows.
         await session.adapter.createNode(session.token, next, credential);
-        return reserved ? { credentialFile: reserved.file } : { credential };
+        return { credentialFile: reserved.file };
       },
     };
   }
