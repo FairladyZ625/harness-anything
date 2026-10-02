@@ -473,6 +473,7 @@
   "views.overviewView.reviewRework": "Rework",
   "views.overviewView.reviewAdjudication": "To adjudicate",
   "views.overviewView.reviewTaskReviewing": "Task in review",
+  "views.overviewView.reviewDecisionNeedsReview": "Decision needs review",
   "views.overviewView.reviewDecisionReviewing": "Decision in review",
   "views.overviewView.reviewDecisionPending": "Decision pending",
   "views.overviewView.reviewInFlight": "{count} in flight",
