@@ -30,6 +30,10 @@
   布局行,不在此合并。
 - **RecordRow**:记录行布局。元数据行(标识/状态左、时间/动作行尾)+ **全宽正文**——长正文占满
   记录容器宽度,不与标识/时间挤三列;长 ID 截断在标识格,窄容器不溢出。
+- **BoundedContent**:日志、评审、时间线和文件预览的长内容边界。最大高度统一为有尺寸父级的
+  55%(父级无高度时以 `55dvh` 封顶),超出内容在自身区域滚动，标题和动作位留在边界外。
+- **Modal**:全仓唯一弹层外壳。遮罩、标题/关闭、滚动正文和固定页脚由原语承担；领域表单只提供
+  `children` 与 `footer`,不从 runtime 私有 parts 取弹层布局。
 - **Section**:区块三档——默认文档区块、hero/warn 注意力左粗边、panel 设置面板档(吸收原
   ui/widgets Section)。runtime Card 的卡内分节(Sect)是 Card 的领域伴生物,住 runtime/parts。
 - **Empty**:只承载「该有而无」(缺配置/坏了/该做事);集合为空且空是正常 → 调用方整块不渲染。
@@ -55,11 +59,11 @@
 
 - `runtime/parts.tsx`:runtime 配置平面的领域件——Card/CardHead/CardTitle/CardBody、卡内分节
   Sect、CfgRow、AddChip/ChipZone、KindDot/LiveDot、Avatar(身份色 `--color-avatar-*` token)、
-  CapDot、Crumbs、WarnBar/PlannedBox、Modal、Hint/Right。跨域语义(按钮/徽章/字段/chip/空态/
+  CapDot、Crumbs、WarnBar/PlannedBox、Hint/Right。跨域语义(按钮/徽章/字段/chip/空态/
   文本输入)已全部迁 primitives 并在本库删除。
 - `ui/widgets.tsx`:设置表单行 Row、Kbd、SettingSelect——设置平面的表单布局件。
 - 已删除的旧路径:parts `Btn`、`Badge`、`RoleTag`、`Chip`、`Field/FieldGrid/KV/KVRow`、
-  `Empty`;ui/widgets `Section`、`Segmented`、`Toggle`、`BTN`;decisionReview 的
+  `Empty`、`Modal`;ui/widgets `Section`、`Segmented`、`Toggle`、`BTN`;decisionReview 的
   primary/secondaryButtonClass(改投 Button)。
 
 ## 动效
@@ -70,5 +74,5 @@
 ## 展示目录
 
 `catalog/ComponentCatalog.tsx` 是开发-only Vite 入口:真实组件 + 示例数据,覆盖主题、动效偏好、
-窄容器、禁用/长值/空态、RecordRow 全宽正文、StatusTag 小档、Fields、Chip 与 Section 三档。
+窄容器、禁用/长值/空态、RecordRow 全宽正文、BoundedContent 内滚动、StatusTag 小档、Fields、Chip 与 Section 三档。
 收敛新原语时在同目录补对应状态展示。

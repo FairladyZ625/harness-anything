@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { BoundedContent } from "./BoundedContent";
 
 /**
  * 记录行原语(标准 §4.1 长值契约的共用记录布局):长 ID、状态词、长正文、
@@ -60,7 +61,7 @@ export function RecordRow({
           </div>
         ) : null}
       </div>
-      <div className="min-w-0 break-words pb-3">{summary}</div>
+      <BoundedContent className="min-w-0 break-words pb-3">{summary}</BoundedContent>
     </div>
   );
 }

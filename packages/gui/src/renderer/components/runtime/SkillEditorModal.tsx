@@ -7,7 +7,7 @@ import { t } from "../../i18n/index.tsx";
 import { requestLocalDocument, saveLocalDocument } from "../../local-doc/local-doc-client.ts";
 import { LocalDocError } from "../../local-doc/LocalDocLayer.tsx";
 import { DocReader } from "../DocReader.tsx";
-import { Modal } from "./parts.tsx";
+import { Modal } from "../primitives/Modal.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 
 /**

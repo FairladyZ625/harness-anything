@@ -3,7 +3,8 @@ import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../age
 import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { ActionError } from "./ActionError.tsx";
-import { Avatar, CfgRow, Hint, KindDot, Modal, WarnBar } from "./parts.tsx";
+import { Avatar, CfgRow, Hint, KindDot, WarnBar } from "./parts.tsx";
+import { Modal } from "../primitives/Modal.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";

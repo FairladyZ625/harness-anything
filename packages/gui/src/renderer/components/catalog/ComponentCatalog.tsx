@@ -16,6 +16,7 @@ import { Empty } from "../primitives/Empty.tsx";
 import { Chip } from "../primitives/Chip.tsx";
 import { Field, FieldGrid, KV, KVRow } from "../primitives/Fields.tsx";
 import { RecordRow } from "../primitives/RecordRow.tsx";
+import { BoundedContent } from "../primitives/BoundedContent.tsx";
 import { Section } from "../primitives/Section.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { IdText } from "../IdText.tsx";
@@ -192,6 +193,19 @@ function ComponentCatalog() {
               panel 档吸收原设置页 Section,带边框与大写等宽头行。
             </div>
           </Section>
+        </section>
+        <section className="grid min-w-0 gap-3">
+          <h2 className="font-semibold ui-title">长内容边界 / BoundedContent</h2>
+          <p className="text-text-muted ui-meta">
+            日志、评审、时间线和文件预览共用可用高度的 55% 上限，超出内容在自身区域滚动，不撑长页面。
+          </p>
+          <div className="h-56 min-w-0 rounded border border-border bg-surface p-3">
+            <BoundedContent className="font-mono ui-micro leading-relaxed text-text-muted">
+              {Array.from({ length: 18 }, (_, index) => (
+                <p key={index}>log/{index + 1}: 长内容滚动样本，保留原文并在边界内阅读。</p>
+              ))}
+            </BoundedContent>
+          </div>
         </section>
         <section className="grid min-w-0 gap-3">
           <h2 className="font-semibold ui-title">可交互贴片 / Chip</h2>

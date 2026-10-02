@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AgentDispatchPreview } from "../runtime-control.ts";
 import { t } from "../i18n/index.tsx";
-import { Modal } from "./runtime/parts.tsx";
+import { Modal } from "./primitives/Modal.tsx";
 import { Button } from "./primitives/Button.tsx";
 
 // Read-only rendering of an agent-dispatch-preview/v1 receipt: the mission as authored and

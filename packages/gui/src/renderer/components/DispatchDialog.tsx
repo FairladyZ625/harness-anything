@@ -13,7 +13,8 @@ import {
 import type { AgentDispatchPreview } from "../runtime-control.ts";
 import { t } from "../i18n/index.tsx";
 import { DispatchPreviewModal } from "./DispatchPreviewModal.tsx";
-import { Avatar, Hint, KindDot, LiveDot, Modal } from "./runtime/parts.tsx";
+import { Avatar, Hint, KindDot, LiveDot } from "./runtime/parts.tsx";
+import { Modal } from "./primitives/Modal.tsx";
 import { Chip } from "./primitives/Chip.tsx";
 import { StatusTag } from "./primitives/StatusTag.tsx";
 import { TextInput } from "./primitives/TextInput.tsx";

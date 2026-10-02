@@ -16,7 +16,8 @@ import {
   type StartWorkPrecondition,
 } from "../start-work-flow.ts";
 import { CopyContextButton } from "./CopyContextButton.tsx";
-import { CfgRow, Hint, Modal, PlannedBox, Sect, WarnBar } from "./runtime/parts.tsx";
+import { CfgRow, Hint, PlannedBox, Sect, WarnBar } from "./runtime/parts.tsx";
+import { Modal } from "./primitives/Modal.tsx";
 import { TextInput } from "./primitives/TextInput.tsx";
 import { Button } from "./primitives/Button.tsx";
 

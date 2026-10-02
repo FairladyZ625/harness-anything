@@ -9,6 +9,7 @@ import {
   type DecisionReviewSignal,
 } from "../../model/decision-review.ts";
 import type { DecisionReviewState } from "../../model/types.ts";
+import { Section } from "../primitives/Section.tsx";
 
 const SIGNAL_META: Readonly<Record<DecisionReviewSignal, { readonly key: MessageKey; readonly cls: string }>> = {
   reviewing: { key: "views.decisionReview.signalReviewing", cls: "border-accent/40 bg-accent/10 text-accent" },
@@ -87,13 +88,11 @@ export function ReviewSection({
   readonly testId?: string;
 }) {
   return (
-    <section data-testid={testId} className="grid content-start gap-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="ui-body font-semibold text-text">{title}</h2>
-        {aside ? <span className="font-mono ui-micro text-text-faint">{aside}</span> : null}
-      </div>
-      {children}
-    </section>
+    <div data-testid={testId}>
+      <Section title={title} note={aside}>
+        <div className="grid content-start gap-2">{children}</div>
+      </Section>
+    </div>
   );
 }
 
