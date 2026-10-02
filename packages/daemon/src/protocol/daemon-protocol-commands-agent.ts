@@ -430,7 +430,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["bootstrap"],
     summary:
-      "Sign in without a local browser (--operation login), inspect session, or logout; install/configure Keycloak, manage its HTTPS listener, session lifetime and fleet node registrations. Login credentials remain in the daemon; a new machine credential goes to --credential-file.",
+      "Sign in without a local browser (--operation login), inspect session, or logout; install/configure Keycloak, manage its HTTPS listener, session lifetime and fleet node registrations. Create the first administrator with --operation bootstrap-admin and --password-file; credentials never belong in argv. A new machine credential goes to --credential-file.",
     method: "daemon.rbac.manage",
     inputs: [
       cliInput(
@@ -447,6 +447,8 @@ export const agentProtocolCommands = Object.freeze([
             "backup",
             "restore",
             "upgrade",
+            "bootstrap-status",
+            "bootstrap-admin",
             "login",
             "session",
             "logout",
@@ -482,6 +484,10 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--node-id", "single", false, { code: "invalid_field" }, { field: "nodeId" }),
       cliInput("--person-id", "single", false, { code: "invalid_field" }, { field: "personId" }),
       cliInput("--credential-file", "single", false, { code: "invalid_field" }, { field: "credentialFile" }),
+      cliInput("--username", "single", false, { code: "invalid_field" }, { field: "username" }),
+      cliInput("--email", "single", false, { code: "invalid_field" }, { field: "email" }),
+      cliInput("--display-name", "single", false, { code: "invalid_field" }, { field: "displayName" }),
+      cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
     ],
   }),
   defineHostAdminCommand({

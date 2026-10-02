@@ -54,6 +54,14 @@ function parseRbacBootstrap(
       "A first node registration returns the node's machine credential once. Add --credential-file <path> to receive it in a new file only you can read; nothing was registered.",
       json,
     );
+  const administratorFields = ["--username", "--email", "--display-name", "--person-id", "--password-file"];
+  if (f.one.get("--operation") === "bootstrap-admin" && administratorFields.some((flag) => !f.one.get(flag)))
+    return rejected("missing_field", `First administrator creation requires ${administratorFields.join(", ")}.`, json);
+  if (
+    f.one.get("--operation") !== "bootstrap-admin" &&
+    ["--username", "--email", "--display-name", "--password-file"].some((flag) => f.one.has(flag))
+  )
+    return rejected("invalid_field", "Administrator fields require --operation bootstrap-admin.", json);
   return accepted(
     rootDir,
     undefined,
@@ -77,6 +85,10 @@ function parseRbacBootstrap(
       ...(f.one.get("--certificate-key-file") ? { certificateKeyFile: f.one.get("--certificate-key-file") } : {}),
       ...(f.one.get("--node-id") ? { nodeId: f.one.get("--node-id") } : {}),
       ...(f.one.get("--person-id") ? { personId: f.one.get("--person-id") } : {}),
+      ...(f.one.get("--username") ? { username: f.one.get("--username") } : {}),
+      ...(f.one.get("--email") ? { email: f.one.get("--email") } : {}),
+      ...(f.one.get("--display-name") ? { displayName: f.one.get("--display-name") } : {}),
+      ...(f.one.get("--password-file") ? { passwordFile: path.resolve(f.one.get("--password-file")!) } : {}),
       // The daemon writes the file, so it is told where the caller's relative path points.
       ...(f.one.get("--credential-file") ? { credentialFile: path.resolve(f.one.get("--credential-file")!) } : {}),
     },

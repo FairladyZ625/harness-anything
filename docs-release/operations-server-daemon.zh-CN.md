@@ -3,6 +3,27 @@
 Harness Anything 有三种连接模式。它们是 `~/.harness/registry.json` 中的机器本地
 registry 选择；一个仓库只能注册为其中一种模式。
 
+## 无桌面中心首次引导
+
+在中心主机上启动 daemon 后，通过同一 CLI 安装身份服务、设置浏览器可达的 HTTPS 地址并创建首管理员：
+
+```bash
+ha bootstrap
+ha bootstrap --operation listener
+ha bootstrap --operation listener-set --listen-address <地址> --hostname <主机名> --port 8443 --certificate-file <证书.pem> --certificate-key-file <私钥.pem> --expected-version <版本>
+ha bootstrap --operation bootstrap-status
+ha bootstrap --operation bootstrap-admin --username <用户名> --email <邮箱> --display-name <姓名> --person-id <person-id> --password-file <受控密码文件>
+ha bootstrap --operation login
+ha bootstrap --operation session
+ha bootstrap --operation node-register --operation-id <unique-id> --node-id <node-id> --person-id <person-id> --credential-file <新凭据文件>
+```
+
+密码文件只允许所有者读取（例如 `0600`），argv 只放路径；CLI 去掉文件末尾一个换行，仅通过中心原始本地 socket 发送密码。使用后删除密码文件。
+
+尚无 `access-admin` 成员时，socket 所有者可配置既有 HTTPS listener；先读取版本，使用浏览器设备信任的证书。listener 设置与首管理员创建共用队列，只有一个首管理员能成功，之后排队的未登录设置也会被拒。管理员存在后，即使无人登录也不能重新开放窗口，必须以 `access-admin` 身份登录才能修改。边缘与远程 GUI 不能执行首次引导。
+
+`login` 在另一台有浏览器的设备完成授权，中心和边缘复用同一入口。随后节点登记只将一次性机器凭据写入新的受控文件。
+
 ## 连接模式 / Connection modes
 
 | Registry 模式                   | 适用场景                  | 本机运行内容                   | 数据与写入权威           |
