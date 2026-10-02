@@ -44,6 +44,7 @@ export async function openWriterSupervisor(
       workerOptions: { readonly execArgv: readonly string[]; readonly workerData: RepoWriterBootstrapV1 },
     ) => Worker;
     readonly onAttachStatus?: (status: RepoCellStatus) => void;
+    readonly onPublishedStatus?: () => void;
   } = {},
 ): Promise<WriterSupervisor> {
   let worker: Worker | null = null,
@@ -205,6 +206,7 @@ export async function openWriterSupervisor(
               status = published;
               statusObservedAt = Date.now();
             }
+            options.onPublishedStatus?.();
             if (!settled && attaching) options.onAttachStatus?.(published);
             if (
               !settled &&
