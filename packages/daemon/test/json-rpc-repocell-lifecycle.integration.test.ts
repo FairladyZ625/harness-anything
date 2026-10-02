@@ -576,6 +576,11 @@ async function publishCiObservation(
       cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
     } as unknown as Parameters<typeof ingestCiObservations>[0];
     const fetched = await fetchCiObservations(cell, { kind: "ci-observe-pull", limit: 1 }, async (_command, args) => {
+      if (args[0] === "api")
+        return JSON.stringify([
+          { id: 293605877, name: "rewrite-ci" },
+          { id: 331622261, name: "rebuild-gates" },
+        ]);
       if (args[1] === "list")
         return JSON.stringify([{ databaseId, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
       if (args[1] === "view")

@@ -14,6 +14,12 @@ const actor = { principal: { personId: "person-observatory" }, executor: null } 
 const ciSettings = (workflows: readonly string[] = ["rewrite-ci", "rebuild-gates"]) => ({
   read: () => ({ ci: { workflows } }),
 });
+// gh resolves the configured workflow names to numeric ids before listing runs; fixtures answer
+// that registry lookup for the default ciSettings pair.
+const workflowRegistry = JSON.stringify([
+  { id: 293605877, name: "rewrite-ci" },
+  { id: 331622261, name: "rebuild-gates" },
+]);
 
 // The daemon runs the gh reads before the write queue and the appends inside it; these cases run both halves back to back.
 async function pullAndIngestCiObservations(
@@ -266,10 +272,11 @@ test("CI observation pull writes canonical events once per run and job", async (
     },
   };
   const runGh = ((_command: string, args: readonly string[]) => {
+    if (args[0] === "api") return workflowRegistry;
     if (args[1] === "list") {
       const workflow = args[3];
       return JSON.stringify(
-        workflow === "rewrite-ci.yml"
+        workflow === "293605877"
           ? [{ databaseId: 101, headBranch: "main", createdAt: "2026-08-27T03:00:00Z" }]
           : [{ databaseId: 102, headBranch: "main", createdAt: "2026-08-27T02:00:00Z" }],
       );
@@ -452,7 +459,8 @@ test("CI observation pull synthesizes a ledger-publication run only for private 
     settings: ciSettings(),
     cellCodedError: (_code: string, message: string) => new Error(message),
   };
-  const noRuns = ((_command: string, args: readonly string[]) => (args[1] === "list" ? "[]" : "")) as never;
+  const noRuns = ((_command: string, args: readonly string[]) =>
+    args[0] === "api" ? workflowRegistry : args[1] === "list" ? "[]" : "") as never;
   try {
     git(rootDir, "init", "-q", "-b", "main");
     writeFileSync(path.join(rootDir, "README.md"), "public\n");
@@ -671,6 +679,7 @@ test("CI provenance comes from the completed matching GitHub run, not workflow p
         { kind: "ci-observe-pull", limit: 1 },
         { actor, source: "local" },
         async (_command, args) => {
+          if (args[0] === "api") return workflowRegistry;
           if (args[1] === "list")
             return JSON.stringify([{ databaseId: 303, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
           if (args[1] === "view")
@@ -823,6 +832,7 @@ test("CI observation pull --task imports the run the frozen contract judges: the
     ];
   const runGh = async (_command: string, args: readonly string[]) => {
     if (args[0] === "api") {
+      if (String(args[1]).includes("/actions/workflows")) return workflowRegistry;
       const status = coverage[String(args[1]).replace(/^.*\/compare\//u, "")] ?? "diverged";
       // Exercise the production subprocess buffer with a historical compare whose
       // patch exceeds it. gh must project the response before writing stdout.
@@ -893,6 +903,155 @@ test("CI observation pull --task imports the run the frozen contract judges: the
   }
 });
 
+// GitHub intermittently served the file-name-anchored listing (`--workflow rewrite-ci.yml`, what
+// the daemon used to build from the configured name) a run list days stale while a current
+// covering run existed — discovery then reported no covering run for a delivery main had already
+// accepted. The mock reproduces that serving split at the gh-command level: the file-name form
+// draws the stale page, the resolved-id form the current page. (The id-anchored form is not
+// immune to GitHub's stale windows either — see the task's recorded facts — but discovery no
+// longer fabricates a file name from the configured workflow name, and a regression back to the
+// file-name form fails this test.)
+test("CI observation pull --task lists runs by the resolved numeric workflow id, not the configured name's file name", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observation-task-id-anchored-")),
+    delivery = "d".repeat(40),
+    events: CiRunObservationEventV3[] = [];
+  const cell = {
+    rootDir,
+    settings: ciSettings(["rewrite-ci"]),
+    now: () => "2026-10-02T00:00:00.000Z",
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    store: {
+      readHead: () => (events.length ? { revision: events.length } : null),
+      readEvent: (opId: string) => events.find((event) => event.opId === opId),
+      append: ({ event }: { event: CiRunObservationEventV3 }) => {
+        events.push(event);
+        return { revision: events.length };
+      },
+    },
+    projection: {
+      apply: () => undefined,
+      readCiRunObservations: () => ({ watermark: events.length }),
+      read: () => ({
+        snapshot: {
+          task: { iteration: 1, completionGateIds: ["ci"] },
+          executions: [{ iteration: 1, submission: { commitSha: delivery } }],
+        },
+      }),
+    },
+  };
+  const stale = [
+      {
+        databaseId: 36067099042,
+        headBranch: "main",
+        headSha: "sha-stale",
+        createdAt: "2026-09-24T22:22:57Z",
+        status: "completed",
+        conclusion: "failure",
+        event: "push",
+      },
+    ],
+    current = [
+      {
+        databaseId: 36969543218,
+        headBranch: "main",
+        headSha: "sha-current",
+        createdAt: "2026-10-02T05:34:26Z",
+        status: "completed",
+        conclusion: "success",
+        event: "push",
+      },
+    ];
+  const runGh = async (_command: string, args: readonly string[]) => {
+    if (args[0] === "api")
+      return String(args[1]).includes("/actions/workflows")
+        ? workflowRegistry
+        : JSON.stringify({ status: String(args[1]).endsWith(`${delivery}...sha-current`) ? "ahead" : "diverged" });
+    if (args[1] === "list") return JSON.stringify(args[3] === "293605877" ? current : stale);
+    if (args[1] === "view")
+      return JSON.stringify({
+        workflowName: "rewrite-ci",
+        headSha: "sha-current",
+        headBranch: "main",
+        status: "completed",
+        conclusion: "success",
+        attempt: 1,
+        event: "push",
+      });
+    assert.equal(args[1], "download");
+    const output = String(args[args.indexOf("--dir") + 1]);
+    mkdirSync(output, { recursive: true });
+    writeFileSync(
+      path.join(output, "observation.json"),
+      JSON.stringify({
+        schema: "ci-run-artifact/v1",
+        run: {
+          runId: `${args[2]}.1`,
+          sha: "sha-current",
+          branch: "main",
+          prNumber: null,
+          job: "full-check (24)",
+          wallclockMs: 20,
+          runner: "ubuntu",
+        },
+        tests: [],
+        gates: [],
+      }),
+    );
+    return "";
+  };
+  try {
+    const receipt = await pullAndIngestCiObservations(
+      cell as never,
+      { kind: "ci-observe-pull", taskId: "task-witness" },
+      { actor, source: "local" },
+      runGh,
+    );
+    // The stale page (what a filename-anchored regression would list) carries no covering run;
+    // only the id-anchored page does, so reaching run 36969543218 proves the listing was id-anchored.
+    assert.equal(events[0]?.payload.verification?.runId, "36969543218");
+    assert.equal(events[0]?.payload.verification?.conclusion, "success");
+    assert.match(receipt.summary, /run 36969543218 \(rewrite-ci\) concluded success/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("CI observation pull rejects a configured workflow name GitHub does not know", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observation-unknown-workflow-")),
+    delivery = "d".repeat(40);
+  const cell = {
+    rootDir,
+    settings: ciSettings(["gone-ci"]),
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    projection: {
+      read: () => ({
+        snapshot: {
+          task: { iteration: 1, completionGateIds: ["ci"] },
+          executions: [{ iteration: 1, submission: { commitSha: delivery } }],
+        },
+      }),
+    },
+  };
+  try {
+    await assert.rejects(
+      fetchCiObservations(cell as never, { kind: "ci-observe-pull", taskId: "task-witness" }, (async (
+        _command: string,
+        args: readonly string[],
+      ) => {
+        assert.equal(args[0], "api");
+        return workflowRegistry;
+      }) as never),
+      (error: Error & { code?: string }) => {
+        assert.equal(error.code, "invalid_command");
+        assert.match(error.message, /workflow "gone-ci"/u);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("CI observation pull --task fails closed when no completed run covers the delivery", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observation-task-none-")),
     delivery = "d".repeat(40);
@@ -935,7 +1094,9 @@ test("CI observation pull --task fails closed when no completed run covers the d
   };
   const runGh = (async (_command: string, args: readonly string[]) => {
     if (args[0] === "api")
-      return JSON.stringify({ status: coverage[String(args[1]).replace(/^.*\/compare\//u, "")] ?? "diverged" });
+      return String(args[1]).includes("/actions/workflows")
+        ? workflowRegistry
+        : JSON.stringify({ status: coverage[String(args[1]).replace(/^.*\/compare\//u, "")] ?? "diverged" });
     if (args[1] === "list") return JSON.stringify(runs);
     throw new Error(`unexpected gh call: ${args.join(" ")}`);
   }) as never;
@@ -1006,7 +1167,10 @@ test("CI observation pull reports rate_limited with the reset hint instead of a 
       stderr,
     });
   const listThen = (failure: () => Error) => async (_command: string, args: readonly string[]) => {
-    if (args[0] === "api") throw failure();
+    if (args[0] === "api") {
+      if (String(args[1]).includes("/actions/workflows")) return workflowRegistry;
+      throw failure();
+    }
     if (args[1] === "list") return JSON.stringify(runs);
     throw new Error(`unexpected gh call: ${args.join(" ")}`);
   };
@@ -1043,7 +1207,7 @@ test("CI observation pull reports rate_limited with the reset hint instead of a 
         return true;
       },
     );
-    // An unscoped pull hits the rate limit on `gh run list` first.
+    // An unscoped pull hits the rate limit on the workflow-id registry lookup first.
     await assert.rejects(
       fetchCiObservations(cell as never, { kind: "ci-observe-pull", limit: 5 }, async () => {
         throw ghRateLimited("gh: API rate limit exceeded for person-zeyu. (rate limit reset in 1h2m3s) (HTTP 403)");

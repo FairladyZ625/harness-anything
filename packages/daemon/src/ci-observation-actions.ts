@@ -94,12 +94,18 @@ export async function fetchCiObservations(
   const witness = taskId === null ? null : taskWitnessContract(cell, taskId, workflows);
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), "ha-ci-observe-"));
   try {
-    const listed =
+    const configured = witness?.options.workflows ?? workflows,
+      // Every listing is id-anchored: appending ".yml" to a configured name fabricated a file
+      // name GitHub's file-name-anchored endpoints have served day-stale run lists from, and the
+      // configured contract names workflows by their GitHub name, not by file.
+      workflowIds =
+        namedRuns === null && configured.length > 0 ? await resolveWorkflowIds(cell, runGh, configured) : [],
+      listed =
         namedRuns === null
           ? (
               await Promise.all(
-                (witness?.options.workflows ?? workflows).map(
-                  async (workflow) =>
+                workflowIds.map(
+                  async (workflowId) =>
                     JSON.parse(
                       await runGh(
                         "gh",
@@ -107,7 +113,7 @@ export async function fetchCiObservations(
                           "run",
                           "list",
                           "--workflow",
-                          `${workflow}.yml`,
+                          workflowId,
                           ...(witness === null ? [] : ["--branch", "main"]),
                           "--limit",
                           String(limit),
@@ -364,6 +370,35 @@ export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: n
 }
 
 type TaskWitness = { readonly taskId: string; readonly delivery: string; readonly options: GithubActionsOptions };
+
+// Configured workflow names resolve to GitHub's numeric workflow ids before any run listing.
+// The repository's single page of workflows is the same bound gh's own name resolution uses; a
+// configured name missing from it is a configuration error, not something to search around.
+async function resolveWorkflowIds(
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "cellCodedError">,
+  runGh: RunGh,
+  names: readonly string[],
+): Promise<readonly string[]> {
+  const workflows = JSON.parse(
+    await runGh(
+      "gh",
+      ["api", "repos/:owner/:repo/actions/workflows?per_page=100", "--jq", "[.workflows[] | {id, name}]"],
+      {
+        cwd: cell.rootDir,
+      },
+    ),
+  ) as readonly { readonly id: number; readonly name: string }[];
+  return names.map((name) => {
+    const workflow = workflows.find((candidate) => candidate.name === name);
+    if (workflow === undefined)
+      throw cell.cellCodedError(
+        "invalid_command",
+        `CI observation cannot list workflow "${name}": the repository has no GitHub Actions workflow of that name. ` +
+          "next: correct the workflow name in harness.yaml settings.ci.workflows.",
+      );
+    return String(workflow.id);
+  });
+}
 
 // --task resolves the submitted execution's delivery commit and the github-actions options its
 // completion contract froze (cuts frozen before the contract infer them as completion does).

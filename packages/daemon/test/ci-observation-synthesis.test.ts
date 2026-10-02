@@ -65,6 +65,7 @@ function ingestCell(rootDir: string, events: CiRunObservationEventV3[]) {
 
 const noArtifactRunGh = (delivered: string) =>
   (async (_command: string, args: readonly string[]) => {
+    if (args[0] === "api") return JSON.stringify([{ id: 700, name: "ci" }]);
     if (args[1] === "list")
       return JSON.stringify([{ databaseId: 900, headBranch: "main", createdAt: "2026-09-12T00:00:00Z" }]);
     if (args[1] === "view")

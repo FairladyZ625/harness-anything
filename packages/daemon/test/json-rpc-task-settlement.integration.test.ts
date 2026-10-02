@@ -37,7 +37,14 @@ import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./r
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-protocol-ci-")),
   originalPath = process.env.PATH;
 before(() => {
-  writeFileSync(path.join(ciBin, "gh"), "#!/usr/bin/env node\nprocess.stdout.write('[]');\n", { mode: 0o755 });
+  writeFileSync(
+    path.join(ciBin, "gh"),
+    "#!/usr/bin/env node\n" +
+      // The ambient stub models a repository whose configured workflow exists but has no runs.
+      "if (process.argv[2] === 'api') process.stdout.write(JSON.stringify([{ id: 293605877, name: 'rewrite-ci' }]));\n" +
+      "else process.stdout.write('[]');\n",
+    { mode: 0o755 },
+  );
   process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
 });
 after(() => {
@@ -853,7 +860,8 @@ test(
           "const sha = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : null;\n" +
           "const rerun = fs.existsSync(path.join(__dirname, 'rerun')), conclusion = rerun ? 'success' : 'failure';\n" +
           "const run = { databaseId: 36464979857, headBranch: 'main', headSha: sha, status: 'completed' };\n" +
-          "if (sha && group === 'run' && verb === 'list')\n" +
+          "if (group === 'api') process.stdout.write(JSON.stringify([{ id: 293605877, name: 'rewrite-ci' }]));\n" +
+          "else if (sha && group === 'run' && verb === 'list')\n" +
           "  process.stdout.write(JSON.stringify([{ ...run, createdAt: '2026-09-29T00:00:00Z', conclusion }]));\n" +
           "else if (sha && group === 'run' && verb === 'view')\n" +
           "  process.stdout.write(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',\n" +
@@ -1144,6 +1152,11 @@ async function publishCiObservation(
       cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
     } as unknown as Parameters<typeof ingestCiObservations>[0];
     const fetched = await fetchCiObservations(cell, { kind: "ci-observe-pull", limit: 1 }, async (_command, args) => {
+      if (args[0] === "api")
+        return JSON.stringify([
+          { id: 293605877, name: "rewrite-ci" },
+          { id: 331622261, name: "rebuild-gates" },
+        ]);
       if (args[1] === "list")
         return JSON.stringify([{ databaseId, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
       if (args[1] === "view")
