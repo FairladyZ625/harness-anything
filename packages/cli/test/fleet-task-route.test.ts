@@ -185,6 +185,25 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     title: "Edge plan task",
     plan: "# Edge plan\n\n## Brief\n\nAuthored on the edge.\n",
   });
+  // The real-machine edge retest (F-31931F21) sent a 950-character plan; the route must hand the
+  // whole body to the wire action, never a truncated or scaffolded stand-in.
+  const longFiller = "边缘节点提交的多段计划正文，逐字穿过 Fleet 通道进入中心任务包并原样读回。",
+    longHead = "# 边缘计划\n\n## Brief\n",
+    longTail = "\n## Verification\n跑通本回归测试。\n";
+  let longBody = "";
+  while (longHead.length + longBody.length + longTail.length < 950) longBody += `${longFiller}\n`;
+  const longPlan = longHead + longBody.slice(0, 950 - longHead.length - longTail.length) + longTail;
+  assert.equal(longPlan.length, 950);
+  writeFileSync(path.join(root, "edge-plan-950.md"), longPlan);
+  const withLongPlan = await fleetTaskRoute(
+    command("repo.task.create", { kind: "task-create", title: "Edge long plan task", planFile: "edge-plan-950.md" }),
+    env,
+  );
+  assert.deepEqual(withLongPlan?.action, {
+    kind: "task-create",
+    title: "Edge long plan task",
+    plan: longPlan,
+  });
   assert.equal(
     await fleetTaskRoute(
       command("repo.task.create", { kind: "task-create", taskId: "task_admin", createMode: "admin", title: "Admin" }),

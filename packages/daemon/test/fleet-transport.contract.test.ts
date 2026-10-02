@@ -283,6 +283,42 @@ const frames = [
   },
 ] as const;
 
+// The real-machine edge retest (F-31931F21) had a 950-character plan rejected because the
+// create action reused the 512-character short-scalar text check for a document body.
+test("task-create carries the plan as a document body bounded by the frame budget, not the short text cap", () => {
+  const taskCommand = frames.find((frame) => frame.schema === "fleet.task.command/v1")!;
+  const filler = "边缘节点提交的多段计划正文，含 🛰 星外字符与 é 组合标记，逐字穿过 Fleet 通道。";
+  const head = "# 边缘计划\n\n## Brief\n",
+    tail = "\n## Verification\n跑通本回归测试并逐字读回。\n";
+  let body = "";
+  while (head.length + body.length + tail.length < 950) body += `${filler}\n`;
+  const plan = head + body.slice(0, 950 - head.length - tail.length) + tail;
+  assert.equal(plan.length, 950);
+  const frame = { ...taskCommand, action: { kind: "task-create", title: "Edge plan task", plan } };
+  const parsed = parseFleetFrame(frame) as typeof frame;
+  assert.equal(parsed.action.plan, plan, "the plan body parses verbatim, combining marks and astral chars intact");
+  assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame, "serialize→parse round-trips the plan body");
+  // The body budget itself still binds before the frame cap sees the frame.
+  assert.throws(
+    () => parseFleetFrame({ ...frame, action: { ...frame.action, plan: "x".repeat(32 * 1024 + 1) } }),
+    FleetContractError,
+  );
+  // A character-count-legal plan of multi-byte text cannot push the frame past 96 KiB.
+  assert.throws(
+    () => parseFleetFrame({ ...frame, action: { ...frame.action, plan: "字".repeat(32 * 1024) } }),
+    /frame exceeds/u,
+  );
+  // The short-scalar cap was not relaxed globally: title keeps the 512-character bound.
+  assert.throws(
+    () => parseFleetFrame({ ...frame, action: { kind: "task-create", title: "t".repeat(513) } }),
+    FleetContractError,
+  );
+  assert.throws(
+    () => parseFleetFrame({ ...frame, action: { kind: "task-create", title: "t", plan: "" } }),
+    FleetContractError,
+  );
+});
+
 test("Fleet transport union round-trips every closed wire variant", () => {
   assert.equal(FLEET_KEY_SEND_WINDOW_BYTES, 256 * 1024);
   assert.equal(FLEET_SESSION_SEND_WINDOW_BYTES, 512 * 1024);
