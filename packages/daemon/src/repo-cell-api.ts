@@ -750,15 +750,10 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
   const builtinRuns = new Map<string, Promise<WriteReceipt>>();
   let builtinTail: Promise<void> = Promise.resolve();
   const continueBuiltin = (action: RepoTaskAction, binding: RepoCellBinding, receipt: WriteReceipt) => {
+    if (action.kind !== "schedule-run-now" || receipt.outcome !== "applied") return Promise.resolve(receipt);
     const schedule = (receipt as WriteReceipt & { readonly schedule?: ScheduleV1 }).schedule,
       active = schedule?.status.activeRun;
-    if (
-      action.kind !== "schedule-run-now" ||
-      receipt.outcome !== "applied" ||
-      schedule?.spec.target.kind !== "builtin" ||
-      !active
-    )
-      return Promise.resolve(receipt);
+    if (schedule?.spec.target.kind !== "builtin" || !active) return Promise.resolve(receipt);
     const running = builtinRuns.get(active.claimFence);
     if (running) return running;
     const pending = builtinTail
