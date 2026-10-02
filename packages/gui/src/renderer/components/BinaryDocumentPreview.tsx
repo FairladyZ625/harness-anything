@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FileX } from "@phosphor-icons/react";
+import type { PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
 import { DocumentFrame } from "./DocumentFrame";
 
 const IMAGE_MEDIA = /^image\/(?:png|jpeg|gif|webp|avif|svg\+xml|bmp|x-icon)$/u;
@@ -63,40 +64,48 @@ function PdfDocumentPreview({ path, bytes }: { readonly path: string; readonly b
   const canvasHost = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let cancelled = false;
+    let loadingTask: PDFDocumentLoadingTask | undefined;
+    let renderTask: RenderTask | undefined;
+    const host = canvasHost.current;
+    host?.replaceChildren();
+    setError(null);
     const render = async () => {
       const data = Uint8Array.from(atob(bytes), (character) => character.charCodeAt(0));
       const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist");
+      if (cancelled || host === null) return;
       GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-      const pdf = await getDocument({ data }).promise;
-      if (canvasHost.current === null) return;
-      canvasHost.current.replaceChildren();
+      loadingTask = getDocument({ data });
+      const pdf = await loadingTask.promise;
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        if (cancelled) return;
         const page = await pdf.getPage(pageNumber);
+        if (cancelled) return;
         const viewport = page.getViewport({ scale: 1.35 });
         const canvas = document.createElement("canvas");
         canvas.width = Math.ceil(viewport.width);
         canvas.height = Math.ceil(viewport.height);
         canvas.className = "mx-auto mb-4 block max-w-full bg-white shadow";
-        canvasHost.current.append(canvas);
-        await page.render({ canvas, viewport }).promise;
+        host.append(canvas);
+        renderTask = page.render({ canvas, viewport });
+        await renderTask.promise;
         if (cancelled) return;
       }
     };
     void render().catch((cause) => {
+      if (cancelled) return;
       console.error("PDF rendering failed:", cause);
-      if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      setError(cause instanceof Error ? cause.message : String(cause));
     });
     return () => {
       cancelled = true;
+      renderTask?.cancel();
+      void loadingTask?.destroy().catch((cause) => console.error("PDF cleanup failed:", cause));
     };
   }, [bytes]);
   return (
     <DocumentFrame testId="document-pdf-preview" toolbar={<div className="px-3 py-2 ui-meta">{path} · PDF</div>}>
-      {error === null ? (
-        <div ref={canvasHost} className="min-h-40 bg-surface-raised p-4" data-pdf-pages />
-      ) : (
-        <PreviewFailure message={error} />
-      )}
+      <div ref={canvasHost} hidden={error !== null} className="min-h-40 bg-surface-raised p-4" data-pdf-pages />
+      {error !== null && <PreviewFailure message={error} />}
     </DocumentFrame>
   );
 }
@@ -106,11 +115,16 @@ function DocxDocumentPreview({ path, bytes }: { readonly path: string; readonly 
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
+    const host = body.current;
+    host?.replaceChildren();
+    setError(null);
     const render = async () => {
       const data = Uint8Array.from(atob(bytes), (character) => character.charCodeAt(0));
-      if (body.current === null) return;
+      if (host === null) return;
       const { renderAsync } = await import("docx-preview");
-      await renderAsync(data, body.current, undefined, {
+      if (cancelled) return;
+      const rendered = document.createElement("div");
+      await renderAsync(data, rendered, undefined, {
         breakPages: true,
         inWrapper: true,
         renderHeaders: true,
@@ -118,10 +132,12 @@ function DocxDocumentPreview({ path, bytes }: { readonly path: string; readonly 
         renderFootnotes: true,
         renderEndnotes: true,
       });
+      if (!cancelled) host.replaceChildren(...rendered.childNodes);
     };
     void render().catch((cause) => {
+      if (cancelled) return;
       console.error("DOCX rendering failed:", cause);
-      if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      setError(cause instanceof Error ? cause.message : String(cause));
     });
     return () => {
       cancelled = true;
@@ -129,11 +145,8 @@ function DocxDocumentPreview({ path, bytes }: { readonly path: string; readonly 
   }, [bytes]);
   return (
     <DocumentFrame testId="document-docx-preview" toolbar={<div className="px-3 py-2 ui-meta">{path} · DOCX</div>}>
-      {error === null ? (
-        <div ref={body} className="docx-preview-host min-w-0 p-4 text-black" />
-      ) : (
-        <PreviewFailure message={error} />
-      )}
+      <div ref={body} hidden={error !== null} className="docx-preview-host min-w-0 p-4 text-black" />
+      {error !== null && <PreviewFailure message={error} />}
     </DocumentFrame>
   );
 }
