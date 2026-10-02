@@ -1,8 +1,8 @@
-import { DocumentFrame } from "./DocumentFrame";
 import { useCallback, useState } from "react";
-import { ArrowSquareOut, FileX } from "@phosphor-icons/react";
+import { ArrowSquareOut } from "@phosphor-icons/react";
 import type { TaskDocumentProjectionRead } from "../../api/renderer-dto.ts";
 import { openArtifactExternally } from "../artifact-open-client.ts";
+import { BinaryDocumentPreview } from "./BinaryDocumentPreview.tsx";
 
 /** 二进制任务产物的读侧面板:元数据 + 取字节的真实路径 + 交给系统查看器打开。
  * 不在渲染进程里把字节转成字符串,也不假装它是一份空文档。 */
@@ -29,28 +29,10 @@ export function BinaryArtifactPanel({
   }, [artifactPath, repoId, taskId]);
   const image =
     read.bytes !== null && /^image\/(?:png|jpeg|gif|webp|avif|svg\+xml|bmp|x-icon)$/u.test(read.mediaType ?? "");
-  if (image)
-    return (
-      <DocumentFrame
-        testId="task-document-image"
-        toolbar={
-          <div className="px-3 py-2 ui-meta">
-            {path}
-            {read.uncommitted ? " · 已入账版本（本地有未提交修改）" : ""}
-          </div>
-        }
-      >
-        <img
-          src={`data:${read.mediaType};base64,${read.bytes}`}
-          alt={path}
-          className="mx-auto block h-auto max-w-full"
-        />
-      </DocumentFrame>
-    );
+  if (image) return <BinaryDocumentPreview path={path} mediaType={read.mediaType} bytes={read.bytes} />;
   return (
     <div data-testid="task-document-binary" className="border border-border-strong">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
-        <FileX weight="duotone" className="text-base text-text-faint" />
         <span className="ui-meta text-text">二进制产物,不是文本</span>
         <span className="grow" />
         <button

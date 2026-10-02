@@ -1,18 +1,9 @@
-import { isValidElement, useMemo, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import Markdown from "react-markdown";
-import type { Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { DocumentFrame } from "./DocumentFrame";
+import { MarkdownDocument } from "./MarkdownDocument";
 import { SegCtl } from "./primitives/SegCtl";
 import { MagnifyingGlass } from "@phosphor-icons/react";
-import { MarkdownAnchor } from "../local-doc/MarkdownAnchor.tsx";
-import { markdownUrlTransform } from "../local-doc/markdown-links.ts";
-
-// mermaid diagram rendering is intentionally omitted in the Electron shell:
-// its runtime injects inline <style>/<script>, which the production CSP
-// (style-src 'self'; script-src 'self') blocks, and the bundle is heavy.
-// mermaid code fences fall back to a readable source block.
 
 type ReaderLayout = "auto" | "single" | "double";
 type ReaderFont = "sans" | "serif" | "mono";
@@ -47,51 +38,6 @@ export function DocReader({
 
   // 链接拦截(task_89d324b5):锚点永远不做文档导航。本机文件链接转本机文档浮层,
   // 包内相对链接走宿主提供的导航出口;components 随 props 重建以捕获最新闭包。
-  const components = useMemo<Components>(() => {
-    const base: Components = {
-      table({ node: _node, children, ...props }) {
-        return (
-          <div className="document-wide-block">
-            <table {...props}>{children}</table>
-          </div>
-        );
-      },
-      pre({ node: _node, children }) {
-        if (isValidElement(children)) {
-          const childProps = children.props as {
-            className?: string;
-            children?: ReactNode;
-          };
-          if (childProps.className?.includes("language-mermaid")) {
-            return (
-              <pre
-                className={
-                  "my-4 overflow-x-auto rounded-md border border-border bg-surface p-3 " +
-                  "font-mono ui-meta text-text-muted"
-                }
-              >
-                <code>{String(childProps.children ?? "").trim()}</code>
-              </pre>
-            );
-          }
-        }
-        return (
-          <div className="document-wide-block">
-            <pre>{children}</pre>
-          </div>
-        );
-      },
-    };
-    if (packageBasePath !== null || onOpenPackageDoc !== undefined) {
-      base.a = (props) => (
-        <MarkdownAnchor {...props} packageBasePath={packageBasePath} onOpenPackageDoc={onOpenPackageDoc} />
-      );
-    } else {
-      base.a = MarkdownAnchor;
-    }
-    return base;
-  }, [packageBasePath, onOpenPackageDoc]);
-
   const matchCount = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return null;
@@ -173,9 +119,7 @@ export function DocReader({
     >
       <div className="doc-flow min-w-0 px-5 py-5 sm:px-6" style={readerStyle}>
         <div className="prose-harness" data-layout={layout} data-font={font}>
-          <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={markdownUrlTransform}>
-            {content}
-          </Markdown>
+          <MarkdownDocument content={content} packageBasePath={packageBasePath} onOpenPackageDoc={onOpenPackageDoc} />
         </div>
       </div>
     </DocumentFrame>

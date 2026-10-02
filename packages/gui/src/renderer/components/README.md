@@ -31,6 +31,15 @@
 - **RecordRow**:记录行布局。元数据行(标识/状态左、时间/动作行尾)+ **全宽正文**——长正文占满
   记录容器宽度,不与标识/时间挤三列;长 ID 截断在标识格,窄容器不溢出。
 - **BoundedContent**:日志、评审、时间线和文件预览的长内容边界。最大高度统一使用 `--long-content-cap:55cqb`，相对最近 `content-viewport` 的可用块轴尺寸；无此容器时CSS使用小视口参照,超出内容在自身区域滚动，标题和动作位留在边界外。
+
+## Document format matrix
+
+| Format | In-app path | Boundary |
+| --- | --- | --- |
+| Markdown, HTML, text, JSON, CSV | `MarkdownDocument` / `DocReader` | GFM tables and fenced code scroll inside the bounded frame; HTML is treated as markdown/text and is not executed. |
+| PNG, JPEG, GIF, WebP, AVIF, BMP, ICO, SVG | `BinaryDocumentPreview` | Decoded from authorized base64 bytes; SVG is displayed as an image and never inserted as markup. |
+| PDF | `BinaryDocumentPreview` | Authorized bytes are loaded in the browser PDF viewer inside the bounded frame. |
+| DOCX, DOC | `BinaryDocumentPreview` | Authorized bytes are surfaced with an explicit no-page-layout message; system viewer remains the fidelity path. DOC is not labelled as DOCX. |
 - **Modal**:共享弹层使用原生dialog承担焦点限制、Escape关闭及返回原触发器；遮罩、标题/关闭、滚动正文和固定页脚由原语承担；领域表单只提供
   `children` 与 `footer`,不从 runtime 私有 parts 取弹层布局。
 - **Section**:区块三档——默认文档区块、hero/warn 注意力左粗边、panel 设置面板档(吸收原

@@ -186,20 +186,51 @@ export async function readLocalDocument(
       message: `Local document is ${size} bytes; the in-app reader accepts at most ${maxBytes}.`,
     };
 
-  let content: string;
+  let bytes: Buffer;
   try {
-    content = await readFile(realPath, "utf8");
+    bytes = await readFile(realPath);
   } catch (cause) {
     return fsFailure(classifyLocalDocFsError(cause), realPath, cause);
   }
-  if (looksBinary(content))
+  const content = bytes.toString("utf8");
+  const mediaType = mediaTypeForPath(realPath);
+  if (looksBinary(content) && mediaType === null)
     return {
       ok: false,
       code: "binary_file",
       path: realPath,
       message: "Local document does not decode as text.",
     };
-  return { ok: true, path: realPath, content, sizeBytes: size };
+  const binary = mediaType !== null && looksBinary(content);
+  return {
+    ok: true,
+    path: realPath,
+    content: binary ? "" : content,
+    sizeBytes: size,
+    contentKind: binary ? "binary" : "text",
+    mediaType: mediaType ?? "text/plain",
+    bytes: binary ? bytes.toString("base64") : null,
+  };
+}
+
+function mediaTypeForPath(filePath: string): string | null {
+  const extension = path.extname(filePath).toLowerCase();
+  return (
+    {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".avif": "image/avif",
+      ".bmp": "image/bmp",
+      ".ico": "image/x-icon",
+      ".svg": "image/svg+xml",
+      ".pdf": "application/pdf",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".doc": "application/msword",
+    }[extension] ?? null
+  );
 }
 
 type WriteTargetResolution =

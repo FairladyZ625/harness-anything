@@ -155,6 +155,17 @@ test("missing files, directories, binary files and oversize files fail typed", a
   const binary = await readLocalDocument(binaryFile, { homeDir: () => "/home/ce" });
   assert.deepEqual({ ok: binary.ok, code: binary.ok ? null : binary.code }, { ok: false, code: "binary_file" });
 
+  const pngFile = path.join(root, "pixel.png");
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d, 0x0a]);
+  writeFileSync(pngFile, pngBytes);
+  const image = await readLocalDocument(pngFile, { homeDir: () => "/home/ce" });
+  assert.equal(image.ok, true);
+  if (image.ok) {
+    assert.equal(image.contentKind, "binary");
+    assert.equal(image.mediaType, "image/png");
+    assert.equal(image.bytes, pngBytes.toString("base64"));
+  }
+
   const oversize = path.join(root, "big.txt");
   writeFileSync(oversize, "x".repeat(65));
   const tooLarge = await readLocalDocument(oversize, { homeDir: () => "/home/ce", maxBytes: 64 });

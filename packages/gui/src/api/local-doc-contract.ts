@@ -34,6 +34,9 @@ export interface LocalDocReadSuccess {
   readonly path: string;
   readonly content: string;
   readonly sizeBytes: number;
+  readonly contentKind: "text" | "binary";
+  readonly mediaType: string;
+  readonly bytes: string | null;
 }
 
 export interface LocalDocReadFailure {

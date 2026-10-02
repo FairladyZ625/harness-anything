@@ -42,7 +42,15 @@ export async function requestLocalDocument(path: string): Promise<LocalDocReadRe
         typeof value.content === "string" &&
         typeof value.sizeBytes === "number"
       )
-        return { ok: true, path: value.path, content: value.content, sizeBytes: value.sizeBytes };
+        return {
+          ok: true,
+          path: value.path,
+          content: value.content,
+          sizeBytes: value.sizeBytes,
+          contentKind: value.contentKind === "binary" ? "binary" : "text",
+          mediaType: typeof value.mediaType === "string" ? value.mediaType : "text/plain",
+          bytes: typeof value.bytes === "string" ? value.bytes : null,
+        };
       if (
         value.ok === false &&
         typeof value.code === "string" &&
