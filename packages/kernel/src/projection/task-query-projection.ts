@@ -234,6 +234,7 @@ export function readTaskIndexRows(
       return [
         {
           taskId: row.task_id,
+          supersededBy: task.supersededBy ?? null,
           title: task.title,
           status: query.presentationStatus ? row.presentation_status : task.status,
           pinned: task.pinned,

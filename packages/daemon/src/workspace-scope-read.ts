@@ -118,7 +118,7 @@ export function workspaceStructureFromProjection(
   const leaves = descendants.filter((row) => !children.has(row.taskId));
   // A superseded archived leaf is a retired plan, not open work: it leaves the counts and the leaf page,
   // while descendantCount/archivedCount/memberTaskIds keep the history queryable.
-  const executableLeaves = leaves.filter((row) => !supersededArchivedLeaf(projection, row));
+  const executableLeaves = leaves.filter((row) => !supersededArchivedLeaf(row));
   const counts: Record<keyof WorkspaceScopeStatusCounts, number> = emptyScopeCounts();
   for (const row of executableLeaves) counts[scopeStatus(row.status)] += 1;
   const sortedLeaves = [...executableLeaves].sort((left, right) => left.taskId.localeCompare(right.taskId));
@@ -191,10 +191,8 @@ export function emptyScopeCounts(): Record<keyof WorkspaceScopeStatusCounts, num
 
 /** `ha task supersede`'s footprint: archived with a recorded replacement. Only that proven pair retires
  * a leaf from open accounting; archived-without-replacement keeps its existing meaning. */
-function supersededArchivedLeaf(projection: TaskProjection, row: TaskIndexProjectionRow): boolean {
-  if (row.packageDisposition !== "archived") return false;
-  const task = projection.read(row.taskId).snapshot.task;
-  return task !== null && task.supersededBy != null;
+function supersededArchivedLeaf(row: TaskIndexProjectionRow): boolean {
+  return row.packageDisposition === "archived" && row.supersededBy !== null;
 }
 
 export function scopeStatus(status: TaskIndexProjectionRow["status"]): keyof WorkspaceScopeStatusCounts {

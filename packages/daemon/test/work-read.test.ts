@@ -46,13 +46,7 @@ const rows = [
 function projection(plan: string | null = "# Work\n\n## Mission\n\n- Ship release two.\n- Keep the lanes green.\n") {
   return {
     readTaskIndex: () => ({ status: "ready", rows, watermark: 7, sourceRevision: 7, warnings: [] }),
-    read: (taskId: string) => {
-      const row = rows.find((candidate) => candidate.taskId === taskId);
-      return {
-        packagePath: `tasks/${taskId}`,
-        snapshot: { task: row ? { taskId, supersededBy: row.supersededBy } : null },
-      };
-    },
+    read: (taskId: string) => ({ packagePath: `tasks/${taskId}` }),
     readDocument: () => ({ document: plan === null ? null : { body: plan } }),
   } as never;
 }
@@ -176,13 +170,7 @@ test("work show drops superseded archived leaves from open tasks and pending cou
   ];
   const projection = {
     readTaskIndex: () => ({ status: "ready", rows: retired, watermark: 3, sourceRevision: 3, warnings: [] }),
-    read: (taskId: string) => {
-      const row = retired.find((candidate) => candidate.taskId === taskId);
-      return {
-        packagePath: `tasks/${taskId}`,
-        snapshot: { task: row ? { taskId, supersededBy: row.supersededBy } : null },
-      };
-    },
+    read: (taskId: string) => ({ packagePath: `tasks/${taskId}` }),
     readDocument: () => ({ document: { body: "# Work\n\n## Mission\n\n- Ship.\n" } }),
   } as never;
   const shown = workShowFromProjection(projection, { taskId: "declared" });

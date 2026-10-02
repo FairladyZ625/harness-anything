@@ -29,10 +29,6 @@ const task = (
 const projection = (rows: readonly ReturnType<typeof task>[], events: readonly Record<string, unknown>[] = []) =>
   ({
     readTaskIndex: () => ({ status: "ready", rows, watermark: 12, sourceRevision: 12, warnings: [] }),
-    read: (taskId: string) => {
-      const row = rows.find((candidate) => candidate.taskId === taskId);
-      return { snapshot: { task: row ? { taskId, supersededBy: row.supersededBy } : null } };
-    },
     readCanonicalEvents: (afterRevision: number, limit: number) => ({
       status: "ready",
       events: events.filter((event) => Number(event.workspaceRevision) > afterRevision).slice(0, limit),
