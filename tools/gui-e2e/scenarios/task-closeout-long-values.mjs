@@ -167,6 +167,38 @@ export default {
     // 行不横向溢出(修复前裸 span 无截断,窄容器直接把相邻列顶出去)。
     const executionRow = page.getByTestId(`task-execution-${EXECUTION_ID}`);
     await executionRow.waitFor();
+    // Exercise the shared scroll boundary on a real rendered record, without changing ledger data.
+    // The temporary long/wide block distinguishes internal scrolling from an expanding page.
+    const longContent = await page
+      .getByTestId("task-closeout-tab")
+      .locator(".bounded-content")
+      .first()
+      .evaluate((node) => {
+        const sample = globalThis.document.createElement("pre");
+        sample.textContent = ("long-record/".repeat(100) + "\n").repeat(100);
+        node.append(sample);
+        node.scrollTop = 100;
+        node.scrollLeft = 100;
+        const result = {
+          height: node.clientHeight,
+          contentHeight: node.scrollHeight,
+          width: node.clientWidth,
+          contentWidth: node.scrollWidth,
+          top: node.scrollTop,
+          left: node.scrollLeft,
+          viewport: globalThis.innerHeight,
+        };
+        sample.remove();
+        node.scrollTop = 0;
+        node.scrollLeft = 0;
+        return result;
+      });
+    assert.ok(longContent.height > 0 && longContent.height < longContent.contentHeight);
+    assert.ok(longContent.height <= longContent.viewport * 0.56, "record uses the shared proportional cap");
+    assert.ok(
+      longContent.width < longContent.contentWidth && longContent.left > 0 && longContent.top > 0,
+      "wide and long content scrolls inside the record on both axes",
+    );
     const executionIdLeaf = executionRow.locator("span[title]").first();
     assert.equal(await executionIdLeaf.getAttribute("title"), EXECUTION_ID, "hover title keeps the full execution id");
     const executionIdStyle = await executionIdLeaf.evaluate((node) => {
