@@ -1,4 +1,3 @@
-import { Panel } from "@xyflow/react";
 import type { TerritorySkel } from "../graph/territory.ts";
 
 /**
@@ -56,22 +55,20 @@ export function TerritorySkelToggle({
   onSkelChange: (s: TerritorySkel) => void;
 }) {
   return (
-    <Panel position="top-center">
-      <div className="flex overflow-hidden rounded-xs border border-border bg-surface-raised shadow-sm">
-        <ModeBtn active={skel === "task"} onClick={() => onSkelChange("task")}>
-          任务
-        </ModeBtn>
-        <ModeBtn active={skel === "decision"} onClick={() => onSkelChange("decision")}>
-          决策
-        </ModeBtn>
-        <ModeBtn active={skel === "fact"} onClick={() => onSkelChange("fact")}>
-          事实
-        </ModeBtn>
-        <ModeBtn active={skel === "unified"} onClick={() => onSkelChange("unified")}>
-          全域
-        </ModeBtn>
-      </div>
-    </Panel>
+    <div className="flex shrink-0 overflow-hidden rounded-xs border border-border bg-surface-raised shadow-sm">
+      <ModeBtn active={skel === "task"} onClick={() => onSkelChange("task")}>
+        任务
+      </ModeBtn>
+      <ModeBtn active={skel === "decision"} onClick={() => onSkelChange("decision")}>
+        决策
+      </ModeBtn>
+      <ModeBtn active={skel === "fact"} onClick={() => onSkelChange("fact")}>
+        事实
+      </ModeBtn>
+      <ModeBtn active={skel === "unified"} onClick={() => onSkelChange("unified")}>
+        全域
+      </ModeBtn>
+    </div>
   );
 }
 
@@ -93,7 +90,7 @@ function ModeBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`px-2.5 py-1 ui-meta font-medium transition-colors ${
+      className={`shrink-0 whitespace-nowrap px-2.5 py-1 ui-meta font-medium transition-colors ${
         active ? "bg-accent text-accent-fg" : "bg-surface text-text-muted hover:text-text"
       }${disabled ? " cursor-not-allowed opacity-50" : ""}`}
     >

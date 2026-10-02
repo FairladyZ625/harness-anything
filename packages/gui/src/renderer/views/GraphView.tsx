@@ -603,8 +603,10 @@ function GraphViewInner({
                 pannable
                 zoomable
               />
-              <Panel position="top-left">
-                <div className="flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 ui-micro text-text-muted">
+              <Panel position="top-left" className="!right-4 flex max-w-full flex-wrap items-start gap-2">
+                <TerritorySkelToggle skel={skel} onSkelChange={setSkel} />
+                {filterPanel}
+                <div className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 ui-micro text-text-muted">
                   <span>折叠块:</span>
                   <button
                     onClick={() => {
@@ -619,8 +621,6 @@ function GraphViewInner({
                   </button>
                 </div>
               </Panel>
-              <TerritorySkelToggle skel={skel} onSkelChange={setSkel} />
-              <Panel position="top-left">{filterPanel}</Panel>
             </ReactFlow>
           )}
           <EgoNeighborhood

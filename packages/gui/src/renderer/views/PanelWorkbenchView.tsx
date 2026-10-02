@@ -186,9 +186,12 @@ function TaskDocumentsPanel({
   readonly onNavigateEntity: (ref: string) => void;
 }) {
   const [taskId, setTaskId] = useState(() => defaultDocumentsTaskId(tasks));
-  const [activeDoc, setActiveDoc] = useState("");
-  const task = tasks.find((candidate) => candidate.taskId === taskId) ?? null;
-  const options = useMemo(() => tasks.slice(0, 200).map(({ taskId: id, title }) => ({ id, title })), [tasks]);
+  const [activeDoc, setActiveDoc] = useState("task_plan.md");
+  const task =
+    tasks.find((candidate) => candidate.taskId === taskId) ??
+    tasks.find((candidate) => candidate.taskId === defaultDocumentsTaskId(tasks)) ??
+    null;
+  const options = useMemo(() => tasks.map(({ taskId: id, title }) => ({ id, title })), [tasks]);
 
   if (tasks.length === 0) {
     return (
@@ -210,7 +213,7 @@ function TaskDocumentsPanel({
           value={task?.taskId ?? ""}
           onChange={(event) => {
             setTaskId(event.target.value);
-            setActiveDoc("");
+            setActiveDoc("task_plan.md");
           }}
           className="control min-w-0 flex-1"
         >

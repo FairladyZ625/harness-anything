@@ -111,11 +111,44 @@ export default {
     await page.reload();
     await page.getByRole("button", { name: /^(?:面板工作台|Panel Workbench)$/u }).click();
     await waitForOffset(page, DOCUMENTS_OVERLAY, stored);
+    await page.getByTestId("panel-documents-task").locator("option").first().waitFor({ state: "attached" });
+    await page.getByTestId("panel-documents-body").waitFor();
     await shot("panel-workspace-restored");
 
     // 重置布局:清掉偏好,回预设几何。
     await page.getByTestId("panel-workbench-reset").click();
     await waitForOffset(page, documentsBody, preset, 4);
+
+    // Every exposed edge/corner must actually resize, not merely exist in the DOM.
+    await container.locator(".dv-floating-titlebar").click();
+    await dragBy(page, container.locator(".dv-resize-handle-bottom"), 0, -240);
+    await dragBy(page, container.locator(".dv-floating-titlebar"), 80, 80);
+    for (const [direction, dx, dy] of [
+      ["top", 0, -16],
+      ["right", 16, 0],
+      ["bottom", 0, 16],
+      ["left", -16, 0],
+      ["topleft", -16, -16],
+      ["topright", 16, -16],
+      ["bottomleft", -16, 16],
+      ["bottomright", 16, 16],
+    ]) {
+      const before = await offsetOf(page, documentsBody);
+      await dragBy(page, container.locator(`.dv-resize-handle-${direction}`), dx, dy);
+      const after = await offsetOf(page, documentsBody);
+      if (dx !== 0) assert.ok(after.width > before.width + 5, `${direction} must resize width`);
+      if (dy !== 0) assert.ok(after.height > before.height + 5, `${direction} must resize height`);
+    }
+    const beforeMaximize = await offsetOf(page, documentsBody);
+    await container.getByTestId("floating-panel-maximize").click();
+    await page.waitForFunction(
+      ({ selector, width }) => globalThis.document.querySelector(selector).getBoundingClientRect().width > width,
+      { selector: documentsBody, width: beforeMaximize.width },
+    );
+    const maximized = await offsetOf(page, documentsBody);
+    assert.ok(maximized.width > beforeMaximize.width, "maximize must expand the panel");
+    await container.getByTestId("floating-panel-maximize").click();
+    await waitForOffset(page, documentsBody, beforeMaximize, 4);
 
     // 画板收缩后每个浮窗至少留一角在画板内。主窗口有 1120×720 的最小尺寸,窗口本身
     // 缩不进去;直接收画板元素,驱动 dockview 的 ResizeObserver → layout →
