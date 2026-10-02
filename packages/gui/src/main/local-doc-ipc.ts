@@ -261,6 +261,8 @@ function mediaTypeForPath(filePath: string): string | null {
       ".pdf": "application/pdf",
       ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       ".doc": "application/msword",
+      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ".ppt": "application/vnd.ms-powerpoint",
       ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
       ".xls": "application/vnd.ms-excel",
