@@ -1,7 +1,8 @@
 import { builtinModules } from "node:module";
+import { realpathSync } from "node:fs";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite";
 
 // The renderer module graph is browser-only: a Node builtin reachable from renderer source by a
 // value import (`import type` is stripped before resolution and never reaches resolveId) renders
@@ -31,6 +32,18 @@ export default defineConfig({
   root: ".",
   base: "./",
   plugins: [rendererNodeBuiltinGuard(), react(), tailwindcss()],
+  server: {
+    fs: {
+      // Worktrees share installed fonts through node_modules symlinks. Permit only
+      // those public asset directories outside the normal workspace boundary.
+      allow: [
+        searchForWorkspaceRoot(import.meta.dirname),
+        ...(["geist", "geist-mono"] as const).map((font) =>
+          realpathSync(new URL(`../../node_modules/@fontsource-variable/${font}`, import.meta.url)),
+        ),
+      ],
+    },
+  },
   build: {
     rollupOptions: {
       input: "index.html",
