@@ -3,8 +3,6 @@
   "graph.graphDrawer.ariaLabel": "Relation details",
   "graph.graphDrawer.jumpSourceNode": "Jump source node",
   "graph.graphDrawer.jumpTargetNode": "Jump target node",
-  "graph.graphDrawer.openSidebarTaskDetailsDecisionDecisionPool": "Open details (task · decision · fact)",
-  "graph.graphDrawer.open": "open",
   "graph.graphDrawer.unknown": "unknown",
   "graph.graphDrawer.node": " node",
   "graph.graphDrawer.edgeRelation": "Edge (relation)",
@@ -22,9 +20,6 @@
   "graph.graphDrawer.anchorValue": "Anchor: {anchor}",
   "graph.graphDrawer.anchorLabel": "Anchor: ",
   "graph.graphDrawer.edgeKindMessage": "This is a {kind} relation edge.",
-  "graph.graphDrawer.chainCounts": "Chain: upstream {up} · downstream {down}",
-  "graph.graphDrawer.outEdgesCount": "out-edges {count}",
-  "graph.graphDrawer.inEdgesCount": "in-edges {count}",
   "graph.axis.authority": "Authority",
   "graph.axis.evidence": "Evidence",
   "graph.axis.execution": "Execution",
@@ -39,5 +34,9 @@
   "graph.graphDrawer.scheduleTarget": "target agent",
   "graph.graphDrawer.scheduleTargetNone": "squad target (not projected as an agent node)",
   "graph.graphDrawer.nodeMeta": "degree {degree} · hop {hop}",
-  "graph.graphDrawer.hiddenNeighbors": "{count} not laid out"
+  "graph.graphDrawer.hiddenNeighbors": "{count} not laid out",
+  "graph.egoCard.collapse": "Collapse (expanded neighbors stay)",
+  "graph.egoCard.setFocus": "Set as focus (relayout around it)",
+  "graph.egoCard.openDetail": "Open full details",
+  "graph.egoCard.hiddenHint": "{count} neighbors not laid out yet — expanding this card grows them"
 }

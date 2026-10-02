@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 // @vitest-environment happy-dom
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { bfsShownFromFocus, buildEgoGraph, type EgoAxisFilter } from "../src/renderer/graph/egoCanvas.ts";
 import { EGO_DEFAULT_HOPS } from "../src/renderer/graph/useEgoCanvas.ts";
 import { EgoHopsControl, EGO_HOPS_MAX, EGO_HOPS_MIN } from "../src/renderer/graph/EgoHopsControl.tsx";
 import { EgoNeighborhood } from "../src/renderer/graph/EgoNeighborhood.tsx";
+import { clearEgoSession } from "../src/renderer/graph/egoSession.ts";
 import type { DecisionRow, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
 
 /**
@@ -109,6 +110,11 @@ beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 });
 
+beforeEach(() => {
+  // ego 会话是模块级单槽:测试间清空,避免上一个用例的探索态串场。
+  clearEgoSession();
+});
+
 describe("EgoHopsControl 步进器", () => {
   it("父/子各一个步进器,初始值透传", async () => {
     const { div, root } = await mountControl();
@@ -162,6 +168,7 @@ async function mountNeighborhood(hops: { up: number; down: number }) {
     act(async () => {
       root.render(
         createElement(EgoNeighborhood, {
+          repoId: "repo-a",
           focusRef: "task/t1",
           tasks: chainTasks,
           decisions: chainDecisions,
@@ -179,28 +186,30 @@ async function mountNeighborhood(hops: { up: number; down: number }) {
 describe("EgoNeighborhood 接 hops", () => {
   it("1/1 只铺父一跳 + 子一跳;步进到 2/2 就地长出第二跳,不清焦点", async () => {
     const { div, root, render } = await mountNeighborhood({ up: 1, down: 1 });
-    // 焦点 chip t1 + 上游 d1 + 下游 t2(§5.2:焦点也是 chip,不再展开成卡片)。
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(3);
+    // 焦点 t1 成卡(阅读主体)+ 上游 d1 + 下游 t2 为 chip。
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(2);
     await render({ up: 2, down: 2 });
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(5);
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
+    // 2/2:t3(与更深的链)长出来;hops 是显式视图切换,展开态重置回焦点卡。
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBeGreaterThan(2);
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
     await act(async () => {
       root.unmount();
     });
   });
 
-  it("单击子节点只选中开抽屉,不长出下一跳;焦点不变", async () => {
+  it("单击子节点原位成卡并长出下一跳;焦点不变、抽屉不开", async () => {
     const { div, root } = await mountNeighborhood({ up: 1, down: 1 });
     const before = div.querySelectorAll("[data-testid='ego-chip']").length;
     const t2 = [...div.querySelectorAll("[data-testid='ego-chip']")].find((c) => c.textContent?.includes("任务 t2"))!;
     await act(async () => {
       t2.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    // §5.2:单击 = 选中 + 抽屉;画布节点数与焦点都不变(t3 不会因此出现)。
+    // 图场景 2026-10-02:单击 = 原位展开 —— t2 成卡 + 它的下一跳(t3)长出来。
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(2);
     expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(before);
-    expect(div.textContent).not.toContain("任务 t3");
-    const drawer = div.querySelector("[data-testid='graph-detail-drawer']")!;
-    expect(drawer.textContent).toContain("任务 t2");
+    expect(div.textContent).toContain("任务 t3");
+    expect(div.querySelector("[data-testid='graph-detail-drawer']")).toBeNull();
     await act(async () => {
       root.unmount();
     });

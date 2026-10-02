@@ -5,21 +5,62 @@
  * 内建五类保留既有取值(改动不改观感);未登记的 kind——比如 vertical 声明出来的
  * Artifact——走中性默认,**照常渲染**,不因为不认识就把节点丢掉。
  *
- * §5.2 后 ego 节点只有紧凑 chip 一种形态(尺寸常量在 egoCanvas.ts),本表只保留
- * 轴色与单字徽标;卡片尺寸字段随节点放大路径一起删除。
+ * 图场景 2026-10-02 起恢复节点原位展开(业主批准,task_baca8e2b3e32c288fbd14b71f0):
+ * 卡片尺寸字段随展开路径一起回来,chip 常量仍在 egoCanvas.ts。
  */
 export interface EntityKindVisual {
   readonly axisVar: string;
   /** chip 徽标上的单字。 */
   readonly letter: string;
+  /** 展开卡片的宽度(焦点卡 / 周边卡)。 */
+  readonly cardW: number;
+  readonly cardWFocus: number;
+  /** 展开卡片的高度地板(超出按内容估高,封顶在 egoCanvas 的 H_CAP)。 */
+  readonly minHFocus: number;
+  readonly minHPeriph: number;
 }
 
 const BUILTIN: Readonly<Record<string, EntityKindVisual>> = {
-  task: { axisVar: "var(--color-axis-execution)", letter: "T" },
-  decision: { axisVar: "var(--color-axis-authority)", letter: "D" },
-  fact: { axisVar: "var(--color-axis-evidence)", letter: "F" },
-  agent: { axisVar: "var(--color-axis-assoc)", letter: "A" },
-  schedule: { axisVar: "var(--color-axis-assoc)", letter: "S" },
+  task: {
+    axisVar: "var(--color-axis-execution)",
+    letter: "T",
+    cardW: 320,
+    cardWFocus: 360,
+    minHFocus: 300,
+    minHPeriph: 220,
+  },
+  decision: {
+    axisVar: "var(--color-axis-authority)",
+    letter: "D",
+    cardW: 340,
+    cardWFocus: 380,
+    minHFocus: 340,
+    minHPeriph: 260,
+  },
+  fact: {
+    axisVar: "var(--color-axis-evidence)",
+    letter: "F",
+    cardW: 300,
+    cardWFocus: 340,
+    minHFocus: 320,
+    minHPeriph: 240,
+  },
+  agent: {
+    axisVar: "var(--color-axis-assoc)",
+    letter: "A",
+    cardW: 300,
+    cardWFocus: 340,
+    minHFocus: 300,
+    minHPeriph: 230,
+  },
+  schedule: {
+    axisVar: "var(--color-axis-assoc)",
+    letter: "S",
+    cardW: 320,
+    cardWFocus: 360,
+    minHFocus: 300,
+    minHPeriph: 230,
+  },
 };
 
 /** `entity-kind/KND-1f5c…` → `K`;取末段首字母,不猜声明里的 idPrefix。 */
@@ -29,7 +70,16 @@ function declaredLetter(kind: string): string {
 }
 
 export function entityKindVisual(kind: string): EntityKindVisual {
-  return BUILTIN[kind] ?? { axisVar: "var(--color-axis-assoc)", letter: declaredLetter(kind) };
+  return (
+    BUILTIN[kind] ?? {
+      axisVar: "var(--color-axis-assoc)",
+      letter: declaredLetter(kind),
+      cardW: 320,
+      cardWFocus: 360,
+      minHFocus: 280,
+      minHPeriph: 220,
+    }
+  );
 }
 
 export function entityKindAxisVar(kind: string): string {
