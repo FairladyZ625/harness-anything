@@ -430,7 +430,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["bootstrap"],
     summary:
-      "Sign in without a local browser (--operation login), inspect session, or logout; install/configure Keycloak, manage its HTTPS listener, session lifetime and fleet node registrations. Create the first administrator with --operation bootstrap-admin and --password-file; credentials never belong in argv. A new machine credential goes to --credential-file.",
+      "Sign in without a local browser (--operation login), inspect session, or logout; install/configure Keycloak, manage its HTTPS listener, session lifetime and fleet node registrations. Create the first administrator with --operation bootstrap-admin and --password-file; credentials never belong in argv. A first node registration requires --credential-file for the machine credential it mints.",
     method: "daemon.rbac.manage",
     inputs: [
       cliInput(
