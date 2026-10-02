@@ -15,6 +15,7 @@ import { ARTIFACT_OPEN_EXTERNAL_CHANNEL, type ArtifactOpenApi } from "../api/art
 import {
   LOCAL_DOC_READ_CHANNEL,
   LOCAL_DOC_WRITE_CHANNEL,
+  LOCAL_DOC_PPTX_CHANNEL,
   LOCAL_DOC_EXTRACT_WORD_CHANNEL,
   type LocalDocApi,
 } from "../api/local-doc-contract.ts";
@@ -89,6 +90,7 @@ const exposedHarnessApi = {
     extractWordText: (input) => invoke(LOCAL_DOC_EXTRACT_WORD_CHANNEL, input),
     read: (input) => invoke(LOCAL_DOC_READ_CHANNEL, input),
     write: (input) => invoke(LOCAL_DOC_WRITE_CHANNEL, input),
+    pptx: (input) => invoke(LOCAL_DOC_PPTX_CHANNEL, input),
   } satisfies LocalDocApi,
   // Settings → 仓库与连接(PLT-EdgeGUI-W3):连接/仓库 admin,主进程收窄见 main/connection-admin-ipc.ts。
   connections: {

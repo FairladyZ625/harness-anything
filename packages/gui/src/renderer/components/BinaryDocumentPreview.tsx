@@ -4,6 +4,7 @@ import type { PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
 import { extractWordPreview } from "../local-doc/local-doc-client.ts";
 import { DocumentFrame, PreviewFailure } from "./DocumentFrame";
 import { SpreadsheetPreview, spreadsheetFormatLabel } from "./SpreadsheetPreview.tsx";
+import { guiHostBridge } from "../gui-transport.ts";
 
 const PPTX_MEDIA = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
@@ -66,22 +67,18 @@ function PptxDocumentPreview({ path, bytes }: { readonly path: string; readonly 
     target?.replaceChildren();
     setError(null);
     const render = async () => {
-      const data = Uint8Array.from(atob(bytes), (character) => character.charCodeAt(0));
-      const { PptxPresentation } = await import("@silurus/ooxml");
-      const presentation = await PptxPresentation.load(data.buffer);
-      try {
-        if (target === null || cancelled) return;
-        for (let index = 0; index < presentation.slideCount; index += 1) {
-          if (cancelled) return;
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.ceil(presentation.slideWidth);
-          canvas.height = Math.ceil(presentation.slideHeight);
-          canvas.className = "mx-auto mb-4 block max-w-full bg-white shadow";
-          target.append(canvas);
-          await presentation.renderSlide(canvas, index, { width: presentation.slideWidth });
-        }
-      } finally {
-        presentation.destroy();
+      const preview = await guiHostBridge()?.localDoc?.pptx({ bytes });
+      if (!preview) throw new Error("PPTX preview IPC is unavailable.");
+      const { renderSlide } = await import("@silurus/ooxml/pptx");
+      if (target === null || cancelled) return;
+      for (const slide of preview.slides) {
+        if (cancelled) return;
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(preview.slideWidth);
+        canvas.height = Math.ceil(preview.slideHeight);
+        canvas.className = "mx-auto mb-4 block max-w-full bg-white shadow";
+        target.append(canvas);
+        await renderSlide(canvas, slide as never, preview.slideWidth, preview.slideHeight);
       }
     };
     void render().catch((cause) => {

@@ -6,6 +6,7 @@ import {
   LOCAL_DOC_READ_CHANNEL,
   LOCAL_DOC_EXTRACT_WORD_CHANNEL,
   LOCAL_DOC_WRITE_CHANNEL,
+  LOCAL_DOC_PPTX_CHANNEL,
   type LocalDocReadInput,
   type LocalDocReadResult,
   type LocalDocWriteInput,
@@ -75,6 +76,23 @@ export function registerLocalDocIpc(
     assertTrustedIpcSender(event, trustPolicy);
     const input = validateLocalDocWriteInput(payload);
     return writeLocalDocument(input.path, input.content, services);
+  });
+  registrar.handle(LOCAL_DOC_PPTX_CHANNEL, async (event, payload) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    if (typeof payload !== "object" || payload === null || typeof (payload as { bytes?: unknown }).bytes !== "string")
+      throw new Error("PPTX preview requires authorized bytes.");
+    const bytes = Buffer.from((payload as { bytes: string }).bytes, "base64");
+    if (bytes.byteLength > LOCAL_DOC_PREVIEW_MAX_BYTES) throw new Error("PPTX preview exceeds the 16 MiB limit.");
+    const { materializePptxPresentation } = await import("@silurus/ooxml/node");
+    const presentation = await materializePptxPresentation(bytes);
+    try {
+      const resources: Record<string, string> = {};
+      const model = presentation as unknown as { slideWidth: number; slideHeight: number; slides: readonly unknown[] };
+      return { slideWidth: model.slideWidth, slideHeight: model.slideHeight, slides: model.slides, resources };
+    } finally {
+      const close = (presentation as { close?: () => Promise<void> }).close;
+      if (close) await close.call(presentation);
+    }
   });
 }
 
