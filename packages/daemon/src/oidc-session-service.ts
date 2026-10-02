@@ -278,9 +278,7 @@ export class OidcSessionService {
   }
 
   async bootstrapStatus(): Promise<Record<string, unknown>> {
-    const token = await this.#centerToken(),
-      members = await this.#adminJson("GET", "/roles/access-admin/users", token, undefined, true);
-    return { ok: true, required: !Array.isArray(members) || members.length === 0 };
+    return { ok: true, required: await this.#bootstrapRequired(await this.#centerToken()) };
   }
 
   /**
@@ -327,14 +325,17 @@ export class OidcSessionService {
   }
 
   async requireRole(role: string): Promise<StoredSession> {
-    const session = await this.#live();
+    return this.#requireRole(role, await this.#live());
+  }
+
+  #requireRole(role: string, session: StoredSession | undefined): StoredSession {
     if (!session) throw coded("authentication_required", "Sign in with Keycloak first.");
     if (!session.roles.includes(role)) throw coded("authorization_denied", `Keycloak role ${role} is required.`);
     return session;
   }
 
   /**
-   * The center's single write queue for Keycloak authorization state: first-administrator bootstrap
+   * The center's single write queue for Keycloak authorization state: first-administrator bootstrap, listener changes
    * and every policy-group or grant mutation run one at a time, each against the state the previous left.
    * Session renewals share it, so concurrent uses of one session renew it once.
    */
@@ -342,6 +343,27 @@ export class OidcSessionService {
     const run = this.#writes.then(operation);
     this.#writes = run.catch(consumeKnownError);
     return run;
+  }
+
+  /** D1: the original local socket may configure the listener only before the first administrator. */
+  changeListener<T>(operation: () => Promise<T>): Promise<T> {
+    return this.serialize(async () => {
+      if (!(await this.#bootstrapRequired(await this.#centerToken()))) {
+        // Already in the write queue: renew directly rather than enqueueing behind ourselves.
+        const { session, unavailable } = await this.#useCurrent();
+        if (unavailable) throw unavailable;
+        this.#requireRole("access-admin", session);
+      }
+      return operation();
+    });
+  }
+
+  async #bootstrapRequired(token: string): Promise<boolean> {
+    const members = await this.#adminJson("GET", "/roles/access-admin/users", token, undefined, true);
+    if (members === undefined) return true;
+    if (!Array.isArray(members))
+      throw coded("oidc_response_invalid", "Keycloak returned invalid administrator membership.");
+    return members.length === 0;
   }
 
   async center(): Promise<{ readonly url: string; readonly realm: string; readonly accessToken: string }> {
@@ -356,9 +378,8 @@ export class OidcSessionService {
     readonly personId: string;
   }): Promise<Record<string, unknown>> {
     return this.serialize(async () => {
-      const token = await this.#centerToken(),
-        members = await this.#adminJson("GET", "/roles/access-admin/users", token, undefined, true);
-      if (Array.isArray(members) && members.length > 0)
+      const token = await this.#centerToken();
+      if (!(await this.#bootstrapRequired(token)))
         throw coded("bootstrap_admin_closed", "The first Harness administrator already exists.");
       await this.#ensureAccessAdminRole(token);
       const userId = await this.#createUser(token, input, false),
@@ -530,9 +551,13 @@ export class OidcSessionService {
     if (!session || !this.#lapsing(session)) return { session };
     return this.serialize(async () => {
       // Uses that queued behind a renewal find the session it wrote and do not renew again.
-      const current = this.#session();
-      return current && this.#lapsing(current) ? this.#renew(current) : { session: current };
+      return this.#useCurrent();
     });
+  }
+
+  async #useCurrent(): Promise<SessionUse> {
+    const current = this.#session();
+    return current && this.#lapsing(current) ? this.#renew(current) : { session: current };
   }
 
   #lapsing(session: StoredSession): boolean {

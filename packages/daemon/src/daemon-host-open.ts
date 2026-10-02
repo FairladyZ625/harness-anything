@@ -677,8 +677,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       }
       if ((accessAdminOperations as readonly string[]).includes(request.operation ?? "bootstrap"))
         return accessAdmin.run(request);
-      if (request.operation === "listener-set")
-        return oidc.requireRole("access-admin").then(() => managedRbac.run(request));
+      if (request.operation === "listener-set") return oidc.changeListener(() => managedRbac.run(request));
       requireAuthorizedHostAction({
         kind: "rbac-bootstrap",
         // Lifecycle bootstrap is the sole socket-owner exception: it can install/start the

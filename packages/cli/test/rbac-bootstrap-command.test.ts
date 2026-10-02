@@ -218,3 +218,36 @@ test("ha bootstrap lists, registers, and unregisters fleet nodes through the sam
   );
   assert.equal(parseThinCommand(["bootstrap", "--operation", "node-remove"], "/repo").ok, false);
 });
+
+test("first administrator CLI takes a password file and rejects password argv", () => {
+  const argv = [
+    "bootstrap",
+    "--operation",
+    "bootstrap-admin",
+    "--username",
+    "owner",
+    "--email",
+    "owner@example.invalid",
+    "--display-name",
+    "Owner",
+    "--person-id",
+    "person-owner",
+    "--password-file",
+    "/tmp/owner-password",
+  ];
+  const parsed = parseThinCommand(argv, "/repo");
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.deepEqual(parsed.command.action, {
+    kind: "rbac-bootstrap",
+    operation: "bootstrap-admin",
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    personId: "person-owner",
+    passwordFile: "/tmp/owner-password",
+  });
+  assert.equal(parseThinCommand(argv.slice(0, -2), "/repo").ok, false);
+  assert.equal(parseThinCommand([...argv, "--password", "secret"], "/repo").ok, false);
+  assert.equal(parseThinCommand(["bootstrap", "--operation", "bootstrap-status"], "/repo").ok, true);
+});

@@ -4,6 +4,38 @@ Harness Anything has three connection modes. They are machine-local registry
 choices in `~/.harness/registry.json`; a repository is registered in exactly
 one mode.
 
+## Headless center first administrator
+
+On the center host, start the daemon and install the managed identity service:
+
+```bash
+ha bootstrap
+ha bootstrap --operation listener
+ha bootstrap --operation listener-set --listen-address <address> --hostname <hostname> --port 8443 --certificate-file <certificate.pem> --certificate-key-file <key.pem> --expected-version <version>
+ha bootstrap --operation bootstrap-status
+ha bootstrap --operation bootstrap-admin --username <username> --email <email> --display-name <name> --person-id <person-id> --password-file <protected-password-file>
+ha bootstrap --operation login
+ha bootstrap --operation session
+ha bootstrap --operation node-register --operation-id <unique-id> --node-id <node-id> --person-id <person-id> --credential-file <new-credential-file>
+```
+
+Prepare the password in a file readable only by its owner (for example, mode
+`0600`); pass its path, never the password, on the command line. The CLI reads
+one trailing newline as a file terminator and sends the password only through
+the center's original local socket. Remove the password file after use.
+
+Before any `access-admin` member exists, that socket's owner may set the
+existing HTTPS listener. Read its version first and use a certificate trusted
+by the browser device. Listener changes and first-administrator creation share
+one queue: only one first administrator succeeds, and subsequent listener
+changes require a signed-in `access-admin`, even after logout. Fleet and remote
+GUI connections cannot perform first-administrator bootstrap or open this window.
+
+`login` displays a verification URL, a one-time code and its expiry, then waits
+for browser approval. Open that URL on another device and sign in as the first
+administrator. Center and edge use the same Device login/session/logout entry.
+Node registration writes its machine credential once to a new protected file.
+
 ## Connection modes
 
 | Registry mode                   | Use it for                                | Local machine                                        | Data and write authority                      |
