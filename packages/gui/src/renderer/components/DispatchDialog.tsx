@@ -1,4 +1,5 @@
 import { SegCtl } from "./primitives/SegCtl.tsx";
+import { Button } from "./primitives/Button.tsx";
 import { useMemo, useState, type ReactNode } from "react";
 import type { AgentRuntimeInstanceDto } from "@harness-anything/daemon/protocol";
 import {
@@ -12,7 +13,7 @@ import {
 import type { AgentDispatchPreview } from "../runtime-control.ts";
 import { t } from "../i18n/index.tsx";
 import { DispatchPreviewModal } from "./DispatchPreviewModal.tsx";
-import { Avatar, Badge, Btn, Chip, Hint, KindDot, LiveDot, Modal, TextInput } from "./runtime/parts.tsx";
+import { Avatar, Badge, Chip, Hint, KindDot, LiveDot, Modal, TextInput } from "./runtime/parts.tsx";
 import { planeAllowsEffort } from "../runtime-provider-planes.ts";
 import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 
@@ -133,17 +134,17 @@ export function DispatchDialog({
                 </span>
               )}
               <span className="flex-1" />
-              <Btn onClick={onCancel}>{t("agentRuntime.cancel")}</Btn>
-              <Btn
+              <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+              <Button
                 testId="dispatch-preview-entry"
                 disabled={!ready || busy || previewing}
                 onClick={() => void runPreview()}
               >
                 {t(previewing ? "agentRuntime.previewing" : "agentRuntime.previewInjected")}
-              </Btn>
-              <Btn variant="primary" testId="dispatch-submit" disabled={!ready || busy} onClick={submit}>
+              </Button>
+              <Button variant="primary" testId="dispatch-submit" disabled={!ready || busy} onClick={submit}>
                 {busy ? t("agentRuntime.dispatching") : t("agentRuntime.dispatchNow")}
-              </Btn>
+              </Button>
             </div>
           </>
         }

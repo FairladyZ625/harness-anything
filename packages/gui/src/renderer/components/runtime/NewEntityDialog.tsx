@@ -3,7 +3,8 @@ import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../age
 import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { ActionError } from "./ActionError.tsx";
-import { Avatar, Badge, Btn, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
+import { Avatar, Badge, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 type NewEntityRequestBase = {
   readonly kind: "agent" | "squad";
@@ -75,8 +76,8 @@ export function NewEntityDialog({
         <div className="flex items-center gap-2">
           <Hint>{t(kind === "agent" ? "agentRuntime.newAgentFooter" : "agentRuntime.newSquadFooter")}</Hint>
           <span className="flex-1" />
-          <Btn onClick={onCancel}>{t("agentRuntime.cancel")}</Btn>
-          <Btn
+          <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+          <Button
             variant="primary"
             testId={`new-${kind}-create`}
             disabled={busy || !valid}
@@ -95,7 +96,7 @@ export function NewEntityDialog({
             }
           >
             {t("agentRuntime.create")}
-          </Btn>
+          </Button>
         </div>
       }
     >

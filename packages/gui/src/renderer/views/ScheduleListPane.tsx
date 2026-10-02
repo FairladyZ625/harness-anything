@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Play, Plus } from "@phosphor-icons/react";
 import type { ScheduleGuiListRowDto, ScheduleGuiRowDto, SchedulesListResult } from "@harness-anything/daemon/protocol";
-import { Btn, Empty } from "../components/runtime/parts.tsx";
+import { Empty } from "../components/runtime/parts.tsx";
 import { CompletedDivider } from "../components/primitives/CompletedDivider.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { CardReason, SummaryCard, SummaryCardGroup } from "../components/primitives/SummaryCard.tsx";
 import type { StatusTone } from "../components/primitives/StatusTag.tsx";
+import { Button } from "../components/primitives/Button.tsx";
 import { missedReasonLabel, RUN_OUTCOME_META, SPARK_COLOR } from "../components/scheduleRun/runMeta.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import {
@@ -333,7 +334,7 @@ function ScheduleCard({
       }
       onOpen={() => onOpen(row.scheduleId)}
       action={
-        <Btn
+        <Button
           size="sm"
           testId={`schedule-run-now-${row.scheduleId}`}
           disabled={busy || !row.actions.runNow.available}
@@ -346,7 +347,7 @@ function ScheduleCard({
         >
           <Play weight="bold" aria-hidden />
           {t("schedules.action.runNow")}
-        </Btn>
+        </Button>
       }
     >
       <div data-testid={`schedule-verdict-${row.scheduleId}`} className="space-y-1.5">

@@ -14,8 +14,8 @@ import { DenseRow } from "../primitives/DenseRow.tsx";
 import { PillFlow } from "../primitives/PillFlow.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
-import { BTN } from "../ui/widgets.tsx";
-import { AccessNotice, INPUT, ReceiptRows, SMALL_BTN, asRejection, useAccessRead } from "./AccessParts.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { AccessNotice, INPUT, ReceiptRows, asRejection, useAccessRead } from "./AccessParts.tsx";
 
 type ScopeKind = AccessScope["kind"];
 
@@ -180,10 +180,8 @@ export function GrantsTab({
               />
             </label>
           )}
-          <button
-            type="button"
-            data-testid="access-grant-inspect"
-            className={BTN}
+          <Button
+            testId="access-grant-inspect"
             disabled={busy || target.personId === "" || resource === null}
             onClick={() => {
               setRefusal(null);
@@ -191,7 +189,7 @@ export function GrantsTab({
             }}
           >
             {t("accessControl.grants.inspect")}
-          </button>
+          </Button>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className={field}>
@@ -210,10 +208,9 @@ export function GrantsTab({
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            data-testid="access-grant-submit"
-            className={`${BTN} border-accent text-accent`}
+          <Button
+            testId="access-grant-submit"
+            variant="primary"
             disabled={busy || target.personId === "" || target.groupId === "" || resource === null}
             onClick={() =>
               void run(
@@ -224,7 +221,7 @@ export function GrantsTab({
             }
           >
             {t("accessControl.grants.grant")}
-          </button>
+          </Button>
         </div>
       </div>
       <RegionBoard side="primary" data-testid="access-grants-board">
@@ -250,11 +247,10 @@ export function GrantsTab({
                       })}
                       reason={t("accessControl.effective.inherits", { chain: grant.inheritedGroups.join(" → ") })}
                       time={
-                        <button
-                          type="button"
-                          className={SMALL_BTN}
+                        <Button
+                          size="sm"
                           disabled={busy}
-                          data-testid={`access-revoke-${grant.groupId}`}
+                          testId={`access-revoke-${grant.groupId}`}
                           onClick={() =>
                             void run(
                               () =>
@@ -269,7 +265,7 @@ export function GrantsTab({
                           }
                         >
                           {t("accessControl.grants.revoke")}
-                        </button>
+                        </Button>
                       }
                     />
                   ))}

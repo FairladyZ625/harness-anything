@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from "react";
 import { isAvailableAgentEntityRow } from "../agent-entity-client.ts";
 import { t } from "../i18n/index.tsx";
 import { ActionError } from "../components/runtime/ActionError.tsx";
-import { Btn, CapDot, Empty, Hint } from "../components/runtime/parts.tsx";
+import { CapDot, Empty, Hint } from "../components/runtime/parts.tsx";
 import { NewRuntimeDialog } from "../components/runtime/NewRuntimeDialog.tsx";
 import { orderProviderRows, ProviderRail } from "../components/runtime/RuntimeRail.tsx";
 import { ProviderInspector } from "../components/runtime/RuntimeInspector.tsx";
@@ -10,6 +10,7 @@ import { RuntimeCard } from "../components/runtime/RuntimeCard.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
+import { Button } from "../components/primitives/Button.tsx";
 import { runtimeAuthPresentation } from "../runtime-auth-presentation.ts";
 import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
 
@@ -69,14 +70,14 @@ export function ProvidersView({
                 {t("agentRuntime.legendBlocked")}
               </span>
             </span>
-            <Btn
+            <Button
               size="sm"
               variant="ghost"
               onClick={() => setInspector(!inspector)}
               tip={t("agentRuntime.toggleInspector")}
             >
               ▐
-            </Btn>
+            </Button>
           </>
         }
       />

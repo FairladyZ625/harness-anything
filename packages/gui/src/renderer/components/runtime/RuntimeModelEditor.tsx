@@ -1,6 +1,7 @@
 import { t } from "../../i18n/index.tsx";
 import { runtimeCustomModels, runtimeDefaultModel, runtimeModels } from "../../runtime-instance-form.ts";
-import { Btn, Hint, TextInput } from "./parts.tsx";
+import { Hint, TextInput } from "./parts.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 export function RuntimeModelEditor({
   availableModels,
@@ -72,9 +73,9 @@ export function RuntimeModelEditor({
           </select>
         </label>
       )}
-      <Btn size="sm" variant="ghost" onClick={() => onCustomModelOpenChange(!customModelOpen)}>
+      <Button size="sm" variant="ghost" onClick={() => onCustomModelOpenChange(!customModelOpen)}>
         {t("agentRuntime.customModelOverride")}
-      </Btn>
+      </Button>
       {(customModelOpen || Boolean(customModel)) && (
         <TextInput
           label={t("agentRuntime.customModelOverride")}

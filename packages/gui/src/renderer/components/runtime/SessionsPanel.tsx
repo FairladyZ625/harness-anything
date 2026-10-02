@@ -12,7 +12,6 @@ import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
 import {
   Avatar,
   Badge,
-  Btn,
   Card,
   CardBody,
   CardHead,
@@ -26,6 +25,7 @@ import {
   LiveDot,
   Right,
 } from "./parts.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 // Liveness vocabulary maps, not point comparisons: the daemon's liveness word decides the
 // badge tone and the cancel affordance through table lookups alone.
@@ -259,7 +259,7 @@ export function SessionDetailView({
           {installationBadge && <Badge tip={session.installationError?.hint}>{t(installationBadge)}</Badge>}
           <Right>
             {LIVENESS_LIVE[session.liveness] && (
-              <Btn
+              <Button
                 size="sm"
                 variant="danger"
                 testId="agent-runtime-cancel"
@@ -267,12 +267,12 @@ export function SessionDetailView({
                 onClick={() => onCancel(session.runtimeSessionId)}
               >
                 {t("agentRuntime.cancelSession")}
-              </Btn>
+              </Button>
             )}
             {resume && (
-              <Btn size="sm" testId="agent-runtime-resume" disabled={busy} onClick={() => setConfirmResume(true)}>
+              <Button size="sm" testId="agent-runtime-resume" disabled={busy} onClick={() => setConfirmResume(true)}>
                 {t("agentRuntime.resumeSession")}
-              </Btn>
+              </Button>
             )}
             <Hint>{t("agentRuntime.livenessFromChild")}</Hint>
           </Right>
@@ -292,17 +292,17 @@ export function SessionDetailView({
                 })}
               </p>
               <div className="mt-2 flex gap-2">
-                <Btn
+                <Button
                   size="sm"
                   testId="agent-runtime-resume-confirm"
                   disabled={busy}
                   onClick={() => void onResume(resume.dispatchId)}
                 >
                   {t("agentRuntime.resumeConfirm")}
-                </Btn>
-                <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmResume(false)}>
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmResume(false)}>
                   {t("agentRuntime.resumeCancel")}
-                </Btn>
+                </Button>
               </div>
             </div>
           )}

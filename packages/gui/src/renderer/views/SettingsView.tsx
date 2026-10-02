@@ -1,12 +1,13 @@
 import { Toggle } from "../components/primitives/Toggle.tsx";
 import { SegCtl } from "../components/primitives/SegCtl.tsx";
+import { Button } from "../components/primitives/Button.tsx";
 import { useState } from "react";
 import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { useMotionPreference, type MotionPreference } from "../motion-config.tsx";
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
-import { BTN, Section, Row, Kbd } from "../components/ui/widgets";
+import { Section, Row, Kbd } from "../components/ui/widgets";
 import {
   formatDuration,
   formatRelative,
@@ -273,9 +274,9 @@ export function SettingsView({
           <Section
             title={t("views.settingsView.sectionShortcuts")}
             action={
-              <button disabled title={t("views.settingsView.notSupportedYet")} className={BTN}>
+              <Button disabled tip={t("views.settingsView.notSupportedYet")}>
                 {t("views.settingsView.rebindAction")}
-              </button>
+              </Button>
             }
           >
             {SHORTCUTS.map((s) => (
@@ -327,9 +328,9 @@ export function SettingsView({
               label={t("views.settingsView.exportDiagnosticsLabel")}
               desc={t("views.settingsView.exportDiagnosticsDescription")}
             >
-              <button disabled title={t("views.settingsView.notSupportedYet")} className={BTN}>
+              <Button disabled tip={t("views.settingsView.notSupportedYet")}>
                 {t("views.settingsView.exportAction")}
-              </button>
+              </Button>
             </Row>
           </Section>
         );
@@ -349,9 +350,9 @@ export function SettingsView({
               <p className="ui-meta min-w-0 flex-1 text-text-muted">
                 {t("views.settingsView.syncLocalModeDescription")}
               </p>
-              <button disabled title={t("views.settingsView.syncV2Title")} className={BTN}>
+              <Button disabled tip={t("views.settingsView.syncV2Title")}>
                 {t("views.settingsView.syncSignInAction")}
-              </button>
+              </Button>
             </div>
             {SYNC_FEATURE_KEYS.map((featureKey) => (
               <div

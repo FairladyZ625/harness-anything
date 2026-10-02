@@ -1,8 +1,9 @@
 import { Toggle } from "../../components/primitives/Toggle.tsx";
+import { Button } from "../../components/primitives/Button.tsx";
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { t, type MessageKey } from "../../i18n/index.tsx";
-import { BTN, Section, Row, SettingSelect, type SelectorOption } from "../../components/ui/widgets";
+import { Section, Row, SettingSelect, type SelectorOption } from "../../components/ui/widgets";
 import { useSettingsMutation, useSettingsQuery } from "../../settings-data.ts";
 import { useCatalogSnapshot } from "../../catalog-data.ts";
 import { agentEntityClient, isAvailableAgentEntityRow, type AgentEntityRow } from "../../agent-entity-client.ts";
@@ -220,8 +221,7 @@ export function RepositorySettingsPanel({
       <Section
         title={t("views.settingsView.sectionRepository")}
         action={
-          <button
-            className={BTN}
+          <Button
             // 门映射草稿有未解决的非法组合时整表不让提交——约束在界面上表达,
             // 不靠提交后报错。
             disabled={settingsMutation.isPending || gateIssues.length > 0}
@@ -235,7 +235,7 @@ export function RepositorySettingsPanel({
             {settingsMutation.isPending
               ? t("views.settingsView.submitPending")
               : t("views.settingsView.submitToRepository")}
-          </button>
+          </Button>
         }
       >
         <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5">
@@ -280,16 +280,11 @@ export function RepositorySettingsPanel({
               title={groupTitle(group.id)}
               action={
                 group.advanced ? (
-                  <button
-                    type="button"
-                    className={BTN}
-                    data-testid="settings-advanced-toggle"
-                    onClick={() => setAdvancedOpen((open) => !open)}
-                  >
+                  <Button testId="settings-advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)}>
                     {expanded
                       ? t("views.settingsView.advancedCollapse")
                       : t("views.settingsView.advancedExpand", { count: group.rows.length })}
-                  </button>
+                  </Button>
                 ) : undefined
               }
             >
@@ -305,16 +300,14 @@ export function RepositorySettingsPanel({
                         label={t("views.settingsView.gatesSectionLabel")}
                         desc={t("views.settingsView.gatesSectionDescription")}
                       >
-                        <button
-                          type="button"
-                          className={BTN}
-                          data-testid="settings-gates-import"
+                        <Button
+                          testId="settings-gates-import"
                           disabled={settingsMutation.isPending}
-                          title={t("views.settingsView.gatesFromDocumentDescription")}
+                          tip={t("views.settingsView.gatesFromDocumentDescription")}
                           onClick={() => settingsMutation.mutate({ gatesFromDocument: true })}
                         >
                           {t("views.settingsView.gatesFromDocumentLabel")}
-                        </button>
+                        </Button>
                       </Row>
                       <div className="border-b border-border px-3 py-2">
                         {gateDrafts === null || gateDescriptor === null ? (

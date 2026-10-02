@@ -8,7 +8,8 @@ import {
   type SessionTranscriptItemType,
 } from "../../session-transcript-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { Badge, Btn, Card, CardBody, CardHead, CardTitle, LiveDot } from "../runtime/parts.tsx";
+import { Badge, Card, CardBody, CardHead, CardTitle, LiveDot } from "../runtime/parts.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 type DispatchCursorValue = Extract<NonNullable<ObserveTailRead["historyCursor"]>, { readonly kind: "dispatch" }>;
 type DispatchCursor = DispatchCursorValue | null;
@@ -172,9 +173,9 @@ export function SessionTranscript({
     >
       {!historyDone && (
         <div className="border-b border-border px-2.5 py-1.5 text-center">
-          <Btn size="sm" disabled={loadingHistory} onClick={() => void loadOlder()}>
+          <Button size="sm" disabled={loadingHistory} onClick={() => void loadOlder()}>
             {t(loadingHistory ? "agentRuntime.transcriptLoadingOlder" : "agentRuntime.transcriptLoadOlder")}
-          </Btn>
+          </Button>
         </div>
       )}
       <SessionTranscriptTurns turns={turns} />

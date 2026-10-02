@@ -7,7 +7,8 @@ import type { SystemRepoRow } from "../../api-client.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { t } from "../../i18n/index.tsx";
 import { useRepoAdminMutations } from "../../connection-data.ts";
-import { BTN, Row, Section } from "../../components/ui/widgets.tsx";
+import { Row, Section } from "../../components/ui/widgets.tsx";
+import { Button } from "../../components/primitives/Button.tsx";
 import { RepoModeBadge, repoModeLabel } from "../../components/RepoModeBadge.tsx";
 import { centerConnectionAvailable, isRemoteProxy } from "./connectionTree.ts";
 
@@ -91,9 +92,8 @@ export function RepoDetailPanel({
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
           />
-          <button
-            data-testid="repo-save-display-name"
-            className={BTN}
+          <Button
+            testId="repo-save-display-name"
             disabled={
               repoMutations.update.isPending || displayName.trim().length === 0 || displayName === repo.displayName
             }
@@ -104,7 +104,7 @@ export function RepoDetailPanel({
             }
           >
             {t("views.repositories.saveAction")}
-          </button>
+          </Button>
         </Row>
         <Row label={t("views.repositories.repoStateLabel")} desc={t("views.repositories.repoStateHint")}>
           <Toggle
@@ -149,25 +149,19 @@ export function RepoDetailPanel({
           label={t("views.repositories.setCurrent")}
           desc={enabled ? undefined : t("views.repositories.setCurrentDisabledHint")}
         >
-          <button
-            data-testid="repo-set-current"
-            className={BTN}
-            disabled={!enabled || isCurrent}
-            onClick={() => onOpenProject(repo.repoId)}
-          >
+          <Button testId="repo-set-current" disabled={!enabled || isCurrent} onClick={() => onOpenProject(repo.repoId)}>
             {t("views.repositories.setCurrentAction")}
-          </button>
+          </Button>
         </Row>
         <Row label={t("views.repositories.removeRepoLabel")} desc={t("views.repositories.removeRepoHint")}>
-          <button
-            data-testid="repo-remove"
-            className={BTN}
+          <Button
+            testId="repo-remove"
             disabled={repoMutations.unregister.isPending}
             onClick={() => void withFeedback(() => repoMutations.unregister.mutateAsync(repo.repoId))}
           >
             <Trash className="mr-1 inline size-3" weight="bold" />
             {t("views.repositories.removeRepoAction")}
-          </button>
+          </Button>
         </Row>
         {feedback ? (
           <p data-testid="repo-feedback" className="px-3 py-2 ui-meta text-status-blocked">

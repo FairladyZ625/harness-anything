@@ -6,7 +6,8 @@ import type { SystemRepoRow } from "../../api-client.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { t } from "../../i18n/index.tsx";
 import { useConnectionMutations, useRepoAdminMutations } from "../../connection-data.ts";
-import { BTN, Row, Section } from "../../components/ui/widgets.tsx";
+import { Row, Section } from "../../components/ui/widgets.tsx";
+import { Button } from "../../components/primitives/Button.tsx";
 
 /**
  * 远端端点连接的详情面(设计稿 §3.2「远端端点连接」列):
@@ -135,16 +136,15 @@ export function ConnectionDetailPanel({
           mode === "add" ? t("views.repositories.addConnectionTitle") : t("views.repositories.editConnectionTitle")
         }
         action={
-          <button
-            data-testid="connection-submit"
-            className={BTN}
+          <Button
+            testId="connection-submit"
             disabled={busy || connectionMutations.probe.isPending}
             onClick={() => void submitConnection()}
           >
             {mode === "add"
               ? t("views.repositories.addConnectionAction")
               : t("views.repositories.saveConnectionAction")}
-          </button>
+          </Button>
         }
       >
         <Row label={t("views.repositories.displayNameLabel")}>
@@ -198,16 +198,15 @@ export function ConnectionDetailPanel({
                   : t("views.repositories.removeConnectionHint")
               }
             >
-              <button
-                data-testid="connection-remove"
-                className={BTN}
+              <Button
+                testId="connection-remove"
                 disabled={hasEnabledRepos || connectionMutations.unregister.isPending}
-                title={hasEnabledRepos ? t("views.repositories.removeConnectionBlocked") : undefined}
+                tip={hasEnabledRepos ? t("views.repositories.removeConnectionBlocked") : undefined}
                 onClick={() => void removeConnection()}
               >
                 <Trash className="mr-1 inline size-3" weight="bold" />
                 {t("views.repositories.removeConnectionAction")}
-              </button>
+              </Button>
             </Row>
           </>
         ) : null}
@@ -221,9 +220,8 @@ export function ConnectionDetailPanel({
       <Section
         title={t("views.repositories.probeTitle")}
         action={
-          <button
-            data-testid="connection-probe"
-            className={BTN}
+          <Button
+            testId="connection-probe"
             disabled={endpoint.trim().length === 0 || connectionMutations.probe.isPending}
             onClick={() => void runProbe(endpoint.trim())}
           >
@@ -231,7 +229,7 @@ export function ConnectionDetailPanel({
             {connectionMutations.probe.isPending
               ? t("views.repositories.probePending")
               : t("views.repositories.probeAction")}
-          </button>
+          </Button>
         }
       >
         {probe ? (
@@ -277,14 +275,15 @@ export function ConnectionDetailPanel({
                   );
                 })}
               </ul>
-              <button
-                data-testid="probe-register-selected"
-                className={`${BTN} mt-2`}
-                disabled={activeConnectionId === null || checked.size === 0 || repoMutations.register.isPending}
-                onClick={() => void registerChecked()}
-              >
-                {t("views.repositories.registerSelectedAction")}
-              </button>
+              <div className="mt-2">
+                <Button
+                  testId="probe-register-selected"
+                  disabled={activeConnectionId === null || checked.size === 0 || repoMutations.register.isPending}
+                  onClick={() => void registerChecked()}
+                >
+                  {t("views.repositories.registerSelectedAction")}
+                </Button>
+              </div>
             </div>
           </>
         ) : (

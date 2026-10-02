@@ -8,7 +8,6 @@ import { ActionError } from "./ActionError.tsx";
 import {
   Avatar,
   Badge,
-  Btn,
   Card,
   CardBody,
   CardHead,
@@ -22,6 +21,7 @@ import {
   Sect,
   WarnBar,
 } from "./parts.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 export type SquadDraft = {
   readonly name: string;
@@ -129,7 +129,7 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
           title={t("agentRuntime.formation")}
           desc={t("agentRuntime.formationDesc")}
           right={
-            <Btn
+            <Button
               size="sm"
               variant="ghost"
               onClick={() => {
@@ -138,7 +138,7 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
               }}
             >
               {t("agentRuntime.addWorkerSlot")}
-            </Btn>
+            </Button>
           }
         >
           <div className="overflow-x-auto py-1">
@@ -193,7 +193,7 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
             <span className="flex-1" />
-            <Btn
+            <Button
               variant="primary"
               testId="squad-save"
               disabled={
@@ -207,7 +207,7 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
               onClick={() => onSave(squadDeclarationFrom(detail.id, draft))}
             >
               {t(dirty ? "agentRuntime.saveDeclaration" : "agentRuntime.saved")}
-            </Btn>
+            </Button>
           </div>
           {actionError ? <ActionError>{actionError}</ActionError> : null}
         </Sect>
@@ -331,7 +331,7 @@ function SlotConfig({
         <Hint>{t(slot.kind === "leader" ? "agentRuntime.commanderSlotHint" : "agentRuntime.workerSlotHint")}</Hint>
         <span className="flex-1" />
         {slot.kind === "worker" && (
-          <Btn
+          <Button
             size="sm"
             variant="danger"
             onClick={() => {
@@ -340,7 +340,7 @@ function SlotConfig({
             }}
           >
             {t("agentRuntime.removeSlot")}
-          </Btn>
+          </Button>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2">

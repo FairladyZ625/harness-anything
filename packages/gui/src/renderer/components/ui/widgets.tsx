@@ -1,8 +1,5 @@
 import type { ReactNode } from "react";
 
-export const BTN =
-  "rounded-md border border-border px-3 py-1.5 ui-body text-text-muted transition-colors duration-100 hover:border-border-strong hover:bg-surface-raised hover:text-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text-muted";
-
 export function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-surface">

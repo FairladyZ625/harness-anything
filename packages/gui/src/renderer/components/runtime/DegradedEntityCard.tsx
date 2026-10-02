@@ -2,7 +2,8 @@ import type { CSSProperties } from "react";
 import type { AgentEntityRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
-import { Btn, Card, Chip, Crumbs, CrumbSep, Empty, Sect } from "./parts.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { Card, Chip, Crumbs, CrumbSep, Empty, Sect } from "./parts.tsx";
 
 export type DegradedEntityRow = Extract<AgentEntityRow, { readonly state: "invalid" | "missing" }>;
 /** 设置里引用该实体 id 的角色键(如 roles.defaultReviewer)。 */
@@ -71,9 +72,9 @@ export function DegradedEntityCard({
         </Sect>
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
-            <Btn variant="primary" testId={`redeclare-${kind}-${row.id}`} onClick={onRedeclare}>
+            <Button variant="primary" testId={`redeclare-${kind}-${row.id}`} onClick={onRedeclare}>
               {t("agentRuntime.redeclare")}
-            </Btn>
+            </Button>
             <span className="ui-micro text-text-faint">{t("agentRuntime.redeclareHint")}</span>
           </div>
         </Sect>

@@ -1,4 +1,5 @@
 import { SegCtl } from "../primitives/SegCtl.tsx";
+import { Button } from "../primitives/Button.tsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LocalDocReadResult, LocalDocWriteResult } from "../../../api/local-doc-contract.ts";
 import type { AgentSkillRow } from "../../agent-entity-client.ts";
@@ -6,7 +7,7 @@ import { t } from "../../i18n/index.tsx";
 import { requestLocalDocument, saveLocalDocument } from "../../local-doc/local-doc-client.ts";
 import { LocalDocError } from "../../local-doc/LocalDocLayer.tsx";
 import { DocReader } from "../DocReader.tsx";
-import { Badge, Btn, Modal } from "./parts.tsx";
+import { Badge, Modal } from "./parts.tsx";
 
 /**
  * Skill 详情查看与编辑浮层(task_5dfe382f):点击 AgentCard 的技能药丸打开,解决
@@ -136,9 +137,9 @@ export function SkillEditorModal({
               </span>
             )
           )}
-          <Btn variant="primary" testId="skill-editor-save" disabled={saving || !dirty} onClick={() => void save()}>
+          <Button variant="primary" testId="skill-editor-save" disabled={saving || !dirty} onClick={() => void save()}>
             {t(saving ? "agentRuntime.skillModal.saving" : "agentRuntime.skillModal.save")}
-          </Btn>
+          </Button>
         </div>
       }
     >

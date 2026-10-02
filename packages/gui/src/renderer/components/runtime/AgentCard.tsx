@@ -1,4 +1,5 @@
 import { SegCtl } from "../primitives/SegCtl.tsx";
+import { Button } from "../primitives/Button.tsx";
 import { useEffect, useState } from "react";
 import { Eye } from "@phosphor-icons/react";
 import type { AgentDeclarationV1 } from "@harness-anything/daemon/protocol";
@@ -20,7 +21,6 @@ import {
   AddChip,
   Avatar,
   Badge,
-  Btn,
   Card,
   Chip,
   ChipZone,
@@ -422,7 +422,7 @@ export function AgentCard({
                   }
                   className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-px font-mono ui-micro text-text outline-none focus-visible:border-accent"
                 />
-                <Btn
+                <Button
                   size="sm"
                   variant="ghost"
                   disabled={index === 0}
@@ -430,8 +430,8 @@ export function AgentCard({
                   tip={t("agentRuntime.moveUp")}
                 >
                   ↑
-                </Btn>
-                <Btn
+                </Button>
+                <Button
                   size="sm"
                   variant="ghost"
                   disabled={index === draft.prompts.length - 1}
@@ -439,18 +439,18 @@ export function AgentCard({
                   tip={t("agentRuntime.moveDown")}
                 >
                   ↓
-                </Btn>
-                <Btn size="sm" variant="primary" disabled={!prompt.trim()} onClick={() => onDispatch(prompt)}>
+                </Button>
+                <Button size="sm" variant="primary" disabled={!prompt.trim()} onClick={() => onDispatch(prompt)}>
                   {t("agentRuntime.dispatchWithPrompt")}
-                </Btn>
-                <Btn
+                </Button>
+                <Button
                   size="sm"
                   variant="ghost"
                   onClick={() => patch({ prompts: draft.prompts.filter((_, position) => position !== index) })}
                   tip={t("agentRuntime.remove")}
                 >
                   ✕
-                </Btn>
+                </Button>
               </div>
             ))
           ) : (
@@ -534,9 +534,9 @@ export function AgentCard({
               />
             ) : null}
             <Hint>{t("agentRuntime.compatibleCount", { count: compatible.length })}</Hint>
-            <Btn size="sm" variant="ghost" onClick={() => setRuntimeListOpen(!runtimeListOpen)}>
+            <Button size="sm" variant="ghost" onClick={() => setRuntimeListOpen(!runtimeListOpen)}>
               {t(runtimeListOpen ? "agentRuntime.collapse" : "agentRuntime.expand")}
-            </Btn>
+            </Button>
           </div>
           {runtimeListOpen && (
             <div className="mt-2 rounded border border-border px-2 py-1.5">
@@ -564,19 +564,19 @@ export function AgentCard({
 
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
-            <Btn variant="primary" testId={`dispatch-entry-${detail.id}`} onClick={() => onDispatch("")}>
+            <Button variant="primary" testId={`dispatch-entry-${detail.id}`} onClick={() => onDispatch("")}>
               {t("agentRuntime.dispatch")}
-            </Btn>
+            </Button>
             <Hint>{t("agentRuntime.dispatchHint")}</Hint>
             <span className="flex-1" />
-            <Btn
+            <Button
               variant="primary"
               testId="agent-save"
               disabled={busy || !dirty || !draft.name.trim() || !draft.instructions.trim()}
               onClick={() => onSave(agentDeclarationFrom(detail.id, draft))}
             >
               {t(dirty ? "agentRuntime.saveDeclaration" : "agentRuntime.saved")}
-            </Btn>
+            </Button>
           </div>
           {actionError ? <ActionError>{actionError}</ActionError> : null}
         </Sect>

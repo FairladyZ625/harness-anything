@@ -1,4 +1,5 @@
 import { Toggle } from "./primitives/Toggle.tsx";
+import { Button } from "./primitives/Button.tsx";
 import { useMemo, useState, type ReactNode } from "react";
 import {
   parseScheduleDuration,
@@ -16,7 +17,7 @@ import {
 } from "@harness-anything/daemon/protocol";
 import type { ScheduleBuiltinEditInput, ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput } from "./runtime/parts.tsx";
+import { Badge, Chip, Hint, Modal, PlannedBox, TextInput } from "./runtime/parts.tsx";
 
 // M5 guided form: one segment asks one thing (identity → trigger → executor →
 // purpose → mission). The daemon persists identity, interval/cron trigger, executor,
@@ -570,12 +571,12 @@ export function ScheduleForm({
           </Hint>
         )}
         <span className="flex-1" />
-        <Btn testId="schedule-form-cancel" onClick={onCancel}>
+        <Button testId="schedule-form-cancel" onClick={onCancel}>
           {t("schedules.form.cancel")}
-        </Btn>
-        <Btn variant="primary" testId="schedule-form-submit" disabled={busy || !ready} onClick={submit}>
+        </Button>
+        <Button variant="primary" testId="schedule-form-submit" disabled={busy || !ready} onClick={submit}>
           {t(initial === null ? "schedules.form.create" : "schedules.form.save")}
-        </Btn>
+        </Button>
       </div>
     </div>
   );

@@ -16,7 +16,8 @@ import {
   type StartWorkPrecondition,
 } from "../start-work-flow.ts";
 import { CopyContextButton } from "./CopyContextButton.tsx";
-import { Btn, CfgRow, Hint, Modal, PlannedBox, Sect, TextInput, WarnBar } from "./runtime/parts.tsx";
+import { CfgRow, Hint, Modal, PlannedBox, Sect, TextInput, WarnBar } from "./runtime/parts.tsx";
+import { Button } from "./primitives/Button.tsx";
 
 /**
  * G1「开始一项工作」(S5):选目标类型 → 写目标与交付要求 → 确认执行资源与必要条件。
@@ -120,22 +121,27 @@ export function StartWorkDialog({
             {stepIndex + 1}/{STEPS.length} · {STEP_LABEL[step]()}
           </span>
           <span className="ml-auto flex items-center gap-2">
-            <Btn
+            <Button
               size="sm"
               disabled={stepIndex === 0}
               onClick={() => setStep(STEPS[Math.max(0, stepIndex - 1)])}
               testId="start-work-back"
             >
               {t("views.work.startWork.back")}
-            </Btn>
+            </Button>
             {stepIndex === STEPS.length - 1 ? (
-              <Btn size="sm" onClick={onClose} testId="start-work-close">
+              <Button size="sm" onClick={onClose} testId="start-work-close">
                 {t("views.work.startWork.close")}
-              </Btn>
+              </Button>
             ) : (
-              <Btn size="sm" variant="primary" onClick={() => setStep(STEPS[stepIndex + 1])} testId="start-work-next">
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => setStep(STEPS[stepIndex + 1])}
+                testId="start-work-next"
+              >
                 {t("views.work.startWork.next")}
-              </Btn>
+              </Button>
             )}
           </span>
         </div>
@@ -419,15 +425,15 @@ function ResourcesStep({
       </Sect>
       <Sect title={t("views.work.startWork.verifyTitle")} desc={t("views.work.startWork.verifyDesc")}>
         <span className="flex flex-wrap items-center gap-2">
-          <Btn size="sm" onClick={onVerify} testId="start-work-verify">
+          <Button size="sm" onClick={onVerify} testId="start-work-verify">
             {t("views.work.startWork.verify")}
-          </Btn>
+          </Button>
           {created ? (
             <>
               <Hint>{t("views.work.startWork.verifyFound", { taskId: created.taskId })}</Hint>
-              <Btn size="sm" variant="primary" onClick={() => onOpenTask(created.taskId)} testId="start-work-open">
+              <Button size="sm" variant="primary" onClick={() => onOpenTask(created.taskId)} testId="start-work-open">
                 {t("views.work.startWork.verifyOpen")}
-              </Btn>
+              </Button>
             </>
           ) : lookupRequested ? (
             <Hint>{t("views.work.startWork.verifyMissing", { title: draft.title })}</Hint>

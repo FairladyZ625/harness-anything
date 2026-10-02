@@ -1,5 +1,6 @@
 import { Toggle } from "../primitives/Toggle.tsx";
 import { SegCtl } from "../primitives/SegCtl.tsx";
+import { Button } from "../primitives/Button.tsx";
 import { useState } from "react";
 import { runtimeIsolationState, runtimePermissionMode } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstallationRow, RuntimeInstanceCreateInput } from "../../runtime-instance-client.ts";
@@ -26,7 +27,7 @@ import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { ActionError } from "./ActionError.tsx";
-import { Badge, Btn, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
+import { Badge, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 const kindLabel = (kindId: RuntimeKindId): string => runtimeKindForId(kindId).displayName;
@@ -106,8 +107,8 @@ export function NewRuntimeDialog({
             {installation?.installationId ?? t("agentRuntime.noWitnessedInstallation", { kind: form.kindId })}
           </Hint>
           <span className="flex-1" />
-          <Btn onClick={onCancel}>{t("agentRuntime.cancel")}</Btn>
-          <Btn
+          <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+          <Button
             variant="primary"
             testId="new-runtime-create"
             disabled={busy || !ready}
@@ -116,7 +117,7 @@ export function NewRuntimeDialog({
             }
           >
             {t(apiOn ? "agentRuntime.createWithApiKey" : "agentRuntime.createSubscription")}
-          </Btn>
+          </Button>
         </div>
       }
     >
