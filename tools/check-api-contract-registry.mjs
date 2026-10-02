@@ -104,7 +104,6 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
       "new Map<string, RepoCell>()",
       "auth.assignmentBinding",
       'kind: "assignment"',
-      "makeTransportDerivedIdentityProvider",
       "actor",
       "root",
       "canonicalRoot",
@@ -118,6 +117,7 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
         violations.push(`${hostPath} runtime graph: missing transport-bound RepoCell authority token ${token}`);
       }
     }
+    checkPrincipalBindings(hostGraph, violations);
     if (
       hostAuthorities.some(({ source }) =>
         /payload\.(?:actor|root|source|workspaceId)|HARNESS_ACTOR|local fallback/iu.test(source),
@@ -143,6 +143,130 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
     if (existsSync(path.join(root, retired)))
       violations.push(`${retired}: W3-retired API/capability authority must not exist`);
   return violations;
+}
+
+// Inspect executable syntax in the connected runtime graph, never comments or string tokens.
+// This locks the authentication wiring, not the retired roster provider's constructor name.
+function checkPrincipalBindings(graph, violations) {
+  const printer = ts.createPrinter({ removeComments: true });
+  const modules = graph.map(({ path: filePath, source }) =>
+    ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, scriptKind(filePath)),
+  );
+  const syntax = (node, file) => printer.printNode(ts.EmitHint.Unspecified, node, file).replace(/\s+/gu, "");
+  const nodes = (parent, predicate) => {
+    const found = [];
+    const visit = (node) => {
+      if (predicate(node)) found.push(node);
+      ts.forEachChild(node, visit);
+    };
+    visit(parent);
+    return found;
+  };
+  const requireSyntax = (label, scopeName, predicate, expected, select = (node) => node) => {
+    const present = modules.some((file) => {
+      const scopes = scopeName
+        ? nodes(file, (node) => ts.isFunctionDeclaration(node) && node.name?.text === scopeName)
+        : [file];
+      return scopes.some((scope) => nodes(scope, predicate).some((node) => syntax(select(node), file) === expected));
+    });
+    if (!present) violations.push(`daemon runtime graph: missing authenticated principal wiring ${label}`);
+  };
+  const call = ts.isCallExpression;
+  const property = ts.isPropertyAssignment;
+  const rejectingGuard = (node) => ts.isIfStatement(node) && nodes(node.thenStatement, ts.isThrowStatement).length > 0;
+  const condition = (node) => node.expression;
+  requireSyntax("repository binding import", null, ts.isImportSpecifier, "bindingasderiveBinding");
+  requireSyntax(
+    "OIDC verification before repository binding",
+    null,
+    call,
+    "deriveBinding(rootDir,{...(awaitoidc.bind(auth)),keycloakCenter},executor)",
+  );
+  requireSyntax(
+    "assignment dispatch",
+    "binding",
+    ts.isIfStatement,
+    "if(auth.assignmentBinding)returnnodeOwnerBinding(auth);",
+  );
+  requireSyntax(
+    "local principal authentication and expiry",
+    "localDefaultBinding",
+    rejectingGuard,
+    "!auth.oidcPrincipal||auth.oidcPrincipal.expiresAt<=Date.now()",
+    condition,
+  );
+  requireSyntax(
+    "local server-derived person",
+    "localDefaultBinding",
+    property,
+    "actor:{principal:{personId:auth.oidcPrincipal.personId},executor}",
+  );
+  requireSyntax(
+    "local Keycloak session",
+    "localDefaultBinding",
+    (node) => call(node) && node.arguments.length === 2 && node.arguments[1].getText() === "auth",
+    "withSessionEnvironment",
+    (node) => node.expression,
+  );
+  requireSyntax(
+    "session credential forwarding",
+    "withSessionEnvironment",
+    property,
+    "accessToken:auth.oidcPrincipal.accessToken",
+  );
+  requireSyntax(
+    "registered node owner",
+    "nodeOwnerBinding",
+    rejectingGuard,
+    "!owner||owner.nodeId!==assignment.nodeId||!auth.keycloakCenter",
+    condition,
+  );
+  requireSyntax(
+    "authenticated node owner source",
+    "nodeOwnerBinding",
+    ts.isVariableDeclaration,
+    "owner=auth.nodePrincipal",
+  );
+  requireSyntax(
+    "authenticated assignment source",
+    "nodeOwnerBinding",
+    ts.isVariableDeclaration,
+    "assignment=auth.assignmentBinding!",
+  );
+  requireSyntax(
+    "node server-derived person",
+    "nodeOwnerBinding",
+    property,
+    "actor:{principal:{personId:owner.personId},executor:null}",
+  );
+  requireSyntax(
+    "node assignment provenance",
+    "nodeOwnerBinding",
+    property,
+    'source:{kind:"assignment",nodeId:owner.nodeId,assignmentId:assignment.assignmentId}',
+  );
+  requireSyntax("node Keycloak authority", "nodeOwnerBinding", call, "auth.keycloakCenter()");
+  requireSyntax("center node registry connection", null, call, "keycloakNodeRegistry(context.keycloakCenter)");
+  requireSyntax(
+    "center node credential validation",
+    "keycloakNodeRegistry",
+    call,
+    "(awaitopen()).adapter.authenticateNode(nodeId,credential)",
+  );
+  requireSyntax("center owner lookup", "keycloakNodeRegistry", call, "adapter.readNode(token,nodeId)");
+  const closedLocalIngress = modules.some((file) =>
+    nodes(file, (node) => ts.isFunctionDeclaration(node) && node.name?.text === "binding").some((binding) => {
+      const last = binding.body?.statements.at(-1);
+      return (
+        last &&
+        ts.isReturnStatement(last) &&
+        last.expression &&
+        syntax(last.expression, file) === "localDefaultBinding(auth,executor)"
+      );
+    }),
+  );
+  if (!closedLocalIngress)
+    violations.push("daemon runtime graph: repository local ingress must end at authenticated local binding");
 }
 
 function collectRuntimeAuthorityGraph(root, entryPath, violations) {
