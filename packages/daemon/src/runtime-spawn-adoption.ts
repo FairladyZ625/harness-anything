@@ -27,6 +27,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
     : context.requiredRuntimeProjection(context.input).readRuntimeSessions();
   const byId = new Map(sessions.map((session) => [session.runtimeSessionId, session]));
   for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
+    if (context.processes.has(header.runtimeSessionId)) continue;
     const fallbackSummary = header.fallbackAttempt
       ? readDispatchStreamSummary(context.input.rootDir, header.dispatchId)
       : null;

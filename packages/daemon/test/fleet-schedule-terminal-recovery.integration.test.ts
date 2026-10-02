@@ -1,0 +1,229 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
+import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
+import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
+import { fleetFixture, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
+import { definition, eventually, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+
+for (const restart of [false, true])
+  test(`Schedule terminal settlement recovers on its claim (restart=${restart})`, { timeout: 60_000 }, async (t) => {
+    const installation = {
+      installationId: definition.installationId,
+      kindId: definition.kindId,
+      executablePath: process.execPath,
+      version: "fixture",
+      observedAt: "2026-09-12T00:00:00.000Z",
+    };
+    const fixture = await fleetFixture(t, ["agents", "schedules"], [installation], "remote-center");
+    t.after(() => fixture.close());
+    const instance = await fixture.host.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        kind: "runtime-instance-create",
+        instanceId: definition.instanceId,
+        name: "Schedule test",
+        kindId: definition.kindId,
+        installationId: definition.installationId,
+        providerId: definition.providerId,
+        models: [definition.model],
+        authMode: "subscription",
+      },
+      localAuthFixture(),
+    );
+    assert.equal(instance.outcome, "applied", JSON.stringify(instance));
+    const packageSource = path.join(fixture.repo, "source/schedule-agent");
+    mkdirSync(packageSource, { recursive: true });
+    writeFileSync(
+      path.join(packageSource, "agent.json"),
+      JSON.stringify({
+        schema: "agent-declaration/v1",
+        id: "recovery-agent",
+        name: "Recovery Agent",
+        instructions: "Check state.",
+        runtimes: [{ type: "codex" }],
+        role: "worker",
+      }),
+    );
+    const installed = await fixture.host.run(
+      fixture.assignment.repoId,
+      { kind: "agent-install", packageSource, expectedVersion: 0, idempotencyKey: "recovery-agent" },
+      localAuthFixture(),
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const scheduleId = "recovery-schedule";
+    const assignment: FleetAssignmentRecord = {
+      nodeId: fixture.assignment.nodeId,
+      assignmentId: "schedule-recovery",
+      repoId: fixture.assignment.repoId,
+      viewId: "schedule-recovery-view",
+      scope: { kind: "schedule", scheduleId, paths: ["agents", "schedules"] },
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    const startCenter = (port?: number) =>
+      fixture.hold(
+        listenFleetTls({
+          host: fixture.host,
+          stateRoot: fixture.stateRoot,
+          ...fixture.writerOptions,
+          key: fixture.key,
+          cert: fixture.cert,
+          port,
+          replicaDiskQuotaBytes: 64 * 1024 * 1024,
+          authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
+          nodeOwner: fixture.owners.nodeOwner,
+          resolveAssignment: (id) => (id === assignment.assignmentId ? assignment : null),
+        }),
+      );
+    const center = await startCenter();
+    const workspaceRoot = path.join(fixture.root, "schedule-edge");
+    initHarnessRepo(workspaceRoot, "fleet");
+    let terminal: (() => void) | undefined;
+    const createRuntime = () =>
+      openFleetEdgeRuntime({
+        request: {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: fixture.certFile,
+          servername: "localhost",
+          nodeId: assignment.nodeId,
+          credential: "machine-secret",
+          assignmentId: assignment.assignmentId,
+          repoId: assignment.repoId,
+          viewRoot: path.join(fixture.root, "schedule-view"),
+          quotaBytes: 64 * 1024 * 1024,
+          workspaceRoot,
+          method: "repo.schedule.run",
+          action: {},
+        },
+        daemonGeneration: 1,
+        daemonRoute: {
+          userRoot: path.join(fixture.root, "schedule-user"),
+          daemonId: "schedule-edge",
+          endpoint: path.join(fixture.root, "schedule.sock"),
+        },
+        ports: scheduleRuntimePorts(),
+        launch: () => {
+          let output: ((chunk: string, persisted?: boolean) => void) | undefined;
+          return {
+            pid: 81235,
+            onOutput: (listener) => {
+              output = listener;
+            },
+            onErrorOutput: () => undefined,
+            onExit: (listener) => {
+              terminal = () => {
+                const frames = [
+                  { type: "thread.started", thread_id: "schedule-recovery-provider" },
+                  {
+                    type: "item.completed",
+                    item: { id: "final", type: "agent_message", text: "HARNESS-OUTCOME: succeeded" },
+                  },
+                  { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
+                ];
+                // Match runtime-worker-host: raw provider output and exit are durable before callbacks.
+                for (const event of frames)
+                  appendRuntimeWorkerRecord(workspaceRoot, String(launched.dispatchId), {
+                    kind: "provider_event",
+                    occurredAt: new Date().toISOString(),
+                    event,
+                  });
+                appendRuntimeWorkerRecord(workspaceRoot, String(launched.dispatchId), {
+                  kind: "process_exit",
+                  occurredAt: new Date().toISOString(),
+                  exitCode: 0,
+                  signal: null,
+                });
+                for (const frame of frames) output?.(JSON.stringify(frame) + "\n", true);
+                listener(0);
+              };
+            },
+            terminate: () => undefined,
+          };
+        },
+      });
+    let runtime = createRuntime();
+    fixture.track(() => runtime.close());
+    const created = await runtime.run("repo.schedule.run", {
+      kind: "schedule-create",
+      scheduleId,
+      name: "Recovery",
+      mode: "detect",
+      everyMs: 300_000,
+      agentId: "recovery-agent",
+      runtimeInstanceId: definition.instanceId,
+      mission: "Check state.",
+      idempotencyKey: "create-recovery",
+    });
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const launched = await runtime
+      .run("repo.schedule.run", { kind: "schedule-run-now", scheduleId, idempotencyKey: "run-recovery" })
+      .catch(async (error: unknown) => {
+        t.diagnostic(
+          JSON.stringify(
+            await fixture.host.run(assignment.repoId, { kind: "schedule-show", scheduleId }, localAuthFixture()),
+          ),
+        );
+        throw error;
+      });
+    assert.equal(launched.outcome, "applied", JSON.stringify(launched));
+    assert.ok(terminal);
+    appendRuntimeWorkerRecord(workspaceRoot, String(launched.dispatchId), {
+      kind: "process_started",
+      occurredAt: new Date().toISOString(),
+      pid: 81235,
+    });
+    let reportFailure!: () => void;
+    const failure = new Promise<void>((resolve) => {
+      reportFailure = resolve;
+    });
+    t.mock.method(console, "error", (...args: unknown[]) => {
+      if (String(args[0]).includes("[fleet-edge-runtime]")) reportFailure();
+    });
+    await center.close();
+    terminal();
+    await failure;
+    if (restart) {
+      runtime.close();
+      runtime = createRuntime();
+    }
+    await startCenter(center.port);
+    let shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
+    assert.equal(
+      await eventually(async () => {
+        shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
+        return (shown.schedule as { status: { activeRun: unknown } }).status.activeRun === null;
+      }),
+      true,
+      "terminal settlement becomes visible at the center",
+    );
+    assert.equal((shown.schedule as { status: { activeRun: unknown } }).status.activeRun, null, JSON.stringify(shown));
+    assert.equal(
+      (shown.schedule as { status: { lastRun: { claimFence: string } } }).status.lastRun.claimFence,
+      launched.claimFence,
+    );
+    const observed = readDispatchStream(workspaceRoot, String(launched.dispatchId));
+    t.diagnostic(
+      JSON.stringify({
+        process: observed?.process,
+        outcome: observed?.attemptOutcome,
+        provider: observed?.providerSessionId,
+      }),
+    );
+    assert.equal(
+      (shown.schedule as { status: { lastRun: { outcome: string } } }).status.lastRun.outcome,
+      "succeeded",
+      JSON.stringify(shown),
+    );
+    const revision = fixture.eventCount();
+    const again = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
+    assert.deepEqual(
+      again.schedule,
+      shown.schedule,
+      "recovery and subsequent reads do not replace or duplicate settlement",
+    );
+    assert.equal(fixture.eventCount(), revision, "a recovered claim must not settle again");
+  });

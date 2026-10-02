@@ -39,6 +39,34 @@ test("adoption settles an owned live session whose dispatch never recorded a pro
   }
 });
 
+test("recovery adoption preserves a runtime already owned by this daemon", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-owned-runtime-adoption-"));
+  try {
+    const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+      runtimeSessionId = "runtime_aaaaaaaaaaaaaaaaaaaaaaaa";
+    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "owned-runtime");
+    const owned = { runtimeSessionId },
+      processes = new Map([[runtimeSessionId, owned]]);
+    const context = {
+      input: { rootDir, repoId: "owned-runtime", now: () => "2026-09-13T00:01:00.000Z" },
+      requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [liveSession(runtimeSessionId)] }),
+      processes,
+      reconcileFallback: () => {
+        throw new Error("a live owned runtime must not be reconciled twice");
+      },
+      consumeLine: async () => undefined,
+      publishExit: async () => {
+        throw new Error("a live owned runtime must not be settled as missing");
+      },
+    };
+    await adoptRuntimes(context as never);
+    await adoptRuntimes(context as never);
+    assert.equal(processes.get(runtimeSessionId), owned);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("runtime cancel settles a live projection whose dispatch never recorded a process", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-missing-process-"));
   try {
