@@ -26,6 +26,7 @@ import { TokenUsageView } from "../src/renderer/views/TokenUsageView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
 import { TerminalView } from "../src/renderer/views/TerminalView.tsx";
+import { PanelWorkbenchView } from "../src/renderer/views/PanelWorkbenchView.tsx";
 import { BrowserView } from "../src/renderer/views/BrowserView.tsx";
 import { SchedulesView } from "../src/renderer/views/SchedulesView.tsx";
 import { schedulesClient } from "../src/renderer/schedules-client.ts";
@@ -665,6 +666,23 @@ const VIEW_RENDERERS = {
       onNavigateEntity: noop,
       onOpenDecisionPool: noop,
       onFocusEntityChange: noop,
+      recentRefs: [`decision/${DECISION_ID}`],
+      entries: [],
+      onOpenPalette: noop,
+    }),
+  workbench: () =>
+    createElement(PanelWorkbenchView, {
+      repoId: REPO_ID,
+      workspaceKey: `local/${REPO_ID}`,
+      tasks: FIXTURE_TASKS,
+      relations: FIXTURE_RELATIONS,
+      decisions: FIXTURE_DECISIONS,
+      facts: FIXTURE_FACTS,
+      coverageRows: [],
+      factAnchors: [],
+      onNavigateEntity: noop,
+      onOpenDecisionPool: noop,
+      onFocusGraph: noop,
       recentRefs: [`decision/${DECISION_ID}`],
       entries: [],
       onOpenPalette: noop,

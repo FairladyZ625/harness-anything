@@ -27,7 +27,7 @@ export function SegCtl<T extends string>({
           data-tip={option.tip}
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
-          className={`ui-control inline-flex items-center justify-center px-3 ui-micro disabled:cursor-not-allowed disabled:opacity-40 ${
+          className={`ui-control inline-flex shrink-0 whitespace-nowrap items-center justify-center px-3 ui-micro disabled:cursor-not-allowed disabled:opacity-40 ${
             option.value === value ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"
           }`}
         >

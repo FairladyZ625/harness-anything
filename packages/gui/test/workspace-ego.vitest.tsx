@@ -155,7 +155,7 @@ it("reuses the ego canvas with scoped full rows, navigates entities and preserve
   }
   navigate.mockClear();
   // 双击 = 以它为中心重排邻域,不跳页;切片外实体仍不出现。
-  await act(async () => node("boundary").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  await act(async () => node("boundary").dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 })));
   expect(navigate).not.toHaveBeenCalled();
   expect(node("outside")).toBeNull();
   expect(host.textContent).toContain("3 节点");
