@@ -6,7 +6,6 @@ import {
   Background,
   BackgroundVariant,
   ReactFlowProvider,
-  Panel,
   useReactFlow,
 } from "@xyflow/react";
 import type { EdgeMouseHandler, NodeMouseHandler, OnMoveEnd } from "@xyflow/react";
@@ -330,20 +329,17 @@ function EgoNeighborhoodInner({
   // 单击 = 原位展开摘要卡片 + 长出下一环邻居;再点已展开的卡片 = 收起
   // (已长出的邻居保留,画布不重排)。
   const onNodeClick: NodeMouseHandler<EgoFlowNode> = useCallback(
-    (_, node) => {
+    (event, node) => {
+      // The first click can replace a chip with a card. Handle the second click here,
+      // before toggling it closed, instead of relying on a dblclick on the replaced DOM.
+      if (event.detail >= 2) {
+        openFocus(node.data.navRef);
+        return;
+      }
       if (canvas.expanded.has(node.id)) canvas.collapseNode(node.id);
       else canvas.expandNode(node.id);
     },
-    [canvas],
-  );
-
-  // 双击 = 设为画布中心(唯一会重排画布的节点交互)。
-  const onNodeDoubleClick: NodeMouseHandler<EgoFlowNode> = useCallback(
-    (_, node) => {
-      const navRef = node.data.navRef;
-      openFocus(navRef);
-    },
-    [openFocus],
+    [canvas, openFocus],
   );
 
   const onEdgeClick: EdgeMouseHandler<EgoFlowEdge> = useCallback((_, edge) => {
@@ -366,46 +362,47 @@ function EgoNeighborhoodInner({
 
   return (
     // 画布铺满内容区(§2.6);GraphDrawer 是 fixed 定位的右侧覆盖抽屉,只承载边。
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1">
-      <ReactFlow<EgoFlowNode, EgoFlowEdge>
-        nodes={displayNodes}
-        edges={displayEdges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodeClick={onNodeClick}
-        onNodeDoubleClick={onNodeDoubleClick}
-        onEdgeClick={onEdgeClick}
-        onPaneClick={onPaneClick}
-        onMoveEnd={onMoveEnd}
-        defaultViewport={initialViewport}
-        colorMode={colorMode}
-        minZoom={0.05}
-        maxZoom={2}
-        zoomOnDoubleClick={false}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        attributionPosition="bottom-right"
-      >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--color-border)" />
-        <Controls className="bg-surface-raised border-border" />
-        <MiniMap<EgoFlowNode>
-          data-testid="graph-minimap"
-          bgColor="var(--color-surface)"
-          nodeColor={(n) => {
-            const entity = n.data.entity;
-            if (entity === "decision") return "var(--color-axis-authority)";
-            if (entity === "fact") return "var(--color-axis-evidence)";
-            if (entity === "agent" || entity === "schedule") return "var(--color-axis-assoc)";
-            return "var(--color-axis-execution)";
-          }}
-          nodeStrokeColor="var(--color-border-strong)"
-          maskColor={minimapMaskColor(colorMode)}
-          className="border border-border rounded overflow-hidden"
-          pannable
-          zoomable
-        />
-        {panelSlot && <Panel position="top-left">{panelSlot}</Panel>}
-      </ReactFlow>
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      {panelSlot && <div className="shrink-0 border-b border-border bg-surface px-2 py-2">{panelSlot}</div>}
+      <div className="min-h-0 flex-1">
+        <ReactFlow<EgoFlowNode, EgoFlowEdge>
+          nodes={displayNodes}
+          edges={displayEdges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodeClick={onNodeClick}
+          onEdgeClick={onEdgeClick}
+          onPaneClick={onPaneClick}
+          onMoveEnd={onMoveEnd}
+          defaultViewport={initialViewport}
+          colorMode={colorMode}
+          minZoom={0.05}
+          maxZoom={2}
+          zoomOnDoubleClick={false}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          attributionPosition="bottom-right"
+        >
+          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--color-border)" />
+          <Controls className="bg-surface-raised border-border" />
+          <MiniMap<EgoFlowNode>
+            data-testid="graph-minimap"
+            bgColor="var(--color-surface)"
+            nodeColor={(n) => {
+              const entity = n.data.entity;
+              if (entity === "decision") return "var(--color-axis-authority)";
+              if (entity === "fact") return "var(--color-axis-evidence)";
+              if (entity === "agent" || entity === "schedule") return "var(--color-axis-assoc)";
+              return "var(--color-axis-execution)";
+            }}
+            nodeStrokeColor="var(--color-border-strong)"
+            maskColor={minimapMaskColor(colorMode)}
+            className="border border-border rounded overflow-hidden"
+            pannable
+            zoomable
+          />
+        </ReactFlow>
+      </div>
 
       {focusEdge && (
         <GraphDrawer

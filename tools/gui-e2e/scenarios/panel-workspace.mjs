@@ -210,5 +210,19 @@ export default {
       grid.style.width = "";
       grid.style.height = "";
     });
+    await page.getByTestId("panel-workbench-reset").click();
+    const graph = page.locator(".dv-resize-container").filter({
+      has: page.locator("[data-testid='floating-panel-body'][data-panel-id='graph']"),
+    });
+    await graph.getByTestId("floating-panel-maximize").click();
+    await graph.locator("[data-testid='territory-chip'][data-nav-ref^='task/']").first().click();
+    await graph.locator("[data-testid='ego-chip'], [data-testid='ego-card']").first().waitFor();
+    await shot("panel-workspace-graph-focus");
+    await graph.locator("[data-testid='ego-chip'][data-entity='fact']").dblclick();
+    await page.waitForFunction(() =>
+      document.querySelector('[data-testid="focus-history-bar"]')?.textContent?.includes("fact"),
+    );
+    await graph.locator("[data-testid='ego-card'][data-entity='fact']").waitFor();
+    await shot("panel-workspace-graph-refocus");
   },
 };

@@ -1,10 +1,11 @@
+import { SegCtl } from "./primitives/SegCtl.tsx";
 import type { TerritorySkel } from "../graph/territory.ts";
 
 /**
  * 实体工作台 3 态模式条(REQ-GUI-03):领地 / 聚光灯 / 演化史。
  *
  * 三选项常驻(不随焦点类型隐藏演化史,保持模式条稳定心智)。演化史仅 decision
- * 焦点可用:非 decision 焦点时按钮置灰 + tooltip(指向空态文案)。
+ * 焦点有内容:非 decision 焦点仍可点击查看引导空态，提示说明原因。
  */
 export type WorkspaceMode = "territory" | "spotlight" | "lineage";
 // 领地 skeleton 的取值由分区模块拥有,这里只转出,不写第二份。
@@ -24,21 +25,20 @@ export function TerritoryModeBar({
       data-testid="entity-workspace-mode-bar"
       className="flex items-center gap-2 border-b border-border bg-surface/60 px-3 py-1.5"
     >
-      <div className="flex overflow-hidden rounded-xs border border-border bg-surface-raised">
-        <ModeBtn active={mode === "territory"} onClick={() => onModeChange("territory")}>
-          领地
-        </ModeBtn>
-        <ModeBtn active={mode === "spotlight"} onClick={() => onModeChange("spotlight")}>
-          聚光灯
-        </ModeBtn>
-        <ModeBtn
-          active={mode === "lineage"}
-          onClick={() => onModeChange("lineage")}
-          title={canShowLineage ? undefined : "演化史需要 decision 焦点 — 点击查看引导空态"}
-        >
-          演化史
-        </ModeBtn>
-      </div>
+      <SegCtl<WorkspaceMode>
+        label="关系图模式"
+        value={mode}
+        onChange={onModeChange}
+        options={[
+          { value: "territory", label: "领地" },
+          { value: "spotlight", label: "聚光灯" },
+          {
+            value: "lineage",
+            label: "演化史",
+            tip: canShowLineage ? undefined : "演化史需要 decision 焦点 — 点击查看引导空态",
+          },
+        ]}
+      />
     </div>
   );
 }
@@ -55,46 +55,16 @@ export function TerritorySkelToggle({
   onSkelChange: (s: TerritorySkel) => void;
 }) {
   return (
-    <div className="flex shrink-0 overflow-hidden rounded-xs border border-border bg-surface-raised shadow-sm">
-      <ModeBtn active={skel === "task"} onClick={() => onSkelChange("task")}>
-        任务
-      </ModeBtn>
-      <ModeBtn active={skel === "decision"} onClick={() => onSkelChange("decision")}>
-        决策
-      </ModeBtn>
-      <ModeBtn active={skel === "fact"} onClick={() => onSkelChange("fact")}>
-        事实
-      </ModeBtn>
-      <ModeBtn active={skel === "unified"} onClick={() => onSkelChange("unified")}>
-        全域
-      </ModeBtn>
-    </div>
-  );
-}
-
-function ModeBtn({
-  active,
-  onClick,
-  disabled,
-  title,
-  children,
-}: {
-  active: boolean;
-  onClick?: () => void;
-  disabled?: boolean;
-  title?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={`shrink-0 whitespace-nowrap px-2.5 py-1 ui-meta font-medium transition-colors ${
-        active ? "bg-accent text-accent-fg" : "bg-surface text-text-muted hover:text-text"
-      }${disabled ? " cursor-not-allowed opacity-50" : ""}`}
-    >
-      {children}
-    </button>
+    <SegCtl<TerritorySkel>
+      label="关系图实体范围"
+      value={skel}
+      onChange={onSkelChange}
+      options={[
+        { value: "task", label: "任务" },
+        { value: "decision", label: "决策" },
+        { value: "fact", label: "事实" },
+        { value: "unified", label: "全域" },
+      ]}
+    />
   );
 }

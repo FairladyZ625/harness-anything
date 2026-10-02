@@ -134,6 +134,7 @@ function GraphPanel({
   onSearchActiveChange,
 }: PanelWorkbenchViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("territory");
+  const [focusRef, setFocusRef] = useState<string | null>(null);
   return (
     <GraphView
       repoId={repoId}
@@ -153,7 +154,8 @@ function GraphPanel({
       onSetTaskPin={onSetTaskPin}
       viewMode={viewMode}
       onViewModeChange={setViewMode}
-      focusRef={null}
+      focusRef={focusRef}
+      onFocusEntityChange={setFocusRef}
       recentRefs={recentRefs}
       entries={entries}
       onOpenPalette={onOpenPalette}
