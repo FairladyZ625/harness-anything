@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { makeTaskEventReader } from "@harness-anything/kernel";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -218,6 +219,18 @@ for (const restart of [false, true])
       "succeeded",
       JSON.stringify(shown),
     );
+    const outcomes = () =>
+      makeTaskEventReader({ repoId: assignment.repoId, rootDir: fixture.repo })
+        .read()
+        .events.filter(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === launched.runtimeSessionId,
+        );
+    // Schedule settlement precedes the runtime terminal events. Observe the whole
+    // recovery before measuring whether a subsequent read adds another event.
+    assert.equal(await eventually(async () => outcomes().length > 0), true);
+    assert.equal(outcomes().length, 1, "recovery publishes one runtime outcome");
     const revision = fixture.eventCount();
     const again = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
     assert.deepEqual(
