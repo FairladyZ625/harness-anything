@@ -121,14 +121,38 @@ stop_daemon_if_running() {
 # authored tree as one verified unit.
 restore_repo_from_backup() {
   if [[ -d $repo_root/harness ]]; then
+    validate_restore_receipt "$center_root/restore-receipt.json" ||
+      fail "$repo_root is present but has no accepted restore receipt; inspect $center_root/restore-receipt.json"
     note "repository already present at $repo_root"
     return
   fi
   [[ ! -e $repo_root ]] || fail "$repo_root already exists; inspect it instead of restoring over it"
   [[ -n $backup_dir ]] || fail "set HARNESS_CENTER_BACKUP_DIR to a backup produced by 'ha backup' for the first up"
   [[ -f $backup_dir/manifest.json ]] || fail "HARNESS_CENTER_BACKUP_DIR has no manifest.json; pass a directory produced by 'ha backup'"
+  admit_backup "$backup_dir/manifest.json" || fail "$backup_dir is not admissible for this center; inspect its manifest.json"
   local receipt="$center_root/restore-receipt.json"
   ha restore "$backup_dir" --to "$repo_root" >"$receipt" || fail "restore failed; inspect $receipt"
+  validate_restore_receipt "$receipt" || fail "restore did not produce a bootstrappable center ledger; inspect $receipt"
+  note "ledger restored to $repo_root from $backup_dir"
+}
+
+# The admission decisions the backup's own manifest already carries: the restore
+# receipt only echoes these fields, so a backup this center would reject is
+# refused before `ha restore` materializes anything. A materialized-but-rejected
+# restore would leave a directory that a later up must not mistake for an
+# initialized repository.
+admit_backup() {
+  "$node_bin" -e '
+    const fs = require("node:fs"), manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const reject = (reason) => { process.stderr.write(`centerctl: ${reason}\n`); process.exit(1); };
+    if (manifest.schema !== "ledger-backup/v1") reject("the backup manifest is not ledger-backup/v1");
+    if (manifest.sqlite?.present !== true) reject("the backup carries no SQLite canonical store");
+    if (manifest.registration && manifest.registration.repoId !== process.argv[2])
+      reject(`the backup belongs to repository ${manifest.registration.repoId}, not ${process.argv[2]}`);
+  ' "$1" "$repo_id"
+}
+
+validate_restore_receipt() {
   "$node_bin" -e '
     const fs = require("node:fs"), receipt = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
     const reject = (reason) => { process.stderr.write(`centerctl: ${reason}\n`); process.exit(1); };
@@ -136,8 +160,7 @@ restore_repo_from_backup() {
     if (receipt.sqlite?.present !== true) reject("the backup carries no SQLite canonical store");
     if (receipt.registration && receipt.registration.repoId !== process.argv[2])
       reject(`the backup belongs to repository ${receipt.registration.repoId}, not ${process.argv[2]}`);
-  ' "$receipt" "$repo_id" || fail "restore did not produce a bootstrappable center ledger; inspect $receipt"
-  note "ledger restored to $repo_root from $backup_dir"
+  ' "$1" "$repo_id"
 }
 
 register_restored_repo() {

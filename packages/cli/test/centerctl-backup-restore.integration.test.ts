@@ -294,6 +294,155 @@ test("restore refuses an existing center root and a tampered backup", async (t) 
   assert.ok(flipped);
 });
 
+// centerctl.sh is a linear deploy script aimed at a Linux x86_64 host, so its restore
+// control flow is driven here by extracting the restore functions and stubbing `ha`,
+// `fail`, and `note`. What is under test is the script's own ordering: admission before
+// materialization, and receipt revalidation before the existing-directory return.
+function extractCenterctlRestoreFunctions(): string {
+  const wanted = new Set(["restore_repo_from_backup", "admit_backup", "validate_restore_receipt"]);
+  const picked: string[] = [];
+  let collecting = false;
+  for (const line of readFileSync(centerctl, "utf8").split("\n")) {
+    if (!collecting) {
+      const declared = /^([a-z_]+)\(\) \{$/u.exec(line);
+      if (declared && wanted.has(declared[1]!)) collecting = true;
+      else continue;
+    }
+    picked.push(line);
+    if (line === "}") collecting = false;
+  }
+  assert.ok(picked.length > 0, "centerctl.sh must define restore_repo_from_backup");
+  return picked.join("\n");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+type RestoreStep = { readonly repoRoot: string; readonly centerRoot: string; readonly backupDir: string };
+
+function runCenterctlRestoreStep(step: RestoreStep): RunResult {
+  const result = spawnSync(
+    "bash",
+    [
+      "-c",
+      [
+        "set -euo pipefail",
+        `node_bin=${shellQuote(process.execPath)}`,
+        `repo_root=${shellQuote(step.repoRoot)}`,
+        `center_root=${shellQuote(step.centerRoot)}`,
+        `backup_dir=${shellQuote(step.backupDir)}`,
+        `repo_id=${shellQuote(repoId)}`,
+        'mkdir -p "$center_root"',
+        "note() { printf 'note: %s\\n' \"$*\"; }",
+        "fail() { printf 'fail: %s\\n' \"$*\" >&2; exit 1; }",
+        // Stands in for the offline restore: materializes the payload the way the real
+        // command does and prints the receipt it would print, both from the manifest.
+        "ha() {",
+        '  mkdir -p "$repo_root"',
+        '  cp -a "$backup_dir/payload/." "$repo_root/"',
+        "  printf 'restore\\n' >>\"$center_root/restore-count\"",
+        '  "$node_bin" -e \'const fs=require("node:fs"),m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(JSON.stringify({ok:true,schema:"ledger-restore-receipt/v1",sqlite:m.sqlite,registration:m.registration}))\' "$backup_dir/manifest.json"',
+        "}",
+        extractCenterctlRestoreFunctions(),
+        "restore_repo_from_backup",
+      ].join("\n"),
+    ],
+    { encoding: "utf8" },
+  );
+  return { status: result.status, stdout: (result.stdout ?? "").trim(), stderr: (result.stderr ?? "").trim() };
+}
+
+function restoreInvocationCount(centerRoot: string): number {
+  const counter = path.join(centerRoot, "restore-count");
+  return existsSync(counter) ? readFileSync(counter, "utf8").split("\n").filter(Boolean).length : 0;
+}
+
+test("centerctl restore admission: a rejected backup never materializes and a repeated up refuses it again", async (t) => {
+  const parent = mkdtempSync(path.join(os.tmpdir(), "ha-center-restore-admission-")),
+    source: Side = {
+      root: path.join(parent, "source"),
+      userRoot: path.join(parent, "user-source"),
+      daemonId: "center-restore-admission",
+    },
+    backupDir = path.join(parent, "backup"),
+    mismatchedDir = path.join(parent, "mismatched");
+  t.after(() => {
+    run(source, ["daemon", "stop"]);
+    rmSync(parent, { recursive: true, force: true });
+  });
+  mkdirSync(source.root, { recursive: true });
+  applied(source, [
+    "--root",
+    source.root,
+    "init",
+    "--repo-id",
+    repoId,
+    "--person-id",
+    "center-restore-owner",
+    "--display-name",
+    "Center Restore Owner",
+    "--name",
+    "center-restore-admission",
+  ]);
+  const backup = receiptOf(source, ["--root", source.root, "backup", backupDir]);
+  assert.equal((backup.registration as Record<string, unknown> | null)?.repoId, repoId, JSON.stringify(backup));
+
+  // A structurally valid backup that belongs to another repository id.
+  cpSync(backupDir, mismatchedDir, { recursive: true, verbatimSymlinks: true });
+  const manifestPath = path.join(mismatchedDir, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { registration: { repoId: string } };
+  manifest.registration.repoId = "some-other-repo";
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  const rejected: RestoreStep = {
+    repoRoot: path.join(parent, "rejected-repo"),
+    centerRoot: path.join(parent, "rejected-center"),
+    backupDir: mismatchedDir,
+  };
+  const first = runCenterctlRestoreStep(rejected);
+  assert.notEqual(first.status, 0, "a backup for another repository id must be refused");
+  assert.match(first.stderr, /belongs to repository/u);
+  assert.ok(!existsSync(rejected.repoRoot), "a rejected backup must not be materialized at all");
+  assert.equal(restoreInvocationCount(rejected.centerRoot), 0, "admission must refuse before the restore runs");
+
+  const second = runCenterctlRestoreStep(rejected);
+  assert.notEqual(second.status, 0, "a repeated up must re-run admission, not proceed on leftovers");
+  assert.match(second.stderr, /belongs to repository/u);
+  assert.ok(!existsSync(rejected.repoRoot));
+  assert.equal(restoreInvocationCount(rejected.centerRoot), 0);
+
+  // A leftover repository directory without an accepted receipt (an interrupted
+  // materialization) must not count as an initialized center.
+  const residual: RestoreStep = {
+    repoRoot: path.join(parent, "residual-repo"),
+    centerRoot: path.join(parent, "residual-center"),
+    backupDir,
+  };
+  mkdirSync(path.join(residual.repoRoot, "harness"), { recursive: true });
+  writeFileSync(path.join(residual.repoRoot, "harness", "partial"), "interrupted\n");
+  const residualRun = runCenterctlRestoreStep(residual);
+  assert.notEqual(residualRun.status, 0, "a directory without an accepted receipt must not pass as initialized");
+  assert.match(residualRun.stderr, /restore receipt/u);
+  assert.equal(restoreInvocationCount(residual.centerRoot), 0, "an unverified leftover must not be restored over");
+
+  // The legitimate idempotent path: a successful first up, then a repeated up that
+  // continues from the restored repository without restoring again.
+  const good: RestoreStep = {
+    repoRoot: path.join(parent, "good-repo"),
+    centerRoot: path.join(parent, "good-center"),
+    backupDir,
+  };
+  const goodFirst = runCenterctlRestoreStep(good);
+  assert.equal(goodFirst.status, 0, `${goodFirst.stderr}\n${goodFirst.stdout}`);
+  assert.ok(existsSync(path.join(good.repoRoot, "harness")));
+  assert.equal(restoreInvocationCount(good.centerRoot), 1);
+  const goodSecond = runCenterctlRestoreStep(good);
+  assert.equal(goodSecond.status, 0, `${goodSecond.stderr}\n${goodSecond.stdout}`);
+  assert.match(goodSecond.stdout, /repository already present/u);
+  assert.equal(restoreInvocationCount(good.centerRoot), 1, "a repeated up must not restore again");
+});
+
 function flipOnePayloadByte(backupDir: string, tamperedDir: string): string {
   cpSync(backupDir, tamperedDir, { recursive: true, verbatimSymlinks: true });
   const victim = firstFileUnder(path.join(tamperedDir, "payload"));

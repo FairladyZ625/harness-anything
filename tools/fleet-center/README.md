@@ -27,7 +27,11 @@ rsync -a /var/tmp/harness-center-backup tencent-lighthouse-prod:~/harness-center
 
 The backup is self-verifying: `up` refuses one whose manifest or payload
 digests do not check out, one that carries no SQLite canonical store, and one
-that belongs to a different repository id than `HARNESS_CENTER_REPO_ID`.
+that belongs to a different repository id than `HARNESS_CENTER_REPO_ID`. Those
+admission decisions are read from the backup's own manifest before anything is
+restored, so a refused backup never leaves a half-initialized center root. A
+repeated `up` does not restore again: it re-validates the recorded restore
+receipt and continues from the restored repository.
 
 First start:
 

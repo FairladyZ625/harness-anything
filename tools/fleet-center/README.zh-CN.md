@@ -20,7 +20,9 @@ rsync -a /var/tmp/harness-center-backup tencent-lighthouse-prod:~/harness-center
 ```
 
 备份自带校验：manifest 或 payload 摘要不符、不含 SQLite canonical 存储、或所属仓库 id 与
-`HARNESS_CENTER_REPO_ID` 不一致的备份，`up` 都会拒绝。
+`HARNESS_CENTER_REPO_ID` 不一致的备份，`up` 都会拒绝。这些准入判定在恢复任何内容之前
+直接读备份自带的 manifest，被拒绝的备份不会在中心留下半初始化的目录。重复 `up` 不会
+再次恢复：它复验已记录的恢复回执，然后从已恢复的仓库继续。
 
 首次启动：
 
