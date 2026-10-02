@@ -4,6 +4,9 @@ import type { PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
 import { extractWordPreview } from "../local-doc/local-doc-client.ts";
 import { DocumentFrame, PreviewFailure } from "./DocumentFrame";
 import { SpreadsheetPreview, spreadsheetFormatLabel } from "./SpreadsheetPreview.tsx";
+import { guiHostBridge } from "../gui-transport.ts";
+
+const PPTX_MEDIA = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 const IMAGE_MEDIA = /^image\/(?:png|jpeg|gif|webp|avif|svg\+xml|bmp|x-icon)$/u;
 const DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -29,6 +32,7 @@ export function BinaryDocumentPreview({
     );
   if (bytes !== null && mediaType === "application/pdf") return <PdfDocumentPreview path={path} bytes={bytes} />;
   if (bytes !== null && mediaType === DOCX_MEDIA) return <DocxDocumentPreview path={path} bytes={bytes} />;
+  if (bytes !== null && mediaType === PPTX_MEDIA) return <PptxDocumentPreview path={path} bytes={bytes} />;
   if (mediaType === "application/msword" && bytes !== null)
     return <LegacyWordPreview key={bytes} path={path} bytes={bytes} />;
   if (bytes !== null && spreadsheetFormatLabel(mediaType) !== null)
@@ -50,6 +54,59 @@ export function BinaryDocumentPreview({
           {bytes === null ? "字节未随本次读取返回" : "可用系统查看器打开原始文件"}
         </p>
       </div>
+    </DocumentFrame>
+  );
+}
+
+function PptxDocumentPreview({ path, bytes }: { readonly path: string; readonly bytes: string }) {
+  const host = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const target = host.current;
+    target?.replaceChildren();
+    setError(null);
+    const render = async () => {
+      const preview = await guiHostBridge()?.localDoc?.pptx({ bytes });
+      if (!preview) throw new Error("PPTX preview IPC is unavailable.");
+      const { renderSlide } = await import("@silurus/ooxml/pptx");
+      if (target === null || cancelled) return;
+      for (const slide of preview.slides) {
+        if (cancelled) return;
+        const canvas = document.createElement("canvas");
+        // OOXML dimensions are EMUs, not pixels; render to a bounded reading surface.
+        const width = 960;
+        canvas.className = "mx-auto mb-4 block max-w-full bg-white shadow";
+        target.append(canvas);
+        await renderSlide(canvas, slide, preview.slideWidth, preview.slideHeight, {
+          width,
+          fetchImage: async (imagePath) => {
+            const resource = preview.resources[imagePath];
+            if (!resource) throw new Error(`Missing PPTX image: ${imagePath}`);
+            return new Blob([Uint8Array.from(atob(resource.bytes), (character) => character.charCodeAt(0))], {
+              type: resource.mediaType,
+            });
+          },
+        });
+      }
+    };
+    void render().catch((cause) => {
+      if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+    });
+    return () => {
+      cancelled = true;
+      target?.replaceChildren();
+    };
+  }, [bytes]);
+  return (
+    <DocumentFrame testId="document-pptx-preview" toolbar={<div className="px-3 py-2 ui-meta">{path} · PPTX</div>}>
+      <div
+        ref={host}
+        hidden={error !== null}
+        className="min-h-40 bg-surface-raised overflow-auto p-4"
+        data-pptx-slides
+      />
+      {error !== null && <PreviewFailure message={error} />}
     </DocumentFrame>
   );
 }

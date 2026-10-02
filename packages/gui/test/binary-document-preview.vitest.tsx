@@ -5,10 +5,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { BinaryDocumentPreview } from "../src/renderer/components/BinaryDocumentPreview.tsx";
 import { BinaryArtifactPanel } from "../src/renderer/components/BinaryArtifactPanel.tsx";
-const loaders = vi.hoisted(() => ({ pdf: vi.fn(), docx: vi.fn(), open: vi.fn() }));
+const loaders = vi.hoisted(() => ({ pdf: vi.fn(), docx: vi.fn(), open: vi.fn(), pptx: vi.fn(), slide: vi.fn() }));
 vi.mock("../src/renderer/artifact-open-client.ts", () => ({ openArtifactExternally: loaders.open }));
 vi.mock("pdfjs-dist", () => ({ getDocument: loaders.pdf, GlobalWorkerOptions: {} }));
 vi.mock("docx-preview", () => ({ renderAsync: loaders.docx }));
+vi.mock("../src/renderer/gui-transport.ts", () => ({ guiHostBridge: () => ({ localDoc: { pptx: loaders.pptx } }) }));
+vi.mock("@silurus/ooxml/pptx", () => ({ renderSlide: loaders.slide }));
 let host: HTMLDivElement;
 let root: Root;
 const docxType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -17,6 +19,8 @@ beforeEach(() => {
   loaders.pdf.mockReset();
   loaders.docx.mockReset();
   loaders.open.mockReset();
+  loaders.pptx.mockReset();
+  loaders.slide.mockReset();
   vi.spyOn(console, "error").mockImplementation(() => {});
   host = document.createElement("div");
   document.body.append(host);
@@ -116,4 +120,42 @@ it("keeps the original-file action reachable when an inline PDF cannot be parsed
     taskId: "task-one",
     path: "tasks/task-one/artifacts/broken.pdf",
   });
+});
+
+const pptxType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const presentation = {
+  slideWidth: 9144000,
+  slideHeight: 6858000,
+  slides: [{ index: 0 }, { index: 1 }],
+  resources: { "ppt/media/image1.png": { bytes: "aW1hZ2U=", mediaType: "image/png" } },
+};
+it("renders PPTX pages with a pixel width and the IPC's image bytes", async () => {
+  loaders.pptx.mockResolvedValue(presentation);
+  await show(pptxType, "YQ==");
+  expect(host.querySelectorAll("canvas")).toHaveLength(2);
+  expect(loaders.slide).toHaveBeenCalledTimes(2);
+  const options = loaders.slide.mock.calls[0][4];
+  expect(options.width).toBe(960);
+  expect(await (await options.fetchImage("ppt/media/image1.png")).text()).toBe("image");
+  await expect(options.fetchImage("missing.png")).rejects.toThrow("Missing PPTX image");
+});
+it("recovers from PPTX parse errors and discards an older pending file", async () => {
+  loaders.pptx.mockRejectedValueOnce(new Error("Corrupt presentation"));
+  await show(pptxType, "YQ==");
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("Corrupt presentation");
+  let finishOld!: (value: typeof presentation) => void;
+  loaders.pptx.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishOld = resolve;
+      }),
+  );
+  await show(pptxType, "Yg==");
+  loaders.pptx.mockResolvedValueOnce({ ...presentation, slides: [{ index: 9 }] });
+  await show(pptxType, "Yw==");
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(host.querySelectorAll("canvas")).toHaveLength(1);
+  await act(async () => finishOld(presentation));
+  expect(host.querySelectorAll("canvas")).toHaveLength(1);
+  expect(loaders.slide).toHaveBeenCalledTimes(1);
 });

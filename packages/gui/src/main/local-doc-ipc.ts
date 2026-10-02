@@ -6,6 +6,7 @@ import {
   LOCAL_DOC_READ_CHANNEL,
   LOCAL_DOC_EXTRACT_WORD_CHANNEL,
   LOCAL_DOC_WRITE_CHANNEL,
+  LOCAL_DOC_PPTX_CHANNEL,
   type LocalDocReadInput,
   type LocalDocReadResult,
   type LocalDocWriteInput,
@@ -75,6 +76,45 @@ export function registerLocalDocIpc(
     assertTrustedIpcSender(event, trustPolicy);
     const input = validateLocalDocWriteInput(payload);
     return writeLocalDocument(input.path, input.content, services);
+  });
+  registrar.handle(LOCAL_DOC_PPTX_CHANNEL, async (event, payload) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    if (typeof payload !== "object" || payload === null || typeof (payload as { bytes?: unknown }).bytes !== "string")
+      throw new Error("PPTX preview requires authorized bytes.");
+    const bytes = Buffer.from((payload as { bytes: string }).bytes, "base64");
+    if (bytes.byteLength > LOCAL_DOC_PREVIEW_MAX_BYTES) throw new Error("PPTX preview exceeds the 16 MiB limit.");
+    const { openPptxPresentation } = await import("@silurus/ooxml/node");
+    const session = await openPptxPresentation(bytes);
+    try {
+      const slides = [];
+      const images = new Map<string, string>();
+      // Images can occur in pictures, fills and bullets, including nested groups.
+      const collectImages = (value: unknown): void => {
+        if (typeof value !== "object" || value === null) return;
+        const record = value as Record<string, unknown>;
+        if (typeof record.imagePath === "string" && typeof record.mimeType === "string")
+          images.set(record.imagePath, record.mimeType);
+        if (typeof record.svgImagePath === "string") images.set(record.svgImagePath, "image/svg+xml");
+        for (const child of Object.values(record)) collectImages(child);
+      };
+      const { slideWidth, slideHeight } = session;
+      const resources: Record<string, { bytes: string; mediaType: string }> = Object.create(null);
+      for await (const slide of session.slides()) {
+        if (slide.parseError) throw new Error(`PPTX parse failed: ${slide.parseError}`);
+        slides.push(slide);
+        collectImages(slide);
+        // The library closes its session when iteration ends; consume resources before advancing.
+        for (const [path, mediaType] of images) {
+          if (resources[path]) continue;
+          const blob = await session.getImage(path, mediaType);
+          resources[path] = { bytes: Buffer.from(await blob.arrayBuffer()).toString("base64"), mediaType: blob.type };
+        }
+      }
+      if (slides.length === 0) throw new Error("PPTX contains no readable slides.");
+      return { slideWidth, slideHeight, slides, resources };
+    } finally {
+      await session.close();
+    }
   });
 }
 
@@ -261,6 +301,8 @@ function mediaTypeForPath(filePath: string): string | null {
       ".pdf": "application/pdf",
       ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       ".doc": "application/msword",
+      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ".ppt": "application/vnd.ms-powerpoint",
       ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
       ".xls": "application/vnd.ms-excel",
