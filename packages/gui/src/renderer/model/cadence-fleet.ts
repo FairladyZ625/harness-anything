@@ -1,225 +1,147 @@
-import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
+import type { AgentRuntimeSessionGroupDto, AgentRuntimeSessionGroupStatus } from "@harness-anything/daemon/protocol";
 import type { TaskRow } from "./types.ts";
-import type { CadenceFeedEvent } from "./cadence.ts";
 
-export type FleetWorkerStatus = "live" | "idle" | "exited";
-export type FleetTimeWindow = "active" | "1h" | "24h" | "7d" | "all";
+/**
+ * 执行概况的纯派生:一条 sessionGroups 有界读面(groupBy=task,不带成员级 status
+ * 筛选)按「正在执行 / 最近异常执行 / 最近运行结果」收成三组行。判定只用组自身的
+ * `runningCount + latestStatus`——成员级筛选读回的 latestStatus 是匹配成员里的
+ * 最新,不是组现状,「当前需处理」不能从筛选读面推(检查点实测:未筛选 running 的组,
+ * 按 failed 筛选读回却显示 failed/0 在跑)。
+ *
+ * 任务侧的「别误读」声明来自 App 传入的任务投影:done/cancelled/archived 的任务不
+ * 因旧会话失败被当成待办(行上带「任务已完成」);投影缺行标「任务状态未知」;
+ * submitted/in_review 才说「待验收」。succeeded 会话只说「已成功」,不叫「已交付」。
+ */
 
-export const FLEET_TIME_WINDOWS: readonly FleetTimeWindow[] = ["active", "1h", "24h", "7d", "all"] as const;
+export type FleetHistoryRange = "24h" | "7d" | "30d";
+export const FLEET_HISTORY_RANGES: readonly FleetHistoryRange[] = ["24h", "7d", "30d"] as const;
+export const FLEET_HISTORY_RANGE_MS: Readonly<Record<FleetHistoryRange, number>> = {
+  "24h": 86_400_000,
+  "7d": 7 * 86_400_000,
+  "30d": 30 * 86_400_000,
+};
+/** 与会话页同一上限、同一读面家族:概况页不建第二条翻页/轮询,截断由 footer 如实标注。 */
+export const FLEET_GROUPS_LIMIT = 1000;
+/** 概况只答「最近」,长列表的完整落点是会话页;渲染行数有界,footer 标注显示条数。 */
+export const FLEET_RESULT_ROWS = 50;
 
-export interface FleetWorkerMetrics {
-  readonly totalTokens: number;
-  readonly toolCalls: number;
+/** latestStatus 里视为「异常记录」的词:failed 定性,lost/unavailable/ended-indeterminate 结果不明。 */
+export const FLEET_ANOMALY_STATUSES: ReadonlySet<string> = new Set([
+  "failed",
+  "lost",
+  "unavailable",
+  "ended-indeterminate",
+]);
+
+/** 任务当前投影给行的声明:null = 正常推进中,不占标签(标准 §3 正常状态不占标签)。 */
+export type FleetTaskClaim = "awaiting" | "done" | "cancelled" | "archived" | "unknown" | null;
+
+export function fleetTaskClaimOf(task: TaskRow | undefined): FleetTaskClaim {
+  if (task === undefined) return "unknown";
+  const status = task.canonicalStatus ?? task.coordinationStatus;
+  if (status === "done") return "done";
+  if (status === "cancelled") return "cancelled";
+  if (status === "archived" || task.packageDisposition === "archived") return "archived";
+  if (status === "submitted" || status === "in_review") return "awaiting";
+  if (status === "unknown") return "unknown";
+  return null;
 }
 
-/** worker 当前关联的任务:标题来自 tasks 投影行,查不到时退回 taskId 本身。 */
-export interface FleetWorkerTask {
-  readonly taskId: string;
+export interface FleetExecutionRow {
+  readonly key: string;
+  readonly kind: "task" | "decision" | "other";
+  /** 人话标题:任务/决策投影标题,未归属桶给可译的判别式 key。 */
   readonly title: string;
+  readonly unattributedKey: string | null;
+  readonly taskId: string | null;
+  readonly decisionId: string | null;
+  /** latestRound 的会话:行点击与会话详情的落点。 */
+  readonly runtimeSessionId: string | null;
+  readonly agentName: string | null;
+  readonly instanceId: string | null;
+  /** 最新一轮是否就是 running 会话:只有 true 才能把 agentName 指为当前执行人。 */
+  readonly currentExecutor: boolean;
+  readonly runningCount: number;
+  readonly roundCount: number;
+  readonly latestStatus: AgentRuntimeSessionGroupStatus;
+  readonly latestActivityAt: string;
+  readonly taskClaim: FleetTaskClaim;
 }
 
-export interface FleetWorkerRow {
-  readonly runtimeSessionId: string;
-  readonly instanceId: string;
-  readonly label: string;
-  readonly status: FleetWorkerStatus;
-  readonly tasks: readonly FleetWorkerTask[];
-  readonly facts: number;
-  readonly decisions: number;
-  readonly touchedFiles: number;
-  readonly lastActiveAt: string | null;
-  readonly outcome: "succeeded" | "failed" | "cancelled" | "unknown" | null;
-  readonly metrics?: FleetWorkerMetrics;
+export interface FleetExecutionSnapshot {
+  readonly executing: readonly FleetExecutionRow[];
+  readonly anomalies: readonly FleetExecutionRow[];
+  readonly results: readonly FleetExecutionRow[];
+  readonly totals: { readonly groups: number; readonly sessions: number };
+  readonly loadedGroups: number;
+  readonly truncated: boolean;
 }
 
-export interface FleetPulseSnapshot {
-  readonly window: FleetTimeWindow;
-  readonly workers: readonly FleetWorkerRow[];
-  readonly flow: { readonly claimed: number; readonly inFlight: number; readonly settled: number };
-  readonly turnaroundMs: number | null;
-  readonly collisions: readonly {
-    readonly taskId: string;
-    readonly title: string;
-    readonly workerCount: number;
-  }[];
-  readonly activeCount: number;
-}
-
-const terminal = (task: TaskRow): boolean =>
-  task.coordinationStatus === "done" || task.coordinationStatus === "cancelled";
-
-const runtimeIdOf = (executorId: string | null): string | null => {
-  if (executorId === null || !executorId.startsWith("runtime-session:")) return null;
-  return executorId.slice("runtime-session:".length);
-};
-
-const workerStatus = (session: AgentRuntimeSessionDto): FleetWorkerStatus => {
-  if (session.liveness === "live") return "live";
-  if (session.liveness === "exited") return "exited";
-  return "idle";
-};
-
-const WINDOW_HOURS: Record<Exclude<FleetTimeWindow, "active" | "all">, number> = {
-  "1h": 1,
-  "24h": 24,
-  "7d": 7 * 24,
-};
-
-const STATUS_PRIORITY: Record<FleetWorkerStatus, number> = {
-  live: 0,
-  idle: 1,
-  exited: 2,
-};
-
-/** 只读舰队投影:session 是存活真相,事件窗口贡献归属产出,支持时间窗口筛选与历史贡献汇总。 */
-export function deriveFleetPulse(input: {
-  readonly sessions: readonly AgentRuntimeSessionDto[];
-  readonly tasks: readonly TaskRow[];
-  readonly events: readonly CadenceFeedEvent[];
-  readonly window?: FleetTimeWindow;
-  readonly now?: string;
-}): FleetPulseSnapshot {
-  const window = input.window ?? "24h",
-    titleOf = new Map(input.tasks.map((task) => [task.taskId, task.title])),
-    eventsByRuntime = new Map<string, CadenceFeedEvent[]>();
-  for (const event of input.events) {
-    const runtimeId = runtimeIdOf(event.executorId);
-    if (runtimeId === null) continue;
-    const rows = eventsByRuntime.get(runtimeId) ?? [];
-    rows.push(event);
-    eventsByRuntime.set(runtimeId, rows);
-  }
-
-  const allWorkers = input.sessions.map((session): FleetWorkerRow => {
-    const events = eventsByRuntime.get(session.runtimeSessionId) ?? [],
-      touched = new Set(events.flatMap((event) => event.touchedPaths)),
-      snapshot = session.definitionSnapshot;
-
-    let latestEventAt: string | null = null;
-    for (const ev of events) {
-      if (ev.at && (latestEventAt === null || ev.at > latestEventAt)) {
-        latestEventAt = ev.at;
-      }
-    }
-    const lastActiveAt = session.activity.lastObservedAt
-      ? latestEventAt && latestEventAt > session.activity.lastObservedAt
-        ? latestEventAt
-        : session.activity.lastObservedAt
-      : latestEventAt;
-
-    const metrics: FleetWorkerMetrics | undefined = session.metrics
-      ? {
-          totalTokens: session.metrics.totalTokens,
-          toolCalls: session.metrics.toolCallCount,
-        }
-      : undefined;
-
-    return {
-      runtimeSessionId: session.runtimeSessionId,
-      instanceId: session.instanceId,
-      label: snapshot === null ? session.kindId : `${snapshot.kindId} · ${snapshot.model}`,
-      status: workerStatus(session),
-      tasks: [...new Set(session.associations.map(({ taskId }) => taskId))].map((taskId) => ({
-        taskId,
-        title: titleOf.get(taskId) ?? taskId,
-      })),
-      facts: events.filter(({ type, factId }) => type === "fact_recorded" && factId !== null).length,
-      decisions: events.filter(({ decisionId }) => decisionId !== null).length,
-      touchedFiles: touched.size,
-      lastActiveAt,
-      outcome: session.activity.outcome,
-      ...(metrics ? { metrics } : {}),
-    };
-  });
-
-  const activeCount = allWorkers.filter((w) => w.status === "live").length;
-
-  let maxTimestamp: number | null = null;
-  for (const s of input.sessions) {
-    if (s.activity.lastObservedAt) {
-      const ms = Date.parse(s.activity.lastObservedAt);
-      if (Number.isFinite(ms) && (maxTimestamp === null || ms > maxTimestamp)) maxTimestamp = ms;
-    }
-  }
-  for (const ev of input.events) {
-    if (ev.at) {
-      const ms = Date.parse(ev.at);
-      if (Number.isFinite(ms) && (maxTimestamp === null || ms > maxTimestamp)) maxTimestamp = ms;
-    }
-  }
-  const nowMs = input.now ? Date.parse(input.now) : (maxTimestamp ?? Date.now());
-
-  const filteredWorkers = allWorkers.filter((worker) => {
-    if (window === "all") return true;
-    if (window === "active") return worker.status === "live" || worker.status === "idle";
-    const hours = WINDOW_HOURS[window];
-    if (!worker.lastActiveAt) return false;
-    const activeMs = Date.parse(worker.lastActiveAt);
-    if (Number.isNaN(activeMs)) return false;
-    return nowMs - activeMs <= hours * 3_600_000 && activeMs <= nowMs + 60_000;
-  });
-
-  const sortedWorkers = [...filteredWorkers].sort((left, right) => {
-    const pDiff = STATUS_PRIORITY[left.status] - STATUS_PRIORITY[right.status];
-    if (pDiff !== 0) return pDiff;
-    if (left.lastActiveAt && right.lastActiveAt) {
-      const cmp = right.lastActiveAt.localeCompare(left.lastActiveAt);
-      if (cmp !== 0) return cmp;
-    } else if (left.lastActiveAt && !right.lastActiveAt) {
-      return -1;
-    } else if (!left.lastActiveAt && right.lastActiveAt) {
-      return 1;
-    }
-    return left.label.localeCompare(right.label);
-  });
-
-  const activeTasks = new Set(
-      input.sessions
-        .filter((session) => session.liveness !== "exited")
-        .flatMap((session) => session.associations.map(({ taskId }) => taskId)),
-    ),
-    settled = input.tasks.filter(terminal).length,
-    inFlight = input.tasks.filter((task) => !terminal(task) && activeTasks.has(task.taskId)).length,
-    claimed = input.tasks.filter((task) => !terminal(task) && !activeTasks.has(task.taskId)).length,
-    delivery = new Map<string, { start: string | null; end: string | null }>();
-
-  for (const event of input.events) {
-    if (event.taskId === null || event.at === null) continue;
-    const sample = delivery.get(event.taskId) ?? { start: null, end: null };
-    if (event.type === "execution_started" && (sample.start === null || event.at < sample.start))
-      sample.start = event.at;
-    if (event.type === "task_completed" && (sample.end === null || event.at > sample.end)) sample.end = event.at;
-    delivery.set(event.taskId, sample);
-  }
-  const samples = [...delivery.values()].flatMap(({ start, end }) => {
-    if (start === null || end === null) return [];
-    const value = Date.parse(end) - Date.parse(start);
-    return Number.isFinite(value) && value >= 0 ? [value] : [];
-  });
-
-  const leaseHolders = new Map<string, Set<string>>();
-  for (const session of input.sessions) {
-    if (session.liveness === "exited") continue;
-    for (const association of session.associations) {
-      if (association.lease?.phase !== "held" && association.lease?.phase !== "reserving") continue;
-      const holders = leaseHolders.get(association.taskId) ?? new Set<string>();
-      holders.add(session.runtimeSessionId);
-      leaseHolders.set(association.taskId, holders);
-    }
-  }
-
+function toRow(
+  group: AgentRuntimeSessionGroupDto,
+  tasks: ReadonlyMap<string, TaskRow>,
+  decisionTitles: ReadonlyMap<string, string>,
+): FleetExecutionRow {
+  const taskId = group.kind === "task" && group.taskId !== undefined ? group.taskId : null,
+    decisionId = group.kind === "decision" && group.decisionId !== undefined ? group.decisionId : null,
+    unattributed = group.kind === "unattributed" ? group.key : null,
+    latest = group.latestRound;
   return {
-    window,
-    workers: sortedWorkers,
-    flow: { claimed, inFlight, settled },
-    turnaroundMs: samples.length === 0 ? null : samples.reduce((sum, value) => sum + value, 0) / samples.length,
-    collisions: [...leaseHolders.entries()]
-      .filter(([, holders]) => holders.size > 1)
-      .map(([taskId, holders]) => ({
-        taskId,
-        title: titleOf.get(taskId) ?? taskId,
-        workerCount: holders.size,
-      })),
-    activeCount,
+    key: group.key,
+    kind: taskId !== null ? "task" : decisionId !== null ? "decision" : "other",
+    title:
+      decisionId !== null
+        ? (decisionTitles.get(decisionId) ?? group.label)
+        : unattributed !== null
+          ? unattributed
+          : group.label,
+    unattributedKey: unattributed,
+    taskId,
+    decisionId,
+    runtimeSessionId: latest?.runtimeSessionId ?? null,
+    agentName: latest?.agentName ?? null,
+    instanceId: latest?.instanceId ?? null,
+    // latestStatus 即 latestRound 的状态(finishGroup 同源),running 说明最新一轮就是
+    // 在跑会话;runningCount>0 但最新一轮已结束时不得指名执行人。
+    currentExecutor: latest !== null && group.latestStatus === "running",
+    runningCount: group.runningCount,
+    roundCount: group.roundCount,
+    latestStatus: group.latestStatus,
+    latestActivityAt: group.latestActivityAt,
+    // 非任务组(decision/未归属)没有任务投影可言,不声明「任务状态未知」。
+    taskClaim: taskId === null ? null : fleetTaskClaimOf(tasks.get(taskId)),
+  };
+}
+
+function byActivityDesc(left: FleetExecutionRow, right: FleetExecutionRow): number {
+  const leftAt = Date.parse(left.latestActivityAt),
+    rightAt = Date.parse(right.latestActivityAt);
+  // 时间瞬值比较而非字符串:同流上毫秒/秒精度 ISO 共存,字典序会判反(agent-runtime 的教训)。
+  if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && leftAt !== rightAt) return rightAt - leftAt;
+  if (Number.isFinite(leftAt) !== Number.isFinite(rightAt)) return Number.isFinite(leftAt) ? -1 : 1;
+  return left.key.localeCompare(right.key);
+}
+
+export function deriveFleetExecution(input: {
+  readonly groups: readonly AgentRuntimeSessionGroupDto[];
+  readonly tasks: readonly TaskRow[];
+  readonly decisions?: readonly { readonly decisionId: string; readonly title: string }[];
+  readonly totals: { readonly groups: number; readonly sessions: number };
+  readonly truncated: boolean;
+}): FleetExecutionSnapshot {
+  const tasks = new Map(input.tasks.map((task) => [task.taskId, task])),
+    decisionTitles = new Map((input.decisions ?? []).map((decision) => [decision.decisionId, decision.title])),
+    rows = input.groups.map((group) => toRow(group, tasks, decisionTitles)),
+    executing = rows.filter((row) => row.runningCount > 0).sort(byActivityDesc),
+    finished = rows.filter((row) => row.runningCount === 0).sort(byActivityDesc);
+  return {
+    executing,
+    // 异常是「记录」不是「待办」:任务已 done/cancelled/archived 的行照列,但行上声明
+    // 任务当前状态,不叫人处理;是否可恢复交会话详情判断。
+    anomalies: finished.filter((row) => FLEET_ANOMALY_STATUSES.has(row.latestStatus)),
+    results: finished,
+    totals: input.totals,
+    loadedGroups: input.groups.length,
+    truncated: input.truncated,
   };
 }

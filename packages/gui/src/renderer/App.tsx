@@ -1,7 +1,7 @@
 import { PageEntryBoundary } from "./components/primitives/EntryBoundary.tsx";
 import { pageEntryIdentity } from "./components/primitives/page-entry-identity.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import type { TaskRow } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
@@ -86,8 +86,6 @@ import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.
 import { guiTransport } from "./gui-transport.ts";
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
-import { agentRuntimeClient, runtimeQueryKeys } from "./agent-runtime-client.ts";
-
 /**
  * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
  * 只有这些视图挂载时才读完整投影;
@@ -190,13 +188,8 @@ function AppShell() {
     () => combineWorkspaceScopePages(workspaceScopeQuery.data?.pages ?? []),
     [workspaceScopeQuery.data?.pages],
   );
-  // 运行 overview 读(研发态势的在飞会话;query key 与 cadence 读面共用,react-query 去重)。
-  const runtimeSessionsQuery = useQuery({
-    queryKey: [...runtimeQueryKeys.overview(projectId, "cadence"), "fleet"],
-    queryFn: () => agentRuntimeClient.overview(projectId),
-    enabled: activeRepoId !== null && view === "cadence",
-    staleTime: 4_000,
-  });
+  // 执行概况页签的会话组读面(sessionGroups)由 CadenceView 自带:query key 并入
+  // sessionGroupsAll 家族,与会话页共享缓存与台账 cut 的失效扇出。
   const setTaskFilters = useCallback((next: TaskFilters) => updateLocation({ taskFilters: next }), [updateLocation]);
   // 总池 Tab 走 AppLocation(可寻址、刷新不丢),与看板筛选同一「原地改,不推栈」路径。
   const setPoolTab = useCallback((tab: AttestationPoolTabId) => updateLocation({ poolTab: tab }), [updateLocation]);
@@ -764,7 +757,6 @@ function AppShell() {
                   tasks={projectTasks}
                   agenda={agendaQuery.data}
                   decisions={decisionSummary.decisions}
-                  activeSessions={runtimeSessionsQuery.data?.sessions ?? []}
                   onNavigateEntity={navigateToEntity}
                   onOpenPool={() =>
                     // 堵点直达的总池出口:决策待裁域(与总览收件箱同一条可寻址路由)。

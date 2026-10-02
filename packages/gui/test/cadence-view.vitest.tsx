@@ -4,13 +4,15 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { act } from "react";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CadenceView } from "../src/renderer/views/CadenceView.tsx";
 import { harnessClient, type AgendaSuccess } from "../src/renderer/api-client.ts";
+import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import type { ObserveTailRead } from "../src/api/renderer-dto.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
+import type { AgentRuntimeSessionGroupDto, AgentRuntimeSessionGroupsResult } from "@harness-anything/daemon/protocol";
 
 /**
  * 研发态势视图的装配判据(happy-dom):
@@ -21,7 +23,11 @@ import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
  *  - 音轨点击原地展开:阶段耗时漏斗(瓶颈占比) + 微型事件链(fact statement 原地可读),
  *    「进入详情」外链与实体跳转走 onNavigateEntity(task/<id>、decision/<id>);
  *  - `unavailable`(远端 edge 无事件流)显式横幅,不冒充空驾驶舱;
- *  - 议程缺位时堵点卡片如实显示读取中,不冒充「无堵点」。
+ *  - 议程缺位时堵点卡片如实显示读取中,不冒充「无堵点」;
+ *  - 执行概况页签:一条 sessionGroups 有界读面(groupBy=task,无成员级 status 筛选)分
+ *    正在执行/最近异常执行/最近运行结果三区;done 任务的失败行带「任务已完成」声明;
+ *    runningCount>0 但最新一轮已结束不指名执行人;pending/error 不冒充空态;截断与
+ *    显示条数如实标注;窗口切换重读且 since 口径一致。
  */
 
 const REPO_ID = "cadence-probe",
@@ -151,50 +157,96 @@ interface Mounted {
   readonly navigate: ReturnType<typeof vi.fn>;
 }
 
+/** 执行概况页签的一条 sessionGroups 有界读面(groupBy=task,无成员级 status 筛选)。 */
+function groupsResult(
+  groups: readonly AgentRuntimeSessionGroupDto[],
+  totals: { groups: number; sessions: number },
+  truncated = false,
+): AgentRuntimeSessionGroupsResult {
+  return { ok: true, status: "ready", groups, totals, truncated, watermark: 12, sourceRevision: 3 };
+}
+
+function fleetGroup(
+  overrides: Partial<AgentRuntimeSessionGroupDto> & { readonly key: string },
+): AgentRuntimeSessionGroupDto {
+  const kind = overrides.kind ?? (overrides.taskId !== undefined ? "task" : "unattributed");
+  return {
+    key: overrides.key,
+    kind,
+    label: overrides.label ?? overrides.key,
+    ...(overrides.taskId !== undefined ? { taskId: overrides.taskId } : {}),
+    latestStatus: "succeeded",
+    latestActivityAt: NOW,
+    runningCount: 0,
+    sessionCount: 1,
+    roundCount: 1,
+    latestRound: null,
+    ...overrides,
+  };
+}
+
+async function flushEffects() {
+  for (let index = 0; index < 3; index++) {
+    await act(async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+}
+
 async function mountCadence(options: {
   readonly page: ObserveTailRead;
   readonly agenda?: AgendaSuccess;
-  readonly sessions?: readonly AgentRuntimeSessionDto[];
+  readonly fleet?: AgentRuntimeSessionGroupsResult;
+  readonly fleetError?: Error;
   readonly tasks?: readonly TaskRow[];
 }): Promise<Mounted> {
   const navigate = vi.fn();
   vi.spyOn(harnessClient, "tailObservability").mockImplementation(async () => options.page);
+  vi.spyOn(agentRuntimeClient, "sessionGroups").mockImplementation(async () => {
+    if (options.fleetError !== undefined) throw options.fleetError;
+    return options.fleet ?? groupsResult([], { groups: 0, sessions: 0 });
+  });
   const container = document.createElement("div");
   document.body.append(container);
-  const root = createRoot(container);
+  const root = createRoot(container),
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   mounted.push({ root, container });
   await act(async () => {
     root.render(
-      createElement(CadenceView, {
-        repoId: REPO_ID,
-        projectName: "cadence-probe",
-        tasks: options.tasks ?? [
-          cadenceTask({ taskId: "task_live", title: "在飞任务" }),
-          cadenceTask({ taskId: "task_done", title: "已收口任务", coordinationStatus: "done" }),
-        ],
-        agenda: options.agenda,
-        decisions: [
-          {
-            decisionId: "dec_probe",
-            title: "探针决策",
-            state: "proposed",
-            riskTier: "medium",
-            urgency: "high",
-            proposedAt: NOW,
-          },
-          {
-            decisionId: "dec_standing",
-            title: "常设决策",
-            state: "in_effect",
-            riskTier: "low",
-            urgency: "low",
-            proposedAt: NOW,
-          },
-        ],
-        activeSessions: options.sessions ?? [],
-        onNavigateEntity: navigate,
-        onOpenPool: () => undefined,
-      }),
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(CadenceView, {
+          repoId: REPO_ID,
+          projectName: "cadence-probe",
+          tasks: options.tasks ?? [
+            cadenceTask({ taskId: "task_live", title: "在飞任务" }),
+            cadenceTask({ taskId: "task_done", title: "已收口任务", coordinationStatus: "done" }),
+          ],
+          agenda: options.agenda,
+          decisions: [
+            {
+              decisionId: "dec_probe",
+              title: "探针决策",
+              state: "proposed",
+              riskTier: "medium",
+              urgency: "high",
+              proposedAt: NOW,
+            },
+            {
+              decisionId: "dec_standing",
+              title: "常设决策",
+              state: "in_effect",
+              riskTier: "low",
+              urgency: "low",
+              proposedAt: NOW,
+            },
+          ],
+          onNavigateEntity: navigate,
+          onOpenPool: () => undefined,
+        }),
+      ),
     );
   });
   await act(async () => {
@@ -214,61 +266,113 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** 切到执行概况页签并等 sessionGroups 读面结算。 */
+async function openFleetTab(container: HTMLElement): Promise<void> {
+  const fleetTab = [...container.querySelectorAll('[role="tab"]')].find((row) =>
+    row.textContent?.includes("执行概况"),
+  )!;
+  await act(async () => fleetTab.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await flushEffects();
+}
+
+/** 行主点击面:带行尾动作时 DenseRow 的主面是内层无 testid 的 button,不带动作时是行本身。 */
+function mainRowButton(scope: HTMLElement): HTMLElement {
+  const button = [...scope.querySelectorAll('[data-testid="cadence-fleet-row"] button')].find(
+    (candidate) => candidate.getAttribute("data-testid") === null,
+  );
+  expect(button).toBeInstanceOf(HTMLElement);
+  return button as HTMLElement;
+}
+
 function textOf(container: HTMLElement, testId: string): string {
   return container.querySelector(`[data-testid="${testId}"]`)?.textContent ?? "";
 }
 
 describe("CadenceView", () => {
-  it("switches to fleet pulse and renders worker flow, contribution, task link and clean fence", async () => {
-    const session = {
-      runtimeSessionId: "runtime_probe",
-      instanceId: "codex-primary",
-      kindId: "codex",
-      liveness: "live",
-      definitionSnapshot: {
-        kindId: "codex",
-        model: "gpt-5.6-sol",
-      },
-      associations: [
-        { taskId: "task_live", executionId: "exe_1", holder: null, lease: { phase: "held", expiresAt: NOW } },
-      ],
-      activity: { lastObservedAt: NOW, outcome: null, exitCode: null, resultRef: null, missingEvidence: null },
-    } as AgentRuntimeSessionDto;
+  it("renders the execution overview from one sessionGroups read with honest task claims", async () => {
     const { container, navigate } = await mountCadence({
-      page: historyPage([
-        eventItem({
-          id: "fleet-start",
-          type: "execution_started",
-          revision: 1,
-          taskId: "task_live",
-          at: "2026-09-20T10:00:00.000Z",
-        }),
-        eventItem({
-          id: "fleet-fact",
-          type: "fact_recorded",
-          revision: 2,
-          taskId: "task_live",
-          factId: "F-fleet",
-          payload: { documentClaims: [{ path: "packages/gui/src/fleet.ts" }] },
-        }),
-      ]),
-      sessions: [session],
+      page: historyPage([]),
+      fleet: groupsResult(
+        [
+          fleetGroup({
+            key: "task_live",
+            label: "在飞任务",
+            taskId: "task_live",
+            latestStatus: "running",
+            runningCount: 1,
+            latestRound: {
+              runtimeSessionId: "runtime_running",
+              dispatchId: null,
+              agentName: "GLM-5.3 · 通用实现 Worker",
+              instanceId: "zcode-glm-5-3",
+              status: "running",
+              classification: null,
+              reason: null,
+              startedAt: NOW,
+            },
+          }),
+          fleetGroup({
+            key: "task_done",
+            label: "已收口但末轮失败",
+            taskId: "task_done",
+            latestStatus: "failed",
+            latestRound: {
+              runtimeSessionId: "runtime_failed",
+              dispatchId: null,
+              agentName: "Closeout · 独立评审 Reviewer",
+              instanceId: "zcode-glm-5-3-flash",
+              status: "failed",
+              classification: null,
+              reason: null,
+              startedAt: "2026-09-20T10:00:00.000Z",
+            },
+          }),
+          fleetGroup({
+            key: "task_probe",
+            label: "探针成功任务",
+            taskId: "task_probe",
+            latestStatus: "succeeded",
+            latestActivityAt: "2026-09-20T09:00:00.000Z",
+          }),
+        ],
+        { groups: 3, sessions: 7 },
+      ),
     });
-    const fleetTab = [...container.querySelectorAll('[role="tab"]')].find((row) => row.textContent?.includes("舰队"))!;
-    await act(async () => fleetTab.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(fleetTab.getAttribute("aria-selected")).toBe("true");
-    expect(textOf(container, "cadence-fleet")).toContain("codex · gpt-5.6-sol");
-    // 任务标题是主文本(来自 tasks 投影行的 title);完整 taskId 只留在悬停 title 里。
-    expect(textOf(container, "cadence-fleet")).toContain("在飞任务");
-    expect(textOf(container, "cadence-fleet")).not.toContain("task_live");
-    expect(textOf(container, "cadence-fleet")).toContain("Fact 1 · 决策 0 · 文件 1");
-    expect(textOf(container, "cadence-fleet-fence")).toContain("无租约冲突");
-    // 流动概况:在飞/待认领/收口计数来自任务池全量。
-    expect(textOf(container, "cadence-fleet-flow")).toContain("在飞任务");
-    expect(textOf(container, "cadence-fleet-flow")).toContain("待认领");
-    const taskLink = [...container.querySelectorAll('[data-testid="cadence-fleet-worker"] button')][0]!;
-    await act(async () => taskLink.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(navigate).toHaveBeenCalledWith("task/task_live");
+    await openFleetTab(container);
+    // 一条读面:groupBy=task、无成员级 status 筛选、有界 limit;since=当前-24h(默认窗)。
+    const read = agentRuntimeClient.sessionGroups as unknown as { mock: { calls: unknown[][] } };
+    expect(read.mock.calls.length).toBeGreaterThan(0);
+    for (const call of read.mock.calls) {
+      expect(call[1]).toMatchObject({
+        groupBy: "task",
+        since: "2026-09-19T12:00:00.000Z",
+        limit: 1000,
+      });
+      expect(call[1]).not.toHaveProperty("status");
+    }
+    // 三区各就各位:正在执行带真实执行人,异常行带「任务已完成」声明(不叫人处理)。
+    expect(textOf(container, "cadence-fleet-executing")).toContain("在飞任务");
+    expect(textOf(container, "cadence-fleet-executing")).toContain("GLM-5.3 · 通用实现 Worker");
+    expect(textOf(container, "cadence-fleet-executing")).toContain("第 1 轮");
+    expect(textOf(container, "cadence-fleet-anomaly")).toContain("已收口但末轮失败");
+    expect(textOf(container, "cadence-fleet-anomaly")).toContain("任务已完成");
+    expect(textOf(container, "cadence-fleet-anomaly")).toContain("已失败");
+    expect(textOf(container, "cadence-fleet-results")).toContain("探针成功任务");
+    expect(textOf(container, "cadence-fleet-results")).toContain("已成功");
+    // 口径行:窗口 + 总数 + 已加载组数;不把已加载部分冒充全量。
+    expect(textOf(container, "cadence-fleet-scope")).toContain("窗口 24小时");
+    expect(textOf(container, "cadence-fleet-scope")).toContain("共 3 组 7 个会话");
+    expect(textOf(container, "cadence-fleet-scope")).toContain("已加载 3 组");
+    // 行点击落点:主点击(DenseRow 按钮面)进该任务会话组,行尾动作进任务详情(验收面)。
+    const anomalyRegion = container.querySelector('[data-testid="cadence-fleet-anomaly"]')!;
+    const anomalyRow = mainRowButton(anomalyRegion);
+    await act(async () => anomalyRow.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(navigate).toHaveBeenCalledWith("tasksessions/task_done");
+    const taskButton = [
+      ...container.querySelectorAll('[data-testid="cadence-fleet-anomaly"] [data-testid="cadence-fleet-row-task"]'),
+    ][0]!;
+    await act(async () => taskButton.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(navigate).toHaveBeenCalledWith("task/task_done");
   });
 
   it("renders the HUD, rhythm track, friction and yield from one observe.tail history page", async () => {
@@ -426,95 +530,140 @@ describe("CadenceView", () => {
     }
   });
 
-  it("supports fleet time window switching and quick switch when active window is empty", async () => {
-    const exitedSession = {
-      runtimeSessionId: "runtime_historical",
-      instanceId: "codex-secondary",
-      kindId: "codex",
-      liveness: "exited",
-      definitionSnapshot: {
-        kindId: "codex",
-        model: "gpt-5.6-sol",
-      },
-      associations: [{ taskId: "task_historical", executionId: "exe_2", holder: null, lease: null }],
-      activity: {
-        lastObservedAt: "2026-09-20T10:00:00.000Z",
-        outcome: "succeeded",
-        exitCode: 0,
-        resultRef: null,
-        missingEvidence: null,
-      },
-    } as AgentRuntimeSessionDto;
-
+  it("switches the history range for the whole pane and re-reads with a consistent since", async () => {
     const { container } = await mountCadence({
       page: historyPage([]),
-      sessions: [exitedSession],
+      fleet: groupsResult(
+        [
+          fleetGroup({
+            key: "task_live",
+            label: "在飞任务",
+            taskId: "task_live",
+            latestStatus: "running",
+            runningCount: 1,
+          }),
+        ],
+        { groups: 1, sessions: 1 },
+      ),
     });
-
-    const fleetTab = [...container.querySelectorAll('[role="tab"]')].find((row) => row.textContent?.includes("舰队"))!;
-    await act(async () => fleetTab.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-
-    // 默认 24h: 能看到该历史 session
-    expect(textOf(container, "cadence-fleet")).toContain("codex · gpt-5.6-sol");
-
-    // 切到 active 窗口: 没有活跃 session,显示空态与快捷按钮
-    // (窗口切换是共享 SegCtl 分段控件,按可访问组内的按钮文案取,§2.3 统一控件。)
-    const activeBtn = [...container.querySelectorAll('[data-testid="cadence-fleet"] [role="group"] button')].find(
-      (button) => button.textContent === "活跃",
+    await openFleetTab(container);
+    // 窗口切换是共享 SegCtl 分段控件(§2.3),只管历史两区。
+    const sevenDays = [...container.querySelectorAll('[data-testid="cadence-fleet"] [role="group"] button')].find(
+      (button) => button.textContent === "7天",
     )!;
-    await act(async () => activeBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(textOf(container, "cadence-fleet")).toContain("当前没有活跃运行的 Worker");
-
-    // 点击快捷切换到 24h
-    const switch24hBtn = container.querySelector('[data-testid="cadence-fleet-switch-24h"]')!;
-    expect(switch24hBtn).not.toBeNull();
-    await act(async () => switch24hBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-
-    // 切换后历史 worker 重新可见
-    expect(textOf(container, "cadence-fleet")).toContain("codex · gpt-5.6-sol");
+    await act(async () => sevenDays.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await flushEffects();
+    const read = agentRuntimeClient.sessionGroups as unknown as { mock: { calls: unknown[][] } };
+    const lastCall = read.mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(lastCall).toMatchObject({ groupBy: "task", since: "2026-09-13T12:00:00.000Z", limit: 1000 });
+    expect(textOf(container, "cadence-fleet-scope")).toContain("窗口 7天");
   });
 
-  it("renders fleet collisions with task titles, outcome tags and one row per worker", async () => {
-    const liveSession = (id: string, taskId: string): AgentRuntimeSessionDto =>
-      ({
-        runtimeSessionId: id,
-        instanceId: id,
-        kindId: "codex",
-        liveness: "live",
-        definitionSnapshot: { kindId: "codex", model: "gpt-5.6-sol" },
-        associations: [{ taskId, executionId: `exe_${id}`, holder: null, lease: { phase: "held", expiresAt: NOW } }],
-        activity: { lastObservedAt: NOW, outcome: null, exitCode: null, resultRef: null, missingEvidence: null },
-      }) as AgentRuntimeSessionDto;
-    const failedSession = {
-      runtimeSessionId: "runtime_failed",
-      instanceId: "codex-third",
-      kindId: "codex",
-      liveness: "exited",
-      definitionSnapshot: null,
-      associations: [],
-      activity: { lastObservedAt: NOW, outcome: "failed", exitCode: 1, resultRef: null, missingEvidence: null },
-    } as AgentRuntimeSessionDto;
-    const { container, navigate } = await mountCadence({
+  it("keeps running groups visible and unnamed when the latest round already ended", async () => {
+    const { container } = await mountCadence({
       page: historyPage([]),
-      sessions: [liveSession("runtime_a", "task_flight"), liveSession("runtime_b", "task_flight"), failedSession],
-      tasks: [
-        cadenceTask({ taskId: "task_flight", title: "被争用的任务" }),
-        cadenceTask({ taskId: "task_solo", title: "独飞任务" }),
-      ],
+      fleet: groupsResult(
+        [
+          // runningCount>0 但最新一轮已结束:不指名执行人,只说几个会话在跑。
+          fleetGroup({
+            key: "task_mixed",
+            label: "混合任务",
+            taskId: "task_mixed",
+            latestStatus: "failed",
+            runningCount: 2,
+            latestRound: {
+              runtimeSessionId: "runtime_old",
+              dispatchId: null,
+              agentName: "已结束的执行人",
+              instanceId: "zcode-glm-5-3",
+              status: "failed",
+              classification: null,
+              reason: null,
+              startedAt: "2026-09-20T10:00:00.000Z",
+            },
+          }),
+        ],
+        { groups: 1, sessions: 2 },
+      ),
     });
+    await openFleetTab(container);
+    expect(textOf(container, "cadence-fleet-executing")).toContain("混合任务");
+    expect(textOf(container, "cadence-fleet-executing")).toContain("2 个会话执行中");
+    expect(textOf(container, "cadence-fleet-executing")).not.toContain("已结束的执行人");
+    // 未归属桶(非 task 组)仍可导航:直达最新会话详情,不冒充 task 引用。
+    const unattributed = await mountCadence({
+      page: historyPage([]),
+      fleet: groupsResult(
+        [
+          fleetGroup({
+            key: "unattributed:no-task",
+            label: "No task binding",
+            latestStatus: "failed",
+            latestRound: {
+              runtimeSessionId: "runtime_direct",
+              dispatchId: null,
+              agentName: null,
+              instanceId: "direct",
+              status: "failed",
+              classification: null,
+              reason: null,
+              startedAt: NOW,
+            },
+          }),
+        ],
+        { groups: 1, sessions: 1 },
+      ),
+    });
+    await openFleetTab(unattributed.container);
+    // 未归属桶按缺失原因分名(与会话页同一份词表),不是原始英文桶名。
+    expect(textOf(unattributed.container, "cadence-fleet-anomaly")).toContain("未绑定任务");
+    const directRow = mainRowButton(unattributed.container.querySelector('[data-testid="cadence-fleet-anomaly"]')!);
+    await act(async () => directRow.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(unattributed.navigate).toHaveBeenCalledWith("session/runtime_direct");
+  });
 
-    const fleetTab = [...container.querySelectorAll('[role="tab"]')].find((row) => row.textContent?.includes("舰队"))!;
-    await act(async () => fleetTab.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  it("states empty and error honestly: loaded range wording, no fake empties while pending", async () => {
+    const empty = await mountCadence({
+      page: historyPage([]),
+      fleet: groupsResult([], { groups: 0, sessions: 0 }, true),
+    });
+    await openFleetTab(empty.container);
+    expect(textOf(empty.container, "cadence-fleet-executing")).toContain("当前没有在跑的执行");
+    // 截断/空态按「已加载范围内」措辞,不冒充全局无故障。
+    expect(textOf(empty.container, "cadence-fleet-anomaly")).toContain("当前已加载范围内");
+    expect(textOf(empty.container, "cadence-fleet-results")).toContain("当前已加载范围内");
+    expect(textOf(empty.container, "cadence-fleet-scope")).toContain("列表已截断");
 
-    // 多实例:每个 worker 一行;失败实例按结果上标签,正常实例不上状态色。
-    expect(container.querySelectorAll('[data-testid="cadence-fleet-worker"]').length).toBe(3);
-    expect(textOf(container, "cadence-fleet")).toContain("失败");
-    // 冲突行以任务标题为主文本,租约数在行尾;点行进任务详情。
-    expect(textOf(container, "cadence-fleet-fence")).toContain("被争用的任务");
-    expect(textOf(container, "cadence-fleet-fence")).toContain("2 个活跃租约");
-    const fenceRow = container.querySelector('[data-testid="cadence-fleet-fence"] [data-dense-row]')!;
-    await act(async () => fenceRow.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(navigate).toHaveBeenCalledWith("task/task_flight");
+    const pending = await mountCadence({
+      page: historyPage([]),
+      fleet: { ...groupsResult([], { groups: 0, sessions: 0 }), status: "pending" },
+    });
+    await openFleetTab(pending.container);
+    expect(textOf(pending.container, "cadence-fleet-pending")).toContain("读取中");
+    expect(pending.container.querySelector('[data-testid="cadence-fleet-anomaly"]')).toBeNull();
+
+    const failed = await mountCadence({ page: historyPage([]), fleetError: new Error("socket closed") });
+    await openFleetTab(failed.container);
+    expect(textOf(failed.container, "cadence-fleet-error")).toContain("socket closed");
+    expect(failed.container.querySelector('[data-testid="cadence-fleet-results"]')).toBeNull();
+  });
+
+  it("caps rendered result rows at the overview bound and says so in the region footer", async () => {
+    const many = Array.from({ length: 60 }, (_, index) =>
+      fleetGroup({ key: `task_${index}`, label: `结果任务 ${index}`, taskId: `task_${index}` }),
+    );
+    const { container } = await mountCadence({
+      page: historyPage([]),
+      fleet: groupsResult(many, { groups: 60, sessions: 60 }),
+    });
+    await openFleetTab(container);
+    expect(
+      container.querySelectorAll('[data-testid="cadence-fleet-results"] [data-testid="cadence-fleet-row"]').length,
+    ).toBe(50);
+    // 截断说明在区域页脚(Region footer),与行体同级。
+    const resultsRegion = container.querySelector('[data-testid="cadence-fleet-results"]')!.closest("section")!;
+    expect(resultsRegion.textContent).toContain("显示前 50 条");
+    expect(textOf(container, "cadence-fleet-scope")).toContain("已加载 60 组");
   });
 
   it("expands a rhythm row in place with the funnel and micro chain; the detail link navigates", async () => {
