@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 /**
  * 通用按钮(标准 §4.2):全仓唯一按钮实现,plain/primary/danger/ghost 四档以内,
  * 不搞变体矩阵。纯交互外壳(EntityRefLink 这类自带语义的 button)不由此组件承载。
+ * 命中区(标准 §1.9-③)由默认边界承担:min-h/min-w 10(40px)是真实布局尺寸,
+ * 两档密度都不低于它,不靠会侵占邻居的透明伪元素外扩。
  */
 export function Button({
   variant = "plain",
@@ -38,7 +40,7 @@ export function Button({
       data-testid={testId}
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded border ${size === "sm" ? "px-2 py-0.5 ui-micro" : "px-2.5 py-1 ui-meta"} ${tone} disabled:cursor-not-allowed disabled:opacity-45`}
+      className={`inline-flex min-h-10 min-w-10 items-center justify-center gap-1.5 whitespace-nowrap rounded border ${size === "sm" ? "px-2 ui-micro" : "px-2.5 ui-meta"} ${tone} disabled:cursor-not-allowed disabled:opacity-45`}
     >
       {children}
     </button>

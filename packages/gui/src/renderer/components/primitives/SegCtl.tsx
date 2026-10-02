@@ -16,9 +16,9 @@ export function SegCtl<T extends string>({
       role="group"
       aria-label={label}
       aria-disabled={disabled || undefined}
-      // overflow-hidden 会把段钮的命中区伪元素一并裁掉;首末段自带内圆角
-      // (容器圆角 3.5px − 1px 边框)补回原本由裁切提供的圆角观感。
-      className="inline-flex flex-wrap rounded border border-border-strong"
+      // 段钮的 40px 命中区是 min-h-10 的真实布局尺寸(标准 §1.9-③),不用伪元素
+      // 外扩;因此容器可以放心用 overflow-hidden 收圆角。
+      className="inline-flex overflow-hidden rounded border border-border-strong"
     >
       {options.map((option) => (
         <button
@@ -28,7 +28,7 @@ export function SegCtl<T extends string>({
           data-tip={option.tip}
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
-          className={`disabled:cursor-not-allowed disabled:opacity-40 relative px-2.5 py-0.5 ui-micro first:rounded-l-[2.5px] last:rounded-r-[2.5px] after:absolute after:content-[''] after:inset-x-0 after:-top-[10.5px] after:-bottom-[10.5px] ${
+          className={`inline-flex min-h-10 items-center px-3 ui-micro disabled:cursor-not-allowed disabled:opacity-40 ${
             option.value === value ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"
           }`}
         >
