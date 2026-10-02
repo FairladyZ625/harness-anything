@@ -64,6 +64,12 @@ export interface RepoCellBinding {
   readonly delegatedExecutionToken?: DelegatedExecutionToken;
   /** Center-issued decision for the one Action currently executing; transport never supplies this. */
   readonly authorizationDecision?: AuthorizationDecision;
+  /** Keycloak-resolved Person identity and per-action decisions prepared before a synchronous read cut. */
+  readonly personExplanation?: {
+    readonly existsIds: ReadonlySet<string>;
+    readonly decisions: ReadonlyMap<string, AuthorizationDecision>;
+  };
+  readonly explanationDecisions?: ReadonlyMap<string, AuthorizationDecision>;
   readonly assignmentScope?: FleetAssignmentScope;
   readonly writerEpoch?: number;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;

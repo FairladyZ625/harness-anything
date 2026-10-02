@@ -285,6 +285,22 @@ export function fakeKeycloak() {
       userPolicies.set(policy.id, policy);
       permissions.set(permission.id, permission);
     },
+    /** Removes the named actions from all fixture permissions for this person and resource. */
+    revoke(personId: string, resourceName: string, actions: readonly string[]): void {
+      const user = [...users.values()].find((item) => item.attributes.harness_person_id?.[0] === personId);
+      if (!user) throw new Error(`fixture account ${personId} is not registered`);
+      const removed = new Set(actions);
+      for (const [permissionId, permission] of permissions) {
+        const resource = [...resources.values()].find((item) => item._id === permission.resources[0]);
+        if (resource?.name !== resourceName) continue;
+        const appliesToUser = permission.policies.some((policyId) =>
+          userPolicies.get(policyId)?.users.includes(user.id),
+        );
+        if (!appliesToUser) continue;
+        permission.scopes = permission.scopes.filter((scope) => !removed.has(scope));
+        if (permission.scopes.length === 0) permissions.delete(permissionId);
+      }
+    },
     /** Registers a node for `personId` the way the center registry would and returns its machine credential. */
     node(nodeId: string, personId: string): string {
       const clientId = `harness-node-${nodeId}`,

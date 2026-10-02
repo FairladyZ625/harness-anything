@@ -467,6 +467,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           projection: context.projection,
           binding: verified.binding,
           rootDir: context.rootDir,
+          repoId: context.input.repoId,
           now: context.now,
         },
         request,
