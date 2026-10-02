@@ -162,6 +162,43 @@ export default {
     await page.getByRole("tab", { name: /收口与门|Closeout|收口/u }).click();
     await page.getByTestId("task-closeout-tab").waitFor();
 
+    // DecisionReviewTab's supported metadata shape: timestamp + dispatch id + three actions.
+    // Test visibility as well as overflow: the old auto track made the identity zero-width.
+    const metadata = await page
+      .getByTestId("task-closeout-tab")
+      .locator(".bounded-content")
+      .first()
+      .evaluate((body) => {
+        const record = body.parentElement,
+          header = record.firstElementChild;
+        const identity = header.firstElementChild,
+          trailing = header.lastElementChild;
+        const oldWidth = record.style.width,
+          oldChildren = [...trailing.childNodes];
+        record.style.width = "360px";
+        trailing.textContent = "2026-10-02 13:55 · 67e5a389 · dispatch_4b7296db0201def045debc41";
+        const actions = globalThis.document.createElement("div");
+        actions.style.cssText = "display:flex;flex-wrap:wrap;gap:8px";
+        for (const label of ["查看报告", "查看会话", "回应评审意见"]) {
+          const button = globalThis.document.createElement("button");
+          button.textContent = label;
+          button.style.cssText = "min-height:40px;min-width:40px;padding:0 8px";
+          actions.append(button);
+        }
+        trailing.append(actions);
+        const result = {
+          width: record.clientWidth,
+          scroll: record.scrollWidth,
+          identityWidth: identity.getBoundingClientRect().width,
+          columns: globalThis.getComputedStyle(header).gridTemplateColumns,
+        };
+        trailing.replaceChildren(...oldChildren);
+        record.style.width = oldWidth;
+        return result;
+      });
+    assert.ok(metadata.identityWidth >= 180, `identity remains readable: ${JSON.stringify(metadata)}`);
+    assert.ok(metadata.scroll <= metadata.width + 1, `metadata stays contained: ${JSON.stringify(metadata)}`);
+
     // Execution 输出行:长 executionId 是展示叶——截断以真实 Chromium computed
     // style 作准(内联样式:overflow/text-overflow/white-space),悬停给完整值,
     // 行不横向溢出(修复前裸 span 无截断,窄容器直接把相邻列顶出去)。

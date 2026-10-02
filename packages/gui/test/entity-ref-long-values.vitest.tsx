@@ -220,13 +220,13 @@ describe("RecordRow:共用记录布局原语(标准 §4.1,长正文全宽)", () 
     const row = container.firstElementChild as HTMLElement;
     expect(row.className).toContain("@container");
     const meta = row.firstElementChild as HTMLElement;
-    // 元数据行两轨:标识域 minmax(0,1fr)(auto 轨道按 max-content 取宽会让
-    // max-width:100% 在不定宽下失效,长 ID 以自然宽撑破窄容器),时间/动作行尾。
-    expect(meta.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    // 窄记录分行；足宽后两轨均可收缩，长尾部内容不能把标识压成零宽。
+    expect(meta.className).toContain("grid-cols-1");
+    expect(meta.className).toContain("@[640px]:grid-cols-2");
     expect(meta.className).not.toMatch(/(^|\s)sm:/u);
     const [idCol, tailCol] = [...meta.children];
     expect(idCol.className).toContain("min-w-0");
-    expect(tailCol.className).toContain("shrink-0");
+    expect(tailCol.className).toContain("min-w-0");
     // 长正文独占记录容器全宽(S7 实测:三列布局把评审正文挤进 ~320px 中列不可读)。
     const body = meta.nextElementSibling as HTMLElement;
     expect(body.className).toContain("break-words");
@@ -287,7 +287,8 @@ describe("收口页两消费者共用 RecordRow:记录行与 execution 输出行
     expect(body!.parentElement!.className).toContain("break-words");
     // 列模板:自适应 minmax,不再有写死的 11rem/9rem、三列正文挤压与 viewport sm。
     const meta = row!.firstElementChild as HTMLElement;
-    expect(meta.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    expect(meta.className).toContain("grid-cols-1");
+    expect(meta.className).toContain("@[640px]:grid-cols-2");
     expect(meta.className).not.toContain("sm:grid-cols");
     expect(meta.className).not.toContain("11rem");
     expect(meta.className).not.toContain("9rem");
@@ -327,7 +328,8 @@ describe("收口页两消费者共用 RecordRow:记录行与 execution 输出行
     expect(recordRows.length).toBeGreaterThan(0);
     for (const recordRow of recordRows) {
       const meta = recordRow.firstElementChild as HTMLElement;
-      expect(meta.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
+      expect(meta.className).toContain("grid-cols-1");
+      expect(meta.className).toContain("@[640px]:grid-cols-2");
     }
     // 长 locator 在输出记录行的全宽正文块(元数据行的下一个兄弟),evidenceId 走展示叶截断
     // (execution 头部的 executionId 也是展示叶,按 title 区分到 evidence 那片)。

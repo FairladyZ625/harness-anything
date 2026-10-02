@@ -505,8 +505,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         );
       assertFrameEpoch(a.repoId, frame.writerEpoch);
       const ingressAuth = await auth(a),
-        baseReceipt = await options.host.run(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth),
-        receipt = await attachTrustedScheduleAgent(options.host, a.repoId, frame.action.kind, baseReceipt, ingressAuth);
+        receipt = await options.host.run(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth);
       if (isSquadControlResult(receipt))
         throw new FleetFault(
           "assignment_scope_mismatch",
@@ -707,35 +706,4 @@ function normalizeAssignmentRecord(value: FleetAssignmentRecord | null): FleetAs
         },
       }
     : null;
-}
-
-async function attachTrustedScheduleAgent(
-  host: FleetCenterOptions["host"],
-  repoId: string,
-  actionKind: string,
-  receipt: Awaited<ReturnType<FleetCenterOptions["host"]["run"]>>,
-  auth: Parameters<FleetCenterOptions["host"]["run"]>[2],
-): Promise<Awaited<ReturnType<FleetCenterOptions["host"]["run"]>> & { readonly trustedAgent?: unknown }> {
-  if (actionKind !== "schedule-run-now" || receipt.outcome !== "applied") return receipt;
-  const schedule = (
-      receipt as unknown as {
-        readonly schedule?: { readonly spec?: { readonly target?: { readonly agentId?: unknown } } };
-      }
-    ).schedule,
-    agentId = schedule?.spec?.target?.agentId;
-  if (typeof agentId !== "string")
-    throw new FleetFault("schedule_claim_invalid", "Applied Schedule claim omitted its Agent target.");
-  const inspected = await host.run(repoId, { kind: "agent-inspect", agentId }, auth);
-  if (inspected.outcome !== "applied" || typeof inspected.evidence !== "string")
-    throw new FleetFault(
-      "schedule_agent_unavailable",
-      `Schedule Agent ${agentId} is unavailable at the claimed center cut.`,
-    );
-  let trustedAgent: unknown;
-  try {
-    trustedAgent = (JSON.parse(inspected.evidence) as { readonly agent?: unknown }).agent;
-  } catch {
-    throw new FleetFault("schedule_agent_unavailable", `Schedule Agent ${agentId} projection evidence is invalid.`);
-  }
-  return { ...receipt, trustedAgent };
 }
