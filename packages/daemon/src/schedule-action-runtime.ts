@@ -55,8 +55,18 @@ export function makeScheduleActionRuntime(
     if (!existing) return null;
     const receipt = cell.receiptForOperation(opId, binding);
     if (!isScheduleEvent(existing)) return receipt;
-    const schedule = cell.projection.getEntity("schedule", existing.entity.id)?.value ?? existing.payload.schedule;
-    return { ...receipt, scheduleId: existing.entity.id, schedule } as WriteReceipt;
+    const schedule = (cell.projection.getEntity("schedule", existing.entity.id)?.value ??
+        existing.payload.schedule) as ScheduleV1,
+      trustedAgent =
+        action.kind === "schedule-run-now" && cell.mode === "remote-center" && schedule.spec.target.kind === "agent"
+          ? trustedScheduleAgent(cell, schedule.spec.target.agentId)
+          : undefined;
+    return {
+      ...receipt,
+      scheduleId: existing.entity.id,
+      schedule,
+      ...(trustedAgent === undefined ? {} : { trustedAgent }),
+    } as WriteReceipt;
   };
   const runInternal = async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
     const contract = getExecutableEntityAction(action.kind);
