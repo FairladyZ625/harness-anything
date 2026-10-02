@@ -196,6 +196,7 @@ export function reviewDispatchPrompt(input: {
   readonly dispatchId: string;
   readonly execution: ExecutionV1;
   readonly gates: readonly string[];
+  readonly ownerNote?: string;
 }): string {
   const { cell, taskId, packagePath, dispatchId, execution, gates } = input,
     inapplicable = (execution.submission?.completionContract?.gates ?? [])
@@ -205,6 +206,13 @@ export function reviewDispatchPrompt(input: {
     packet = `${packagePath}/artifacts/reports/${dispatchId}.json`;
   return [
     `Independently review task ${taskId}, execution ${execution.executionId}, ` + `iteration ${execution.iteration}.`,
+    ...(input.ownerNote
+      ? [
+          "Owner adjudication context (independently verify it against the frozen contract and evidence; " +
+            "it does not waive permissions or gates):\n" +
+            input.ownerNote,
+        ]
+      : []),
     `The exact submission digest is ${submissionDigest(execution.submission!)}; ` +
       `delivery ${JSON.stringify(execution.submission!)}.`,
     `The execution-frozen delivery baseline is ${JSON.stringify(execution.deliveryBaseline ?? null)}; ` +
@@ -222,6 +230,10 @@ export function reviewDispatchPrompt(input: {
       "Bodies longer than the inline limit are truncated and marked bodyTruncatedFromChars; " +
       "the anchor's path, revision and blobSha256 still identify the full frozen content.",
     `Effective completion gates: ${gates.length ? gates.join(", ") : "none"}.`,
+    "These are task completion requirements. Follow the repository's ordering of source review, " +
+      "pre-merge checks, and post-merge verification. Distinguish observed check failures from pending " +
+      "evidence: a witness produced only after merge is not a source defect merely because this review " +
+      "runs before merge. Report unverified evidence without claiming a gate passed or waiving it.",
     ...(inapplicable.length ? [`Declared gates not applicable to this delivery: ${inapplicable.join(", ")}.`] : []),
     "Read the task plan, closeout, and submitted delivery yourself. " +
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
@@ -260,6 +272,7 @@ export async function spawnCutReviewDispatch(
     readonly binding: RepoCellBinding;
     readonly revision: number;
     readonly reviewerId: string;
+    readonly ownerNote?: string;
     readonly extras?: Readonly<Record<string, unknown>>;
   },
 ): Promise<
@@ -309,6 +322,7 @@ export async function spawnCutReviewDispatch(
       ...(extras.fast === true ? { fast: true } : {}),
       prompt: reviewDispatchPrompt({
         cell,
+        ownerNote: input.ownerNote,
         taskId: input.taskId,
         packagePath: input.packagePath,
         dispatchId: ids.dispatchId,
@@ -372,6 +386,7 @@ export async function dispatchInReviewCutReview(
       binding,
       revision: cell.store.readHead()?.revision ?? 0,
       reviewerId,
+      ...(typeof action.reason === "string" ? { ownerNote: action.reason } : {}),
       // The same reviewer-resource pins dispatch-review takes: an unpinned reviewer declaration
       // would otherwise land on an unpredictable default instance.
       extras: {

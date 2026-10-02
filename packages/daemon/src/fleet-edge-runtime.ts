@@ -376,10 +376,24 @@ export function openFleetEdgeRuntime(input: {
     ...(input.launch ? { launch: input.launch } : {}),
     schedule,
   });
-  const ready = spawner.adopt();
+  // Adoption is shared by concurrent requests, but a failed connection must not become a
+  // permanent property of the cached edge runtime.  The daemon keeps one runtime per
+  // assignment, so retain the instance and discard only the rejected readiness attempt;
+  // the next request can then observe a recovered center and adopt again.
+  let ready: Promise<void> | null = null;
+  const ensureReady = (): Promise<void> => {
+    if (ready === null) {
+      const attempt = spawner.adopt();
+      ready = attempt.catch((error: unknown) => {
+        ready = null;
+        throw error;
+      });
+    }
+    return ready;
+  };
   return {
     run: async (method: FleetEdgeRuntimeRequest["payload"]["method"], action: JsonObject): Promise<JsonObject> => {
-      await ready;
+      await ensureReady();
       if (method === "repo.schedule.run") return runSchedule(action);
       return method === "repo.agentRuntime.spawn"
         ? spawner.spawn(action, edgeBinding(request))

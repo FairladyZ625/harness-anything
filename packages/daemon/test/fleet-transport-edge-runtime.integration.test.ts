@@ -578,6 +578,66 @@ test(
     );
   },
 );
+test("remote-edge runtime retries startup adoption after the center recovers", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const initialCenter = await fixture.center(),
+    unavailablePort = initialCenter.port;
+  await initialCenter.close();
+  const workspaceRoot = path.join(fixture.root, "startup-recovery-edge");
+  mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(workspaceRoot, "harness/harness.yaml"),
+    "schema: harness-anything/v1\nname: startup-recovery-edge\n" +
+      "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  const runtime = openFleetEdgeRuntime({
+    request: {
+      host: "127.0.0.1",
+      port: unavailablePort,
+      caPath: fixture.certFile,
+      nodeId: fixture.assignment.nodeId,
+      credential: "machine-secret",
+      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.assignment.repoId,
+      viewRoot: path.join(fixture.root, "startup-recovery-view"),
+      quotaBytes: replicaQuota,
+      workspaceRoot,
+      method: "repo.agentRuntime.overview",
+      action: { limit: 1 },
+    },
+    daemonGeneration: 1,
+    daemonRoute: {
+      userRoot: path.join(fixture.root, "startup-recovery-user"),
+      daemonId: "startup-recovery-edge",
+      endpoint: path.join(fixture.root, "startup-recovery.sock"),
+    },
+    ports: {
+      runtimeInstances: () => [],
+      prepareRuntimeLaunch: async () => {
+        throw new Error("runtime launch is not part of startup recovery");
+      },
+    },
+  });
+  fixture.track(() => runtime.close());
+  await assert.rejects(
+    runtime.run("repo.agentRuntime.overview", { limit: 1 }),
+    (error: unknown) =>
+      /ECONNREFUSED/u.test(String((error as Error).message)) ||
+      String((error as { readonly code?: unknown }).code) === "ECONNREFUSED",
+  );
+
+  await fixture.center(unavailablePort);
+  const recovered = await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+  assert.equal((recovered.sessions as readonly unknown[]).length, 0);
+
+  const concurrent = await Promise.all([
+    runtime.run("repo.agentRuntime.overview", { limit: 1 }),
+    runtime.run("repo.agentRuntime.overview", { limit: 1 }),
+  ]);
+  assert.equal(concurrent.length, 2);
+  assert.ok(concurrent.every((result) => Array.isArray(result.sessions)));
+});
 test("fleet runtime waits over five seconds for every configured overview page", { timeout: 30_000 }, async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
@@ -1400,7 +1460,7 @@ async function fleetFixture(
     },
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
     runtimeArchiveReceipts,
-    center: () =>
+    center: (port?: number) =>
       owned.hold(
         listenFleetTls({
           host: {
@@ -1421,6 +1481,7 @@ async function fleetFixture(
             },
           },
           stateRoot,
+          ...(port === undefined ? {} : { port }),
           ...fleetHostWriterOptions(userRoot, ["fleet-repo"]),
           key,
           cert,
