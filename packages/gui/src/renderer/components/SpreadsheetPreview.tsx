@@ -32,9 +32,7 @@ interface ParsedSheet {
   readonly name: string;
   readonly totalRows: number;
   readonly totalCols: number;
-  /** 合并区左上格地址 `r:c` → 跨度;其余被覆盖地址记入 covered。 */
-  readonly spans: ReadonlyMap<string, { readonly rowSpan: number; readonly colSpan: number }>;
-  readonly covered: ReadonlySet<string>;
+  readonly merges: readonly ReturnType<DecodeRange>[];
   /** 渲染期惰性取格:稀疏工作表只物化当前窗口内的单元格文本。 */
   readonly cellAt: (row: number, column: number) => CellObject | undefined;
 }
@@ -62,25 +60,13 @@ function buildSheets(
       const sheet = workbook.Sheets[name];
       const ref = sheet?.["!ref"];
       if (sheet === undefined || ref === undefined)
-        return { name, totalRows: 0, totalCols: 0, spans: new Map(), covered: new Set(), cellAt: () => undefined };
+        return { name, totalRows: 0, totalCols: 0, merges: [], cellAt: () => undefined };
       const range = decodeRange(ref);
-      const spans = new Map<string, { rowSpan: number; colSpan: number }>();
-      const covered = new Set<string>();
-      for (const merge of sheet["!merges"] ?? []) {
-        spans.set(`${merge.s.r}:${merge.s.c}`, {
-          rowSpan: merge.e.r - merge.s.r + 1,
-          colSpan: merge.e.c - merge.s.c + 1,
-        });
-        for (let row = merge.s.r; row <= merge.e.r; row += 1)
-          for (let column = merge.s.c; column <= merge.e.c; column += 1)
-            if (row !== merge.s.r || column !== merge.s.c) covered.add(`${row}:${column}`);
-      }
       return {
         name,
         totalRows: range.e.r + 1,
         totalCols: range.e.c + 1,
-        spans,
-        covered,
+        merges: sheet["!merges"] ?? [],
         cellAt: (row, column) => sheet[encodeCell({ r: row, c: column })],
       };
     }),
@@ -156,6 +142,30 @@ export function SpreadsheetPreview({
   const firstCol = colPage * COLS_PER_PAGE;
   const lastCol = Math.min(colCount, firstCol + COLS_PER_PAGE);
 
+  // Clip merged regions to the visible page. Keep their original value at each
+  // visible fragment, and never expand a whole-sheet merge into millions of cells.
+  const { spans, covered } = useMemo(() => {
+    const spans = new Map<string, { rowSpan: number; colSpan: number; originRow: number; originCol: number }>();
+    const covered = new Set<string>();
+    for (const merge of sheet?.merges ?? []) {
+      const top = Math.max(firstRow, merge.s.r),
+        bottom = Math.min(lastRow - 1, merge.e.r);
+      const left = Math.max(firstCol, merge.s.c),
+        right = Math.min(lastCol - 1, merge.e.c);
+      if (top > bottom || left > right) continue;
+      spans.set(`${top}:${left}`, {
+        rowSpan: bottom - top + 1,
+        colSpan: right - left + 1,
+        originRow: merge.s.r,
+        originCol: merge.s.c,
+      });
+      for (let row = top; row <= bottom; row += 1)
+        for (let column = left; column <= right; column += 1)
+          if (row !== top || column !== left) covered.add(`${row}:${column}`);
+    }
+    return { spans, covered };
+  }, [sheet, firstRow, lastRow, firstCol, lastCol]);
+
   const rows = useMemo(() => {
     if (sheet === null || workbook === null) return null;
     const built: { readonly texts: readonly string[]; readonly numeric: readonly boolean[] }[] = [];
@@ -163,14 +173,15 @@ export function SpreadsheetPreview({
       const texts: string[] = [];
       const numeric: boolean[] = [];
       for (let column = firstCol; column < lastCol; column += 1) {
-        const cell = sheet.cellAt(row, column);
+        const span = spans.get(`${row}:${column}`);
+        const cell = sheet.cellAt(span?.originRow ?? row, span?.originCol ?? column);
         texts.push(cellText(cell, workbook.formatCell));
         numeric.push(cell?.t === "n");
       }
       built.push({ texts, numeric });
     }
     return built;
-  }, [sheet, workbook, firstRow, lastRow, firstCol, lastCol]);
+  }, [sheet, workbook, spans, firstRow, lastRow, firstCol, lastCol]);
 
   return (
     <DocumentFrame
@@ -286,8 +297,8 @@ export function SpreadsheetPreview({
                 </th>
                 {row.texts.map((text, column) => {
                   const address = `${firstRow + index}:${firstCol + column}`;
-                  if (sheet.covered.has(address)) return null;
-                  const span = sheet.spans.get(address);
+                  if (covered.has(address)) return null;
+                  const span = spans.get(address);
                   return (
                     <td
                       key={firstCol + column}

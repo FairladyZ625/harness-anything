@@ -304,3 +304,24 @@ it("resets pagination when another workbook replaces the bytes in the same viewe
   expect(rows()[0]?.getAttribute("data-row")).toBe("1");
   expect(cellTexts()).toContain("第2行2列");
 });
+
+it.each(["rows", "cols"] as const)("clips a merged cell at %s page boundaries and retains its value", async (axis) => {
+  const start = axis === "rows" ? { r: 999, c: 0 } : { r: 0, c: 199 };
+  const end = axis === "rows" ? { r: 1001, c: 0 } : { r: 0, c: 201 };
+  const after = axis === "rows" ? { r: 1002, c: 0 } : { r: 0, c: 202 };
+  const sheet: XLSX.WorkSheet = {
+    [XLSX.utils.encode_cell(start)]: { t: "s", v: "跨页合并标题" },
+    [XLSX.utils.encode_cell(after)]: { t: "s", v: "后方数据" },
+    "!ref": XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: after }),
+    "!merges": [{ s: start, e: end }],
+  };
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, sheet, "合并分页");
+  await showSpreadsheet(XLSX_MEDIA, XLSX.write(book, { type: "base64", bookType: "xlsx" }));
+  const merged = () => [...host.querySelectorAll("td")].find((cell) => cell.textContent === "跨页合并标题")!;
+  expect(axis === "rows" ? merged().rowSpan : merged().colSpan).toBe(1);
+  await act(async () => host.querySelector<HTMLButtonElement>(`[data-testid="spreadsheet-${axis}-next"]`)!.click());
+  expect(cellTexts()).toContain("跨页合并标题");
+  expect(cellTexts()).toContain("后方数据");
+  expect(axis === "rows" ? merged().rowSpan : merged().colSpan).toBe(2);
+});
