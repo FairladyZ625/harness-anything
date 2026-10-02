@@ -14,12 +14,13 @@
 
 ## 原语默认责任(调用方不背清单)
 
-- **Button**:全仓唯一按钮。四档 `variant`(plain/primary/danger/ghost)× 两档 `size`(sm/md),
-  不搞变体矩阵、不接受 className 覆写。**命中区由默认边界承担**:min-h/min-w 40px 是真实布局
-  尺寸,密度分档不降低它,不靠会侵占邻居的透明伪元素外扩。纯交互外壳(EntityRefLink 这类自带
-  语义的 button)不由此承载。
-- **Toggle / SegCtl**:同一选择语义各只有一个名字。Toggle 的小轨道放进 40px 真实 button 外壳;
-  SegCtl 段钮 min-h 40px,容器用 overflow-hidden 收圆角。
+- **Button**:全仓唯一按钮。四档 `variant`(plain/primary/danger/ghost)× 两档 `size`(sm/md)，
+  不接受页面 className 覆写。桌面采用共享 `--control-height-compact`（24px）和
+  `--control-height`（28px）最小尺寸，允许随字体自然增高；不把小功能按钮统一撑到40px。
+  粗指针由 `--control-height-touch` 提供至少40px的真实点击盒，不用遮挡邻居的透明伪元素。
+  EntityRefLink 这类自带语义的交互外壳不由此承载。
+- **Toggle / SegCtl**:使用同一 `ui-control` 桌面/粗指针密度。Toggle 的轨道保持紧凑；
+  SegCtl 容器用 overflow-hidden 收圆角，段钮不再另行定义40px桌面高度。
 - **StatusTag**:唯一的标签形状。状态词(`status`)、自定义 `tone`+`label`、`icon`/`count`/`mono`
   小档都在这一个组件内;调用点不写状态色数值、不自造标签形状。六类领域徽章(收口/决策/引擎/
   新鲜度/风险/紧急)的词表在 `badges.tsx`,渲染全部经 StatusTag。

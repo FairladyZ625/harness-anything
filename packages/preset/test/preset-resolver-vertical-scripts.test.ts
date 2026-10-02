@@ -38,7 +38,7 @@ test("generic list, inspect, check, install, and uninstall actions share the can
       issues: unknown[];
       issueCount?: number;
     }>;
-    assert.equal(listed.length, 12);
+    assert.equal(listed.length, 13);
     const standardRow = listed.find(({ id }) => id === "standard-task")!,
       // The golden row pins the display projection; profile entries come from
       // the same bundled manifest the catalog derives from, so a manifest

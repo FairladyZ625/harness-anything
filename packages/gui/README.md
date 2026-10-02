@@ -55,3 +55,7 @@ when a person explicitly requests a demonstration.
 开发者可运行上述命令并打开 `/component-catalog.html`。目录直接复用真实组件，以示例数据
 检查主题、动效、窄容器、键盘与状态，不写 daemon。共享契约变化时同步例子，不能在目录里
 复制第二套实现；自动化验证保持 Electron 隐藏与独立 profile。
+
+GUI implementation guidance: [harness-gui skill](../../skills/harness-gui/SKILL.md). GUI agents and the `gui-development` preset use this shared contract.
+
+GUI 开发指引：[harness-gui skill](../../skills/harness-gui/SKILL.md)。GUI Agent 与 `gui-development` preset 复用此契约。

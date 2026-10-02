@@ -1,6 +1,6 @@
 /**
  * 开关(标准 §4.2):全仓唯一 Toggle。小轨道放进有实际尺寸的 button 外壳——
- * 40px 命中区由外壳的真实布局尺寸承担(标准 §1.9-③),不用伪元素外扩、不压相邻控件。
+ * 使用共享桌面/粗指针密度，不用伪元素外扩、不压相邻控件。
  */
 export function Toggle({
   checked,
@@ -21,7 +21,7 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange?.(!checked)}
-      className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded disabled:opacity-50"
+      className="ui-control flex w-[36px] shrink-0 items-center justify-center rounded disabled:opacity-50"
     >
       <span
         className={`relative h-4 w-[30px] rounded-full border transition-colors ${

@@ -21,6 +21,9 @@
    outside one (e.g. a portal) CSS resolves it against the small viewport.
    Unlike percentages in max-height, this stays definite for intrinsic-height records. */
 :root {
+  --control-height: 28px;
+  --control-height-compact: 24px;
+  --control-height-touch: 40px;
   --long-content-cap: 55cqb;
   --overlay-content-cap: 85dvh;
 }
@@ -792,4 +795,21 @@ html[data-theme="light"] ::selection {
 .document-diagram .edgeLabel p {
   color: inherit;
   margin: 0;
+}
+
+/* Desktop tools stay compact; coarse pointers receive real, non-overlapping targets. */
+.ui-control {
+  min-height: var(--control-height);
+  min-width: var(--control-height);
+}
+.ui-control[data-control-size="sm"] {
+  min-height: var(--control-height-compact);
+  min-width: var(--control-height-compact);
+}
+@media (pointer: coarse) {
+  .ui-control,
+  .ui-control[data-control-size="sm"] {
+    min-height: var(--control-height-touch);
+    min-width: var(--control-height-touch);
+  }
 }

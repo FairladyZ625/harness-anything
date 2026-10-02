@@ -34,7 +34,7 @@ export function Field({
   );
 }
 export function KV({ children }: { readonly children: ReactNode }) {
-  return <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-[3px] ui-micro">{children}</dl>;
+  return <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-[3px] ui-micro">{children}</dl>;
 }
 export function KVRow({
   name,
