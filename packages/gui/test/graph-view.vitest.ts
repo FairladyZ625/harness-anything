@@ -61,7 +61,7 @@ function layoutFrom(
     relations,
     filters,
     shown,
-    highlight: null,
+    expanded: new Set(),
   });
 }
 

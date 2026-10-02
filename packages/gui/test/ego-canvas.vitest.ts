@@ -6,7 +6,6 @@ import {
   bfsShownFromFocus,
   egoNeighborsOf,
   egoFocusIdOf,
-  egoOneHopHighlight,
   layoutEgoCanvas,
   type EgoFilters,
 } from "../src/renderer/graph/egoCanvas.ts";
@@ -17,11 +16,11 @@ const HOPS_1 = { up: 1, down: 1 };
 const HOPS_2 = { up: 2, down: 2 };
 
 /**
- * 无限画布 ego(dec_01KXBGJQFQARSZHHQW1WADFDNC)的行为契约,2026-10-01 起按视觉规范
- * §5.2 收口:节点不再有展开态,单击 = 选中 + 抽屉,双击 = 重排邻域。
- * 重点覆盖两件在 rebuild 线上出问题的事:
+ * 无限画布 ego(dec_01KXBGJQFQARSZHHQW1WADFDNC)的行为契约。图场景 2026-10-02 恢复
+ * 节点原位展开(task_baca8e2b3e32c288fbd14b71f0,业主批准):单击 = 原位成卡 + 长出
+ * 下一环;抽屉不再承载节点正文。重点覆盖两件在 rebuild 线上出问题的事:
  *   1. claim 锚定的边(decision/<id>/C1)必须 join 回 decision/<id>,否则聚光灯全空。
- *   2. 布局只输出 chip 尺寸的节点;铺开范围只由 (焦点, 跳数预算, 筛选) 决定。
+ *   2. 布局的节点尺寸随展开态变化;铺开范围由 (焦点, 跳数预算, 筛选) + 显式展开决定。
  */
 
 function task(overrides: Partial<TaskRow> = {}): TaskRow {
@@ -119,7 +118,7 @@ describe("claim 锚定边的 join", () => {
       relations,
       filters,
       shown,
-      highlight: null,
+      expanded: new Set(),
     });
     expect(layout.neighborCount).toBe(3);
     expect(layout.edges.length).toBe(3);
@@ -149,7 +148,7 @@ describe("分层分列", () => {
       relations,
       filters,
       shown,
-      highlight: null,
+      expanded: new Set(),
     });
     const at = (id: string) => layout.nodes.find((n) => n.id === id)!;
     // 焦点节点盒以自身中心为原点。
@@ -181,7 +180,7 @@ describe("分层分列", () => {
       relations,
       filters,
       shown,
-      highlight: null,
+      expanded: new Set(),
     });
     const children = layout.nodes.filter((n) => n.id !== "root").sort((a, b) => a.position.y - b.position.y);
     for (let i = 1; i < children.length; i += 1) {
@@ -191,8 +190,8 @@ describe("分层分列", () => {
   });
 });
 
-describe("无展开态(规范 §5.2:节点只做选中态,内容只在抽屉)", () => {
-  it("没有任何节点携带 expanded 标记;焦点与邻居一律 chip 尺寸", () => {
+describe("原位展开(图场景 2026-10-02:展开节点成卡片,尺寸随内容)", () => {
+  it("未展开的节点一律 chip 尺寸;展开的节点按卡片尺寸参与分列", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
     const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
@@ -202,15 +201,31 @@ describe("无展开态(规范 §5.2:节点只做选中态,内容只在抽屉)", 
       relations,
       filters,
       shown,
-      highlight: null,
+      expanded: new Set(),
     });
     expect(layout.nodes.length).toBe(4);
     for (const node of layout.nodes) {
-      expect("expanded" in node.data).toBe(false);
+      expect(node.data.expanded).toBe(false);
     }
-    // 全部节点同宽同高(chip 定值)—— 焦点也不再是放大卡片。
+    // 全部节点同宽同高(chip 定值)。
     expect(new Set(layout.nodes.map((n) => n.width)).size).toBe(1);
     expect(new Set(layout.nodes.map((n) => n.height)).size).toBe(1);
+
+    // 展开 task_a:该节点成卡(更宽更高),data.expanded 翻真,其余保持 chip。
+    const expandedLayout = layoutEgoCanvas({
+      focusId: "decision/dec_1",
+      graph,
+      relations,
+      filters,
+      shown,
+      expanded: new Set(["task_a"]),
+    });
+    const card = expandedLayout.nodes.find((n) => n.id === "task_a")!;
+    const other = expandedLayout.nodes.find((n) => n.id === "fact/F-1")!;
+    expect(card.data.expanded).toBe(true);
+    expect(card.width!).toBeGreaterThan(other.width!);
+    expect(card.height!).toBeGreaterThan(other.height!);
+    expect(other.data.expanded).toBe(false);
   });
 
   it("铺开多少邻居只由跳数预算决定(单击不再长出下一环)", () => {
@@ -241,13 +256,13 @@ describe("无展开态(规范 §5.2:节点只做选中态,内容只在抽屉)", 
       relations,
       filters,
       shown,
-      highlight: null,
+      expanded: new Set(),
     });
     expect(layout.nodes.find((n) => n.id === "b")!.data.hiddenCount).toBe(1);
   });
 });
 
-describe("筛选与高亮", () => {
+describe("筛选", () => {
   it("类型开关关掉 fact 后 fact 不进画布,但焦点恒可见", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
@@ -258,28 +273,10 @@ describe("筛选与高亮", () => {
       relations,
       filters: { ...filters, types: new Set(["decision", "task"]) },
       shown,
-      highlight: null,
+      expanded: new Set(),
     });
     expect(layout.nodes.some((n) => n.data.entity === "fact")).toBe(false);
     expect(layout.nodes.some((n) => n.id === "decision/dec_1")).toBe(true);
-  });
-
-  it("单跳高亮把集合外的节点标灰(不删除)", () => {
-    const { tasks, decisions, facts, relations } = claimAnchoredFixture();
-    const graph = buildEgoGraph(tasks, decisions, facts, relations);
-    const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
-    const highlight = egoOneHopHighlight(graph, "task_a", filters.axes)!;
-    const layout = layoutEgoCanvas({
-      focusId: "decision/dec_1",
-      graph,
-      relations,
-      filters,
-      shown,
-      highlight,
-    });
-    expect(layout.nodes.find((n) => n.id === "task_a")!.data.dimmed).toBe(false);
-    expect(layout.nodes.find((n) => n.id === "decision/dec_up")!.data.dimmed).toBe(true);
-    expect(layout.nodes).toHaveLength(4);
   });
 
   it("焦点不在投影里时给空布局,不抛异常", () => {
@@ -290,7 +287,7 @@ describe("筛选与高亮", () => {
       relations: [],
       filters,
       shown: new Map(),
-      highlight: null,
+      expanded: new Set(),
     });
     expect(layout.nodes).toEqual([]);
     expect(layout.focusId).toBeNull();

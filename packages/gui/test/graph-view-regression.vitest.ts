@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import {
   writeGraphTerritoryShowArchived,
 } from "../src/renderer/graph-territory-preferences.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { clearEgoSession } from "../src/renderer/graph/egoSession.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 
 /**
@@ -94,13 +95,18 @@ beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 });
 
+beforeEach(() => {
+  // ego 会话是模块级单槽:测试间清空,避免上一个用例的探索态串场。
+  clearEgoSession();
+});
+
 describe("graph page keeps its behavior after the ego extraction (W4)", () => {
-  it("spotlight renders focus and neighbor chips and reports header counts", async () => {
+  it("spotlight renders the focus card and neighbor chips and reports header counts", async () => {
     const { div, root } = await mountGraph();
     // 跳数步进器默认父 1 / 子 1(task_b4258de1):d1 焦点只铺 t1 一跳;t2/t3 要放宽预算。
-    // §5.2:焦点也是 chip,不再有画布中央的焦点卡。
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(2);
+    // 图场景 2026-10-02:焦点是阅读主体,自动成卡;邻居保持 chip。
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(1);
     expect(div.querySelector("[data-testid='focus-history-bar']")).not.toBeNull();
     expect(div.textContent).toContain("聚光灯 · 2 节点 · 1 边");
     // 同一时刻 DOM 里只有一个 ReactFlow(可访问性/选择器不二义)。
@@ -121,10 +127,10 @@ describe("graph page keeps its behavior after the ego extraction (W4)", () => {
     await act(async () => {
       (div.querySelector("[data-testid='ego-hops-up-inc']") as HTMLButtonElement).click();
     });
-    // 2/2:与抽取前的 ±2 同集 —— 头部计数恢复 4 节点 3 边,全部是 chip。
+    // 2/2:与抽取前的 ±2 同集 —— 头部计数恢复 4 节点 3 边;焦点卡 + 3 chip。
     expect(div.textContent).toContain("聚光灯 · 4 节点 · 3 边");
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(4);
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(3);
     // 步进器只出现在聚光灯:领地没有这份控制。
     await render({ viewMode: "territory" });
     expect(div.querySelector("[data-testid='ego-hops-control']")).toBeNull();
@@ -133,22 +139,22 @@ describe("graph page keeps its behavior after the ego extraction (W4)", () => {
     });
   });
 
-  it("selection and canvas state survive a territory↔spotlight round trip", async () => {
+  it("expansion state survives a territory↔spotlight round trip", async () => {
     const { div, root, render } = await mountGraph();
-    // 选中 t1:抽屉打开(§5.2 单击语义)。
+    // 展开 t1:原位成卡 + 长出 t2/t3(t1 的一跳邻居)。
     const chip = [...div.querySelectorAll("[data-testid='ego-chip']")].find((c) => c.textContent?.includes("任务一"))!;
     await act(async () => {
       chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(div.querySelector("[data-testid='graph-detail-drawer']")?.textContent).toContain("任务一");
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(2);
 
     // 去领地再回聚光灯:焦点引用不变(EntityWorkspace 切模式不清焦点),
-    // 画布保持挂载,选中与可见集不得重置。
+    // 画布保持挂载,展开与可见集不得重置。
     await render({ viewMode: "territory" });
     expect(div.querySelectorAll("[data-testid='territory-chip']").length).toBeGreaterThan(0);
     expect(div.querySelectorAll(".react-flow").length).toBe(1);
     await render({ viewMode: "spotlight" });
-    expect(div.querySelector("[data-testid='graph-detail-drawer']")?.textContent).toContain("任务一");
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(2);
     expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(2);
     expect(div.querySelectorAll(".react-flow").length).toBe(1);
     await act(async () => {

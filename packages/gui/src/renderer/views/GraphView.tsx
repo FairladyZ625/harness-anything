@@ -27,6 +27,7 @@ import { useColorMode, minimapMaskColor } from "../graph/colorMode";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EgoHopsControl } from "../graph/EgoHopsControl";
 import type { EgoHopBudget } from "../graph/egoCanvas";
+import { mergeEgoSession, readEgoSessionFor } from "../graph/egoSession";
 import { applyTerritoryDensity, isFactVisibleWithHost, partitionForSkel } from "../graph/territory";
 import { NO_WORK_TITLE } from "../graph/territoryProgress";
 import { layoutTerritory } from "../graph/territoryLayout";
@@ -141,7 +142,12 @@ function GraphViewInner({
   const [flowMode, setFlowMode] = useState<FlowAnimMode>("focus");
   // 聚焦铺开跳数(task_b4258de1):默认父 1 / 子 1,步进器在聚光灯工具条上。
   // 住在页面级 state,所以同一 session 里换焦点实体时保留;可见集由画布重铺。
-  const [hops, setHops] = useState<EgoHopBudget>({ up: 1, down: 1 });
+  // 详情页返回(同焦点会话)时从 egoSession 接续上次的预算,与焦点/铺开/展开/视口
+  // 一起恢复原图;无会话或焦点不匹配时回默认。
+  const [hops, setHops] = useState<EgoHopBudget>(() => readEgoSessionFor(focusRef)?.hops ?? { up: 1, down: 1 });
+  useEffect(() => {
+    mergeEgoSession({ hops });
+  }, [hops]);
   // 领地降噪开关(task_b92c5138):默认关 = 隐藏 cancelled/archived task(看板同规则,
   // 判定 isTaskArchiveNoise 单一定义);localStorage 按视图记忆,坏值回落默认。
   const [showArchived, setShowArchived] = useState(() =>
@@ -459,7 +465,7 @@ function GraphViewInner({
   const hint =
     viewMode === "spotlight"
       ? focusRef
-        ? "单击选中并开抽屉 · 双击设为中心 · Esc 清选"
+        ? "单击展开卡片 · 双击设为中心 · Esc 收正文"
         : "从领地选实体,或在命令面板(⌘K)搜索"
       : "块内 chip 单击 → 聚光灯";
 

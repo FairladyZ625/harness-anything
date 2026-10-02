@@ -179,8 +179,9 @@ function NeighborhoodPane({
           relations={relations}
           factAnchors={factAnchors}
           onNavigateEntity={onNavigateEntity}
-          // 详情页里「设为画布中心」(双击节点)的语义 = 跳去该邻居自己的详情页。
+          // 详情页里「设为焦点」(卡片按钮/双击节点)的语义 = 跳去该邻居自己的详情页。
           onRefocus={onNavigateEntity}
+          refocusTitle={t("views.entityDetail.refocusHint")}
         />
       </div>
     </div>

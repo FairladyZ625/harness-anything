@@ -2,6 +2,7 @@ import type { TaskRow, DecisionRow, FactRef, RelationEdge, RelationKind } from "
 import type { Node, Edge } from "@xyflow/react";
 import { MarkerType as RFMarkerType } from "@xyflow/react";
 import { parseEndpoint, endpointToNodeId, type EntityKind } from "./endpoint";
+import { entityKindVisual } from "./kindVisuals";
 import { governedEntityLabel, governedEntitySub, type GovernedEntityRow } from "./governedEntities";
 import { axisForKind, AXIS_COLOR_VAR, type SemanticAxis } from "./constants";
 import { visualForKind, type FlowAnimMode } from "./relationVisual";
@@ -13,17 +14,18 @@ import { STATUS_META } from "../components/badges";
  *
  * 取代固定三泳道 ego(该决策 RJ1 明确否决「固定 1 跳上 / 1 跳下三列」):三类实体统一,
  * 以焦点为 0 级,按跳级(BFS hop)分层成列 —— 上游系谱→左,下游落地→右,同级竖排、
- * barycenter 排序减少交叉。确定性布局、零重叠、不测 DOM、不引第三方布局器。
+ * barycenter 排序减少交叉。确定性布局、零重叠、不引第三方布局器。
  *
- * 节点没有展开态(视觉规范 §5.2,业主 2026-10-01):单击 = 选中 + 抽屉,双击 = 以它
- * 为中心重排邻域。布局只输出统一 chip 尺寸的节点:
+ * 图场景 2026-10-02 恢复节点原位展开(业主批准,task_baca8e2b3e32c288fbd14b71f0;
+ * 旧 §5.2「节点一律 chip」被本指令覆盖,抽屉不再承载节点正文,只保留边):
  *   buildEgoGraph    — 统一图(byId + adj,含合成 task 父子边)。
  *   bfsShownFromFocus— 从焦点按 {up, down} 预算 BFS 的可见集(openFocus 铺开)。
- *   egoNeighborsOf   — 某节点经轴过滤的一跳邻居(单跳高亮集用)。
- *   layoutEgoCanvas  — 给定 (focusId, shown, filters) → 节点位置 + 边。
+ *   egoNeighborsOf   — 某节点经轴过滤的一跳邻居(expandNode 长出下一环用)。
+ *   layoutEgoCanvas  — 给定 (focusId, shown, expanded, filters) → 节点位置 + 边。
  *
- * 不变量:布局只依赖 (focusId, shown, filters);可见集只由焦点/跳数预算/筛选重算,
- * 节点交互不再改变布局输入(旧「单击展开累积」路径已随 §5.2 删除)。
+ * 不变量:布局只依赖 (focusId, shown, expanded, filters)。展开只往 shown 里加、
+ * 收起只从 expanded 里减 —— 已铺开的邻居永不撤回,画布永不因节点交互重排
+ * (换焦点/跳数步进/分层开关这些显式视图切换才重铺)。
  */
 
 /** 图节点的 kind:内建五类 + 已注册 kind 读面上声明出来的 kind(见 graph/endpoint.ts)。 */
@@ -41,13 +43,18 @@ export type EgoNodeData = Record<string, unknown> & {
   label: string;
   sub?: string;
   focus: boolean;
+  /** 原位展开成卡片(阅读态);false = 紧凑 chip。 */
+  expanded: boolean;
   hop: number;
   degree: number;
   hiddenCount: number;
-  dimmed: boolean;
   color?: string;
   navRef: string;
+  onCollapse?: (id: string) => void;
+  onRefocus?: (ref: string) => void;
+  onNavigate?: (ref: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  refocusTitle?: string;
 };
 
 export type EgoEdgeData = Record<string, unknown> & RelationEdge & { axis: SemanticAxis };
@@ -225,7 +232,7 @@ export function bfsShownFromFocus(
   return shown;
 }
 
-/** 某节点经轴过滤的一跳邻居 id(去重)。单跳高亮集(egoOneHopHighlight)用。 */
+/** 某节点经轴过滤的一跳邻居 id(去重)。expandNode 长出下一环用。 */
 export function egoNeighborsOf(graph: EgoGraph, id: string, axes: EgoAxisFilter): string[] {
   const out = new Set<string>();
   for (const entry of graph.adj.get(id) ?? []) {
@@ -234,18 +241,59 @@ export function egoNeighborsOf(graph: EgoGraph, id: string, axes: EgoAxisFilter)
   return [...out];
 }
 
-/** 单击选中的单跳高亮集:{selectId} ∪ 一跳邻居;null = 无选中(全亮)。 */
-export function egoOneHopHighlight(graph: EgoGraph, selectId: string | null, axes: EgoAxisFilter): Set<string> | null {
-  if (!selectId) return null;
-  return new Set([selectId, ...egoNeighborsOf(graph, selectId, axes)]);
-}
-
 // ── 几何常量(确定性布局) ──
-// §5.2 后节点只有一种形态:紧凑 chip,焦点与邻居同尺寸;内容一律在抽屉里。
+// 两种形态:紧凑 chip(默认)与原位展开卡片(单击后的阅读态);尺寸见 egoNodeDims。
 const CHIP_W = 216;
 const CHIP_H = 46;
 const GAP_X = 72;
 const GAP_Y = 36;
+const H_CAP_FOCUS = 640;
+const H_CAP_PERIPH = 480;
+
+/** 卡片高度的内容感知估算(地板与 cap 由 egoNodeDims 叠加)。 */
+export function estimateEgoCardHeight(entity: EgoEntity, row: EgoNodeMeta["row"], width: number): number {
+  const cpl = Math.max(20, Math.floor((width - 24) / 8.5));
+  const LINE = 22;
+  const CHROME = 120; // header + 标题区 + footer + padding/gap
+  if (entity === "task") {
+    const task = row as TaskRow;
+    const titleLines = Math.max(1, Math.ceil((task.title ?? "").length / cpl));
+    return CHROME + titleLines * LINE + 80;
+  }
+  if (entity === "fact") {
+    const fact = row as FactRef;
+    const obsLines = Math.max(1, Math.ceil((fact.text?.length ?? 0) / Math.max(20, cpl - 4)));
+    return CHROME + 20 + (32 + obsLines * 20) + 64;
+  }
+  if (entity === "agent" || entity === "schedule") {
+    // 运行时平面行只有标题 + 一行事实行,高度按 decision 的地板走,内容估高恒定。
+    return CHROME + 2 * LINE + 48;
+  }
+  const decision = row as DecisionRow;
+  let height = CHROME + 20;
+  if (decision.question) {
+    height += Math.min(160, 32 + Math.ceil(decision.question.length / Math.max(20, cpl - 6)) * 20);
+  }
+  if (decision.chosen?.length) height += Math.min(200, 32 + decision.chosen.length * 26);
+  if (decision.rejected?.length) height += Math.min(200, 32 + decision.rejected.length * 28);
+  if (decision.claims?.length) height += Math.min(200, 32 + decision.claims.length * 24);
+  return height;
+}
+
+/** 节点尺寸:chip 定值;卡片按内容估高 + 可读地板 + 硬 cap(超出由内部滚动兜底)。 */
+export function egoNodeDims(
+  entity: EgoEntity,
+  expanded: boolean,
+  row: EgoNodeMeta["row"] | undefined,
+  isFocus: boolean,
+): { w: number; h: number } {
+  if (!expanded || !row) return { w: CHIP_W, h: CHIP_H };
+  const visual = entityKindVisual(entity);
+  const w = isFocus ? visual.cardWFocus : visual.cardW;
+  const minH = isFocus ? visual.minHFocus : visual.minHPeriph;
+  const cap = isFocus ? H_CAP_FOCUS : H_CAP_PERIPH;
+  return { w, h: Math.min(Math.max(estimateEgoCardHeight(entity, row, w), minH), cap) };
+}
 
 export interface EgoCanvasInput {
   focusId: string;
@@ -254,8 +302,8 @@ export interface EgoCanvasInput {
   filters: EgoFilters;
   /** 累积可见集:node id → 距焦点跳数。 */
   shown: ReadonlyMap<string, number>;
-  /** 单跳高亮集;null = 全亮。 */
-  highlight: ReadonlySet<string> | null;
+  /** 渲染为原位卡片的 node id(其余为紧凑 chip)。 */
+  expanded: ReadonlySet<string>;
 }
 
 export interface EgoCanvasLayout {
@@ -278,15 +326,17 @@ export function emptyEgoLayout(): EgoCanvasLayout {
  * 分列:按 side:level 聚列,barycenter 排序减少交叉,列内竖排居中于 y=0。
  */
 export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
-  const { focusId, graph, filters, shown, highlight } = input;
+  const { focusId, graph, filters, shown, expanded } = input;
   const { byId, adj, synthEdges } = graph;
   const focusMeta = byId.get(focusId);
   if (!focusMeta) return emptyEgoLayout();
 
   const axisOn = (axis: SemanticAxis): boolean => filters.axes[axis];
   const typeOn = (entity: EgoEntity): boolean => filters.types === null || filters.types.has(entity);
-  const nodeW = CHIP_W;
-  const nodeH = CHIP_H;
+  const dimOf = (id: string) => {
+    const meta = byId.get(id);
+    return egoNodeDims(meta?.entity ?? "task", expanded.has(id), meta?.row, id === focusId);
+  };
 
   // ── 可见集:shown ∩ 类型开关;焦点恒可见(不被自身类型开关抹掉) ──
   const vis = new Set<string>([focusId]);
@@ -345,19 +395,21 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     ["down", 1],
     ["up", -1],
   ] as const) {
-    let cx = nodeW / 2;
+    let cx = dimOf(focusId).w / 2;
     let depth = 1;
     while (cols.has(`${sideKey}:${depth}`)) {
       const ids = cols.get(`${sideKey}:${depth}`)!;
       ids.sort((a, b) => barycenter(a, depth - 1) - barycenter(b, depth - 1) || a.localeCompare(b));
-      cx += GAP_X + nodeW / 2;
-      const totalH = ids.length * nodeH + (ids.length - 1) * GAP_Y;
+      const colW = Math.max(...ids.map((id) => dimOf(id).w));
+      cx += GAP_X + colW / 2;
+      const totalH = ids.reduce((acc, id) => acc + dimOf(id).h + GAP_Y, -GAP_Y);
       let y = -totalH / 2;
       for (const id of ids) {
-        pos.set(id, { x: sign * cx, y: y + nodeH / 2 });
-        y += nodeH + GAP_Y;
+        const h = dimOf(id).h;
+        pos.set(id, { x: sign * cx, y: y + h / 2 });
+        y += h + GAP_Y;
       }
-      cx += nodeW / 2;
+      cx += colW / 2;
       depth += 1;
     }
   }
@@ -368,7 +420,9 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     const meta = byId.get(id);
     if (!meta) continue;
     const center = pos.get(id) ?? { x: 0, y: 0 };
-    // 「还有多少邻居没铺开」—— chip 上的 +N 徽章;双击该节点重排邻域即可展开。
+    const isExpanded = expanded.has(id);
+    const { w, h } = egoNodeDims(meta.entity, isExpanded, meta.row, id === focusId);
+    // 「还有多少邻居没铺开」—— chip 上的 +N 徽章,点开这张卡片会长出它们。
     let hiddenCount = 0;
     for (const entry of adj.get(id) ?? []) {
       const other = byId.get(entry.other);
@@ -379,9 +433,9 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     nodes.push({
       id,
       type: "ego",
-      position: { x: center.x - nodeW / 2, y: center.y - nodeH / 2 },
-      width: nodeW,
-      height: nodeH,
+      position: { x: center.x - w / 2, y: center.y - h / 2 },
+      width: w,
+      height: h,
       data: {
         id,
         entity: meta.entity,
@@ -389,10 +443,10 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
         label: egoLabelOf(meta),
         ...(egoSubOf(meta) === undefined ? {} : { sub: egoSubOf(meta) }),
         focus: id === focusId,
+        expanded: isExpanded,
         hop: level.get(id) ?? 0,
         degree: (adj.get(id) ?? []).filter((entry) => axisOn(entry.axis)).length,
         hiddenCount,
-        dimmed: highlight ? !highlight.has(id) : false,
         color: meta.entity === "task" ? STATUS_META[(meta.row as TaskRow).coordinationStatus]?.color : undefined,
         navRef: meta.entity === "task" ? `task/${id}` : id,
       },
@@ -415,7 +469,6 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     const visual = visualForKind(edge.kind);
     const color = AXIS_COLOR_VAR[axis];
     const touchesFocus = source === focusId || target === focusId;
-    const faded = highlight ? !(highlight.has(source) && highlight.has(target)) : false;
     edges.push({
       id: `e_${key}`,
       source,
@@ -427,7 +480,6 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
         stroke: color,
         strokeWidth: visual.strokeWidth,
         strokeDasharray: visual.dasharray,
-        opacity: faded ? 0.18 : 1,
       },
       markerEnd: { type: RFMarkerType.ArrowClosed, color },
     });
