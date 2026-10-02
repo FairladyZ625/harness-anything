@@ -82,6 +82,8 @@ export interface GraphViewProps {
   entityKinds?: readonly EntityTypeOption[];
   /** 声明实体行(vertical kind);缺省 = 本仓没有声明实体,图照常。 */
   governedEntities?: ReadonlyArray<GovernedEntityRow>;
+  /** 会话归属仓:egoSession 按 repoId 隔离,同名 ref 跨仓不互读。 */
+  repoId: string;
   focusRef: string | null;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
@@ -123,6 +125,7 @@ function GraphViewInner({
   onFocusEntityChange,
   entityKinds = EMPTY_KINDS,
   governedEntities = EMPTY_GOVERNED,
+  repoId,
   focusRef,
   viewMode,
   onViewModeChange,
@@ -144,10 +147,10 @@ function GraphViewInner({
   // 住在页面级 state,所以同一 session 里换焦点实体时保留;可见集由画布重铺。
   // 详情页返回(同焦点会话)时从 egoSession 接续上次的预算,与焦点/铺开/展开/视口
   // 一起恢复原图;无会话或焦点不匹配时回默认。
-  const [hops, setHops] = useState<EgoHopBudget>(() => readEgoSessionFor(focusRef)?.hops ?? { up: 1, down: 1 });
+  const [hops, setHops] = useState<EgoHopBudget>(() => readEgoSessionFor(repoId, focusRef)?.hops ?? { up: 1, down: 1 });
   useEffect(() => {
-    mergeEgoSession({ hops });
-  }, [hops]);
+    mergeEgoSession(repoId, { hops });
+  }, [repoId, hops]);
   // 领地降噪开关(task_b92c5138):默认关 = 隐藏 cancelled/archived task(看板同规则,
   // 判定 isTaskArchiveNoise 单一定义);localStorage 按视图记忆,坏值回落默认。
   const [showArchived, setShowArchived] = useState(() =>
@@ -621,6 +624,7 @@ function GraphViewInner({
             </ReactFlow>
           )}
           <EgoNeighborhood
+            repoId={repoId}
             focusRef={focusRef}
             tasks={tasks}
             decisions={decisions}

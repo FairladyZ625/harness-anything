@@ -87,6 +87,7 @@ describe("FactDetailView", () => {
   it("renders the fact inspector beside a neighborhood centered on the fact", async () => {
     const { div, root } = await mountView(
       createElement(FactDetailView, {
+        repoId: "repo-a",
         factRef: "fact/F-001",
         facts,
         tasks: [task("task_a", "任务A")],
@@ -107,6 +108,7 @@ describe("FactDetailView", () => {
     const onNavigateEntity = vi.fn();
     const { div, root } = await mountView(
       createElement(FactDetailView, {
+        repoId: "repo-a",
         factRef: "fact/F-001",
         facts,
         tasks: [task("task_a", "任务A")],
@@ -130,6 +132,7 @@ describe("FactDetailView", () => {
   it("anchor-only facts (no body in the projection) still show a neighborhood", async () => {
     const { div, root } = await mountView(
       createElement(FactDetailView, {
+        repoId: "repo-a",
         factRef: "fact/F-002",
         facts: [],
         tasks: [task("task_b", "任务B")],
@@ -150,6 +153,7 @@ describe("FactDetailView", () => {
   it("W5 后不再有「在分诊中查看」出口(事实分诊页已撤销,详情页即终点)", async () => {
     const { div, root } = await mountView(
       createElement(FactDetailView, {
+        repoId: "repo-a",
         factRef: "fact/F-001",
         facts,
         tasks: [task("task_a", "任务A")],
@@ -168,6 +172,7 @@ describe("FactDetailView", () => {
   it("missing fact while loading shows loading; after load shows not-in-projection", async () => {
     const loadingView = await mountView(
       createElement(FactDetailView, {
+        repoId: "repo-a",
         factRef: "fact/F-404",
         facts,
         tasks: [],
@@ -183,6 +188,7 @@ describe("FactDetailView", () => {
     });
     const missingView = await mountView(
       createElement(FactDetailView, {
+        repoId: "repo-a",
         factRef: "fact/F-404",
         facts,
         tasks: [],

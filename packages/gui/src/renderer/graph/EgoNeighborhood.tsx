@@ -51,7 +51,7 @@ import {
  * 契约:
  *   focusRef 变化 → 画布重排到新焦点(±hops 跳);
  *   focusRef 变 null → 累积态清空(与 GraphView 原 clearFocus 行为一致);
- *   挂载时 egoSession 有同焦点会话 → 原样接续(焦点/铺开/展开/viewport 不重排);
+ *   挂载时 egoSession 有同仓同焦点会话 → 原样接续(焦点/铺开/展开/viewport 不重排);
  *   onRefocus        — 双击节点 / 卡片「设为焦点」(宿主决定是换焦点还是跳页);
  *   onNavigateEntity — 卡片「详情」(跳去该实体的详情页,返回经会话恢复原图)。
  */
@@ -75,6 +75,8 @@ export function defaultNeighborhoodFilters(): EgoNeighborhoodFilters {
 }
 
 export type EgoNeighborhoodProps = {
+  /** 会话归属仓:egoSession 按 repoId 隔离,同名 ref 跨仓不互读。 */
+  repoId: string;
   focusRef: string | null;
   tasks: readonly TaskRow[];
   decisions: DecisionRow[];
@@ -113,6 +115,7 @@ const DEFAULT_STATUS_FILTER = defaultEntityStatusFilter();
 const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 } as const;
 
 function EgoNeighborhoodInner({
+  repoId,
   focusRef,
   tasks,
   decisions,
@@ -137,7 +140,7 @@ function EgoNeighborhoodInner({
   const colorMode = useColorMode();
   const { setCenter, getZoom } = useReactFlow();
   // 会话恢复的视口只取一次(挂载时的初值);之后视口归用户的 pan/zoom。
-  const [initialViewport] = useState(() => readEgoSessionFor(focusRef)?.viewport ?? DEFAULT_VIEWPORT);
+  const [initialViewport] = useState(() => readEgoSessionFor(repoId, focusRef)?.viewport ?? DEFAULT_VIEWPORT);
 
   const statusFilter = filters.statusFilter ?? DEFAULT_STATUS_FILTER;
   const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
@@ -158,6 +161,7 @@ function EgoNeighborhoodInner({
     schedules,
     governed,
     axes: filters.axes,
+    repoId,
     focusRef,
     hops,
     allowedIds,
@@ -282,9 +286,12 @@ function EgoNeighborhoodInner({
   }, [active, canvas.focusId, setCenter, getZoom]);
 
   // 用户 pan/zoom 落进会话(详情页返回按它恢复;非恢复挂载的初值即 DEFAULT_VIEWPORT)。
-  const onMoveEnd: OnMoveEnd = useCallback((_event, viewport) => {
-    mergeEgoSession({ viewport });
-  }, []);
+  const onMoveEnd: OnMoveEnd = useCallback(
+    (_event, viewport) => {
+      mergeEgoSession(repoId, { viewport });
+    },
+    [repoId],
+  );
 
   // Esc 收正文:收起全部原位卡片 + 清边选中。只动阅读层 —— 已长出的邻居(shown)
   // 与焦点不动,探索范围不缩水。

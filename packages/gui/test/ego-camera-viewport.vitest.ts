@@ -78,6 +78,7 @@ const fixtures = {
 
 function element(focusRef: string) {
   return createElement(EgoNeighborhood, {
+    repoId: "repo-a",
     focusRef,
     tasks: fixtures.tasks,
     decisions: fixtures.decisions,

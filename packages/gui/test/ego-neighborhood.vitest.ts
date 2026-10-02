@@ -65,6 +65,7 @@ async function mount(props: Partial<Parameters<typeof EgoNeighborhood>[0]> = {})
   await act(async () => {
     root.render(
       createElement(EgoNeighborhood, {
+        repoId: "repo-a",
         focusRef: "decision/d1",
         tasks: fixtures.tasks,
         decisions: fixtures.decisions,
@@ -278,6 +279,7 @@ describe("EgoNeighborhood standalone reuse (W4)", () => {
     await act(async () => {
       root.render(
         createElement(EgoNeighborhood, {
+          repoId: "repo-a",
           focusRef: null,
           tasks: fixtures.tasks,
           decisions: fixtures.decisions,

@@ -461,6 +461,7 @@ export function WorkspaceView({
           {/* 关系图保持挂载:焦点与展开累积在页签切换间保留,active 只卸画布 DOM。 */}
           <div hidden={tab !== "graph"} className="flex min-h-0 flex-1 flex-col">
             <WorkGraphTab
+              repoId={repoId}
               memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
               tasks={tasks}
               decisions={decisions}

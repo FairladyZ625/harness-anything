@@ -168,6 +168,7 @@ async function mountNeighborhood(hops: { up: number; down: number }) {
     act(async () => {
       root.render(
         createElement(EgoNeighborhood, {
+          repoId: "repo-a",
           focusRef: "task/t1",
           tasks: chainTasks,
           decisions: chainDecisions,

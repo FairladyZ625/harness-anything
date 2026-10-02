@@ -12,6 +12,8 @@ import { t } from "../../i18n/index.tsx";
  */
 
 export interface WorkGraphTabProps {
+  /** 会话归属仓:透传给 EgoNeighborhood(egoSession 按 repoId 隔离)。 */
+  readonly repoId: string;
   /** 工作成员引用,首位是工作根任务(焦点初值)。 */
   readonly memberTaskIds: readonly string[];
   readonly tasks: readonly TaskRow[];
@@ -25,6 +27,7 @@ export interface WorkGraphTabProps {
 }
 
 export function WorkGraphTab({
+  repoId,
   memberTaskIds,
   tasks,
   decisions,
@@ -76,6 +79,7 @@ export function WorkGraphTab({
         <div data-testid="workspace-graph-canvas" className="h-full w-full">
           <EgoNeighborhood
             {...graph}
+            repoId={repoId}
             focusRef={focusRef}
             factAnchors={[]}
             onNavigateEntity={onNavigateEntity}

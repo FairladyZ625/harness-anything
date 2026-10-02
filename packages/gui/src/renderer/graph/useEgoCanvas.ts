@@ -27,7 +27,7 @@ import type { GovernedEntityRow } from "./governedEntities";
  * 不变量:节点交互不改变布局输入的列结构;只有换焦点(双击设为中心 / 领地 chip /
  * 搜索 / 命令面板 / 焦点历史)或显式的视图切换(跳数步进器、重点分层开关)会重铺。
  *
- * 会话恢复:挂载时若 egoSession 里有同焦点的上一段会话(详情页返回),初始态直接
+ * 会话恢复:挂载时若 egoSession 里有同仓同焦点的上一段会话(详情页返回),初始态直接
  * 取会话内容并跳过首个重铺 effect —— 焦点/铺开/展开原样接续;相机也不平移
  * (viewport 由宿主按会话恢复)。
  */
@@ -64,6 +64,7 @@ export function useEgoCanvas({
   schedules = [],
   governed = [],
   axes,
+  repoId,
   focusRef,
   hops = EGO_DEFAULT_HOPS,
   allowedIds = null,
@@ -79,6 +80,8 @@ export function useEgoCanvas({
   /** 声明实体行(vertical kind);缺省 = 该层缺席,图照常。 */
   governed?: ReadonlyArray<GovernedEntityRow>;
   axes: EgoAxisFilter;
+  /** 会话归属仓(egoSession 的隔离键;同名 ref 跨仓不互读)。 */
+  repoId: string;
   focusRef: string | null;
   /** 铺开跳数预算(父 ↑ / 子 ↓ 各一)。变更时从当前焦点重铺,累积展开集随之清空。 */
   hops?: EgoHopBudget;
@@ -89,7 +92,7 @@ export function useEgoCanvas({
 }): EgoCanvasState {
   // 会话恢复只在挂载时判定一次:同焦点的上一段会话原样接续,不做任何重铺。
   const hydrationRef = useRef<EgoSessionEntry | null | undefined>(undefined);
-  if (hydrationRef.current === undefined) hydrationRef.current = readEgoSessionFor(focusRef);
+  if (hydrationRef.current === undefined) hydrationRef.current = readEgoSessionFor(repoId, focusRef);
   const hydration = hydrationRef.current;
   const restored = hydration !== null;
   const [focusId, setFocusId] = useState<string | null>(hydration?.focusRef ?? null);
@@ -151,8 +154,10 @@ export function useEgoCanvas({
 
   // 外部焦点(领地 chip / 命令面板 / 焦点历史)到达 → 重排画布到该焦点。
   // 密度分层开关翻转、跳数预算变更同样重铺(两者都是显式的视图切换,后者来自图谱页
-  // 的「父 ↑ / 子 ↓」步进器);重点集内容随数据刷新变化不在此列 —— 那不是用户动作,
-  // 不该清掉已铺开的画布。会话恢复的那一次挂载被跳过(状态已从会话种入)。
+  // 的「父 ↑ / 子 ↓」步进器);换仓也重铺 —— App 不按仓重挂本组件,而 ref 只在仓内
+  // 唯一,同名实体的铺开/展开不能跨仓串场(egoSession 同口径)。重点集内容随数据
+  // 刷新变化不在此列 —— 那不是用户动作,不该清掉已铺开的画布。会话恢复的那一次
+  // 挂载被跳过(状态已从会话种入)。
   useEffect(() => {
     if (!focusRef) return;
     if (skipFirstLayoutRef.current) {
@@ -160,13 +165,13 @@ export function useEgoCanvas({
       return;
     }
     openFocusRef.current(focusRef);
-  }, [focusRef, layered, hops]);
+  }, [focusRef, repoId, layered, hops]);
 
-  // 会话落盘:焦点/铺开/展开变化即写入(详情页返回靠它接续)。
+  // 会话落盘:焦点/铺开/展开变化即写入(详情页返回靠它接续);换仓的写入重置槽。
   useEffect(() => {
     if (focusId === null) return;
-    mergeEgoSession({ focusRef: focusId, shown: [...shown], expanded: [...expanded] });
-  }, [focusId, shown, expanded]);
+    mergeEgoSession(repoId, { focusRef: focusId, shown: [...shown], expanded: [...expanded] });
+  }, [repoId, focusId, shown, expanded]);
 
   return {
     graph,

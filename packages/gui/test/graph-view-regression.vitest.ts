@@ -76,6 +76,7 @@ async function mountGraph(overrides: Partial<Record<string, unknown>> = {}) {
     act(async () => {
       root.render(
         createElement(GraphView, {
+          repoId: "repo-a",
           tasks: fixtures.tasks,
           decisions: fixtures.decisions,
           facts: [],
@@ -239,6 +240,7 @@ describe("territory archive-noise filter (board parity)", () => {
     await act(async () => {
       root.render(
         createElement(GraphView, {
+          repoId: "repo-a",
           tasks,
           decisions: [],
           facts: [],
@@ -389,6 +391,7 @@ describe("left rail typeahead finds facts without opening ⌘K", () => {
       // ⌘K 从未打开:paletteOpen 恒 false,只有左栏输入能启用事实索引。
       const { entries, onSearchActiveChange } = useSearchIndex("repo", false, fixtures.tasks, fixtures.decisions, []);
       return createElement(GraphView, {
+        repoId: "repo-a",
         tasks: fixtures.tasks,
         decisions: fixtures.decisions,
         facts: [],
