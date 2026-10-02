@@ -425,6 +425,15 @@ button:disabled,
   cursor: not-allowed;
 }
 
+/* 步骤链单行横滚(StepChain):滚动条本身会随「是否溢出」改变行高,统一隐藏——
+   滚轮/触控板/拖拽仍可滚,行高只由字号档决定,不随步骤数或溢出变化。 */
+.chain-strip {
+  scrollbar-width: none;
+}
+.chain-strip::-webkit-scrollbar {
+  display: none;
+}
+
 /* 细滚动条：暗/亮主题各自贴合，避免 Windows 粗滚动条打断密度 */
 * {
   scrollbar-width: thin;

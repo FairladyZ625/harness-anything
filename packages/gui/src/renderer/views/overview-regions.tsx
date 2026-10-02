@@ -7,6 +7,7 @@ import { DayDigest, type DayPath } from "../components/primitives/DayDigest";
 import { DenseRow } from "../components/primitives/DenseRow";
 import { SegBar } from "../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag";
+import { StepChain } from "../components/primitives/StepChain";
 import { t } from "../i18n/index.tsx";
 import { actorDisplayName } from "../model/actor-name.ts";
 import { dayKeyOf, formatDayKeyLabel, formatRelative, formatTime } from "../model/time.ts";
@@ -495,14 +496,13 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
           <div className="flex flex-col gap-3">
             <span className="font-mono text-text-faint ui-meta">{recentDayLabel(held.group.dateKey, deps.now)}</span>
             <h3 className="text-text ui-title">{held.path.title ?? held.path.taskId}</h3>
-            <div className="flex flex-wrap items-center gap-1">
-              {held.path.steps.map((step, index) => (
-                <span key={index} className="flex items-center gap-1">
-                  {index > 0 && <span className="text-text-faint ui-micro">→</span>}
-                  <StatusTag tone={STEP_META[step].tone} label={t(STEP_META[step].label)} />
-                </span>
-              ))}
-            </div>
+            {/* 详情卡里的步骤链与列表行同一 StepChain:单行,超出在链内横滚。 */}
+            <StepChain
+              steps={held.path.steps.map((step) => ({
+                label: t(STEP_META[step].label),
+                tone: STEP_META[step].tone,
+              }))}
+            />
             <p className="font-mono ui-meta text-text-muted">{formatTime(held.path.firstAt, { style: "date-time" })}</p>
             <div className="flex flex-wrap gap-1.5">
               <OverviewActionButton primary onClick={() => deps.onOpenTask(held.path.taskId)}>

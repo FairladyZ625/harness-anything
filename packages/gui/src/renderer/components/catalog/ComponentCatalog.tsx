@@ -11,6 +11,8 @@ import { DenseRow, RowTime } from "../primitives/DenseRow.tsx";
 import { Toggle } from "../primitives/Toggle.tsx";
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
+import { StepChain } from "../primitives/StepChain.tsx";
+import { DayDigest } from "../primitives/DayDigest.tsx";
 import { Tabs } from "../primitives/Tabs.tsx";
 import { TabPanel } from "../primitives/EntryBoundary.tsx";
 import { Button } from "../primitives/Button.tsx";
@@ -153,6 +155,47 @@ function ComponentCatalog() {
             <StatusTag status="active" mono label="运行中 · live" />
             <StatusTag tone="wait" label="等待" count={3} />
           </div>
+        </section>
+        <section className="grid min-w-0 gap-3">
+          <h2 className="font-semibold ui-title">进展收束 / DayDigest · StepChain</h2>
+          <p className="text-text-muted ui-meta">
+            按天收束的进展路径:长状态链(StepChain)单行呈现,超出宽度在链内部横向滚动,行高不随步骤数增长;窄容器(&lt;32rem,勾选顶部「窄容器」对比)下标题与状态链转上下两行,时间不拆行。
+          </p>
+          <div className="min-w-0 rounded border border-border bg-surface/40 p-2">
+            <DayDigest
+              day="今天"
+              summary="3 条路径 · 长链与短链对照"
+              defaultOpen
+              paths={[
+                {
+                  time: "13:17",
+                  name: "回归循环修复布局塌陷",
+                  steps: Array.from({ length: 24 }, (_, index) =>
+                    index % 2 === 0
+                      ? { label: "提交", tone: "wait" as const }
+                      : { label: "打回重跑", tone: "bad" as const },
+                  ),
+                },
+                {
+                  time: "11:02",
+                  name: "短链样本",
+                  steps: [
+                    { label: "提交", tone: "wait" as const },
+                    { label: "合入", tone: "done" as const },
+                  ],
+                },
+                { time: "09:40", name: "没有步骤的生命周期记录", steps: [], ref: "execution-catalog-sample" },
+              ]}
+            />
+          </div>
+          <p className="text-text-muted ui-meta">StepChain 也可独立使用(详情卡等正文场景,占满容器宽单行横滚):</p>
+          <StepChain
+            steps={Array.from({ length: 16 }, (_, index) =>
+              index % 3 === 2
+                ? { label: `门禁通过 #${index + 1}`, tone: "done" as const }
+                : { label: `复跑 #${index + 1}`, tone: "active" as const },
+            )}
+          />
         </section>
         <section className="grid min-w-0 gap-3">
           <h2 className="font-semibold ui-title">按钮 / Button</h2>
