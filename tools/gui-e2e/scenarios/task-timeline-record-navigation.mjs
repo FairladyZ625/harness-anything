@@ -101,15 +101,19 @@ export default {
         const frame = (panel ?? node.parentElement).getBoundingClientRect();
         return { top: box.top, bottom: box.bottom, frameTop: frame.top, frameBottom: frame.bottom };
       }, PANEL_SCROLL_TESTID);
-    let placement = await readPlacement();
-    for (
-      let attempt = 0;
-      attempt < 25 && !(placement.top >= placement.frameTop && placement.bottom <= placement.frameBottom);
-      attempt++
-    ) {
-      await page.waitForTimeout(40);
-      placement = await readPlacement();
-    }
+    await page.waitForFunction(
+      ({ rowId, panelId }) => {
+        const row = document.querySelector(`[data-testid="${rowId}"]`);
+        const panel = row?.closest(`[data-testid="${panelId}"]`) ?? row?.parentElement;
+        if (!row || !panel) return false;
+        const box = row.getBoundingClientRect(),
+          frame = panel.getBoundingClientRect();
+        return box.top >= frame.top && box.bottom <= frame.bottom;
+      },
+      { rowId: `task-execution-${EXECUTION_ID}`, panelId: PANEL_SCROLL_TESTID },
+      { polling: "raf", timeout: 5_000 },
+    );
+    const placement = await readPlacement();
     assert.ok(
       placement.top >= placement.frameTop && placement.bottom <= placement.frameBottom,
       `focused row must sit inside the scroll viewport after navigation (top=${placement.top}, bottom=${placement.bottom}, frame=${placement.frameTop}..${placement.frameBottom})`,
