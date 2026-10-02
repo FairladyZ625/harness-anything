@@ -169,9 +169,20 @@ export function deriveCloseoutSubmission(
       );
     return {
       ...prose,
-      // A retry must retain the already submitted ledger cut: materializing the submission itself
-      // advances ledger HEAD, but does not change the documentation delivery.
-      commitSha: frozen?.commitSha ?? git.run(ledger.rootDir, ["rev-parse", "HEAD"]).stdout,
+      // Keep retries stable across unrelated ledger/submission writes, but never pair
+      // newly accepted artifact paths or bytes with a stale documentation commit.
+      commitSha:
+        frozen?.commitSha &&
+        git.run(ledger.rootDir, [
+          "diff",
+          "--quiet",
+          frozen.commitSha,
+          "HEAD",
+          "--",
+          ledgerGitPath(ledger, `${document.packagePath}/artifacts/`),
+        ]).ok
+          ? frozen.commitSha
+          : git.run(ledger.rootDir, ["rev-parse", "HEAD"]).stdout,
       ...(artifacts.length ? { artifacts } : {}),
       deliverables: ledgerArtifacts.stdout
         ? ledgerArtifacts.stdout.split("\n")

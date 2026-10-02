@@ -275,6 +275,7 @@ async function mountGraph(): Promise<{ div: HTMLElement; root: Root }> {
         FactArchiveVisibilityProvider,
         null,
         createElement(GraphView, {
+          repoId: "repo-a",
           tasks: [task()],
           decisions: [],
           facts: fixtures.facts,

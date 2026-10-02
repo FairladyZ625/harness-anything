@@ -250,7 +250,7 @@ describe("renderer app model", () => {
 
   it("renders an explicit empty state when the triadic ledger has no entities", () => {
     const markup = renderToStaticMarkup(
-      createElement(GraphView, { tasks: [], decisions: [], facts: [], relations: [] }),
+      createElement(GraphView, { repoId: "repo-a", tasks: [], decisions: [], facts: [], relations: [] }),
     );
 
     expect(markup).toContain("triadic-graph-empty-state");

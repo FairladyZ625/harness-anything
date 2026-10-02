@@ -2,6 +2,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { ReactFlowProvider } from "@xyflow/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts";
@@ -11,7 +12,7 @@ import { partitionTasks } from "../src/renderer/graph/territory.ts";
 import { NO_WORK } from "../src/renderer/graph/territoryProgress.ts";
 import { layoutTerritory, isTerritoryZoneNode } from "../src/renderer/graph/territoryLayout.ts";
 import { TerritoryChipNode, TerritoryZoneNode } from "../src/renderer/graph/nodes/TerritoryNode.tsx";
-import { GraphDrawer } from "../src/renderer/graph/GraphDrawer.tsx";
+import { EgoNode } from "../src/renderer/graph/nodes/EgoNode.tsx";
 import { WorkspaceView } from "../src/renderer/views/WorkspaceView.tsx";
 import type { WorkspaceScopeRead } from "../src/api/renderer-dto.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
@@ -244,22 +245,45 @@ describe("every task exit goes through the shared judgement", () => {
     expect(standaloneEl.querySelector('[data-testid="territory-zone-title"]')?.tagName).not.toBe("BUTTON");
   });
 
-  it("opens the root node from the graph drawer into the work page", async () => {
+  it("opens the root node from the expanded graph card into the work page", async () => {
     const nav = await mountNavigation();
-    const focusNode = { id: "root", entity: "task" as const, label: "T root", x: 0, y: 0 };
-    const drawer = await render(
-      createElement(GraphDrawer, {
-        focusNode,
-        nodes: new Map([["root", focusNode]]),
-        edges: [],
-        upCount: 0,
-        downCount: 0,
-        onClose: () => undefined,
-        onFocus: () => undefined,
-        onNavigateEntity: nav.api().navigateToEntity,
-      }),
+    // 图场景 2026-10-02:节点详情出口从抽屉挪到原位卡片(GraphDrawer 只承载边)。
+    const data = {
+      id: "root",
+      entity: "task",
+      raw: {
+        taskId: "root",
+        title: "T root",
+        projectId: "proj",
+        coordinationStatus: "active",
+        rawStatus: "active",
+        freshness: "fresh",
+        packageDisposition: "active",
+        closeoutReadiness: "not_required",
+        engine: "local",
+        source: "local-document",
+        lastKnownAt: "2026-09-28T00:00:00.000Z",
+        gates: [],
+        docs: [],
+      } satisfies TaskRow,
+      label: "T root",
+      focus: true,
+      expanded: true,
+      hop: 0,
+      degree: 0,
+      hiddenCount: 0,
+      navRef: "task/root",
+      onNavigate: nav.api().navigateToEntity,
+    } as unknown as Parameters<typeof EgoNode>[0]["data"];
+    const card = await render(
+      createElement(
+        ReactFlowProvider,
+        null,
+        createElement(EgoNode, { data, selected: false } as Parameters<typeof EgoNode>[0]),
+      ),
     );
-    const open = [...drawer.querySelectorAll("button")].find((button) => button.textContent?.includes("打开"))!;
+    const open = card.querySelector<HTMLButtonElement>("[data-testid='ego-card-open']")!;
+    expect(open).not.toBeNull();
     act(() => open.click());
     expect(nav.navigate).toHaveBeenCalledWith(WORK_PAGE);
   });

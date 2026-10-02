@@ -151,8 +151,8 @@ export async function runCommandThroughDaemon(
   if (command.action.kind === "repo-bootstrap" || command.action.kind === "rbac-bootstrap") {
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
-      { kind: _kind, ...params } = command.action,
-      socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId);
+      socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId),
+      params = bootstrapParams(command.action, socketPath);
     const request = (paramsOverride?: JsonObject) =>
       withAutostart(
         () =>
@@ -372,6 +372,25 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
       ? { ...payload, executor }
       : payload;
 }
+/** A first administrator's password is transient RPC input, read only at the original socket boundary. */
+function bootstrapParams(action: ThinCommand["action"], socketPath: string): JsonObject {
+  const { kind: _kind, passwordFile, ...params } = action;
+  if (params.operation !== "bootstrap-admin") return params as JsonObject;
+  if (socketPath.startsWith("tcp://"))
+    throw Object.assign(new Error("First administrator creation requires the center's original local socket."), {
+      code: "invalid_field",
+    });
+  if (typeof passwordFile !== "string")
+    throw Object.assign(new Error("First administrator creation requires --password-file."), { code: "missing_field" });
+  let password: string;
+  try {
+    password = readFileSync(passwordFile, "utf8").replace(/\r?\n$/u, "");
+  } catch {
+    throw Object.assign(new Error("The administrator password file could not be read."), { code: "invalid_field" });
+  }
+  return { ...params, password } as JsonObject;
+}
+
 function materializeScheduleMission(command: ThinCommand): ThinCommand {
   if (
     !["schedule-create", "schedule-update"].includes(command.action.kind) ||

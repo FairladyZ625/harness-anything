@@ -653,6 +653,7 @@ function AppShell() {
                 />
               ) : view === "graph" ? (
                 <EntityWorkspace
+                  repoId={projectId}
                   entityKinds={entityKinds}
                   governedEntities={governedEntities}
                   focusedEntityRef={focusedEntityRef}
@@ -707,6 +708,7 @@ function AppShell() {
                 />
               ) : view === "factDetail" ? (
                 <FactDetailView
+                  repoId={projectId}
                   factRef={focusedEntityRef?.startsWith("fact/") ? focusedEntityRef : null}
                   facts={facts}
                   tasks={tasks}

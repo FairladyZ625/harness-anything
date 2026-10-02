@@ -5,16 +5,17 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { TaskRow, DecisionRow, RelationEdge } from "../src/renderer/model/types.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
+import { clearEgoSession } from "../src/renderer/graph/egoSession.ts";
 
 /**
- * 相机归属:聚光灯的缩放级别只由用户改,不由画布上有多少节点决定。
+ * 相机归属:聚光灯的缩放级别与平移只由用户改,不由画布上有多少节点决定。
  *
  * 泽宇 2026-09-13 在 Electron 里实测到的问题——单击一个 chip 展开邻居,整张图被
  * fitView 塞进一屏,几百个子任务的工作下缩到看不清,原本在读的那块彻底找不回来。
  * 病根是旧 effect 把 displayNodes.length 放进了依赖:那是内容变化,不是用户动作。
  *
- * 这里钉两条:换焦点(用户动作)平移到焦点且不改 zoom;单击选中(§5.2 后唯一单击
- * 语义,不再改变画布内容)完全不动相机。
+ * 这里钉三条:换焦点(用户动作)平移到焦点且不改 zoom;展开邻居(内容变化)完全不动
+ * 相机;详情页返回(会话恢复)不平移 —— 用户离开时的 pan/zoom 由 defaultViewport 接续。
  */
 
 const setCenter = vi.fn();
@@ -77,6 +78,8 @@ const fixtures = {
 
 function element(focusRef: string) {
   return createElement(EgoNeighborhood, {
+    rememberSession: true,
+    repoId: "repo-a",
     focusRef,
     tasks: fixtures.tasks,
     decisions: fixtures.decisions,
@@ -101,6 +104,7 @@ beforeEach(() => {
   setCenter.mockClear();
   getZoom.mockClear();
   fitView.mockClear();
+  clearEgoSession();
 });
 
 describe("聚光灯相机", () => {
@@ -133,7 +137,7 @@ describe("聚光灯相机", () => {
     });
   });
 
-  it("单击选中开抽屉,画布内容与相机都一动不动", async () => {
+  it("单击展开长出下一环,内容变多但相机一动不动", async () => {
     const div = document.createElement("div");
     document.body.appendChild(div);
     const root: Root = createRoot(div);
@@ -141,7 +145,7 @@ describe("聚光灯相机", () => {
       root.render(element("decision/d1"));
     });
     await flushFrame();
-    const nodeCount = () => div.querySelectorAll("[data-testid='ego-chip']").length;
+    const nodeCount = () => div.querySelectorAll("[data-testid='ego-chip'],[data-testid='ego-card']").length;
     const before = nodeCount();
     setCenter.mockClear();
     fitView.mockClear();
@@ -152,15 +156,61 @@ describe("聚光灯相机", () => {
     });
     await flushFrame();
 
-    // §5.2:单击只选中(抽屉显示摘要),不改变画布内容 —— 节点数不变,相机不动。
-    expect(nodeCount()).toBe(before);
-    expect(div.querySelector("[data-testid='graph-detail-drawer']")).not.toBeNull();
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
+    // 原位展开:chip 变卡片 + t4 长出来(内容变化),但相机不动、不 fitView。
+    expect(nodeCount()).toBe(before + 1);
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(2);
     expect(setCenter).not.toHaveBeenCalled();
     expect(fitView).not.toHaveBeenCalled();
 
     await act(async () => {
       root.unmount();
+    });
+  });
+
+  it("详情页返回(同焦点重挂)不平移相机,探索状态原样接续", async () => {
+    const div = document.createElement("div");
+    document.body.appendChild(div);
+    const root: Root = createRoot(div);
+    await act(async () => {
+      root.render(element("decision/d1"));
+    });
+    await flushFrame();
+    // 展开 t2(长出 t4)后卸载 —— 模拟从卡片「详情」跳去实体页。
+    const chip = [...div.querySelectorAll("[data-testid='ego-chip']")].find((c) => c.textContent?.includes("任务二"))!;
+    await act(async () => {
+      chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      root.unmount();
+    });
+
+    // 返回 = 全新挂载(详情页往返之间画布组件整个卸载)。
+    const again = document.createElement("div");
+    document.body.appendChild(again);
+    const rootAgain: Root = createRoot(again);
+    setCenter.mockClear();
+    fitView.mockClear();
+    await act(async () => {
+      rootAgain.render(element("decision/d1"));
+    });
+    await flushFrame();
+
+    // 会话恢复:展开的 t2 卡片与长出的 t4 都在;恢复的那一拍不平移、不定心。
+    expect(again.querySelectorAll("[data-testid='ego-card']").length).toBe(2);
+    expect(again.textContent).toContain("任务四");
+    expect(setCenter).not.toHaveBeenCalled();
+    expect(fitView).not.toHaveBeenCalled();
+
+    // 恢复之后换焦点,平移语义照常工作(用户动作仍定心)。
+    setCenter.mockClear();
+    await act(async () => {
+      rootAgain.render(element("task/t2"));
+    });
+    await flushFrame();
+    expect(setCenter).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rootAgain.unmount();
     });
   });
 });
