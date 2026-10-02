@@ -9,7 +9,8 @@ import { markdownUrlTransform } from "../../local-doc/markdown-links.ts";
 import { dispatchOfReview, reviewById, shortDigest } from "../../model/decision-review.ts";
 import type { DecisionRow } from "../../model/types.ts";
 import { decisionReviewRef, decisionSessionsRef } from "../../navigation/decisionReviewRoutes.ts";
-import { actorText, atText, cardClass, secondaryButtonClass, VerdictBadge } from "./parts.tsx";
+import { actorText, atText, cardClass, VerdictBadge } from "./parts.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 type ReportRead =
   | { readonly state: "ready"; readonly body: string }
@@ -61,14 +62,13 @@ export function DecisionReportTab({
             : t("views.decisionReview.reportNotFound", { reviewId })}
         </p>
         {withReports.map((candidate) => (
-          <button
-            key={candidate.reviewId}
-            type="button"
-            className={`${secondaryButtonClass} justify-self-start`}
-            onClick={() => onNavigateEntity(decisionReviewRef(decision.decisionId, "report", candidate.reviewId))}
-          >
-            {candidate.reviewId} · {atText(candidate.reviewedAt)}
-          </button>
+          <span key={candidate.reviewId} className="justify-self-start">
+            <Button
+              onClick={() => onNavigateEntity(decisionReviewRef(decision.decisionId, "report", candidate.reviewId))}
+            >
+              {candidate.reviewId} · {atText(candidate.reviewedAt)}
+            </Button>
+          </span>
         ))}
       </div>
     );
@@ -82,23 +82,19 @@ export function DecisionReportTab({
           <p className="mt-1 font-mono ui-micro text-text-faint">{reportRef ?? "—"}</p>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            data-testid="decision-report-back-decision"
-            className={secondaryButtonClass}
+          <Button
+            testId="decision-report-back-decision"
             onClick={() => onNavigateEntity(decisionReviewRef(decision.decisionId, "review"))}
           >
             {t("views.decisionReview.reportBackDecision")}
-          </button>
+          </Button>
           {dispatch && (
-            <button
-              type="button"
-              data-testid="decision-report-back-session"
-              className={secondaryButtonClass}
+            <Button
+              testId="decision-report-back-session"
               onClick={() => onNavigateEntity(decisionSessionsRef(decision.decisionId, dispatch.runtimeSessionId))}
             >
               {t("views.decisionReview.reportBackSession")}
-            </button>
+            </Button>
           )}
         </div>
       </header>

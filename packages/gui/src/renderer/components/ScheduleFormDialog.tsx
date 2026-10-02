@@ -1,3 +1,5 @@
+import { Toggle } from "./primitives/Toggle.tsx";
+import { Button } from "./primitives/Button.tsx";
 import { useMemo, useState, type ReactNode } from "react";
 import {
   parseScheduleDuration,
@@ -15,7 +17,11 @@ import {
 } from "@harness-anything/daemon/protocol";
 import type { ScheduleBuiltinEditInput, ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle } from "./runtime/parts.tsx";
+import { Hint, PlannedBox } from "./runtime/parts.tsx";
+import { Modal } from "./primitives/Modal.tsx";
+import { Chip } from "./primitives/Chip.tsx";
+import { TextInput } from "./primitives/TextInput.tsx";
+import { StatusTag } from "./primitives/StatusTag.tsx";
 
 // M5 guided form: one segment asks one thing (identity → trigger → executor →
 // purpose → mission). The daemon persists identity, interval/cron trigger, executor,
@@ -391,7 +397,7 @@ export function ScheduleForm({
                   className="mt-1 flex items-center gap-1.5 font-mono ui-micro text-text-faint"
                 >
                   {option.agentId}
-                  <Badge tip={option.error.hint}>{scheduleAgentStateLabels()[option.state]}</Badge>
+                  <StatusTag tone="neutral" tip={option.error.hint} label={scheduleAgentStateLabels()[option.state]} />
                 </span>
               ))}
             </FormField>
@@ -569,12 +575,12 @@ export function ScheduleForm({
           </Hint>
         )}
         <span className="flex-1" />
-        <Btn testId="schedule-form-cancel" onClick={onCancel}>
+        <Button testId="schedule-form-cancel" onClick={onCancel}>
           {t("schedules.form.cancel")}
-        </Btn>
-        <Btn variant="primary" testId="schedule-form-submit" disabled={busy || !ready} onClick={submit}>
+        </Button>
+        <Button variant="primary" testId="schedule-form-submit" disabled={busy || !ready} onClick={submit}>
           {t(initial === null ? "schedules.form.create" : "schedules.form.save")}
-        </Btn>
+        </Button>
       </div>
     </div>
   );

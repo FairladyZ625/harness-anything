@@ -14,7 +14,8 @@ import {
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
-import { Badge, LiveDot } from "../runtime/parts.tsx";
+import { LiveDot } from "../runtime/parts.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 /**
  * 小队编排详情(G12 §2b/§2c):`ha squad status` 的 statusDto 对 GUI 开放的读面
@@ -53,7 +54,7 @@ export function SquadRunDetail({
     return (
       <div data-testid="squad-run-detail" className="flex items-center gap-2 px-4 py-4 text-text-faint">
         <span className="font-mono ui-micro">{run.squadRunId}</span>
-        <Badge tip={run.projectionError.hint}>{t("agentRuntime.catalogInvalid")}</Badge>
+        <StatusTag tone="neutral" tip={run.projectionError.hint} label={t("agentRuntime.catalogInvalid")} />
       </div>
     );
   return (
@@ -157,7 +158,7 @@ function TurnSection({
         {turn.resultText === null ? (
           <p className="mt-1 ui-micro text-text-faint">{t("agentRuntime.squadRunNoReceipt")}</p>
         ) : (
-          <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-all font-mono ui-micro text-text">
+          <pre className="mt-1 bounded-content overflow-auto whitespace-pre-wrap break-all font-mono ui-micro text-text">
             {turn.resultText}
           </pre>
         )}

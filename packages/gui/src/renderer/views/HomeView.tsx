@@ -2,7 +2,7 @@ import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { Region } from "../components/primitives/Region.tsx";
 import type { StatusTone } from "../components/primitives/StatusTag.tsx";
-import { BTN } from "../components/ui/widgets.tsx";
+import { Button } from "../components/primitives/Button.tsx";
 import { groupProjects, repoNeedsAttention, type ProjectGroupId } from "../model/repo-state.ts";
 import { canManageProjects, useAddProject } from "./home/add-project.ts";
 import { ProjectEntry } from "./home/ProjectEntry.tsx";
@@ -58,15 +58,9 @@ export function HomeView({
           <p className="mt-1 ui-meta text-text-faint">{t("views.homeView.summary")}</p>
         </div>
         {addProject.available ? (
-          <button
-            type="button"
-            className={`${BTN} min-h-10 shrink-0`}
-            disabled={addProject.busy}
-            data-testid="home-add-project"
-            onClick={addProject.add}
-          >
+          <Button testId="home-add-project" disabled={addProject.busy} onClick={addProject.add}>
             {addProject.busy ? t("views.homeView.actionAdding") : t("views.homeView.actionAdd")}
-          </button>
+          </Button>
         ) : null}
       </header>
       {addProject.notice === null ? null : (

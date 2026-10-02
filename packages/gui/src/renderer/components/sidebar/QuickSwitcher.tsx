@@ -81,7 +81,7 @@ export function QuickSwitcher({
           {t("components.appSidebar.projectCount", { count: repos.length })}
         </span>
       </div>
-      <div className="flex min-h-0 max-h-[330px] flex-col gap-1.5 overflow-y-auto">
+      <div className="flex min-h-0 bounded-content flex-col gap-1.5 overflow-y-auto">
         {repos.map((repo) => (
           <ProjectSummary
             key={repo.repoId}

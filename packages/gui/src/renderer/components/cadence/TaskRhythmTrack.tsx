@@ -1,3 +1,4 @@
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { t } from "../../i18n/index.tsx";
@@ -15,7 +16,6 @@ import {
   type TaskRhythmEntry,
 } from "../../model/cadence.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
-import { Segmented } from "../ui/widgets.tsx";
 
 /**
  * 任务节奏音轨:以 task 为叙事单元的时序阶梯。窗口化(react-virtual)保证 DOM 行数
@@ -94,9 +94,9 @@ export function TaskRhythmTrack({
     <Region title={t("views.cadence.rhythmTitle")} big={visible.length}>
       <div className="flex h-full flex-col">
         <div className="flex-none border-b border-border px-3 pb-2">
-          <Segmented
+          <SegCtl
             value={filter}
-            options={FILTERS.map(({ key, label }) => ({ key, label: label() }))}
+            options={FILTERS.map(({ key, label }) => ({ value: key, label: label() }))}
             onChange={setFilter}
           />
         </div>

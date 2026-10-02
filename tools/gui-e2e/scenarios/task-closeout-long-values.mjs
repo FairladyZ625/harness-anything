@@ -162,11 +162,80 @@ export default {
     await page.getByRole("tab", { name: /收口与门|Closeout|收口/u }).click();
     await page.getByTestId("task-closeout-tab").waitFor();
 
+    // DecisionReviewTab's supported metadata shape: timestamp + dispatch id + three actions.
+    // Test visibility as well as overflow: the old auto track made the identity zero-width.
+    const metadata = await page
+      .getByTestId("task-closeout-tab")
+      .locator(".bounded-content")
+      .first()
+      .evaluate((body) => {
+        const record = body.parentElement,
+          header = record.firstElementChild;
+        const identity = header.firstElementChild,
+          trailing = header.lastElementChild;
+        const oldWidth = record.style.width,
+          oldChildren = [...trailing.childNodes];
+        record.style.width = "360px";
+        trailing.textContent = "2026-10-02 13:55 · 67e5a389 · dispatch_4b7296db0201def045debc41";
+        const actions = globalThis.document.createElement("div");
+        actions.style.cssText = "display:flex;flex-wrap:wrap;gap:8px";
+        for (const label of ["查看报告", "查看会话", "回应评审意见"]) {
+          const button = globalThis.document.createElement("button");
+          button.textContent = label;
+          button.style.cssText = "min-height:40px;min-width:40px;padding:0 8px";
+          actions.append(button);
+        }
+        trailing.append(actions);
+        const result = {
+          width: record.clientWidth,
+          scroll: record.scrollWidth,
+          identityWidth: identity.getBoundingClientRect().width,
+          columns: globalThis.getComputedStyle(header).gridTemplateColumns,
+        };
+        trailing.replaceChildren(...oldChildren);
+        record.style.width = oldWidth;
+        return result;
+      });
+    assert.ok(metadata.identityWidth >= 180, `identity remains readable: ${JSON.stringify(metadata)}`);
+    assert.ok(metadata.scroll <= metadata.width + 1, `metadata stays contained: ${JSON.stringify(metadata)}`);
+
     // Execution 输出行:长 executionId 是展示叶——截断以真实 Chromium computed
     // style 作准(内联样式:overflow/text-overflow/white-space),悬停给完整值,
     // 行不横向溢出(修复前裸 span 无截断,窄容器直接把相邻列顶出去)。
     const executionRow = page.getByTestId(`task-execution-${EXECUTION_ID}`);
     await executionRow.waitFor();
+    // Exercise the shared scroll boundary on a real rendered record, without changing ledger data.
+    // The temporary long/wide block distinguishes internal scrolling from an expanding page.
+    const longContent = await page
+      .getByTestId("task-closeout-tab")
+      .locator(".bounded-content")
+      .first()
+      .evaluate((node) => {
+        const sample = globalThis.document.createElement("pre");
+        sample.textContent = ("long-record/".repeat(100) + "\n").repeat(100);
+        node.append(sample);
+        node.scrollTop = 100;
+        node.scrollLeft = 100;
+        const result = {
+          height: node.clientHeight,
+          contentHeight: node.scrollHeight,
+          width: node.clientWidth,
+          contentWidth: node.scrollWidth,
+          top: node.scrollTop,
+          left: node.scrollLeft,
+          viewport: globalThis.innerHeight,
+        };
+        sample.remove();
+        node.scrollTop = 0;
+        node.scrollLeft = 0;
+        return result;
+      });
+    assert.ok(longContent.height > 0 && longContent.height < longContent.contentHeight);
+    assert.ok(longContent.height <= longContent.viewport * 0.56, "record uses the shared proportional cap");
+    assert.ok(
+      longContent.width < longContent.contentWidth && longContent.left > 0 && longContent.top > 0,
+      "wide and long content scrolls inside the record on both axes",
+    );
     const executionIdLeaf = executionRow.locator("span[title]").first();
     assert.equal(await executionIdLeaf.getAttribute("title"), EXECUTION_ID, "hover title keeps the full execution id");
     const executionIdStyle = await executionIdLeaf.evaluate((node) => {

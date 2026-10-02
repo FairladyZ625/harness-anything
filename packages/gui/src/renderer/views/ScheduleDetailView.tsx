@@ -3,7 +3,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, PencilSimple, Play, Power, Stop, Trash } from "@phosphor-icons/react";
 import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
-import { Badge, Btn, Chip, Empty } from "../components/runtime/parts.tsx";
+import { Chip } from "../components/primitives/Chip.tsx";
+import { Empty } from "../components/primitives/Empty.tsx";
 import { ScheduleForm } from "../components/ScheduleFormDialog.tsx";
 import { ScheduleRunDetail } from "../components/scheduleRun/ScheduleRunDetail.tsx";
 import { RUN_OUTCOME_META, SPARK_COLOR, missedReasonLabel, time } from "../components/scheduleRun/runMeta.ts";
@@ -14,6 +15,7 @@ import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
+import { Button } from "../components/primitives/Button.tsx";
 import { ViewInGraphButton } from "../components/ViewInGraphButton.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import {
@@ -239,7 +241,7 @@ export function ScheduleDetailView({
                     : t("schedules.executor.agent")}
               </Chip>
               {targetKind === "builtin" && (
-                <Badge tip={t("schedules.builtin.hint")}>{t("schedules.builtin.preset")}</Badge>
+                <StatusTag tone="neutral" tip={t("schedules.builtin.hint")} label={t("schedules.builtin.preset")} />
               )}
             </div>
             <p className="mt-0.5 font-mono ui-micro text-text-faint">
@@ -270,7 +272,7 @@ export function ScheduleDetailView({
                 onAction={onAction}
                 icon={<Power weight="bold" />}
               />
-              <Btn
+              <Button
                 size="sm"
                 testId="schedule-action-edit"
                 disabled={busy || !row.actions.edit.available}
@@ -279,7 +281,7 @@ export function ScheduleDetailView({
               >
                 <PencilSimple weight="bold" />
                 {t("schedules.action.edit")}
-              </Btn>
+              </Button>
               {/* 统一「在关系图中查看」入口(task_89d324b5):schedule 是图节点 kind。 */}
               <ViewInGraphButton entityRef={`schedule/${row.scheduleId}`} onFocusGraph={onFocusGraph} />
             </div>
@@ -439,7 +441,7 @@ function ActionBtn({
         ? "schedules.action.disable"
         : "schedules.action.runNow";
   return (
-    <Btn
+    <Button
       size="sm"
       variant={kind === "runNow" ? "primary" : "plain"}
       testId={`schedule-action-${kind}`}
@@ -449,7 +451,7 @@ function ActionBtn({
     >
       {icon}
       {t(labelKey)}
-    </Btn>
+    </Button>
   );
 }
 
@@ -799,7 +801,7 @@ function ScheduleDangerTab({
         <b className="ui-meta text-danger">{t("schedules.action.delete")}</b>
         <p className="mt-1 ui-micro text-text-muted">{t("schedules.deletePrompt")}</p>
         {!confirmDelete ? (
-          <Btn
+          <Button
             size="sm"
             variant="danger"
             testId="schedule-action-delete"
@@ -809,16 +811,22 @@ function ScheduleDangerTab({
           >
             <Trash weight="bold" />
             {t("schedules.action.delete")}
-          </Btn>
+          </Button>
         ) : (
           <span className="flex flex-wrap items-center gap-2" data-testid="schedule-delete-confirmation">
             <span className="ui-micro text-status-blocked">{t("schedules.deletePrompt")}</span>
-            <Btn size="sm" disabled={busy} onClick={() => onConfirmDelete(false)}>
+            <Button size="sm" disabled={busy} onClick={() => onConfirmDelete(false)}>
               {t("schedules.action.cancelDelete")}
-            </Btn>
-            <Btn size="sm" variant="primary" testId="schedule-action-confirm-delete" disabled={busy} onClick={onDelete}>
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              testId="schedule-action-confirm-delete"
+              disabled={busy}
+              onClick={onDelete}
+            >
               {t("schedules.action.confirmDelete")}
-            </Btn>
+            </Button>
           </span>
         )}
       </div>

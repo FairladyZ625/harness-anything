@@ -17,6 +17,25 @@
   contain-intrinsic-size: auto 10rem;
 }
 
+/* One proportional overflow contract. cqb follows the nearest size container;
+   outside one (e.g. a portal) CSS resolves it against the small viewport.
+   Unlike percentages in max-height, this stays definite for intrinsic-height records. */
+:root {
+  --long-content-cap: 55cqb;
+  --overlay-content-cap: 85dvh;
+}
+
+.content-viewport {
+  container-type: size;
+}
+
+.bounded-content {
+  min-block-size: 0;
+  min-inline-size: 0;
+  max-block-size: var(--long-content-cap);
+  overflow: auto;
+}
+
 /*
  * Harness GUI 暗色变量（OKLch）
  * 三轴视觉通道分配：
@@ -65,6 +84,16 @@
   /* freshness 通道 */
   --color-stale: oklch(0.78 0.12 75);
   --color-danger: oklch(0.72 0.17 25);
+
+  /* Avatar 身份色(runtime 领域,色相仅按 id 哈希区分、无语义):两主题成对,
+     Avatar 组件不再持有 oklch 字面色(B5/C13)。 */
+  --color-avatar-1: oklch(0.75 0.12 195);
+  --color-avatar-2: oklch(0.75 0.12 305);
+  --color-avatar-3: oklch(0.75 0.12 150);
+  --color-avatar-4: oklch(0.75 0.12 75);
+  --color-avatar-5: oklch(0.75 0.1 250);
+  --color-avatar-6: oklch(0.72 0.12 25);
+  --color-avatar-fg: oklch(0.15 0.01 285);
 
   /* 语义轴四色(REQ-GUI-04 三泳道/筛选):等亮度,两主题可辨 */
   --color-axis-authority: oklch(0.72 0.13 305);
@@ -146,6 +175,14 @@ html[data-theme="light"] {
 
   --color-stale: oklch(0.57 0.12 75);
   --color-danger: oklch(0.54 0.19 25);
+
+  --color-avatar-1: oklch(0.6 0.12 195);
+  --color-avatar-2: oklch(0.6 0.12 305);
+  --color-avatar-3: oklch(0.6 0.12 150);
+  --color-avatar-4: oklch(0.6 0.12 75);
+  --color-avatar-5: oklch(0.6 0.1 250);
+  --color-avatar-6: oklch(0.58 0.12 25);
+  --color-avatar-fg: oklch(0.99 0.005 285);
 
   --color-axis-authority: oklch(0.54 0.16 305);
   --color-axis-evidence: oklch(0.56 0.14 150);
@@ -724,4 +761,9 @@ html[data-theme="light"] ::selection {
   border-color: var(--color-border-strong);
   outline: 1px solid var(--color-accent);
   outline-offset: 1px;
+}
+
+.component-modal::backdrop {
+  background: color-mix(in oklch, var(--color-bg) 70%, transparent);
+  backdrop-filter: blur(6px);
 }

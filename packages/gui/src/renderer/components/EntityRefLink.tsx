@@ -28,6 +28,7 @@ export const REF_TYPOGRAPHY = "font-mono ui-micro";
 
 /** 截断/收缩布局基:内联样式,组件内部所有;class 叠加不可抹除,与 IdText 共用同一份。 */
 export const REF_LAYOUT_STYLE = {
+  display: "inline-block",
   minWidth: 0,
   maxWidth: "100%",
   overflow: "hidden",

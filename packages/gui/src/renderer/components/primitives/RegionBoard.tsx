@@ -124,7 +124,7 @@ export function BoardRegion({
     <div
       {...props}
       data-region={region}
-      className={`grid min-w-0 max-h-[420px] grid-rows-[minmax(0,1fr)] @[900px]:max-h-none ${
+      className={`grid min-w-0 max-h-[var(--long-content-cap)] grid-rows-[minmax(0,1fr)] @[900px]:max-h-none ${
         fill ? "@[900px]:min-h-[16rem] @[900px]:flex-[1_1_100%]" : "@[900px]:flex-[1_1_auto]"
       }`}
       style={fill ? undefined : { minHeight: minimum }}
@@ -144,7 +144,7 @@ export function BoardSide({
     <div
       {...props}
       data-region={region}
-      className="grid max-h-[420px] min-w-0 grid-rows-[minmax(0,1fr)] @[900px]:max-h-none @[900px]:min-h-0"
+      className="grid max-h-[var(--long-content-cap)] min-w-0 grid-rows-[minmax(0,1fr)] @[900px]:max-h-none @[900px]:min-h-0"
     >
       {children}
     </div>

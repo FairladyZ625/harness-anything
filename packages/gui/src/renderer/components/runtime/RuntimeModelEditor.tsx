@@ -1,6 +1,8 @@
 import { t } from "../../i18n/index.tsx";
 import { runtimeCustomModels, runtimeDefaultModel, runtimeModels } from "../../runtime-instance-form.ts";
-import { Btn, Hint, TextInput } from "./parts.tsx";
+import { Hint } from "./parts.tsx";
+import { TextInput } from "../primitives/TextInput.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 export function RuntimeModelEditor({
   availableModels,
@@ -36,7 +38,7 @@ export function RuntimeModelEditor({
     <div className="grid min-w-0 gap-1.5">
       <div
         data-testid={`${testIdPrefix}-models`}
-        className="grid max-h-32 gap-1 overflow-y-auto rounded border border-border px-2 py-1.5"
+        className="grid bounded-content gap-1 overflow-y-auto rounded border border-border px-2 py-1.5"
       >
         {options.length ? (
           options.map((model) => (
@@ -72,9 +74,9 @@ export function RuntimeModelEditor({
           </select>
         </label>
       )}
-      <Btn size="sm" variant="ghost" onClick={() => onCustomModelOpenChange(!customModelOpen)}>
+      <Button size="sm" variant="ghost" onClick={() => onCustomModelOpenChange(!customModelOpen)}>
         {t("agentRuntime.customModelOverride")}
-      </Btn>
+      </Button>
       {(customModelOpen || Boolean(customModel)) && (
         <TextInput
           label={t("agentRuntime.customModelOverride")}

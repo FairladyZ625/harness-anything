@@ -14,16 +14,9 @@ import { decisionReviewRef, decisionSessionsRef } from "../../navigation/decisio
 import type { DecisionReviewWriteFeedback } from "../../decision-review-actions.ts";
 import { RiskTierBadge } from "../badges.tsx";
 import { DecisionMutationFeedback } from "../DecisionMutationFeedback.tsx";
-import {
-  actorText,
-  atText,
-  cardClass,
-  dispatchStatusText,
-  primaryButtonClass,
-  ReviewSection,
-  secondaryButtonClass,
-  VerdictBadge,
-} from "./parts.tsx";
+import { actorText, atText, cardClass, dispatchStatusText, ReviewSection, VerdictBadge } from "./parts.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { RecordRow } from "../primitives/RecordRow.tsx";
 
 /**
  * S3 · Decision 详情「提案与评审」:左栏提案与生效依据,右栏当前/历史切面的评审与评审派工。
@@ -112,15 +105,13 @@ export function DecisionReviewTab({
             <DispatchList decisionId={decision.decisionId} review={review} onNavigateEntity={onNavigateEntity} />
             {readiness !== null && (
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  data-testid="decision-review-dispatch"
+                <Button
+                  testId="decision-review-dispatch"
                   disabled={pending || review.currentDigest === null}
                   onClick={() => review.currentDigest && onDispatchReview(review.currentDigest)}
-                  className={secondaryButtonClass}
                 >
                   {t("views.decisionReview.dispatchReview")}
-                </button>
+                </Button>
                 <span className="ui-micro text-text-faint">
                   {review.currentDigest === null
                     ? t("views.decisionReview.digestUnavailable")
@@ -215,78 +206,86 @@ function ReviewCard({
   const dispatch = dispatchOfReview(review, row),
     overrides = reviewOverrides(review, row.reviewId);
   return (
-    <article data-testid={`decision-review-card-${row.reviewId}`} className={cardClass}>
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="min-w-0 truncate ui-meta font-semibold text-text">
-          {row.reviewId} · {actorText(row.actor)}
-        </h3>
-        <VerdictBadge verdict={row.verdict} />
-      </div>
-      <p className="mt-1.5 ui-meta leading-relaxed text-text">{row.reason}</p>
-      {row.findings.length > 0 && (
-        <ul className="mt-2 grid gap-1">
-          {row.findings.map((finding) => {
-            const latest = findingResponses(review, row.reviewId, finding.findingId)[0];
-            return (
-              <li key={finding.findingId} className="ui-micro leading-relaxed text-text-muted">
-                <span className="font-mono text-text-faint">{finding.findingId} </span>
-                {finding.text}
-                <span className="ml-1.5 font-mono text-text-faint">
-                  ·{" "}
-                  {latest === undefined
-                    ? t("views.decisionReview.notResponded")
-                    : latest.disposition === "adopt"
-                      ? t("views.decisionReview.respondedAdopt")
-                      : t("views.decisionReview.respondedRebut")}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {overrides.map((override) => (
-        <p key={override.overriddenAt} className="mt-1.5 ui-micro text-success">
-          {t("views.decisionReview.overridden", { reason: override.reason })} · {actorText(override.actor)}
-        </p>
-      ))}
-      <p className="mt-2 font-mono ui-micro text-text-faint">
-        {atText(row.reviewedAt)} · {shortDigest(row.reviewContentDigest)}
-        {dispatch ? ` · ${dispatch.dispatchId}` : ""}
-      </p>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {row.reportRef ? (
-          <button
-            type="button"
-            data-testid={`decision-review-open-report-${row.reviewId}`}
-            className={secondaryButtonClass}
-            onClick={() => onNavigateEntity(decisionReviewRef(decisionId, "report", row.reviewId))}
-          >
-            {t("views.decisionReview.readReport")}
-          </button>
-        ) : (
-          <span className="ui-micro text-text-faint">{t("views.decisionReview.noReport")}</span>
-        )}
-        {dispatch && (
-          <button
-            type="button"
-            data-testid={`decision-review-open-session-${row.reviewId}`}
-            className={secondaryButtonClass}
-            onClick={() => onNavigateEntity(decisionSessionsRef(decisionId, dispatch.runtimeSessionId))}
-          >
-            {t("views.decisionReview.viewSession")}
-          </button>
-        )}
-        {row.verdict === "changes_requested" && (
-          <button
-            type="button"
-            data-testid={`decision-review-respond-${row.reviewId}`}
-            className={primaryButtonClass}
-            onClick={() => onNavigateEntity(decisionReviewRef(decisionId, "respond"))}
-          >
-            {t("views.decisionReview.respondEach")}
-          </button>
-        )}
-      </div>
+    <article
+      data-testid={`decision-review-card-${row.reviewId}`}
+      className="rounded-sm border border-border bg-surface"
+    >
+      <RecordRow
+        id={
+          <h3 className="min-w-0 truncate ui-meta font-semibold text-text">
+            {row.reviewId} · {actorText(row.actor)}
+          </h3>
+        }
+        state={<VerdictBadge verdict={row.verdict} />}
+        time={
+          <span className="font-mono ui-micro text-text-faint">
+            {atText(row.reviewedAt)} · {shortDigest(row.reviewContentDigest)}
+            {dispatch ? ` · ${dispatch.dispatchId}` : ""}
+          </span>
+        }
+        summary={
+          <div className="grid gap-2">
+            <p className="ui-meta leading-relaxed text-text">{row.reason}</p>
+            {row.findings.length > 0 && (
+              <ul className="grid gap-1">
+                {row.findings.map((finding) => {
+                  const latest = findingResponses(review, row.reviewId, finding.findingId)[0];
+                  return (
+                    <li key={finding.findingId} className="ui-micro leading-relaxed text-text-muted">
+                      <span className="font-mono text-text-faint">{finding.findingId} </span>
+                      {finding.text}
+                      <span className="ml-1.5 font-mono text-text-faint">
+                        ·{" "}
+                        {latest === undefined
+                          ? t("views.decisionReview.notResponded")
+                          : latest.disposition === "adopt"
+                            ? t("views.decisionReview.respondedAdopt")
+                            : t("views.decisionReview.respondedRebut")}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {overrides.map((override) => (
+              <p key={override.overriddenAt} className="ui-micro text-success">
+                {t("views.decisionReview.overridden", { reason: override.reason })} · {actorText(override.actor)}
+              </p>
+            ))}
+          </div>
+        }
+        action={
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {row.reportRef ? (
+              <Button
+                testId={`decision-review-open-report-${row.reviewId}`}
+                onClick={() => onNavigateEntity(decisionReviewRef(decisionId, "report", row.reviewId))}
+              >
+                {t("views.decisionReview.readReport")}
+              </Button>
+            ) : (
+              <span className="ui-micro text-text-faint">{t("views.decisionReview.noReport")}</span>
+            )}
+            {dispatch && (
+              <Button
+                testId={`decision-review-open-session-${row.reviewId}`}
+                onClick={() => onNavigateEntity(decisionSessionsRef(decisionId, dispatch.runtimeSessionId))}
+              >
+                {t("views.decisionReview.viewSession")}
+              </Button>
+            )}
+            {row.verdict === "changes_requested" && (
+              <Button
+                variant="primary"
+                testId={`decision-review-respond-${row.reviewId}`}
+                onClick={() => onNavigateEntity(decisionReviewRef(decisionId, "respond"))}
+              >
+                {t("views.decisionReview.respondEach")}
+              </Button>
+            )}
+          </div>
+        }
+      />
     </article>
   );
 }

@@ -1,7 +1,10 @@
+import { Toggle } from "../../components/primitives/Toggle.tsx";
+import { Button } from "../../components/primitives/Button.tsx";
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { t, type MessageKey } from "../../i18n/index.tsx";
-import { BTN, Section, Row, SettingSelect, Toggle, type SelectorOption } from "../../components/ui/widgets";
+import { Row, SettingSelect, type SelectorOption } from "../../components/ui/widgets";
+import { Section } from "../../components/primitives/Section.tsx";
 import { useSettingsMutation, useSettingsQuery } from "../../settings-data.ts";
 import { useCatalogSnapshot } from "../../catalog-data.ts";
 import { agentEntityClient, isAvailableAgentEntityRow, type AgentEntityRow } from "../../agent-entity-client.ts";
@@ -198,29 +201,29 @@ export function RepositorySettingsPanel({
 
   if (repoId === null)
     return (
-      <Section title={t("views.settingsView.sectionRepository")}>
+      <Section variant="panel" title={t("views.settingsView.sectionRepository")}>
         <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.repositoryTabNeedsRepo")}</div>
       </Section>
     );
   if (settingsQuery.error)
     return (
-      <Section title={t("views.settingsView.sectionRepository")}>
+      <Section variant="panel" title={t("views.settingsView.sectionRepository")}>
         <div className="p-4 text-danger">{String(settingsQuery.error)}</div>
       </Section>
     );
   if (settingsQuery.isPending)
     return (
-      <Section title={t("views.settingsView.sectionRepository")}>
+      <Section variant="panel" title={t("views.settingsView.sectionRepository")}>
         <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
       </Section>
     );
   return (
     <div className="flex flex-col gap-4">
       <Section
+        variant="panel"
         title={t("views.settingsView.sectionRepository")}
         action={
-          <button
-            className={BTN}
+          <Button
             // 门映射草稿有未解决的非法组合时整表不让提交——约束在界面上表达,
             // 不靠提交后报错。
             disabled={settingsMutation.isPending || gateIssues.length > 0}
@@ -234,7 +237,7 @@ export function RepositorySettingsPanel({
             {settingsMutation.isPending
               ? t("views.settingsView.submitPending")
               : t("views.settingsView.submitToRepository")}
-          </button>
+          </Button>
         }
       >
         <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5">
@@ -264,7 +267,7 @@ export function RepositorySettingsPanel({
         ) : null}
       </Section>
       {groups.length === 0 ? (
-        <Section title={t("views.settingsView.sectionRepository")}>
+        <Section variant="panel" title={t("views.settingsView.sectionRepository")}>
           <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
         </Section>
       ) : (
@@ -275,20 +278,16 @@ export function RepositorySettingsPanel({
             expanded = !group.advanced || advancedOpen || searching;
           return (
             <Section
+              variant="panel"
               key={group.id || "ungrouped"}
               title={groupTitle(group.id)}
               action={
                 group.advanced ? (
-                  <button
-                    type="button"
-                    className={BTN}
-                    data-testid="settings-advanced-toggle"
-                    onClick={() => setAdvancedOpen((open) => !open)}
-                  >
+                  <Button testId="settings-advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)}>
                     {expanded
                       ? t("views.settingsView.advancedCollapse")
                       : t("views.settingsView.advancedExpand", { count: group.rows.length })}
-                  </button>
+                  </Button>
                 ) : undefined
               }
             >
@@ -304,16 +303,14 @@ export function RepositorySettingsPanel({
                         label={t("views.settingsView.gatesSectionLabel")}
                         desc={t("views.settingsView.gatesSectionDescription")}
                       >
-                        <button
-                          type="button"
-                          className={BTN}
-                          data-testid="settings-gates-import"
+                        <Button
+                          testId="settings-gates-import"
                           disabled={settingsMutation.isPending}
-                          title={t("views.settingsView.gatesFromDocumentDescription")}
+                          tip={t("views.settingsView.gatesFromDocumentDescription")}
                           onClick={() => settingsMutation.mutate({ gatesFromDocument: true })}
                         >
                           {t("views.settingsView.gatesFromDocumentLabel")}
-                        </button>
+                        </Button>
                       </Row>
                       <div className="border-b border-border px-3 py-2">
                         {gateDrafts === null || gateDescriptor === null ? (
@@ -601,7 +598,13 @@ function renderFieldControl(
         />
       );
     case "toggle":
-      return <Toggle checked={draft[row.field] === true} onChange={(enabled) => updateDraft(row.field, enabled)} />;
+      return (
+        <Toggle
+          label={row.field}
+          checked={draft[row.field] === true}
+          onChange={(enabled) => updateDraft(row.field, enabled)}
+        />
+      );
     case "number": {
       const value = draft[row.field];
       return (

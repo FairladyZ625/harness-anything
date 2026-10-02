@@ -1,10 +1,14 @@
+import { Toggle } from "../components/primitives/Toggle.tsx";
+import { SegCtl } from "../components/primitives/SegCtl.tsx";
+import { Button } from "../components/primitives/Button.tsx";
 import { useState } from "react";
 import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { useMotionPreference, type MotionPreference } from "../motion-config.tsx";
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
-import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
+import { Row, Kbd } from "../components/ui/widgets";
+import { Section } from "../components/primitives/Section.tsx";
 import {
   formatDuration,
   formatRelative,
@@ -124,25 +128,25 @@ export function SettingsView({
         return <RepositorySettingsPanel repoId={repoId} onLocaleLoaded={setLocale} />;
       case "appearance":
         return (
-          <Section title={t("views.settingsView.sectionAppearance")}>
+          <Section variant="panel" title={t("views.settingsView.sectionAppearance")}>
             <Row label={t("views.settingsView.themeLabel")} desc={t("views.settingsView.themeDescription")}>
-              <Segmented
+              <SegCtl
                 value={mode}
-                options={THEME_OPTIONS.map(({ key, labelKey }) => ({ key, label: t(labelKey) }))}
+                options={THEME_OPTIONS.map(({ key, labelKey }) => ({ value: key, label: t(labelKey) }))}
                 onChange={setMode}
               />
             </Row>
             <Row label={t("views.settingsView.motionLabel")} desc={t("views.settingsView.motionDescription")}>
-              <Segmented
+              <SegCtl
                 value={motionPreference}
-                options={MOTION_OPTIONS.map(({ key, labelKey }) => ({ key, label: t(labelKey) }))}
+                options={MOTION_OPTIONS.map(({ key, labelKey }) => ({ value: key, label: t(labelKey) }))}
                 onChange={setMotionPreference}
               />
             </Row>
             <Row label={t("views.settingsView.uiScaleLabel")} desc={t("views.settingsView.uiScaleDescription")}>
-              <Segmented
+              <SegCtl
                 value={uiScale}
-                options={SCALE_OPTIONS.map(({ key, labelKey }) => ({ key, label: t(labelKey) }))}
+                options={SCALE_OPTIONS.map(({ key, labelKey }) => ({ value: key, label: t(labelKey) }))}
                 onChange={setUiScale}
               />
             </Row>
@@ -163,7 +167,7 @@ export function SettingsView({
         );
       case "timeDisplay":
         return (
-          <Section title={t("views.settingsView.sectionTimeDisplay")}>
+          <Section variant="panel" title={t("views.settingsView.sectionTimeDisplay")}>
             <Row
               label={t("views.settingsView.timeZoneLabel")}
               desc={t("views.settingsView.timeZoneDescription", { system: systemTimeZone() })}
@@ -183,10 +187,10 @@ export function SettingsView({
               </select>
             </Row>
             <Row label={t("views.settingsView.dateFormatLabel")} desc={t("views.settingsView.dateFormatDescription")}>
-              <Segmented
+              <SegCtl
                 value={timePrefs.dateFormat}
                 options={DATE_FORMAT_OPTIONS.map((dateFormat) => ({
-                  key: dateFormat,
+                  value: dateFormat,
                   // 选项标签即实时预览:固定样张在当前时区与小时制下的实际写法。
                   label:
                     formatTime(DATE_FORMAT_SAMPLE, { style: "date-time", prefs: { ...timePrefs, dateFormat } }) ??
@@ -196,17 +200,17 @@ export function SettingsView({
               />
             </Row>
             <Row label={t("views.settingsView.hourCycleLabel")}>
-              <Segmented
+              <SegCtl
                 value={timePrefs.hour12 ? "h12" : "h23"}
                 options={[
                   {
-                    key: "h23" as const,
+                    value: "h23" as const,
                     label:
                       formatTime(DATE_FORMAT_SAMPLE, { style: "time", prefs: { ...timePrefs, hour12: false } }) ??
                       t("views.settingsView.hourCycle24"),
                   },
                   {
-                    key: "h12" as const,
+                    value: "h12" as const,
                     label:
                       formatTime(DATE_FORMAT_SAMPLE, { style: "time", prefs: { ...timePrefs, hour12: true } }) ??
                       t("views.settingsView.hourCycle12"),
@@ -216,15 +220,15 @@ export function SettingsView({
               />
             </Row>
             <Row label={t("views.settingsView.listStyleLabel")} desc={t("views.settingsView.listStyleDescription")}>
-              <Segmented
+              <SegCtl
                 value={timePrefs.listStyle}
                 options={[
                   {
-                    key: "relative" as const,
+                    value: "relative" as const,
                     label: formatRelative(RELATIVE_SAMPLE, { prefs: timePrefs }),
                   },
                   {
-                    key: "absolute" as const,
+                    value: "absolute" as const,
                     label:
                       formatTime(new Date(RELATIVE_SAMPLE).toISOString(), {
                         style: "date-time",
@@ -245,7 +249,7 @@ export function SettingsView({
         );
       case "language":
         return (
-          <Section title={t("views.settingsView.sectionLanguage")}>
+          <Section variant="panel" title={t("views.settingsView.sectionLanguage")}>
             <Row label={t("settings.language")} desc={t("views.settingsView.languageDescription")}>
               <select
                 aria-label={t("views.settingsView.tabLanguage")}
@@ -269,11 +273,12 @@ export function SettingsView({
       case "shortcuts":
         return (
           <Section
+            variant="panel"
             title={t("views.settingsView.sectionShortcuts")}
             action={
-              <button disabled title={t("views.settingsView.notSupportedYet")} className={BTN}>
+              <Button disabled tip={t("views.settingsView.notSupportedYet")}>
                 {t("views.settingsView.rebindAction")}
-              </button>
+              </Button>
             }
           >
             {SHORTCUTS.map((s) => (
@@ -296,18 +301,23 @@ export function SettingsView({
         );
       case "notifications":
         return (
-          <Section title={t("views.settingsView.sectionNotifications")}>
+          <Section variant="panel" title={t("views.settingsView.sectionNotifications")}>
             <Row
               label={t("views.settingsView.notifyCloseoutReadyLabel")}
               desc={t("views.settingsView.notifyCloseoutReadyDescription")}
             >
-              <Toggle checked={notifyOnReady} onChange={setNotifyOnReady} disabled />
+              <Toggle
+                label={t("views.settingsView.notifyCloseoutReadyLabel")}
+                checked={notifyOnReady}
+                onChange={setNotifyOnReady}
+                disabled
+              />
             </Row>
           </Section>
         );
       case "data":
         return (
-          <Section title={t("views.settingsView.sectionData")}>
+          <Section variant="panel" title={t("views.settingsView.sectionData")}>
             <Row
               label={t("views.settingsView.cacheDirectoryLabel")}
               desc={t("views.settingsView.cacheDirectoryDescription")}
@@ -320,31 +330,31 @@ export function SettingsView({
               label={t("views.settingsView.exportDiagnosticsLabel")}
               desc={t("views.settingsView.exportDiagnosticsDescription")}
             >
-              <button disabled title={t("views.settingsView.notSupportedYet")} className={BTN}>
+              <Button disabled tip={t("views.settingsView.notSupportedYet")}>
                 {t("views.settingsView.exportAction")}
-              </button>
+              </Button>
             </Row>
           </Section>
         );
       case "privacy":
         return (
-          <Section title={t("views.settingsView.sectionPrivacy")}>
+          <Section variant="panel" title={t("views.settingsView.sectionPrivacy")}>
             <Row label={t("views.settingsView.telemetryLabel")} desc={t("views.settingsView.telemetryDescription")}>
-              <Toggle checked={false} disabled />
+              <Toggle label={t("views.settingsView.telemetryLabel")} checked={false} disabled />
             </Row>
           </Section>
         );
       case "sync":
         return (
-          <Section title={t("views.settingsView.sectionSync")}>
+          <Section variant="panel" title={t("views.settingsView.sectionSync")}>
             <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
               <CloudSlash weight="duotone" className="shrink-0 text-xl text-text-faint" />
               <p className="ui-meta min-w-0 flex-1 text-text-muted">
                 {t("views.settingsView.syncLocalModeDescription")}
               </p>
-              <button disabled title={t("views.settingsView.syncV2Title")} className={BTN}>
+              <Button disabled tip={t("views.settingsView.syncV2Title")}>
                 {t("views.settingsView.syncSignInAction")}
-              </button>
+              </Button>
             </div>
             {SYNC_FEATURE_KEYS.map((featureKey) => (
               <div

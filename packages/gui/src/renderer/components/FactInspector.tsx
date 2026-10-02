@@ -10,6 +10,8 @@ import { EntityRefLink } from "./EntityRefLink.tsx";
 import { ViewInGraphButton } from "./ViewInGraphButton.tsx";
 import { formatTime } from "../model/time.ts";
 import { StatusTag, type StatusTone } from "./primitives/StatusTag.tsx";
+import { BoundedContent } from "./primitives/BoundedContent.tsx";
+import { KV, KVRow } from "./primitives/Fields.tsx";
 
 function shortEndpoint(raw: string): string {
   if (raw.startsWith("decision/")) return normalizeDecisionId(raw);
@@ -114,7 +116,7 @@ export function FactInspector({
   return (
     <aside
       data-testid="fact-inspector"
-      className={`flex w-[26rem] shrink-0 flex-col overflow-y-auto ${side === "left" ? "border-l" : "border-r"} border-border bg-surface`}
+      className={`flex w-[26rem] max-w-full shrink-0 flex-col overflow-y-auto ${side === "left" ? "border-l" : "border-r"} border-border bg-surface`}
     >
       <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
         <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
@@ -195,7 +197,7 @@ export function FactInspector({
         ) : (
           <>
             <div data-testid="fact-conclusion" className="border-l-[3px] border-accent py-0.5 pl-3">
-              <p className="ui-body font-semibold leading-relaxed text-text">{fact.text}</p>
+              <BoundedContent className="ui-body font-semibold leading-relaxed text-text">{fact.text}</BoundedContent>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <StatusTag tone={factStatus.tone} label={factStatus.label} />
                 <StatusTag
@@ -205,39 +207,34 @@ export function FactInspector({
               </div>
             </div>
 
-            <dl
-              data-testid="fact-fields"
-              className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 border-y border-border py-2 ui-meta"
-            >
-              <dt className="text-text-faint">来源</dt>
-              <dd className="min-w-0 break-words font-mono text-text-muted">
-                {fact.source ?? t("components.factInspector.unknown")}
-              </dd>
-              <dt className="text-text-faint">观测时间</dt>
-              <dd className="font-mono text-text-muted">{formatTime(fact.at, { style: "date-time" }) ?? fact.at}</dd>
-              <dt className="text-text-faint">类别</dt>
-              <dd className="font-mono text-text-muted">{fact.category}</dd>
-              <dt className="text-text-faint">{t("components.factInspector.taskPackage")}</dt>
-              <dd className="flex min-w-0 items-center gap-2">
-                {ownerTaskId && onNavigateTask ? (
-                  <EntityRefLink
-                    entityRef={`task/${ownerTaskId}`}
-                    onNavigate={() => onNavigateTask(ownerTaskId)}
-                    title={t("components.factInspector.jumpSourceTask")}
-                    className="font-mono ui-meta text-accent hover:underline"
-                  />
-                ) : (
-                  <span className="font-mono ui-meta text-text">
-                    {ownerTaskId ?? t("components.factInspector.unknown")}
+            <div data-testid="fact-fields" className="border-y border-border py-2">
+              <KV>
+                <KVRow name="来源">{fact.source ?? t("components.factInspector.unknown")}</KVRow>
+                <KVRow name="观测时间">{formatTime(fact.at, { style: "date-time" }) ?? fact.at}</KVRow>
+                <KVRow name="类别">{fact.category}</KVRow>
+                <KVRow name={t("components.factInspector.taskPackage")}>
+                  <span className="flex min-w-0 items-center gap-2">
+                    {ownerTaskId && onNavigateTask ? (
+                      <EntityRefLink
+                        entityRef={`task/${ownerTaskId}`}
+                        onNavigate={() => onNavigateTask(ownerTaskId)}
+                        title={t("components.factInspector.jumpSourceTask")}
+                        className="font-mono ui-meta text-accent hover:underline"
+                      />
+                    ) : (
+                      <span className="font-mono ui-meta text-text">
+                        {ownerTaskId ?? t("components.factInspector.unknown")}
+                      </span>
+                    )}
+                    {ownerTaskId && (
+                      <span className="min-w-0 truncate ui-meta text-text-muted">
+                        {task?.title ?? t("components.factInspector.hostTaskNotProjectedByCurrentTask")}
+                      </span>
+                    )}
                   </span>
-                )}
-                {ownerTaskId && (
-                  <span className="min-w-0 truncate ui-meta text-text-muted">
-                    {task?.title ?? t("components.factInspector.hostTaskNotProjectedByCurrentTask")}
-                  </span>
-                )}
-              </dd>
-            </dl>
+                </KVRow>
+              </KV>
+            </div>
 
             <section className="border-b border-border pb-2">
               <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">

@@ -1,3 +1,4 @@
+import { Notice } from "../primitives/Notice";
 import { useEffect, useState } from "react";
 import type { SquadDeclarationV1 } from "@harness-anything/daemon/protocol";
 import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
@@ -5,23 +6,11 @@ import type { AgentEntityAvailableRow, SquadEntityDetail } from "../../agent-ent
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ActionError } from "./ActionError.tsx";
-import {
-  Avatar,
-  Badge,
-  Btn,
-  Card,
-  CardBody,
-  CardHead,
-  CardTitle,
-  Chip,
-  Crumbs,
-  CrumbSep,
-  Empty,
-  Hint,
-  Right,
-  Sect,
-  WarnBar,
-} from "./parts.tsx";
+import { Avatar, Card, CardBody, CardHead, CardTitle, Crumbs, CrumbSep, Hint, Right, Sect } from "./parts.tsx";
+import { Chip } from "../primitives/Chip.tsx";
+import { Empty } from "../primitives/Empty.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 export type SquadDraft = {
   readonly name: string;
@@ -104,14 +93,18 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
       <Card>
         <CardHead>
           <CardTitle>{detail.name}</CardTitle>
-          <Badge>
-            <EntityRefLink
-              entityRef={`squad/${detail.id}`}
-              onNavigate={() => onSelectSquad(detail.id)}
-              title={detail.id}
-              className="text-text-muted hover:text-accent hover:underline"
-            />
-          </Badge>
+          <StatusTag
+            tone="neutral"
+            mono
+            label={
+              <EntityRefLink
+                entityRef={`squad/${detail.id}`}
+                onNavigate={() => onSelectSquad(detail.id)}
+                title={detail.id}
+                className="text-text-muted hover:text-accent hover:underline"
+              />
+            }
+          />
           <Right>
             <input
               aria-label={t("agentRuntime.squadName")}
@@ -129,7 +122,7 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
           title={t("agentRuntime.formation")}
           desc={t("agentRuntime.formationDesc")}
           right={
-            <Btn
+            <Button
               size="sm"
               variant="ghost"
               onClick={() => {
@@ -138,7 +131,7 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
               }}
             >
               {t("agentRuntime.addWorkerSlot")}
-            </Btn>
+            </Button>
           }
         >
           <div className="overflow-x-auto py-1">
@@ -185,15 +178,15 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
             onChange={(event) => patch({ roster: event.target.value })}
             className="rt-instr min-h-[180px]"
           />
-          <WarnBar>
+          <Notice>
             <span>{t("agentRuntime.rosterWarn")}</span>
-          </WarnBar>
+          </Notice>
         </Sect>
 
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
             <span className="flex-1" />
-            <Btn
+            <Button
               variant="primary"
               testId="squad-save"
               disabled={
@@ -207,7 +200,7 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
               onClick={() => onSave(squadDeclarationFrom(detail.id, draft))}
             >
               {t(dirty ? "agentRuntime.saveDeclaration" : "agentRuntime.saved")}
-            </Btn>
+            </Button>
           </div>
           {actionError ? <ActionError>{actionError}</ActionError> : null}
         </Sect>
@@ -331,7 +324,7 @@ function SlotConfig({
         <Hint>{t(slot.kind === "leader" ? "agentRuntime.commanderSlotHint" : "agentRuntime.workerSlotHint")}</Hint>
         <span className="flex-1" />
         {slot.kind === "worker" && (
-          <Btn
+          <Button
             size="sm"
             variant="danger"
             onClick={() => {
@@ -340,7 +333,7 @@ function SlotConfig({
             }}
           >
             {t("agentRuntime.removeSlot")}
-          </Btn>
+          </Button>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2">

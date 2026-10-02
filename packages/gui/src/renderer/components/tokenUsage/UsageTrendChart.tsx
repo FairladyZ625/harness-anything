@@ -320,7 +320,7 @@ export function UsageTrendTable({
     return <p className="py-1 ui-meta text-text-faint">{t("agentRuntime.tokenUsageTrendEmpty")}</p>;
   const cell = "border-b border-border py-1.5 pr-3 text-right font-mono tabular-nums ui-meta";
   return (
-    <div className="max-h-[320px] overflow-auto">
+    <div className="bounded-content overflow-auto">
       <table data-testid="token-usage-trend-table" className="w-full border-separate border-spacing-0">
         <thead>
           <tr className="text-left ui-meta text-text-faint">

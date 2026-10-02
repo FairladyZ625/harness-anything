@@ -1,9 +1,14 @@
+import { Notice } from "../primitives/Notice";
 import { useState } from "react";
 import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { ActionError } from "./ActionError.tsx";
-import { Avatar, Badge, Btn, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
+import { Avatar, CfgRow, Hint, KindDot } from "./parts.tsx";
+import { Modal } from "../primitives/Modal.tsx";
+import { TextInput } from "../primitives/TextInput.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 type NewEntityRequestBase = {
   readonly kind: "agent" | "squad";
@@ -75,8 +80,8 @@ export function NewEntityDialog({
         <div className="flex items-center gap-2">
           <Hint>{t(kind === "agent" ? "agentRuntime.newAgentFooter" : "agentRuntime.newSquadFooter")}</Hint>
           <span className="flex-1" />
-          <Btn onClick={onCancel}>{t("agentRuntime.cancel")}</Btn>
-          <Btn
+          <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+          <Button
             variant="primary"
             testId={`new-${kind}-create`}
             disabled={busy || !valid}
@@ -95,7 +100,7 @@ export function NewEntityDialog({
             }
           >
             {t("agentRuntime.create")}
-          </Btn>
+          </Button>
         </div>
       }
     >
@@ -149,10 +154,10 @@ export function NewEntityDialog({
               disabled={initialId !== undefined}
               placeholder="kebab-case"
             />
-            {initialId !== undefined && <Badge>{t("agentRuntime.redeclareIdLocked")}</Badge>}
-            {collision && <Badge status="blocked">{t("agentRuntime.idTaken")}</Badge>}
+            {initialId !== undefined && <StatusTag tone="neutral" label={t("agentRuntime.redeclareIdLocked")} />}
+            {collision && <StatusTag status="blocked" label={t("agentRuntime.idTaken")} />}
             {!collision && id.trim() !== "" && !entitySlug(id) && (
-              <Badge status="blocked">{t("agentRuntime.idInvalid")}</Badge>
+              <StatusTag status="blocked" label={t("agentRuntime.idInvalid")} />
             )}
           </CfgRow>
           <CfgRow label={t("agentRuntime.name")}>
@@ -170,9 +175,9 @@ export function NewEntityDialog({
             </CfgRow>
           )}
           {templateId === null && (
-            <WarnBar>
+            <Notice>
               <span>{t(kind === "agent" ? "agentRuntime.blankAgentWarn" : "agentRuntime.blankSquadWarn")}</span>
-            </WarnBar>
+            </Notice>
           )}
         </div>
       )}

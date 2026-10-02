@@ -1,9 +1,12 @@
+import { Notice } from "../components/primitives/Notice";
+import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { AgentRuntimeTokenUsageResult } from "@harness-anything/daemon/protocol";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { t } from "../i18n/index.tsx";
-import { Badge, Empty, SegCtl } from "../components/runtime/parts.tsx";
+import { Empty } from "../components/primitives/Empty.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Region } from "../components/primitives/Region.tsx";
 import { QUERY_PACING_MS } from "../query-pacing.ts";
 import {
@@ -75,20 +78,15 @@ export function TokenUsageView({
         />
         <span className="flex-1" />
         {data?.status === "pending" ? (
-          <Badge status="planned">{t("agentRuntime.tokenUsageProjectionPending")}</Badge>
+          <StatusTag status="planned" label={t("agentRuntime.tokenUsageProjectionPending")} />
         ) : null}
       </header>
       {usage.isError ? (
-        <p
-          role="alert"
-          data-testid="runtime-read-error"
-          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono ui-micro
-        text-status-blocked"
-        >
+        <Notice tone="bad" variant="strip" testId="runtime-read-error">
           {t("agentRuntime.readFailed", {
             error: usage.error instanceof Error ? usage.error.message : String(usage.error),
           })}
-        </p>
+        </Notice>
       ) : null}
       {member !== null ? (
         <TokenUsageDetail

@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
+import { BoundedContent } from "./BoundedContent";
 
 /**
  * 记录行原语(标准 §4.1 长值契约的共用记录布局):长 ID、状态词、长正文、
  * 时间与行尾动作的收缩/换行/容器响应只在这里定——
- * - 标识域与正文域都是 minmax(0,…) 列:长 ID 截断、长正文词内换行留在自身列,
- *   不越列不叠字;时间/动作在行尾 shrink-0 位,不被长值挤走。
- * - 换行断点按记录自身的容器宽度(@container + @min-[420px]),不猜 viewport
- *   或外栏宽度:窄容器单列堆叠,够宽才进三列。
+ * - 窄容器元数据分行，宽容器两轨都可收缩；时间/长派工号/多动作不能用
+ *   intrinsic auto 轨道吃光标识宽度。正文独占下行，不受元数据排列影响。
+ * - 长正文独占记录容器全宽(S7 实测:三列布局把评审正文挤进 ~320px 中列不可读):
+ *   词内换行,读多少由记录实际拿到的宽度决定,不与标识/时间分列。
  * - 聚焦/选中态与 DenseRow.selected、DayDigest 行同一高亮语汇。
  * 各域内容的排版归调用方与展示叶(IdText/EntityRefLink 持有截断),本原语只
  * 拥有布局;调用方不给行传布局类。
@@ -29,9 +30,9 @@ export function RecordRow({
   readonly id: ReactNode;
   /** 标识域下方的状态词行(verdict/result 等),可选。 */
   readonly state?: ReactNode;
-  /** 长正文域:词内换行留在自身列。 */
+  /** 长正文域:独占全宽,词内换行。 */
   readonly summary: ReactNode;
-  /** 时间域(行尾上方),可选。 */
+  /** 时间域(元数据行行尾),可选。 */
   readonly time?: ReactNode;
   /** 行尾动作位(完整值复制等出口,标准 §4.1:不在截断文字上叠按钮),可选。 */
   readonly action?: ReactNode;
@@ -48,21 +49,19 @@ export function RecordRow({
       data-focused={focused || undefined}
       className={`@container ${focused ? FOCUS_CLS : ""}`}
     >
-      {/* 堆叠档也是 minmax(0,1fr) 轨道:auto 轨道按 max-content 取宽会让
-          max-width:100% 在不定宽下失效(百分比当 none),长 ID 以自然宽撑破容器。 */}
-      <div className="grid grid-cols-1 gap-2 py-3 @min-[420px]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-2 py-3 @[640px]:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-0.5 break-words">
           {id}
           {state !== undefined ? state : null}
         </div>
-        <div className="min-w-0 break-words">{summary}</div>
         {time !== undefined || action !== undefined ? (
-          <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className="flex min-w-0 flex-col items-start gap-1 [overflow-wrap:anywhere] @[640px]:items-end">
             {time}
             {action}
           </div>
         ) : null}
       </div>
+      <BoundedContent className="min-w-0 break-words pb-3">{summary}</BoundedContent>
     </div>
   );
 }

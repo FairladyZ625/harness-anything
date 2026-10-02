@@ -1,3 +1,5 @@
+import { Toggle } from "../primitives/Toggle.tsx";
+import { Button } from "../primitives/Button.tsx";
 import { useEffect, useState } from "react";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import { runtimeIsolationState, runtimePermissionMode } from "@harness-anything/daemon/protocol";
@@ -31,29 +33,24 @@ import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ActionError } from "./ActionError.tsx";
 import {
   Avatar,
-  Badge,
-  Btn,
   CapDot,
   Card,
   CardBody,
   CardHead,
   CardTitle,
-  Chip,
   ChipZone,
   CfgRow,
   Crumbs,
   CrumbSep,
-  Empty,
-  Field,
-  FieldGrid,
   Hint,
   KindDot,
-  KV,
-  KVRow,
   Right,
-  TextInput,
-  Toggle,
 } from "./parts.tsx";
+import { Chip } from "../primitives/Chip.tsx";
+import { Field, FieldGrid, KV, KVRow } from "../primitives/Fields.tsx";
+import { TextInput } from "../primitives/TextInput.tsx";
+import { Empty } from "../primitives/Empty.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 type Props = {
@@ -132,15 +129,15 @@ export function RuntimeCard({
         <CardHead>
           <KindDot kind={instance.kindId} />
           {liveSessions > 0 ? (
-            <Badge status="active">{t("agentRuntime.liveSessions", { count: liveSessions })}</Badge>
+            <StatusTag status="active" label={t("agentRuntime.liveSessions", { count: liveSessions })} />
           ) : (
-            <Badge status="planned">{t("agentRuntime.idle")}</Badge>
+            <StatusTag status="planned" label={t("agentRuntime.idle")} />
           )}
           <Right>
             {!editing && (
-              <Btn size="sm" testId="runtime-provider-edit" disabled={busy} onClick={() => setEditing(true)}>
+              <Button size="sm" testId="runtime-provider-edit" disabled={busy} onClick={() => setEditing(true)}>
                 {t("agentRuntime.editProvider")}
-              </Btn>
+              </Button>
             )}
             <Hint>{t("agentRuntime.enabled")}</Hint>
             <Toggle checked={instance.enabled} label={t("agentRuntime.enabled")} onChange={onSetEnabled} />
@@ -194,29 +191,30 @@ export function RuntimeCard({
         <CardBody>
           <div data-auth-status={auth.state}>
             <div className="flex flex-wrap items-center gap-3">
-              <Badge status={auth.badge}>
-                {apiMode ? t("agentRuntime.authModeApiKey") : t("agentRuntime.authModeSubscription")} ·{" "}
-                {instance.authState}
-              </Badge>
+              <StatusTag
+                status={auth.badge}
+                mono
+                label={`${apiMode ? t("agentRuntime.authModeApiKey") : t("agentRuntime.authModeSubscription")} · ${instance.authState}`}
+              />
               <Hint>{authText}</Hint>
               <span className="flex-1" />
-              <Btn size="sm" disabled={busy} onClick={onValidate}>
+              <Button size="sm" disabled={busy} onClick={onValidate}>
                 {t("agentRuntime.checkAuth")}
-              </Btn>
+              </Button>
               {nativeAuthActions && (
                 <>
-                  <Btn size="sm" disabled={busy} onClick={() => onAuth("login")}>
+                  <Button size="sm" disabled={busy} onClick={() => onAuth("login")}>
                     {t("agentRuntime.signIn")}
-                  </Btn>
-                  <Btn size="sm" variant="ghost" disabled={busy} onClick={() => onAuth("logout")}>
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAuth("logout")}>
                     {t("agentRuntime.signOut")}
-                  </Btn>
+                  </Button>
                 </>
               )}
               {agyLoginPath && (
-                <Btn size="sm" disabled={busy} onClick={() => onAuth("login")}>
+                <Button size="sm" disabled={busy} onClick={() => onAuth("login")}>
                   {t("agentRuntime.signIn")}
-                </Btn>
+                </Button>
               )}
             </div>
             {apiMode && <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.apiKeySealed")}</p>}
@@ -253,7 +251,7 @@ export function RuntimeCard({
                 </option>
               ))}
             </select>
-            <Btn
+            <Button
               size="sm"
               disabled={busy || selfTestBusy}
               onClick={() => {
@@ -265,12 +263,12 @@ export function RuntimeCard({
               }}
             >
               {t(selfTestBusy ? "agentRuntime.selfTestRunning" : "agentRuntime.selfTestRun")}
-            </Btn>
+            </Button>
           </div>
           {selfTestResult !== null && (
             <pre
               data-testid="runtime-self-test-result"
-              className="rt-pre mt-2 max-h-32 overflow-auto whitespace-pre-wrap"
+              className="rt-pre mt-2 bounded-content overflow-auto whitespace-pre-wrap"
             >
               {selfTestResult}
             </pre>
@@ -331,7 +329,7 @@ export function RuntimeCard({
             <KVRow name="permission">{instance.permissionMode ?? t("agentRuntime.providerDefault")}</KVRow>
           </KV>
           <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2.5">
-            <Btn
+            <Button
               variant="danger"
               size="sm"
               disabled={busy}
@@ -343,7 +341,7 @@ export function RuntimeCard({
               }}
             >
               {confirm ? t("agentRuntime.confirmDelete") : t("agentRuntime.deleteInstance")}
-            </Btn>
+            </Button>
             <Hint>
               ha runtime instance delete{" "}
               <EntityRefLink
@@ -550,12 +548,12 @@ function ProviderEditor({
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Hint>{t("agentRuntime.providerEditHint")}</Hint>
         <span className="flex-1" />
-        <Btn testId="runtime-provider-cancel" onClick={onCancel}>
+        <Button testId="runtime-provider-cancel" onClick={onCancel}>
           {t("agentRuntime.cancel")}
-        </Btn>
-        <Btn type="submit" variant="primary" testId="runtime-provider-save" disabled={busy || !ready}>
+        </Button>
+        <Button type="submit" variant="primary" testId="runtime-provider-save" disabled={busy || !ready}>
           {t("agentRuntime.saveProvider")}
-        </Btn>
+        </Button>
       </div>
     </form>
   );
@@ -623,9 +621,9 @@ function PermissionsEditor({
         </CfgRow>
       )}
       {!supported && <Hint>{t("agentRuntime.permissionsUnsupported")}</Hint>}
-      <Btn type="submit" size="sm" disabled={busy || !supported}>
+      <Button type="submit" size="sm" disabled={busy || !supported}>
         {t("agentRuntime.savePermissions")}
-      </Btn>
+      </Button>
     </form>
   );
 }

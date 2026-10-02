@@ -1,19 +1,6 @@
 import type { ReactNode } from "react";
 
-export const BTN =
-  "rounded-md border border-border px-3 py-1.5 ui-body text-text-muted transition-colors duration-100 hover:border-border-strong hover:bg-surface-raised hover:text-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text-muted";
-
-export function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="rounded-lg border border-border bg-surface">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <span className="font-mono ui-meta uppercase tracking-wide text-text-faint">{title}</span>
-        {action}
-      </div>
-      <div>{children}</div>
-    </section>
-  );
-}
+// 区块(Section)已收敛到 primitives/Section 的 panel 档(C5):本文件不再有第二套区块形状。
 
 /**
  * 设置表单行(标准 §2.5):标签在上、控件在下占满行宽、说明小字垫底——三段竖排,
@@ -26,68 +13,6 @@ export function Row({ label, desc, children }: { label: ReactNode; desc?: ReactN
       {children ? <div className="mt-1.5 flex flex-wrap items-center gap-2">{children}</div> : null}
       {desc ? <div className="mt-1 ui-meta text-text-faint">{desc}</div> : null}
     </div>
-  );
-}
-
-export function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-  disabled,
-}: {
-  value: T;
-  options: { key: T; label: string }[];
-  onChange: (v: T) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div
-      className={`inline-flex overflow-hidden rounded-md border border-border ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
-    >
-      {options.map((o, i) => (
-        <button
-          key={o.key}
-          onClick={() => {
-            if (!disabled) onChange(o.key);
-          }}
-          disabled={disabled}
-          className={`px-3 py-1.5 ui-body ${i > 0 ? "border-l border-border" : ""} ${
-            value === o.key ? "bg-surface-raised font-medium" : "text-text-muted hover:bg-surface-raised/50"
-          } ${disabled ? "cursor-not-allowed" : ""}`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-export function Toggle({
-  checked,
-  onChange,
-  disabled,
-}: {
-  checked: boolean;
-  onChange?: (v: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange?.(!checked)}
-      className={`relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full transition-colors ${
-        checked ? "bg-accent" : "bg-border-strong"
-      } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
-    >
-      <span
-        className={`absolute left-[2px] h-[14px] w-[14px] rounded-full transition-transform ${
-          checked ? "translate-x-[14px] bg-accent-fg" : "bg-surface"
-        }`}
-      />
-    </button>
   );
 }
 

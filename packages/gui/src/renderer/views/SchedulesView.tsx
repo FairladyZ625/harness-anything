@@ -1,3 +1,4 @@
+import { Notice } from "../components/primitives/Notice";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "@harness-anything/daemon/protocol";
@@ -21,11 +22,6 @@ import { ScheduleListPane } from "./ScheduleListPane.tsx";
 // (`ScheduleListPane`) only groups and formats daemon facts — no cadence/nextRun/DST/mode
 // recomputation, no local node/provider picking. 点卡直接进 `schedule/<id>` 详情 hub(标准 §5.1,
 // 不设预览抽屉);the same ref serves deep links and graph jumps.
-const READ_ERROR_ROW_CLASS = [
-  "shrink-0 border-b border-border bg-status-blocked/10",
-  "px-3.5 py-1.5 font-mono ui-micro text-status-blocked",
-].join(" ");
-
 export function SchedulesView({
   repoId,
   focusedEntityRef,
@@ -60,11 +56,11 @@ export function SchedulesView({
         </span>
       </header>
       {query.isError && (
-        <p role="alert" data-testid="schedules-read-error" className={READ_ERROR_ROW_CLASS}>
+        <Notice tone="bad" variant="strip" testId="schedules-read-error">
           {t("schedules.readFailed", {
             error: query.error instanceof Error ? query.error.message : String(query.error),
           })}
-        </p>
+        </Notice>
       )}
       <ScheduleWorkspace
         repoId={repoId}

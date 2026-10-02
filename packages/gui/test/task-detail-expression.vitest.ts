@@ -389,8 +389,9 @@ describe("Task detail expression", () => {
     expect(card.className).toContain("grid-cols-1");
     expect(card.className).toContain("@min-[1100px]:grid-cols-[14rem_minmax(0,1fr)]");
     expect(scrollPanel.closest("main")?.className).toContain("@container");
-    // 叠放带里文件树是 auto 行:量高 18rem 内部滚动,文件多的任务包不会挤死正文。
-    expect(byTestId("task-document-tree").className).toContain("@max-[1100px]:max-h-72");
+    // 叠放文件树使用共享比例上限并内部滚动，不能用固定18rem或无限撑高挤走正文。
+    expect(byTestId("task-document-tree").className).toContain("@max-[1100px]:max-h-[var(--long-content-cap)]");
+    expect(byTestId("task-document-tree").className).toContain("overflow-y-auto");
 
     // 概况是区域板(标准 §2.1):面板自己是板的容器量尺,板上每块都是 Region。
     expect(scrollPanel.className).toContain("@container");

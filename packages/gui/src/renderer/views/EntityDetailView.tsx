@@ -5,6 +5,7 @@ import type { RelationCoverageRow, FactAnchorRow } from "../../api/renderer-dto"
 import { FactInspector } from "../components/FactInspector";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
+import { IdText } from "../components/IdText.tsx";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -96,7 +97,7 @@ function DetailPendingColumn({ loading, refLabel }: { loading: boolean; refLabel
   return (
     <aside
       data-testid="entity-detail-pending"
-      className="flex w-[26rem] shrink-0 flex-col gap-3 border-r border-border bg-surface px-3 py-3"
+      className="flex w-[26rem] max-w-full shrink-0 flex-col gap-3 border-r border-border bg-surface px-3 py-3"
     >
       {loading ? (
         <p className="font-mono ui-meta text-text-faint">{t("views.entityDetail.loadingProjection")}</p>
@@ -170,7 +171,7 @@ function NeighborhoodPane({
                 {latestChange.label}
               </EntityRefLink>
             ) : (
-              latestChange.label
+              <IdText value={latestChange.ref} title={latestChange.label} />
             )}
           </span>
         ) : null}

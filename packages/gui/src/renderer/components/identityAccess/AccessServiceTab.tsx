@@ -11,8 +11,8 @@ import { DenseRow } from "../primitives/DenseRow.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
-import { BTN } from "../ui/widgets.tsx";
-import { AccessNotice, INPUT, SMALL_BTN, asRejection, useAccessRead } from "./AccessParts.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { AccessNotice, INPUT, asRejection, useAccessRead } from "./AccessParts.tsx";
 
 type RecordValue = Record<string, unknown>;
 
@@ -106,14 +106,15 @@ export function AccessServiceTab({
               footer={
                 <>
                   <span className="min-w-0 truncate">{t("identityAccess.description")}</span>
-                  <button
-                    className={`${BTN} ml-auto flex-none`}
-                    disabled={busy || !ready}
-                    data-testid="access-open-console"
-                    onClick={() => void run(() => auth.openConsole(repoId))}
-                  >
-                    {t("identityAccess.openConsole")}
-                  </button>
+                  <span className="ml-auto flex-none">
+                    <Button
+                      testId="access-open-console"
+                      disabled={busy || !ready}
+                      onClick={() => void run(() => auth.openConsole(repoId))}
+                    >
+                      {t("identityAccess.openConsole")}
+                    </Button>
+                  </span>
                 </>
               }
             >
@@ -126,14 +127,14 @@ export function AccessServiceTab({
                         ? t("identityAccess.signedInAs", { personId: String(session?.personId) })
                         : t("identityAccess.signedOut")}
                     </span>
-                    <button
-                      className={SMALL_BTN}
+                    <Button
+                      size="sm"
                       disabled={busy || (!authenticated && !ready)}
-                      title={!authenticated && !ready ? t("identityAccess.signInDisabled") : undefined}
+                      tip={!authenticated && !ready ? t("identityAccess.signInDisabled") : undefined}
                       onClick={() => void run(() => (authenticated ? auth.logout(repoId) : auth.login(repoId)))}
                     >
                       {authenticated ? t("identityAccess.signOut") : t("identityAccess.signIn")}
-                    </button>
+                    </Button>
                   </span>
                 }
               />
@@ -180,13 +181,14 @@ export function AccessServiceTab({
           title={t("identityAccess.externalTitle")}
           padded
           footer={
-            <button
-              disabled={busy || binding?.mode === "managed"}
-              className={`${BTN} ml-auto`}
-              onClick={() => void run(() => auth.configure({ mode: "managed" }, repoId))}
-            >
-              {t("identityAccess.useManaged")}
-            </button>
+            <span className="ml-auto">
+              <Button
+                disabled={busy || binding?.mode === "managed"}
+                onClick={() => void run(() => auth.configure({ mode: "managed" }, repoId))}
+              >
+                {t("identityAccess.useManaged")}
+              </Button>
+            </span>
           }
         >
           <ExternalBindingForm busy={busy} submit={(input) => run(() => auth.configure(input, repoId))} />
@@ -234,15 +236,13 @@ function SessionLifetime({ access }: { readonly access: AccessAdminApi }) {
                 value={minutes}
                 onChange={(event) => setMinutes(event.currentTarget.value)}
               />
-              <button
-                type="button"
-                data-testid="access-lifetime-save"
-                className={BTN}
+              <Button
+                testId="access-lifetime-save"
                 disabled={busy || minutes.trim() === "" || Number(minutes) * 60 === data.seconds}
                 onClick={() => void save()}
               >
                 {t("accessControl.groups.save")}
-              </button>
+              </Button>
             </span>
           </label>
           <p className="text-text-faint ui-meta">
@@ -282,9 +282,11 @@ function ExternalBindingForm({
       <input required name="url" type="url" placeholder={t("identityAccess.urlPlaceholder")} className={INPUT} />
       <input required name="realm" placeholder={t("identityAccess.realm")} className={INPUT} />
       <input required name="clientId" placeholder={t("identityAccess.clientId")} className={INPUT} />
-      <button disabled={busy} className={`${BTN} self-start`}>
-        {t("identityAccess.applyExternal")}
-      </button>
+      <span className="self-start">
+        <Button type="submit" disabled={busy}>
+          {t("identityAccess.applyExternal")}
+        </Button>
+      </span>
     </form>
   );
 }
@@ -332,9 +334,11 @@ function BootstrapAdminForm({
             className={INPUT}
           />
         </div>
-        <button disabled={busy} className={`${BTN} self-start`}>
-          {t("identityAccess.createAdmin")}
-        </button>
+        <span className="self-start">
+          <Button type="submit" disabled={busy}>
+            {t("identityAccess.createAdmin")}
+          </Button>
+        </span>
       </form>
     </Region>
   );

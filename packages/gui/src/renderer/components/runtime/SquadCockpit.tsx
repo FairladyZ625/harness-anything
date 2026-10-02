@@ -2,8 +2,10 @@ import type { SquadEntityDetail } from "../../agent-entity-client.ts";
 import { formatTime } from "../../model/time.ts";
 import { sessionStatusDot, type SessionStatus } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { Avatar, Badge, Btn, Hint, LiveDot } from "./parts.tsx";
+import { Avatar, Hint, LiveDot } from "./parts.tsx";
 import type { RuntimeDockRow } from "./useRuntimeWorkspace.ts";
+import { Button } from "../primitives/Button.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 // Squad cockpit(dec_AB0672F220EE630C0A06C575B8 CH3):一个小队是一个页面,页内同时呈现
 // Commander 流与 Worker 流及其组织关系,读者不下钻就能看出谁是谁的下级、谁与谁同属
@@ -70,12 +72,15 @@ export function SquadCockpit({
           <b className="block truncate ui-body">{squad.name}</b>
           <span className="block truncate font-mono ui-micro text-text-faint">{squad.id}</span>
         </div>
-        <Badge>{t("agentRuntime.cockpitCommanderRuns", { count: model.commanderRuns.length })}</Badge>
-        <Badge>{t("agentRuntime.cockpitWorkers", { count: workerCount })}</Badge>
+        <StatusTag
+          tone="neutral"
+          label={t("agentRuntime.cockpitCommanderRuns", { count: model.commanderRuns.length })}
+        />
+        <StatusTag tone="neutral" label={t("agentRuntime.cockpitWorkers", { count: workerCount })} />
         <span className="flex-1" />
-        <Btn variant="primary" testId="squad-launch-commander" disabled={busy} onClick={onLaunch}>
+        <Button variant="primary" testId="squad-launch-commander" disabled={busy} onClick={onLaunch}>
           {t("agentRuntime.launchSquad")}
-        </Btn>
+        </Button>
       </header>
       <div className="px-3 py-2.5">
         <h3 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">

@@ -1,5 +1,6 @@
+import { Toggle } from "../../components/primitives/Toggle.tsx";
 import { t, type MessageKey } from "../../i18n/index.tsx";
-import { SettingSelect, Toggle } from "../../components/ui/widgets";
+import { SettingSelect } from "../../components/ui/widgets";
 import type { CatalogGateMappingsDescriptor } from "../../api-client-catalog.ts";
 import type { GateMappingDraft, GateMappingIssue, GateMappingRowIssue } from "../../gate-mapping-form.ts";
 
@@ -182,6 +183,7 @@ export function GateMappingsEditor({
                       className="inline-flex items-start gap-1.5 ui-micro text-text-muted"
                     >
                       <Toggle
+                        label={t("views.settingsView.gateMandatorySignoffLabel")}
                         checked={draft.mandatorySignoff === true}
                         disabled={disabled}
                         onChange={(enabled) =>
@@ -195,6 +197,7 @@ export function GateMappingsEditor({
                       className="inline-flex items-start gap-1.5 ui-micro text-text-muted"
                     >
                       <Toggle
+                        label={t("views.settingsView.gateAllowOverrideLabel")}
                         checked={draft.allowOverride === true}
                         disabled={disabled}
                         onChange={(enabled) =>

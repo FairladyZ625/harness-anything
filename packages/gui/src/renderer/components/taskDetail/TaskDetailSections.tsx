@@ -343,7 +343,7 @@ function DispatchChain({
           ) : !session ? (
             <Pending text="正在读取 session report…" />
           ) : session.result?.text ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-sans ui-meta leading-5 text-text">
+            <pre className="bounded-content overflow-auto whitespace-pre-wrap break-words font-sans ui-meta leading-5 text-text">
               {session.result.text}
             </pre>
           ) : (
@@ -520,11 +520,7 @@ function FactRow({
     <article className={`grid gap-3 py-5 lg:grid-cols-[8rem_minmax(0,1fr)_13rem] ${accent}`}>
       <div>
         <p className="font-mono ui-micro font-semibold text-text">{fact.factId}</p>
-        <span
-          className={`mt-1 inline-flex rounded px-1.5 py-0.5 font-mono ui-micro ${fact.liveness === "standing" ? "bg-status-done/10 text-status-done" : "bg-surface-raised text-text-faint"}`}
-        >
-          {fact.liveness}
-        </span>
+        <StatusTag tone={fact.liveness === "standing" ? "done" : "neutral"} label={fact.liveness} mono />
         {fact.archived === true && (
           <span className="mt-1 inline-flex rounded bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-faint">
             已归档
@@ -535,13 +531,7 @@ function FactRow({
         {item && item.signals.length > 0 && (
           <div className="mb-1.5 flex flex-wrap gap-1">
             {item.signals.map((signal) => (
-              <span
-                key={signal.kind}
-                title={signal.detail}
-                className="inline-flex rounded border border-status-blocked/30 bg-status-blocked/10 px-1.5 py-0.5 font-mono ui-micro text-status-blocked"
-              >
-                {SIGNAL_LABEL[signal.kind]}
-              </span>
+              <StatusTag key={signal.kind} tone="bad" tip={signal.detail} label={SIGNAL_LABEL[signal.kind]} mono />
             ))}
             <span className="font-mono ui-micro text-text-faint">severity {item.severity}</span>
           </div>
