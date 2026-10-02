@@ -126,6 +126,9 @@ export function SpreadsheetPreview({
     let cancelled = false;
     setError(null);
     setWorkbook(null);
+    setSheetIndex(0);
+    setRowPage(0);
+    setColPage(0);
     const parse = async () => {
       const data = Uint8Array.from(atob(bytes), (character) => character.charCodeAt(0));
       const XLSX = await import("xlsx");

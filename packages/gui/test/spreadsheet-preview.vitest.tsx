@@ -293,3 +293,13 @@ it("routes spreadsheet media types through BinaryDocumentPreview and labels XLSM
   expect(host.querySelector('[data-testid="document-spreadsheet-preview"]')).toBeNull();
   expect(host.querySelector('[data-testid="document-binary-preview"]')).not.toBeNull();
 });
+
+it("resets pagination when another workbook replaces the bytes in the same viewer", async () => {
+  await showSpreadsheet(XLSX_MEDIA, gridWorkbookBase64(1200, 3));
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="spreadsheet-rows-next"]')!.click());
+  expect(rows()[0]?.getAttribute("data-row")).toBe("1001");
+  await showSpreadsheet(XLSX_MEDIA, gridWorkbookBase64(2, 2));
+  expect(rows()).toHaveLength(2);
+  expect(rows()[0]?.getAttribute("data-row")).toBe("1");
+  expect(cellTexts()).toContain("第2行2列");
+});
