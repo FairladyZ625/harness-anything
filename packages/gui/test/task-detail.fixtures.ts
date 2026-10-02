@@ -1,4 +1,4 @@
-import { act, createElement } from "react";
+import { act, createElement, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, vi } from "vitest";
@@ -451,6 +451,8 @@ export async function mount(
     readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
     readonly work?: { readonly taskId: string; readonly title: string } | null;
     readonly onOpenWork?: (taskId: string) => void;
+    /** 在 StrictMode 下挂载:复现真实 renderer 入口(main.tsx)的 effect 重放。 */
+    readonly strict?: boolean;
   } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -459,30 +461,29 @@ export async function mount(
   const mountedTask = overrides.task ?? task;
   document.body.append(container);
   mounted.push({ root, client });
+  const detail = createElement(
+    QueryClientProvider,
+    { client },
+    createElement(TaskDetailView, {
+      task: mountedTask,
+      tasks: [parent, task, child],
+      relations: [],
+      decisions: [decision],
+      onBack: () => undefined,
+      onSelect: () => undefined,
+      onNavigateDecision: () => undefined,
+      onNavigateEntity: () => undefined,
+      onOpenTerminal,
+      onComplete: overrides.onComplete,
+      onAdjudicate: overrides.onAdjudicate,
+      onConsentReview: overrides.onConsentReview,
+      work: overrides.work,
+      onOpenWork: overrides.onOpenWork,
+      projectName: "Harness",
+    }),
+  );
   await act(async () => {
-    root.render(
-      createElement(
-        QueryClientProvider,
-        { client },
-        createElement(TaskDetailView, {
-          task: mountedTask,
-          tasks: [parent, task, child],
-          relations: [],
-          decisions: [decision],
-          onBack: () => undefined,
-          onSelect: () => undefined,
-          onNavigateDecision: () => undefined,
-          onNavigateEntity: () => undefined,
-          onOpenTerminal,
-          onComplete: overrides.onComplete,
-          onAdjudicate: overrides.onAdjudicate,
-          onConsentReview: overrides.onConsentReview,
-          work: overrides.work,
-          onOpenWork: overrides.onOpenWork,
-          projectName: "Harness",
-        }),
-      ),
-    );
+    root.render(overrides.strict === true ? createElement(StrictMode, null, detail) : detail);
   });
   await flushEffects();
 }

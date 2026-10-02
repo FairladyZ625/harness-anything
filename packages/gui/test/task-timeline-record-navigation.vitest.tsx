@@ -140,4 +140,21 @@ describe("任务详情概况时间线:实体引用可导航", () => {
       scrollIntoView.mockRestore();
     }
   });
+
+  it("StrictMode 重放不吞滚动:真实入口的 effect 重放下聚焦引用仍恰好滚一次", async () => {
+    // renderer/main.tsx 在 StrictMode 下挂载:mount effect 会跑两遍,首帧被清理
+    // 取消。若"已处理"标记在帧执行前置位,第二遍直接短路,滚动永远丢失——
+    // 这里用同一入口形态(strict 挂载)复现并钉死。
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
+    try {
+      await mount({ task: taskWithTimelineRefs, strict: true });
+      await act(async () => {
+        timelineTail("execution-w3").click();
+      });
+      await flushEffects();
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    } finally {
+      scrollIntoView.mockRestore();
+    }
+  });
 });

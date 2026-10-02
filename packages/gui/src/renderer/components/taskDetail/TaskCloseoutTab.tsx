@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import type { TaskCompletionRead } from "../../../api/renderer-dto.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskCompletionQuery } from "../../task-data.ts";
@@ -85,16 +85,11 @@ export function TaskCloseoutTab({
           }),
     [task],
   );
-  // 引用对象的聚焦落点:时间线/预览抽屉点开的记录行滚入视野,同一引用只滚一次
-  // (与决策池聚焦同一模式);行本体带选中高亮,落点可见。
-  const handledFocusRef = useRef<string | null>(null);
+  // 引用对象的聚焦落点:时间线/预览抽屉点开的记录行滚入视野;行本体带选中
+  // 高亮,落点可见。effect 只随引用变化重跑,且不设"已处理"标记——StrictMode
+  // 重放会取消首帧再重排一遍,标记若在帧执行前置位,重排那一遍会短路掉滚动。
   useEffect(() => {
-    if (focusedRecordRef === null) {
-      handledFocusRef.current = null;
-      return;
-    }
-    if (handledFocusRef.current === focusedRecordRef) return;
-    handledFocusRef.current = focusedRecordRef;
+    if (focusedRecordRef === null) return;
     const frame = requestAnimationFrame(() => {
       document.getElementById(closeoutRecordDomId(focusedRecordRef))?.scrollIntoView({ block: "center" });
     });
