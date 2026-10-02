@@ -1,26 +1,30 @@
-// harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import { type TestContext } from "node:test";
+import type { TestContext } from "node:test";
 import { connect, type TLSSocket } from "node:tls";
-import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/contract.ts";
 import {
   fleetHostWriterOptions,
   fleetLedgerRevision,
   fleetNodeOwners,
   waitForFleetPublication,
 } from "./fleet-store.fixture.ts";
+import { AccessAdminService } from "../src/access-admin-service.ts";
+import { openDaemonHost } from "../src/daemon-host.ts";
+import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-const replicaQuota = 64 * 1024 * 1024;
+import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/contract.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-function reclaimer() {
+export const replicaQuota = 64 * 1024 * 1024;
+// A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
+// teardown does not run on the timeout path. Every fixture therefore owns its OS resources and every test hands
+// `fixture.close` to `t.after`, which node:test does run after a timeout. Sockets and edge children are dropped
+// before the centers so `server.close()` is never left waiting on a peer that outlived the test.
+export function reclaimer() {
   const closers: Array<() => void> = [],
     centers: FleetTlsCenter[] = [];
   return {
@@ -41,13 +45,9 @@ function reclaimer() {
 export async function fleetFixture(
   t: TestContext,
   paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"],
-  /** The runtime installations the center host discovers; an Agent installs only against an enabled instance. */
-  centerRuntimes: readonly RuntimeInstallationWitness[] = [],
-  mode: "local" | "remote-center" = "local",
+  closeoutProfile: "standard" | "strict" = "standard",
 ) {
-  // The product names a checkout by its resolved path; the fixture root is resolved once so every path derived
-  // from it compares equal where the temporary directory is itself a symbolic link.
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-fleet-one-"))),
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
     stateRoot = path.join(root, "state"),
@@ -57,19 +57,21 @@ export async function fleetFixture(
     owned = reclaimer();
   let expiresAt = "2099-01-01T00:00:00.000Z",
     assignmentDelayMs = 0,
-    taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
+    authenticateBarrier: { readonly started: () => void; readonly wait: Promise<boolean> } | null = null;
+  let taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   mkdirSync(emptyPath);
   initRepo(repo);
   writeFileSync(
     path.join(repo, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
+      `settings:\n  closeout:\n    profile: ${closeoutProfile}\n`,
   );
   writePeopleFixture(repo);
   git(repo, "add", "harness");
   git(repo, "commit", "-qm", "harness");
-  registerDaemonRepo({ canonicalRoot: repo, repoId: "fleet-repo", mode, userRoot, createConvenienceLinks: false });
+  registerDaemonRepo({ canonicalRoot: repo, repoId: "fleet-repo", userRoot, createConvenienceLinks: false });
   execFileSync(
     "openssl",
     [
@@ -93,11 +95,7 @@ export async function fleetFixture(
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
-    host = await openDaemonHost({
-      daemonId: "fleet-center",
-      userRoot,
-      ...(centerRuntimes.length ? { runtimeDiscover: () => [...centerRuntimes] } : {}),
-    }),
+    host = await openDaemonHost({ daemonId: "fleet-center", userRoot }),
     owners = await fleetNodeOwners({
       userRoot,
       owners: { "node-one": "person-owner", "node-two": "person-owner" },
@@ -126,18 +124,26 @@ export async function fleetFixture(
       viewId: "node-one_task-fleet",
       expiresAt: "2099-01-01T00:00:00.000Z",
     },
+    // The healthy second node: unregistering node-one must leave its sessions untouched.
+    peerAssignment: FleetAssignmentRecord = {
+      ...assignment,
+      nodeId: "node-two",
+      assignmentId: "assignment-two",
+      viewId: "node-two_task-fleet",
+    },
     slowAssignment: FleetAssignmentRecord = {
       ...assignment,
       assignmentId: "assignment-slow",
       viewId: "node-one_task-fleet-slow",
     },
+    machines = new Set([assignment.nodeId, peerAssignment.nodeId]),
     auth = owners.auth(assignment);
   const created = await host.run(
     assignment.repoId,
     { kind: "task-create", taskId: assignment.taskId, title: "Fleet" },
     auth,
   );
-  assert.equal(created.outcome, "applied");
+  assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForFleetPublication(host, assignment.repoId, created.opId, auth);
   await realizeTaskPlanFixture(
     repo,
@@ -155,10 +161,12 @@ export async function fleetFixture(
   return {
     root,
     repo,
+    packagePath: String((created as Record<string, unknown>).packagePath),
     stateRoot,
     writerOptions: fleetHostWriterOptions(userRoot, ["fleet-repo"]),
     path: assignment.paths[0]!,
     assignment,
+    peerAssignment,
     slowAssignment,
     auth,
     host,
@@ -168,8 +176,8 @@ export async function fleetFixture(
     emptyPath,
     track: owned.track,
     hold: owned.hold,
+    userRoot,
     owners,
-    setOwner: (personId: string) => owners.reassign(assignment.nodeId, personId),
     setExpiry: (value: string) => {
       expiresAt = value;
     },
@@ -187,13 +195,52 @@ export async function fleetFixture(
       taskReleaseBarrier = { started, wait };
       return { started: startedPromise, release };
     },
+    /** The administrator composition root for node removal, wired to one center the way the daemon host is. */
+    admin: (center: FleetTlsCenter) =>
+      new AccessAdminService(new OidcSessionService(userRoot), userRoot, {
+        onNodeRemoved: (nodeId) => center.disconnectNode(nodeId),
+      }),
+    /** Parks the next hello inside `authenticate` until released, for handshake-race cases. */
+    holdAuthenticate: () => {
+      let started!: () => void, release!: (verdict: boolean) => void;
+      const startedPromise = new Promise<void>((resolve) => {
+          started = resolve;
+        }),
+        wait = new Promise<boolean>((resolve) => {
+          release = resolve;
+        }),
+        barrier = {
+          started,
+          wait,
+        };
+      authenticateBarrier = barrier;
+      return {
+        started: startedPromise,
+        release: (verdict: boolean) => {
+          if (authenticateBarrier === barrier) authenticateBarrier = null;
+          release(verdict);
+        },
+      };
+    },
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
     runtimeArchiveReceipts,
-    center: (port?: number) =>
+    center: (diskQuotaBytes = replicaQuota, staleReplica = false) =>
       owned.hold(
         listenFleetTls({
           host: {
             ...host,
+            replica: (repoId: string) => {
+              const replica = host.replica(repoId);
+              return staleReplica
+                ? {
+                    ...replica,
+                    waitForCut: async (revision: number) => {
+                      const cut = await replica.waitForCut(revision);
+                      return { ...cut, headDigest: `sha256:${"f".repeat(64)}` };
+                    },
+                  }
+                : replica;
+            },
             runtimeIngress: async (...args: Parameters<typeof host.runtimeIngress>) => {
               const receipt = await host.runtimeIngress(...args);
               if (args[1].kind === "archive") runtimeArchiveReceipts.push(receipt);
@@ -210,12 +257,18 @@ export async function fleetFixture(
             },
           },
           stateRoot,
-          ...(port === undefined ? {} : { port }),
           ...fleetHostWriterOptions(userRoot, ["fleet-repo"]),
           key,
           cert,
-          replicaDiskQuotaBytes: replicaQuota,
-          authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
+          replicaDiskQuotaBytes: diskQuotaBytes,
+          authenticate: async (nodeId, credential) => {
+            const barrier = authenticateBarrier;
+            if (barrier) {
+              barrier.started();
+              return barrier.wait;
+            }
+            return machines.has(nodeId) && credential === "machine-secret";
+          },
           nodeOwner: owners.nodeOwner,
           resolveAssignment: async (assignmentId) => {
             if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
@@ -223,7 +276,9 @@ export async function fleetFixture(
               ? { ...assignment, expiresAt }
               : assignmentId === slowAssignment.assignmentId
                 ? { ...slowAssignment, expiresAt }
-                : null;
+                : assignmentId === peerAssignment.assignmentId
+                  ? { ...peerAssignment, expiresAt }
+                  : null;
           },
         }),
       ),
@@ -241,15 +296,7 @@ export function initRepo(rootDir: string): void {
   git(rootDir, "commit", "--allow-empty", "-qm", "base");
 }
 export function git(rootDir: string, ...args: string[]): string {
-  // Git ranks these four variables above every config file, so a caller's ambient identity would
-  // override the one each fixture repository configures for itself; every fixture commit states
-  // its author from the repository config, never from the environment the test host runs under.
-  const env = { ...process.env };
-  delete env.GIT_AUTHOR_NAME;
-  delete env.GIT_AUTHOR_EMAIL;
-  delete env.GIT_COMMITTER_NAME;
-  delete env.GIT_COMMITTER_EMAIL;
-  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", env }).trim();
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
 }
 export function writePeopleFixture(rootDir: string): void {
   const ownerUid = process.getuid?.() ?? 0;
@@ -281,6 +328,10 @@ export async function rawPeer(
     frames: FleetFrameV1[] = [],
     waiters: Array<(frame: FleetFrameV1) => void> = [];
   track(() => socket.destroy());
+  // A center that cuts this session destroys the socket; observing that as an error here would
+  // fail the test run, while the close event below is the signal cut cases assert on.
+  socket.on("error", () => undefined);
+  const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
   let buffer = "";
   socket.on("data", (chunk) => {
     buffer += chunk.toString("utf8");
@@ -316,7 +367,7 @@ export async function rawPeer(
     credential,
   });
   if (hello.schema === "fleet.error/v1") throw new Error(hello.code);
-  return { request, raw, split, close: () => socket.destroy() };
+  return { request, raw, split, receive: next, closed, close: () => socket.destroy() };
 }
 export function splitWrite(socket: TLSSocket, frame: FleetFrameV1, marker: string): void {
   const bytes = Buffer.from(serializeFleetFrame(frame)),
@@ -339,32 +390,4 @@ export async function waitForReceiptCommit(
     await new Promise((resolve) => setTimeout(resolve, 25));
   } while (performance.now() < deadline);
   throw new Error(`Git materialization did not publish ${opId} within the bounded wait`);
-}
-export function runFaultChild(
-  fixture: Awaited<ReturnType<typeof fleetFixture>>,
-  config: Record<string, unknown>,
-): Promise<{ code: number; output: string }> {
-  const configFile = path.join(fixture.root, `fault-${Date.now()}-${Math.random()}.json`);
-  writeFileSync(configFile, JSON.stringify(config));
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [path.join(import.meta.dirname, "fixtures/fleet-edge-child.mjs"), configFile],
-      { env: { ...process.env, PATH: fixture.emptyPath }, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    fixture.track(() => child.kill("SIGKILL"));
-    let output = "",
-      errors = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => {
-      output += chunk;
-    });
-    child.stderr.setEncoding("utf8").on("data", (chunk) => {
-      errors += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === null || ![0, 73, 74, 75].includes(code)) reject(new Error(`fault edge exited ${code}: ${errors}`));
-      else resolve({ code, output });
-    });
-  });
 }

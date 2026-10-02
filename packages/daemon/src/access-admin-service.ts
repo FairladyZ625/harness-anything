@@ -56,6 +56,8 @@ export interface AccessAdminPorts {
   readonly fetch: typeof fetch;
   readonly now: () => string;
   readonly journal: ReturnType<typeof managedRbacReceiptJournal>;
+  /** Called once a node removal settles applied, wherever that settle came from: mutate or reconcile. */
+  readonly onNodeRemoved?: (nodeId: string) => void;
 }
 
 /** What Keycloak must show once an operation took effect; reconciliation observes exactly this. */
@@ -335,6 +337,8 @@ export class AccessAdminService {
     } catch (error) {
       throw Object.assign(unsettled(String(record.operationId)), { cause: error });
     }
+    const removed = outcome === "applied" ? removedNode(record.expect) : null;
+    if (removed) this.#ports.onNodeRemoved?.(removed);
     return { ok: outcome === "applied", ...receipt };
   }
 
@@ -604,6 +608,13 @@ function credentialReservation(file: string): ReturnType<typeof reserveCredentia
       { cause: error },
     );
   }
+}
+
+/** The one expectation a removal carries: an absent node, observed by its empty version. */
+function removedNode(expect: unknown): string | null {
+  if (typeof expect !== "object" || expect === null || (expect as { kind?: unknown }).kind !== "node") return null;
+  const node = expect as { nodeId?: unknown; version?: unknown };
+  return typeof node.nodeId === "string" && node.version === "" ? node.nodeId : null;
 }
 
 function unsettled(operationId: string): Error {

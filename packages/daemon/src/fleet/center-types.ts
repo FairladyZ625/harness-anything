@@ -32,7 +32,6 @@ export interface FleetCenterOptions {
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;
   readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
-  readonly isNodeActive?: (nodeId: string) => boolean | Promise<boolean>;
   readonly resolveAssignment: (
     assignmentId: string,
   ) => FleetAssignmentRecord | null | Promise<FleetAssignmentRecord | null>;
@@ -58,6 +57,8 @@ export interface FleetReplicaStatus extends ReplicaDeliveryKey {
 export interface FleetTlsCenter {
   readonly port: number;
   readonly close: () => Promise<void>;
+  /** Cuts every session the node holds, including a handshake still awaiting its verdict. */
+  readonly disconnectNode: (nodeId: string) => void;
   readonly replicaReceipt: (opId: string, nodeId: string, viewId: string, repoId: string) => WriteReceipt;
   readonly status: () => {
     readonly replicas: readonly FleetReplicaStatus[];
