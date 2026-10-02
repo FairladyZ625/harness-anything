@@ -309,6 +309,11 @@ for (const sample of [
     gates: ["ci", "code-doc-reconciliation"],
     addedPath: "worker-flow.md",
   },
+  {
+    presetId: "gui-development",
+    gates: ["ci", "code-doc-reconciliation"],
+    addedPath: "worker-flow.md",
+  },
   { presetId: "architecture-rot-audit", gates: [], addedPath: null },
   {
     presetId: "github-issue-repair",
