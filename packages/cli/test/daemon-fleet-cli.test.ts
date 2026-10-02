@@ -141,6 +141,14 @@ test(
         ]).ok,
         true,
       );
+      const initialStatus = run(fixture, "edge", ["daemon", "status"]);
+      assert.equal(initialStatus.ok, true, "an unsynced edge has no canonical Git publication to fail");
+      assert.equal(
+        (initialStatus.repos as { repoId: string; materialization: unknown }[]).find(
+          ({ repoId }) => repoId === "fleet-demo",
+        )?.materialization,
+        null,
+      );
       const syncArgs = [
         "daemon",
         "fleet",
@@ -171,6 +179,18 @@ test(
       const pulled = first.ok === false && first.code === "replica_pending" ? retryReplicaPending(sync) : first;
       assert.equal(pulled.status, "fleet.ack.result/v1");
       assert.equal(pulled.viewId, "edge-one-view");
+      const syncedStatus = run(fixture, "edge", ["daemon", "status"]);
+      assert.equal(
+        syncedStatus.ok,
+        true,
+        "a synced edge reports its host status without claiming a local canonical publisher",
+      );
+      assert.equal(
+        (syncedStatus.repos as { repoId: string; materialization: unknown }[]).find(
+          ({ repoId }) => repoId === "fleet-demo",
+        )?.materialization,
+        null,
+      );
       assert.equal((pulled.cut as { revision: number }).revision, pulled.ackCut);
       const viewRoot = path.join(fixture.viewRoot, "repos", "fleet-demo", "views", "edge-one-view");
       assert.equal(readCutFile(viewRoot, pulled.ackCut as number, docPath), docBody);
