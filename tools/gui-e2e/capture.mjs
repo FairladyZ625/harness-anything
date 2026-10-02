@@ -29,6 +29,7 @@ function usage(error) {
   --page <侧栏导航文字> [--click <文字>]... [--scroll-to <文字>]...   (可重复多页)
 options:
   --project <name>    快速切换面板里的项目显示名,精确匹配;必须是 canonical 项目
+  --show             显式展示窗口(仅用户要求现场演示时使用)
   --out <dir>         截图输出目录(默认 artifacts/screenshots)
   --page <nav>        侧栏导航按钮文字;--click/--scroll-to 作用于它前面最近的 --page
   --click <text>      截图前点击页面内该文字(第一个可见匹配)
@@ -39,11 +40,18 @@ options:
 }
 
 function parseArgs(argv) {
-  const options = { project: null, out: "artifacts/screenshots", pages: [], settleMs: DEFAULT_PAGE_SETTLE_MS };
+  const options = {
+    project: null,
+    out: "artifacts/screenshots",
+    pages: [],
+    show: false,
+    settleMs: DEFAULT_PAGE_SETTLE_MS,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const value = () => argv[++index];
     if (arg === "--project") options.project = value();
+    else if (arg === "--show") options.show = true;
     else if (arg === "--out") options.out = value();
     else if (arg === "--settle-ms") options.settleMs = Number(value());
     else if (arg === "--page") options.pages.push({ nav: value(), clicks: [], scrolls: [] });
@@ -174,7 +182,7 @@ async function main(argv) {
       rootDir: workspaceRoot,
       env: { ...process.env, ELECTRON_RENDERER_URL: `http://127.0.0.1:${port}` },
       runRoot: mkdtempSync(path.join(tmpdir(), "gui-capture-")),
-      headless: false,
+      headless: !options.show,
     });
   } catch (error) {
     vite.kill();
