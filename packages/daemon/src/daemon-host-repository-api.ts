@@ -223,8 +223,9 @@ export function createDaemonHostRepositoryApi(
             (candidate) => candidate.state === "enabled" && candidate.canonicalRoot === rootDir,
           ),
           actionKind = request.kind === "backup" ? "ledger-backup" : "ledger-restore-drill",
-          authorizationDecision = requireAuthorizedHostAction({
+          authorizationDecision = await requireAuthorizedHostAction({
             kind: actionKind,
+            ...(repo ? { repoId: repo.repoId } : {}),
             binding: await localSystemActionBinding(context.input.userRoot, actionKind, auth, () =>
               repo && repo.mode !== "remote-proxy"
                 ? context.binding(rootDir, auth)
@@ -232,7 +233,6 @@ export function createDaemonHostRepositoryApi(
             ),
             actionId: `${actionKind}:${rootDir}:${request.backupDir}`,
             evaluatedAtCut: repo ? `daemon-registry:${repo.repoId}` : "daemon-registry:unregistered",
-            now: context.now(),
           }),
           backupDir = path.resolve(request.backupDir);
         if (repo?.mode === "remote-proxy")
@@ -287,12 +287,12 @@ export function createDaemonHostRepositoryApi(
               ? Promise.resolve(localDefaultBinding(auth))
               : context.binding(context.requiredText(request.rootDir, "rootDir"), auth),
           ),
-          authorizationDecision = requireAuthorizedHostAction({
+          authorizationDecision = await requireAuthorizedHostAction({
             kind: "daemon-repo-register",
+            repoId: request.repoId,
             binding: adminBinding,
             actionId: `daemon-repo-register:${request.repoId}`,
             evaluatedAtCut: "daemon-registry:current",
-            now: context.now(),
           });
         const result = remoteProxy
           ? registerDaemonRepo({
@@ -336,12 +336,12 @@ export function createDaemonHostRepositoryApi(
               ? Promise.resolve(localDefaultBinding(auth))
               : context.binding(existing.canonicalRoot, auth),
           ),
-          authorizationDecision = requireAuthorizedHostAction({
+          authorizationDecision = await requireAuthorizedHostAction({
             kind: "daemon-repo-update",
+            repoId: request.repoId,
             binding: adminBinding,
             actionId: `daemon-repo-update:${request.repoId}`,
             evaluatedAtCut: "daemon-registry:current",
-            now: context.now(),
           }),
           result = updateDaemonRepo({
             ...request,
@@ -453,12 +453,12 @@ export function createDaemonHostRepositoryApi(
                 ? context.binding(registeredRepo.canonicalRoot, auth)
                 : Promise.resolve(localDefaultBinding(auth)),
             ),
-        authorizationDecision = requireAuthorizedHostAction({
+        authorizationDecision = await requireAuthorizedHostAction({
           kind: actionKind,
+          repoId: request.repoId,
           binding: adminBinding,
           actionId: `${actionKind}:${request.repoId}`,
           evaluatedAtCut: "daemon-registry:current",
-          now: context.now(),
         }),
         cell = context.cells.get(request.repoId),
         blockingWork = [

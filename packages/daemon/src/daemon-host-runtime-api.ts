@@ -142,12 +142,12 @@ export function createDaemonHostRuntimeApi(
                   ? "terminal-terminate"
                   : null,
         authorizationDecision = kind
-          ? requireAuthorizedHostAction({
+          ? await requireAuthorizedHostAction({
               kind,
+              repoId,
               binding: serverBinding,
               actionId: `${kind}:${String(payload.idempotencyKey ?? payload.sessionId ?? "current")}`,
               evaluatedAtCut: `repository:${repoId}:current`,
-              now: context.now(),
             })
           : null,
         authorizedBinding = authorizationDecision ? { ...serverBinding, authorizationDecision } : serverBinding,
@@ -189,12 +189,12 @@ export function createDaemonHostRuntimeApi(
             "repo_namespace_unknown",
             "Fleet roster requires one enabled authority repository.",
           );
-        const authorizationDecision = requireAuthorizedHostAction({
+        const authorizationDecision = await requireAuthorizedHostAction({
           kind: "daemon-fleet-center-start",
+          repoId: authorityRepo.repoId,
           binding: await context.binding(authorityRepo.canonicalRoot, auth),
           actionId: `daemon-fleet-center-start:${authorityRepo.repoId}`,
           evaluatedAtCut: "fleet-center:current",
-          now: context.now(),
         });
         if (context.fleetCenter)
           throw context.hostCodedError(
@@ -320,12 +320,12 @@ export function createDaemonHostRuntimeApi(
           Object.entries(command.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
         );
       const actionKind = operation === "logout" ? "runtime-instance-logout" : "runtime-instance-login",
-        authorizationDecision = requireAuthorizedHostAction({
+        authorizationDecision = await requireAuthorizedHostAction({
           kind: actionKind,
+          repoId,
           binding: serverBinding,
           actionId: `${actionKind}:${context.requiredText(payload.instanceId, "instanceId")}`,
           evaluatedAtCut: `repository:${repoId}:current`,
-          now: context.now(),
         }),
         result = cell.terminal.spawnTrusted(
           {

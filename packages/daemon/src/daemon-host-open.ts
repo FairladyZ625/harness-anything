@@ -678,15 +678,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if ((accessAdminOperations as readonly string[]).includes(request.operation ?? "bootstrap"))
         return accessAdmin.run(request);
       if (request.operation === "listener-set") return oidc.changeListener(() => managedRbac.run(request));
-      requireAuthorizedHostAction({
+      return requireAuthorizedHostAction({
         kind: "rbac-bootstrap",
         // Lifecycle bootstrap is the sole socket-owner exception: it can install/start the
         // identity authority before an OIDC session exists, but it cannot run repository actions.
         binding: localSystemBinding(input.userRoot),
         actionId: `rbac-bootstrap:${request.operation ?? "bootstrap"}`,
         evaluatedAtCut: "daemon-rbac:current",
-      });
-      return managedRbac.run(request);
+      }).then(() => managedRbac.run(request));
     },
     close: async () => {
       await managedRbac.stop();
