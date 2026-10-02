@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,12 +17,12 @@ async function submitBaselineTask(artifact: boolean) {
     taskId = "task-artifact-only",
     executionId = "execution-artifact-only",
     repoId = workspaceId("artifact-only-submit"),
-    holder = withRoleBinding(
+    holder = withPolicyGroup(
       {
         actor: { principal: { personId: "owner" }, executor: { kind: "agent" as const, id: "worker" } },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     );
   initRepo(rootDir);
   git(rootDir, "branch", "-M", "main");
@@ -129,9 +129,9 @@ test("a documentation amendment completes with newly accepted artifact paths on 
   initRepo(rootDir);
   mkdirSync(ledger);
   initRepo(ledger);
-  const holder = withRoleBinding(
+  const holder = withPolicyGroup(
     { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const },
-    "owner",
+    "admin",
   );
   const cell = await openBootstrappedRepoCell({
     repoId: workspaceId("doc-amend"),

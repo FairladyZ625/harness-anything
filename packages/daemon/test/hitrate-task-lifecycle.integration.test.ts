@@ -7,7 +7,7 @@ import test from "node:test";
 import { makeTaskEventReader, submissionDigest } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -17,7 +17,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     taskId = "task-hitrate-lifecycle",
     executionId = "execution-hitrate-lifecycle",
     repoId = workspaceId("hitrate-lifecycle"),
-    holder = withRoleBinding(
+    holder = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-owner" },
@@ -25,9 +25,9 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     ),
-    foreign = withRoleBinding(
+    foreign = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-other" },
@@ -35,9 +35,9 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     );
-  const owner = withRoleBinding(
+  const owner = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-owner" },
@@ -45,7 +45,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
       },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   );
   mkdirSync(rootDir, { recursive: true });
   initRepo(rootDir);
@@ -282,7 +282,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
       reconciledAt: event.occurredAt,
     });
 
-    const reviewer = withRoleBinding(
+    const reviewer = withPolicyGroup(
         {
           actor: {
             principal: { personId: "person-reviewer" },
@@ -290,7 +290,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
           },
           source: "local" as const,
         },
-        "arbiter",
+        "maintainer",
       ),
       forwarded = await cell.run(
         {

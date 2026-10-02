@@ -28,7 +28,11 @@ import type { RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { canonicalJson, projectionTables, queryRow, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import { readEntityVersionWitness, readEntityVersionWitnesses } from "./entity-freshness-projection.ts";
-import { relationFreshnessAtCut, type EntityVersionWitness } from "../domain/entity-freshness.ts";
+import {
+  keycloakPersonIdentityWitness,
+  relationFreshnessAtCut,
+  type EntityVersionWitness,
+} from "../domain/entity-freshness.ts";
 
 export const RELATION_PROJECTION_VERSION = "relation-projection/v1" as const;
 
@@ -99,7 +103,16 @@ function relationEventWithTargetWitness(
   event: RelationEventV1 | MigrationImportEventV1,
 ): RelationEventV1 | MigrationImportEventV1 {
   if (event.schema === "migration-import-event/v1" && event.payload.entity.kind === "relation") {
-    const currentVersion = readEntityVersionWitness(db, event.payload.entity.relation.target).currentVersion;
+    const relation = event.payload.entity.relation,
+      currentVersion = readEntityVersionWitness(db, relation.target).currentVersion;
+    if (currentVersion === null && /^person\/[A-Za-z][A-Za-z0-9_-]{0,62}$/u.test(relation.target))
+      return {
+        ...event,
+        payload: {
+          ...event.payload,
+          entity: { ...event.payload.entity, relation: { ...relation, targetObservedVersion: null } },
+        },
+      } as MigrationImportEventV1;
     return currentVersion === null
       ? event
       : ({
@@ -314,7 +327,8 @@ export function relationProjectionRow(
   sourceWitness?: EntityVersionWitness,
 ): VersionedRelationProjectionRow {
   const anchor = relationFreshnessAnchorForType(entity.type),
-    target = targetWitness ?? readEntityVersionWitness(db, entity.target),
+    projectedTarget = targetWitness ?? readEntityVersionWitness(db, entity.target),
+    target = keycloakPersonIdentityWitness(entity.target, entity.targetObservedVersion) ?? projectedTarget,
     source = anchor === "source" ? (sourceWitness ?? readEntityVersionWitness(db, entity.source)) : undefined,
     freshness = relationFreshnessAtCut({
       anchor,

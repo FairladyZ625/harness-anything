@@ -7,7 +7,7 @@ import test, { before, after } from "node:test";
 import { actionDeclarations, makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { keycloakRealm, serveKeycloak } from "./keycloak.fixtures.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -29,7 +29,7 @@ after(() => {
   rmSync(ciBin, { recursive: true, force: true });
 });
 
-const owner = withRoleBinding(
+const owner = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-failure-owner" },
@@ -37,9 +37,9 @@ const owner = withRoleBinding(
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
-  otherWriter = withRoleBinding(
+  otherWriter = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-failure-other" },
@@ -47,17 +47,17 @@ const owner = withRoleBinding(
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
-  reviewer = withRoleBinding(
+  reviewer = withPolicyGroup(
     {
       actor: { principal: { personId: "person-failure-reviewer" }, executor: null },
       source: "local" as const,
     },
-    "arbiter",
+    "maintainer",
   ),
   // The owning person with the maintainer tier too: it may close its task, and still may not review it.
-  selfReviewer = withRoleBinding(owner, "arbiter");
+  selfReviewer = withPolicyGroup(owner, "maintainer");
 
 test("Task execution rejects with the exact Action criterion and performs no rejected mutation", async (context) => {
   const rootDir = workspace("criteria"),
@@ -216,7 +216,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
 
     const deniedBinding = {
       ...owner,
-      roleBindings: [],
+      keycloakAuthorization: undefined,
       authorizationBindingMode: "declared" as const,
     };
     const denied = await assertRejectedWithoutMutation(

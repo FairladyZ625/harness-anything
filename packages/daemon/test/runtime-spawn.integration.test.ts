@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -95,12 +95,12 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
           taskId: null,
           idempotencyKey: "spawn-claude-once",
         },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor: { principal: { personId: "person-spawn" }, executor: null },
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
       assert.equal(receipt.outcome, "applied");
@@ -182,12 +182,12 @@ test("runtime spawn rejects unattended zcode modes that require a permission cli
           };
         },
       }),
-      binding = withRoleBinding(
+      binding = withPolicyGroup(
         {
           actor: { principal: { personId: "person-spawn" }, executor: null },
           source: "local" as const,
         },
-        "owner",
+        "admin",
       );
     try {
       await assert.rejects(
@@ -379,12 +379,12 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       };
     },
   });
-  const binding = withRoleBinding(
+  const binding = withPolicyGroup(
     {
       actor: { principal: { personId: "person-agent-model" }, executor: null },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   );
   for (const declaration of [
     {
@@ -739,7 +739,7 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
       terminate: () => undefined,
     }),
   });
-  const binding = withRoleBinding(
+  const binding = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-squad-worker" },
@@ -747,7 +747,7 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     ),
     skillFile = realpathSync(path.join(skillDir, "SKILL.md"));
   for (const [kind, declaration] of [
@@ -1034,12 +1034,12 @@ test("Codex API-key bearer remains confined to the private provider config", asy
             taskId: null,
             idempotencyKey: "private-bearer",
           },
-          withRoleBinding(
+          withPolicyGroup(
             {
               actor: { principal: { personId: "person-spawn" }, executor: null },
               source: "local",
             },
-            "owner",
+            "admin",
           ),
         ),
         attached = await cell.attach(String(receipt.runtimeSessionId), "stream:0");

@@ -8,7 +8,7 @@ import path from "node:path";
 import test, { after, before } from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -42,7 +42,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     taskId = "task-submit-exit",
     executionId = "exec-submit-exit",
     holder = binding("holder"),
-    reviewer = withRoleBinding(binding("reviewer"), "arbiter");
+    reviewer = withPolicyGroup(binding("reviewer"), "maintainer");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     cell = await openRepoCell({
@@ -239,9 +239,9 @@ test("executor declaration and completion context refusals name projection rebui
     repoId = workspaceId("projection-exits"),
     taskId = "task-projection-exits",
     executionId = "exec-projection-exits",
-    owner = withRoleBinding(
+    owner = withPolicyGroup(
       { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
-      "owner",
+      "admin",
     ),
     declarer = binding("declared-executor"),
     cache = path.join(rootDir, ".harness/cache/task.sqlite");
@@ -364,7 +364,7 @@ test("symptom task_6edcc0d990dae7e42f4bc93ff9 (review-execution before submit): 
     taskId = "task-review-before-submit",
     executionId = "exec-review-before-submit",
     owner = binding("review-before-submit-owner"),
-    reviewer = withRoleBinding(binding("review-before-submit-reviewer"), "arbiter");
+    reviewer = withPolicyGroup(binding("review-before-submit-reviewer"), "maintainer");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     cell = await openRepoCell({
@@ -455,7 +455,7 @@ test("symptom task_6edcc0d990dae7e42f4bc93ff9 (complete --path): code-doc reconc
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, holder)).outcome, "applied");
     const rejected = await cell.run(
       { kind: "task-code-doc-reconcile", taskId, paths: ["harness/agents/x.json"] },
-      withRoleBinding(holder, "repo-write"),
+      withPolicyGroup(holder, "contributor"),
     );
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "invalid_proof", JSON.stringify(rejected));
@@ -548,12 +548,12 @@ test("task reads against a task id the projection does not have answer task_not_
 });
 
 function binding(executorId: string) {
-  return withRoleBinding(
+  return withPolicyGroup(
     {
       actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: executorId } },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   );
 }
 function mutate(cache: string, sql: string, ...values: readonly string[]): void {

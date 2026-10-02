@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -17,7 +17,7 @@ const overGuiWire = (receipt: object) =>
   );
 
 const reviewerActor = (runtimeSessionId: string) =>
-  withRoleBinding(
+  withPolicyGroup(
     {
       actor: {
         principal: owner.actor.principal,
@@ -25,12 +25,12 @@ const reviewerActor = (runtimeSessionId: string) =>
       },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   );
 
 test("decision dispatch-review passes spawn admission and launches once for the current digest", async () => {
   const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
-  const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withRoleBinding(owner, "owner"));
+  const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
   try {
     await f.install();
     const proposed = await runDecision({
@@ -136,9 +136,9 @@ test("decision dispatch-review passes spawn admission and launches once for the 
         rationale: "Independent review approved this cut.",
         judgmentOnlyRationale: "The reviewed decision needs no task.",
       },
-      withRoleBinding(
+      withPolicyGroup(
         { actor: { principal: owner.actor.principal, executor: null }, source: "local" as const },
-        "owner",
+        "admin",
       ),
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));

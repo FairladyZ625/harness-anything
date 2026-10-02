@@ -15,12 +15,12 @@ import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { definition, initHarnessRepo } from "./schedule-actions.fixtures.ts";
 
-const operator = withRoleBinding(
+const operator = withPolicyGroup(
   { actor: { principal: { personId: "center-operator" }, executor: null }, source: "local" as const },
-  "repo-write",
+  "contributor",
 );
 
 type Receipt = {

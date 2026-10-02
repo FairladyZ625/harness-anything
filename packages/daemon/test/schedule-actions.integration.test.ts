@@ -8,7 +8,7 @@ import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { makeTaskEventStore, resolveHarnessLayout } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { definition, eventually, git } from "./schedule-actions.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -19,9 +19,9 @@ import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { initHarnessRepo, pullScheduleView, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
-const actor = withRoleBinding(
+const actor = withPolicyGroup(
   { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const },
-  "repo-write",
+  "contributor",
 );
 
 test("run-now launches only after an applied claim, stays single-flight, and settles tasklessly", async () => {

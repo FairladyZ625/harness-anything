@@ -16,15 +16,15 @@ import {
   registerSettledBootstrappedDaemonRepo,
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
   {
     actor: { principal: { personId: "writer" }, executor: null },
     source: "local" as const,
   },
-  "repo-write",
+  "contributor",
 );
 const declaration = {
   id: "conflict-note",

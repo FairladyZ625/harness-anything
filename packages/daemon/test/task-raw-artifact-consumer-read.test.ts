@@ -5,7 +5,7 @@
 // log with their true media type, byte length and canonical bytes, instead of an empty string that
 // is indistinguishable from an empty file.
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +50,7 @@ test("raw task artifacts read back with true metadata and canonical bytes, never
   initRepo(rootDir);
   const repoId = workspaceId("raw-consumer"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "raw-consumer" }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const created = (await cell.run(
       { kind: "task-create", taskId: "task-consumer", title: "Consumer" },
@@ -177,7 +177,7 @@ test("a binary file in a task's artifacts tree is listed and routed, not hidden 
   initRepo(rootDir);
   const repoId = workspaceId("raw-consumer-wt"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "raw-consumer-wt" }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const created = (await cell.run({ kind: "task-create", taskId: "task-loose", title: "Loose" }, binding)) as Record<
       string,

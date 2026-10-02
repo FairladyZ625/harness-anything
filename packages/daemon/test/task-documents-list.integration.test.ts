@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +22,7 @@ test("repo.tasks.documents.list returns package-relative projected documents inc
     rootDir: canonicalRoot(rootDir),
     ownerId: `daemon-${repoId}`,
   });
-  const binding: RepoCellBinding = withRoleBinding({ actor, source: "local" }, "owner");
+  const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" }, "admin");
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, binding);
     assert.equal(created.outcome, "applied");
@@ -120,7 +120,7 @@ test("task documents expose the live worktree copy and mark it uncommitted", asy
     rootDir: canonicalRoot(rootDir),
     ownerId: `daemon-${repoId}`,
   });
-  const binding: RepoCellBinding = withRoleBinding({ actor, source: "local" }, "owner");
+  const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" }, "admin");
   try {
     const created = (await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, binding)) as {
         readonly outcome: string;

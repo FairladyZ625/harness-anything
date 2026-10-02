@@ -14,7 +14,7 @@ import {
 } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { makeTaskEventReader, serializePersistedCanonicalEvent, sha256Text } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
@@ -25,9 +25,9 @@ test("real Entity import survives gen2 CLI conversion, Git recovery and a fresh 
     destination = path.join(parent, "destination"),
     kind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
     repoId = workspaceId("gen2-content"),
-    binding = withRoleBinding(
+    binding = withPolicyGroup(
       { actor: { principal: { personId: "conversion-fixture" }, executor: null }, source: "local" },
-      "repo-write",
+      "contributor",
     ),
     binary = Buffer.from([0, 255, 128, 13, 10, 0]),
     hash = sha256Bytes(binary);

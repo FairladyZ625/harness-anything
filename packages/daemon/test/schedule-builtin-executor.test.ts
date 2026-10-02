@@ -13,7 +13,7 @@ import {
 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { definition, initHarnessRepo } from "./schedule-actions.fixtures.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -27,9 +27,9 @@ import {
 
 type WriteReceipt = { readonly outcome: string; readonly opId: string; readonly revision: number };
 
-const actor = withRoleBinding(
+const actor = withPolicyGroup(
   { actor: { principal: { personId: "builtin-schedule-operator" }, executor: null }, source: "local" as const },
-  "repo-write",
+  "contributor",
 );
 const dayMs = 86_400_000;
 

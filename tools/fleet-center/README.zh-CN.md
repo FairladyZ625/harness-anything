@@ -48,9 +48,9 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 `down` 只停止本部署的隔离 daemon，有意保留仓库、TLS 物料、名册与副本状态以备审计/恢复。
 主机重启后登录并执行 `up`；daemon 与 Fleet 监听器都是进程持有的，需要重新建立。
 
-恢复出的台账带着源机器的本地 Unix-socket 凭据，在中心主机上不会命中。本部署不编辑
-`people.yaml`，也不向 remote center 放行本地写入：写入来自持有节点凭据的 Fleet 边缘，而
-人通过连接到该 daemon 的桌面应用登录。
+恢复出的台账带着源机器的本地 Unix-socket 凭据，在中心主机上不会命中。人的身份与仓库权限
+来自 Keycloak；仓库中的 `people.yaml` 不授予访问权限。本部署不向 remote center 放行本地仓库写入：
+写入来自持有节点凭据的 Fleet 边缘，而人通过连接到该 daemon 的桌面应用登录。
 
 ## 名册与节点
 
@@ -70,9 +70,8 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 2. 给节点属主开账号，并授予该人仓库上的 `daemon-fleet-edge-sync`。
 3. 由持有 `access-admin` 的管理员登录后注册节点。
 
-保持这个顺序：先 `up` 起监听器，再登录。一旦管理员在该 daemon 上登录，
-`ha daemon fleet center start` 会被 `authorization_denied` 拒绝，之后需要再次启动监听器的
-`up` 会卡在这一步。这是本版本的已知限制。
+Keycloak 启动后，管理员登录前后都可以启动监听器。已登录管理员只有持有该仓库的
+`daemon-fleet-center-start` 权限时，才可启动或重新启动监听器。
 
 ### 注册一个节点
 
@@ -122,10 +121,10 @@ ha bootstrap --operation node-unregister --node-id <node-id> --expected-version 
 
 ### 首次同步被拒绝时
 
-| Code | 含义 |
-| --- | --- |
-| `authentication_failed` | 节点未注册，或凭据不对。两者刻意不可区分。 |
-| `authorization_denied` | 节点已注册，但其属主没有该仓库的 `daemon-fleet-edge-sync` 授权。 |
+| Code                    | 含义                                                             |
+| ----------------------- | ---------------------------------------------------------------- |
+| `authentication_failed` | 节点未注册，或凭据不对。两者刻意不可区分。                       |
+| `authorization_denied`  | 节点已注册，但其属主没有该仓库的 `daemon-fleet-edge-sync` 授权。 |
 
 如果出站 GitHub 访问不可靠，可预置 `~/harness-center/app` 为包含 `HARNESS_CENTER_APP_REF`
 的干净 Git 检出。只有该固定 ref 缺失时 `up` 才会拉取，因此经审计的 Git bundle 或 rsync

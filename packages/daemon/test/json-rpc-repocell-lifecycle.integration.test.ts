@@ -25,7 +25,7 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -55,7 +55,10 @@ async function waitForAcceptedReceipt(
 }
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 // The fixture's lifecycle persona writes and closes: closing a task is the maintainer tier's, so it holds both roles.
-const repoWriteBinding = withRoleBinding(withRoleBinding({ actor, source: "local" as const }, "repo-write"), "arbiter");
+const repoWriteBinding = withPolicyGroup(
+  withPolicyGroup({ actor, source: "local" as const }, "contributor"),
+  "maintainer",
+);
 // prettier-ignore
 
 test("projection rebuild repairs a repository that has no authored settings document", async () => {
@@ -206,7 +209,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding) as unknown as Record<string, unknown>; await assertCut(submitted, "execution_submitted", [indexPath, executionPath]); assert.deepEqual(submitted.transition, { from: "active/implementation", to: "submitted/review" }); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: submitted[\s\S]*Lifecycle output is ready/u);
     const forwarded = await cell.run({ kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward lifecycle fixture." }, binding);
     assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] })); const reviewBinding = withRoleBinding({ actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } }, source: "local" as const }, "arbiter");
+    writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] })); const reviewBinding = withPolicyGroup({ actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } }, source: "local" as const }, "maintainer");
     const reviewReportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports"); mkdirSync(reviewReportDir, { recursive: true }); writeFileSync(path.join(reviewReportDir, "life.md"), "# Review life\n\nPhysical review findings.\n");
     const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-life", fromFile: "review.json" }, reviewBinding) as unknown as Record<string, unknown>; await assertCut(reviewed, "review_recorded", [indexPath, executionPath, reviewPath]); assert.equal(reviewed.reviewId, "review-life"); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Verdict: approved[\s\S]*Consent: pending/u);
     assert.equal((reviewed.authorizationDecision as Record<string, unknown>).policyRef, "default@5");
@@ -353,7 +356,7 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
 
 test("doc ingress rejects symbolic links in claim and authored path chains", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-claim-link-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("claim-link"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" }); const source = { kind: "assignment", nodeId: "node", assignmentId: "assignment" } as const, sourceBinding = withRoleBinding({ actor, source }, "repo-write");
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("claim-link"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" }); const source = { kind: "assignment", nodeId: "node", assignmentId: "assignment" } as const, sourceBinding = withPolicyGroup({ actor, source }, "contributor");
     const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, repoWriteBinding); const createdVisible = await waitForAcceptedReceipt(cell, created, repoWriteBinding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, repoWriteBinding)); await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, sourceBinding);
     const body = "# Outside\n", hash = createHash("sha256").update(body).digest("hex"), claims = path.join(rootDir, ".harness/doc-sync-claims"); mkdirSync(claims, { recursive: true }); writeFileSync(path.join(rootDir, "outside.md"), body); symlinkSync("../../outside.md", path.join(claims, "linked"));
     const binding = { ...sourceBinding, assignmentScope: { repoId: "claim-link", scope: { kind: "task" as const, taskId: "task-doc", executionId: "execution-doc", paths: ["context/link.md"] } } }, base = makeTaskEventReader({ repoId: "claim-link", rootDir }).currentCut(), beforeRevision = makeTaskEventReader({ repoId: "claim-link", rootDir }).read().revision, result = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/linked", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, binding);
@@ -517,12 +520,12 @@ async function prepareReadyCompletion(
   writeFileSync(path.join(readyReportDir, "ready.md"), "# Review ready\n\nPhysical review findings.\n");
   const reviewed = await cell.run(
     { kind: "task-review-execution", taskId, executionId, reviewId: "review-ready", fromFile: "review.json" },
-    withRoleBinding(
+    withPolicyGroup(
       {
         actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "arbiter" } },
         source: "local",
       },
-      "arbiter",
+      "maintainer",
     ),
   );
   assert.equal((await waitForAcceptedReceipt(cell, reviewed, binding)).wait?.state, "satisfied");

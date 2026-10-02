@@ -9,7 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
@@ -21,7 +21,7 @@ import { git, initRepo } from "./task-surface.fixtures.ts";
  * of those stages leaves behind, and what a later process can still recover from the ledger alone.
  */
 const researchKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
-  binding = withRoleBinding(
+  binding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-entity-durability" },
@@ -29,7 +29,7 @@ const researchKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
   // Bytes a text-shaped roundtrip would quietly repair: an interior NUL, a high byte that is not valid UTF-8,
   // and a CRLF pair. If anything on the path decodes and re-encodes, this file comes back different.
@@ -625,10 +625,10 @@ for (const hook of ["exit", "beforeExit", "SIGTERM", "SIGINT", "SIGHUP"]) proces
 const { makeTaskEventReader } = await load("packages/kernel/src/index.ts");
 const { canonicalRoot, workspaceId } = await load("packages/daemon/src/protocol/daemon-protocol.contract.ts");
 const { openBootstrappedRepoCell } = await load("packages/daemon/test/repo-settings.fixture.ts");
-const { withRoleBinding } = await load("packages/daemon/test/role-binding.fixtures.ts");
+const { withPolicyGroup } = await load("packages/daemon/test/keycloak-policy.fixtures.ts");
 
 const repoId = workspaceId(repoName);
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
   {
     actor: {
       principal: { personId: "person-entity-durability" },

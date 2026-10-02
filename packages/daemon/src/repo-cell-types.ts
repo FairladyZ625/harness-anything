@@ -69,6 +69,8 @@ export interface RepoCellBinding {
     readonly existsIds: ReadonlySet<string>;
     readonly decisions: ReadonlyMap<string, AuthorizationDecision>;
   };
+  /** Keycloak user IDs resolved at the writer cut for Person endpoints used by this Action. */
+  readonly personIdentityWitnesses?: ReadonlyMap<string, string>;
   readonly explanationDecisions?: ReadonlyMap<string, AuthorizationDecision>;
   readonly assignmentScope?: FleetAssignmentScope;
   readonly writerEpoch?: number;

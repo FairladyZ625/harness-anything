@@ -10,7 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { resolveRepoBootstrap, type RepoBootstrapRequest } from "../src/repo-bootstrap.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
 const repoId = "ledger-guard";
@@ -18,9 +18,9 @@ const auth = {
   transportKind: "unix-socket",
   unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0, source: "unix-socket-filesystem-owner-boundary" },
 } as unknown as DaemonAuthenticationContext;
-const workerBinding = withRoleBinding(
+const workerBinding = withPolicyGroup(
   { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
-  "repo-write",
+  "contributor",
 );
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();

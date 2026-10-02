@@ -8,7 +8,7 @@ import test, { after, before } from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -30,7 +30,7 @@ after(() => {
 });
 
 const actor = { principal: { personId: "person-agenda" }, executor: { kind: "agent", id: "codex-sol" } } as const;
-const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
 
 function writeReviewReport(rootDir: string, packagePath: string, reviewId: string): void {
   const stem = reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId,
@@ -225,7 +225,7 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       );
       assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
     }
-    const reviewerBinding = withRoleBinding(
+    const reviewerBinding = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-agenda-reviewer" },
@@ -233,7 +233,7 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
         },
         source: "local" as const,
       },
-      "arbiter",
+      "maintainer",
     );
     assert.equal(
       (
@@ -465,7 +465,7 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
       ).outcome,
       "applied",
     );
-    const reviewerBinding = withRoleBinding(
+    const reviewerBinding = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-agenda-reviewer" },
@@ -473,7 +473,7 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
         },
         source: "local" as const,
       },
-      "arbiter",
+      "maintainer",
     );
     writeFileSync(
       path.join(rootDir, "review.json"),
@@ -553,7 +553,7 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
 
 test("agenda excludes archived rework tasks without consuming a page", async () => {
   await withCell("agenda-archived-rework", async (cell, rootDir) => {
-    const reviewerBinding = withRoleBinding(
+    const reviewerBinding = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-agenda-reviewer" },
@@ -561,7 +561,7 @@ test("agenda excludes archived rework tasks without consuming a page", async () 
         },
         source: "local" as const,
       },
-      "arbiter",
+      "maintainer",
     );
     const createChangesRequestedTask = async (taskId: string) => {
       const created = await cell.run({ kind: "task-create", taskId, title: taskId }, binding);
@@ -782,12 +782,12 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
   await withCell(
     "agenda-entity-pins",
     async (cell) => {
-      const settingsBinding = withRoleBinding(
+      const settingsBinding = withPolicyGroup(
           {
             actor: { principal: { personId: "person-agenda" }, executor: null },
             source: "local" as const,
           },
-          "owner",
+          "admin",
         ),
         runCli = (argv: readonly string[]) => {
           const parsed = parseThinCommand(argv);
@@ -869,9 +869,9 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
         assert.match(agenda.summary, new RegExp(`📌 \\[${label}\\]`, "u"));
       const rejected = await cell.run(
         { kind: "decision-reject", decisionId, reason: "The proposed outcome is no longer needed." },
-        withRoleBinding(
+        withPolicyGroup(
           { actor: { principal: { personId: "person-independent" }, executor: null }, source: "local" },
-          "arbiter",
+          "maintainer",
         ),
       );
       assert.equal(rejected.outcome, "applied", JSON.stringify(rejected));
@@ -1046,7 +1046,7 @@ test("an awaits relation lists in the reader's agenda, holds its task, and retir
     const other = await cell.read(
       "repo.agenda.read",
       { limit: 50 },
-      withRoleBinding({ actor: { principal: { personId: "person-other" }, executor: null }, source: "local" }, "owner"),
+      withPolicyGroup({ actor: { principal: { personId: "person-other" }, executor: null }, source: "local" }, "admin"),
     );
     assert.deepEqual(other.awaitingYou, []);
 
@@ -1113,9 +1113,9 @@ test("an answered awaits lists for the source owner until the source is written 
       asked.awaitingYou.map(({ askedBy }) => askedBy),
       ["codex-sol", "codex-sol"],
     );
-    const answerer = withRoleBinding(
+    const answerer = withPolicyGroup(
       { actor: { principal: { personId: "person-agenda" }, executor: null }, source: "local" as const },
-      "owner",
+      "admin",
     );
     for (const row of asked.awaitingYou) {
       const answered = await cell.run(
@@ -1170,7 +1170,7 @@ test("an answered awaits lists for the source owner until the source is written 
     const other = await cell.read(
       "repo.agenda.read",
       { limit: 50 },
-      withRoleBinding({ actor: { principal: { personId: "person-other" }, executor: null }, source: "local" }, "owner"),
+      withPolicyGroup({ actor: { principal: { personId: "person-other" }, executor: null }, source: "local" }, "admin"),
     );
     assert.deepEqual(other.answeredForYou, []);
 
@@ -1217,9 +1217,9 @@ test("an answered awaits is asked again by relating the same endpoints at its re
         targetRef: "person/person-agenda",
         relationType: "awaits",
       },
-      answerer = withRoleBinding(
+      answerer = withPolicyGroup(
         { actor: { principal: { personId: "person-agenda" }, executor: null }, source: "local" as const },
-        "owner",
+        "admin",
       ),
       first = await cell.run({ ...ask, rationale: "acceptance: 第一轮验收", expectedVersion: 0 }, binding);
     assert.equal(first.outcome, "applied", JSON.stringify(first));

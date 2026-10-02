@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,19 +13,19 @@ import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan
 
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
 
-const holderBinding: RepoCellBinding = withRoleBinding(
+const holderBinding: RepoCellBinding = withPolicyGroup(
   {
     actor: { principal: { personId: "person-holder" }, executor: null },
     source: "local",
   },
-  "owner",
+  "admin",
 );
-const peerBinding: RepoCellBinding = withRoleBinding(
+const peerBinding: RepoCellBinding = withPolicyGroup(
   {
     actor: { principal: { personId: "person-peer" }, executor: null },
     source: "local",
   },
-  "owner",
+  "admin",
 );
 
 test("an expired current-round lease is recoverable by any repo-write actor through ha task start", async () => {

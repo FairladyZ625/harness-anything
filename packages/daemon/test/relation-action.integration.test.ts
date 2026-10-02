@@ -11,11 +11,11 @@ import {
   makeTaskProjection,
 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-relation-action" },
@@ -23,9 +23,9 @@ const binding = withRoleBinding(
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
-  secondNodeBinding = withRoleBinding(
+  secondNodeBinding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-relation-action-secondary" },
@@ -33,7 +33,7 @@ const binding = withRoleBinding(
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   );
 
 async function waitForAcceptedReceipt(

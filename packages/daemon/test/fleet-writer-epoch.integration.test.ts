@@ -18,7 +18,7 @@ import {
   type TaskEventV1,
 } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
   closeWriterEpochFenceDescriptors,
   openPersistentWriterEpoch,
@@ -51,13 +51,13 @@ const probeBinding = (writerEpochFence: {
   readonly epoch: number;
   readonly holderId: string;
 }) =>
-  withRoleBinding(
+  withPolicyGroup(
     {
       actor: { principal: { personId: "writer" }, executor: { kind: "agent" as const, id: "probe" } },
       source: { kind: "assignment" as const, nodeId: "node", assignmentId: "assignment" },
       writerEpochFence,
     },
-    "repo-write",
+    "contributor",
   );
 
 function childEpoch(

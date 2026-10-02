@@ -62,7 +62,7 @@ test("every production local binding is covered by a request or cell-default wri
   assert.doesNotMatch(
     source("repo-cell-authorization.ts"),
     /defaultBinding:/u,
-    "repository writes require explicit RoleBinding, assignment or Keycloak identity",
+    "repository writes require explicit Keycloak or assignment authorization",
   );
 });
 

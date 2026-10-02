@@ -168,7 +168,7 @@ export function createAgentActionCatalog(
       Object.freeze({
         ...baseAction("validate"),
         input: input([{ field: "packageSource", type: "string", required: true }]),
-        policy: Object.freeze({ ref: "default@5", action: null }),
+        policy: Object.freeze({ ref: "keycloak-policy@1", action: null }),
         criteria: Object.freeze([
           {
             ref: "agent/declaration-schema",
@@ -195,7 +195,7 @@ export function createAgentActionCatalog(
       Object.freeze({
         ...baseAction("list"),
         input: input([]),
-        policy: Object.freeze({ ref: "default@5", action: null }),
+        policy: Object.freeze({ ref: "keycloak-policy@1", action: null }),
         criteria: Object.freeze([]),
         concurrency: readConcurrency,
         effects: Object.freeze([]),
@@ -211,7 +211,7 @@ export function createAgentActionCatalog(
       Object.freeze({
         ...baseAction("inspect"),
         input: input([{ field: "agentId", type: "string", required: true }]),
-        policy: Object.freeze({ ref: "default@5", action: null }),
+        policy: Object.freeze({ ref: "keycloak-policy@1", action: null }),
         criteria: Object.freeze([
           {
             ref: "agent/entity-present",

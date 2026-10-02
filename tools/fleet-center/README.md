@@ -61,10 +61,11 @@ After a host reboot, log in and run `up`; the daemon and Fleet listener are
 both process-owned and must be re-established.
 
 The restored ledger carries the source machine's local Unix-socket credential,
-which does not bind on the center host. The deployment does not edit
-`people.yaml` and does not admit local writes to the remote center: writes
-arrive from Fleet edges with node credentials, and a person signs in through
-the desktop app connected to this daemon.
+which does not bind on the center host. Human identity and repository
+permissions come from Keycloak; a repository `people.yaml` does not grant
+access. The deployment does not admit local repository writes to the remote
+center: writes arrive from Fleet edges with node credentials, and a person
+signs in through the desktop app connected to this daemon.
 
 ## Roster and nodes
 
@@ -89,10 +90,9 @@ Everything after that needs a person and is not run by the script:
    `daemon-fleet-edge-sync` on the repository.
 3. Register the node, signed in as an administrator holding `access-admin`.
 
-Keep that order: start the listener with `up` first, then sign in. Once an
-administrator is signed in on this daemon, `ha daemon fleet center start` is
-refused with `authorization_denied`, so a later `up` that has to start the
-listener again fails at that step. This is a known limit of this version.
+After Keycloak is running, the listener can be started before or after an
+administrator signs in. Starting or restarting it while signed in is allowed
+when that person has the repository's `daemon-fleet-center-start` permission.
 
 ### Registering a node
 
@@ -152,10 +152,10 @@ leases the node holds are reclaimed by their existing timeout, not revoked.
 
 ### When a first sync is refused
 
-| Code | Meaning |
-| --- | --- |
-| `authentication_failed` | The node is not registered, or the credential is wrong. The two are deliberately indistinguishable. |
-| `authorization_denied` | The node is registered, but its owner holds no grant for `daemon-fleet-edge-sync` on the repository. |
+| Code                    | Meaning                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `authentication_failed` | The node is not registered, or the credential is wrong. The two are deliberately indistinguishable.  |
+| `authorization_denied`  | The node is registered, but its owner holds no grant for `daemon-fleet-edge-sync` on the repository. |
 
 If outbound GitHub access is unreliable, preseed `~/harness-center/app` with a
 clean Git checkout containing `HARNESS_CENTER_APP_REF`. `up` only fetches when

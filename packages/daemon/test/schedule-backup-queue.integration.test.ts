@@ -13,16 +13,16 @@ import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "../src/writer-epoch.ts";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { initHarnessRepo } from "./schedule-actions.fixtures.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
   builtinLedgerBackupScheduleId,
   scheduledLedgerBackupRoot,
   seedBuiltinSchedules,
 } from "../src/schedule-builtin-executor.ts";
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
   { actor: { principal: { personId: "backup-test" }, executor: null }, source: "local" as const },
-  "repo-write",
+  "contributor",
 );
 
 async function openFixture(root: string) {

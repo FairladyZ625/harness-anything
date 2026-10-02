@@ -31,3 +31,30 @@ test("repository writes require online Keycloak authority even with an owner ros
     assert.ok(decision.reasonCodes.includes("authentication_required"));
   }
 });
+
+test("a supplied authorization receipt is not a substitute for online authority", async () => {
+  const actor = { principal: { personId: "person_owner" }, executor: null };
+  const decision = await evaluateRepoCellAction({
+    action: { kind: "task-create" },
+    binding: {
+      actor,
+      source: "local",
+      authorizationDecision: {
+        policyRef: "keycloak-policy@1",
+        actor,
+        subject: "settings/repository",
+        bindingsUsed: [{ authority: "keycloak", scope: "task-create" }],
+        outcome: "allowed",
+        reasonCodes: ["keycloak_allowed"],
+        nextActions: [],
+        evaluatedAtCut: "canonical:1",
+      },
+    },
+    actionId: "unverified-receipt",
+    repoId: "repo",
+    revision: 1,
+    now: "2026-10-02T04:00:00.000Z",
+  });
+  assert.equal(decision.outcome, "denied");
+  assert.deepEqual(decision.reasonCodes, ["authentication_required"]);
+});

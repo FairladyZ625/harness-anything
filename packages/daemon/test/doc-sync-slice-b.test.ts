@@ -18,18 +18,18 @@ import {
   seedSettingsEvent,
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const policyId = "markdown-body-replaceable/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const assignmentSource = { kind: "assignment", nodeId: "node-one", assignmentId: "assignment-one" } as const;
-const localBinding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+const localBinding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
 
 // The execution worker rides the held-lease channel like any direct executor; the reviewer is a
 // runtime-session actor that must not reach reviewed prose once submit releases the lease.
-const workerBinding = withRoleBinding(
+const workerBinding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-owner" },
@@ -37,9 +37,9 @@ const workerBinding = withRoleBinding(
       },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   ),
-  reviewerBinding = withRoleBinding(
+  reviewerBinding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-owner" },
@@ -47,7 +47,7 @@ const workerBinding = withRoleBinding(
       },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   );
 
 test("local doc submit rejects the retired selection assembler", async () => {
@@ -626,7 +626,7 @@ test("the authored walls manifest can be created and edited through doc sync", a
       rootDir: canonicalRoot(rootDir),
       ownerId: "governance-doc-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     logical = documentPath("governance/walls/walls.json");
   try {
     for (const walls of [[], [{ id: "retired-preset", expect: "exit==0" }]]) {
@@ -727,7 +727,7 @@ async function startLease(
   source: RepoCellBinding["source"],
   ttlMs?: number,
 ): Promise<unknown> {
-  const roleBinding = withRoleBinding({ actor, source }, "repo-write");
+  const roleBinding = withPolicyGroup({ actor, source }, "contributor");
   const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, roleBinding);
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForWorktree(cell, created, roleBinding);
@@ -764,7 +764,7 @@ function assignmentBinding(repoId: string, paths: readonly string[]): RepoCellBi
   return {
     actor,
     source: assignmentSource,
-    roleBindings: withRoleBinding({ actor }, "owner").roleBindings,
+    keycloakAuthorization: withPolicyGroup({ actor }, "admin").keycloakAuthorization,
     assignmentScope: {
       repoId,
       scope: { kind: "task", taskId: "task-doc", executionId: "execution-doc", paths },

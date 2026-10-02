@@ -16,9 +16,9 @@ import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
-const binding: RepoCellBinding = withRoleBinding({ actor, source: "local" as const }, "repo-write"),
+const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" as const }, "contributor"),
   definition: AgentDefinitionSnapshot = {
     schema: "agent-definition-snapshot/v1",
     configVersion: 1,
@@ -102,7 +102,7 @@ async function acceptDecision(cell: Cell, decisionId: string): Promise<void> {
       rationale: "Fixture prerequisites are ready.",
       judgmentOnlyRationale: "This fixture tests dispatch admission, not decision evidence readiness.",
     },
-    withRoleBinding(binding, "arbiter"),
+    withPolicyGroup(binding, "maintainer"),
   );
   assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
   await waitForFixturePublication(cell, accepted.opId, binding);

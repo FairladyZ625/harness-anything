@@ -321,6 +321,8 @@ export async function openWriterSupervisor(
         return input.shouldStop!();
       case "runtimeInstances":
         return input.runtimeInstances!();
+      case "keycloakCenter":
+        return input.keycloakCenter!();
       case "fleetRoster":
         return input.fleetRoster!();
       case "prepareRuntimeLaunch": {
@@ -422,6 +424,7 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       killpoint: input.killpoint !== undefined,
       shouldStop: input.shouldStop !== undefined,
       runtimeInstances: input.runtimeInstances !== undefined,
+      keycloakCenter: input.keycloakCenter !== undefined,
       prepareRuntimeLaunch: input.prepareRuntimeLaunch !== undefined,
       prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment !== undefined,
       // Runtime worker hosts belong to the daemon process, not the replaceable

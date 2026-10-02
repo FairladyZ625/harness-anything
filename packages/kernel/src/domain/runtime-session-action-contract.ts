@@ -163,7 +163,7 @@ export function createRuntimeSessionActionCatalog(
         return Object.freeze({
           ...declared,
           input: input(actionFields[id]),
-          policy: Object.freeze({ ref: "default@5", action: "runtime-run" }),
+          policy: Object.freeze({ ref: "keycloak-policy@1", action: "runtime-run" }),
           criteria,
           concurrency,
           effects: Object.freeze([{ ref: `agent-runtime-event/${id}`, projection: "RuntimeSessionProjection" }]),

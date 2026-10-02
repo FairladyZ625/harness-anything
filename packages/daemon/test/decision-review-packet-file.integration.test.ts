@@ -7,10 +7,10 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 
-const proposer = withRoleBinding(
+const proposer = withPolicyGroup(
   {
     actor: {
       principal: { personId: "person-proposer" },
@@ -19,13 +19,13 @@ const proposer = withRoleBinding(
     source: "local" as const,
     authorizationBindingMode: "declared" as const,
   },
-  "repo-write",
+  "contributor",
 );
-const reviewer = withRoleBinding(
+const reviewer = withPolicyGroup(
   { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
-  "owner",
+  "admin",
 );
-const owner = withRoleBinding({ ...proposer, actor: { ...proposer.actor, executor: null } }, "owner");
+const owner = withPolicyGroup({ ...proposer, actor: { ...proposer.actor, executor: null } }, "admin");
 
 test("respond-review and override-review read their packet from --from-file like review does", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-packet-file-"));
@@ -47,7 +47,7 @@ test("respond-review and override-review read their packet from --from-file like
         credentialIssuer: "example.invalid",
         credentialSubject: "proposal-owner@example.invalid",
       },
-      withRoleBinding(proposer, "admin"),
+      withPolicyGroup(proposer, "admin"),
     );
     assert.equal(ownerAdded.outcome, "applied", JSON.stringify(ownerAdded));
     const proposed = await cell.run(decisionProposal(), proposer),

@@ -4,7 +4,7 @@ import test from "node:test";
 import { bindWriterGenerationToken, type LeaseV1, type RuntimeSession } from "@harness-anything/kernel";
 import { createRepoCellApi, type RepoCellApiContext } from "../src/repo-cell-api.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 
 const now = "2026-09-03T12:00:00.000Z";
@@ -51,13 +51,13 @@ const lease: LeaseV1 = {
   ttlMs: 3_600_000,
   version: 1,
 };
-const binding: RepoCellBinding = withRoleBinding(
+const binding: RepoCellBinding = withPolicyGroup(
   {
     actor: { principal: runtimeActor.principal, executor: null },
     source: "local",
     authorizationBindingMode: "declared",
   },
-  "owner",
+  "admin",
 );
 const action = {
   kind: "task-artifact-add",

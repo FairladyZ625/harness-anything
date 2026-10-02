@@ -24,7 +24,7 @@ import {
   writeCloseout,
   writeSettingsFixture,
 } from "./review-independence.fixtures.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 type Receipt = {
   readonly outcome: string;
@@ -50,10 +50,14 @@ after(() => {
   rmSync(ciBin, { recursive: true, force: true });
 });
 
-const person = (personId: string, executorId: string | null, ...roles: readonly string[]) =>
-  roles.reduce(
-    (binding, role) => withRoleBinding(binding, role),
-    withRoleBinding(
+const person = (
+  personId: string,
+  executorId: string | null,
+  ...groups: readonly ("contributor" | "maintainer" | "admin")[]
+) =>
+  groups.reduce(
+    (binding, group) => withPolicyGroup(binding, group),
+    withPolicyGroup(
       {
         actor: {
           principal: { personId },
@@ -62,13 +66,13 @@ const person = (personId: string, executorId: string | null, ...roles: readonly 
         source: "local" as const,
         authorizationBindingMode: "declared" as const,
       },
-      "repo-write",
+      "contributor",
     ),
   );
-const proposer = person("person-proposer", "proposer-agent", "arbiter"),
-  reviewer = person("person-reviewer", null, "arbiter"),
-  arbiter = person("person-arbiter", null, "arbiter"),
-  secondArbiter = person("person-second-arbiter", null, "arbiter");
+const proposer = person("person-proposer", "proposer-agent", "maintainer"),
+  reviewer = person("person-reviewer", null, "maintainer"),
+  arbiter = person("person-arbiter", null, "maintainer"),
+  secondArbiter = person("person-second-arbiter", null, "maintainer");
 
 const outcomes = (receipts: readonly Receipt[]) => receipts.map(({ outcome, code }) => [outcome, code ?? null]).sort();
 const receiptJson = (receipt: Receipt) => JSON.parse(String(receipt.evidence)) as Record<string, unknown>;
@@ -155,7 +159,7 @@ test("a center-local arbiter reviews, overrides and rejects a Decision while its
         credentialIssuer: "example.invalid",
         credentialSubject: "proposal-owner@example.invalid",
       },
-      withRoleBinding(proposer, "admin"),
+      withPolicyGroup(proposer, "admin"),
     );
     assert.equal(rostered.outcome, "applied", JSON.stringify(rostered));
     const { decisionId, digest } = await propose("Center adjudication");

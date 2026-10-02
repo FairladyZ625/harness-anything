@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -47,7 +47,7 @@ test("a CAS blob referenced by any migrated repo document follows it into the ev
     });
     const result = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     const store = makeTaskEventReader({
@@ -101,7 +101,7 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
     });
     const result = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.outcome, "applied");
@@ -225,7 +225,7 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
     );
     const migratedContract = await cell.run(
       { kind: "task-contract-migrate", mode: "apply", taskId: "task_coverage" },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     );
     assert.equal(migratedContract.outcome, "applied", JSON.stringify(migratedContract));
     assert.match(String(migratedContract.evidence), /"status":"repair"/u);
@@ -234,7 +234,7 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
       destination,
       "tasks/task_coverage-coverage-fixture",
       (planPath) =>
-        cell!.run({ kind: "doc-submit", paths: [planPath] }, withRoleBinding({ actor, source: "local" }, "owner")),
+        cell!.run({ kind: "doc-submit", paths: [planPath] }, withPolicyGroup({ actor, source: "local" }, "admin")),
       "Coverage fixture",
       "## Contract migration\n\nExercise the native transition after importing v0 history.",
     );
@@ -244,7 +244,7 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
         taskId: "task_coverage",
         executionId: "exe_native_after_import",
       },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     );
     assert.equal(started.outcome, "applied", JSON.stringify(started));
     const afterStart = (await cell.read("repo.tasks.list")).rows.find(({ taskId }) => taskId === "task_coverage")!;
@@ -311,13 +311,13 @@ test("re-importing a source is an incremental no-op instead of a hard rejection"
     });
     const first = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     )) as Record<string, unknown>;
     assert.equal(first.exitCode, 0, JSON.stringify(first));
     const firstRevision = first.revision;
     const second = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     )) as Record<string, unknown>;
     assert.equal(second.outcome, "applied");
     assert.equal(second.exitCode, 0);
@@ -326,7 +326,7 @@ test("re-importing a source is an incremental no-op instead of a hard rejection"
     assert.equal(cell.status().state, "attached", "a repeated import must not latch the workspace");
     const dry = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     )) as Record<string, unknown>;
     assert.equal(dry.exitCode, 0);
     assert.match(String(dry.summary), /Already imported from this Git lineage: task=1/u);
@@ -356,7 +356,7 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
       revisionBefore = store.read().revision,
       dry = (await cell.run(
         { kind: "migrate-import", sourceRoots, dryRun: true },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       )) as Record<string, unknown>;
     assert.equal(dry.exitCode, 0, JSON.stringify(dry));
     assert.equal(store.read().revision, revisionBefore, "dry-run must not mutate the destination ledger");
@@ -369,7 +369,7 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
 
     const first = (await cell.run(
       { kind: "migrate-import", sourceRoots },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     )) as Record<string, unknown>;
     assert.equal(first.exitCode, 0, JSON.stringify(first));
     assert.match(String(first.backfillMapPath), /^migrations\/import_[0-9a-f_]+\/entity-backfill\.json$/u);
@@ -414,7 +414,7 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
       firstEventCount = appliedStore.read().events.length,
       second = (await cell.run(
         { kind: "migrate-import", sourceRoots },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       )) as Record<string, unknown>;
     assert.equal(second.exitCode, 0, JSON.stringify(second));
     const rerunStore = makeTaskEventReader({ repoId: "migration-entity-backfill-target", rootDir: destination });
@@ -612,7 +612,7 @@ test("migration adopts the source contract digest and rewrites the contract pack
     });
     const result = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     const row = (await cell.read("repo.tasks.list")).rows.find(({ taskId }) => taskId === "task_coverage")!;
@@ -646,7 +646,7 @@ test("contract migration repairs old migrated rows through one canonical event a
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "migration-repair-bootstrap" });
     const bootstrap = await cell.run(
       { kind: "projection-rebuild" },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     );
     assert.equal(bootstrap.outcome, "applied", JSON.stringify(bootstrap));
     await cell.close();
@@ -797,7 +797,7 @@ test("contract migration repairs old migrated rows through one canonical event a
     );
     await store.drain();
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "migration-repair-daemon" });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
       blocked = await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, binding);
     assert.equal(blocked.code, "content_not_ready");
     const revisionBeforeDryRun = ledger().revision,
@@ -920,7 +920,7 @@ test("contract migration deterministically disposes all three canonical manual f
     initRepo(rootDir);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "manual-family-bootstrap" });
     assert.equal(
-      (await cell.run({ kind: "projection-rebuild" }, withRoleBinding({ actor, source: "local" }, "owner"))).outcome,
+      (await cell.run({ kind: "projection-rebuild" }, withPolicyGroup({ actor, source: "local" }, "admin"))).outcome,
       "applied",
     );
     await cell.close();
@@ -1030,7 +1030,7 @@ test("contract migration deterministically disposes all three canonical manual f
     }
     await store.drain();
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "manual-family-daemon" });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
       before = makeTaskEventReader({ repoId, rootDir }).read().revision,
       dry = await cell.run({ kind: "task-contract-migrate", mode: "dry-run" }, binding),
       evidence = JSON.parse(String(dry.evidence)) as {
@@ -1101,7 +1101,7 @@ test("decision replay keeps source prose and legacy frontmatter readable beside 
     });
     const result = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     const body = readFileSync(path.join(destination, "harness/decisions/decision-dec_CONTENT/decision.md"), "utf8");

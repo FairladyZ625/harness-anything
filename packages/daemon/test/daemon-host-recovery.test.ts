@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -884,9 +884,9 @@ test("remote-edge Cell terminal side effects require Cell-level mode admission",
       ownerId: "cell-terminal-mode",
       mode: "remote-edge",
     });
-    const binding = withRoleBinding(
+    const binding = withPolicyGroup(
       { actor: { principal: { personId: "writer" }, executor: null }, source: "local" as const },
-      "owner",
+      "admin",
     );
     assert.throws(
       () => cell!.terminal.spawn({}, binding),

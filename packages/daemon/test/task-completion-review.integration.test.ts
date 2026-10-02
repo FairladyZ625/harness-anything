@@ -5,12 +5,12 @@ import path from "node:path";
 import test from "node:test";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 type Receipt = Record<string, unknown>;
 
 function reviewerActor(runtimeSessionId: string) {
-  return withRoleBinding(
+  return withPolicyGroup(
     {
       actor: {
         principal: owner.actor.principal,
@@ -18,7 +18,7 @@ function reviewerActor(runtimeSessionId: string) {
       },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   );
 }
 

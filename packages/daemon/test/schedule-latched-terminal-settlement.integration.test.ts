@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { withRoleBinding, writeOwnerRoster } from "./role-binding.fixtures.ts";
+import { withPolicyGroup, grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
 import { makeTaskEventStore, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -13,12 +13,12 @@ import { openRepoCell } from "../src/repo-cell.ts";
 import { operationId } from "../src/repo-cell-proof.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 
-const settlementActor = withRoleBinding(
+const settlementActor = withPolicyGroup(
   {
     actor: { principal: { personId: "schedule-settlement-operator" }, executor: null },
     source: "local" as const,
   },
-  "repo-write",
+  "contributor",
 );
 const settlementRuntimeDefinition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -41,7 +41,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
     exit: ((code: number | null) => void) | null = null;
   const prompts: string[] = [];
   try {
-    writeOwnerRoster(root, [settlementActor.actor.principal.personId]);
+    grantTestPolicyGroups([settlementActor.actor.principal.personId], "admin");
     git(root, "init", "-q");
     git(root, "config", "user.name", "Schedule Settlement Test");
     git(root, "config", "user.email", "schedule-settlement@example.invalid");
@@ -270,12 +270,12 @@ async function listedSettlementSchedule(cell: Awaited<ReturnType<typeof openRepo
   return listed.schedules.find((schedule) => schedule.scheduleId === scheduleId)!;
 }
 
-const actor = withRoleBinding(
+const actor = withPolicyGroup(
   {
     actor: { principal: { personId: "latched-settlement-operator" }, executor: null },
     source: "local" as const,
   },
-  "repo-write",
+  "contributor",
 );
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -297,7 +297,7 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null;
   try {
-    writeOwnerRoster(root, [actor.actor.principal.personId]);
+    grantTestPolicyGroups([actor.actor.principal.personId], "admin");
     git(root, "init", "-q");
     git(root, "config", "user.name", "Latched Settlement Test");
     git(root, "config", "user.email", "latched-settlement@example.invalid");

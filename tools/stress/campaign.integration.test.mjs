@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "../../packages/daemon/test/repo-settings.fixture.ts";
-import { withRoleBinding } from "../../packages/daemon/test/role-binding.fixtures.ts";
+import { withPolicyGroup } from "../../packages/daemon/test/keycloak-policy.fixtures.ts";
 import { actor, initRepo } from "../../packages/daemon/test/task-surface.fixtures.ts";
 import { serializePersistedCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
@@ -576,7 +576,7 @@ async function runRepoCellShadowFixture(targetRoot, controllerRoot) {
       barrier: async ({ phase, boundary }) => schedule.push(`${phase}:${boundary}`),
       adapter: {
         submit: async (request) => {
-          const receipt = await cell.run(request.action, withRoleBinding({ actor, source: "local" }, "repo-write"));
+          const receipt = await cell.run(request.action, withPolicyGroup({ actor, source: "local" }, "contributor"));
           assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
           return {
             status: "accepted_durable",

@@ -10,7 +10,7 @@ import { runVerticalDeclarationAction } from "../src/vertical-declaration-action
 import { resolveVerticalKindCommandAction } from "../src/vertical-kind-command-action.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 test("repository vertical migration, upsert conflict, and retirement fence on the kind's own revision", async () => {
@@ -19,7 +19,7 @@ test("repository vertical migration, upsert conflict, and retirement fence on th
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir }),
     projection = makeTaskProjection({ rootDir, eventStore: store }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     run = (action: Readonly<Record<string, unknown>> & { readonly kind: string }) =>
       runVerticalDeclarationAction({
         action,
@@ -112,7 +112,7 @@ test("repository vertical migration, upsert conflict, and retirement fence on th
 test("declaration read round-trips every materialized kind field through unchanged upsert", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-declaration-read-")),
     repoId = workspaceId("vertical-declaration-read"),
-    binding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -146,7 +146,7 @@ test("declaration read round-trips every materialized kind field through unchang
 test("declaration read revision drives create, catalog read, and retirement", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-kind-crud-")),
     repoId = workspaceId("vertical-kind-crud"),
-    binding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);

@@ -12,11 +12,11 @@ import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } },
-  binding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+  binding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
 
 function initRepo(rootDir: string): void {
   const git = (...args: readonly string[]) =>

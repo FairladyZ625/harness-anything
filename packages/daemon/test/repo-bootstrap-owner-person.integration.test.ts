@@ -10,7 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
 const auth = {
@@ -24,17 +24,17 @@ test("the bootstrap owner is a Person a review awaits edge can target in a fresh
     stateRoot = path.join(rootDir, "writer-epochs"),
     authority = openPersistentWriterEpoch({ stateRoot, holderId: "bootstrap-owner-person-test" }),
     lease = authority.acquire(repoId),
-    owner = withRoleBinding(
+    owner = withPolicyGroup(
       {
         actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "owner-agent" } },
         source: "local" as const,
         authorizationBindingMode: "declared" as const,
       },
-      "repo-write",
+      "contributor",
     ),
-    reviewer = withRoleBinding(
+    reviewer = withPolicyGroup(
       { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
-      "arbiter",
+      "maintainer",
     );
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {

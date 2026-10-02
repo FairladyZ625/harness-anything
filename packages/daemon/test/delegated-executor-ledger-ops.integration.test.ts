@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,9 +20,9 @@ const runtimeSessionId = "runtime-ledger-ops",
   taskId = "task-delegated-batch-target",
   issuerPersonId = "person_zeyu",
   delegatedExecutor = { kind: "agent", id: `runtime-session:${runtimeSessionId}` } as const,
-  principalBinding = withRoleBinding(
+  principalBinding = withPolicyGroup(
     { actor: { principal: { personId: issuerPersonId }, executor: null }, source: "local" as const },
-    "owner",
+    "admin",
   ),
   delegatedAction = () => ({
     kind: "task-amend",
@@ -66,12 +66,12 @@ test("a delegated RuntimeSession runs lifecycle Actions on a task it is not boun
 
     const delegated = await cell.run(
       delegatedAction(),
-      withRoleBinding(
+      withPolicyGroup(
         {
           actor: { principal: { personId: issuerPersonId }, executor: null },
           source: "local",
         },
-        "owner",
+        "admin",
       ),
     );
     assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
@@ -107,12 +107,12 @@ test("a delegated RuntimeSession runs lifecycle Actions on a task it is not boun
     );
     const revokedClaim = await cell.run(
       delegatedAction(),
-      withRoleBinding(
+      withPolicyGroup(
         {
           actor: { principal: { personId: issuerPersonId }, executor: null },
           source: "local",
         },
-        "owner",
+        "admin",
       ),
     );
     assert.equal(revokedClaim.outcome, "op_rejected", JSON.stringify(revokedClaim));
@@ -124,7 +124,7 @@ test("a delegated RuntimeSession runs lifecycle Actions on a task it is not boun
 
     const otherSession = await cell.run(
       { ...delegatedAction(), executor: { kind: "agent", id: "runtime-session:unrelated-runtime" } },
-      withRoleBinding({ actor: { principal: { personId: issuerPersonId }, executor: null }, source: "local" }, "owner"),
+      withPolicyGroup({ actor: { principal: { personId: issuerPersonId }, executor: null }, source: "local" }, "admin"),
     );
     assert.equal(otherSession.code, "executor_binding_invalid");
     assert.match(String(otherSession.rejectionExplanation), /not canonically bound/u);

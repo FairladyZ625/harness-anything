@@ -13,17 +13,17 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-const worker = withRoleBinding(
+const worker = withPolicyGroup(
   { actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } }, source: "local" },
-  "repo-write",
+  "contributor",
 );
-const owner = withRoleBinding(
+const owner = withPolicyGroup(
   { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
-  "owner",
+  "admin",
 ) as const;
 const githubCiMapping =
   "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n";

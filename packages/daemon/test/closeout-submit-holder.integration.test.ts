@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,19 +18,19 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     repoId = workspaceId("closeout-holder"),
     taskId = "task-closeout-holder",
     executionId = "execution-closeout-holder",
-    holder = withRoleBinding(
+    holder = withPolicyGroup(
       {
         actor: { principal: { personId: "owner" }, executor: { kind: "agent" as const, id: "worker-holder" } },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     ),
-    other = withRoleBinding(
+    other = withPolicyGroup(
       {
         actor: { principal: holder.actor.principal, executor: { kind: "agent" as const, id: "worker-other" } },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     );
   initRepo(rootDir);
   mkdirSync(ledger);

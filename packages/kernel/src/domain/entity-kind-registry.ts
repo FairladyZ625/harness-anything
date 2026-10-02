@@ -322,7 +322,7 @@ export const entityAction = (
     actor: Object.freeze({ source: "authenticated-binding" as const, authorityRef: "actor-identity/v1" }),
     target: Object.freeze({ kind, refTemplate: identity.refTemplate }),
     input: emptyActionInput,
-    policy: Object.freeze({ ref: "default@5", action: null }),
+    policy: Object.freeze({ ref: "keycloak-policy@1", action: null }),
     criteria: Object.freeze([]),
     concurrency: defaultConcurrency(kind, identity.refTemplate),
     effects: Object.freeze([]),
