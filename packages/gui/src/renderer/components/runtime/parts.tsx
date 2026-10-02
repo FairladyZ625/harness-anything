@@ -5,13 +5,15 @@ import type { ReactNode } from "react";
 // segmented control / switch / avatar / dots), so the surfaces below stay declarative and
 // no view re-invents a border radius.
 
+// Avatar 身份色已入 @theme token(--color-avatar-*,两主题成对,C13):
+// 组件不再持有 oklch 字面色,亮色主题跟随。
 export const AVATAR_COLORS = [
-  "oklch(0.75 0.12 195)",
-  "oklch(0.75 0.12 305)",
-  "oklch(0.75 0.12 150)",
-  "oklch(0.75 0.12 75)",
-  "oklch(0.75 0.10 250)",
-  "oklch(0.72 0.12 25)",
+  "var(--color-avatar-1)",
+  "var(--color-avatar-2)",
+  "var(--color-avatar-3)",
+  "var(--color-avatar-4)",
+  "var(--color-avatar-5)",
+  "var(--color-avatar-6)",
 ] as const;
 export const KIND_COLORS: Record<string, string> = {
   codex: "var(--color-status-in-review)",
@@ -228,7 +230,7 @@ export function Avatar({ id, size = "sm" }: { readonly id: string; readonly size
   return (
     <span
       aria-hidden
-      className={`flex shrink-0 items-center justify-center font-mono font-bold text-[oklch(0.15_0.01_285)] ${size === "lg" ? "size-10 rounded-lg ui-title" : "size-[18px] rounded ui-micro"}`}
+      className={`flex shrink-0 items-center justify-center font-mono font-bold text-avatar-fg ${size === "lg" ? "size-10 rounded-lg ui-title" : "size-[18px] rounded ui-micro"}`}
       style={{ background: AVATAR_COLORS[colorSeed(id)] }}
     >
       {initials(id)}

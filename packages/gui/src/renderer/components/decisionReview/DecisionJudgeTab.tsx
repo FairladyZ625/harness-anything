@@ -10,7 +10,8 @@ import { DecisionJudgmentPanel } from "../DecisionJudgmentPanel.tsx";
 import { DecisionMutationFeedback } from "../DecisionMutationFeedback.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ReadinessBanner } from "./DecisionReviewTab.tsx";
-import { cardClass, primaryButtonClass, reviewAcceptBlockedReason, secondaryButtonClass } from "./parts.tsx";
+import { cardClass, reviewAcceptBlockedReason } from "./parts.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 /**
  * S8 · 裁决确认:当前切面、将写入的 basis、未处置打回与业主具名处置。accept 是否可点只看
@@ -88,20 +89,12 @@ export function DecisionJudgeTab({
               <ReadinessBanner decision={decision} />
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={() => onNavigateEntity(`decision/${decision.decisionId}`)}
-              >
+              <Button onClick={() => onNavigateEntity(`decision/${decision.decisionId}`)}>
                 {t("views.decisionReview.backToProposal")}
-              </button>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={() => onNavigateEntity(decisionReviewRef(decision.decisionId, "review"))}
-              >
+              </Button>
+              <Button onClick={() => onNavigateEntity(decisionReviewRef(decision.decisionId, "review"))}>
                 {t("views.decisionReview.tabReview")}
-              </button>
+              </Button>
             </div>
           </section>
           {blockingIds.length > 0 && (
@@ -145,15 +138,16 @@ export function DecisionJudgeTab({
                 </label>
               </fieldset>
               {error && <p className="mt-1 ui-micro text-danger">{error}</p>}
-              <button
-                type="button"
-                data-testid="decision-override-submit"
-                disabled={overridePending}
-                onClick={() => void submitOverride()}
-                className={`${primaryButtonClass} mt-2`}
-              >
-                {t("views.decisionReview.overrideSubmit")}
-              </button>
+              <div className="mt-2">
+                <Button
+                  variant="primary"
+                  testId="decision-override-submit"
+                  disabled={overridePending}
+                  onClick={() => void submitOverride()}
+                >
+                  {t("views.decisionReview.overrideSubmit")}
+                </Button>
+              </div>
               <DecisionMutationFeedback feedback={overrideFeedback} />
             </section>
           )}

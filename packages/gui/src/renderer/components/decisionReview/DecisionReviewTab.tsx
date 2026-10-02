@@ -14,16 +14,8 @@ import { decisionReviewRef, decisionSessionsRef } from "../../navigation/decisio
 import type { DecisionReviewWriteFeedback } from "../../decision-review-actions.ts";
 import { RiskTierBadge } from "../badges.tsx";
 import { DecisionMutationFeedback } from "../DecisionMutationFeedback.tsx";
-import {
-  actorText,
-  atText,
-  cardClass,
-  dispatchStatusText,
-  primaryButtonClass,
-  ReviewSection,
-  secondaryButtonClass,
-  VerdictBadge,
-} from "./parts.tsx";
+import { actorText, atText, cardClass, dispatchStatusText, ReviewSection, VerdictBadge } from "./parts.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 /**
  * S3 · Decision 详情「提案与评审」:左栏提案与生效依据,右栏当前/历史切面的评审与评审派工。
@@ -112,15 +104,13 @@ export function DecisionReviewTab({
             <DispatchList decisionId={decision.decisionId} review={review} onNavigateEntity={onNavigateEntity} />
             {readiness !== null && (
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  data-testid="decision-review-dispatch"
+                <Button
+                  testId="decision-review-dispatch"
                   disabled={pending || review.currentDigest === null}
                   onClick={() => review.currentDigest && onDispatchReview(review.currentDigest)}
-                  className={secondaryButtonClass}
                 >
                   {t("views.decisionReview.dispatchReview")}
-                </button>
+                </Button>
                 <span className="ui-micro text-text-faint">
                   {review.currentDigest === null
                     ? t("views.decisionReview.digestUnavailable")
@@ -255,36 +245,31 @@ function ReviewCard({
       </p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {row.reportRef ? (
-          <button
-            type="button"
-            data-testid={`decision-review-open-report-${row.reviewId}`}
-            className={secondaryButtonClass}
+          <Button
+            testId={`decision-review-open-report-${row.reviewId}`}
             onClick={() => onNavigateEntity(decisionReviewRef(decisionId, "report", row.reviewId))}
           >
             {t("views.decisionReview.readReport")}
-          </button>
+          </Button>
         ) : (
           <span className="ui-micro text-text-faint">{t("views.decisionReview.noReport")}</span>
         )}
         {dispatch && (
-          <button
-            type="button"
-            data-testid={`decision-review-open-session-${row.reviewId}`}
-            className={secondaryButtonClass}
+          <Button
+            testId={`decision-review-open-session-${row.reviewId}`}
             onClick={() => onNavigateEntity(decisionSessionsRef(decisionId, dispatch.runtimeSessionId))}
           >
             {t("views.decisionReview.viewSession")}
-          </button>
+          </Button>
         )}
         {row.verdict === "changes_requested" && (
-          <button
-            type="button"
-            data-testid={`decision-review-respond-${row.reviewId}`}
-            className={primaryButtonClass}
+          <Button
+            variant="primary"
+            testId={`decision-review-respond-${row.reviewId}`}
             onClick={() => onNavigateEntity(decisionReviewRef(decisionId, "respond"))}
           >
             {t("views.decisionReview.respondEach")}
-          </button>
+          </Button>
         )}
       </div>
     </article>

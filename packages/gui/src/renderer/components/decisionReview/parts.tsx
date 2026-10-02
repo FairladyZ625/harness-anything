@@ -98,12 +98,7 @@ export function ReviewSection({
 }
 
 export const cardClass = "rounded-sm border border-border bg-surface p-3";
-export const primaryButtonClass =
-  "rounded-xs bg-accent px-2.5 py-1 ui-micro font-semibold text-accent-fg transition-colors duration-100 " +
-  "hover:bg-accent/85 disabled:pointer-events-none disabled:opacity-40";
-export const secondaryButtonClass =
-  "rounded-xs border border-border px-2.5 py-1 ui-micro text-text transition-colors duration-100 " +
-  "hover:border-border-strong hover:bg-surface-raised disabled:pointer-events-none disabled:opacity-40";
+// 按钮已收敛到 primitives/Button(全仓唯一按钮,含 40px 命中区):本目录不再持有按钮样式串。
 
 const DISPATCH_STATUS_KEY = {
   running: "views.decisionReview.dispatchRunning",

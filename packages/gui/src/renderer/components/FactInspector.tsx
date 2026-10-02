@@ -114,7 +114,7 @@ export function FactInspector({
   return (
     <aside
       data-testid="fact-inspector"
-      className={`flex w-[26rem] shrink-0 flex-col overflow-y-auto ${side === "left" ? "border-l" : "border-r"} border-border bg-surface`}
+      className={`flex w-[26rem] max-w-full shrink-0 flex-col overflow-y-auto ${side === "left" ? "border-l" : "border-r"} border-border bg-surface`}
     >
       <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
         <GitBranch weight="duotone" className="shrink-0 text-text-muted" />

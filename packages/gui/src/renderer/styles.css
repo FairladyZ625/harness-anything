@@ -66,6 +66,16 @@
   --color-stale: oklch(0.78 0.12 75);
   --color-danger: oklch(0.72 0.17 25);
 
+  /* Avatar 身份色(runtime 领域,色相仅按 id 哈希区分、无语义):两主题成对,
+     Avatar 组件不再持有 oklch 字面色(B5/C13)。 */
+  --color-avatar-1: oklch(0.75 0.12 195);
+  --color-avatar-2: oklch(0.75 0.12 305);
+  --color-avatar-3: oklch(0.75 0.12 150);
+  --color-avatar-4: oklch(0.75 0.12 75);
+  --color-avatar-5: oklch(0.75 0.1 250);
+  --color-avatar-6: oklch(0.72 0.12 25);
+  --color-avatar-fg: oklch(0.15 0.01 285);
+
   /* 语义轴四色(REQ-GUI-04 三泳道/筛选):等亮度,两主题可辨 */
   --color-axis-authority: oklch(0.72 0.13 305);
   --color-axis-evidence: oklch(0.74 0.12 150);
@@ -146,6 +156,14 @@ html[data-theme="light"] {
 
   --color-stale: oklch(0.57 0.12 75);
   --color-danger: oklch(0.54 0.19 25);
+
+  --color-avatar-1: oklch(0.6 0.12 195);
+  --color-avatar-2: oklch(0.6 0.12 305);
+  --color-avatar-3: oklch(0.6 0.12 150);
+  --color-avatar-4: oklch(0.6 0.12 75);
+  --color-avatar-5: oklch(0.6 0.1 250);
+  --color-avatar-6: oklch(0.58 0.12 25);
+  --color-avatar-fg: oklch(0.99 0.005 285);
 
   --color-axis-authority: oklch(0.54 0.16 305);
   --color-axis-evidence: oklch(0.56 0.14 150);
