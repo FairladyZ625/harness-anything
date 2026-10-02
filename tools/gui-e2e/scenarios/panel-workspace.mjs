@@ -150,6 +150,31 @@ export default {
     await container.getByTestId("floating-panel-maximize").click();
     await waitForOffset(page, documentsBody, beforeMaximize, 4);
 
+    // Fault injection is confined to this isolated renderer profile, not the user's storage.
+    await page.evaluate(() => {
+      const original = Storage.prototype.setItem;
+      globalThis.__restorePanelStorage = () => {
+        Storage.prototype.setItem = original;
+      };
+      Storage.prototype.setItem = function (key, value) {
+        if (key.startsWith("harness:gui:panel-workspace:"))
+          throw new DOMException("Test quota exhausted", "QuotaExceededError");
+        return original.call(this, key, value);
+      };
+    });
+    try {
+      await dragBy(page, container.locator(".dv-floating-titlebar"), 16, 0);
+      await page.getByTestId("floating-panel-persist-status").waitFor();
+      await shot("panel-workspace-save-error");
+    } finally {
+      await page.evaluate(() => {
+        globalThis.__restorePanelStorage();
+        delete globalThis.__restorePanelStorage;
+      });
+    }
+    await dragBy(page, container.locator(".dv-floating-titlebar"), 16, 0);
+    await page.getByTestId("floating-panel-persist-status").waitFor({ state: "hidden" });
+
     // 画板收缩后每个浮窗至少留一角在画板内。主窗口有 1120×720 的最小尺寸,窗口本身
     // 缩不进去;直接收画板元素,驱动 dockview 的 ResizeObserver → layout →
     // constrainBounds 路径——侧栏展开挤占画板走的是同一机制。
