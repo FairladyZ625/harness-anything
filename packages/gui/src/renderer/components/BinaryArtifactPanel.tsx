@@ -1,3 +1,4 @@
+import { DocumentFrame } from "./DocumentFrame";
 import { useCallback, useState } from "react";
 import { ArrowSquareOut, FileX } from "@phosphor-icons/react";
 import type { TaskDocumentProjectionRead } from "../../api/renderer-dto.ts";
@@ -26,6 +27,26 @@ export function BinaryArtifactPanel({
     const outcome = await openArtifactExternally({ repoId, path: artifactPath, taskId });
     if (outcome.error !== null) setOpenError(outcome.error);
   }, [artifactPath, repoId, taskId]);
+  const image =
+    read.bytes !== null && /^image\/(?:png|jpeg|gif|webp|avif|svg\+xml|bmp|x-icon)$/u.test(read.mediaType ?? "");
+  if (image)
+    return (
+      <DocumentFrame
+        testId="task-document-image"
+        toolbar={
+          <div className="px-3 py-2 ui-meta">
+            {path}
+            {read.uncommitted ? " · 已入账版本（本地有未提交修改）" : ""}
+          </div>
+        }
+      >
+        <img
+          src={`data:${read.mediaType};base64,${read.bytes}`}
+          alt={path}
+          className="mx-auto block h-auto max-w-full"
+        />
+      </DocumentFrame>
+    );
   return (
     <div data-testid="task-document-binary" className="border border-border-strong">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">

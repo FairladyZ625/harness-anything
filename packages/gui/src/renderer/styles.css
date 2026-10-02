@@ -767,3 +767,15 @@ html[data-theme="light"] ::selection {
   background: color-mix(in oklch, var(--color-bg) 70%, transparent);
   backdrop-filter: blur(6px);
 }
+
+/* A wide table/code block stays inside its own reading column. */
+.document-wide-block {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  break-inside: avoid;
+}
+.document-wide-block > table {
+  inline-size: max-content;
+  min-inline-size: 100%;
+}
