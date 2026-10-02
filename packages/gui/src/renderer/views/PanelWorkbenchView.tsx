@@ -3,8 +3,7 @@ import { ArrowClockwise, Plus } from "@phosphor-icons/react";
 import { FloatingPanelGrid } from "../panel-workspace/floating-panel-grid.tsx";
 import {
   panelWorkspacePreferenceStorage,
-  readPanelWorkspaceSelection,
-  writePanelWorkspaceSelection,
+  readPanelWorkspaceLayout,
   type PanelWorkspaceStorage,
 } from "../panel-workspace/panel-workspace-layout.ts";
 import {
@@ -17,7 +16,6 @@ import {
 import { PageHeader } from "../components/primitives/PageHeader";
 import { Button } from "../components/primitives/Button";
 import { Popover } from "../components/Popover.tsx";
-import { consumeKnownError } from "../../api/error-consumption.ts";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -40,25 +38,17 @@ export type PanelWorkbenchViewProps = WorkbenchPanelProps & {
 export function PanelWorkbenchView(props: PanelWorkbenchViewProps) {
   const storage = props.storage ?? panelWorkspacePreferenceStorage();
   const [resetNonce, setResetNonce] = useState(0);
-  const [selectionUnavailable, setSelectionUnavailable] = useState(false);
   const [openIds, setOpenIds] = useState<readonly string[]>(
-    () => readPanelWorkspaceSelection(storage, props.workspaceKey) ?? DEFAULT_WORKBENCH_PANEL_IDS,
+    () => readPanelWorkspaceLayout(storage, props.workspaceKey).panels ?? DEFAULT_WORKBENCH_PANEL_IDS,
   );
 
-  /** 选择变更 = 摘/挂面板 + 落盘;写失败显形在页头下,不伪装成已保存。 */
+  /** 选择变更只更新画板输入；几何与选择由画板统一落盘并显示错误。 */
   const togglePanel = useCallback(
     (panelId: string) => {
       const next = openIds.includes(panelId) ? openIds.filter((id) => id !== panelId) : [...openIds, panelId];
-      try {
-        writePanelWorkspaceSelection(storage, props.workspaceKey, next);
-        setSelectionUnavailable(false);
-      } catch (cause) {
-        consumeKnownError(cause);
-        setSelectionUnavailable(true);
-      }
       setOpenIds(next);
     },
-    [openIds, props.workspaceKey, storage],
+    [openIds],
   );
 
   /** 重置:选择集合与几何一起回默认。清槽由画板的重置路径完成(resetNonce 驱动)。 */
@@ -122,15 +112,6 @@ export function PanelWorkbenchView(props: PanelWorkbenchViewProps) {
           </>
         }
       />
-      {selectionUnavailable ? (
-        <p
-          role="status"
-          data-testid="panel-selection-persist-status"
-          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono ui-micro text-status-blocked"
-        >
-          {t("views.panelWorkbench.persistUnavailable")}
-        </p>
-      ) : null}
       <main className="relative min-h-0 flex-1 px-3 pb-3">
         <FloatingPanelGrid
           workspaceId={props.workspaceKey}

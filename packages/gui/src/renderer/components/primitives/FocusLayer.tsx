@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { X } from "@phosphor-icons/react";
 import { t } from "../../i18n/index.tsx";
@@ -64,7 +65,8 @@ export function FocusLayer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, itemIds, selectedId, onClose, onSelect]);
 
-  return (
+  // Viewport overlays must escape transformed/clipped panel ancestors.
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
@@ -128,6 +130,7 @@ export function FocusLayer({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }

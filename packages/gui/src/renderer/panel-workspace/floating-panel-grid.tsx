@@ -206,8 +206,7 @@ export function FloatingPanelGrid({
    * 精确往返。面板不在浮动窗口上(无宿主元素)时为 null。
    */
   const geometryOf = useCallback((panelId: string): PanelGeometry | null => {
-    const root = containerRef.current;
-    const host = root?.querySelector(`[data-panel-id="${CSS.escape(panelId)}"]`)?.closest(".dv-resize-container");
+    const host = apiRef.current?.getPanel(panelId)?.group.element.closest(".dv-resize-container");
     if (!(host instanceof HTMLElement) || !(host.offsetParent instanceof HTMLElement)) return null;
     return {
       x: host.offsetLeft,
@@ -245,8 +244,13 @@ export function FloatingPanelGrid({
     }
     // 页面仍声明这些面板而几何全空 = dockview 拆卸(clear/dispose)触发的末次事件,
     // 不是用户排空了布局;这时落盘会把已保存的偏好清成空布局。
-    if (Object.keys(layout).length === 0) return;
-    storageAttempt(() => writePanelWorkspaceLayout(storageRef.current, workspaceRef.current, layout));
+    if (panelsRef.current.length > 0 && Object.keys(layout).length === 0) return;
+    storageAttempt(() =>
+      writePanelWorkspaceLayout(storageRef.current, workspaceRef.current, {
+        layout,
+        panels: panelsRef.current.map((panel) => panel.id),
+      }),
+    );
   }, [geometryOf, storageAttempt]);
 
   /**
@@ -297,7 +301,7 @@ export function FloatingPanelGrid({
     (mode: "restore" | "reset") => {
       const api = apiRef.current;
       if (!api) return;
-      const layout = mode === "reset" ? {} : readPanelWorkspaceLayout(storageRef.current, workspaceRef.current);
+      const layout = mode === "reset" ? {} : readPanelWorkspaceLayout(storageRef.current, workspaceRef.current).layout;
       if (mode === "reset") {
         storageAttempt(() => clearPanelWorkspaceLayout(storageRef.current, workspaceRef.current));
         restoreGeometriesRef.current.clear();
@@ -345,10 +349,11 @@ export function FloatingPanelGrid({
     if (!changed) return;
     syncPanels(
       "mount",
-      readPanelWorkspaceLayout(storageRef.current, workspaceRef.current),
+      readPanelWorkspaceLayout(storageRef.current, workspaceRef.current).layout,
       presetGeometryRef.current(canvasOf()),
     );
-  }, [panels, canvasOf, syncPanels]);
+    persist();
+  }, [panels, canvasOf, syncPanels, persist]);
 
   const toggleMaximize = useCallback(
     (panelId: string) => {

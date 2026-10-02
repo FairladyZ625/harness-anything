@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChatCircleDots, CheckCircle, WarningCircle, X } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { agendaQueryKeys } from "../agenda-data.ts";
@@ -49,7 +50,7 @@ export function AwaitsAnswerPanel({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
   const row = subject.row;
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-40 flex justify-end bg-bg/45" data-testid="awaits-answer-panel">
       <aside
         role="dialog"
@@ -173,7 +174,8 @@ export function AwaitsAnswerPanel({
           </Section>
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -1,5 +1,4 @@
 import { isRendererRecord } from "../result-validation.ts";
-import { consumeKnownError } from "../../api/error-consumption.ts";
 
 const schema = "panel-workspace/v1",
   slotKeyPrefix = "harness:gui:panel-workspace:";
@@ -12,7 +11,7 @@ const schema = "panel-workspace/v1",
  * 读出(见 floating-panel-grid.tsx),坏的分量逐个丢弃而不是整份作废。
  *
  * 面板选择(task_48fe291624e06a2e9ad9496c81)与几何同槽同记录:`panels` 是当前
- * 打开的面板身份清单,缺省(旧记录/损坏)回落调用方的默认清单,不设迁移路径。
+ * 打开的面板身份清单；选择与几何由画板一次性写入，损坏时使用默认布局。
  *
  * 每个工作区(连接目标 + 仓,由调用方拼成不透明槽键)一个 localStorage 槽键:
  * 读写本槽不解析、不重写其他槽,损坏不外溢,也不需要逐出策略。只落 renderer
@@ -63,90 +62,49 @@ function parseLayout(value: unknown): PanelWorkspaceLayout {
   return layout;
 }
 
+export interface PanelWorkspaceSnapshot {
+  readonly layout: PanelWorkspaceLayout;
+  readonly panels: readonly string[] | null;
+}
+
+/** One record owns selection and geometry; malformed preferences reset together. */
 export function readPanelWorkspaceLayout(
   storage: Pick<PanelWorkspaceStorage, "getItem"> | null | undefined,
   workspaceId: string,
-): PanelWorkspaceLayout {
-  if (!storage) return {};
+): PanelWorkspaceSnapshot {
+  const empty: PanelWorkspaceSnapshot = { layout: {}, panels: null };
+  if (!storage) return empty;
   try {
     const parsed: unknown = JSON.parse(storage.getItem(slotKey(workspaceId)) ?? "null");
-    if (!isRendererRecord(parsed) || parsed.schema !== schema) return {};
-    return parseLayout(parsed.layout);
+    if (!isRendererRecord(parsed) || parsed.schema !== schema) return empty;
+    return {
+      layout: parseLayout(parsed.layout),
+      panels: Array.isArray(parsed.panels)
+        ? parsed.panels.filter((id): id is string => typeof id === "string" && id !== "")
+        : null,
+    };
   } catch {
-    // 槽里的字节损坏(写盘中断/手改):退回预设布局,重置手段是页头的「重置布局」。
-    return {};
+    return empty;
   }
 }
 
-function parseSelection(value: unknown): readonly string[] | null {
-  if (!Array.isArray(value)) return null;
-  return value.filter((id): id is string => typeof id === "string" && id !== "");
-}
-
-/**
- * 读当前工作区选择的面板清单。null = 该槽没有有效选择(从未保存/已重置/损坏),
- * 调用方回落默认清单;空集是合法值——关掉全部面板也是一次显式选择。
- */
-export function readPanelWorkspaceSelection(
-  storage: Pick<PanelWorkspaceStorage, "getItem"> | null | undefined,
-  workspaceId: string,
-): readonly string[] | null {
-  if (!storage) return null;
-  try {
-    const parsed: unknown = JSON.parse(storage.getItem(slotKey(workspaceId)) ?? "null");
-    if (!isRendererRecord(parsed) || parsed.schema !== schema) return null;
-    return parseSelection(parsed.panels);
-  } catch (cause) {
-    // 槽里的字节损坏(与几何同一条判定):回落「没有有效选择」,调用方用默认清单。
-    consumeKnownError(cause);
-    return null;
-  }
-}
-
-/** 读-改-写:两个字段各自落盘时保留对方,不整份覆盖同槽的另一份状态。 */
-function updateSlot(
-  storage: PanelWorkspaceStorage | null | undefined,
-  workspaceId: string,
-  update: (record: Record<string, unknown>) => Record<string, unknown>,
-): void {
-  if (!storage) return;
-  const key = slotKey(workspaceId);
-  let record: Record<string, unknown> = {};
-  try {
-    const parsed: unknown = JSON.parse(storage.getItem(key) ?? "null");
-    if (isRendererRecord(parsed) && parsed.schema === schema) record = { ...parsed };
-  } catch (cause) {
-    // 槽损坏就从空记录重建(几何回落预设、选择回落默认),另一字段照常写回。
-    consumeKnownError(cause);
-  }
-  storage.setItem(key, JSON.stringify(update(record)));
-}
-
+/** Persist the whole current layout once; errors surface in the owning grid. */
 export function writePanelWorkspaceLayout(
   storage: PanelWorkspaceStorage | null | undefined,
   workspaceId: string,
-  layout: PanelWorkspaceLayout,
+  snapshot: PanelWorkspaceSnapshot,
 ): void {
   if (!storage) return;
-  const rounded: Record<string, PanelGeometry> = {};
-  for (const [panelId, panelGeometry] of Object.entries(layout)) {
-    rounded[panelId] = {
-      x: Math.round(panelGeometry.x),
-      y: Math.round(panelGeometry.y),
-      width: Math.round(panelGeometry.width),
-      height: Math.round(panelGeometry.height),
+  const layout: Record<string, PanelGeometry> = {};
+  for (const [id, box] of Object.entries(snapshot.layout)) {
+    layout[id] = {
+      x: Math.round(box.x),
+      y: Math.round(box.y),
+      width: Math.round(box.width),
+      height: Math.round(box.height),
     };
   }
-  updateSlot(storage, workspaceId, (record) => ({ ...record, schema, layout: rounded }));
-}
-
-/** 保存选择的面板清单(同一槽位的几何原样保留)。存储失败向上抛。 */
-export function writePanelWorkspaceSelection(
-  storage: PanelWorkspaceStorage | null | undefined,
-  workspaceId: string,
-  panelIds: readonly string[],
-): void {
-  updateSlot(storage, workspaceId, (record) => ({ ...record, schema, panels: [...panelIds] }));
+  storage.setItem(slotKey(workspaceId), JSON.stringify({ schema, layout, panels: snapshot.panels }));
 }
 
 /** 重置布局:只清本工作区的槽(几何与选择一起回默认),不动其他工作区的偏好。存储失败向上抛。 */

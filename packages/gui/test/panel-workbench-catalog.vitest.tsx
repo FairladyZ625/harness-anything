@@ -11,8 +11,8 @@ import {
   workbenchPresetGeometry,
 } from "../src/renderer/panel-workspace/workbench-panels.tsx";
 import {
-  readPanelWorkspaceSelection,
-  writePanelWorkspaceSelection,
+  readPanelWorkspaceLayout,
+  writePanelWorkspaceLayout,
   type PanelWorkspaceStorage,
 } from "../src/renderer/panel-workspace/panel-workspace-layout.ts";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
@@ -31,6 +31,13 @@ const mounted: { root: Root; container: HTMLElement }[] = [];
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setActiveLocale("zh-CN");
+  // happy-dom has no layout; model the positioned parent required by the grid geometry reader.
+  Object.defineProperty(HTMLElement.prototype, "offsetParent", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.parentElement;
+    },
+  });
 });
 
 afterEach(() => {
@@ -195,7 +202,12 @@ describe("workbench panel catalog composition (task_48fe291624e06a2e9ad9496c81)"
     expect(mountedPanelIds(container)).toContain("schedules");
     // 真实功能体:计划面板读 repo.schedules.list,读失败走面板内错误显示,不是静态摘要。
     expect(container.querySelector('[data-testid="schedules-read-error"]')).not.toBeNull();
-    expect(readPanelWorkspaceSelection(disk, "local/repo-wb")).toEqual(["documents", "graph", "timeline", "schedules"]);
+    expect(readPanelWorkspaceLayout(disk, "local/repo-wb").panels).toEqual([
+      "documents",
+      "graph",
+      "timeline",
+      "schedules",
+    ]);
   });
 
   it("close button on a panel tab removes the panel and updates the stored selection", async () => {
@@ -210,7 +222,7 @@ describe("workbench panel catalog composition (task_48fe291624e06a2e9ad9496c81)"
     });
     await settle();
     expect(mountedPanelIds(container)).not.toContain("documents");
-    expect(readPanelWorkspaceSelection(disk, "local/repo-wb")).toEqual(["graph", "timeline"]);
+    expect(readPanelWorkspaceLayout(disk, "local/repo-wb").panels).toEqual(["graph", "timeline"]);
   });
 
   it("closing every panel shows the findable empty state and panels can be added back", async () => {
@@ -224,42 +236,42 @@ describe("workbench panel catalog composition (task_48fe291624e06a2e9ad9496c81)"
     await settle();
     expect(mountedPanelIds(container)).toEqual([]);
     expect(container.querySelector('[data-testid="panel-workbench-empty"]')).not.toBeNull();
-    expect(readPanelWorkspaceSelection(disk, "local/repo-wb")).toEqual([]);
+    expect(readPanelWorkspaceLayout(disk, "local/repo-wb").panels).toEqual([]);
     click(container, "panel-catalog-entry-graph");
     await settle();
     expect(mountedPanelIds(container)).toEqual(["graph"]);
   });
 
-  it("reset restores the default three and clears the stored slot", async () => {
+  it("reset restores the default three in memory and persisted layout", async () => {
     const disk = mapStorage();
-    writePanelWorkspaceSelection(disk, "local/repo-wb", ["graph", "providers"]);
+    writePanelWorkspaceLayout(disk, "local/repo-wb", { panels: ["graph", "providers"], layout: {} });
     const container = await mountWorkbench(disk);
     expect(mountedPanelIds(container)).toEqual(["graph", "providers"]);
     click(container, "panel-workbench-reset");
     await settle();
     expect(mountedPanelIds(container)).toEqual(["documents", "graph", "timeline"]);
-    expect(readPanelWorkspaceSelection(disk, "local/repo-wb")).toBeNull();
+    expect(readPanelWorkspaceLayout(disk, "local/repo-wb").panels).toEqual(DEFAULT_WORKBENCH_PANEL_IDS);
   });
 
   it("keeps selections isolated per workspace (connection target + repo)", async () => {
     const disk = mapStorage();
-    writePanelWorkspaceSelection(disk, "local/repo-wb", ["timeline"]);
+    writePanelWorkspaceLayout(disk, "local/repo-wb", { panels: ["timeline"], layout: {} });
     const otherRepo = await mountWorkbench(disk, "local/repo-other");
     expect(mountedPanelIds(otherRepo)).toEqual(["documents", "graph", "timeline"]);
     const otherEdge = await mountWorkbench(disk, "center-1/repo-wb");
     expect(mountedPanelIds(otherEdge)).toEqual(["documents", "graph", "timeline"]);
-    expect(readPanelWorkspaceSelection(disk, "local/repo-wb")).toEqual(["timeline"]);
+    expect(readPanelWorkspaceLayout(disk, "local/repo-wb").panels).toEqual(["timeline"]);
   });
 
   it("surfaces selection persistence failure instead of pretending it was saved", async () => {
     const container = await mountWorkbench(failingWriteStorage());
-    expect(container.querySelector('[data-testid="panel-selection-persist-status"]')).toBeNull();
+    expect(container.querySelector('[data-testid="floating-panel-persist-status"]')).not.toBeNull();
     openCatalog(container);
     click(container, "panel-catalog-entry-overview");
     await settle();
     // 本会话排布照常生效(面板挂上),失败状态可见。
     expect(mountedPanelIds(container)).toContain("overview");
-    expect(container.querySelector('[data-testid="panel-selection-persist-status"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="floating-panel-persist-status"]')).not.toBeNull();
   });
 });
 
