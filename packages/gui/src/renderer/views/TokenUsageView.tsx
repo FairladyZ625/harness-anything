@@ -1,9 +1,10 @@
+import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { AgentRuntimeTokenUsageResult } from "@harness-anything/daemon/protocol";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { t } from "../i18n/index.tsx";
-import { Badge, Empty, SegCtl } from "../components/runtime/parts.tsx";
+import { Badge, Empty } from "../components/runtime/parts.tsx";
 import { Region } from "../components/primitives/Region.tsx";
 import { QUERY_PACING_MS } from "../query-pacing.ts";
 import {

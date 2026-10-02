@@ -1,3 +1,4 @@
+import { SegCtl } from "../../components/primitives/SegCtl.tsx";
 import { useState } from "react";
 import { ArrowsLeftRight, Trash } from "@phosphor-icons/react";
 import type { AdminConnectionRow } from "../../../api/connection-admin-contract.ts";
@@ -5,7 +6,7 @@ import type { SystemRepoRow } from "../../api-client.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { t } from "../../i18n/index.tsx";
 import { useRepoAdminMutations } from "../../connection-data.ts";
-import { BTN, Row, Section, Segmented, Toggle } from "../../components/ui/widgets.tsx";
+import { BTN, Row, Section, Toggle } from "../../components/ui/widgets.tsx";
 import { RepoModeBadge, repoModeLabel } from "../../components/RepoModeBadge.tsx";
 import { centerConnectionAvailable, isRemoteProxy } from "./connectionTree.ts";
 
@@ -131,12 +132,12 @@ export function RepoDetailPanel({
               {t("views.repositories.modeSwitchUnavailable")}
             </span>
           ) : (
-            <Segmented
+            <SegCtl
               value={repo.mode === "remote-edge" ? "remote-edge" : "local"}
               disabled={!hasCenter || repoMutations.update.isPending}
               options={[
-                { key: "local", label: repoModeLabel("local") },
-                { key: "remote-edge", label: repoModeLabel("remote-edge") },
+                { value: "local", label: repoModeLabel("local") },
+                { value: "remote-edge", label: repoModeLabel("remote-edge") },
               ]}
               onChange={(key) => switchMode(key)}
             />

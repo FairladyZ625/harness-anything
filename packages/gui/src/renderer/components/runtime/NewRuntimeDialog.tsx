@@ -1,3 +1,4 @@
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useState } from "react";
 import { runtimeIsolationState, runtimePermissionMode } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstallationRow, RuntimeInstanceCreateInput } from "../../runtime-instance-client.ts";
@@ -24,7 +25,7 @@ import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { ActionError } from "./ActionError.tsx";
-import { Badge, Btn, CfgRow, Hint, KindDot, Modal, SegCtl, TextInput, Toggle, WarnBar } from "./parts.tsx";
+import { Badge, Btn, CfgRow, Hint, KindDot, Modal, TextInput, Toggle, WarnBar } from "./parts.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 const kindLabel = (kindId: RuntimeKindId): string => runtimeKindForId(kindId).displayName;

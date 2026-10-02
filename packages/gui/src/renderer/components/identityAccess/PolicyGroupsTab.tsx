@@ -1,3 +1,4 @@
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useEffect, useState } from "react";
 import type {
   AccessAdminApi,
@@ -17,7 +18,7 @@ import { DenseRow } from "../primitives/DenseRow.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
-import { BTN, Segmented } from "../ui/widgets.tsx";
+import { BTN } from "../ui/widgets.tsx";
 import { AccessNotice, INPUT, asRejection, useAccessRead } from "./AccessParts.tsx";
 
 const NEW_GROUP = "\u0000new";
@@ -265,10 +266,10 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
                 <div className="flex flex-col gap-3" data-testid="access-action-picker">
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="font-semibold ui-meta">{t("accessControl.groups.actions")}</span>
-                    <Segmented
+                    <SegCtl
                       value={facet}
                       onChange={setFacet}
-                      options={ACTION_FACETS.map((key) => ({ key, label: t(FACET_LABEL[key]) }))}
+                      options={ACTION_FACETS.map((key) => ({ value: key, label: t(FACET_LABEL[key]) }))}
                     />
                   </div>
                   {groupActionsByFacet(data.actions, facet).map((section) => {

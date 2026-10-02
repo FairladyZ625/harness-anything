@@ -6,6 +6,7 @@ import { I18nProvider } from "../../i18n/index.tsx";
 import { PageHeader } from "../primitives/PageHeader.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { DenseRow, RowTime } from "../primitives/DenseRow.tsx";
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { Tabs } from "../primitives/Tabs.tsx";
 import { TabPanel } from "../primitives/EntryBoundary.tsx";
@@ -55,6 +56,34 @@ function ComponentCatalog() {
         </div>
       </header>
       <div className="grid gap-10" style={{ maxWidth: narrow ? "24rem" : undefined }} data-testid="catalog-samples">
+        <section className="grid gap-3">
+          <h2 className="font-semibold ui-title">分段选择 / SegCtl</h2>
+          <p className="text-text-muted ui-meta">统一设置、权限和运行时的选择交互；原生按钮支持键盘并避免提交表单。</p>
+          <div>
+            <SegCtl
+              label="目录主题"
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: "system", label: "跟随系统" },
+                { value: "light", label: "浅色" },
+                { value: "dark", label: "深色" },
+              ]}
+            />
+          </div>
+          <div>
+            <SegCtl
+              disabled
+              label="禁用示例"
+              value="local"
+              onChange={() => {}}
+              options={[
+                { value: "local", label: "本地" },
+                { value: "remote", label: "远程" },
+              ]}
+            />
+          </div>
+        </section>
         <section className="grid gap-3">
           <h2 className="font-semibold ui-title">状态 / StatusTag</h2>
           <p className="text-text-muted ui-meta">由同一状态词表和颜色映射渲染，状态文字不能只靠颜色辨认。</p>

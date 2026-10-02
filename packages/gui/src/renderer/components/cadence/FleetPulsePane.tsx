@@ -1,8 +1,9 @@
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import type { ReactNode } from "react";
 import { t } from "../../i18n/index.tsx";
 import { sessionStatusKey, sessionUnattributedKey, type SessionStatus } from "../../sessions-model.ts";
 import { decisionSessionsRef } from "../../navigation/decisionReviewRoutes.ts";
-import { SegCtl } from "../runtime/parts.tsx";
+
 import { DenseRow, RowTime } from "../primitives/DenseRow.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";

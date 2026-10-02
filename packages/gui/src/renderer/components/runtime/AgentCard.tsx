@@ -1,3 +1,4 @@
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useEffect, useState } from "react";
 import { Eye } from "@phosphor-icons/react";
 import type { AgentDeclarationV1 } from "@harness-anything/daemon/protocol";
@@ -31,7 +32,6 @@ import {
   LiveDot,
   RoleTag,
   Sect,
-  SegCtl,
   TextInput,
 } from "./parts.tsx";
 

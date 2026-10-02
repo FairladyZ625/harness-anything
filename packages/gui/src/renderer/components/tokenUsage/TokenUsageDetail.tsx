@@ -1,3 +1,4 @@
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "@phosphor-icons/react";
@@ -12,19 +13,7 @@ import { formatDuration, formatTime } from "../../model/time.ts";
 import { usageIsUnreported, usageOutcomeKey, usageStateKey } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { QUERY_PACING_MS } from "../../query-pacing.ts";
-import {
-  Badge,
-  Card,
-  CardBody,
-  CardHead,
-  CardTitle,
-  Chip,
-  Empty,
-  KV,
-  KVRow,
-  Right,
-  SegCtl,
-} from "../runtime/parts.tsx";
+import { Badge, Card, CardBody, CardHead, CardTitle, Chip, Empty, KV, KVRow, Right } from "../runtime/parts.tsx";
 import { tokenKindLayers, UsageTrendChart, UsageTrendTable } from "./UsageTrendChart.tsx";
 
 const OUTCOME_TONE: Readonly<Record<AgentRuntimeTokenUsageSessionRow["outcome"], string>> = {

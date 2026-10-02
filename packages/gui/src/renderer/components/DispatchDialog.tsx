@@ -1,3 +1,4 @@
+import { SegCtl } from "./primitives/SegCtl.tsx";
 import { useMemo, useState, type ReactNode } from "react";
 import type { AgentRuntimeInstanceDto } from "@harness-anything/daemon/protocol";
 import {
@@ -11,7 +12,7 @@ import {
 import type { AgentDispatchPreview } from "../runtime-control.ts";
 import { t } from "../i18n/index.tsx";
 import { DispatchPreviewModal } from "./DispatchPreviewModal.tsx";
-import { Avatar, Badge, Btn, Chip, Hint, KindDot, LiveDot, Modal, SegCtl, TextInput } from "./runtime/parts.tsx";
+import { Avatar, Badge, Btn, Chip, Hint, KindDot, LiveDot, Modal, TextInput } from "./runtime/parts.tsx";
 import { planeAllowsEffort } from "../runtime-provider-planes.ts";
 import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 

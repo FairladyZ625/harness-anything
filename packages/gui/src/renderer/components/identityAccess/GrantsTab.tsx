@@ -1,3 +1,4 @@
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useState } from "react";
 import type {
   AccessAdminApi,
@@ -13,7 +14,7 @@ import { DenseRow } from "../primitives/DenseRow.tsx";
 import { PillFlow } from "../primitives/PillFlow.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
-import { BTN, Segmented } from "../ui/widgets.tsx";
+import { BTN } from "../ui/widgets.tsx";
 import { AccessNotice, INPUT, ReceiptRows, SMALL_BTN, asRejection, useAccessRead } from "./AccessParts.tsx";
 
 type ScopeKind = AccessScope["kind"];
@@ -138,13 +139,13 @@ export function GrantsTab({
           </label>
           <div className="flex flex-col gap-1 ui-meta text-text-muted">
             {t("accessControl.grants.scope")}
-            <Segmented<ScopeKind>
+            <SegCtl<ScopeKind>
               value={target.kind}
               onChange={(kind) => setTarget({ ...target, kind })}
               options={[
-                { key: "repository", label: t("accessControl.scope.repository") },
-                { key: "entity", label: t("accessControl.scope.entity") },
-                { key: "fleet", label: t("accessControl.scope.fleet") },
+                { value: "repository", label: t("accessControl.scope.repository") },
+                { value: "entity", label: t("accessControl.scope.entity") },
+                { value: "fleet", label: t("accessControl.scope.fleet") },
               ]}
             />
           </div>

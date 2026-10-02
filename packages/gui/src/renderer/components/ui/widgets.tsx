@@ -29,39 +29,6 @@ export function Row({ label, desc, children }: { label: ReactNode; desc?: ReactN
   );
 }
 
-export function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-  disabled,
-}: {
-  value: T;
-  options: { key: T; label: string }[];
-  onChange: (v: T) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div
-      className={`inline-flex overflow-hidden rounded-md border border-border ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
-    >
-      {options.map((o, i) => (
-        <button
-          key={o.key}
-          onClick={() => {
-            if (!disabled) onChange(o.key);
-          }}
-          disabled={disabled}
-          className={`px-3 py-1.5 ui-body ${i > 0 ? "border-l border-border" : ""} ${
-            value === o.key ? "bg-surface-raised font-medium" : "text-text-muted hover:bg-surface-raised/50"
-          } ${disabled ? "cursor-not-allowed" : ""}`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function Toggle({
   checked,
   onChange,

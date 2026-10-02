@@ -1,10 +1,11 @@
+import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { useState } from "react";
 import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { useMotionPreference, type MotionPreference } from "../motion-config.tsx";
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
-import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
+import { BTN, Section, Row, Toggle, Kbd } from "../components/ui/widgets";
 import {
   formatDuration,
   formatRelative,
@@ -126,23 +127,23 @@ export function SettingsView({
         return (
           <Section title={t("views.settingsView.sectionAppearance")}>
             <Row label={t("views.settingsView.themeLabel")} desc={t("views.settingsView.themeDescription")}>
-              <Segmented
+              <SegCtl
                 value={mode}
-                options={THEME_OPTIONS.map(({ key, labelKey }) => ({ key, label: t(labelKey) }))}
+                options={THEME_OPTIONS.map(({ key, labelKey }) => ({ value: key, label: t(labelKey) }))}
                 onChange={setMode}
               />
             </Row>
             <Row label={t("views.settingsView.motionLabel")} desc={t("views.settingsView.motionDescription")}>
-              <Segmented
+              <SegCtl
                 value={motionPreference}
-                options={MOTION_OPTIONS.map(({ key, labelKey }) => ({ key, label: t(labelKey) }))}
+                options={MOTION_OPTIONS.map(({ key, labelKey }) => ({ value: key, label: t(labelKey) }))}
                 onChange={setMotionPreference}
               />
             </Row>
             <Row label={t("views.settingsView.uiScaleLabel")} desc={t("views.settingsView.uiScaleDescription")}>
-              <Segmented
+              <SegCtl
                 value={uiScale}
-                options={SCALE_OPTIONS.map(({ key, labelKey }) => ({ key, label: t(labelKey) }))}
+                options={SCALE_OPTIONS.map(({ key, labelKey }) => ({ value: key, label: t(labelKey) }))}
                 onChange={setUiScale}
               />
             </Row>
@@ -183,10 +184,10 @@ export function SettingsView({
               </select>
             </Row>
             <Row label={t("views.settingsView.dateFormatLabel")} desc={t("views.settingsView.dateFormatDescription")}>
-              <Segmented
+              <SegCtl
                 value={timePrefs.dateFormat}
                 options={DATE_FORMAT_OPTIONS.map((dateFormat) => ({
-                  key: dateFormat,
+                  value: dateFormat,
                   // 选项标签即实时预览:固定样张在当前时区与小时制下的实际写法。
                   label:
                     formatTime(DATE_FORMAT_SAMPLE, { style: "date-time", prefs: { ...timePrefs, dateFormat } }) ??
@@ -196,17 +197,17 @@ export function SettingsView({
               />
             </Row>
             <Row label={t("views.settingsView.hourCycleLabel")}>
-              <Segmented
+              <SegCtl
                 value={timePrefs.hour12 ? "h12" : "h23"}
                 options={[
                   {
-                    key: "h23" as const,
+                    value: "h23" as const,
                     label:
                       formatTime(DATE_FORMAT_SAMPLE, { style: "time", prefs: { ...timePrefs, hour12: false } }) ??
                       t("views.settingsView.hourCycle24"),
                   },
                   {
-                    key: "h12" as const,
+                    value: "h12" as const,
                     label:
                       formatTime(DATE_FORMAT_SAMPLE, { style: "time", prefs: { ...timePrefs, hour12: true } }) ??
                       t("views.settingsView.hourCycle12"),
@@ -216,15 +217,15 @@ export function SettingsView({
               />
             </Row>
             <Row label={t("views.settingsView.listStyleLabel")} desc={t("views.settingsView.listStyleDescription")}>
-              <Segmented
+              <SegCtl
                 value={timePrefs.listStyle}
                 options={[
                   {
-                    key: "relative" as const,
+                    value: "relative" as const,
                     label: formatRelative(RELATIVE_SAMPLE, { prefs: timePrefs }),
                   },
                   {
-                    key: "absolute" as const,
+                    value: "absolute" as const,
                     label:
                       formatTime(new Date(RELATIVE_SAMPLE).toISOString(), {
                         style: "date-time",
