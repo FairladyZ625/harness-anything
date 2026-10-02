@@ -15,6 +15,8 @@ const task = (
   status: "planned" | "active" | "blocked" | "done" | "cancelled",
   taskClass: "standard" | "work" = "standard",
   updatedAt = "2026-09-20T00:00:00.000Z",
+  packageDisposition: "active" | "archived" = "active",
+  supersededBy: string | null = null,
 ) => ({
   taskId,
   parentTaskId,
@@ -25,7 +27,8 @@ const task = (
   workKind: null,
   riskTier: null,
   urgency: null,
-  packageDisposition: "active",
+  packageDisposition,
+  supersededBy,
   packagePath: `tasks/${taskId}`,
   updatedAt,
 });
@@ -43,7 +46,13 @@ const rows = [
 function projection(plan: string | null = "# Work\n\n## Mission\n\n- Ship release two.\n- Keep the lanes green.\n") {
   return {
     readTaskIndex: () => ({ status: "ready", rows, watermark: 7, sourceRevision: 7, warnings: [] }),
-    read: (taskId: string) => ({ packagePath: `tasks/${taskId}` }),
+    read: (taskId: string) => {
+      const row = rows.find((candidate) => candidate.taskId === taskId);
+      return {
+        packagePath: `tasks/${taskId}`,
+        snapshot: { task: row ? { taskId, supersededBy: row.supersededBy } : null },
+      };
+    },
     readDocument: () => ({ document: plan === null ? null : { body: plan } }),
   } as never;
 }
@@ -157,6 +166,36 @@ test("work reads consume the kernel's presented root status while open and child
   const shown = workShowFromProjection(projection, { taskId: "all-done" });
   assert.equal(shown.root.status, "done");
   assert.match(renderWorkPayload(shown)!, /^work all-done \[done\] all-done title/u);
+});
+
+test("work show drops superseded archived leaves from open tasks and pending counts", () => {
+  const retired = [
+    task("declared", null, "planned", "work"),
+    task("leaf-live", "declared", "planned"),
+    task("leaf-retired", "declared", "planned", "standard", "2026-09-20T00:00:00.000Z", "archived", "task_replacement"),
+  ];
+  const projection = {
+    readTaskIndex: () => ({ status: "ready", rows: retired, watermark: 3, sourceRevision: 3, warnings: [] }),
+    read: (taskId: string) => {
+      const row = retired.find((candidate) => candidate.taskId === taskId);
+      return {
+        packagePath: `tasks/${taskId}`,
+        snapshot: { task: row ? { taskId, supersededBy: row.supersededBy } : null },
+      };
+    },
+    readDocument: () => ({ document: { body: "# Work\n\n## Mission\n\n- Ship.\n" } }),
+  } as never;
+  const shown = workShowFromProjection(projection, { taskId: "declared" });
+
+  assert.deepEqual(
+    shown.openTasks.map(({ taskId }) => taskId),
+    ["leaf-live"],
+  );
+  assert.equal(shown.counts.planned, 1);
+  assert.equal(shown.scope.descendantCount, 2);
+  assert.equal(shown.scope.executableLeafCount, 1);
+  assert.equal(shown.scope.archivedCount, 1);
+  assert.doesNotMatch(renderWorkPayload(shown)!, /leaf-retired/u);
 });
 
 test("work show names the goal, subtree counts and open tasks, and the renderer points at the next commands", () => {
