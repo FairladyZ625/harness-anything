@@ -2,7 +2,7 @@ import { CaretLeft } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { DaemonTailPane, PANE_TOOL_BUTTON, type ObserveLogKind } from "../components/observe/DaemonTailPane.tsx";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 /**
  * G6-B daemon 观察详情页:System→system 里点开某个 attached 仓库后的两栏实况。
@@ -19,11 +19,14 @@ export function DaemonObserveView({
   repos,
   onBack,
   onNavigateEntity,
+  renderHeader,
 }: {
   readonly repoId: string | null;
   readonly repos: ReadonlyArray<SystemRepoRow>;
   readonly onBack: () => void;
   readonly onNavigateEntity: (ref: string) => void;
+  /** 页头渲染:缺省带「回到系统」返回钮;工作台面板传空渲染(面板标签即标题,无返回)。 */
+  readonly renderHeader?: () => ReactNode;
 }) {
   const [logKind, setLogKind] = useState<ObserveLogKind>("repo-log"),
     [lens, setLens] = useState<string | null>(null),
@@ -32,27 +35,31 @@ export function DaemonObserveView({
     navigate = (ref: string) => onNavigateEntity(repoId === null ? ref : `repo/${repoId}/${ref}`);
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-        <button type="button" onClick={onBack} data-testid="daemon-observe-back" className={PANE_TOOL_BUTTON}>
-          <CaretLeft />
-          {t("views.daemonObserve.backToSystem")}
-        </button>
-        <h1 className="ui-title font-semibold">{t("shell.nav.daemonObserve")}</h1>
-        {repoId ? (
-          <span className="flex min-w-0 flex-col">
-            <span className="truncate font-mono ui-meta text-text" title={repoId}>
-              {label}
-            </span>
-            {repo?.canonicalRoot ? (
-              <span className="truncate font-mono ui-micro text-text-faint" title={repo.canonicalRoot}>
-                {repo.canonicalRoot}
+      {renderHeader !== undefined ? (
+        renderHeader()
+      ) : (
+        <header className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+          <button type="button" onClick={onBack} data-testid="daemon-observe-back" className={PANE_TOOL_BUTTON}>
+            <CaretLeft />
+            {t("views.daemonObserve.backToSystem")}
+          </button>
+          <h1 className="ui-title font-semibold">{t("shell.nav.daemonObserve")}</h1>
+          {repoId ? (
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate font-mono ui-meta text-text" title={repoId}>
+                {label}
               </span>
-            ) : null}
-          </span>
-        ) : (
-          <span className="font-mono ui-meta text-status-blocked">{t("views.daemonObserve.repoMissing")}</span>
-        )}
-      </header>
+              {repo?.canonicalRoot ? (
+                <span className="truncate font-mono ui-micro text-text-faint" title={repo.canonicalRoot}>
+                  {repo.canonicalRoot}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <span className="font-mono ui-meta text-status-blocked">{t("views.daemonObserve.repoMissing")}</span>
+          )}
+        </header>
+      )}
       {repoId === null ? null : (
         <div
           data-testid="daemon-observe-content"

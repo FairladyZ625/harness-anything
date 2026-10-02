@@ -1,5 +1,5 @@
 import { Notice } from "../components/primitives/Notice";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ArrowClockwise } from "@phosphor-icons/react";
 import { controlSucceeded, useDaemonControl, useSystemStatusQuery } from "../system-data.ts";
 import { DaemonTailPane, type ObserveLogKind } from "../components/observe/DaemonTailPane.tsx";
@@ -145,11 +145,14 @@ export function SystemView({
   activeRepoId,
   onOpenObserve,
   onNavigateEntity,
+  renderHeader,
 }: {
   readonly activeRepoId: string | null;
   /** 打开某仓的 daemon 观察详情页(事件流 + 日志流);attached 仓才有入口。 */
   readonly onOpenObserve: (repoId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
+  /** 页头渲染:缺省装守护进程身份行 + 刷新主动作;工作台面板可只保留主动作。 */
+  readonly renderHeader?: (slot: { readonly refreshAction: ReactNode }) => ReactNode;
 }) {
   const status = useSystemStatusQuery(),
     control = useDaemonControl(activeRepoId),
@@ -174,39 +177,46 @@ export function SystemView({
     ];
   return (
     <div className="@container flex flex-1 flex-col overflow-y-auto">
-      <header className="border-b border-border px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="ui-title font-semibold">{t("shell.nav.system")}</h1>
-          <span className="font-mono ui-micro text-text-faint">
-            {daemon.daemonId} · pid {daemon.pid}
-          </span>
-          <div className="ml-auto flex gap-2">
-            <button
-              disabled={!activeRepoId || control.busy}
-              onClick={() => void control.request("refresh")}
-              className="inline-flex items-center gap-1 rounded-xs border border-border px-2 py-1 ui-meta text-text-muted disabled:opacity-50"
-            >
-              <ArrowClockwise />
-              {t("views.settingsView.systemRefresh")}
-            </button>
-          </div>
-        </div>
-        {receipt && (
-          <div
-            className={`mt-2 rounded-xs border px-2 py-1.5 font-mono ui-micro ${controlSucceeded(receipt) ? "border-status-done/30 text-status-done" : receipt.phase === "failed" ? "border-status-blocked/30 text-status-blocked" : "border-stale/30 text-stale"}`}
+      {(() => {
+        const refreshAction = (
+          <button
+            disabled={!activeRepoId || control.busy}
+            onClick={() => void control.request("refresh")}
+            className="inline-flex items-center gap-1 rounded-xs border border-border px-2 py-1 ui-meta text-text-muted disabled:opacity-50"
           >
-            <span>
-              {t("views.systemView.operationId")} {receipt.operationId} · {receipt.kind} · {receipt.phase}
-            </span>
-            {receipt.error && (
-              <span>
-                {" "}
-                · {receipt.error.code}: {receipt.error.hint}
+            <ArrowClockwise />
+            {t("views.settingsView.systemRefresh")}
+          </button>
+        );
+        return renderHeader !== undefined ? (
+          renderHeader({ refreshAction })
+        ) : (
+          <header className="border-b border-border px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="ui-title font-semibold">{t("shell.nav.system")}</h1>
+              <span className="font-mono ui-micro text-text-faint">
+                {daemon.daemonId} · pid {daemon.pid}
               </span>
+              <div className="ml-auto flex gap-2">{refreshAction}</div>
+            </div>
+            {receipt && (
+              <div
+                className={`mt-2 rounded-xs border px-2 py-1.5 font-mono ui-micro ${controlSucceeded(receipt) ? "border-status-done/30 text-status-done" : receipt.phase === "failed" ? "border-status-blocked/30 text-status-blocked" : "border-stale/30 text-stale"}`}
+              >
+                <span>
+                  {t("views.systemView.operationId")} {receipt.operationId} · {receipt.kind} · {receipt.phase}
+                </span>
+                {receipt.error && (
+                  <span>
+                    {" "}
+                    · {receipt.error.code}: {receipt.error.hint}
+                  </span>
+                )}
+              </div>
             )}
-          </div>
-        )}
-      </header>
+          </header>
+        );
+      })()}
       {/* 结论行(标准 §2.5 统计类):一句话 + 关键数字在前,字段明细与表在下。 */}
       <section
         data-testid="system-conclusion"

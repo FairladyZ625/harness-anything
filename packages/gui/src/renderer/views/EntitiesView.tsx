@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus } from "@phosphor-icons/react";
 import { entityDocGroups, type EntityKindDoc } from "../entity-docs.ts";
@@ -42,6 +42,7 @@ export function EntitiesView({
   onExitDetail,
   onOpenView,
   projectName,
+  renderHeader,
 }: {
   readonly repoId: string;
   /**
@@ -55,6 +56,8 @@ export function EntitiesView({
   readonly onExitDetail: () => void;
   readonly onOpenView: (viewId: ViewId) => void;
   readonly projectName: string;
+  /** 页头渲染:缺省装目录页头 + 新建 kind 主动作;工作台面板可只保留主动作。 */
+  readonly renderHeader?: (slot: { readonly newKindAction: ReactNode }) => ReactNode;
 }) {
   const liveCounts = useEntityLiveCounts(repoId);
   // 分组来自已注册 kind 读面:声明一个新 kind,这一页不改代码就多一条目录项。
@@ -83,12 +86,8 @@ export function EntitiesView({
     );
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <PageHeader
-        testId="entities-header"
-        title={t("shell.nav.entities")}
-        note={t("views.entitiesView.tagline")}
-        meta={repoId}
-        actions={
+      {(() => {
+        const newKindAction = (
           <button
             type="button"
             data-testid="new-vertical-kind"
@@ -104,8 +103,19 @@ export function EntitiesView({
             <Plus weight="bold" />
             {t("views.entitiesView.newKind")}
           </button>
-        }
-      />
+        );
+        return renderHeader !== undefined ? (
+          renderHeader({ newKindAction })
+        ) : (
+          <PageHeader
+            testId="entities-header"
+            title={t("shell.nav.entities")}
+            note={t("views.entitiesView.tagline")}
+            meta={repoId}
+            actions={newKindAction}
+          />
+        );
+      })()}
       {creatingKind && (
         <div className="px-4">
           <VerticalKindForm

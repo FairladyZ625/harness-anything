@@ -1,7 +1,7 @@
 import { Toggle } from "../components/primitives/Toggle.tsx";
 import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { Button } from "../components/primitives/Button.tsx";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { useMotionPreference, type MotionPreference } from "../motion-config.tsx";
@@ -102,11 +102,14 @@ export function SettingsView({
   repoId,
   repos,
   onOpenProject,
+  renderHeader,
 }: {
   /** 当前仓;无仓(首次运行的空态)时为 null,仓库设置页停用、仓库与连接页照常可用。 */
   readonly repoId: string | null;
   readonly repos: readonly SystemRepoRow[];
   readonly onOpenProject: (repoId: string) => void;
+  /** 页头渲染:缺省装标题 + 一句话说明;工作台面板传空渲染(面板标签即标题)。 */
+  readonly renderHeader?: () => ReactNode;
 }) {
   const { mode, setMode, uiScale, setUiScale } = useTheme();
   const { preference: motionPreference, setPreference: setMotionPreference } = useMotionPreference();
@@ -375,10 +378,14 @@ export function SettingsView({
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
-      <header className="border-b border-border px-4 py-3">
-        <h1 className="ui-title font-semibold">{t("settings.title")}</h1>
-        <p className="ui-meta mt-0.5 text-text-faint">{t("views.settingsView.headerDescription")}</p>
-      </header>
+      {renderHeader !== undefined ? (
+        renderHeader()
+      ) : (
+        <header className="border-b border-border px-4 py-3">
+          <h1 className="ui-title font-semibold">{t("settings.title")}</h1>
+          <p className="ui-meta mt-0.5 text-text-faint">{t("views.settingsView.headerDescription")}</p>
+        </header>
+      )}
 
       <div
         data-testid="settings-content"

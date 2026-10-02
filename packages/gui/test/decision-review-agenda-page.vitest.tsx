@@ -159,8 +159,10 @@ function mount(element: ReturnType<typeof createElement>): HTMLElement {
 const withQueries = (element: ReturnType<typeof createElement>) =>
   createElement(QueryClientProvider, { client: new QueryClient() }, element);
 
-const click = (host: HTMLElement, testId: string) => {
-  const button = host.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
+/** 抽屉壳 portal 到 document.body:抽屉里的按钮从 body 查。换行循环里退出动画的
+ * 旧抽屉可能短暂残留,取最后一个匹配(最新一次打开的抽屉)。 */
+const clickInBody = (testId: string) => {
+  const button = [...document.body.querySelectorAll<HTMLButtonElement>(`[data-testid="${testId}"]`)].at(-1);
   if (!button) throw new Error(`missing ${testId}`);
   act(() => button.click());
 };
@@ -170,6 +172,10 @@ const clickRow = (host: HTMLElement, id: string) => {
   if (!button) throw new Error(`missing agenda-row-${id}`);
   act(() => button.click());
 };
+/** body 里最新的 dialog(退出动画的旧抽屉可能短暂残留)。 */
+const latestDialog = (): HTMLElement | null =>
+  [...document.body.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1) ?? null;
+
 const typeInto = (input: HTMLInputElement, value: string) => {
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
@@ -297,11 +303,11 @@ describe("议程页(标准 §2.4 列表页)", () => {
       }),
     );
     clickRow(host, "rel_task");
-    let dialog = host.querySelector('[role="dialog"]');
+    let dialog = latestDialog();
     expect(dialog?.textContent).toMatch(/\d+ (分钟|小时|天)前开始等待/u);
     expect(dialog?.textContent).toContain("提案 task/task_x");
     expect(dialog?.textContent).toContain("has review changes to resolve.");
-    click(host, "agenda-drawer-answer");
+    clickInBody("agenda-drawer-answer");
     const panel = document.body.querySelector('[data-testid="awaits-answer-panel"]');
     expect(panel?.textContent).toContain("has review changes to resolve.");
     expect(opened).toEqual([]);
@@ -310,9 +316,9 @@ describe("议程页(标准 §2.4 列表页)", () => {
     act(() => [...host.querySelectorAll('[data-testid="agenda-filter-chips"] button')][2]!.click());
     for (const id of ["dec_running", "dec_dispose", "dec_review_a", "dec_judge"]) {
       clickRow(host, id);
-      dialog = host.querySelector('[role="dialog"]');
+      dialog = latestDialog();
       expect(dialog).not.toBeNull();
-      click(host, "agenda-drawer-open");
+      clickInBody("agenda-drawer-open");
     }
     expect(opened).toEqual([
       "decisionsessions/dec_running",
@@ -366,13 +372,13 @@ describe("议程页(标准 §2.4 列表页)", () => {
     expect(answeredRow0.querySelector('[data-status-tone="wait"]')).not.toBeNull();
     for (const id of ["rel_ans_task", "rel_ans_dec"]) {
       clickRow(answered, id);
-      click(answered, "agenda-drawer-open");
+      clickInBody("agenda-drawer-open");
     }
     // taskReviewing(待跟进桶)同样切「全部」后可达。
     act(() => [...host.querySelectorAll('[data-testid="agenda-filter-chips"] button')][2]!.click());
     for (const id of ["task_rework", "task_submitted", "task_in_review"]) {
       clickRow(host, id);
-      click(host, "agenda-drawer-open");
+      clickInBody("agenda-drawer-open");
     }
     expect(opened).toEqual([
       "task/task_asked",

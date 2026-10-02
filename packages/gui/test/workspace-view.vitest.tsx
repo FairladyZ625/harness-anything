@@ -585,7 +585,7 @@ describe("overview narrative", () => {
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[data-testid="work-stuck"] [data-task-row="task_solo"] button')!.click(),
     );
-    const drawer = host.querySelector('[role="dialog"]')!;
+    const drawer = document.body.querySelector('[role="dialog"]')!;
     expect(drawer.textContent).toContain("T task_solo");
   });
 });

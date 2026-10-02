@@ -23,6 +23,7 @@ import cadenceView from "./scenarios/cadence-view.mjs";
 import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
 import panelWorkspace from "./scenarios/panel-workspace.mjs";
 import panelWorkbenchCatalog from "./scenarios/panel-workbench-catalog.mjs";
+import workbenchRemainingPanels from "./scenarios/workbench-remaining-panels.mjs";
 
 export const catalog = [
   shellNavigation,
@@ -50,6 +51,7 @@ export const catalog = [
   taskCloseoutLongValues,
   panelWorkspace,
   panelWorkbenchCatalog,
+  workbenchRemainingPanels,
 ];
 
 export function selectScenarios({ lane, ids }) {

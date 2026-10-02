@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { AccessServiceTab } from "../components/identityAccess/AccessServiceTab.tsx";
 import { GrantsTab } from "../components/identityAccess/GrantsTab.tsx";
 import { PolicyGroupsTab } from "../components/identityAccess/PolicyGroupsTab.tsx";
@@ -18,9 +18,12 @@ type AccessTab = "service" | "groups" | "grants" | "receipts";
 export function IdentityAccessView({
   repos = [],
   repoId,
+  renderHeader,
 }: {
   readonly repoId?: string;
   readonly repos?: readonly { readonly repoId: string; readonly displayName: string }[];
+  /** 页头渲染:缺省装标题 + 一句话结论;工作台面板传空渲染(面板标签即标题)。 */
+  readonly renderHeader?: () => ReactNode;
 }) {
   const bridge = guiHostBridge(),
     auth = bridge?.auth && typeof bridge.auth.status === "function" ? bridge.auth : undefined,
@@ -30,10 +33,14 @@ export function IdentityAccessView({
   if (!auth) return <p role="alert">{t("identityAccess.electronOnly")}</p>;
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="identity-access-view">
-      <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
-        <h1 className="text-xl font-semibold text-text">{t("identityAccess.title")}</h1>
-        <span className="min-w-0 truncate text-sm text-text-muted">{t("accessControl.tagline")}</span>
-      </header>
+      {renderHeader !== undefined ? (
+        renderHeader()
+      ) : (
+        <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
+          <h1 className="text-xl font-semibold text-text">{t("identityAccess.title")}</h1>
+          <span className="min-w-0 truncate text-sm text-text-muted">{t("accessControl.tagline")}</span>
+        </header>
+      )}
       <div className="px-5">
         <Tabs
           ariaLabel={t("identityAccess.title")}

@@ -1,5 +1,5 @@
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useState } from "react";
 import { ArrowClockwise } from "@phosphor-icons/react";
 import { useCatalogReread, useCatalogSnapshot } from "../catalog-data.ts";
@@ -34,6 +34,7 @@ export function PresetsView({
   onOpenPreset,
   onExitDetail,
   projectName,
+  renderHeader,
 }: {
   readonly repoId: string;
   /** preset/<id> 深链接解析出的详情落点;null = 目录列表页。 */
@@ -41,6 +42,8 @@ export function PresetsView({
   readonly onOpenPreset: (presetId: string) => void;
   readonly onExitDetail: () => void;
   readonly projectName: string;
+  /** 页头渲染:缺省装目录页头 + 重读主动作;工作台面板可只保留主动作。 */
+  readonly renderHeader?: (slot: { readonly rereadAction: ReactNode }) => ReactNode;
 }) {
   const snapshot = useCatalogSnapshot(repoId),
     data = snapshot.data,
@@ -74,24 +77,8 @@ export function PresetsView({
     blocked = data.presets.filter((preset) => preset.validity === "blocked").length;
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <PageHeader
-        title={t("views.presetsView.catalogPreset")}
-        note={t("views.presetsView.activationDescription")}
-        meta={
-          <>
-            {blocked > 0 ? (
-              <StatusTag tone="bad" label={t("views.presetsView.blockedCount", { count: blocked })} />
-            ) : null}
-            {repoId} · {data.status}
-            {data.observedAt
-              ? ` · ${t("views.presetsView.observedAt")} ${
-                  formatTime(data.observedAt, { style: "date-time-seconds" }) ??
-                  t("views.presetsView.unknownNotProjected")
-                }`
-              : ""}
-          </>
-        }
-        actions={
+      {(() => {
+        const rereadAction = (
           <button
             disabled={reread.isPending}
             onClick={() => reread.mutate()}
@@ -100,8 +87,31 @@ export function PresetsView({
             <ArrowClockwise />
             {t("views.presetsView.reread")}
           </button>
-        }
-      />
+        );
+        return renderHeader !== undefined ? (
+          renderHeader({ rereadAction })
+        ) : (
+          <PageHeader
+            title={t("views.presetsView.catalogPreset")}
+            note={t("views.presetsView.activationDescription")}
+            meta={
+              <>
+                {blocked > 0 ? (
+                  <StatusTag tone="bad" label={t("views.presetsView.blockedCount", { count: blocked })} />
+                ) : null}
+                {repoId} · {data.status}
+                {data.observedAt
+                  ? ` · ${t("views.presetsView.observedAt")} ${
+                      formatTime(data.observedAt, { style: "date-time-seconds" }) ??
+                      t("views.presetsView.unknownNotProjected")
+                    }`
+                  : ""}
+              </>
+            }
+            actions={rereadAction}
+          />
+        );
+      })()}
       {reread.data && (
         <p className={`px-5 font-mono ui-micro ${reread.data.ok ? "text-status-done" : "text-status-blocked"}`}>
           {t("views.presetsView.operationId")} {reread.data.operationId} · {reread.data.outcome} ·{" "}

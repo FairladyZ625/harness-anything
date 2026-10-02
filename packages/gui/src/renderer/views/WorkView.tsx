@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Plus } from "@phosphor-icons/react";
 import type { SnapshotStatus, TaskRow } from "../model/types.ts";
 import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
@@ -80,6 +80,7 @@ export function WorkView({
   daemonState,
   onRefreshLedger,
   agenda,
+  renderHeader,
 }: {
   readonly tasks: readonly TaskRow[];
   readonly repoId: string;
@@ -92,6 +93,8 @@ export function WorkView({
   readonly onRefreshLedger: () => void;
   /** `repo.agenda.read` 同一条投影(App 已挂载);注意力条目按 workTaskId 归到各工作。 */
   readonly agenda: AgendaSuccess | undefined;
+  /** 页头渲染:缺省装「工作 + 结论 + 开始一项工作」;工作台面板可只保留主动作。 */
+  readonly renderHeader?: (slot: { readonly startWorkAction: ReactNode }) => ReactNode;
 }) {
   const [startWorkOpen, setStartWorkOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -163,23 +166,30 @@ export function WorkView({
   ).map(([key, label]) => ({ key, label, count: entries.filter((entry) => matchesFilter(entry, key)).length }));
   const mineWorks = entries.filter(({ health }) => health.mine.length > 0).length;
   const titleOf = (taskId: string) => tasks.find((task) => task.taskId === taskId)?.title;
+  const startWorkAction = (
+    <button
+      type="button"
+      onClick={() => setStartWorkOpen(true)}
+      data-testid="work-start-work"
+      className="ml-auto inline-flex items-center gap-1.5 self-center rounded-md border border-accent bg-accent px-2.5 py-1 ui-meta font-medium text-accent-fg hover:opacity-90"
+    >
+      <Plus weight="bold" aria-hidden />
+      {t("views.work.startWork.cta")}
+    </button>
+  );
   return (
     <div data-testid="work-view" className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 md:p-5">
-      <header className="flex flex-wrap items-baseline gap-3">
-        <h1 className="text-xl font-semibold text-text">工作</h1>
-        <span data-testid="work-summary" className="text-sm text-text-muted">
-          {t("views.work.summary", { count: entries.length, mine: mineWorks })}
-        </span>
-        <button
-          type="button"
-          onClick={() => setStartWorkOpen(true)}
-          data-testid="work-start-work"
-          className="ml-auto inline-flex items-center gap-1.5 self-center rounded-md border border-accent bg-accent px-2.5 py-1 ui-meta font-medium text-accent-fg hover:opacity-90"
-        >
-          <Plus weight="bold" aria-hidden />
-          {t("views.work.startWork.cta")}
-        </button>
-      </header>
+      {renderHeader !== undefined ? (
+        renderHeader({ startWorkAction })
+      ) : (
+        <header className="flex flex-wrap items-baseline gap-3">
+          <h1 className="text-xl font-semibold text-text">工作</h1>
+          <span data-testid="work-summary" className="text-sm text-text-muted">
+            {t("views.work.summary", { count: entries.length, mine: mineWorks })}
+          </span>
+          {startWorkAction}
+        </header>
+      )}
       {startWorkOpen ? (
         <StartWorkDialog
           repoId={repoId}

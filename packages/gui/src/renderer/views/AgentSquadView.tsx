@@ -64,6 +64,7 @@ export function AgentSquadView({
   focusedEntityRef,
   onSelectEntity,
   onFocusGraph,
+  renderHeader,
 }: {
   readonly repoId: string;
   readonly tasks: readonly DispatchDialogTaskOption[];
@@ -71,6 +72,8 @@ export function AgentSquadView({
   readonly onSelectEntity: (ref: string) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);透传给 Agent 详情卡。 */
   readonly onFocusGraph?: (ref: string) => void;
+  /** 页头渲染:缺省装结论行 + 检查器开关;工作台面板可只保留主动作。 */
+  readonly renderHeader?: (slot: { readonly headerActions: ReactNode }) => ReactNode;
 }) {
   const refSelection = runtimeSelectionFromRef(focusedEntityRef);
   // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:目录全宽、点行进详情、
@@ -248,31 +251,8 @@ export function AgentSquadView({
     <section data-testid="agent-squad-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* 页头(标准 §2.3/§2.5):页名 + 一句结论(全部可用一句话带过;有无效声明直说
           N 个并给修复入口)+ 关键计数;右侧视图开关。 */}
-      <PageHeader
-        title={t("agentRuntime.agentsTitle")}
-        note={
-          invalidCount > 0 ? (
-            <span data-testid="agent-squad-conclusion" className="inline-flex flex-wrap items-center gap-2">
-              <StatusTag tone="bad" label={t("agentRuntime.conclusionInvalid", { count: invalidCount })} />
-              {t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
-              <button
-                type="button"
-                data-testid="agent-squad-conclusion-fix"
-                onClick={() => firstInvalid && onSelectEntity(`${firstInvalid.kind}/${firstInvalid.id}`)}
-                className="rounded-xs border border-status-blocked/40 px-1.5 py-px ui-meta text-status-blocked
-                hover:bg-status-blocked/10"
-              >
-                {t("agentRuntime.conclusionFix")}
-              </button>
-            </span>
-          ) : (
-            <span data-testid="agent-squad-conclusion" className="inline-flex flex-wrap items-center gap-2">
-              <StatusTag tone="neutral" label={t("agentRuntime.conclusionAllHealthy")} />
-              {t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
-            </span>
-          )
-        }
-        actions={
+      {(() => {
+        const headerActions = (
           <Button
             size="sm"
             variant="ghost"
@@ -281,8 +261,38 @@ export function AgentSquadView({
           >
             ▐
           </Button>
-        }
-      />
+        );
+        return renderHeader !== undefined ? (
+          renderHeader({ headerActions })
+        ) : (
+          <PageHeader
+            title={t("agentRuntime.agentsTitle")}
+            note={
+              invalidCount > 0 ? (
+                <span data-testid="agent-squad-conclusion" className="inline-flex flex-wrap items-center gap-2">
+                  <StatusTag tone="bad" label={t("agentRuntime.conclusionInvalid", { count: invalidCount })} />
+                  {t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
+                  <button
+                    type="button"
+                    data-testid="agent-squad-conclusion-fix"
+                    onClick={() => firstInvalid && onSelectEntity(`${firstInvalid.kind}/${firstInvalid.id}`)}
+                    className="rounded-xs border border-status-blocked/40 px-1.5 py-px ui-meta text-status-blocked
+                hover:bg-status-blocked/10"
+                  >
+                    {t("agentRuntime.conclusionFix")}
+                  </button>
+                </span>
+              ) : (
+                <span data-testid="agent-squad-conclusion" className="inline-flex flex-wrap items-center gap-2">
+                  <StatusTag tone="neutral" label={t("agentRuntime.conclusionAllHealthy")} />
+                  {t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
+                </span>
+              )
+            }
+            actions={headerActions}
+          />
+        );
+      })()}
       {readError !== undefined && (
         <Notice tone="bad" variant="strip" testId="runtime-read-error">
           {t("agentRuntime.readFailed", { error: readError instanceof Error ? readError.message : String(readError) })}

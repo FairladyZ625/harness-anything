@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 
 /**
@@ -8,6 +9,9 @@ import { AnimatePresence, motion } from "motion/react";
  *
  * modal=false 为非模态:压暗层不接指针事件,点它下面的列表那一次点击直接生效
  * (实测:遮罩接事件时换一张卡要点两次);关闭判据为「按下位置不在抽屉里」。
+ *
+ * 壳层 portal 到 body:fixed 定位必须逃出工作台浮窗的 transform/overflow 祖先
+ * (与 FocusLayer/AwaitsAnswerPanel 同一约定),否则在面板内开抽屉会被裁切。
  */
 export function Drawer({
   open,
@@ -42,7 +46,16 @@ export function Drawer({
     return () => window.removeEventListener("mousedown", onPointerDown);
   }, [open, modal, onClose]);
 
-  return (
+  // 壳层 portal 到 body:fixed 定位必须逃出工作台浮窗的 transform/overflow 祖先
+  // (与 FocusLayer/AwaitsAnswerPanel 同一约定)。server 渲染(renderToStaticMarkup)
+  // 不支持 portal——client-only 判定用 React 的 server snapshot 通道,DOM 首帧即
+  // portal,SSR/标记输出原地渲染(闭抽屉本就为空)。
+  const isClient = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
+  const content = (
     <AnimatePresence>
       {open && modal && (
         <motion.div
@@ -79,4 +92,7 @@ export function Drawer({
       )}
     </AnimatePresence>
   );
+  return isClient ? createPortal(content, document.body) : content;
 }
+
+const noopSubscribe = () => () => undefined;

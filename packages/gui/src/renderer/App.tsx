@@ -177,7 +177,8 @@ function AppShell() {
   // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
   useLocationRestore(location, document.body);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
-  const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board");
+  // 看板页与工作台的看板面板消费同一 WIP 快照(缓存键共享,不另立读面)。
+  const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board" || view === "workbench");
   // 侧栏置顶工作、总览、议程和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
   const agendaQuery = useAgendaQuery(activeRepoId);
@@ -711,6 +712,7 @@ function AppShell() {
                   onSearchActiveChange={onSearchActiveChange}
                   // 总览面板的数据与回调:全部来自 App 常驻读面与既有出口,不新增请求。
                   agenda={agendaQuery.data}
+                  agendaError={agendaQuery.error instanceof Error ? agendaQuery.error.message : null}
                   works={workIndexQuery.data}
                   titles={taskTitles}
                   workspaceSummary={workspaceSummaryQuery.data ?? null}
@@ -721,6 +723,54 @@ function AppShell() {
                   onOpenTask={openTaskDetail}
                   onOpenSessions={() => goto("sessions")}
                   onUnpinTask={(taskId) => handleSetPin({ taskId }, false)}
+                  // 剩余功能面板(task_d87e6982658ceccc5f26c80f30):同一批常驻读面、
+                  // 同一批动作实例与既有出口,面板内选择/筛选归面板,不写全局路由。
+                  projectName={project.name}
+                  ready={tasksQuery.data?.status === "ready"}
+                  catalog={catalogQuery.data}
+                  catalogError={catalogQuery.error instanceof Error ? catalogQuery.error.message : null}
+                  onRefreshLedger={refreshLedger}
+                  favorites={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  wipSnapshot={taskWipQuery.data}
+                  taskActions={taskActions}
+                  decisionActions={decisionActions}
+                  onNavigateDecision={navigateToDecision}
+                  onOpenPool={() =>
+                    // 与研发态势页同一出口:决策待裁域(可寻址路由)。
+                    navigate({
+                      view: "decisionPool",
+                      poolTab: "decisions",
+                      focusedEntityRef: null,
+                      selectedId: null,
+                      previewId: null,
+                      drill: null,
+                    })
+                  }
+                  activeRepoId={activeRepoId}
+                  repos={systemQuery.data?.repos ?? []}
+                  daemonGeneration={activeRepo?.generation ?? null}
+                  repoRoot={activeRepo?.canonicalRoot ?? null}
+                  onOpenObserve={(repoId) =>
+                    navigate({
+                      view: "daemonObserve",
+                      focusedEntityRef: `daemonRepo/${repoId}`,
+                      selectedId: null,
+                      previewId: null,
+                    })
+                  }
+                  onOpenProject={(repoId) => {
+                    void openProject(repoId);
+                  }}
+                  navigate={navigate}
+                  onOpenDocument={openLocalDocument}
+                  onOpenTerminal={(target) => {
+                    setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: target.taskId, title: target.title });
+                    updateLocation({ selectedId: null });
+                    goto("terminal");
+                  }}
+                  onOpenWork={openWork}
+                  onOpenView={goto}
                 />
               ) : view === "decisionDetail" ? (
                 <DecisionDetailView

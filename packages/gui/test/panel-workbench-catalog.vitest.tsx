@@ -77,6 +77,22 @@ function failingWriteStorage(): PanelWorkspaceStorage {
   };
 }
 
+const noopActions = {
+  feedback: new Map(),
+};
+const noopTaskActions = {
+  ...noopActions,
+  startTask: noop,
+  appendProgress: noop,
+  submitTask: noop,
+  completeTask: noop,
+  adjudicateTask: noop,
+  consentReview: noop,
+  setTaskPin: noop,
+  attestGate: noop,
+};
+const noopDecisionActions = { ...noopActions, propose: noop, judge: noop, checkReceipt: noop };
+
 const WORKBENCH_BASE_PROPS = {
   repoId: "repo-wb",
   tasks: [],
@@ -86,6 +102,7 @@ const WORKBENCH_BASE_PROPS = {
   onNavigateEntity: noop,
   onOpenPalette: noop,
   agenda: undefined,
+  agendaError: null,
   works: undefined,
   titles: new Map<string, string>(),
   workspaceSummary: null,
@@ -100,6 +117,29 @@ const WORKBENCH_BASE_PROPS = {
   onOpenTask: noop,
   onOpenSessions: noop,
   onUnpinTask: noop,
+  projectName: "repo-wb",
+  ready: true,
+  catalog: undefined,
+  catalogError: null,
+  onRefreshLedger: noop,
+  favorites: new Set<string>(),
+  onToggleFavorite: noop,
+  wipSnapshot: undefined,
+  taskActions: noopTaskActions,
+  decisionActions: noopDecisionActions,
+  onNavigateDecision: noop,
+  onOpenPool: noop,
+  activeRepoId: "repo-wb",
+  repos: [],
+  daemonGeneration: null,
+  repoRoot: null,
+  onOpenObserve: noop,
+  onOpenProject: noop,
+  navigate: noop,
+  onOpenDocument: noop,
+  onOpenTerminal: noop,
+  onOpenWork: noop,
+  onOpenView: noop,
 };
 
 /** 离散 flush:让 dockview 增删、面板读面的失败落定(不是墙钟等待)。 */
@@ -161,16 +201,39 @@ function openCatalog(container: HTMLElement): void {
 }
 
 describe("workbench panel catalog composition (task_48fe291624e06a2e9ad9496c81)", () => {
-  it("offers a finite catalog of eight real panels with the PR3253 three as defaults", () => {
+  it("offers a finite catalog covering every real route with the PR3253 three as defaults", () => {
     expect(WORKBENCH_PANEL_CATALOG.map((entry) => entry.id)).toEqual([
+      // PR3253 默认三块 + PR3259 五块 + 剩余功能路由(task_d87e6982658ceccc5f26c80f30)。
+      // home(项目选择宿主)与 workbench 自身(递归宿主)不进目录。
       "documents",
       "graph",
       "timeline",
       "overview",
+      "works",
+      "workDetail",
+      "agenda",
+      "board",
+      "cadence",
+      "decisionPool",
+      "taskDetail",
+      "factDetail",
+      "decisionDetail",
+      "freshness",
+      "entities",
+      "presets",
+      "adapters",
       "sessions",
       "schedules",
       "artifacts",
+      "agentSquad",
       "providers",
+      "tokenUsage",
+      "terminal",
+      "browser",
+      "system",
+      "daemonObserve",
+      "settings",
+      "identityAccess",
     ]);
     expect(DEFAULT_WORKBENCH_PANEL_IDS).toEqual(["documents", "graph", "timeline"]);
   });
@@ -294,9 +357,15 @@ describe("workbench preset geometry", () => {
       expect(geometry!.x + geometry!.width).toBeLessThanOrEqual(1200);
       expect(geometry!.y + geometry!.height).toBeLessThanOrEqual(800);
     }
-    // 目录序错位级联:后一个可选面板比前一个更靠右下。
-    expect(preset.sessions!.x).toBeGreaterThan(preset.overview!.x);
-    expect(preset.providers!.x).toBeGreaterThan(preset.artifacts!.x);
+    // 目录序错位级联到右边界即换行:相邻可选面板要么更靠右,要么回到行首且更靠下。
+    const optional = WORKBENCH_PANEL_CATALOG.filter((candidate) => !candidate.defaultOpen);
+    for (let index = 1; index < optional.length; index += 1) {
+      const previous = preset[optional[index - 1]!.id]!;
+      const current = preset[optional[index]!.id]!;
+      const stepsRight = current.x > previous.x;
+      const wrapsDown = current.x <= previous.x && current.y > previous.y;
+      expect(stepsRight || wrapsDown, optional[index]!.id).toBe(true);
+    }
   });
 
   it("never prescribes an optional panel wider or taller than a narrow canvas", () => {

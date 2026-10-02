@@ -1,5 +1,5 @@
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { AgendaSuccess } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
@@ -48,6 +48,7 @@ export function CadenceView({
   decisions,
   onNavigateEntity,
   onOpenPool,
+  renderHeader,
 }: {
   readonly repoId: string;
   readonly projectName: string;
@@ -57,6 +58,8 @@ export function CadenceView({
   readonly decisions: readonly { readonly decisionId: string; readonly title: string; readonly state: string }[];
   readonly onNavigateEntity: (ref: string) => void;
   readonly onOpenPool: () => void;
+  /** 页头渲染:缺省装 PageHeader(模式 + 扫描计数);工作台面板传空渲染(面板标签即标题)。 */
+  readonly renderHeader?: () => ReactNode;
 }) {
   const [tab, setTab] = useState<"tasks" | "fleet">("tasks"),
     [fleetRange, setFleetRange] = useState<FleetHistoryRange>("24h"),
@@ -119,17 +122,21 @@ export function CadenceView({
     };
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <PageHeader
-        title={t("views.cadence.title")}
-        note={`${projectName} · ${t("views.cadence.tagline")}`}
-        meta={
-          <span data-testid="cadence-stream" className="flex flex-wrap items-baseline gap-2">
-            {feed.mode === null ? null : <span>{MODE_LABEL[feed.mode]()}</span>}
-            <span>{t("views.cadence.streamScanned", { count: feed.events.length })}</span>
-            <span>{t(feed.historyComplete ? "views.cadence.windowComplete" : "views.cadence.windowPartial")}</span>
-          </span>
-        }
-      />
+      {renderHeader !== undefined ? (
+        renderHeader()
+      ) : (
+        <PageHeader
+          title={t("views.cadence.title")}
+          note={`${projectName} · ${t("views.cadence.tagline")}`}
+          meta={
+            <span data-testid="cadence-stream" className="flex flex-wrap items-baseline gap-2">
+              {feed.mode === null ? null : <span>{MODE_LABEL[feed.mode]()}</span>}
+              <span>{t("views.cadence.streamScanned", { count: feed.events.length })}</span>
+              <span>{t(feed.historyComplete ? "views.cadence.windowComplete" : "views.cadence.windowPartial")}</span>
+            </span>
+          }
+        />
+      )}
       {feed.status === "unavailable" ? (
         <p
           data-testid="cadence-unavailable"

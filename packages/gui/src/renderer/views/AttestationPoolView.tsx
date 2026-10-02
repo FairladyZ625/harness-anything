@@ -71,6 +71,7 @@ export function AttestationPoolView({
   onNavigateTask,
   poolTab,
   onPoolTabChange,
+  renderHeader,
 }: {
   repoId: string;
   decisions: DecisionRow[];
@@ -109,6 +110,8 @@ export function AttestationPoolView({
   /** 当前 Tab 由应用位置携带(可寻址、刷新不丢)。 */
   poolTab: AttestationPoolTabId;
   onPoolTabChange: (tab: AttestationPoolTabId) => void;
+  /** 页头渲染:缺省装总池页头 + 专注裁决入口;工作台面板可只保留主动作。 */
+  renderHeader?: (slot: { readonly focusEntryAction: ReactNode }) => ReactNode;
 }) {
   const lanes = useMemo(() => deriveAttestationLanes(tasks), [tasks]),
     // 计数口径与侧栏角标统一:决策待裁读 workspace summary 的 kernel proposed 判定
@@ -176,15 +179,8 @@ export function AttestationPoolView({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="attestation-pool-view">
-      <PageHeader
-        title={t("views.attestationPoolView.title")}
-        note={t("views.attestationPoolView.subtitle")}
-        meta={
-          <span data-testid="attestation-pool-total">
-            {t("views.attestationPoolView.totalCount", { count: total })}
-          </span>
-        }
-        actions={
+      {(() => {
+        const focusEntryAction =
           inDecisionDomain && onJudge ? (
             <button
               type="button"
@@ -197,9 +193,22 @@ export function AttestationPoolView({
               {t("views.attestationPoolView.focusEntry")}
               <b className="font-mono font-medium tabular-nums">{counts.decisions}</b>
             </button>
-          ) : undefined
-        }
-      />
+          ) : undefined;
+        return renderHeader !== undefined ? (
+          renderHeader({ focusEntryAction })
+        ) : (
+          <PageHeader
+            title={t("views.attestationPoolView.title")}
+            note={t("views.attestationPoolView.subtitle")}
+            meta={
+              <span data-testid="attestation-pool-total">
+                {t("views.attestationPoolView.totalCount", { count: total })}
+              </span>
+            }
+            actions={focusEntryAction}
+          />
+        );
+      })()}
       <div className="mt-2.5">
         <Tabs
           ariaLabel={t("views.attestationPoolView.tablist")}

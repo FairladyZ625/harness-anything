@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { AgendaSuccess } from "../api-client.ts";
 import type { MessageKey } from "../i18n/core.ts";
 import { t } from "../i18n/index.tsx";
@@ -156,11 +156,14 @@ export function AgendaView({
   agenda,
   agendaError,
   onNavigateEntity,
+  renderHeader,
 }: {
   readonly repoId: string;
   readonly agenda: AgendaSuccess | undefined;
   readonly agendaError: string | null;
   readonly onNavigateEntity: (ref: string) => void;
+  /** 页头渲染:缺省装 PageHeader(标题 + 结论 + 计数);工作台面板传空渲染(面板标签即标题)。 */
+  readonly renderHeader?: () => ReactNode;
 }) {
   const [panel, setPanel] = useState<AwaitsPanelSubject | null>(null);
   const [detail, setDetail] = useState<AgendaRow | null>(null);
@@ -207,15 +210,19 @@ export function AgendaView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="agenda-view">
-      <PageHeader
-        title={t("views.agenda.title")}
-        note={t("views.agenda.note")}
-        meta={
-          <span data-testid="agenda-count">
-            {visible.length}/{allRows.length}
-          </span>
-        }
-      />
+      {renderHeader !== undefined ? (
+        renderHeader()
+      ) : (
+        <PageHeader
+          title={t("views.agenda.title")}
+          note={t("views.agenda.note")}
+          meta={
+            <span data-testid="agenda-count">
+              {visible.length}/{allRows.length}
+            </span>
+          }
+        />
+      )}
       <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
         <span data-testid="agenda-filter-chips">
           <FilterChips chips={chips} value={filter} onChange={setFilter} />

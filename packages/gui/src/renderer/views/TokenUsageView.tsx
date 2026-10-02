@@ -48,6 +48,7 @@ export function TokenUsageView({
   onFocusMember,
   onSelectEntity,
   onOpenTask,
+  renderHeader,
 }: {
   readonly repoId: string;
   /** `tokenAgent/<id>` / `tokenSquad/<id>`:详情落点,空 = 总览。 */
@@ -55,6 +56,8 @@ export function TokenUsageView({
   readonly onFocusMember: (ref: string | null) => void;
   readonly onSelectEntity: (ref: string) => void;
   readonly onOpenTask: (taskId: string) => void;
+  /** 页头渲染:缺省装标题 + 范围切换 + 投影未就绪标签;工作台面板可只保留范围切换。 */
+  readonly renderHeader?: (slot: { readonly rangeControl: ReactNode }) => ReactNode;
 }) {
   const [range, setRange] = useState<TokenUsageRange>("today"),
     member = tokenUsageMemberFromRef(focusedEntityRef),
@@ -68,19 +71,28 @@ export function TokenUsageView({
     data = usage.data;
   return (
     <section data-testid="token-usage-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex min-h-[42px] shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-surface-raised px-3.5">
-        <b className="ui-body tracking-[0.02em]">{t("agentRuntime.tokenUsageTitle")}</b>
-        <SegCtl
-          label={t("agentRuntime.tokenUsageRangeLabel")}
-          value={range}
-          onChange={(value) => setRange(value)}
-          options={tokenUsageRanges.map((value) => ({ value, label: t(tokenUsageRangeKey[value]) }))}
-        />
-        <span className="flex-1" />
-        {data?.status === "pending" ? (
-          <StatusTag status="planned" label={t("agentRuntime.tokenUsageProjectionPending")} />
-        ) : null}
-      </header>
+      {(() => {
+        const rangeControl = (
+          <SegCtl
+            label={t("agentRuntime.tokenUsageRangeLabel")}
+            value={range}
+            onChange={(value) => setRange(value)}
+            options={tokenUsageRanges.map((value) => ({ value, label: t(tokenUsageRangeKey[value]) }))}
+          />
+        );
+        return renderHeader !== undefined ? (
+          renderHeader({ rangeControl })
+        ) : (
+          <header className="flex min-h-[42px] shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-surface-raised px-3.5">
+            <b className="ui-body tracking-[0.02em]">{t("agentRuntime.tokenUsageTitle")}</b>
+            {rangeControl}
+            <span className="flex-1" />
+            {data?.status === "pending" ? (
+              <StatusTag status="planned" label={t("agentRuntime.tokenUsageProjectionPending")} />
+            ) : null}
+          </header>
+        );
+      })()}
       {usage.isError ? (
         <Notice tone="bad" variant="strip" testId="runtime-read-error">
           {t("agentRuntime.readFailed", {

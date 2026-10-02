@@ -11,6 +11,40 @@ import { bridgeReady } from "./helpers.mjs";
 const BODY = "[data-testid='floating-panel-body']";
 const CATALOG_ENTRY = (id) => `[data-testid='panel-catalog-entry-${id}']`;
 
+/** 目录全部身份(task_d87e6982658ceccc5f26c80f30 起 29 块:默认三 + 全部功能路由;
+ * home 项目选择与工作台自身是全局导航/递归宿主,不进目录)。 */
+const CATALOG_IDS = [
+  "documents",
+  "graph",
+  "timeline",
+  "overview",
+  "works",
+  "workDetail",
+  "agenda",
+  "board",
+  "cadence",
+  "decisionPool",
+  "taskDetail",
+  "factDetail",
+  "decisionDetail",
+  "freshness",
+  "entities",
+  "presets",
+  "adapters",
+  "sessions",
+  "schedules",
+  "artifacts",
+  "agentSquad",
+  "providers",
+  "tokenUsage",
+  "terminal",
+  "browser",
+  "system",
+  "daemonObserve",
+  "settings",
+  "identityAccess",
+];
+
 async function openPanelIds(page) {
   const ids = await page.locator(BODY).evaluateAll((nodes) => nodes.map((node) => node.dataset.panelId));
   return [...ids].sort();
@@ -60,13 +94,16 @@ export default {
       "workbench opens on the preset three",
     );
 
-    // 目录是有限清单:八个条目,默认三个呈按下态。
+    // 目录是有限清单(task_d87e6982658ceccc5f26c80f30 起覆盖全部功能路由):
+    // 条目身份逐一对照,默认三个呈按下态——新增面板未进目录会被拦下。
     await page.getByTestId("panel-catalog-button").click();
     await page.getByTestId("panel-catalog-list").waitFor();
-    assert.equal(
-      await page.locator("[data-testid^='panel-catalog-entry-']").count(),
-      8,
-      "catalog lists exactly the eight panel types",
+    assert.deepEqual(
+      await page
+        .locator("[data-testid^='panel-catalog-entry-']")
+        .evaluateAll((nodes) => nodes.map((node) => node.dataset.testid.replace("panel-catalog-entry-", ""))),
+      CATALOG_IDS,
+      "catalog lists exactly one entry per real route",
     );
     assert.deepEqual(await pressedEntries(page), ["documents", "graph", "timeline"]);
 
@@ -95,10 +132,12 @@ export default {
       8,
       "every floating panel exposes a close button",
     );
-    await shot("panel-catalog-all-eight");
+    await shot("panel-catalog-all-open");
 
-    // 面板标签上的关闭钮摘下 documents;目录同步回未按下态(关闭钮的点击会收起气泡,重开)。
-    await page.locator("[data-testid='floating-panel-close'][data-panel-id='documents']").first().click();
+    // 目录开关摘下面板:目录气泡 portal 到 body,叠放的浮窗挡不住它(目录扩大后
+    // 级联位置变化,邻居浮窗可能盖住面板标签)。先经目录摘 documents。
+    await ensureCatalogOpen(page);
+    await page.locator(CATALOG_ENTRY("documents")).click();
     await page.locator(`${BODY}[data-panel-id='documents']`).waitFor({ state: "detached" });
     assert.equal((await openPanelIds(page)).includes("documents"), false);
     await ensureCatalogOpen(page);
@@ -112,8 +151,21 @@ export default {
       "timeline",
     ]);
 
+    // 面板标签上的关闭钮同样摘面板:用栈顶的 providers(最后添加、无遮挡)走这条路径。
+    await page.locator("[data-testid='floating-panel-close'][data-panel-id='providers']").first().click();
+    await page.locator(`${BODY}[data-panel-id='providers']`).waitFor({ state: "detached" });
+    await ensureCatalogOpen(page);
+    assert.deepEqual(await pressedEntries(page), [
+      "artifacts",
+      "graph",
+      "overview",
+      "schedules",
+      "sessions",
+      "timeline",
+    ]);
+
     // 目录开关摘下其余面板:空画布给出可找回的空态。
-    for (const id of ["artifacts", "graph", "overview", "providers", "schedules", "sessions", "timeline"]) {
+    for (const id of ["artifacts", "graph", "overview", "schedules", "sessions", "timeline"]) {
       await page.locator(CATALOG_ENTRY(id)).click();
     }
     await page.getByTestId("panel-workbench-empty").waitFor();

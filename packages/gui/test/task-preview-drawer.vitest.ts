@@ -214,7 +214,7 @@ describe("task preview 关键记录:引用对象可导航(task 详情同一机�
           ),
         ),
       );
-      const refButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      const refButton = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
         (button) => button.textContent === "execution-w3",
       );
       expect(refButton, "关键记录的 execution 编号应渲染为可激活按钮").toBeTruthy();
@@ -258,17 +258,17 @@ describe("task preview dismissal", () => {
           ),
         ),
       );
-      const backdrop = container.querySelector('[data-testid="drawer-backdrop"]') as HTMLElement;
+      const backdrop = document.body.querySelector('[data-testid="drawer-backdrop"]') as HTMLElement;
       // 压暗层不接指针事件:它下面的看板卡照常收到那一次点击,换卡才只需点一次。
       expect(backdrop.className).toContain("pointer-events-none");
-      expect((container.querySelector("aside") as HTMLElement).className).toContain("pointer-events-auto");
-      const inside = container.querySelector("aside h2") as HTMLElement;
+      expect((document.body.querySelector("aside") as HTMLElement).className).toContain("pointer-events-auto");
+      const inside = document.body.querySelector("aside h2") as HTMLElement;
       act(() => {
         inside.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
         inside.click();
       });
       expect(onClose).not.toHaveBeenCalled();
-      const pinToggle = container.querySelector('[data-testid="task-preview-pin-toggle"]') as HTMLElement;
+      const pinToggle = document.body.querySelector('[data-testid="task-preview-pin-toggle"]') as HTMLElement;
       act(() => {
         pinToggle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
         pinToggle.click();

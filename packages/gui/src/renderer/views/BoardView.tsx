@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   DndContext,
@@ -428,6 +428,7 @@ export const BoardView = memo(function BoardView({
   onStartTask,
   mutationFeedback,
   onSetPin,
+  renderHeader,
 }: {
   tasks: readonly TaskRow[];
   allTasks: TaskRow[];
@@ -442,6 +443,8 @@ export const BoardView = memo(function BoardView({
   initialGroupBy?: LaneGroupBy;
   onStartTask?: (task: TaskRow) => Promise<unknown>;
   mutationFeedback?: (taskId: string) => TaskMutationFeedback | undefined;
+  /** 页头渲染:缺省装「看板 + 在看 N」一行;工作台面板传空渲染(面板标签即标题)。 */
+  renderHeader?: () => ReactNode;
   /** 台账 pin 写通道;三种看板布局的 task 卡片/行共用。 */
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
@@ -591,13 +594,21 @@ export const BoardView = memo(function BoardView({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-baseline gap-3 border-b border-border px-4 py-2.5">
-        <h1 className="ui-title font-semibold">看板</h1>
-        {/* 页头一行(2026-10-01 评审第 8 条):页名 + 一句结论;WIP 等开发者说明改悬停。 */}
-        <span className="ui-meta text-text-muted" data-testid="board-header-summary" title={wipHoverTitle(wipSnapshot)}>
-          {t("components.taskFilterBar.viewingCount", { count: boardTasks.length, total: allTasks.length })}
-        </span>
-      </header>
+      {renderHeader !== undefined ? (
+        renderHeader()
+      ) : (
+        <header className="flex flex-wrap items-baseline gap-3 border-b border-border px-4 py-2.5">
+          <h1 className="ui-title font-semibold">看板</h1>
+          {/* 页头一行(2026-10-01 评审第 8 条):页名 + 一句结论;WIP 等开发者说明改悬停。 */}
+          <span
+            className="ui-meta text-text-muted"
+            data-testid="board-header-summary"
+            title={wipHoverTitle(wipSnapshot)}
+          >
+            {t("components.taskFilterBar.viewingCount", { count: boardTasks.length, total: allTasks.length })}
+          </span>
+        </header>
+      )}
       {(dragMessage || (lastMutationTaskId && mutationFeedback?.(lastMutationTaskId))) && (
         <div className="border-b border-border px-4 py-2 ui-meta text-text-muted" data-testid="board-mutation-feedback">
           {dragMessage ??

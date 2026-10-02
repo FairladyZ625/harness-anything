@@ -123,7 +123,7 @@ describe("EgoNeighborhood standalone reuse (W4)", () => {
     expect(cardOf(div, "任务一")).not.toBeNull();
     expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(beforeChips - 1);
     // 节点正文不进抽屉:单击后抽屉不得出现(同一正文只在一处)。
-    expect(div.querySelector("[data-testid='graph-detail-drawer']")).toBeNull();
+    expect(document.body.querySelector("[data-testid='graph-detail-drawer']")).toBeNull();
     await unmount(root);
   });
 
@@ -255,7 +255,7 @@ describe("EgoNeighborhood standalone reuse (W4)", () => {
         }),
       );
     });
-    const drawer = div.querySelector("[data-testid='graph-detail-drawer']")!;
+    const drawer = document.body.querySelector("[data-testid='graph-detail-drawer']")!;
     expect(drawer.textContent).toContain("derives");
     expect(drawer.textContent).toContain("decision/d1");
     expect(drawer.textContent).toContain("task/t1");
@@ -291,7 +291,7 @@ describe("EgoNeighborhood standalone reuse (W4)", () => {
       );
     });
     expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(0);
-    expect(div.querySelector("[data-testid='graph-detail-drawer']")).toBeNull();
+    expect(document.body.querySelector("[data-testid='graph-detail-drawer']")).toBeNull();
     await unmount(root);
   });
 

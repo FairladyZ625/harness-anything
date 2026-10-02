@@ -559,22 +559,22 @@ describe("swimlane visual rework (CEO 回修 r1)", () => {
     try {
       // 旧常驻面板的占位文案已删:不选单元格时页面只有泳道矩阵,没有 dialog。
       expect(board.html()).not.toContain("选择上方泳道单元格");
-      expect(board.container.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.body.querySelector('[role="dialog"]')).toBeNull();
 
       const cell = [...board.container.querySelectorAll('[data-testid="swimlane-row"] button')].find((button) =>
         button.textContent?.includes("drawer-a1"),
       )!;
       expect(cell).toBeDefined();
       act(() => cell.click());
-      const dialog = board.container.querySelector('[role="dialog"]');
+      const dialog = document.body.querySelector('[role="dialog"]');
       expect(dialog).not.toBeNull();
       expect(dialog?.getAttribute("aria-label")).toContain("偶发红队列"); // 抽屉定位到该泳道
       expect(dialog?.textContent).toContain("drawer-a1");
       expect(dialog?.textContent).not.toContain("drawer-b1"); // 只装被点单元格的任务
-      expect(board.container.querySelector('[data-testid="swimlane-drilldown"]')).not.toBeNull();
+      expect(document.body.querySelector('[data-testid="swimlane-drilldown"]')).not.toBeNull();
 
       act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
-      expect(board.container.querySelector('[role="dialog"]')).toBeNull(); // Esc 收抽屉
+      expect(document.body.querySelector('[role="dialog"]')).toBeNull(); // Esc 收抽屉
     } finally {
       await unmountLive(board);
     }
@@ -936,7 +936,7 @@ describe("swimlane default order (W8)", () => {
       }),
     );
     try {
-      const drilldown = board.container.querySelector('[role="dialog"]')?.innerHTML ?? "";
+      const drilldown = document.body.querySelector('[role="dialog"]')?.innerHTML ?? "";
       expect(drilldown).not.toBe("");
       // 下钻抽屉内:pin 置顶,其余按 lastKnownAt 倒序;active 卡不在 done 单元格里。
       const order = orderedIds(drilldown, ["drill-pin", "drill-new", "drill-old"]);
@@ -1389,7 +1389,7 @@ describe("swimlane single-pass grouping (W9)", () => {
     try {
       // 下钻抽屉打开时,root-a/planned 单元格的两张卡都渲染;lane B 的卡只出现在
       // 单元格预览里(预览标题是合法内容),不进抽屉。
-      const drilldown = board.container.querySelector('[role="dialog"]');
+      const drilldown = document.body.querySelector('[role="dialog"]');
       expect(drilldown).not.toBeNull();
       expect(drilldown!.textContent).toContain("lane-card-p1");
       expect(drilldown!.textContent).toContain("lane-card-p2");

@@ -244,11 +244,14 @@ export function FreshnessView({
   coverageRows,
   relationState = "ready",
   onNavigateEntity,
+  renderHeader,
 }: {
   decisions: ReadonlyArray<DecisionRow>;
   coverageRows: ReadonlyArray<RelationCoverageRow>;
   relationState?: "ready" | "loading" | "error";
   onNavigateEntity: (ref: string) => void;
+  /** 页头渲染:缺省装 PageHeader;工作台面板传空渲染(面板标签即标题)。 */
+  renderHeader?: () => ReactNode;
 }) {
   const candidates = useMemo(() => freshnessCandidates(decisions, coverageRows), [decisions, coverageRows]);
   // 分母与候选同一口径(in_effect/proposed):生命周期终态的承重 claim 既不算未覆盖债,
@@ -275,22 +278,26 @@ export function FreshnessView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="freshness-view">
-      <PageHeader
-        title={t("views.freshnessView.title")}
-        note={
-          candidates.length > 0 ? (
-            <span data-testid="freshness-counts">
-              {t("views.freshnessView.headline", {
-                claims: candidates.length,
-                total: inScopeTotal,
-                decisions: decisionsInvolved,
-                first: firstUrgent?.decisionTitle ?? firstUrgent?.decisionId ?? "",
-              })}
-            </span>
-          ) : undefined
-        }
-        meta={basis !== null ? t("views.freshnessView.basis", { value: basis }) : undefined}
-      />
+      {renderHeader !== undefined ? (
+        renderHeader()
+      ) : (
+        <PageHeader
+          title={t("views.freshnessView.title")}
+          note={
+            candidates.length > 0 ? (
+              <span data-testid="freshness-counts">
+                {t("views.freshnessView.headline", {
+                  claims: candidates.length,
+                  total: inScopeTotal,
+                  decisions: decisionsInvolved,
+                  first: firstUrgent?.decisionTitle ?? firstUrgent?.decisionId ?? "",
+                })}
+              </span>
+            ) : undefined
+          }
+          meta={basis !== null ? t("views.freshnessView.basis", { value: basis }) : undefined}
+        />
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-10 pt-4 md:px-7">
         {relationState === "loading" ? (
           <StatusLine tone="plan" label={t("views.freshnessView.statusLoading")}>

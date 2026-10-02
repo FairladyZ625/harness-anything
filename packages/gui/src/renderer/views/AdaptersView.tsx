@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useMemo } from "react";
 import { useCatalogSnapshot } from "../catalog-data.ts";
 import type { TaskRow } from "../model/types.ts";
@@ -12,7 +12,16 @@ import { StatusTag, TONE_COLOR } from "../components/primitives/StatusTag.tsx";
  * 投影任务数(REQ-GUI-09,按现有 task 投影的 engine 字段聚合)回答「谁在用它」;
  * 纯前端派生,不新增后端读面。安装、卸载与配置由 CLI 管理,本页只读。
  */
-export function AdaptersView({ repoId, tasks = [] }: { readonly repoId: string; readonly tasks?: readonly TaskRow[] }) {
+export function AdaptersView({
+  repoId,
+  tasks = [],
+  renderHeader,
+}: {
+  readonly repoId: string;
+  readonly tasks?: readonly TaskRow[];
+  /** 页头渲染:缺省装目录页头;工作台面板传空渲染(面板标签即标题)。 */
+  readonly renderHeader?: () => ReactNode;
+}) {
   const catalog = useCatalogSnapshot(repoId);
   const projectedByEngine = useMemo(() => {
     const counts = new Map<string, number>();
@@ -34,18 +43,22 @@ export function AdaptersView({ repoId, tasks = [] }: { readonly repoId: string; 
     ordered = [...unavailable, ...available];
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <header className="border-b border-border px-4 py-3">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h1 className="ui-title font-semibold">{t("views.adaptersView.registryTitle")}</h1>
-          <span className="font-mono ui-micro text-text-faint">
-            {repoId} · {adapters.length}
-          </span>
-          {unavailable.length > 0 ? (
-            <StatusTag tone="bad" label={t("views.adaptersView.unavailableCount", { count: unavailable.length })} />
-          ) : null}
-        </div>
-        <p className="mt-1 ui-meta text-text-faint">{t("views.adaptersView.readOnlyDescription")}</p>
-      </header>
+      {renderHeader !== undefined ? (
+        renderHeader()
+      ) : (
+        <header className="border-b border-border px-4 py-3">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h1 className="ui-title font-semibold">{t("views.adaptersView.registryTitle")}</h1>
+            <span className="font-mono ui-micro text-text-faint">
+              {repoId} · {adapters.length}
+            </span>
+            {unavailable.length > 0 ? (
+              <StatusTag tone="bad" label={t("views.adaptersView.unavailableCount", { count: unavailable.length })} />
+            ) : null}
+          </div>
+          <p className="mt-1 ui-meta text-text-faint">{t("views.adaptersView.readOnlyDescription")}</p>
+        </header>
+      )}
       <div data-testid="adapters-content" className="w-full p-4">
         {ordered.map((adapter) => {
           const projectedCount = projectedByEngine.get(adapter.adapterId) ?? 0,

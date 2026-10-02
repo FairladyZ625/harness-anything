@@ -383,17 +383,18 @@ describe("FocusLayer", () => {
 });
 
 describe("Drawer", () => {
+  // 抽屉壳 portal 到 body(逃出工作台浮窗裁切):断言一律查 document.body,不查挂载容器。
   it("模态:scrim 点击与 Esc 都关闭,内容在面板里", () => {
     const onClose = vi.fn();
-    const { container, root } = mountOverlay(
+    const { root } = mountOverlay(
       createElement(Drawer, { open: true, onClose, ariaLabel: "任务详情" }, createElement("p", null, "详情内容")),
     );
-    const panel = container.querySelector("aside");
+    const panel = document.body.querySelector("aside");
     expect(panel?.getAttribute("role")).toBe("dialog");
     expect(panel?.getAttribute("aria-modal")).toBe("true");
     expect(panel?.textContent).toContain("详情内容");
     act(() => {
-      (container.querySelector(".glass-scrim") as HTMLElement).click();
+      (document.body.querySelector(".glass-scrim") as HTMLElement).click();
     });
     expect(onClose).toHaveBeenCalledTimes(1);
     pressKey("Escape");
@@ -403,14 +404,14 @@ describe("Drawer", () => {
 
   it("非模态:压暗层不接指针事件,点外面关闭、点里面不关", () => {
     const onClose = vi.fn();
-    const { container, root } = mountOverlay(
+    const { root } = mountOverlay(
       createElement(Drawer, { open: true, onClose, modal: false }, createElement("h2", null, "标题")),
     );
-    const backdrop = container.querySelector('[data-testid="drawer-backdrop"]') as HTMLElement;
+    const backdrop = document.body.querySelector('[data-testid="drawer-backdrop"]') as HTMLElement;
     expect(backdrop.className).toContain("pointer-events-none");
-    const panel = container.querySelector("aside") as HTMLElement;
+    const panel = document.body.querySelector("aside") as HTMLElement;
     expect(panel.className).toContain("pointer-events-auto");
-    expect(container.querySelector(".glass-scrim")).toBeNull();
+    expect(document.body.querySelector(".glass-scrim")).toBeNull();
     act(() => {
       panel.querySelector("h2")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     });
@@ -421,12 +422,13 @@ describe("Drawer", () => {
       outside.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     });
     expect(onClose).toHaveBeenCalledTimes(1);
+    outside.remove();
     act(() => root.unmount());
   });
 
   it("关闭后即时卸载(减少动态效果:退出无动画)", async () => {
-    const { container, root } = mountOverlay(createElement(Drawer, { open: true, onClose: () => undefined }, "内容"));
-    expect(container.querySelector("aside")).not.toBeNull();
+    const { root } = mountOverlay(createElement(Drawer, { open: true, onClose: () => undefined }, "内容"));
+    expect(document.body.querySelector("aside")).not.toBeNull();
     await act(async () => {
       root.render(
         createElement(AppMotionConfig, null, createElement(Drawer, { open: false, onClose: () => undefined }, "内容")),
@@ -435,7 +437,7 @@ describe("Drawer", () => {
     await act(async () => {
       await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
     });
-    expect(container.querySelector("aside")).toBeNull();
+    expect(document.body.querySelector("aside")).toBeNull();
     act(() => root.unmount());
   });
 });

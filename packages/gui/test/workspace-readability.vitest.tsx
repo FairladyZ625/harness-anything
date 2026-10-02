@@ -211,10 +211,10 @@ describe("workspace readability under real ledger shapes", () => {
     expect(factRow.textContent).toContain("GUI 写面 allowlist");
     expect(factRow.querySelector("span.truncate")).not.toBeNull();
     act(() => factRow.click());
-    const detail = host.querySelector('[data-testid="work-fact-detail"]')!;
+    const detail = document.body.querySelector('[data-testid="work-fact-detail"]')!;
     expect(detail.textContent).toContain("完整原文");
     expect(detail.textContent).toContain(LONG_RUN);
-    act(() => (host.querySelector('[data-testid="work-fact-open-detail"]') as HTMLButtonElement).click());
+    act(() => (document.body.querySelector('[data-testid="work-fact-open-detail"]') as HTMLButtonElement).click());
     expect(onNavigateEntity).toHaveBeenCalledWith("fact/F-7E08BD10");
     act(() => root.unmount());
   });
