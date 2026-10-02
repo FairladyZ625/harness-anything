@@ -41,7 +41,6 @@ const VIEW_ID_LIST = [
   "decisionDetail",
   "factDetail",
   "graph",
-  "workbench",
   "presets",
   "entities",
   "adapters",

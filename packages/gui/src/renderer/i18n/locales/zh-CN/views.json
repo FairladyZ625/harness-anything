@@ -1610,20 +1610,5 @@
   "views.settingsView.listStyleDescription": "列表行尾显示相对时间还是绝对时间；悬停始终给绝对时间",
   "views.settingsView.listStyleRelative": "相对时间",
   "views.settingsView.listStyleAbsolute": "绝对时间",
-  "views.settingsView.timePreviewLabel": "预览",
-  "views.panelWorkbench.title": "面板工作台",
-  "views.panelWorkbench.note": "拖动顶部拖条移动面板；四边四角缩放；布局按连接与仓隔离记忆",
-  "views.panelWorkbench.resetLayout": "重置布局",
-  "views.panelWorkbench.panelDocuments": "文档",
-  "views.panelWorkbench.panelGraph": "关系图",
-  "views.panelWorkbench.panelTimeline": "时间线",
-  "views.panelWorkbench.documentsTask": "任务",
-  "views.panelWorkbench.documentsEmpty": "本仓还没有任务;创建任务后,这里可以并排阅读任务包文档。",
-  "views.panelWorkbench.maximizePanel": "放大面板",
-  "views.panelWorkbench.restorePanel": "还原面板",
-  "views.panelWorkbench.closePanel": "关闭面板",
-  "views.panelWorkbench.addPanel": "添加面板",
-  "views.panelWorkbench.panelRetired": "这个面板已不在当前工作台清单里。",
-  "views.panelWorkbench.emptyCanvas": "所有面板都已关闭。用页头的「添加面板」重新打开功能面板;「重置布局」随时恢复默认三块。",
-  "views.panelWorkbench.persistUnavailable": "本机存储当前不可用（配额满或隐私模式），面板布局不会跨会话保留；本次会话内的排布仍然生效，「重置布局」可随时恢复预设。"
+  "views.settingsView.timePreviewLabel": "预览"
 }

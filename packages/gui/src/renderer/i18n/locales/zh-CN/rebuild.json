@@ -166,6 +166,5 @@
   "accessControl.error.daemonUnavailable": "连不上本机 daemon。",
   "accessControl.effective.allowedCount": "允许 {count} 个动作",
   "accessControl.effective.emptyTitle": "有效权限",
-  "accessControl.effective.emptyHint": "选好人员和作用域后点「查看有效权限」，或点右侧的一条授权：这里会列出此人在该作用域上能做的动作、每个动作来自哪个组，以及会被拒绝的动作。",
-  "shell.nav.workbench": "面板工作台"
+  "accessControl.effective.emptyHint": "选好人员和作用域后点「查看有效权限」，或点右侧的一条授权：这里会列出此人在该作用域上能做的动作、每个动作来自哪个组，以及会被拒绝的动作。"
 }
