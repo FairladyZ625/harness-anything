@@ -58,6 +58,8 @@ export async function fleetFixture(
   let nodeActive = true,
     expiresAt = "2099-01-01T00:00:00.000Z",
     assignmentDelayMs = 0,
+    runtimeOutcomeFailures = 0,
+    runtimeOutcomeFailureObserved: (() => void) | null = null,
     taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
   mkdirSync(path.join(repo, "harness"), { recursive: true });
@@ -180,6 +182,12 @@ export async function fleetFixture(
     setAssignmentDelay: (value: number) => {
       assignmentDelayMs = value;
     },
+    failNextRuntimeOutcome: () => {
+      runtimeOutcomeFailures += 1;
+      return new Promise<void>((resolve) => {
+        runtimeOutcomeFailureObserved = resolve;
+      });
+    },
     blockTaskRelease: () => {
       let started!: () => void, release!: () => void;
       const startedPromise = new Promise<void>((resolve) => {
@@ -199,6 +207,18 @@ export async function fleetFixture(
           host: {
             ...host,
             runtimeIngress: async (...args: Parameters<typeof host.runtimeIngress>) => {
+              if (
+                args[1].kind === "event" &&
+                args[1].type === "runtime_session_outcome_observed" &&
+                runtimeOutcomeFailures > 0
+              ) {
+                runtimeOutcomeFailures -= 1;
+                runtimeOutcomeFailureObserved?.();
+                runtimeOutcomeFailureObserved = null;
+                throw Object.assign(new Error("injected center connection loss before runtime outcome"), {
+                  code: "ECONNRESET",
+                });
+              }
               const receipt = await host.runtimeIngress(...args);
               if (args[1].kind === "archive") runtimeArchiveReceipts.push(receipt);
               return receipt;

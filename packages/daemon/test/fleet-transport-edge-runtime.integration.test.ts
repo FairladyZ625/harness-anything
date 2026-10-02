@@ -306,7 +306,8 @@ test(
     );
     const after = await fixture.host.read(fixture.assignment.repoId, "repo.tasks.list", {}, fixture.auth);
     assert.ok(after.sourceRevision > before.sourceRevision);
-    await t.test("provider session resume keeps the center-observed runtime instance", async () => {
+    await t.test("provider resume recovers when the center loses the outcome publication", async () => {
+      const outcomeFailure = fixture.failNextRuntimeOutcome();
       const resumed = await edgeHost.fleet.edgeRuntime(
         {
           host: "127.0.0.1",
@@ -332,7 +333,81 @@ test(
         localAuth,
       );
       assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
-      assert.equal((await waitForOutcome(resumed.runtimeSessionId))?.session.activity.outcome, "succeeded");
+      assert.equal(typeof resumed.runtimeSessionId, "string", JSON.stringify(resumed));
+      await outcomeFailure;
+      await delay(20);
+      const partial = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+        .read()
+        .events.filter(
+          (event) =>
+            (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+            event.payload.runtimeSessionId === resumed.runtimeSessionId,
+        );
+      assert.deepEqual(
+        partial.map((event) => event.type),
+        ["runtime_session_exited"],
+      );
+      const partialSession = await fixture.host.read(
+        fixture.assignment.repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: resumed.runtimeSessionId },
+        fixture.auth,
+      );
+      assert.deepEqual(
+        {
+          liveness: partialSession.session.liveness,
+          outcome: partialSession.session.activity.outcome,
+          lease: partialSession.session.associations.find((item) => item.taskId === fixture.assignment.taskId)?.lease
+            ?.phase,
+        },
+        { liveness: "exited", outcome: null, lease: "released" },
+        "the accepted exit and released task lease stay authoritative while outcome is missing",
+      );
+
+      await edgeHost.fleet.edgeRuntime(
+        {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: fixture.certFile,
+          nodeId: fixture.assignment.nodeId,
+          credential: "machine-secret",
+          rosterPath,
+          assignmentId: fixture.assignment.assignmentId,
+          repoId: fixture.assignment.repoId,
+          viewRoot,
+          quotaBytes: replicaQuota,
+          workspaceRoot: edgeRoot,
+          method: "repo.agentRuntime.overview",
+          action: { limit: 1 },
+        },
+        localAuth,
+      );
+      const recoveredSession = await waitForOutcome(resumed.runtimeSessionId);
+      assert.deepEqual(
+        {
+          liveness: recoveredSession?.session.liveness,
+          outcome: recoveredSession?.session.activity.outcome,
+        },
+        { liveness: "exited", outcome: "succeeded" },
+        "a supported edge request should recover the outcome after the center accepted exited",
+      );
+      assert.match(String(recoveredSession?.session.activity.resultRef), /^artifact:runtime-result\/sha256\//u);
+      assert.equal(
+        recoveredSession?.session.associations.find((item) => item.taskId === fixture.assignment.taskId)?.lease?.phase,
+        "released",
+      );
+      const settled = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+        .read()
+        .events.filter(
+          (event) =>
+            (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+            event.payload.runtimeSessionId === resumed.runtimeSessionId,
+        );
+      assert.deepEqual(
+        settled.map((event) => event.type),
+        ["runtime_session_exited", "runtime_session_outcome_observed"],
+        "retrying an applied exited op must not duplicate terminal events",
+      );
       assert.equal(launchedInstances.at(-1), runtimeDefinition.instanceId);
     });
     await t.test("another assignment cannot replay terminal events for this runtime session", async () => {
