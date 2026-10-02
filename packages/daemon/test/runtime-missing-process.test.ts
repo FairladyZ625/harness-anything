@@ -22,6 +22,7 @@ test("adoption settles an owned live session whose dispatch never recorded a pro
         input: { rootDir, repoId: "missing-process", now: () => "2026-09-13T00:01:00.000Z" },
         requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [liveSession(runtimeSessionId)] }),
         processes: new Map(),
+        exiting: new Set<string>(),
         reconcileFallback: () => undefined,
         consumeLine: async () => undefined,
         publishExit: async (active: { runtimeSessionId: string; lossReason: string | null }) => {
@@ -51,6 +52,7 @@ test("recovery adoption preserves a runtime already owned by this daemon", async
       input: { rootDir, repoId: "owned-runtime", now: () => "2026-09-13T00:01:00.000Z" },
       requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [liveSession(runtimeSessionId)] }),
       processes,
+      exiting: new Set<string>(),
       reconcileFallback: () => {
         throw new Error("a live owned runtime must not be reconciled twice");
       },
@@ -67,6 +69,47 @@ test("recovery adoption preserves a runtime already owned by this daemon", async
   }
 });
 
+for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
+  test(`adoption recovers without orphan ownership after ${failurePoint}`, async () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-retry-"));
+    try {
+      const dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
+        runtimeSessionId = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb";
+      openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "retry-adoption");
+      let unavailable = true,
+        settled = 0;
+      const context = {
+        input: { rootDir, repoId: "retry-adoption", now: () => "2026-09-13T00:01:00.000Z" },
+        requiredRuntimeProjection: () => ({
+          readRuntimeSessions: () => [{ ...liveSession(runtimeSessionId), liveness: "unknown" }],
+        }),
+        processes: new Map(),
+        exiting: new Set(failurePoint === "in-flight" ? [runtimeSessionId] : []),
+        consumeLine: async () => undefined,
+        publishRuntimeEvent: async () => {
+          if (unavailable && failurePoint === "liveness") throw new Error("center disconnected");
+        },
+        publishExit: async (active: { runtimeSessionId: string }) => {
+          if (context.exiting.has(active.runtimeSessionId)) return;
+          if (unavailable && failurePoint === "settlement") throw new Error("center disconnected");
+          settled++;
+          context.processes.delete(active.runtimeSessionId);
+        },
+      };
+      if (failurePoint === "in-flight") await adoptRuntimes(context as never);
+      else await assert.rejects(adoptRuntimes(context as never), /center disconnected/);
+      assert.equal(context.processes.size, 0, "failed or in-flight adoption must not leave an owned runtime");
+      unavailable = false;
+      context.exiting.clear();
+      await adoptRuntimes(context as never);
+      assert.equal(settled, 1);
+      assert.equal(context.processes.size, 0);
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+}
+
 test("runtime cancel settles a live projection whose dispatch never recorded a process", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-missing-process-"));
   try {
@@ -78,6 +121,7 @@ test("runtime cancel settles a live projection whose dispatch never recorded a p
         input: { rootDir, repoId: "cancel-missing-process" },
         requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [liveSession(runtimeSessionId)] }),
         processes: new Map(),
+        exiting: new Set<string>(),
         publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
           published.push({ type, payload });
           return {};
