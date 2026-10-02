@@ -169,6 +169,22 @@ test("missing files, directories, binary files and oversize files fail typed", a
     assert.equal(image.bytes, pngBytes.toString("base64"));
   }
 
+  // Binary-format viewers also need textual encodings (SVG and uncompressed PDF).
+  for (const [name, body, mediaType] of [
+    ["drawing.svg", '<svg xmlns="http://www.w3.org/2000/svg"><text>Visible</text></svg>', "image/svg+xml"],
+    ["document.pdf", "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n%%EOF", "application/pdf"],
+  ]) {
+    const file = path.join(root, name);
+    writeFileSync(file, body);
+    const result = await readLocalDocument(file, { homeDir: () => "/home/ce" });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.contentKind, "binary");
+      assert.equal(result.mediaType, mediaType);
+      assert.equal(result.bytes, Buffer.from(body).toString("base64"));
+    }
+  }
+
   const oversize = path.join(root, "big.txt");
   writeFileSync(oversize, "x".repeat(65));
   const tooLarge = await readLocalDocument(oversize, { homeDir: () => "/home/ce", maxBytes: 64 });

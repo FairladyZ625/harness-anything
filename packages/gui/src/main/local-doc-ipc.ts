@@ -202,7 +202,7 @@ export async function readLocalDocument(
       path: realPath,
       message: "Local document does not decode as text.",
     };
-  const binary = mediaType !== null && looksBinary(content);
+  const binary = mediaType !== null;
   const previewText = mediaType === "application/msword" ? await extractLegacyWordText(bytes) : null;
   return {
     ok: true,
