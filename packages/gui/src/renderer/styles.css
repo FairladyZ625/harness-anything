@@ -786,3 +786,10 @@ html[data-theme="light"] ::selection {
   inline-size: max-content;
   min-inline-size: 100%;
 }
+
+/* Mermaid owns label colors; document paragraph rules must not recolor its SVG labels. */
+.document-diagram .nodeLabel p,
+.document-diagram .edgeLabel p {
+  color: inherit;
+  margin: 0;
+}

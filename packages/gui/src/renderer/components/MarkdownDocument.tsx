@@ -68,7 +68,7 @@ function MermaidDiagram({ source }: { readonly source: string }) {
     let cancelled = false;
     void import("mermaid")
       .then(async ({ default: mermaid }) => {
-        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "base" });
+        mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
         const rendered = await mermaid.render(`diagram-${crypto.randomUUID()}`, source);
         if (!cancelled) setMarkup(rendered.svg);
       })
@@ -83,7 +83,7 @@ function MermaidDiagram({ source }: { readonly source: string }) {
   if (markup !== null)
     return (
       <div
-        className="document-wide-block my-4 overflow-auto rounded-md border border-border bg-surface p-3"
+        className="document-diagram document-wide-block my-4 overflow-auto rounded-md border border-border bg-white p-3"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
     );
