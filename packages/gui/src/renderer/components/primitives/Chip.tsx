@@ -28,7 +28,7 @@ export function Chip({
     return (
       <span data-tip={tip} className={`${base} ${onClick !== undefined ? "hover:border-accent" : ""}`}>
         {onClick !== undefined ? (
-          <button type="button" onClick={onClick} className="text-left hover:text-accent">
+          <button type="button" onClick={onClick} className="min-h-[40px] min-w-[40px] text-left hover:text-accent">
             {children}
           </button>
         ) : (
@@ -42,14 +42,19 @@ export function Chip({
             event.stopPropagation();
             onRemove();
           }}
-          className="text-text-faint hover:text-danger"
+          className="inline-flex min-h-[40px] min-w-[40px] shrink-0 items-center justify-center text-text-faint hover:text-danger"
         >
           ✕
         </button>
       </span>
     );
   return onClick ? (
-    <button type="button" data-tip={tip} onClick={onClick} className={`${base} hover:border-accent`}>
+    <button
+      type="button"
+      data-tip={tip}
+      onClick={onClick}
+      className={`${base} min-h-[40px] min-w-[40px] hover:border-accent`}
+    >
       {children}
     </button>
   ) : (
