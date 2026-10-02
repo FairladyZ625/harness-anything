@@ -13,6 +13,10 @@ import { Tabs } from "../primitives/Tabs.tsx";
 import { TabPanel } from "../primitives/EntryBoundary.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { Empty } from "../primitives/Empty.tsx";
+import { Chip } from "../primitives/Chip.tsx";
+import { Field, FieldGrid, KV, KVRow } from "../primitives/Fields.tsx";
+import { RecordRow } from "../primitives/RecordRow.tsx";
+import { Section } from "../primitives/Section.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { IdText } from "../IdText.tsx";
 import "../../styles.css";
@@ -26,7 +30,7 @@ function ComponentCatalog() {
   const [selected, setSelected] = useState<string | null>(null);
   const [navigation, setNavigation] = useState("尚未触发导航回调");
   return (
-    <main className="h-screen overflow-y-auto bg-bg p-6 text-text sm:p-10" data-testid="component-catalog">
+    <main className="min-h-screen bg-bg p-6 text-text sm:p-10" data-testid="component-catalog">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-6 border-b border-border pb-6">
         <div>
           <p className="mb-2 font-mono text-text-faint ui-meta">HARNESS / GUI COMPONENTS</p>
@@ -105,11 +109,20 @@ function ComponentCatalog() {
               ),
             )}
           </div>
+          <p className="text-text-muted ui-meta">
+            小档:mono(机器词)、自定义 tone+label、icon 与 count 同档可用;徽章不再有第二套形状。
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <StatusTag tone="neutral" mono label="session/live-conn" />
+            <StatusTag status="active" mono label="运行中 · live" />
+            <StatusTag tone="wait" label="等待" count={3} />
+          </div>
         </section>
         <section className="grid min-w-0 gap-3">
           <h2 className="font-semibold ui-title">按钮 / Button</h2>
           <p className="text-text-muted ui-meta">
             全仓唯一按钮实现:plain / primary / danger / ghost 四档,sm / md 两档;禁用态透明度降低且不可点。
+            命中区由默认边界承担(≥40px 真实布局尺寸,两档密度一致),不靠伪元素外扩。
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button>次档 plain</Button>
@@ -134,6 +147,66 @@ function ComponentCatalog() {
             />
           </div>
           <Empty>该工作还没有任何执行记录</Empty>
+        </section>
+        <section className="grid min-w-0 gap-3">
+          <h2 className="font-semibold ui-title">记录行 / RecordRow</h2>
+          <p className="text-text-muted ui-meta">
+            元数据行(标识/状态/时间/动作)+ 全宽正文:长 ID 截断、长正文占满记录容器宽度,窄容器不溢出。
+          </p>
+          <div className="min-w-0 divide-y divide-border">
+            <RecordRow
+              id={<IdText value="review/9f2c7a41d8e6b35098ab7c2f" className="text-text" />}
+              state={<span className="font-mono ui-micro text-text-faint">returned</span>}
+              summary="这段评审正文用于验证全宽布局：在普通主面板里它应占足记录容器的全部宽度，而不是被挤进固定宽度的中列；词内换行留在自身块内。"
+              time={<RowTime at="2026-10-02T01:30:00Z" />}
+            />
+            <RecordRow
+              id={<IdText value="witness/code-doc-7f3b9e" className="text-text-muted" />}
+              state={<span className="font-mono ui-micro text-text-faint">passed</span>}
+              summary="短正文记录同样走同一布局；没有时间与动作时元数据行只保留标识。"
+            />
+          </div>
+        </section>
+        <section className="grid min-w-0 gap-3">
+          <h2 className="font-semibold ui-title">字段与区块 / Fields · Section</h2>
+          <p className="text-text-muted ui-meta">
+            只读字段两档(FieldGrid/Field 网格档、KV/KVRow 紧凑档);区块三档(文档/hero/warn/panel)。
+          </p>
+          <Section title="文档区块" count={3} note="高度由内容决定">
+            <FieldGrid>
+              <Field label="instanceId" value="runtime/codex-primary" />
+              <Field label="baseUrl" value="https://api.internal.example.dev" faint />
+              <Field label="lastProbe" value="2026-10-02T01:30:00Z" />
+            </FieldGrid>
+          </Section>
+          <Section variant="hero" title="等待裁决" count={2}>
+            <KV>
+              <KVRow name="decision">dec_60AF05D4</KVRow>
+              <KVRow name="state" title="proposed(等待裁决)">
+                proposed
+              </KVRow>
+            </KV>
+          </Section>
+          <Section variant="panel" title="设置面板区块">
+            <div className="px-3 py-2.5 ui-meta text-text-muted">
+              panel 档吸收原设置页 Section,带边框与大写等宽头行。
+            </div>
+          </Section>
+        </section>
+        <section className="grid min-w-0 gap-3">
+          <h2 className="font-semibold ui-title">可交互贴片 / Chip</h2>
+          <p className="text-text-muted ui-meta">
+            点击插入、链接跳转、可删除是三个真实交互面;与静态状态标签(StatusTag)、筛选钮组(FilterChips)分工。
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip tone="mono">repository-path</Chip>
+            <Chip tone="link" onClick={() => setNavigation("chip/catalog-sample")}>
+              跳到示例小队
+            </Chip>
+            <Chip onRemove={() => undefined} removeLabel="移除示例">
+              可移除贴片
+            </Chip>
+          </div>
         </section>
         <section className="grid min-w-0 gap-3">
           <h2 className="font-semibold ui-title">列表与区域 / DenseRow · Region · Tabs</h2>

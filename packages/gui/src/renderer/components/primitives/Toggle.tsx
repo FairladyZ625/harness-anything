@@ -21,7 +21,7 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange?.(!checked)}
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded disabled:opacity-50"
+      className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded disabled:opacity-50"
     >
       <span
         className={`relative h-4 w-[30px] rounded-full border transition-colors ${

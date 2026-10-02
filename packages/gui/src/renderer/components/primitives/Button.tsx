@@ -40,7 +40,7 @@ export function Button({
       data-testid={testId}
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex min-h-10 min-w-10 items-center justify-center gap-1.5 whitespace-nowrap rounded border ${size === "sm" ? "px-2 ui-micro" : "px-2.5 ui-meta"} ${tone} disabled:cursor-not-allowed disabled:opacity-45`}
+      className={`inline-flex min-h-[40px] w-max min-w-[40px] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded border ${size === "sm" ? "px-2 ui-micro" : "px-2.5 ui-meta"} ${tone} disabled:cursor-not-allowed disabled:opacity-45`}
     >
       {children}
     </button>
