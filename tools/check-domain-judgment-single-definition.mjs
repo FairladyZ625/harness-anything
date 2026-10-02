@@ -157,7 +157,10 @@ function walk(root, dir) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!["node_modules", "dist", "out"].includes(entry.name)) files.push(...walk(root, full));
+      // Generated bundle output carries inlined copies by construction (the packaged GUI
+      // cannot load workspace TypeScript at runtime); like dist/, it is not a definition.
+      if (!["node_modules", "dist", "dist-electron", "out"].includes(entry.name))
+        files.push(...walk(root, full));
     } else if (
       /\.(?:ts|tsx|mts|js|jsx|mjs)$/u.test(entry.name) &&
       !/(?:^|\/)(?:test|tests|fixtures)\//u.test(relative(root, full)) &&

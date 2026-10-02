@@ -219,8 +219,11 @@ export function rebuildProjection(
   // Rebuild is a schema repair boundary as well as a data replay. Deleting the disposable
   // database ensures CREATE TABLE materializes current DDL instead of retaining any table
   // whose shape changed while its version metadata was stale or incorrect.
-  const initialWatermark = withDatabase(projectionPath, readHead, (db) => watermark(db));
   discardDatabase(projectionPath, eventStore, "explicit_rebuild");
+  // Read the watermark after the discard: opening the pre-discard database first would run the
+  // ledger-identity assertion against a cache this rebuild is about to throw away. A discarded
+  // cache replays from zero, so rebuild progress is measured from an empty projection.
+  const initialWatermark = withDatabase(projectionPath, readHead, (db) => watermark(db));
   let transactions = 0,
     reducedItems = 0,
     maxBatchItems = 0,
