@@ -1,237 +1,255 @@
+import type { ReactNode } from "react";
 import { t } from "../../i18n/index.tsx";
-import { formatDuration } from "../../model/time.ts";
+import { sessionStatusKey, sessionUnattributedKey, type SessionStatus } from "../../sessions-model.ts";
+import { decisionSessionsRef } from "../../navigation/decisionReviewRoutes.ts";
 import { SegCtl } from "../runtime/parts.tsx";
-import { EntityRefLink } from "../EntityRefLink.tsx";
 import { DenseRow, RowTime } from "../primitives/DenseRow.tsx";
 import { Region } from "../primitives/Region.tsx";
-import { SegBar } from "../primitives/SegBar.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 import {
-  FLEET_TIME_WINDOWS,
-  type FleetPulseSnapshot,
-  type FleetTimeWindow,
-  type FleetWorkerRow,
+  FLEET_HISTORY_RANGES,
+  FLEET_RESULT_ROWS,
+  type FleetExecutionRow,
+  type FleetExecutionSnapshot,
+  type FleetHistoryRange,
+  type FleetTaskClaim,
 } from "../../model/cadence-fleet.ts";
 
 /**
- * 舰队页签:回答「谁在执行哪个任务、工作是否流动、有无并发冲突」。任务标题来自
- * deriveFleetPulse 里 tasks 投影行的 title,不为每行另拉全文;ID 弱化——只做悬停
- * title 与行尾弱色,不再当主文本。
- *
- * 外壳是 Region(标准 §2.1):顶部概况条(任务流动 + 并发防撞,内容高度,容器 ≥640px
- * 时并排),下面是 Worker 活动列表。区域按内容收高:少量实例不出现通高空框,留白
- * 落在页面背景;列表长了在 Region 内部滚动(16rem 保底),概况条常驻不滚走。
- * 时间窗只筛实例列表;流动比/周转/防撞是任务池与事件窗口口径,不随时间窗变化,
- * 范围写在区域页脚——不把累计数标成所选窗口的指标。
+ * 执行概况页签:回答「谁在做什么、哪条执行失败了、最近的结果是什么」。数据是一条
+ * sessionGroups 有界读面(groupBy=task,无成员级筛选),三区全部从组自身的
+ * runningCount + latestStatus 推——daemon 保证 live 会话不被历史窗口切掉,所以
+ * 「正在执行」永远是全量;异常与结果是「已加载范围内的记录」,截断时 footer 与
+ * 空态都如实说。运行中不等于有进展,成功会话不叫「已交付」;任务已 done/cancelled/
+ * archived 的失败行照列,但行上声明任务当前状态,不叫人处理(恢复入口在会话详情)。
  */
 
-/** 状态→标签档(标准 §3):活跃/空闲是正常运行,中性或灰蓝;只有失败红、成功绿。 */
-function workerTone(worker: FleetWorkerRow): StatusTone {
-  if (worker.status === "live") return "neutral";
-  if (worker.status === "idle") return "plan";
-  if (worker.outcome === "failed") return "bad";
-  if (worker.outcome === "succeeded") return "done";
-  if (worker.outcome === "cancelled") return "cancel";
-  return "neutral";
+/** 会话状态词 → 标签色:与会话页同一份状态词表(sessionStatusKey),失败红、结果不明琥珀。 */
+const STATUS_TONE: Readonly<Record<SessionStatus, StatusTone>> = {
+  running: "active",
+  succeeded: "done",
+  failed: "bad",
+  cancelled: "cancel",
+  unknown: "neutral",
+  lost: "wait",
+  unavailable: "wait",
+  "ended-indeterminate": "wait",
+};
+
+const CLAIM_KEY: Readonly<Record<Exclude<FleetTaskClaim, null>, string>> = {
+  awaiting: "views.cadence.fleetTaskAwaiting",
+  done: "views.cadence.fleetTaskDone",
+  cancelled: "views.cadence.fleetTaskCancelled",
+  archived: "views.cadence.fleetTaskArchived",
+  unknown: "views.cadence.fleetTaskUnknown",
+};
+
+/** 行主点击落点:任务组展开会话页该组,decision 组落决策会话,未归属桶直达会话详情。 */
+function rowSessionRef(row: FleetExecutionRow): string | null {
+  if (row.taskId !== null) return `tasksessions/${row.taskId}`;
+  if (row.decisionId !== null) return decisionSessionsRef(row.decisionId, row.runtimeSessionId);
+  return row.runtimeSessionId === null ? null : `session/${row.runtimeSessionId}`;
 }
 
-function statusBadge(worker: FleetWorkerRow): string {
-  if (worker.status === "live") return t("views.cadence.fleetStatus.live");
-  if (worker.status === "idle") return t("views.cadence.fleetStatus.idle");
-  if (worker.outcome === "succeeded") return t("views.cadence.fleetOutcome.succeeded");
-  if (worker.outcome === "failed") return t("views.cadence.fleetOutcome.failed");
-  if (worker.outcome === "cancelled") return t("views.cadence.fleetOutcome.cancelled");
-  if (worker.outcome === "unknown") return t("views.cadence.fleetOutcome.unknown");
-  return t("views.cadence.fleetStatus.exited");
+function rowTitle(row: FleetExecutionRow): string {
+  if (row.unattributedKey === null) return row.title;
+  const key = sessionUnattributedKey[row.unattributedKey as keyof typeof sessionUnattributedKey];
+  return key === undefined ? row.title : t(key as never);
 }
 
-function formatTokens(count: number): string {
-  if (count < 1_000) return String(count);
-  if (count < 1_000_000) return `${(count / 1_000).toFixed(1)}k`;
-  return `${(count / 1_000_000).toFixed(1)}M`;
+function claimText(row: FleetExecutionRow): string {
+  return row.taskClaim === null ? "" : t(CLAIM_KEY[row.taskClaim] as never);
 }
 
-function duration(value: number | null): string {
-  if (value === null) return t("views.cadence.fleetTurnaroundUnknown");
-  return formatDuration(value);
-}
-
-function WorkerRow({
-  worker,
+function FleetRow({
+  row,
+  meta,
   onNavigateEntity,
 }: {
-  readonly worker: FleetWorkerRow;
+  readonly row: FleetExecutionRow;
+  readonly meta: ReactNode;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
-  const metrics = worker.metrics
-    ? ` · ${t("views.cadence.fleetTokensCompact", {
-        total: formatTokens(worker.metrics.totalTokens),
-      })}`
-    : "";
+  const target = rowSessionRef(row);
   return (
-    <div data-testid="cadence-fleet-worker" className="contents">
+    <div data-testid="cadence-fleet-row">
       <DenseRow
         relaxed
-        tag={<StatusTag tone={workerTone(worker)} label={statusBadge(worker)} />}
-        title={worker.label}
-        reason={
-          <>
-            {worker.tasks.length === 0
-              ? t("views.cadence.fleetNoTasks")
-              : worker.tasks.map((task, index) => (
-                  <span key={task.taskId}>
-                    {index > 0 ? <span className="mr-1.5">·</span> : null}
-                    <EntityRefLink
-                      entityRef={`task/${task.taskId}`}
-                      onNavigate={onNavigateEntity}
-                      title={task.taskId}
-                      className="ui-meta text-accent hover:underline"
-                    >
-                      {task.title}
-                    </EntityRefLink>
-                  </span>
-                ))}
-            <span>
-              {" — "}
-              {t("views.cadence.fleetContribution", {
-                facts: worker.facts,
-                decisions: worker.decisions,
-                files: worker.touchedFiles,
-              })}
-              {metrics}
-            </span>
-          </>
-        }
-        time={worker.lastActiveAt === null ? undefined : <RowTime at={worker.lastActiveAt} />}
-        hoverTitle={
-          worker.metrics
-            ? `${worker.instanceId} · ${worker.runtimeSessionId} · ${t("views.cadence.fleetTokens", {
-                total: formatTokens(worker.metrics.totalTokens),
-                calls: worker.metrics.toolCalls,
-              })}`
-            : `${worker.instanceId} · ${worker.runtimeSessionId}`
+        tag={<StatusTag tone={STATUS_TONE[row.latestStatus]} label={t(sessionStatusKey[row.latestStatus] as never)} />}
+        title={rowTitle(row)}
+        reason={meta}
+        time={row.latestActivityAt === "" ? undefined : <RowTime at={row.latestActivityAt} />}
+        hoverTitle={row.taskId ?? row.decisionId ?? undefined}
+        onClick={target === null ? undefined : () => onNavigateEntity(target)}
+        action={
+          row.taskId === null ? undefined : (
+            <button
+              type="button"
+              data-testid="cadence-fleet-row-task"
+              onClick={() => onNavigateEntity(`task/${row.taskId}`)}
+              className="rounded bg-accent/10 px-2.5 py-1 font-mono ui-meta text-accent transition-colors hover:bg-accent/20"
+            >
+              {t("views.cadence.fleetTaskAction")}
+            </button>
+          )
         }
       />
     </div>
   );
 }
 
+function EmptyNote({ children }: { readonly children: ReactNode }) {
+  return <p className="px-3.5 py-2.5 ui-meta text-text-faint">{children}</p>;
+}
+
 export function FleetPulsePane({
   snapshot,
-  selectedWindow,
-  onSelectWindow,
+  pending,
+  error,
+  selectedRange,
+  onSelectRange,
   onNavigateEntity,
 }: {
-  readonly snapshot: FleetPulseSnapshot;
-  readonly selectedWindow: FleetTimeWindow;
-  readonly onSelectWindow: (window: FleetTimeWindow) => void;
+  readonly snapshot: FleetExecutionSnapshot;
+  readonly pending: boolean;
+  readonly error: string | null;
+  readonly selectedRange: FleetHistoryRange;
+  readonly onSelectRange: (range: FleetHistoryRange) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
+  const rangeLabel = t(`views.cadence.fleetWindow.${selectedRange}`),
+    results = snapshot.results.slice(0, FLEET_RESULT_ROWS);
   return (
     <div data-testid="cadence-fleet" className="@container flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-      {/* 概况条:内容高度,不撑满剩余空间;容器够宽时两块并排。 */}
-      <div className="grid shrink-0 gap-3 @[640px]:grid-cols-2">
-        <Region title={t("views.cadence.fleetFlowTitle")} footer={t("views.cadence.fleetFlowScope")}>
-          <div data-testid="cadence-fleet-flow" className="flex flex-col">
-            {/* 流动比分段条:待认领=灰蓝、在飞=青蓝、收口=绿,与全站状态色同源。 */}
-            <div className="border-b border-border px-3.5 pb-2.5 pt-3">
-              <SegBar
-                counts={{ planned: snapshot.flow.claimed, active: snapshot.flow.inFlight, done: snapshot.flow.settled }}
-              />
-            </div>
-            <DenseRow title={t("views.cadence.fleetFlowInFlight")} time={snapshot.flow.inFlight} />
-            <DenseRow title={t("views.cadence.fleetFlowClaimed")} time={snapshot.flow.claimed} />
-            <DenseRow title={t("views.cadence.fleetFlowSettled")} time={snapshot.flow.settled} />
-            <DenseRow title={t("views.cadence.fleetTurnaroundTitle")} time={duration(snapshot.turnaroundMs)} />
-          </div>
-        </Region>
-        <Region
-          title={t("views.cadence.fleetFenceTitle")}
-          edge={snapshot.collisions.length > 0 ? "bad" : undefined}
-          big={snapshot.collisions.length > 0 ? snapshot.collisions.length : undefined}
-          footer={t("views.cadence.fleetFenceScope")}
-        >
-          {snapshot.collisions.length === 0 ? (
-            /* 空态收成一条状态点(标准 §1.5):正常不刷大绿。 */
-            <p
-              data-testid="cadence-fleet-fence"
-              className="flex items-center gap-2 px-3.5 py-2.5 ui-meta text-text-faint"
-            >
-              <span aria-hidden className="size-1.5 rounded-full bg-status-done" />
-              {t("views.cadence.fleetFenceClean")}
-            </p>
-          ) : (
-            <div data-testid="cadence-fleet-fence" className="flex flex-col">
-              {snapshot.collisions.map(({ taskId, title, workerCount }) => (
-                <DenseRow
-                  key={taskId}
-                  title={title}
-                  hoverTitle={taskId}
-                  time={t("views.cadence.fleetFenceTask", { count: workerCount })}
-                  onClick={() => onNavigateEntity(`task/${taskId}`)}
-                />
-              ))}
-            </div>
-          )}
-        </Region>
+      {/* 范围切换统一用分段控件(标准 §2.3);时间窗只筛历史两区,「正在执行」不受它影响。 */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2.5">
+        <p className="ui-meta text-text-faint">{t("views.cadence.fleetLead")}</p>
+        <span className="ml-auto">
+          <SegCtl
+            label={t("views.cadence.fleetHistoryRangeLabel")}
+            value={selectedRange}
+            onChange={onSelectRange}
+            options={FLEET_HISTORY_RANGES.map((range) => ({
+              value: range,
+              label: t(`views.cadence.fleetWindow.${range}`),
+            }))}
+          />
+        </span>
       </div>
-      {/* 实例列表:少量实例时按内容收高(无通高空框),列表超长时占住剩余高度并区内滚动。 */}
-      <div className="grid min-h-[16rem] shrink grid-rows-[minmax(0,1fr)]">
-        <Region
-          title={t("views.cadence.fleetWorkersTitle")}
-          big={snapshot.workers.length}
-          footer={t("views.cadence.fleetListScope")}
+      {error !== null ? (
+        <p
+          role="alert"
+          data-testid="cadence-fleet-error"
+          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono ui-micro text-status-blocked"
         >
-          <div className="flex h-full flex-col">
-            {/* 范围切换统一用分段控件 SegCtl(标准 §2.3);Region 标题行不放动作,固定在行体顶部。 */}
-            <div className="flex-none border-b border-border px-3 pb-2 pt-0.5">
-              <SegCtl
-                label={t("views.cadence.fleetWindowTitle")}
-                value={selectedWindow}
-                onChange={onSelectWindow}
-                options={FLEET_TIME_WINDOWS.map((win) => ({
-                  value: win,
-                  label: t(`views.cadence.fleetWindow.${win}`),
-                }))}
-              />
-            </div>
-            {snapshot.workers.length === 0 ? (
-              <div className="flex flex-col items-center justify-center px-3.5 py-8 text-center">
-                <p className="ui-meta text-text-faint">
-                  {selectedWindow === "active"
-                    ? t("views.cadence.fleetActiveEmpty")
-                    : t("views.cadence.fleetWorkersEmpty")}
-                </p>
-                {selectedWindow === "active" ? (
-                  <button
-                    type="button"
-                    data-testid="cadence-fleet-switch-24h"
-                    onClick={() => onSelectWindow("24h")}
-                    className="mt-2.5 rounded bg-accent/10 px-3 py-1 font-mono ui-meta text-accent transition-colors hover:bg-accent/20"
-                  >
-                    {t("views.cadence.fleetSwitchTo24h")}
-                  </button>
-                ) : selectedWindow !== "all" ? (
-                  <button
-                    type="button"
-                    data-testid="cadence-fleet-switch-all"
-                    onClick={() => onSelectWindow("all")}
-                    className="mt-2.5 rounded bg-accent/10 px-3 py-1 font-mono ui-meta text-accent transition-colors hover:bg-accent/20"
-                  >
-                    {t("views.cadence.fleetSwitchToAll")}
-                  </button>
-                ) : null}
+          {t("agentRuntime.readFailed", { error })}
+        </p>
+      ) : pending ? (
+        <p data-testid="cadence-fleet-pending" className="shrink-0 px-0.5 py-2 ui-meta text-text-faint">
+          {t("agentRuntime.loading")}
+        </p>
+      ) : (
+        <>
+          <div className="grid shrink-0 gap-3 @[640px]:grid-cols-2">
+            <Region title={t("views.cadence.fleetExecutingTitle")} big={snapshot.executing.length}>
+              {snapshot.executing.length === 0 ? (
+                <div data-testid="cadence-fleet-executing">
+                  <EmptyNote>{t("views.cadence.fleetExecutingEmpty")}</EmptyNote>
+                </div>
+              ) : (
+                <div data-testid="cadence-fleet-executing" className="flex flex-col">
+                  {snapshot.executing.map((row) => (
+                    <FleetRow
+                      key={row.key}
+                      row={row}
+                      meta={
+                        row.currentExecutor ? (
+                          <>
+                            {row.agentName ?? row.instanceId} · {row.instanceId} ·{" "}
+                            {t("views.cadence.fleetRoundSuffix", { count: row.roundCount })}
+                          </>
+                        ) : (
+                          // 最新一轮已结束:只说几个会话在跑,不把已结束者指为当前执行人。
+                          t("views.cadence.fleetExecutingSessions", { count: row.runningCount })
+                        )
+                      }
+                      onNavigateEntity={onNavigateEntity}
+                    />
+                  ))}
+                </div>
+              )}
+            </Region>
+            <Region
+              title={t("views.cadence.fleetAnomalyTitle")}
+              edge={snapshot.anomalies.length > 0 ? "bad" : undefined}
+              big={snapshot.anomalies.length}
+            >
+              {snapshot.anomalies.length === 0 ? (
+                <div data-testid="cadence-fleet-anomaly">
+                  <EmptyNote>{t("views.cadence.fleetAnomalyEmpty")}</EmptyNote>
+                </div>
+              ) : (
+                <div data-testid="cadence-fleet-anomaly" className="flex flex-col">
+                  {snapshot.anomalies.map((row) => (
+                    <FleetRow
+                      key={row.key}
+                      row={row}
+                      meta={
+                        <>
+                          {row.agentName ?? row.instanceId}
+                          {claimText(row) === "" ? "" : ` · ${claimText(row)}`}
+                        </>
+                      }
+                      onNavigateEntity={onNavigateEntity}
+                    />
+                  ))}
+                </div>
+              )}
+            </Region>
+          </div>
+          <Region
+            title={t("views.cadence.fleetResultsTitle")}
+            big={snapshot.results.length}
+            footer={
+              snapshot.loadedGroups > results.length
+                ? t("views.cadence.fleetResultsCapped", { shown: results.length, loaded: snapshot.loadedGroups })
+                : undefined
+            }
+          >
+            {snapshot.results.length === 0 ? (
+              <div data-testid="cadence-fleet-results">
+                <EmptyNote>{t("views.cadence.fleetResultsEmpty")}</EmptyNote>
               </div>
             ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {snapshot.workers.map((worker) => (
-                  <WorkerRow key={worker.runtimeSessionId} worker={worker} onNavigateEntity={onNavigateEntity} />
+              <div data-testid="cadence-fleet-results" className="flex flex-col">
+                {results.map((row) => (
+                  <FleetRow
+                    key={row.key}
+                    row={row}
+                    meta={
+                      <>
+                        {row.agentName ?? row.instanceId}
+                        {claimText(row) === "" ? "" : ` · ${claimText(row)}`}
+                      </>
+                    }
+                    onNavigateEntity={onNavigateEntity}
+                  />
                 ))}
               </div>
             )}
-          </div>
-        </Region>
-      </div>
+          </Region>
+          {/* 口径行:窗口/总数是 daemon 按过滤后的集合算的,截断时明确「行只是已加载部分」。 */}
+          <p data-testid="cadence-fleet-scope" className="shrink-0 ui-micro text-text-faint">
+            {t("views.cadence.fleetFooterWindow", { range: rangeLabel })} ·{" "}
+            {t("views.cadence.fleetFooterCounts", {
+              groups: snapshot.totals.groups,
+              sessions: snapshot.totals.sessions,
+            })}{" "}
+            · {t("views.cadence.fleetFooterLoaded", { loaded: snapshot.loadedGroups })}
+            {snapshot.truncated ? ` · ${t("views.cadence.fleetFooterTruncated")}` : ""}
+          </p>
+        </>
+      )}
     </div>
   );
 }
