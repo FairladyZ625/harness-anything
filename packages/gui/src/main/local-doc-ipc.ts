@@ -1,8 +1,10 @@
 import { readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
   LOCAL_DOC_READ_CHANNEL,
+  LOCAL_DOC_EXTRACT_WORD_CHANNEL,
   LOCAL_DOC_WRITE_CHANNEL,
   type LocalDocReadInput,
   type LocalDocReadResult,
@@ -35,6 +37,7 @@ import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 
 /** 单文件读写上限:按「一篇文档」设定,超限给页内错误而非卡死渲染或吞掉超大写入。 */
 export const LOCAL_DOC_MAX_BYTES = 2 * 1024 * 1024;
+export const LOCAL_DOC_PREVIEW_MAX_BYTES = 16 * 1024 * 1024;
 
 /** 二进制嗅探窗口:UTF-8 解码后前 4 KiB 内替换字符占比超过该阈值判定为二进制。 */
 const BINARY_SNIFF_WINDOW = 4096;
@@ -63,6 +66,10 @@ export function registerLocalDocIpc(
     assertTrustedIpcSender(event, trustPolicy);
     const input = validateLocalDocReadInput(payload);
     return readLocalDocument(input.path, services);
+  });
+  registrar.handle(LOCAL_DOC_EXTRACT_WORD_CHANNEL, async (event, payload) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    return extractLegacyWordText(payload);
   });
   registrar.handle(LOCAL_DOC_WRITE_CHANNEL, async (event, payload) => {
     assertTrustedIpcSender(event, trustPolicy);
@@ -146,7 +153,6 @@ export async function readLocalDocument(
   rawPath: string,
   services: LocalDocServices = { homeDir: homedir },
 ): Promise<LocalDocReadResult> {
-  const maxBytes = services.maxBytes ?? LOCAL_DOC_MAX_BYTES;
   const expanded = expandHomePath(rawPath, services.homeDir());
   if (!path.isAbsolute(expanded))
     return {
@@ -163,6 +169,8 @@ export async function readLocalDocument(
     return fsFailure(classifyLocalDocFsError(cause), expanded, cause);
   }
 
+  const mediaType = mediaTypeForPath(realPath);
+  const maxBytes = services.maxBytes ?? (mediaType === null ? LOCAL_DOC_MAX_BYTES : LOCAL_DOC_PREVIEW_MAX_BYTES);
   let size: number, isFile: boolean;
   try {
     const info = await stat(realPath);
@@ -186,20 +194,75 @@ export async function readLocalDocument(
       message: `Local document is ${size} bytes; the in-app reader accepts at most ${maxBytes}.`,
     };
 
-  let content: string;
+  let bytes: Buffer;
   try {
-    content = await readFile(realPath, "utf8");
+    bytes = await readFile(realPath);
   } catch (cause) {
     return fsFailure(classifyLocalDocFsError(cause), realPath, cause);
   }
-  if (looksBinary(content))
+  const content = bytes.toString("utf8");
+  if (looksBinary(content) && mediaType === null)
     return {
       ok: false,
       code: "binary_file",
       path: realPath,
       message: "Local document does not decode as text.",
     };
-  return { ok: true, path: realPath, content, sizeBytes: size };
+  const binary = mediaType !== null;
+  return {
+    ok: true,
+    path: realPath,
+    content: binary ? "" : content,
+    sizeBytes: size,
+    contentKind: binary ? "binary" : "text",
+    mediaType: mediaType ?? "text/plain",
+    bytes: binary ? bytes.toString("base64") : null,
+  };
+}
+
+/** Shared parser for local and remote document bytes; errors reach the preview error state. */
+export async function extractLegacyWordText(payload: unknown): Promise<string> {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload))
+    throw new Error("Word preview requires a bytes payload.");
+  const record = payload as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== 1 ||
+    typeof record.bytes !== "string" ||
+    record.bytes.length === 0 ||
+    record.bytes.length > Math.ceil(LOCAL_DOC_PREVIEW_MAX_BYTES / 3) * 4 ||
+    record.bytes.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/u.test(record.bytes)
+  )
+    throw new Error("Word preview requires base64 bytes within the 16 MiB preview limit.");
+  const WordExtractor = createRequire(import.meta.url)("word-extractor") as new () => {
+    extract: (
+      source: Buffer,
+    ) => Promise<{ getBody: () => string; getFootnotes: () => string; getHeaders: () => string }>;
+  };
+  const document = await new WordExtractor().extract(Buffer.from(record.bytes, "base64"));
+  return [document.getBody(), document.getHeaders(), document.getFootnotes()]
+    .filter((value) => value.trim().length > 0)
+    .join("\n\n");
+}
+
+function mediaTypeForPath(filePath: string): string | null {
+  const extension = path.extname(filePath).toLowerCase();
+  return (
+    {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".avif": "image/avif",
+      ".bmp": "image/bmp",
+      ".ico": "image/x-icon",
+      ".svg": "image/svg+xml",
+      ".pdf": "application/pdf",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".doc": "application/msword",
+    }[extension] ?? null
+  );
 }
 
 type WriteTargetResolution =

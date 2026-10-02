@@ -1,3 +1,5 @@
+import { DocReader } from "../DocReader.tsx";
+import { BinaryDocumentPreview } from "../BinaryDocumentPreview.tsx";
 import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider, useTheme, type ThemeMode } from "../../theme.tsx";
@@ -295,6 +297,43 @@ function ComponentCatalog() {
           <output className="text-text-muted ui-meta" aria-live="polite">
             选中示例：{selected ?? "无"}
           </output>
+        </section>
+        <section className="grid min-w-0 gap-3" data-testid="catalog-documents">
+          <h2 className="font-semibold ui-title">文档 / DocumentFrame</h2>
+          <p className="text-text-muted ui-meta">
+            切换单栏、双栏与窄容器，验证长文内部纵滚、宽表内部横滚及工具栏可达。
+          </p>
+          <DocReader
+            content={[
+              "# 查看器示例",
+              "",
+              "- [x] GFM 任务列表",
+              "",
+              "$E=mc^2$",
+              "",
+              "| 字段 | 长值 |",
+              "| --- | --- |",
+              `| 内容 | ${"wide_content_".repeat(40)} |`,
+              "",
+              "```mermaid",
+              "graph LR",
+              "A[读取] --> B[展示]",
+              "```",
+              "",
+              ...Array.from(
+                { length: 40 },
+                (_, i) => `第 ${i + 1} 段：长内容在查看器内滚动，页面上的其他操作保持可达。\n`,
+              ),
+            ].join("\n")}
+          />
+          <BinaryDocumentPreview
+            path="catalog.svg"
+            mediaType="image/svg+xml"
+            bytes={btoa(
+              '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="180"><rect width="640" height="180" fill="#008c95"/><text x="32" y="100" fill="white" font-size="32">Image preview</text></svg>',
+            )}
+          />
+          <BinaryDocumentPreview path="unsupported.bin" mediaType="application/octet-stream" bytes={null} />
         </section>
         <section className="grid min-w-0 gap-3">
           <h2 className="font-semibold ui-title">实体引用 / EntityRefLink</h2>

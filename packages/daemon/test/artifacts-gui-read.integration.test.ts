@@ -117,7 +117,7 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
       ["artifacts/reports/dossier.pdf"],
     );
     const dossier = raw.artifacts[0]!;
-    assert.equal(dossier.mediaType, "application/octet-stream");
+    assert.equal(dossier.mediaType, "application/pdf");
     assert.equal(dossier.sizeBytes, pdf.byteLength);
     assert.equal(dossier.taskId, "task-artifact");
     assert.equal(dossier.packagePath, packagePath);

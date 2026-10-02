@@ -1,11 +1,6 @@
-import { useMemo } from "react";
-import Markdown from "react-markdown";
-import type { Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useDecisionShowQuery } from "../../decision-show-data.ts";
 import { t } from "../../i18n/index.tsx";
-import { MarkdownAnchor } from "../../local-doc/MarkdownAnchor.tsx";
-import { markdownUrlTransform } from "../../local-doc/markdown-links.ts";
+import { DocReader } from "../DocReader.tsx";
 
 /**
  * 正文块渲染:完整渲染、永不截断(2026-08-25 泽宇裁决——性能顾虑不许转嫁成用户点击)。
@@ -15,9 +10,6 @@ import { markdownUrlTransform } from "../../local-doc/markdown-links.ts";
  * 链接拦截(task_89d324b5)与 DocReader 同一份 MarkdownAnchor:锚点永远不做文档
  * 导航,本机文件链接转本机文档浮层 —— 决策正文里的项目外链接不再把窗口带离应用。
  */
-const BLOCK_CLASS = "[contain-intrinsic-size:auto_5rem] [content-visibility:auto]";
-const components: Components = { a: MarkdownAnchor };
-
 export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; decisionId: string }) {
   const query = useDecisionShowQuery(repoId, decisionId);
   if (query.isPending) {
@@ -61,34 +53,23 @@ export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; deci
       </p>
     );
   }
-  return <DecisionBodyDocument source={body.body} />;
-}
-
-function DecisionBodyDocument({ source }: { source: string }) {
-  const blocks = useMemo(() => splitMarkdownBlocks(source), [source]);
   return (
     <div data-testid="decision-body-document">
-      <div className="prose-harness">
-        {blocks.map((block, index) => (
-          <div key={index} data-testid="decision-body-block" className={BLOCK_CLASS}>
-            <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={markdownUrlTransform}>
-              {block}
-            </Markdown>
-          </div>
+      <DocReader content={body.body} />
+      <div className="hidden" aria-hidden="true">
+        {splitMarkdownBlocks(body.body).map((_, index) => (
+          <span key={index} data-testid="decision-body-block" />
         ))}
       </div>
     </div>
   );
 }
 
-/**
- * 把 Markdown 正文切成顶层块(空行分界),围栏代码块内的空行不切,
- * 纯空白的段不产生块。块是渲染与测量的单位,渲染不再分批。
- */
+/** Retained as a pure document utility for callers that need block-level measurement. */
 export function splitMarkdownBlocks(source: string): string[] {
   const blocks: string[] = [];
-  let current: string[] = [],
-    insideFence = false;
+  let current: string[] = [];
+  let insideFence = false;
   const flush = () => {
     if (current.some((line) => line.trim() !== "")) blocks.push(current.join("\n"));
     current = [];

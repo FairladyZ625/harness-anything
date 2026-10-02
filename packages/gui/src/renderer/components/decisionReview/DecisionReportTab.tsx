@@ -1,16 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { harnessClient } from "../../api-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
-import { MarkdownAnchor } from "../../local-doc/MarkdownAnchor.tsx";
-import { markdownUrlTransform } from "../../local-doc/markdown-links.ts";
 import { dispatchOfReview, reviewById, shortDigest } from "../../model/decision-review.ts";
 import type { DecisionRow } from "../../model/types.ts";
 import { decisionReviewRef, decisionSessionsRef } from "../../navigation/decisionReviewRoutes.ts";
 import { actorText, atText, cardClass, VerdictBadge } from "./parts.tsx";
 import { Button } from "../primitives/Button.tsx";
+import { DocReader } from "../DocReader.tsx";
 
 type ReportRead =
   | { readonly state: "ready"; readonly body: string }
@@ -137,15 +134,7 @@ export function DecisionReportTab({
             {t("views.decisionReview.reportMissing", { code: report.data.code })}
           </p>
         ) : (
-          <div className="prose-harness">
-            <Markdown
-              remarkPlugins={[remarkGfm]}
-              components={{ a: MarkdownAnchor }}
-              urlTransform={markdownUrlTransform}
-            >
-              {report.data.body}
-            </Markdown>
-          </div>
+          <DocReader content={report.data.body} />
         )}
       </section>
       <p className="ui-micro text-text-faint">{t("views.decisionReview.reportBinding")}</p>

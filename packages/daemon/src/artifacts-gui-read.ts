@@ -7,7 +7,7 @@ import {
   RAW_ARTIFACT_MEDIA_TYPE,
   resolveHarnessLayout,
 } from "@harness-anything/kernel";
-import { statFileSync, statLinkSync } from "./doc-sync-reads.ts";
+import { mediaTypeForBinaryPath, statFileSync, statLinkSync } from "./doc-sync-reads.ts";
 import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-gui-contract.ts";
 
 /** 本读需要的投影面(结构性窄口,真实 TaskProjection 天然满足;测试可注入 stub)。 */
@@ -65,7 +65,7 @@ function artifactKindOf(
   if (textual !== undefined) return textual;
   return classifyRawArtifactPath(`tasks/${packageDir}/${relative}`) === null
     ? null
-    : { kind: "raw", mediaType: RAW_ARTIFACT_MEDIA_TYPE };
+    : { kind: "raw", mediaType: mediaTypeForBinaryPath(relative, RAW_ARTIFACT_MEDIA_TYPE)! };
 }
 /** 防御病理树:遍历规模上限,超限部分静默截断(列表是投影,不是审计)。 */
 const artifactWalkMaxFiles = 20_000;

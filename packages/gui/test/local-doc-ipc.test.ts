@@ -4,11 +4,17 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_WRITE_CHANNEL } from "../src/api/local-doc-contract.ts";
+import {
+  LOCAL_DOC_READ_CHANNEL,
+  LOCAL_DOC_WRITE_CHANNEL,
+  LOCAL_DOC_EXTRACT_WORD_CHANNEL,
+} from "../src/api/local-doc-contract.ts";
 import {
   classifyLocalDocFsError,
+  extractLegacyWordText,
   expandHomePath,
   LOCAL_DOC_MAX_BYTES,
+  LOCAL_DOC_PREVIEW_MAX_BYTES,
   looksBinary,
   readLocalDocument,
   registerLocalDocIpc,
@@ -43,23 +49,32 @@ test.after(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-test("only the local-doc read and write channels are registered, once each", () => {
+test("local document read, byte preview and write channels are registered once each", () => {
   const channels: string[] = [];
   registerLocalDocIpc({ handle: (channel) => channels.push(channel) }, { homeDir: () => "/home" }, trustedPolicy);
-  assert.deepEqual(channels, [LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_WRITE_CHANNEL]);
+  assert.deepEqual(channels, [LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_EXTRACT_WORD_CHANNEL, LOCAL_DOC_WRITE_CHANNEL]);
 });
 
-test("an untrusted renderer cannot reach the channel", async () => {
-  let handled: unknown = null;
+test("an untrusted renderer cannot reach any document channel", async () => {
+  const handlers: ((event: typeof trustedEvent, payload: unknown) => Promise<unknown>)[] = [];
   registerLocalDocIpc(
-    { handle: (_channel, listener) => (handled = listener) },
+    {
+      handle: (_channel, listener) => {
+        handlers.push(listener);
+      },
+    },
     { homeDir: () => "/home" },
     { isTrustedWebContentsId: () => false },
   );
-  await assert.rejects(
-    () => (handled as (event: unknown, payload: unknown) => Promise<unknown>)(trustedEvent, { path: "/etc/hosts" }),
-    /Rejected IPC message/u,
-  );
+  for (const handler of handlers)
+    await assert.rejects(() => handler(trustedEvent, { path: "/etc/hosts" }), /Rejected IPC message/u);
+});
+
+test("Word preview accepts bytes only, never a local path, and surfaces parse failures", async () => {
+  await assert.rejects(() => extractLegacyWordText({ path: "/etc/hosts" }), /base64 bytes/u);
+  await assert.rejects(() => extractLegacyWordText({ bytes: "abc" }), /base64 bytes/u);
+  await assert.rejects(() => extractLegacyWordText({ bytes: "YQ==", path: "/etc/hosts" }), /base64 bytes/u);
+  await assert.rejects(() => extractLegacyWordText({ bytes: "YQ==" }));
 });
 
 test("request shape is closed to {path} with a usable path string", () => {
@@ -113,6 +128,9 @@ test("reads a readable text file and reports the real absolute path", async () =
     path: file,
     content: "# 标题\n\n正文一行。\n",
     sizeBytes: Buffer.byteLength("# 标题\n\n正文一行。\n", "utf8"),
+    contentKind: "text",
+    mediaType: "text/plain",
+    bytes: null,
   });
 });
 
@@ -155,11 +173,50 @@ test("missing files, directories, binary files and oversize files fail typed", a
   const binary = await readLocalDocument(binaryFile, { homeDir: () => "/home/ce" });
   assert.deepEqual({ ok: binary.ok, code: binary.ok ? null : binary.code }, { ok: false, code: "binary_file" });
 
+  const pngFile = path.join(root, "pixel.png");
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d, 0x0a]);
+  writeFileSync(pngFile, pngBytes);
+  const image = await readLocalDocument(pngFile, { homeDir: () => "/home/ce" });
+  assert.equal(image.ok, true);
+  if (image.ok) {
+    assert.equal(image.contentKind, "binary");
+    assert.equal(image.mediaType, "image/png");
+    assert.equal(image.bytes, pngBytes.toString("base64"));
+  }
+
+  // Binary-format viewers also need textual encodings (SVG and uncompressed PDF).
+  for (const [name, body, mediaType] of [
+    ["drawing.svg", '<svg xmlns="http://www.w3.org/2000/svg"><text>Visible</text></svg>', "image/svg+xml"],
+    ["document.pdf", "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n%%EOF", "application/pdf"],
+  ]) {
+    const file = path.join(root, name);
+    writeFileSync(file, body);
+    const result = await readLocalDocument(file, { homeDir: () => "/home/ce" });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.contentKind, "binary");
+      assert.equal(result.mediaType, mediaType);
+      assert.equal(result.bytes, Buffer.from(body).toString("base64"));
+    }
+  }
+
   const oversize = path.join(root, "big.txt");
   writeFileSync(oversize, "x".repeat(65));
   const tooLarge = await readLocalDocument(oversize, { homeDir: () => "/home/ce", maxBytes: 64 });
   assert.deepEqual({ ok: tooLarge.ok, code: tooLarge.ok ? null : tooLarge.code }, { ok: false, code: "too_large" });
   assert.equal(LOCAL_DOC_MAX_BYTES, 2 * 1024 * 1024);
+});
+
+test("binary preview admits documents above the text-edit limit but rejects oversized previews", async () => {
+  const pdf = path.join(root, "large-preview.pdf");
+  writeFileSync(pdf, Buffer.alloc(LOCAL_DOC_MAX_BYTES + 1, 0x20));
+  const accepted = await readLocalDocument(pdf, { homeDir: () => "/home/ce" });
+  assert.equal(accepted.ok, true);
+  if (accepted.ok) assert.equal(accepted.contentKind, "binary");
+  writeFileSync(pdf, Buffer.alloc(LOCAL_DOC_PREVIEW_MAX_BYTES + 1, 0x20));
+  const rejected = await readLocalDocument(pdf, { homeDir: () => "/home/ce" });
+  assert.equal(rejected.ok, false);
+  if (!rejected.ok) assert.equal(rejected.code, "too_large");
 });
 
 test("relative and non-owner-tilde paths are rejected typed at read time", async () => {

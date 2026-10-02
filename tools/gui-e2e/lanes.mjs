@@ -35,20 +35,30 @@ function writeHtmlPreviewArtifact(rootDir, packagePath) {
   );
 }
 
-// A real binary Task output. The bytes are a valid one-page PDF header/trailer with a byte
-// no UTF-8 decoder accepts, so a preview that "renders the body" produces a blank page and a
-// materialized copy made from a string is a different file than the one that was published.
+// A complete one-page PDF. The page paints a teal rectangle, allowing the GUI scenario
+// to prove actual pixels arrived through the document read path, not merely metadata.
 function writeRawArtifact(rootDir, packagePath) {
   const artifactsRoot = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
   mkdirSync(artifactsRoot, { recursive: true });
-  writeFileSync(
-    path.join(artifactsRoot, "dossier.pdf"),
-    Buffer.concat([
-      Buffer.from("%PDF-1.7\n1 0 obj<</Type/Catalog>>endobj\n"),
-      Buffer.from([0xff, 0xd8, 0x00, 0x1a, 0x80, 0xfe]),
-      Buffer.from("\ntrailer<</Root 1 0 R>>\n%%EOF\n"),
-    ]),
-  );
+  const stream = "0 0.55 0.58 rg 20 20 260 160 re f\n";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
+  ];
+  let pdf = "%PDF-1.7\n%\xFF\xFE\n";
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(pdf, "latin1"));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(pdf, "latin1");
+  pdf += `xref\n0 5\n0000000000 65535 f \n${offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`)
+    .join("")}trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  writeFileSync(path.join(artifactsRoot, "dossier.pdf"), Buffer.from(pdf, "latin1"));
 }
 
 /**

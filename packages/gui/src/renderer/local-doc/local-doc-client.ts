@@ -15,6 +15,7 @@ import { guiHostBridge } from "../gui-transport.ts";
  * 折叠成 typed 失败,绝不把异常抛进渲染层。
  */
 type LocalDocBridge = {
+  readonly extractWordText: (input: { readonly bytes: string }) => Promise<string>;
   readonly read: (input: { readonly path: string }) => Promise<unknown>;
   readonly write: (input: { readonly path: string; readonly content: string }) => Promise<unknown>;
 };
@@ -42,7 +43,15 @@ export async function requestLocalDocument(path: string): Promise<LocalDocReadRe
         typeof value.content === "string" &&
         typeof value.sizeBytes === "number"
       )
-        return { ok: true, path: value.path, content: value.content, sizeBytes: value.sizeBytes };
+        return {
+          ok: true,
+          path: value.path,
+          content: value.content,
+          sizeBytes: value.sizeBytes,
+          contentKind: value.contentKind === "binary" ? "binary" : "text",
+          mediaType: typeof value.mediaType === "string" ? value.mediaType : "text/plain",
+          bytes: typeof value.bytes === "string" ? value.bytes : null,
+        };
       if (
         value.ok === false &&
         typeof value.code === "string" &&
@@ -103,4 +112,10 @@ export async function saveLocalDocument(path: string, content: string): Promise<
       message: cause instanceof Error ? cause.message : String(cause),
     };
   }
+}
+
+export async function extractWordPreview(bytes: string): Promise<string> {
+  const channel = bridge();
+  if (!channel) throw new Error("Document preview bridge unavailable.");
+  return channel.extractWordText({ bytes });
 }

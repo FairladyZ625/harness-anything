@@ -174,7 +174,8 @@ describe("Task detail expression", () => {
 
     // 白页缺陷的判别控制:PDF 走二进制面板,不进 DocReader,也不留一张空正文。
     const panel = byTestId("task-document-binary");
-    expect(panel.textContent).toContain("二进制产物,不是文本");
+    expect(panel.querySelector('[data-testid="document-binary-preview"]')).not.toBeNull();
+    expect(panel.textContent).toContain("当前查看器不提供页式预览");
     expect(panel.textContent).toContain("application/octet-stream");
     expect(panel.textContent).toContain("4096");
     expect(panel.textContent).toContain("harness/tasks/task-w3-night/artifacts/reports/dossier.pdf");
