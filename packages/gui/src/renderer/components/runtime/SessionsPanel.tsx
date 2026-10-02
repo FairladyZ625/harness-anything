@@ -399,7 +399,9 @@ export function SessionDetailView({
             <CardTitle>{t("agentRuntime.resultText")}</CardTitle>
           </CardHead>
           <CardBody>
-            <pre className="rt-pre max-h-56 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">{result}</pre>
+            <pre className="rt-pre bounded-content overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {result}
+            </pre>
           </CardBody>
         </Card>
       )}

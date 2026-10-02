@@ -5,12 +5,12 @@
 
 ## 分层
 
-| 层 | 位置 | 职责 |
-| --- | --- | --- |
-| 原语层(唯一权威) | `primitives/` | 布局、密度、状态色、截断、焦点、命中区等规则住所;一处实现 |
-| 共享契约件 | `EntityRefLink.tsx`、`IdText.tsx`、`badges.tsx`(STATUS_META 与领域徽章词表)、`../model/time.ts`、`../motion-config.tsx` | 各管一件语义:实体互链、长值展示、状态词、时间、动效偏好 |
-| 领域组件 | `runtime/`、`sessions/`、`scheduleRun/`、`tokenUsage/`、`decisionReview/` 等目录 | 特定平面的组合件,只能向下用原语与契约件 |
-| 存量第二库(收敛中) | `runtime/parts.tsx`、`ui/widgets.tsx` | 见「第二库剩余职责」;新代码禁止从这里取材 |
+| 层                 | 位置                                                                                                                    | 职责                                                      |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| 原语层(唯一权威)   | `primitives/`                                                                                                           | 布局、密度、状态色、截断、焦点、命中区等规则住所;一处实现 |
+| 共享契约件         | `EntityRefLink.tsx`、`IdText.tsx`、`badges.tsx`(STATUS_META 与领域徽章词表)、`../model/time.ts`、`../motion-config.tsx` | 各管一件语义:实体互链、长值展示、状态词、时间、动效偏好   |
+| 领域组件           | `runtime/`、`sessions/`、`scheduleRun/`、`tokenUsage/`、`decisionReview/` 等目录                                        | 特定平面的组合件,只能向下用原语与契约件                   |
+| 存量第二库(收敛中) | `runtime/parts.tsx`、`ui/widgets.tsx`                                                                                   | 见「第二库剩余职责」;新代码禁止从这里取材                 |
 
 ## 原语默认责任(调用方不背清单)
 
@@ -30,9 +30,8 @@
   布局行,不在此合并。
 - **RecordRow**:记录行布局。元数据行(标识/状态左、时间/动作行尾)+ **全宽正文**——长正文占满
   记录容器宽度,不与标识/时间挤三列;长 ID 截断在标识格,窄容器不溢出。
-- **BoundedContent**:日志、评审、时间线和文件预览的长内容边界。最大高度统一为有尺寸父级的
-  55%(父级无高度时以 `55dvh` 封顶),超出内容在自身区域滚动，标题和动作位留在边界外。
-- **Modal**:全仓唯一弹层外壳。遮罩、标题/关闭、滚动正文和固定页脚由原语承担；领域表单只提供
+- **BoundedContent**:日志、评审、时间线和文件预览的长内容边界。最大高度统一使用 `--long-content-cap:55cqb`，相对最近 `content-viewport` 的可用块轴尺寸；无此容器时CSS使用小视口参照,超出内容在自身区域滚动，标题和动作位留在边界外。
+- **Modal**:共享弹层使用原生dialog承担焦点限制、Escape关闭及返回原触发器；遮罩、标题/关闭、滚动正文和固定页脚由原语承担；领域表单只提供
   `children` 与 `footer`,不从 runtime 私有 parts 取弹层布局。
 - **Section**:区块三档——默认文档区块、hero/warn 注意力左粗边、panel 设置面板档(吸收原
   ui/widgets Section)。runtime Card 的卡内分节(Sect)是 Card 的领域伴生物,住 runtime/parts。
@@ -76,3 +75,5 @@
 `catalog/ComponentCatalog.tsx` 是开发-only Vite 入口:真实组件 + 示例数据,覆盖主题、动效偏好、
 窄容器、禁用/长值/空态、RecordRow 全宽正文、BoundedContent 内滚动、StatusTag 小档、Fields、Chip 与 Section 三档。
 收敛新原语时在同目录补对应状态展示。
+
+长内容布局：App主内容提供有确定尺寸的content-viewport；嵌入组件使用BoundedContent，保留pre/ol等原生语义的叶节点可使用同一bounded-content样式契约。CSS容器块轴单位在记录行自身高度不确定时仍有定义；不再使用min(百分比,视口)假装兜底。弹出层无尺寸容器时使用CSS规定的小视口参照。横纵均可滚动，滚动到边界可自然交还外层，避免每条记录锁住滚轮。

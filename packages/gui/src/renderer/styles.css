@@ -17,6 +17,25 @@
   contain-intrinsic-size: auto 10rem;
 }
 
+/* One proportional overflow contract. cqb follows the nearest size container;
+   outside one (e.g. a portal) CSS resolves it against the small viewport.
+   Unlike percentages in max-height, this stays definite for intrinsic-height records. */
+:root {
+  --long-content-cap: 55cqb;
+  --overlay-content-cap: 85dvh;
+}
+
+.content-viewport {
+  container-type: size;
+}
+
+.bounded-content {
+  min-block-size: 0;
+  min-inline-size: 0;
+  max-block-size: var(--long-content-cap);
+  overflow: auto;
+}
+
 /*
  * Harness GUI 暗色变量（OKLch）
  * 三轴视觉通道分配：
@@ -742,4 +761,9 @@ html[data-theme="light"] ::selection {
   border-color: var(--color-border-strong);
   outline: 1px solid var(--color-accent);
   outline-offset: 1px;
+}
+
+.component-modal::backdrop {
+  background: color-mix(in oklch, var(--color-bg) 70%, transparent);
+  backdrop-filter: blur(6px);
 }

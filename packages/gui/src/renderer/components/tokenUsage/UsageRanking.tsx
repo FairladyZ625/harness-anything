@@ -51,7 +51,7 @@ export function UsageRanking({
   const peak = Math.max(...rows.map(({ totalTokens }) => totalTokens)),
     floor = rankLogFloor(rows.map(({ totalTokens }) => totalTokens));
   return (
-    <ol data-testid="token-usage-ranking" className="max-h-[440px] overflow-y-auto">
+    <ol data-testid="token-usage-ranking" className="bounded-content overflow-y-auto">
       {rows.map((row) => {
         const unreported = usageIsUnreported(row),
           parts = tokenComposition(row),
@@ -142,7 +142,7 @@ export function UsageRankingTable({
   const head = "border-b border-border pb-1.5 pr-3 text-right font-normal",
     cell = "border-b border-border py-1.5 pr-3 text-right font-mono tabular-nums ui-meta";
   return (
-    <div className="max-h-[440px] overflow-auto px-3.5 pb-2">
+    <div className="bounded-content overflow-auto px-3.5 pb-2">
       <table data-testid={testId} className="w-full border-separate border-spacing-0">
         <thead>
           <tr className="text-left ui-meta text-text-faint">

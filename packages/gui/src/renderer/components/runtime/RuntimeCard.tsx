@@ -268,7 +268,7 @@ export function RuntimeCard({
           {selfTestResult !== null && (
             <pre
               data-testid="runtime-self-test-result"
-              className="rt-pre mt-2 max-h-32 overflow-auto whitespace-pre-wrap"
+              className="rt-pre mt-2 bounded-content overflow-auto whitespace-pre-wrap"
             >
               {selfTestResult}
             </pre>

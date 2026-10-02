@@ -158,7 +158,7 @@ function TurnSection({
         {turn.resultText === null ? (
           <p className="mt-1 ui-micro text-text-faint">{t("agentRuntime.squadRunNoReceipt")}</p>
         ) : (
-          <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-all font-mono ui-micro text-text">
+          <pre className="mt-1 bounded-content overflow-auto whitespace-pre-wrap break-all font-mono ui-micro text-text">
             {turn.resultText}
           </pre>
         )}

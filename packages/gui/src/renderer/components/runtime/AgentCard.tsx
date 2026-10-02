@@ -313,7 +313,7 @@ export function AgentCard({
               placeholder={t("agentRuntime.skillSearchPlaceholder")}
             />
             {skillSearch.trim() && (
-              <div className="max-h-36 overflow-y-auto rounded border border-border bg-surface p-1">
+              <div className="bounded-content overflow-y-auto rounded border border-border bg-surface p-1">
                 {filteredSkills.length ? (
                   filteredSkills.map((skill) => (
                     <div
@@ -370,7 +370,7 @@ export function AgentCard({
             <Hint>{t("agentRuntime.presetHint")}</Hint>
           </div>
           {presetSearch.trim() && (
-            <div className="mt-1.5 max-h-36 overflow-y-auto rounded border border-border bg-surface p-1">
+            <div className="mt-1.5 bounded-content overflow-y-auto rounded border border-border bg-surface p-1">
               {filteredPresets.length ? (
                 filteredPresets.map((preset) => (
                   <button

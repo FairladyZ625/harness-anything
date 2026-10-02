@@ -227,7 +227,7 @@ export function SessionTranscriptTurns({ turns }: { readonly turns: readonly Ses
                 {item.label === item.type ? item.summary : `${item.label} · ${item.summary}`}
               </span>
             </summary>
-            <pre className="rt-pre mx-3 mb-2 max-h-72 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
+            <pre className="rt-pre mx-3 mb-2 bounded-content overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
               {item.detail}
             </pre>
           </details>

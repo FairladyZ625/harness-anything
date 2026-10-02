@@ -119,7 +119,11 @@ function TreeBody({
   const crumbs = focusId ? [...taskAncestors(index, focusId)].reverse() : [];
   const focusNode = focusId ? index.byId.get(focusId) : null;
   return (
-    <div className="flex max-h-[65vh] flex-col gap-2" onKeyDown={onKeyDown} data-testid="terminal-task-tree-body">
+    <div
+      className="flex max-h-[var(--long-content-cap)] flex-col gap-2"
+      onKeyDown={onKeyDown}
+      data-testid="terminal-task-tree-body"
+    >
       <div className="flex flex-wrap items-center gap-2">
         <input
           ref={inputRef}

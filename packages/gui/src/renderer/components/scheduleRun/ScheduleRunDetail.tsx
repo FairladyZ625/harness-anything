@@ -167,7 +167,7 @@ export function ScheduleRunDetail({
               <summary className="cursor-pointer font-mono ui-micro text-text-muted">
                 {t("schedules.run.report.jsonReceipt")}
               </summary>
-              <pre className="rt-pre mt-1.5 max-h-[28rem] overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
+              <pre className="rt-pre mt-1.5 bounded-content overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
                 {occurrence.reportText}
               </pre>
             </details>

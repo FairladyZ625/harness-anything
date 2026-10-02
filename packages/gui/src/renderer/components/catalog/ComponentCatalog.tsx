@@ -16,6 +16,7 @@ import { Empty } from "../primitives/Empty.tsx";
 import { Chip } from "../primitives/Chip.tsx";
 import { Field, FieldGrid, KV, KVRow } from "../primitives/Fields.tsx";
 import { RecordRow } from "../primitives/RecordRow.tsx";
+import { Modal } from "../primitives/Modal.tsx";
 import { BoundedContent } from "../primitives/BoundedContent.tsx";
 import { Section } from "../primitives/Section.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
@@ -27,6 +28,7 @@ function ComponentCatalog() {
   const { mode, setMode } = useTheme();
   const { preference, setPreference } = useMotionPreference();
   const [narrow, setNarrow] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [tab, setTab] = useState<"rows" | "empty">("rows");
   const [selected, setSelected] = useState<string | null>(null);
   const [navigation, setNavigation] = useState("尚未触发导航回调");
@@ -196,10 +198,27 @@ function ComponentCatalog() {
         </section>
         <section className="grid min-w-0 gap-3">
           <h2 className="font-semibold ui-title">长内容边界 / BoundedContent</h2>
+          <Button testId="catalog-open-modal" onClick={() => setModalOpen(true)}>
+            打开长内容弹层
+          </Button>
+          {modalOpen && (
+            <Modal
+              title="长内容弹层"
+              testId="catalog-modal"
+              onClose={() => setModalOpen(false)}
+              footer={<Button onClick={() => setModalOpen(false)}>完成</Button>}
+            >
+              <label>
+                示例输入
+                <input aria-label="示例输入" />
+              </label>
+              <pre>{("wide-line/".repeat(25) + "\n").repeat(80)}</pre>
+            </Modal>
+          )}
           <p className="text-text-muted ui-meta">
             日志、评审、时间线和文件预览共用可用高度的 55% 上限，超出内容在自身区域滚动，不撑长页面。
           </p>
-          <div className="h-56 min-w-0 rounded border border-border bg-surface p-3">
+          <div className="content-viewport h-56 min-w-0 rounded border border-border bg-surface p-3">
             <BoundedContent className="font-mono ui-micro leading-relaxed text-text-muted">
               {Array.from({ length: 18 }, (_, index) => (
                 <p key={index}>log/{index + 1}: 长内容滚动样本，保留原文并在边界内阅读。</p>

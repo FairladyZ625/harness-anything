@@ -38,7 +38,7 @@ export function RuntimeModelEditor({
     <div className="grid min-w-0 gap-1.5">
       <div
         data-testid={`${testIdPrefix}-models`}
-        className="grid max-h-32 gap-1 overflow-y-auto rounded border border-border px-2 py-1.5"
+        className="grid bounded-content gap-1 overflow-y-auto rounded border border-border px-2 py-1.5"
       >
         {options.length ? (
           options.map((model) => (

@@ -82,7 +82,7 @@ export function UsageSpend({
           }));
   if (rows.length === 0) return <Empty>{t("agentRuntime.tokenUsageSpendEmpty")}</Empty>;
   return (
-    <ol data-testid={`token-usage-spend-${scope}`} className="max-h-[440px] overflow-y-auto">
+    <ol data-testid={`token-usage-spend-${scope}`} className="bounded-content overflow-y-auto">
       {rows.map((row) => (
         <li key={row.id}>
           <button
@@ -152,7 +152,7 @@ export function UsageSessions({
           <p className="border-t border-border px-3.5 pt-2.5 pb-1 ui-meta font-semibold text-text-muted">
             {t("agentRuntime.tokenUsageSessionTopTitle")}
           </p>
-          <ol data-testid="token-usage-top-sessions" className="max-h-[300px] overflow-y-auto">
+          <ol data-testid="token-usage-top-sessions" className="bounded-content overflow-y-auto">
             {stats.top.map((session) => {
               const multiple = stats.medianTokens > 0 ? session.totalTokens / stats.medianTokens : 0;
               return (
@@ -170,9 +170,11 @@ export function UsageSessions({
                       </span>
                       {/* 中位数的 10 倍以上才算离群:标出来,免得一眼把它当成常态。 */}
                       {multiple >= 10 ? (
-                        <span className="rounded-xs bg-status-submitted/15 px-1.5 py-px font-mono ui-meta font-semibold tabular-nums text-status-submitted">
-                          {t("agentRuntime.tokenUsageSessionOutlier", { multiple: String(Math.round(multiple)) })}
-                        </span>
+                        <StatusTag
+                          tone="wait"
+                          mono
+                          label={t("agentRuntime.tokenUsageSessionOutlier", { multiple: String(Math.round(multiple)) })}
+                        />
                       ) : null}
                       <span
                         className="font-mono tabular-nums ui-body text-text"
@@ -362,7 +364,7 @@ export function UsageWorth({ data }: { readonly data: AgentRuntimeTokenUsageResu
 
 function WorkerEfficiency({ workers }: { readonly workers: readonly AgentRuntimeTokenUsageAgentRow[] }) {
   return (
-    <div className="max-h-[320px] overflow-y-auto border-t border-border">
+    <div className="bounded-content overflow-y-auto border-t border-border">
       <table data-testid="token-usage-efficiency" className="w-full border-separate border-spacing-0">
         <thead>
           <tr className="text-left ui-meta text-text-faint">

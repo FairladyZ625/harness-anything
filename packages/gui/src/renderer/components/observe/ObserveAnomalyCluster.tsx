@@ -1,3 +1,4 @@
+import { StatusTag } from "../primitives/StatusTag";
 import { memo } from "react";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
@@ -51,7 +52,7 @@ export const ObserveAnomalyCluster = memo(function ObserveAnomalyCluster({
             onClick={() => onFocusCluster(cluster.matchText)}
             className={CLUSTER_ITEM}
           >
-            <span className="shrink-0 rounded bg-status-blocked/10 px-1 text-status-blocked">×{cluster.count}</span>
+            <StatusTag tone="bad" label="×" count={cluster.count} />
             <span className="min-w-0 flex-1 truncate text-status-blocked">
               {cluster.kind === "gap"
                 ? `${t("views.daemonObserve.anomalyGapLabel")} · ${gapReasonText(cluster.reason ?? "")}`

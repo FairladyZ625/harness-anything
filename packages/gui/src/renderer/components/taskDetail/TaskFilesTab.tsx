@@ -48,7 +48,7 @@ export function TaskDocumentSidebar(props: TaskDocumentSidebarProps) {
   return (
     <nav
       aria-label="任务包文件"
-      className="min-h-0 overflow-y-auto border-b border-border bg-surface p-3 @max-[1100px]:max-h-72 @min-[1100px]:border-r @min-[1100px]:border-b-0"
+      className="min-h-0 overflow-y-auto border-b border-border bg-surface p-3 @max-[1100px]:max-h-[var(--long-content-cap)] @min-[1100px]:border-r @min-[1100px]:border-b-0"
       data-testid="task-document-tree"
     >
       <p className="mb-2 px-1 font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">

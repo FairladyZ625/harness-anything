@@ -64,7 +64,10 @@ export function RepoPathBrowser({
           选定当前目录
         </button>
       </div>
-      <div className="max-h-64 overflow-y-auto rounded border border-border/60" data-testid="repo-path-browser-entries">
+      <div
+        className="bounded-content overflow-y-auto rounded border border-border/60"
+        data-testid="repo-path-browser-entries"
+      >
         {read.isPending ? (
           <p className="px-2 py-2 ui-micro text-text-faint">读取 {directory} …</p>
         ) : read.isError ? (
