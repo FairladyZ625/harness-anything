@@ -1,4 +1,5 @@
-import { Chip, Hint } from "../runtime/parts.tsx";
+import { Hint } from "../runtime/parts.tsx";
+import { Chip } from "../primitives/Chip.tsx";
 import { KV, KVRow } from "../primitives/Fields.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";

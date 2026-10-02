@@ -17,7 +17,8 @@ import {
 } from "@harness-anything/daemon/protocol";
 import type { ScheduleBuiltinEditInput, ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import { Chip, Hint, Modal, PlannedBox } from "./runtime/parts.tsx";
+import { Hint, Modal, PlannedBox } from "./runtime/parts.tsx";
+import { Chip } from "./primitives/Chip.tsx";
 import { TextInput } from "./primitives/TextInput.tsx";
 import { StatusTag } from "./primitives/StatusTag.tsx";
 

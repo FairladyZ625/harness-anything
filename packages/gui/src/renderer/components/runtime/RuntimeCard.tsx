@@ -38,7 +38,6 @@ import {
   CardBody,
   CardHead,
   CardTitle,
-  Chip,
   ChipZone,
   CfgRow,
   Crumbs,
@@ -47,6 +46,7 @@ import {
   KindDot,
   Right,
 } from "./parts.tsx";
+import { Chip } from "../primitives/Chip.tsx";
 import { Field, FieldGrid, KV, KVRow } from "../primitives/Fields.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { Empty } from "../primitives/Empty.tsx";

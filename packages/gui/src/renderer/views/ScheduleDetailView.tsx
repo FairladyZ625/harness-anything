@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, PencilSimple, Play, Power, Stop, Trash } from "@phosphor-icons/react";
 import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
-import { Chip } from "../components/runtime/parts.tsx";
+import { Chip } from "../components/primitives/Chip.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
 import { ScheduleForm } from "../components/ScheduleFormDialog.tsx";
 import { ScheduleRunDetail } from "../components/scheduleRun/ScheduleRunDetail.tsx";

@@ -5,20 +5,8 @@ import type { AgentEntityAvailableRow, SquadEntityDetail } from "../../agent-ent
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ActionError } from "./ActionError.tsx";
-import {
-  Avatar,
-  Card,
-  CardBody,
-  CardHead,
-  CardTitle,
-  Chip,
-  Crumbs,
-  CrumbSep,
-  Hint,
-  Right,
-  Sect,
-  WarnBar,
-} from "./parts.tsx";
+import { Avatar, Card, CardBody, CardHead, CardTitle, Crumbs, CrumbSep, Hint, Right, Sect, WarnBar } from "./parts.tsx";
+import { Chip } from "../primitives/Chip.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";

@@ -99,61 +99,9 @@ export function Sect({
 // 只读字段/键值(FieldGrid/Field/KV/KVRow)已迁入 primitives/Fields.tsx(C9):
 // 详情字段是跨域共享契约,不随 runtime 第二库生长。
 
-export function Chip({
-  tip,
-  tone = "plain",
-  onClick,
-  onRemove,
-  removeLabel = "Remove",
-  children,
-}: {
-  readonly tip?: string;
-  readonly tone?: "plain" | "link" | "mono";
-  readonly onClick?: () => void;
-  /** 存在时 Chip 拆成「点击主体 + 独立删除热区」两个交互面(task_5dfe382f)。 */
-  readonly onRemove?: () => void;
-  /** 删除热区的无障碍名;调用方传本地化文案。 */
-  readonly removeLabel?: string;
-  readonly children: ReactNode;
-}) {
-  const base = `inline-flex items-center gap-1.5 rounded border border-border-strong bg-surface px-[7px] py-0.5 ui-micro ${tone === "mono" ? "font-mono ui-micro" : ""}`;
-  // onRemove 形态:外层必须是 span —— button 嵌 button 是非法 DOM,点击会紊乱。
-  if (onRemove !== undefined)
-    return (
-      <span data-tip={tip} className={`${base} ${onClick !== undefined ? "hover:border-accent" : ""}`}>
-        {onClick !== undefined ? (
-          <button type="button" onClick={onClick} className="text-left hover:text-accent">
-            {children}
-          </button>
-        ) : (
-          <span>{children}</span>
-        )}
-        <button
-          type="button"
-          aria-label={removeLabel}
-          data-tip={removeLabel}
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemove();
-          }}
-          className="text-text-faint hover:text-danger"
-        >
-          ✕
-        </button>
-      </span>
-    );
-  return onClick ? (
-    <button type="button" data-tip={tip} onClick={onClick} className={`${base} hover:border-accent`}>
-      {children}
-    </button>
-  ) : (
-    <span data-tip={tip} className={base}>
-      {children}
-    </span>
-  );
-}
-// 状态徽章已收敛到 primitives/StatusTag(C8,视觉基线 v2):状态色唯一出口是
-// StatusTag 的 tone→token 映射,本库不再有第二套徽章形状。
+// 可交互 Chip 已迁入 primitives/Chip.tsx(C8):点击/链接/删除贴片是跨域契约;
+// AddChip/ChipZone 是 runtime 配置面的伴生形状,留在此域。
+
 export function KindDot({ kind }: { readonly kind: string }) {
   return (
     <span
