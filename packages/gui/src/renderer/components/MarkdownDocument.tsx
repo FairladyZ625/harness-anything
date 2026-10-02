@@ -31,7 +31,12 @@ export function MarkdownDocument({
         if (isValidElement(children)) {
           const childProps = children.props as { className?: string; children?: unknown };
           if (childProps.className?.includes("language-mermaid"))
-            return <MermaidDiagram source={String(childProps.children ?? "").trim()} />;
+            return (
+              <MermaidDiagram
+                key={String(childProps.children ?? "")}
+                source={String(childProps.children ?? "").trim()}
+              />
+            );
         }
         return (
           <div className="document-wide-block">
