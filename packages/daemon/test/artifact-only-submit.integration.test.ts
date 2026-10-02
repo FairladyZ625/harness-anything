@@ -175,6 +175,15 @@ test("a documentation amendment completes with newly accepted artifact paths on 
     writeFileSync(path.join(ledger, packagePath, "artifacts/followup.md"), "Additional accepted evidence.\n");
     await run({ kind: "doc-submit", taskId });
     await run({ kind: "task-submit", taskId, executionId, amend: true });
+    const amended = makeTaskEventReader({ repoId: workspaceId("doc-amend"), rootDir })
+      .read()
+      .events.findLast(
+        (event) => isTaskEvent(event) && event.type === "execution_submitted" && event.taskId === taskId,
+      );
+    assert.ok(amended && isTaskEvent(amended) && amended.type === "execution_submitted");
+    const submission = amended.payload.execution.submission!;
+    assert.ok(submission.deliverables.includes(`${packagePath}/artifacts/followup.md`));
+    for (const file of submission.deliverables) git(ledger, "cat-file", "-e", `${submission.commitSha}:${file}`);
     await run({ kind: "task-complete", taskId, executionId });
   } finally {
     await cell.close();
