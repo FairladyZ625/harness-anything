@@ -120,3 +120,73 @@ test("a real artifact-only task submits without claiming its baseline merge path
 
 test("a baseline closeout-only task reconciles its empty manifest at completion and still requires a Fact", () =>
   submitBaselineTask(false));
+
+test("a documentation amendment completes with newly accepted artifact paths on its own cut", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-amend-"));
+  const ledger = path.join(rootDir, "harness"),
+    taskId = "task-doc-amend",
+    executionId = "execution-doc-amend";
+  initRepo(rootDir);
+  mkdirSync(ledger);
+  initRepo(ledger);
+  const holder = withRoleBinding(
+    { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const },
+    "owner",
+  );
+  const cell = await openBootstrappedRepoCell({
+    repoId: workspaceId("doc-amend"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "doc-amend-fixture",
+  });
+  const run = async (action: Parameters<typeof cell.run>[0]) => {
+    let receipt = await cell.run(action, holder);
+    for (let attempt = 0; receipt.outcome === "pending" && attempt < 4; attempt++) {
+      await waitForFixturePublication(cell, receipt.opId, holder);
+      receipt = await cell.run(action, holder);
+    }
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    await waitForFixturePublication(cell, receipt.opId, holder);
+    return receipt;
+  };
+  try {
+    const created = await run({
+      kind: "task-create",
+      taskId,
+      title: "Amend accepted documentation",
+      presetId: "docs-task",
+      profileId: "lightweight",
+    });
+    const packagePath = String((created as { packagePath?: string }).packagePath);
+    await realizeTaskPlanFixture(
+      rootDir,
+      packagePath,
+      (documentPath) => run({ kind: "doc-submit", paths: [documentPath] }),
+      "Amend accepted documentation",
+    );
+    await run({ kind: "task-start", taskId, executionId });
+    mkdirSync(path.join(ledger, packagePath, "artifacts"), { recursive: true });
+    writeFileSync(path.join(ledger, packagePath, "artifacts/report.md"), "First accepted evidence.\n");
+    writeFileSync(
+      path.join(ledger, packagePath, "closeout.md"),
+      "## Summary\nReviewed documentation and recorded the evidence.\n## Verification\nAccepted reports were read.\n## Residual Risk\nNo product implementation claimed.\n## Same Mechanism Elsewhere\nDocumentation revision must match its paths.\n",
+    );
+    await run({ kind: "doc-submit", taskId });
+    await run({ kind: "task-submit", taskId, executionId });
+    writeFileSync(path.join(ledger, packagePath, "artifacts/followup.md"), "Additional accepted evidence.\n");
+    await run({ kind: "doc-submit", taskId });
+    await run({ kind: "task-submit", taskId, executionId, amend: true });
+    const amended = makeTaskEventReader({ repoId: workspaceId("doc-amend"), rootDir })
+      .read()
+      .events.findLast(
+        (event) => isTaskEvent(event) && event.type === "execution_submitted" && event.taskId === taskId,
+      );
+    assert.ok(amended && isTaskEvent(amended) && amended.type === "execution_submitted");
+    const submission = amended.payload.execution.submission!;
+    assert.ok(submission.deliverables.includes(`${packagePath}/artifacts/followup.md`));
+    for (const file of submission.deliverables) git(ledger, "cat-file", "-e", `${submission.commitSha}:${file}`);
+    await run({ kind: "task-complete", taskId, executionId });
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

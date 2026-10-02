@@ -97,6 +97,7 @@ function derive(
   // carries a public delivery commit, even with an empty (lightweight) gate list.
   outputShape: "repository-diff" | "task-package-artifact" = "repository-diff",
   priorCommit?: string,
+  frozenSubmission?: ReturnType<typeof deriveCloseoutSubmission>,
 ) {
   const snapshot = {
       executions: [
@@ -112,7 +113,7 @@ function derive(
           claimedAt: "2026-09-12T00:00:00.000Z",
           submittedAt: null,
           closedAt: null,
-          submission: null,
+          submission: frozenSubmission ?? null,
           ...(deliveryBaseline == null ? {} : { deliveryBaseline }),
         },
       ],
@@ -827,4 +828,41 @@ test("a restarted task retains the first-parent diff for its earlier delivery an
   assert.deepEqual(foreignPrior.deliverables, []);
   assert.deepEqual(foreignPrior.outputs, []);
   assert.equal(foreignPrior.artifacts, undefined);
+});
+
+test("documentation amendments pin new artifact bytes while unrelated ledger writes preserve the cut", (t) => {
+  const { root, ledger } = fixture(t);
+  const report = `${packagePath}/artifacts/report.md`;
+  put(ledger, report, "First accepted report.\n");
+  const firstSha = commit(ledger);
+  const read = (frozen?: ReturnType<typeof deriveCloseoutSubmission>) =>
+    derive(
+      root,
+      "Audited report.",
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      "task-package-artifact",
+      undefined,
+      frozen,
+    );
+  const first = read();
+  assert.equal(first.commitSha, firstSha);
+  put(ledger, "other-task/notes.md", "Unrelated accepted write.\n");
+  commit(ledger);
+  assert.equal(read(first).commitSha, firstSha, "unrelated publication must not invalidate review");
+  const added = `${packagePath}/artifacts/new-evidence.md`;
+  put(ledger, added, "New accepted evidence.\n");
+  put(ledger, report, "Corrected report.\n");
+  const amendedSha = commit(ledger);
+  const amended = read(first);
+  assert.equal(amended.commitSha, amendedSha);
+  assert.ok(amended.deliverables.includes(added));
+  for (const file of amended.deliverables) git(ledger, "cat-file", "-e", `${amended.commitSha}:${file}`);
+  assert.equal(git(ledger, "show", `${amended.commitSha}:${report}`), "Corrected report.");
+  put(ledger, `${packagePath}/executions/execution-1.md`, "Submission bookkeeping.\n");
+  commit(ledger);
+  assert.equal(read(amended).commitSha, amendedSha, "submission bookkeeping must not move its own cut");
 });
