@@ -1,3 +1,4 @@
+import { Notice } from "../components/primitives/Notice";
 import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -81,16 +82,11 @@ export function TokenUsageView({
         ) : null}
       </header>
       {usage.isError ? (
-        <p
-          role="alert"
-          data-testid="runtime-read-error"
-          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono ui-micro
-        text-status-blocked"
-        >
+        <Notice tone="bad" variant="strip" testId="runtime-read-error">
           {t("agentRuntime.readFailed", {
             error: usage.error instanceof Error ? usage.error.message : String(usage.error),
           })}
-        </p>
+        </Notice>
       ) : null}
       {member !== null ? (
         <TokenUsageDetail

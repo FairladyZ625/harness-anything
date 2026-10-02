@@ -204,13 +204,6 @@ export function CfgRow({ label, children }: { readonly label: string; readonly c
     </div>
   );
 }
-export function WarnBar({ children }: { readonly children: ReactNode }) {
-  return (
-    <div className="mt-2 flex items-start gap-2 rounded border border-dashed border-stale/60 bg-stale/[0.07] px-2.5 py-[7px] ui-micro leading-[1.45] text-text-muted">
-      {children}
-    </div>
-  );
-}
 export function PlannedBox({ children }: { readonly children: ReactNode }) {
   return (
     <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">

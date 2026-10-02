@@ -1,9 +1,10 @@
+import { Notice } from "../primitives/Notice";
 import { useState } from "react";
 import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { ActionError } from "./ActionError.tsx";
-import { Avatar, CfgRow, Hint, KindDot, WarnBar } from "./parts.tsx";
+import { Avatar, CfgRow, Hint, KindDot } from "./parts.tsx";
 import { Modal } from "../primitives/Modal.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { Button } from "../primitives/Button.tsx";
@@ -174,9 +175,9 @@ export function NewEntityDialog({
             </CfgRow>
           )}
           {templateId === null && (
-            <WarnBar>
+            <Notice>
               <span>{t(kind === "agent" ? "agentRuntime.blankAgentWarn" : "agentRuntime.blankSquadWarn")}</span>
-            </WarnBar>
+            </Notice>
           )}
         </div>
       )}

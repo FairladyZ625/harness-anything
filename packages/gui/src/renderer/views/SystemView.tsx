@@ -1,3 +1,4 @@
+import { Notice } from "../components/primitives/Notice";
 import { useState } from "react";
 import { ArrowClockwise } from "@phosphor-icons/react";
 import { controlSucceeded, useDaemonControl, useSystemStatusQuery } from "../system-data.ts";
@@ -334,17 +335,17 @@ export function SystemView({
           )}
         </section>
       </div>
-      <section data-testid="system-daemon-logs" className="flex h-[24rem] min-h-0 w-full shrink-0 flex-col px-4 pb-4">
+      <section
+        data-testid="system-daemon-logs"
+        className="flex h-[var(--long-content-cap)] min-h-0 w-full shrink-0 flex-col px-4 pb-4"
+      >
         <p data-testid="system-daemon-logs-scope" className="pb-1.5 ui-micro text-text-faint">
           {t("views.systemView.logsScope", { daemonId: daemon.daemonId })}
         </p>
         {logRepoId === null ? (
-          <p
-            data-testid="system-daemon-logs-unavailable"
-            className="rounded-sm border border-status-blocked/30 bg-status-blocked/5 px-3 py-2 ui-meta text-status-blocked"
-          >
+          <Notice tone="bad" variant="panel" testId="system-daemon-logs-unavailable">
             {t("views.systemView.logsNoRoute")}
-          </p>
+          </Notice>
         ) : (
           <DaemonTailPane
             key={logKind}

@@ -1,3 +1,4 @@
+import { Notice } from "../components/primitives/Notice";
 import { useDeferredValue, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { agentEntityClient, isAvailableAgentEntityRow, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
@@ -283,14 +284,9 @@ export function AgentSquadView({
         }
       />
       {readError !== undefined && (
-        <p
-          role="alert"
-          data-testid="runtime-read-error"
-          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono ui-meta
-        text-status-blocked"
-        >
+        <Notice tone="bad" variant="strip" testId="runtime-read-error">
           {t("agentRuntime.readFailed", { error: readError instanceof Error ? readError.message : String(readError) })}
-        </p>
+        </Notice>
       )}
       {workspace.feedback && !workspace.error && (
         <p

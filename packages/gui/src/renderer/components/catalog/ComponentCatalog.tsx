@@ -16,6 +16,7 @@ import { Empty } from "../primitives/Empty.tsx";
 import { Chip } from "../primitives/Chip.tsx";
 import { Field, FieldGrid, KV, KVRow } from "../primitives/Fields.tsx";
 import { RecordRow } from "../primitives/RecordRow.tsx";
+import { Notice } from "../primitives/Notice.tsx";
 import { Modal } from "../primitives/Modal.tsx";
 import { BoundedContent } from "../primitives/BoundedContent.tsx";
 import { Section } from "../primitives/Section.tsx";
@@ -198,6 +199,10 @@ function ComponentCatalog() {
         </section>
         <section className="grid min-w-0 gap-3">
           <h2 className="font-semibold ui-title">长内容边界 / BoundedContent</h2>
+          <Notice>需要你留意的配置说明；多段长消息在自身区域滚动。</Notice>
+          <Notice tone="bad" variant="strip">
+            读取失败：错误内容保留明确的可读说明。
+          </Notice>
           <Button testId="catalog-open-modal" onClick={() => setModalOpen(true)}>
             打开长内容弹层
           </Button>

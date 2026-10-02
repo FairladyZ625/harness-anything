@@ -1,3 +1,4 @@
+import { Notice } from "../primitives/Notice";
 import { Toggle } from "../primitives/Toggle.tsx";
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { Button } from "../primitives/Button.tsx";
@@ -27,7 +28,7 @@ import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { ActionError } from "./ActionError.tsx";
-import { CfgRow, Hint, KindDot, WarnBar } from "./parts.tsx";
+import { CfgRow, Hint, KindDot } from "./parts.tsx";
 import { Modal } from "../primitives/Modal.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
@@ -408,9 +409,9 @@ export function NewRuntimeDialog({
           requires_openai_auth
         </label>
       )}
-      <WarnBar>
+      <Notice>
         <span>{t(apiOn ? "agentRuntime.createApiWarn" : "agentRuntime.createSubscriptionWarn")}</span>
-      </WarnBar>
+      </Notice>
     </Modal>
   );
 }

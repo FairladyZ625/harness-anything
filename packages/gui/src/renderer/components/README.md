@@ -58,7 +58,7 @@
 
 - `runtime/parts.tsx`:runtime 配置平面的领域件——Card/CardHead/CardTitle/CardBody、卡内分节
   Sect、CfgRow、AddChip/ChipZone、KindDot/LiveDot、Avatar(身份色 `--color-avatar-*` token)、
-  CapDot、Crumbs、WarnBar/PlannedBox、Hint/Right。跨域语义(按钮/徽章/字段/chip/空态/
+  CapDot、Crumbs、PlannedBox、Hint/Right。跨域语义(按钮/徽章/字段/chip/空态/
   文本输入)已全部迁 primitives 并在本库删除。
 - `ui/widgets.tsx`:设置表单行 Row、Kbd、SettingSelect——设置平面的表单布局件。
 - 已删除的旧路径:parts `Btn`、`Badge`、`RoleTag`、`Chip`、`Field/FieldGrid/KV/KVRow`、
@@ -77,3 +77,5 @@
 收敛新原语时在同目录补对应状态展示。
 
 长内容布局：App主内容提供有确定尺寸的content-viewport；嵌入组件使用BoundedContent，保留pre/ol等原生语义的叶节点可使用同一bounded-content样式契约。CSS容器块轴单位在记录行自身高度不确定时仍有定义；不再使用min(百分比,视口)假装兜底。弹出层无尺寸容器时使用CSS规定的小视口参照。横纵均可滚动，滚动到边界可自然交还外层，避免每条记录锁住滚轮。
+
+- **Notice**：警告/错误等长消息使用统一消息面（panel/strip），与简短StatusTag、图表色块分工。内部正文按同一比例高度约束，runtime私有WarnBar已删除，读取错误保留alert语义。

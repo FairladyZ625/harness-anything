@@ -1,3 +1,4 @@
+import { Notice } from "./primitives/Notice";
 import { useMemo, useState } from "react";
 import { CheckCircle, Question, WarningCircle } from "@phosphor-icons/react";
 import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
@@ -16,7 +17,7 @@ import {
   type StartWorkPrecondition,
 } from "../start-work-flow.ts";
 import { CopyContextButton } from "./CopyContextButton.tsx";
-import { CfgRow, Hint, PlannedBox, Sect, WarnBar } from "./runtime/parts.tsx";
+import { CfgRow, Hint, PlannedBox, Sect } from "./runtime/parts.tsx";
 import { Modal } from "./primitives/Modal.tsx";
 import { TextInput } from "./primitives/TextInput.tsx";
 import { Button } from "./primitives/Button.tsx";
@@ -150,7 +151,7 @@ export function StartWorkDialog({
       }
     >
       {catalogError !== null ? (
-        <WarnBar>{t("views.work.startWork.catalogError", { error: catalogError })}</WarnBar>
+        <Notice>{t("views.work.startWork.catalogError", { error: catalogError })}</Notice>
       ) : catalog === undefined ? (
         <PlannedBox>{t("views.work.startWork.catalogLoading")}</PlannedBox>
       ) : step === "type" ? (
@@ -320,7 +321,7 @@ function IntentStep({
         onChange={(event) => onChange({ ...draft, intent: event.target.value })}
         className="mt-1 w-full rounded border border-border bg-surface px-2 py-1.5 ui-micro text-text outline-none focus:border-border-strong"
       />
-      <WarnBar>{t("views.work.startWork.intentNote")}</WarnBar>
+      <Notice>{t("views.work.startWork.intentNote")}</Notice>
     </Sect>
   );
 }
@@ -381,7 +382,7 @@ function ResourcesStep({
         ) : (
           <PlannedBox>{t("views.work.startWork.executorNone")}</PlannedBox>
         )}
-        <WarnBar>{t("views.work.startWork.executorNote")}</WarnBar>
+        <Notice>{t("views.work.startWork.executorNote")}</Notice>
       </Sect>
       <Sect
         title={t("views.work.startWork.commandTitle")}
@@ -393,11 +394,11 @@ function ResourcesStep({
         }
       >
         {blockers.length > 0 ? (
-          <WarnBar>
+          <Notice>
             {t("views.work.startWork.commandBlocked", {
               fields: blockers.map((blocker) => BLOCKER_LABEL[blocker]()).join(" / "),
             })}
-          </WarnBar>
+          </Notice>
         ) : (
           <>
             <pre
