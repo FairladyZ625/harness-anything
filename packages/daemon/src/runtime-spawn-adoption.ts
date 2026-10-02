@@ -36,7 +36,6 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
     const metadata = adoptableMetadata(header);
     if (
       !session ||
-      session.liveness === "exited" ||
       session.outcome !== null ||
       !metadata ||
       !ownedByRuntimeNode(metadata.binding, context.input.runtimeNodeId)
@@ -119,7 +118,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
         ...(processState ? { pid: processState.pid } : {}),
       });
       await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
-      if (session.liveness !== "live") {
+      if (session.liveness !== "live" && session.liveness !== "exited") {
         await context.publishRuntimeEvent(
           "runtime_session_liveness_changed",
           { runtimeSessionId: active.runtimeSessionId, liveness: "live" },
@@ -144,7 +143,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
             signal: active.lossSignal,
           });
         await consumeDurableOutput(context, active);
-        await context.publishExit(active, active.lossExitCode);
+        await context.publishExit(active, active.lossExitCode, session.liveness === "exited");
         continue;
       }
       if (fullStream) attachActiveRuntime(context, active);
