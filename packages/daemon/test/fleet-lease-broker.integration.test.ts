@@ -19,7 +19,7 @@ import { fleetLeaseTimers } from "../src/lease-broker.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { randomUUID } from "node:crypto";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { realizeTaskPlanFixture, sizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const replicaQuota = 64 * 1024 * 1024;
 
@@ -993,6 +993,32 @@ test(
     assert.equal(
       readFileSync(path.join(fixture.stateRoot, "lease-receipts.json"), "utf8").includes("token-person-two"),
       false,
+    );
+  },
+);
+
+// The real-machine edge retest (F-31931F21) had a 950-character plan rejected at the wire
+// contract. The plan body here rides the same client the edge CLI uses (runFleetEdgeTask →
+// serializeFleetFrame), so this is the create-path counterpart of that rejection.
+test(
+  "fleet task-create lands a full multi-paragraph plan body at the center byte-for-byte",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await leaseFixture(t);
+    t.after(() => fixture.close());
+    const plan = sizedTaskPlan(950, "边缘金丝雀计划");
+    const created = await fixture.commandOn(fixture.center, "node-one", {
+      kind: "task-create",
+      title: "Plan body over fleet",
+      plan,
+    });
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const receipt = created.receipt as Record<string, unknown>;
+    await waitForFleetPublication(fixture.host, "lease-repo", String(receipt.opId), localAuthFixture());
+    assert.equal(
+      readFileSync(path.join(fixture.repo, "harness", String(receipt.packagePath), "task_plan.md"), "utf8"),
+      plan,
+      "the plan body crosses the fleet channel and lands in the task package verbatim",
     );
   },
 );
