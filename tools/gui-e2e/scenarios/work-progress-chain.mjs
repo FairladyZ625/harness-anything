@@ -162,7 +162,7 @@ export default {
     // ——— 断言面:总览「最近变化」里的真实 DayDigest ———
     const region = page.getByTestId("overview-region-recent");
     await region.waitFor();
-    const longChain = region.locator("[data-step-chain]").filter({ hasText: "退回" }).last();
+    const longChain = region.getByTestId("step-chain").filter({ hasText: "退回" }).last();
     await longChain.waitFor();
 
     const geometry = await longChain.evaluate((node) => {
@@ -212,6 +212,58 @@ export default {
     }));
     assert.ok(afterWheel.scrollLeft > 0, "horizontal wheel must scroll the chain");
     assert.equal(afterWheel.selected, 0, "scrolling must not select the row");
+
+    // ——— 键盘可达:溢出链是原生可焦点 scroll region,方向键平移且不误选行 ———
+    // 行本身是 button、链在行内:从行头 button 用真实 Tab 走进去,证明嵌套行内的链
+    // 可键盘到达(Chromium 行为,不以另一详情页替代)。
+    const hintCount = await longChain.evaluate(
+      (node) => node.parentElement.querySelectorAll(":scope > [data-chain-hint]").length,
+    );
+    assert.equal(hintCount, 1, "an overflowing chain must show the right-edge overflow hint");
+    await longChain.evaluate((node) => {
+      node.scrollLeft = 0;
+      node.closest("button").focus();
+    });
+    let stripFocused = false;
+    for (let step = 0; step < 8 && !stripFocused; step += 1) {
+      await page.keyboard.press("Tab");
+      stripFocused = await longChain.evaluate((node) => globalThis.document.activeElement === node);
+    }
+    assert.ok(stripFocused, "Tab must reach the overflowing chain inside the row button");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    const afterArrows = await longChain.evaluate((node) => ({
+      scrollLeft: node.scrollLeft,
+      selected: node.closest("[data-testid='overview-region-recent']").querySelectorAll("[data-selected]").length,
+    }));
+    assert.ok(afterArrows.scrollLeft > 0, "ArrowRight on the focused chain must scroll it in place");
+    assert.equal(afterArrows.selected, 0, "keyboard scrolling must not select the row");
+    await page.keyboard.press("End");
+    const endReached = await longChain.evaluate((node) => {
+      const tags = [...node.querySelectorAll("[data-status-tone]")];
+      return {
+        atEnd: node.scrollLeft + node.clientWidth >= node.scrollWidth - 1,
+        lastVisible: tags.at(-1).getBoundingClientRect().right <= node.getBoundingClientRect().right + 1,
+      };
+    });
+    assert.ok(
+      endReached.atEnd && endReached.lastVisible,
+      `End must bring the last step into view: ${JSON.stringify(endReached)}`,
+    );
+    // 短链对照:不溢出的链不出提示、不进 tab 序。
+    const shortChain = region.getByTestId("step-chain").filter({ hasText: "开始" }).first();
+    if ((await shortChain.count()) > 0) {
+      const shortState = await shortChain.evaluate((node) => ({
+        overflow: node.scrollWidth > node.clientWidth,
+        hint: node.parentElement.querySelectorAll(":scope > [data-chain-hint]").length,
+        tabindex: node.getAttribute("tabindex"),
+      }));
+      if (!shortState.overflow) {
+        assert.equal(shortState.hint, 0, "a non-overflowing chain must not show the hint");
+        assert.equal(shortState.tabindex, null, "a non-overflowing chain must stay out of the tab order");
+      }
+    }
+
     // 页面正文不横向溢出(先于任何点击:点行会把区域带进放大层)。
     const pageOverflow = await page.evaluate(() => ({
       scrollWidth: globalThis.document.scrollingElement.scrollWidth,
@@ -231,29 +283,31 @@ export default {
     await page.reload();
     await bridgeReady(page);
     await region.waitFor();
-    const narrowChain = region.locator("[data-step-chain]").filter({ hasText: "退回" }).last();
+    const narrowChain = region.getByTestId("step-chain").filter({ hasText: "退回" }).last();
     await narrowChain.waitFor();
     await region.evaluate((node) => {
       node.style.width = "260px";
     });
     await page.waitForTimeout(300);
     const narrow = await narrowChain.evaluate((node) => {
-      const row = node.parentElement;
+      const row = node.parentElement.parentElement;
       return {
         dayWidth: node.closest("[data-day]").clientWidth,
-        chainWidth: node.getBoundingClientRect().width,
+        stripWidth: node.parentElement.getBoundingClientRect().width,
         rowWidth: row.getBoundingClientRect().width,
         stillSingleLine: node.scrollHeight <= node.clientHeight + 1,
         stillScrollable: node.scrollWidth > node.clientWidth,
+        hintVisible: node.parentElement.querySelectorAll(":scope > [data-chain-hint]").length,
       };
     });
     assert.ok(narrow.dayWidth < 512, `narrow panel must trigger the stacked layout: ${JSON.stringify(narrow)}`);
     assert.ok(
-      Math.abs(narrow.chainWidth - narrow.rowWidth) <= 1,
-      `stacked chain must span the full row width: ${JSON.stringify(narrow)}`,
+      Math.abs(narrow.stripWidth - narrow.rowWidth) <= 1,
+      `stacked chain row must span the full row width: ${JSON.stringify(narrow)}`,
     );
     assert.ok(narrow.stillSingleLine, `narrow chain must stay single-line: ${JSON.stringify(narrow)}`);
     assert.ok(narrow.stillScrollable, `narrow chain must still scroll inside: ${JSON.stringify(narrow)}`);
+    assert.equal(narrow.hintVisible, 1, `narrow overflowing chain must show the hint: ${JSON.stringify(narrow)}`);
     await shot("work-progress-chain-narrow");
   },
 };

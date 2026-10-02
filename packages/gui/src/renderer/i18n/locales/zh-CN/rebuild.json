@@ -130,7 +130,7 @@
   "accessControl.scope.entityNamed": "{repoId} 的 {entityRef}",
   "accessControl.effective.title": "有效权限: {personId} 在{scope}",
   "accessControl.effective.grantRow": "持有 {group}，授于{scope}",
-  "accessControl.effective.inherits": "继承展开 {chain}",
+  "accessControl.effective.inherits": "继承展开",
   "accessControl.effective.source": "来自 {source}（经 {granted} 授于{scope}）",
   "accessControl.effective.deniedNoGrant": "此人在这个作用域上没有任何授权，全部 {count} 个动作都会被拒绝。",
   "accessControl.effective.deniedNotIncluded": "以下 {count} 个动作会被拒绝：此人在这个作用域上持有的策略组都不包含它们。",

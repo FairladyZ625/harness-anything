@@ -16,6 +16,7 @@ import { Drawer } from "../src/renderer/components/primitives/Drawer";
 import { Section } from "../src/renderer/components/primitives/Section";
 import { DayDigest } from "../src/renderer/components/primitives/DayDigest";
 import { StepChain } from "../src/renderer/components/primitives/StepChain";
+import { ChainStrip } from "../src/renderer/components/primitives/ChainStrip";
 import { PillFlow } from "../src/renderer/components/primitives/PillFlow";
 import { Tabs } from "../src/renderer/components/primitives/Tabs";
 import { FilterChips } from "../src/renderer/components/primitives/FilterChips";
@@ -220,7 +221,7 @@ describe("StepChain", () => {
         ],
       }),
     );
-    const chain = container.querySelector("[data-step-chain]")!;
+    const chain = container.querySelector('[data-testid="step-chain"]')!;
     expect(chain.className).toContain("overflow-x-auto");
     expect(chain.className).toContain("chain-strip");
     expect(chain.className).not.toContain("flex-wrap");
@@ -234,7 +235,88 @@ describe("StepChain", () => {
 
   it("空序列渲染 null:不留空的步骤列", () => {
     const { container, root } = mount(createElement(StepChain, { steps: [] }));
-    expect(container.querySelector("[data-step-chain]")).toBeNull();
+    expect(container.querySelector('[data-testid="step-chain"]')).toBeNull();
+    act(() => root.unmount());
+  });
+});
+
+describe("ChainStrip", () => {
+  /** happy-dom 无布局:溢出态经假 ResizeObserver + mock scrollWidth 驱动,几何本身在 Electron e2e 验。 */
+  function installFakeResizeObserver() {
+    const instances: { callback: ResizeObserverCallback }[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          instances.push({ callback });
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    return {
+      fire: () => instances.at(-1)?.callback([], {} as ResizeObserver),
+    };
+  }
+
+  function stubOverflow(el: HTMLElement, scrollWidth: number, clientWidth: number) {
+    Object.defineProperty(el, "scrollWidth", { configurable: true, value: scrollWidth });
+    Object.defineProperty(el, "clientWidth", { configurable: true, value: clientWidth });
+  }
+
+  it("不溢出时不进 tab 序、不出溢出提示,滚动区带语义角色", () => {
+    const { container, root } = mount(createElement(ChainStrip, { label: "进展步骤链" }, "短链"));
+    const strip = container.querySelector("[data-chain-scroll]")!;
+    expect(strip.getAttribute("role")).toBe("group");
+    expect(strip.getAttribute("aria-label")).toBe("进展步骤链");
+    expect(strip.getAttribute("tabindex")).toBeNull();
+    expect(container.querySelector("[data-chain-hint]")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("溢出时变为原生可焦点 scroll region 并给右缘可见溢出提示", () => {
+    const ro = installFakeResizeObserver();
+    const { container, root } = mount(createElement(ChainStrip, { label: "继承组链" }, "长链"));
+    const strip = container.querySelector("[data-chain-scroll]")! as HTMLSpanElement;
+    stubOverflow(strip, 800, 300);
+    act(() => ro.fire());
+    expect(strip.getAttribute("tabindex")).toBe("0");
+    const hint = container.querySelector("[data-chain-hint]")!;
+    expect(hint.getAttribute("aria-hidden")).toBe("true");
+    // 回落为不溢出:tab 序与提示一起撤掉,短链不增加键盘噪音。
+    stubOverflow(strip, 200, 300);
+    act(() => ro.fire());
+    expect(strip.getAttribute("tabindex")).toBeNull();
+    expect(container.querySelector("[data-chain-hint]")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("聚焦链上方向键/Home/End 显式平移:Chromium 不保证焦点滚动区默认平移", () => {
+    const ro = installFakeResizeObserver();
+    const { container, root } = mount(createElement(ChainStrip, { label: "进展步骤链" }, "长链"));
+    const strip = container.querySelector("[data-chain-scroll]")! as HTMLSpanElement;
+    stubOverflow(strip, 900, 300);
+    act(() => ro.fire());
+    const scrollBy = vi.fn();
+    const scrollTo = vi.fn();
+    strip.scrollBy = scrollBy;
+    strip.scrollTo = scrollTo;
+    const press = (key: string) =>
+      act(() => {
+        strip.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      });
+    press("ArrowRight");
+    press("ArrowLeft");
+    press("Home");
+    press("End");
+    expect(scrollBy).toHaveBeenCalledWith({ left: 40 });
+    expect(scrollBy).toHaveBeenCalledWith({ left: -40 });
+    expect(scrollTo).toHaveBeenCalledWith({ left: 0 });
+    expect(scrollTo).toHaveBeenCalledWith({ left: 900 });
+    // 未承接的键不拦截(不 preventDefault)。
+    const other = new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true });
+    act(() => strip.dispatchEvent(other));
+    expect(other.defaultPrevented).toBe(false);
     act(() => root.unmount());
   });
 });
@@ -582,18 +664,21 @@ describe("DayDigest", () => {
         ],
       }),
     );
-    const chains = [...container.querySelectorAll("[data-step-chain]")];
+    const chains = [...container.querySelectorAll('[data-testid="step-chain"]')];
     expect(chains).toHaveLength(1);
     const chain = chains[0]!;
-    // 单行横滚契约:横向滚动容器,永不换行(flex-wrap 已删);箭头不收缩。
+    // 单行横滚契约:横向滚动容器,永不换行(flex-wrap 已删);箭头不收缩;
+    // 滚动区语义角色带链全文,键盘聚焦时可朗读(溢出/平移几何在 Electron e2e 验)。
     expect(chain.className).toContain("overflow-x-auto");
     expect(chain.className).not.toContain("flex-wrap");
+    expect(chain.getAttribute("role")).toBe("group");
+    expect(chain.getAttribute("aria-label")).toContain("提交");
     expect(chain.querySelectorAll("[data-status-tone]")).toHaveLength(12);
     const arrows = [...chain.querySelectorAll("span")].filter((node) => node.textContent === "→");
     expect(arrows).toHaveLength(11);
     expect(arrows[0]!.className).toContain("flex-none");
     // 空步骤的路径不出链元素;时间列不拆行。
-    expect(container.querySelectorAll("[data-step-chain]")).toHaveLength(1);
+    expect(container.querySelectorAll('[data-testid="step-chain"]')).toHaveLength(1);
     const time = [...container.querySelectorAll("[data-day] span")].find((node) => node.textContent === "13:17");
     expect(time?.className).toContain("whitespace-nowrap");
     act(() => root.unmount());
@@ -613,9 +698,9 @@ describe("DayDigest", () => {
     const day = container.querySelector("[data-day]")!;
     // 断点量的是天块自身宽度(@container),不是页面宽。
     expect(day.className).toContain("@container");
-    // main 是片段,链的直接父级就是行(无 onClick 时行是纯 div)。
-    const chain = day.querySelector("[data-step-chain]")!;
-    const row = chain.parentElement!;
+    // main 是片段,链经 ChainStrip 外层容器落在行里(无 onClick 时行是纯 div)。
+    const chain = day.querySelector('[data-testid="step-chain"]')!;
+    const row = chain.parentElement!.parentElement!;
     expect(row.className).toContain("@max-[32rem]:flex-col");
     const titleCell = row.querySelector("span.contents")!;
     expect(titleCell.className).toContain("@max-[32rem]:flex");

@@ -3,6 +3,7 @@ import overview from "./scenarios/overview-first-usable.mjs";
 import board from "./scenarios/board-preview-detail.mjs";
 import taskTimelineRecordNavigation from "./scenarios/task-timeline-record-navigation.mjs";
 import workProgressChain from "./scenarios/work-progress-chain.mjs";
+import decisionSupersedeChain from "./scenarios/decision-supersede-chain.mjs";
 import taskTerminal from "./scenarios/task-detail-open-terminal.mjs";
 import terminalBasics from "./scenarios/terminal-basics.mjs";
 import terminalPanes from "./scenarios/terminal-panes.mjs";
@@ -49,6 +50,7 @@ export const catalog = [
   cadenceView,
   taskTimelineRecordNavigation,
   workProgressChain,
+  decisionSupersedeChain,
   taskCloseoutLongValues,
   panelWorkspace,
   panelWorkbenchCatalog,

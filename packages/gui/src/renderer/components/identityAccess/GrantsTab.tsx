@@ -11,6 +11,7 @@ import type {
 import { isRejection, resourceLabel, resourceOfScope, scopeOfResource, type AccessScope } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { DenseRow } from "../primitives/DenseRow.tsx";
+import { ChainStrip } from "../primitives/ChainStrip.tsx";
 import { PillFlow } from "../primitives/PillFlow.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
@@ -245,7 +246,19 @@ export function GrantsTab({
                         group: groupName(grant.groupId),
                         scope: resourceLabel(grant.resource),
                       })}
-                      reason={t("accessControl.effective.inherits", { chain: grant.inheritedGroups.join(" → ") })}
+                      reason={
+                        // 继承组链随组嵌套深度无界增长:不再整串截断(截断读不到全文),
+                        // 链进 ChainStrip 单行横滚,aria-label 带完整链,滚动/键盘可到末项。
+                        <span className="flex min-w-0 items-center gap-1">
+                          <span className="flex-none">{t("accessControl.effective.inherits")}</span>
+                          <ChainStrip
+                            testId="inherit-chain"
+                            label={`${t("accessControl.effective.inherits")} ${grant.inheritedGroups.join(" → ")}`}
+                          >
+                            <span className="whitespace-nowrap">{grant.inheritedGroups.join(" → ")}</span>
+                          </ChainStrip>
+                        </span>
+                      }
                       time={
                         <Button
                           size="sm"
