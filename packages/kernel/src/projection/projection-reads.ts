@@ -45,6 +45,7 @@ export interface TaskProjectionListRead {
   readonly page?: ProjectionPage;
 }
 export interface TaskIndexProjectionRow {
+  readonly supersededBy: string | null;
   readonly taskId: string;
   readonly title: string;
   readonly status: import("../domain/task.ts").TaskV2["status"];
