@@ -621,7 +621,7 @@ function MetaLine({
           entityRef={entityRef}
           onNavigate={onNavigate}
           title={value}
-          className="min-w-0 break-all font-mono ui-micro text-accent hover:underline"
+          className="font-mono ui-micro text-accent hover:underline"
         />
       ) : (
         <span className="min-w-0 break-all font-mono ui-micro text-text-muted">{value}</span>

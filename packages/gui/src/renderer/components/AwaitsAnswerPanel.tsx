@@ -98,7 +98,7 @@ export function AwaitsAnswerPanel({
               <EntityRefLink
                 entityRef={row.sourceRef}
                 onNavigate={onNavigateEntity}
-                className="truncate text-accent hover:underline"
+                className="text-accent hover:underline"
               />
             </span>
             <span>{t("components.awaitsAnswer.sourceStatus", { status: row.status })}</span>

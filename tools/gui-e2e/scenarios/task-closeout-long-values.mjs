@@ -7,17 +7,23 @@ import { bridgeReady } from "./helpers.mjs";
 
 /**
  * 收口页长值与长正文(GUI 视觉规范 v2 §4.1,任务 3a 垂直切片的 Electron 验收):
- * 长 execution ID(实体 ID 同一形态的不可断机器串)与记录 ID 在窄窗口里各自留
+ * 长 execution ID(实体 ID 同一形态的不可断机器串)与记录 ID 在窄容器里各自留
  * 在自身列——ID 由组件截断、悬停给完整值,记录行与页面都不横向溢出(修复前的
  * 反例:33 字符 mono ID 裸排进固定 11rem 列,溢出叠到正文列上)。
+ * 布局契约的最终裁决在真实 Chromium:截断/收缩是叶子组件(EntityRefLink/
+ * IdText)的内联样式,同层 utility 类(whitespace-normal/overflow-visible/
+ * max-w-none)在级联里覆盖不了它——场景注入同层 utility 后重读 computed style
+ * 证明。窄容器不是靠声称窗口宽度:主窗 minWidth=1120 会把 setSize(800) 钳回
+ * 1120,所以记录实际 contentSize,并把记录行容器本身约束到 360px 实测(行宽、
+ * 截断触发、正文不越列都以测得值为准)。
  * 数据面:经 daemon 聚合写口种真实 execution 行(start 建 execution,submit 产生
  * code-doc witness;executionId 由场景给出长值,其余全是真实投影)。submit 的
  * 收口占位门要求先有实质 closeout,在夹具仓预填 closeout.md 由 task-submit 自带
  * 的 doc-sync 步骤带过门;交付门要可解析的 40 位 commit,夹具仓 unborn HEAD,
  * 造一个带长路径文件的交付 commit(daemon 对该仓只做只读 rev-parse/cat-file)。
  * 评审记录需要 reviewer runtime,夹具不装——长 review 正文的 DOM 契约由 fast
- * vitest(entity-ref-long-values)覆盖。窗口全程隐藏(driver headless),窄宽由
- * BrowserWindow.setSize 完成,不 show/focus。
+ * vitest(entity-ref-long-values)覆盖。窗口全程隐藏(driver headless),不
+ * show/focus。
  */
 const TASK_ID = "task-gui-smoke";
 const EXECUTION_ID = "execution-gui-closeout-long-values-narrow-container-acceptance-probe-20261002";
@@ -131,13 +137,18 @@ export default {
       `projection must carry a code-doc witness: ${JSON.stringify(row?.snapshot?.codeDocWitnesses ?? null)}`,
     );
 
-    // 窄窗口(隐藏):760px 内容宽把收口行三列压到 ID 截断必然发生的区间。
+    // 窄窗口(隐藏):minWidth=1120 会把 800 钳回,记录实际 contentSize 作数,
+    // 不声称 800。真正的窄容器证据来自下面把记录行容器约束到 360px 的实测。
     await app.evaluate(
       ({ BrowserWindow }, size) => {
         BrowserWindow.getAllWindows()[0]?.setSize(size.width, size.height);
       },
       { width: 800, height: 900 },
     );
+    const windowContentSize = await app.evaluate(({ BrowserWindow }) => {
+      const [width, height] = BrowserWindow.getAllWindows()[0]?.getContentSize() ?? [0, 0];
+      return { width, height };
+    });
 
     await bridgeReady(page);
     await page.getByRole("button", { name: /^(?:看板|Board)$/u }).click();
@@ -151,16 +162,68 @@ export default {
     await page.getByRole("tab", { name: /收口与门|Closeout|收口/u }).click();
     await page.getByTestId("task-closeout-tab").waitFor();
 
-    // Execution 输出行:长 executionId 是展示叶(截断 + 悬停完整值),行不横向
-    // 溢出(修复前裸 span 无截断,窄窗口直接把相邻列顶出去)。
+    // Execution 输出行:长 executionId 是展示叶——截断以真实 Chromium computed
+    // style 作准(内联样式:overflow/text-overflow/white-space),悬停给完整值,
+    // 行不横向溢出(修复前裸 span 无截断,窄容器直接把相邻列顶出去)。
     const executionRow = page.getByTestId(`task-execution-${EXECUTION_ID}`);
     await executionRow.waitFor();
     const executionIdLeaf = executionRow.locator("span[title]").first();
     assert.equal(await executionIdLeaf.getAttribute("title"), EXECUTION_ID, "hover title keeps the full execution id");
-    assert.match(
-      await executionIdLeaf.getAttribute("class"),
-      /truncate/u,
-      "execution id truncates via the shared leaf",
+    const executionIdStyle = await executionIdLeaf.evaluate((node) => {
+      const style = globalThis.window.getComputedStyle(node);
+      return { overflow: style.overflow, textOverflow: style.textOverflow, whiteSpace: style.whiteSpace };
+    });
+    assert.deepEqual(executionIdStyle, { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" });
+
+    // 敌意同层 utility 探针:注入 Tailwind 会生成的同层规则,挂到真实叶子身上,
+    // computed style 必须保持截断(内联样式优先级高于类)。证明调用方传
+    // whitespace-normal/overflow-visible/max-w-none 抹不掉核心布局约束。
+    const hostileProbe = await executionIdLeaf.evaluate((node) => {
+      const style = globalThis.document.createElement("style");
+      style.textContent =
+        ".hostile-truncate-probe{white-space:normal;overflow:visible;max-width:none;text-overflow:clip}";
+      globalThis.document.head.append(style);
+      node.classList.add("hostile-truncate-probe");
+      const computed = globalThis.window.getComputedStyle(node);
+      const held = {
+        overflow: computed.overflow,
+        textOverflow: computed.textOverflow,
+        whiteSpace: computed.whiteSpace,
+      };
+      node.classList.remove("hostile-truncate-probe");
+      style.remove();
+      return held;
+    });
+    assert.deepEqual(
+      hostileProbe,
+      { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+      "same-layer utility classes must not cancel the truncation layout",
+    );
+
+    // 窄容器实测:把 execution 记录卡约束到 360px(比 @min-[420px] 断点窄),
+    // 记录实际容器宽度——ID 截断必须真的触发(内容宽 > 盒宽),行不横向溢出。
+    const executionNarrow = await executionRow.evaluate((node) => {
+      node.style.width = "360px";
+      const leaf = node.querySelector("span[title]");
+      const rect = node.getBoundingClientRect();
+      const result = {
+        containerWidth: rect.width,
+        rowScroll: node.scrollWidth,
+        rowClient: node.clientWidth,
+        leafScroll: leaf?.scrollWidth ?? 0,
+        leafClient: leaf?.clientWidth ?? 0,
+      };
+      node.style.width = "";
+      return result;
+    });
+    assert.equal(executionNarrow.containerWidth, 360, "narrow container is actually applied");
+    assert.ok(
+      executionNarrow.rowScroll <= executionNarrow.rowClient + 1,
+      `execution row must not spill at 360px (scroll=${executionNarrow.rowScroll}, client=${executionNarrow.rowClient})`,
+    );
+    assert.ok(
+      executionNarrow.leafScroll > executionNarrow.leafClient,
+      `long execution id must actually truncate at 360px (scroll=${executionNarrow.leafScroll}, client=${executionNarrow.leafClient})`,
     );
     const executionOverflow = await executionRow.evaluate((node) => ({
       scroll: node.scrollWidth,
@@ -171,8 +234,8 @@ export default {
       `execution row must not spill horizontally (scroll=${executionOverflow.scroll}, client=${executionOverflow.client})`,
     );
 
-    // Code-doc witness 记录行:ID 同一展示叶;复制动作在行的动作位(不在文字上
-    // 叠按钮),点击后剪贴板拿到完整记录引用。
+    // Code-doc witness 记录行:ID 同一展示叶(computed style),复制动作在行的
+    // 动作位(不在文字上叠按钮),点击后剪贴板拿到完整记录引用。
     const witnessRow = page.locator(`[id="closeout-record-witness-${codeDocWitness.witnessId.replaceAll("/", "-")}"]`);
     await witnessRow.waitFor();
     const witnessIdLeaf = witnessRow.locator("span[title]").first();
@@ -181,7 +244,30 @@ export default {
       codeDocWitness.witnessId,
       "hover title keeps the witness id",
     );
-    assert.match(await witnessIdLeaf.getAttribute("class"), /truncate/u, "witness id truncates via the shared leaf");
+    const witnessIdStyle = await witnessIdLeaf.evaluate((node) => {
+      const style = globalThis.window.getComputedStyle(node);
+      return { overflow: style.overflow, textOverflow: style.textOverflow, whiteSpace: style.whiteSpace };
+    });
+    assert.deepEqual(witnessIdStyle, { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" });
+    // 见证行同样做窄容器实测(长路径正文留在自身列,行不越容器)。
+    const witnessNarrow = await witnessRow.evaluate((node) => {
+      node.style.width = "360px";
+      const rect = node.getBoundingClientRect();
+      const result = { containerWidth: rect.width, rowScroll: node.scrollWidth, rowClient: node.clientWidth };
+      node.style.width = "";
+      return result;
+    });
+    assert.equal(witnessNarrow.containerWidth, 360);
+    assert.ok(
+      witnessNarrow.rowScroll <= witnessNarrow.rowClient + 1,
+      `witness row must not spill at 360px (scroll=${witnessNarrow.rowScroll}, client=${witnessNarrow.rowClient})`,
+    );
+    // 实际量得的宽度落盘:窗口 contentSize(minWidth 钳制后的真相)与两处
+    // 360px 窄容器的实测行宽/截断触发,不以声称值作数。
+    writeFileSync(
+      path.join(runRoot, "task-closeout-long-values-measurements.json"),
+      `${JSON.stringify({ windowContentSize, executionNarrow, witnessNarrow }, null, 2)}\n`,
+    );
     // 复制动作在行的动作位(不在文字上叠按钮)。投影里 witness 行会随 submit 的
     // 异步证据步骤继续到达(行序在变),点击与断言都在同一个已解析的 DOM 节点上
     // 同步完成,不做二次定位——剪贴板拿到的必须正是这一行的完整记录引用。

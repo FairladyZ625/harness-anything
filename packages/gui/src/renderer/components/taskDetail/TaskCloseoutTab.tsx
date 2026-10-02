@@ -14,6 +14,7 @@ import {
 import { CloseoutBadge } from "../badges.tsx";
 import { CopyContextButton } from "../CopyContextButton.tsx";
 import { IdText } from "../IdText.tsx";
+import { RecordRow } from "../primitives/RecordRow.tsx";
 import { Section } from "../primitives/Section";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
 import { TaskGateAttestCard } from "./TaskGateAttestCard.tsx";
@@ -99,8 +100,8 @@ export function TaskCloseoutTab({
   return (
     <section data-testid="task-closeout-tab">
       <Section title="收口与门" note="后端 closeoutAssessment、snapshot witness 与 execution 输出回执的原样展示">
-        <div className="mt-2 grid gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="grid content-start gap-8">
+        <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="grid grid-cols-[minmax(0,1fr)] content-start gap-8">
             <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
               <CloseoutBadge value={task.closeoutReadiness} />
               {completion.isError ? <ReadError text={String(completion.error)} /> : null}
@@ -347,7 +348,7 @@ function ExecutionOutputsGroup({
             key={execution.executionId}
             id={closeoutRecordDomId(recordRef)}
             data-testid={`task-execution-${execution.executionId}`}
-            className={`grid gap-3 py-3 ${
+            className={`grid grid-cols-[minmax(0,1fr)] gap-3 py-3 ${
               focusedRecordRef === recordRef ? "bg-accent/10 shadow-[inset_2px_0_0_var(--color-accent)]" : ""
             }`}
           >
@@ -372,35 +373,35 @@ function ExecutionOutputsGroup({
             {execution.outputs.length === 0 ? (
               <p className="ui-meta text-text-faint">该 execution 没有输出记录。</p>
             ) : (
-              <div className="grid gap-1">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-1">
                 {execution.outputs.map((output, index) => (
-                  <div
+                  // 输出记录行(evidence 回执)与收口记录行同一 RecordRow 布局:
+                  // 长 evidenceId 截断、长 locator 词内换行留在自身列,复制在行尾动作位。
+                  <RecordRow
                     key={`${output.evidenceId ?? "unknown"}-${index}`}
-                    className={
-                      "flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border/70 " +
-                      "bg-surface-raised/35 px-2 py-1.5 font-mono ui-micro"
+                    id={<IdText value={field(output.evidenceId)} className="text-text" />}
+                    state={
+                      <span
+                        className={
+                          output.isPassingReceipt
+                            ? "text-status-done"
+                            : output.checkerReceiptRef === null
+                              ? "text-stale"
+                              : "text-status-unknown"
+                        }
+                      >
+                        {receiptField(output.checkerReceiptRef)} · {checkerResultField(output.checkerResult)}
+                      </span>
                     }
-                  >
-                    <IdText value={field(output.evidenceId)} className="text-text" />
-                    <IdText
-                      value={`${field(output.substrate)} · ${field(output.locator)}`}
-                      className="text-text-muted"
-                    />
-                    <span
-                      className={
-                        output.isPassingReceipt
-                          ? "text-status-done"
-                          : output.checkerReceiptRef === null
-                            ? "text-stale"
-                            : "text-status-unknown"
-                      }
-                    >
-                      {receiptField(output.checkerReceiptRef)} · {checkerResultField(output.checkerResult)}
-                    </span>
-                    <span className="ml-auto">
+                    summary={
+                      <span className="font-mono ui-micro text-text-muted">
+                        {field(output.substrate)} · {field(output.locator)}
+                      </span>
+                    }
+                    action={
                       <CopyContextButton compact buildText={() => buildExecutionEvidenceContext(execution, output)} />
-                    </span>
-                  </div>
+                    }
+                  />
                 ))}
               </div>
             )}
@@ -427,27 +428,21 @@ function AuditRow({
   readonly recordRef?: string;
   readonly focused?: boolean;
 }) {
+  // 收口记录行(review/consent/witness):布局归共用原语 RecordRow——长 ID 截断、
+  // 长正文留在自身列、断点按记录容器宽度;这里只组各域内容。
   return (
-    <div
-      id={recordRef === undefined ? undefined : closeoutRecordDomId(recordRef)}
-      className={`grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] ${
-        focused ? "bg-accent/10 shadow-[inset_2px_0_0_var(--color-accent)]" : ""
-      }`}
-    >
-      <div className="flex min-w-0 flex-col gap-0.5">
-        {/* 记录 ID 无独立导航落点(行本体就是时间线的目标):展示叶截断 + 悬停完整值。 */}
-        <IdText value={id} className="text-text-muted" />
-        <span className="font-mono ui-micro text-text-faint">{state}</span>
-      </div>
-      {/* 长正文(评审理由、路径清单)留在自身列:容器裁切,词内换行,不越列不叠字。 */}
-      <p className="min-w-0 break-words ui-meta leading-5 text-text">{summary}</p>
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        <Timestamp value={at} />
-        {/* 完整值复制放行的动作位(标准 §4.1):不在截断文字上叠按钮。 */}
-        {recordRef !== undefined ? (
+    <RecordRow
+      domId={recordRef === undefined ? undefined : closeoutRecordDomId(recordRef)}
+      focused={focused}
+      id={<IdText value={id} className="text-text-muted" />}
+      state={<span className="font-mono ui-micro text-text-faint">{state}</span>}
+      summary={<p className="ui-meta leading-5 text-text">{summary}</p>}
+      time={<Timestamp value={at} />}
+      action={
+        recordRef !== undefined ? (
           <CopyContextButton compact label="复制" title="复制完整记录引用" buildText={() => recordRef} />
-        ) : null}
-      </div>
-    </div>
+        ) : undefined
+      }
+    />
   );
 }

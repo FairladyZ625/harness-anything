@@ -16,16 +16,24 @@ import type { ReactNode } from "react";
  * 本组件,但它们的「路」不是 entityRoutes 的全局实体页,而是所属任务详情收口
  * 页签的对应记录行——onNavigate 接该聚焦回调(如 Task 详情的 openCloseoutRecord)。
  *
- * 布局契约(标准 §4.1):行内收缩与截断由组件内部承担(min-w-0 + truncate),
- * className 只叠加视觉(颜色、对齐、flex 份额),抹不掉截断;调用方不再补防溢出类。
- * title 悬停始终给完整引用,children 收束显示不丢完整值。
+ * 布局契约(标准 §4.1):行内收缩与截断由组件内部承担,以**内联样式**落位——
+ * CSS 优先级高于任何调用方 class,同层 utility(whitespace-normal /
+ * overflow-visible / max-w-none)无法覆盖。className 只叠加视觉(颜色、对齐、
+ * flex 份额),调用方不再补防溢出类。title 悬停始终保留完整引用:自定义 title
+ * 只作前缀,children 收束显示也不丢完整值。
  */
 
 /** 实体引用的排版基(标准 §4.1 mono + tabular):导航链接与展示叶 IdText 共用,不另立一套。 */
 export const REF_TYPOGRAPHY = "font-mono ui-micro";
 
-/** 截断/收缩布局基:组件内部所有,className 叠加不可抹除。 */
-const REF_LAYOUT = "min-w-0 max-w-full truncate";
+/** 截断/收缩布局基:内联样式,组件内部所有;class 叠加不可抹除,与 IdText 共用同一份。 */
+export const REF_LAYOUT_STYLE = {
+  minWidth: 0,
+  maxWidth: "100%",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+} as const;
 
 export function EntityRefLink({
   entityRef,
@@ -47,8 +55,9 @@ export function EntityRefLink({
     <button
       type="button"
       onClick={() => onNavigate(entityRef)}
-      title={title ?? entityRef}
-      className={`${REF_LAYOUT} ${className ?? `${REF_TYPOGRAPHY} text-accent hover:underline`}`}
+      title={title === undefined || title === entityRef ? entityRef : `${title} · ${entityRef}`}
+      className={className ?? `${REF_TYPOGRAPHY} text-accent hover:underline`}
+      style={REF_LAYOUT_STYLE}
     >
       {children ?? entityRef}
     </button>
