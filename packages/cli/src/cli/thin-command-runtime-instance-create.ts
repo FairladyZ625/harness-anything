@@ -19,9 +19,21 @@ export function parseRuntimeInstanceCreate(
     credentialHeader = flags.one.get("--credential-header"),
     header = runtimeHttpHeaderFlags(flags.many.get("--http-header") ?? []);
   if (!kindId) return rejected("missing_field", "Runtime instances require --kind <runtime-kind>.", json);
-  if (authMode === "api-key" && !credentialRef)
-    return rejected("missing_field", "API-key instances require --credential-ref <opaque-ref>.", json);
-  if (authMode === "subscription" && credentialRef)
+  if (
+    authMode === "api-key" &&
+    !credentialRef &&
+    !flags.booleans.has("--api-key-stdin") &&
+    !flags.one.has("--api-key-file")
+  )
+    return rejected(
+      "missing_field",
+      "API-key instances require --api-key-stdin, --api-key-file <path>, or --credential-ref <opaque-ref>.",
+      json,
+    );
+  if (
+    authMode === "subscription" &&
+    (credentialRef || flags.booleans.has("--api-key-stdin") || flags.one.has("--api-key-file"))
+  )
     return rejected("invalid_field", "Subscription instances cannot accept a credential reference.", json);
   const declaration =
     builtInRuntimeProviderInputDeclaration[kindId as keyof typeof builtInRuntimeProviderInputDeclaration];
@@ -52,6 +64,8 @@ export function parseRuntimeInstanceCreate(
       ...kindConfig,
       authMode,
       ...(credentialRef ? { credentialRef } : {}),
+      ...(flags.booleans.has("--api-key-stdin") ? { apiKeyStdin: true } : {}),
+      ...(flags.one.has("--api-key-file") ? { apiKeyFile: flags.one.get("--api-key-file") } : {}),
     },
     route.method,
   );

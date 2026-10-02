@@ -53,7 +53,6 @@ import type {
   RuntimeInstanceKind,
   RuntimeInstanceSummary,
 } from "./agent-runtime-instance-types.ts";
-import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
 import {
   credentialHint,
   credentialUnavailableHint,
@@ -315,10 +314,8 @@ export function openRuntimeInstanceStore(input: {
       throw runtimeInstanceError("runtime_credential_unavailable", credentialUnavailableHint);
     }
     if (config.kindId === "codex") {
-      const configPath = path.join(env.CODEX_HOME!, "config.toml"),
-        provider = runtimeProviderConfig(config);
-      if (!codexConfigHasBearer(configPath) || provider.credentialHeader !== undefined)
-        writeCodexConfig(configPath, config, secret);
+      const configPath = path.join(env.CODEX_HOME!, "config.toml");
+      writeCodexConfig(configPath, config, secret);
     } else if (config.kindId === "zcode") {
       const home = env.HOME ?? env.USERPROFILE;
       if (!home)
@@ -509,7 +506,10 @@ export function openRuntimeInstanceStore(input: {
         hasIsolation = action.isolationState !== undefined,
         hasFast = action.fast !== undefined,
         hasBaseUrl = action.baseUrl !== undefined,
-        hasEffort = action.effort !== undefined;
+        hasEffort = action.effort !== undefined,
+        hasCredential = action.credentialRef !== undefined;
+      if (hasCredential && current.auth.mode !== "api-key")
+        throw runtimeInstanceError("runtime_auth_mode_mismatch", "Subscription instances cannot replace an API key.");
       if (
         !hasName &&
         !hasInstallation &&
@@ -520,13 +520,14 @@ export function openRuntimeInstanceStore(input: {
         !hasIsolation &&
         !hasFast &&
         !hasBaseUrl &&
-        !hasEffort
+        !hasEffort &&
+        !hasCredential
       )
         throw runtimeInstanceError(
           "invalid_runtime_instance_update",
           [
             "Runtime instance update requires --name, --installation, --model, ",
-            "--default-model, --base-url, --effort, --permission-mode, --isolation, --fast, --enable, or --disable.",
+            "--default-model, --base-url, --effort, --permission-mode, --isolation, --fast, --enable, --disable, or a new API key.",
           ].join(""),
         );
       if (hasBaseUrl && current.kindId === "agy")
@@ -577,10 +578,11 @@ export function openRuntimeInstanceStore(input: {
         ...(hasPermission ? { permissionMode: action.permissionMode } : {}),
         ...(hasIsolation ? { isolationState: action.isolationState } : {}),
         ...kindConfig,
+        ...(hasCredential ? { auth: { mode: "api-key", credentialRef: action.credentialRef } } : {}),
       });
-      persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
-      if (hasInstallation || hasBaseUrl) readiness.delete(updated.instanceId);
       if (updated.isolationState === "enforced") ensureStateRoot(updated);
+      persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
+      if (hasInstallation || hasBaseUrl || hasCredential) readiness.delete(updated.instanceId);
       return {
         ...base,
         instance: publicConfig(updated, readiness.get(updated.instanceId)),
@@ -705,7 +707,6 @@ export function openRuntimeInstanceStore(input: {
       rmSync(temp, { force: true });
       throw error;
     }
-    chmodSync(target, 0o600);
     cachedInstances = [...instances].sort((left, right) => left.instanceId.localeCompare(right.instanceId));
   }
   function ensureStateRoot(config: RuntimeInstanceConfig): void {
@@ -721,9 +722,9 @@ export function openRuntimeInstanceStore(input: {
       mkdirSync(cli, { recursive: true, mode: 0o700 });
       chmodSync(cli, 0o700);
     }
-    // Materialize the non-secret config at instance creation. API-key launches add
-    // the bearer once after credential resolution and preserve it for same-instance
-    // workers; rewriting it here would expose an unauthenticated window.
+    // Materialize non-secret defaults at creation. Each API-key launch atomically
+    // publishes the current resolved bearer; metadata edits keep the previous
+    // complete native config until that launch is ready.
     if (config.kindId === "codex") {
       const configPath = path.join(provider, "config.toml");
       if (config.auth.mode === "subscription" || !existsSync(configPath)) writeCodexConfig(configPath, config);
@@ -769,10 +770,6 @@ export function openRuntimeInstanceStore(input: {
       return unavailable("runtime_auth_probe_failed", "Provider authentication probe could not determine readiness.");
     }
   }
-}
-
-function codexConfigHasBearer(configPath: string): boolean {
-  return existsSync(configPath) && /^\s*experimental_bearer_token\s*=/mu.test(readFileSync(configPath, "utf8"));
 }
 
 function authReadinessLabel(readiness: RuntimeAuthReadiness): string {

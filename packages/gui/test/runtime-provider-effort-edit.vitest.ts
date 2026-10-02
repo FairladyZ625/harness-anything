@@ -146,6 +146,30 @@ async function select(testId: string, value: string) {
 }
 
 describe("provider edit dialog field controls", () => {
+  it("replaces only on an explicit action and clears the password after a rejected save", async () => {
+    const onUpdate = vi.fn(async () => ({ ok: false }));
+    await mountProviderCard(onUpdate, apiCodexInstance, codexInstallations);
+    expect(document.body.textContent).toContain("API key configured; provider authentication not checked");
+    await click("runtime-provider-edit");
+    expect(document.querySelector('[data-testid="runtime-provider-api-key"]')).toBeNull();
+    await click("runtime-provider-save");
+    expect(onUpdate.mock.calls[0]?.[0]).not.toHaveProperty("apiKey");
+    await click("runtime-provider-replace-key");
+    const field = byTestId("runtime-provider-api-key") as HTMLInputElement;
+    expect(field.type).toBe("password");
+    expect(field.value).toBe("");
+    expect((byTestId("runtime-provider-save") as HTMLButtonElement).disabled).toBe(true);
+    await input("runtime-provider-name", "Kept name");
+    await input("runtime-provider-api-key", "fixture-replacement-key");
+    await click("runtime-provider-save");
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ instanceId: "codex-api-edit", name: "Kept name", apiKey: "fixture-replacement-key" }),
+    );
+    expect(field.value).toBe("");
+    expect((byTestId("runtime-provider-name") as HTMLInputElement).value).toBe("Kept name");
+    expect((byTestId("runtime-provider-save") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("edits the base URL of an API-mode provider in place and can clear it back", async () => {
     const onUpdate = vi.fn(async () => ({ ok: true }));
     await mountProviderCard(onUpdate, apiCodexInstance, codexInstallations);
@@ -172,6 +196,7 @@ describe("provider edit dialog field controls", () => {
     const onUpdate = vi.fn(async () => ({ ok: true }));
     await mountProviderCard(onUpdate, codexInstance, codexInstallations);
     await click("runtime-provider-edit");
+    expect(document.querySelector('[data-testid="runtime-provider-replace-key"]')).toBeNull();
     expect((byTestId("runtime-provider-base-url") as HTMLInputElement).disabled).toBe(true);
     await click("runtime-provider-cancel");
     expect(onUpdate).not.toHaveBeenCalled();

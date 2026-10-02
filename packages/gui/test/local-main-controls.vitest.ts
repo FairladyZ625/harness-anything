@@ -22,7 +22,7 @@ const target = async () => ({
   userRoot: "/tmp/root",
   daemonId: "daemon-a",
 });
-const controls = (credentialPort?: Parameters<typeof addLocalMainControls>[0]["credentialPort"]) =>
+const controls = () =>
   addLocalMainControls({
     bridge: {
       stream: (() => () => undefined) as never,
@@ -38,7 +38,6 @@ const controls = (credentialPort?: Parameters<typeof addLocalMainControls>[0]["c
       },
     },
     target,
-    ...(credentialPort ? { credentialPort } : {}),
   });
 
 beforeEach(() => {
@@ -103,34 +102,11 @@ describe("local main controls runtime-instance boundary", () => {
     });
   });
 
-  it("seals the API key before returning create to the registry-derived bridge", async () => {
-    const stored: Array<{ readonly reference: string; readonly secret: string }> = [],
-      bridge = controls({
-        issue: () => "credential:v1:issued-ref",
-        store: async (reference, secret) => {
-          stored.push({ reference, secret });
-        },
-        resolve: async () => "",
-      });
-    await bridge.invoke("createRuntimeInstance", {
-      instanceId: "codex-sidecar",
-      name: "Codex sidecar",
-      kindId: "codex",
-      installationId: "codex-install",
-      providerId: "openai",
-      models: ["gpt-5.6-sol"],
-      codex: {},
-      authMode: "api-key",
-      apiKey: "sk-user-input",
-    });
-    expect(stored).toEqual([{ reference: "credential:v1:issued-ref", secret: "sk-user-input" }]);
-    expect(invokes).toEqual([
-      {
-        method: "createRuntimeInstance",
-        payload: expect.objectContaining({ credentialRef: "credential:v1:issued-ref" }),
-      },
-    ]);
-    expect(JSON.stringify(invokes)).not.toContain("sk-user-input");
+  it("forwards the newly entered key to the selected daemon without a GUI vault write", async () => {
+    const bridge = controls();
+    const payload = { instanceId: "codex-sidecar", apiKey: "fixture-input", repoId: "server-b" };
+    await bridge.invoke("updateRuntimeInstance", payload);
+    expect(invokes).toEqual([{ method: "updateRuntimeInstance", payload }]);
     expect(rawRequests).toEqual([]);
   });
 });

@@ -15,6 +15,8 @@ export interface RuntimeInstanceCatalog {
 }
 export type RuntimeInstanceUpdateInput = {
   readonly instanceId: string;
+  /** A newly entered key; omitted leaves the current credential unchanged. */
+  readonly apiKey?: string;
   readonly name?: string;
   readonly installationId?: string;
   readonly models?: readonly string[];
@@ -41,21 +43,28 @@ type RuntimeInstanceCreateCommon = {
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   readonly isolationState?: "enforced" | "operator-environment";
 };
-// api-key creation carries the user-typed key exactly once, main-process-bound:
-// main stores it in the native vault and the daemon sees only an opaque reference.
+// Keys travel once through the trusted bridge to the selected daemon's native vault.
 export type RuntimeInstanceCreateInput = RuntimeInstanceCreateCommon & {
   readonly kindId: string;
   readonly [field: string]: unknown;
 } & ({ readonly authMode: "subscription" } | { readonly authMode: "api-key"; readonly apiKey: string });
 type Bridge = {
-  readonly listRuntimeInstances: (payload: { readonly all: true }) => Promise<unknown>;
+  readonly listRuntimeInstances: (payload: { readonly all: true; readonly repoId?: string }) => Promise<unknown>;
   readonly showRuntimeInstance: (payload: {
     readonly instanceId: string;
     readonly probe?: boolean;
+    readonly repoId?: string;
   }) => Promise<unknown>;
-  readonly createRuntimeInstance: (payload: RuntimeInstanceCreateInput) => Promise<unknown>;
-  readonly updateRuntimeInstance: (payload: RuntimeInstanceUpdateInput) => Promise<unknown>;
-  readonly deleteRuntimeInstance: (payload: { readonly instanceId: string }) => Promise<unknown>;
+  readonly createRuntimeInstance: (
+    payload: RuntimeInstanceCreateInput & { readonly repoId?: string },
+  ) => Promise<unknown>;
+  readonly updateRuntimeInstance: (
+    payload: RuntimeInstanceUpdateInput & { readonly repoId?: string },
+  ) => Promise<unknown>;
+  readonly deleteRuntimeInstance: (payload: {
+    readonly instanceId: string;
+    readonly repoId?: string;
+  }) => Promise<unknown>;
   readonly signInRuntimeInstance: (payload: AuthInput) => Promise<unknown>;
   readonly signOutRuntimeInstance: (payload: AuthInput) => Promise<unknown>;
 };
@@ -76,16 +85,22 @@ const bridge = (): Bridge => {
   return value as Bridge;
 };
 export const runtimeInstanceClient = {
-  list: async (): Promise<RuntimeInstanceCatalog> =>
-    runtimeInstanceCatalog(await bridge().listRuntimeInstances({ all: true })),
-  show: (instanceId: string) => runtimeInstanceReceipt(bridge().showRuntimeInstance({ instanceId })),
-  create: (input: RuntimeInstanceCreateInput) => runtimeInstanceReceipt(bridge().createRuntimeInstance(input)),
-  update: (input: RuntimeInstanceUpdateInput) => runtimeInstanceReceipt(bridge().updateRuntimeInstance(input)),
-  setEnabled: (instanceId: string, enabled: boolean) => runtimeInstanceClient.update({ instanceId, enabled }),
-  delete: (instanceId: string) => runtimeInstanceReceipt(bridge().deleteRuntimeInstance({ instanceId })),
-  probe: async (instanceId: string): Promise<RuntimeInstanceSummary> =>
+  list: async (repoId?: string): Promise<RuntimeInstanceCatalog> =>
+    runtimeInstanceCatalog(await bridge().listRuntimeInstances({ all: true, ...scope(repoId) })),
+  show: (instanceId: string, repoId?: string) =>
+    runtimeInstanceReceipt(bridge().showRuntimeInstance({ instanceId, ...scope(repoId) })),
+  create: (input: RuntimeInstanceCreateInput, repoId?: string) =>
+    runtimeInstanceReceipt(bridge().createRuntimeInstance({ ...input, ...scope(repoId) })),
+  update: (input: RuntimeInstanceUpdateInput, repoId?: string) =>
+    runtimeInstanceReceipt(bridge().updateRuntimeInstance({ ...input, ...scope(repoId) })),
+  setEnabled: (instanceId: string, enabled: boolean, repoId?: string) =>
+    runtimeInstanceClient.update({ instanceId, enabled }, repoId),
+  delete: (instanceId: string, repoId?: string) =>
+    runtimeInstanceReceipt(bridge().deleteRuntimeInstance({ instanceId, ...scope(repoId) })),
+  probe: async (instanceId: string, repoId?: string): Promise<RuntimeInstanceSummary> =>
     runtimeInstanceSummary(
-      (await runtimeInstanceReceipt(bridge().showRuntimeInstance({ instanceId, probe: true }))).instance,
+      (await runtimeInstanceReceipt(bridge().showRuntimeInstance({ instanceId, probe: true, ...scope(repoId) })))
+        .instance,
     ),
   auth: async (repoId: string, instanceId: string, action: "login" | "logout"): Promise<TerminalControlReceipt> =>
     runtimeInstanceTerminal(
@@ -96,6 +111,7 @@ export const runtimeInstanceClient = {
       }),
     ),
 };
+const scope = (repoId?: string) => (repoId === undefined ? {} : { repoId });
 async function runtimeInstanceReceipt(value: Promise<unknown>): Promise<Record<string, unknown>> {
   const result = await value;
   if (!runtimeInstanceRecord(result) || result.schema !== "command-receipt/v2" || typeof result.ok !== "boolean")

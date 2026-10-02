@@ -356,6 +356,18 @@ export function createJsonRpcProtocolServer(options: {
     if (isRuntimeInstanceCall(call)) {
       const { method, params } = call;
       try {
+        if (params.repo !== undefined) {
+          const repoId = repoIdFromParams(params);
+          if (
+            !repoId ||
+            !options.host
+              .status()
+              .repos.some((repo) => repo.repoId === repoId && repo.state !== "closed" && repo.mode !== "remote-proxy")
+          )
+            throw Object.assign(new Error("The selected runtime target is not registered on this daemon."), {
+              code: "repo_namespace_unknown",
+            });
+        }
         return reply(method, await options.host.runtimeInstance(method, params.payload, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure(method, error));

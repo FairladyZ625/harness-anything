@@ -22,6 +22,11 @@ function payloadFieldNames(guiBridgeMethod: string): readonly string[] {
   return payload?.fields ? Object.keys(payload.fields) : [];
 }
 const runtimeInstanceUpdateFields = payloadFieldNames("updateRuntimeInstance");
+const instanceTargetMethods: ReadonlySet<PreloadApiMethod> = new Set(
+  daemonGuiInvokeFacets
+    .filter((facet) => facet.method.startsWith("daemon.runtimeInstance."))
+    .map((facet) => facet.guiBridgeMethod),
+);
 const runtimeInstanceCreateFields = [
   "instanceId",
   "name",
@@ -91,8 +96,18 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
   if (payload !== null && (typeof payload !== "object" || Array.isArray(payload))) {
     throw new Error("Preload payload must be an object or null.");
   }
-  if (containsSecretLikeKey(payload, method === "createRuntimeInstance"))
+  if (containsSecretLikeKey(payload, ["createRuntimeInstance", "updateRuntimeInstance"].includes(method)))
     throw new Error("Preload payload contains a forbidden secret-like key.");
+  if (
+    instanceTargetMethods.has(method as PreloadApiMethod) &&
+    isPreloadPayloadRecord(payload) &&
+    Object.hasOwn(payload, "repoId")
+  ) {
+    if (typeof payload.repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(payload.repoId))
+      throw new Error(`Preload ${method} payload requires an exact repoId.`);
+    const { repoId: _repoId, ...instancePayload } = payload;
+    payload = instancePayload;
+  }
   if (repoScopedMethods.has(method as PreloadApiMethod)) {
     if (
       !isPreloadPayloadRecord(payload) ||
@@ -181,11 +196,9 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
   }
   return true;
 }
-// The only secret the preload ever forwards is the top-level `apiKey` the user just
-// typed into the create-instance form, and only for `createRuntimeInstance` in
-// api-key mode; main stores it in the native vault and the daemon receives just an
-// opaque reference. Every other secret-like key name — at any depth, on any
-// method, including `apiKey` nested inside a kind config — stays rejected.
+// Only a newly typed top-level apiKey crosses create/update IPC. The selected
+// daemon owns vault storage and rejects replacement for subscription instances.
+// Nested keys and every other secret-like field remain rejected.
 // (containsSecretLikeKey itself lives in api/entity-payload-hygiene.ts, shared with
 // the renderer read clients so the credential vocabulary stays out of renderer source.)
 function runtimeInstanceCreateProblem(value: unknown): string | undefined {
@@ -280,6 +293,7 @@ function validRuntimeInstanceUpdate(value: unknown): boolean {
     (value.enabled === undefined || typeof value.enabled === "boolean") &&
     (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.effort === undefined || typeof value.effort === "string") &&
+    (value.apiKey === undefined || (typeof value.apiKey === "string" && value.apiKey.trim().length > 0)) &&
     (value.permissionMode === undefined ||
       ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&
     (value.isolationState === undefined ||

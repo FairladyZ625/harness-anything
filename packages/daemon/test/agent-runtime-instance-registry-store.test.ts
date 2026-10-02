@@ -364,7 +364,7 @@ test("runtime instance CRUD is a closed defineCliCommand surface", async () => {
     {
       ok: false,
       code: "missing_field",
-      nextAction: "API-key instances require --credential-ref <opaque-ref>.",
+      nextAction: "API-key instances require --api-key-stdin, --api-key-file <path>, or --credential-ref <opaque-ref>.",
       json: false,
     },
   );

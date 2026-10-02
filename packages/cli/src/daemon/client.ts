@@ -1,3 +1,4 @@
+import { runtimeCredentialInput } from "../cli/runtime-credential-input.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -11,6 +12,7 @@ import {
   type DaemonSessionEnvironment,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import {
+  assertRuntimeCredentialEndpoint,
   daemonIdFromEnv,
   daemonUserRoot,
   localUserDaemonEndpoint,
@@ -180,8 +182,11 @@ export async function runCommandThroughDaemon(
   if (command.method.startsWith("daemon.runtimeInstance.")) {
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
-      { kind: _kind, ...payload } = command.action,
+      { kind: _kind, ...inputPayload } = command.action,
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId);
+    if (inputPayload.apiKeyStdin !== undefined || inputPayload.apiKeyFile !== undefined)
+      assertRuntimeCredentialEndpoint(socketPath);
+    const payload = runtimeCredentialInput(inputPayload);
     return withAutostart(
       () =>
         requestLocalDaemonJsonRpcForTarget(

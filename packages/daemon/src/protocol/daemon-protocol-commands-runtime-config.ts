@@ -288,6 +288,20 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     method: "daemon.runtimeInstance.create",
     inputs: [
       cliInput(
+        "--api-key-stdin",
+        "boolean",
+        false,
+        { code: "invalid_field" },
+        { conflictsWith: ["--api-key-file", "--credential-ref"] },
+      ),
+      cliInput(
+        "--api-key-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { conflictsWith: ["--api-key-stdin", "--credential-ref"] },
+      ),
+      cliInput(
         "--id",
         "single",
         true,
@@ -457,10 +471,12 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     positional: "instanceId",
     summary: [
       "Update a runtime instance's installation, metadata, models, permissions, isolation, ",
-      "reasoning effort, or enabled state without touching credentials.",
+      "reasoning effort, enabled state, or API key via --api-key-stdin/--api-key-file.",
     ].join(""),
     method: "daemon.runtimeInstance.update",
     inputs: [
+      cliInput("--api-key-stdin", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--api-key-file"] }),
+      cliInput("--api-key-file", "single", false, { code: "invalid_field" }, { conflictsWith: ["--api-key-stdin"] }),
       cliInput("--name", "single", false, {
         code: "invalid_field",
       }),

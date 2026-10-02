@@ -395,7 +395,9 @@ function ProviderEditor({
       data-testid="runtime-provider-editor"
       onSubmit={(event) => {
         event.preventDefault();
-        void onUpdate(buildRuntimeInstanceUpdatePayload(instance.instanceId, draft)).then((receipt) => {
+        const payload = buildRuntimeInstanceUpdatePayload(instance.instanceId, draft);
+        patch({ apiKey: "" });
+        void onUpdate(payload).then((receipt) => {
           if (receipt !== null && typeof receipt === "object" && "ok" in receipt && receipt.ok === true) onCancel();
         });
       }}
@@ -519,6 +521,31 @@ function ProviderEditor({
             keepOneModel
           />
         </label>
+        {draft.apiKeyEditable && (
+          <div className="grid gap-1">
+            <label className="inline-flex items-center gap-2 ui-micro text-text-muted">
+              <input
+                data-testid="runtime-provider-replace-key"
+                type="checkbox"
+                checked={draft.replaceApiKey}
+                disabled={busy}
+                onChange={(event) => patch({ replaceApiKey: event.target.checked, apiKey: "" })}
+              />
+              {t("agentRuntime.replaceApiKey")}
+            </label>
+            {draft.replaceApiKey && (
+              <TextInput
+                type="password"
+                label={t("agentRuntime.apiKey")}
+                testId="runtime-provider-api-key"
+                value={draft.apiKey}
+                disabled={busy}
+                onChange={(apiKey) => patch({ apiKey })}
+              />
+            )}
+            <Hint>{t("agentRuntime.replaceApiKeyHint")}</Hint>
+          </div>
+        )}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Hint>{t("agentRuntime.providerEditHint")}</Hint>

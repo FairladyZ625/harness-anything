@@ -19,6 +19,8 @@ import { serveJsonRpcStream, type DaemonTransportConnection } from "../src/trans
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
+import { createLocalGuiServiceBridge } from "../../gui/src/main/local-composition-root.ts";
 
 test(
   "remote-proxy forwards repository frames and streams, reconnects, and fails closed",
@@ -42,10 +44,13 @@ test(
       userRoot: userRootB,
       createConvenienceLinks: false,
     });
+    const vaultA = providerVault(),
+      vaultB = providerVault();
     let providerOutput: ((chunk: string) => void) | undefined;
     const hostB = await openDaemonHost({
         daemonId: "origin-b",
         userRoot: userRootB,
+        runtimeCredentialPort: vaultB.port,
         openCell: openBootstrappedRepoCell,
         runtimeDiscover: () => [
           {
@@ -70,7 +75,20 @@ test(
         }),
       }),
       tcpB = daemonTcpTransport(hostB, uid),
-      hostA = await openDaemonHost({ daemonId: "proxy-a", userRoot: userRootA }),
+      hostA = await openDaemonHost({
+        daemonId: "proxy-a",
+        userRoot: userRootA,
+        runtimeCredentialPort: vaultA.port,
+        runtimeDiscover: () => [
+          {
+            installationId: "installation-codex",
+            kindId: "codex",
+            executablePath,
+            version: "fixture",
+            observedAt: "2026-10-02T00:00:00.000Z",
+          },
+        ],
+      }),
       transportA = createUnixSocketTransportServer({
         daemonId: "proxy-a",
         socketPath: endpointA,
@@ -171,6 +189,71 @@ test(
       assert.match(String(document.worktreeBody), /Proxy round trip/u);
       assert.equal((await rpcA("repo.artifacts.list", { repo: { repoId }, payload: {} })).ok, true);
       assert.equal((await rpcA("daemon.connection.probe", { endpoint: tcpB.endpoint })).ok, true);
+    });
+
+    await t.test("Provider GUI replacement writes the selected B vault and leaves same-id A unchanged", async () => {
+      const apiKeyA = "fixture-remote-key-a",
+        apiKeyB = "fixture-remote-key-b";
+      const payload = {
+        instanceId: "same-provider",
+        name: "Same provider",
+        kindId: "codex",
+        installationId: "installation-codex",
+        providerId: "fixture",
+        models: ["gpt-proxy"],
+        authMode: "api-key",
+        apiKey: apiKeyA,
+      };
+      assert.equal((await rpcA("daemon.runtimeInstance.create", { payload })).ok, true);
+      const names = ["HARNESS_DAEMON_USER_ROOT", "HARNESS_DAEMON_ID", "HARNESS_DAEMON_ENDPOINT"] as const,
+        previous = names.map((name) => process.env[name]);
+      process.env.HARNESS_DAEMON_USER_ROOT = userRootA;
+      process.env.HARNESS_DAEMON_ID = "proxy-a";
+      delete process.env.HARNESS_DAEMON_ENDPOINT;
+      try {
+        const gui = createLocalGuiServiceBridge(parent);
+        assert.equal(
+          ((await gui.invoke("createRuntimeInstance", { ...payload, repoId })) as Record<string, unknown>).ok,
+          true,
+        );
+        const receipt = (await gui.invoke("updateRuntimeInstance", {
+          repoId,
+          instanceId: "same-provider",
+          apiKey: apiKeyB,
+        })) as Record<string, unknown>;
+        assert.equal(receipt.ok, true, JSON.stringify(receipt));
+        assert.equal(receipt.credentialChanged, true);
+        const list = await gui.invoke("listRuntimeInstances", { repoId, all: true });
+        assert.doesNotMatch(JSON.stringify([receipt, list]), /fixture-remote-key-[ab]/u);
+        assert.deepEqual([...vaultA.secrets.values()], [apiKeyA]);
+        assert.deepEqual([...vaultB.secrets.values()], [apiKeyB]);
+        registerDaemonRepo({
+          userRoot: userRootA,
+          repoId: "unsafe-provider",
+          mode: "remote-proxy",
+          endpoint: "tcp://192.0.2.1:9911",
+          createConvenienceLinks: false,
+        });
+        const rejected = (await gui.invoke("updateRuntimeInstance", {
+          repoId: "unsafe-provider",
+          instanceId: "same-provider",
+          apiKey: apiKeyA,
+        })) as Record<string, unknown>;
+        assert.equal(rejected.code, "runtime_credential_transport_unsafe");
+        assert.doesNotMatch(JSON.stringify(rejected), /fixture-remote-key-[ab]/u);
+        assert.deepEqual([...vaultA.secrets.values()], [apiKeyA]);
+        assert.deepEqual([...vaultB.secrets.values()], [apiKeyB]);
+        const unknown = await rpcA("daemon.runtimeInstance.update", {
+          repo: { repoId: "missing-provider" },
+          payload: { instanceId: "same-provider", apiKey: apiKeyB },
+        });
+        assert.equal(unknown.code, "repo_namespace_unknown");
+      } finally {
+        names.forEach((name, index) => {
+          if (previous[index] === undefined) delete process.env[name];
+          else process.env[name] = previous[index];
+        });
+      }
     });
 
     await rpcB("daemon.runtimeInstance.create", {
@@ -315,6 +398,22 @@ function daemonTcpTransport(host: DaemonHost, ownerUid: number) {
       await new Promise<void>((resolve, reject) => closing.close((error) => (error ? reject(error) : resolve())));
     },
   };
+}
+
+function providerVault() {
+  const secrets = new Map<string, string>();
+  let serial = 0;
+  const port: CredentialPort = {
+    issue: () => `credential:v1:remote-fixture-${++serial}`,
+    store: async (reference, secret) => {
+      secrets.set(reference, secret);
+    },
+    resolve: async (reference) => secrets.get(reference) ?? "",
+    remove: async (reference) => {
+      secrets.delete(reference);
+    },
+  };
+  return { port, secrets };
 }
 
 async function mismatchEndpoint(): Promise<{ endpoint: string; close: () => void }> {

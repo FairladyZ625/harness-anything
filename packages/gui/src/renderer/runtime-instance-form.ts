@@ -49,6 +49,9 @@ export type RuntimeInstanceEditFormState = {
   /** True for kinds whose catalog entry declares an effort field; the update write path
    * keys off the same declaration. */
   readonly effortEditable: boolean;
+  readonly apiKeyEditable: boolean;
+  readonly replaceApiKey: boolean;
+  readonly apiKey: string;
 };
 
 type DetectedModels = { readonly models?: readonly string[]; readonly defaultModel?: string };
@@ -117,6 +120,11 @@ export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): Runti
     initialFast: fastEditable && instance.configuration.fast === true,
     fastEditable,
     effortEditable: effortField !== undefined,
+    apiKeyEditable:
+      instance.authMode === "api-key" &&
+      runtimeKindForId(instance.kindId).auth.modes.some((mode) => mode === "api-key"),
+    replaceApiKey: false,
+    apiKey: "",
     effort:
       effortField !== undefined && typeof instance.configuration[effortField] === "string"
         ? (instance.configuration[effortField] as string)
@@ -157,7 +165,8 @@ export function runtimeInstanceEditReady(form: RuntimeInstanceEditFormState): bo
     form.name.trim() !== "" &&
     form.installationId.trim() !== "" &&
     models.length > 0 &&
-    models.includes(form.defaultModel)
+    models.includes(form.defaultModel) &&
+    (!form.replaceApiKey || (form.apiKeyEditable && form.apiKey.trim() !== ""))
   );
 }
 export function buildRuntimeInstanceUpdatePayload(
@@ -168,12 +177,15 @@ export function buildRuntimeInstanceUpdatePayload(
     defaultModel = runtimeDefaultModel(models, form.defaultModel);
   if (!form.name.trim() || !form.installationId.trim() || !defaultModel)
     throw new Error("Runtime instance update form is incomplete.");
+  if (form.replaceApiKey && (!form.apiKeyEditable || !form.apiKey.trim()))
+    throw new Error("Enter a new API key to replace the current key.");
   return {
     instanceId,
     name: form.name.trim(),
     installationId: form.installationId.trim(),
     models,
     defaultModel,
+    ...(form.replaceApiKey ? { apiKey: form.apiKey.trim() } : {}),
     // Base URL rides the same update write path the other fields use; the empty field is
     // meaningful (back to the official endpoint), so it is sent whenever the plane has one.
     // A plane without an API mode has no base URL at all and the field is omitted there.

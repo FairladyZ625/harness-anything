@@ -1,4 +1,5 @@
 import type net from "node:net";
+import { assertRuntimeCredentialEndpoint } from "./client/local-daemon-target.ts";
 import { readDaemonRegistry, type DaemonRegistryConnection } from "@harness-anything/kernel";
 import { connectSocket, JsonRpcLineClient } from "./client/local-json-rpc-client.ts";
 import { streamDaemonFacetAt } from "./client/local-json-rpc-stream.ts";
@@ -68,6 +69,13 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
     route: isRemoteProxy,
     request: async (repoId, method, params) => {
       const remote = resolveRoute(repoId);
+      if (
+        method.startsWith("daemon.runtimeInstance.") &&
+        typeof params.payload === "object" &&
+        params.payload !== null &&
+        "apiKey" in params.payload
+      )
+        assertRuntimeCredentialEndpoint(remote.connection.endpoint);
       return connectorFor(remote).request(method, params);
     },
     stream: async (repoId, method, payload) => {

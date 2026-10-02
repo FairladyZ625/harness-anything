@@ -21,6 +21,7 @@ import { runtimeCommandClient } from "../src/renderer/runtime-command-client.ts"
 import { runtimeInstanceClient } from "../src/renderer/runtime-instance-client.ts";
 import {
   prewarmRuntimeInstanceCatalog,
+  runtimeInstanceCatalogQuery,
   runtimeInstanceCatalogQueryKey,
 } from "../src/renderer/runtime-instance-data.ts";
 import { squadRunsClient } from "../src/renderer/squad-run-client.ts";
@@ -955,7 +956,7 @@ describe("runtime entry split (W6 IA)", () => {
     await flushEffects();
 
     // 回执未到:开关保持原值——不再有乐观翻转(评审 #5 第 8 条删除)。
-    expect(update).toHaveBeenCalledWith("provider-edit", false);
+    expect(update).toHaveBeenCalledWith("provider-edit", false, "repo-a");
     expect(toggle?.getAttribute("aria-checked")).toBe("true");
     expect(list).not.toHaveBeenCalled();
 
@@ -1036,7 +1037,7 @@ describe("runtime entry split (W6 IA)", () => {
     await mountProviders("provider/provider-selected");
     const client = mounted.at(-1)!.client;
     await act(async () => {
-      client.setQueryData(runtimeInstanceCatalogQueryKey, {
+      client.setQueryData(runtimeInstanceCatalogQuery("repo-a").queryKey, {
         instances: unchecked,
         installations: providerInstallations,
       });
@@ -1044,7 +1045,7 @@ describe("runtime entry split (W6 IA)", () => {
     await flushEffects();
 
     expect(probe).toHaveBeenCalledTimes(1);
-    expect(probe).toHaveBeenCalledWith("provider-selected");
+    expect(probe).toHaveBeenCalledWith("provider-selected", "repo-a");
   });
 
   it("keeps the provider draft while an update is pending or rejected, then closes on success", async () => {
@@ -1137,7 +1138,7 @@ describe("runtime entry split (W6 IA)", () => {
 });
 
 function seedQueries(client: QueryClient) {
-  client.setQueryData(["runtime-instances", "machine"], {
+  client.setQueryData(runtimeInstanceCatalogQuery("repo-a").queryKey, {
     installations: providerInstallations,
     instances: [providerInstance],
   });

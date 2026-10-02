@@ -27,5 +27,6 @@ test("runtime instance RPC keeps non-clearable strings and clearable value types
   for (const field of ["baseUrl", "effort"])
     for (const value of [null, false, 0, [], {}])
       assert.equal(parse({ [field]: value }).ok, false, `${field}: ${JSON.stringify(value)}`);
-  assert.equal(parse({ apiKey: "fake-key-must-not-enter-update" }).ok, false);
+  assert.equal(parse({ apiKey: "fake-key-must-only-enter-the-target-vault" }).ok, true);
+  assert.equal(parse({ credentialRef: "credential:v1:client-chosen" }).ok, false);
 });
