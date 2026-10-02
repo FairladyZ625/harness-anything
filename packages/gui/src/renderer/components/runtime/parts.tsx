@@ -195,48 +195,8 @@ export function Chip({
     </span>
   );
 }
-export function RoleTag({
-  tone = "in-review",
-  children,
-}: {
-  readonly tone?: "in-review" | "done" | "active";
-  readonly children: ReactNode;
-}) {
-  const color = `var(--color-status-${tone})`;
-  return (
-    <span
-      className="rounded-[3px] border px-[3px] font-mono ui-micro tracking-[0.03em]"
-      style={{
-        color,
-        borderColor: `color-mix(in oklab, ${color} 40%, transparent)`,
-        background: `color-mix(in oklab, ${color} 14%, transparent)`,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-export function Badge({
-  status,
-  tip,
-  children,
-}: {
-  readonly status?: string;
-  readonly tip?: string;
-  readonly children: ReactNode;
-}) {
-  const color = status ? `var(--color-status-${status})` : undefined;
-  return (
-    <span
-      data-tip={tip}
-      className="inline-flex items-center gap-1 rounded-[3px] border border-border-strong px-1.5 py-px font-mono ui-micro tracking-[0.03em] text-text-muted"
-      style={color ? { color, borderColor: `color-mix(in oklab, ${color} 45%, transparent)` } : undefined}
-    >
-      {color && <span className="size-1.5 rounded-full" style={{ background: color }} />}
-      {children}
-    </span>
-  );
-}
+// 状态徽章已收敛到 primitives/StatusTag(C8,视觉基线 v2):状态色唯一出口是
+// StatusTag 的 tone→token 映射,本库不再有第二套徽章形状。
 export function KindDot({ kind }: { readonly kind: string }) {
   return (
     <span

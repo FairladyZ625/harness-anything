@@ -33,7 +33,6 @@ import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ActionError } from "./ActionError.tsx";
 import {
   Avatar,
-  Badge,
   CapDot,
   Card,
   CardBody,
@@ -54,6 +53,7 @@ import {
 } from "./parts.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { Empty } from "../primitives/Empty.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 type Props = {
@@ -132,9 +132,9 @@ export function RuntimeCard({
         <CardHead>
           <KindDot kind={instance.kindId} />
           {liveSessions > 0 ? (
-            <Badge status="active">{t("agentRuntime.liveSessions", { count: liveSessions })}</Badge>
+            <StatusTag status="active" label={t("agentRuntime.liveSessions", { count: liveSessions })} />
           ) : (
-            <Badge status="planned">{t("agentRuntime.idle")}</Badge>
+            <StatusTag status="planned" label={t("agentRuntime.idle")} />
           )}
           <Right>
             {!editing && (
@@ -194,10 +194,11 @@ export function RuntimeCard({
         <CardBody>
           <div data-auth-status={auth.state}>
             <div className="flex flex-wrap items-center gap-3">
-              <Badge status={auth.badge}>
-                {apiMode ? t("agentRuntime.authModeApiKey") : t("agentRuntime.authModeSubscription")} ·{" "}
-                {instance.authState}
-              </Badge>
+              <StatusTag
+                status={auth.badge}
+                mono
+                label={`${apiMode ? t("agentRuntime.authModeApiKey") : t("agentRuntime.authModeSubscription")} · ${instance.authState}`}
+              />
               <Hint>{authText}</Hint>
               <span className="flex-1" />
               <Button size="sm" disabled={busy} onClick={onValidate}>

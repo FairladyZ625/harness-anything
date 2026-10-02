@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, PencilSimple, Play, Power, Stop, Trash } from "@phosphor-icons/react";
 import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
-import { Badge, Chip } from "../components/runtime/parts.tsx";
+import { Chip } from "../components/runtime/parts.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
 import { ScheduleForm } from "../components/ScheduleFormDialog.tsx";
 import { ScheduleRunDetail } from "../components/scheduleRun/ScheduleRunDetail.tsx";
@@ -241,7 +241,7 @@ export function ScheduleDetailView({
                     : t("schedules.executor.agent")}
               </Chip>
               {targetKind === "builtin" && (
-                <Badge tip={t("schedules.builtin.hint")}>{t("schedules.builtin.preset")}</Badge>
+                <StatusTag tone="neutral" tip={t("schedules.builtin.hint")} label={t("schedules.builtin.preset")} />
               )}
             </div>
             <p className="mt-0.5 font-mono ui-micro text-text-faint">

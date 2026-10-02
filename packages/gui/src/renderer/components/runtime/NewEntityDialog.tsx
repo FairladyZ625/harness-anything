@@ -3,9 +3,10 @@ import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../age
 import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { ActionError } from "./ActionError.tsx";
-import { Avatar, Badge, CfgRow, Hint, KindDot, Modal, WarnBar } from "./parts.tsx";
+import { Avatar, CfgRow, Hint, KindDot, Modal, WarnBar } from "./parts.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { Button } from "../primitives/Button.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 type NewEntityRequestBase = {
   readonly kind: "agent" | "squad";
@@ -151,10 +152,10 @@ export function NewEntityDialog({
               disabled={initialId !== undefined}
               placeholder="kebab-case"
             />
-            {initialId !== undefined && <Badge>{t("agentRuntime.redeclareIdLocked")}</Badge>}
-            {collision && <Badge status="blocked">{t("agentRuntime.idTaken")}</Badge>}
+            {initialId !== undefined && <StatusTag tone="neutral" label={t("agentRuntime.redeclareIdLocked")} />}
+            {collision && <StatusTag status="blocked" label={t("agentRuntime.idTaken")} />}
             {!collision && id.trim() !== "" && !entitySlug(id) && (
-              <Badge status="blocked">{t("agentRuntime.idInvalid")}</Badge>
+              <StatusTag status="blocked" label={t("agentRuntime.idInvalid")} />
             )}
           </CfgRow>
           <CfgRow label={t("agentRuntime.name")}>

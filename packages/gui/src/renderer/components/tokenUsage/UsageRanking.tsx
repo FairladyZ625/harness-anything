@@ -16,8 +16,8 @@ import {
   type RankScale,
 } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { Badge } from "../runtime/parts.tsx";
 import { Empty } from "../primitives/Empty.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 /**
  * 「谁花的」排行(单 Worker / 小队 / 模型):每行名称完整一行,数值与占比并排在右,下面一根
@@ -62,9 +62,12 @@ export function UsageRanking({
                   {row.name}
                 </span>
                 {unreported ? (
-                  <Badge status="cancelled" tip={t("agentRuntime.tokenUsageUnreportedTip")}>
-                    {t("agentRuntime.tokenUsageUnreported")}
-                  </Badge>
+                  <StatusTag
+                    status="cancelled"
+                    mono
+                    tip={t("agentRuntime.tokenUsageUnreportedTip")}
+                    label={t("agentRuntime.tokenUsageUnreported")}
+                  />
                 ) : (
                   <>
                     <span className="font-mono tabular-nums ui-body text-text" title={exactTokens(row.totalTokens)}>
@@ -192,9 +195,12 @@ export function UsageRankingTable({
                 </td>
                 <td className="border-b border-border py-1.5 text-right">
                   {usageIsUnreported(row) ? (
-                    <Badge status="cancelled" tip={t("agentRuntime.tokenUsageUnreportedTip")}>
-                      {t("agentRuntime.tokenUsageUnreported")}
-                    </Badge>
+                    <StatusTag
+                      status="cancelled"
+                      mono
+                      tip={t("agentRuntime.tokenUsageUnreportedTip")}
+                      label={t("agentRuntime.tokenUsageUnreported")}
+                    />
                   ) : (
                     <span className="font-mono ui-meta text-text-faint">
                       {t("agentRuntime.tokenUsageReportedCount", {

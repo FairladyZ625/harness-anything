@@ -4,8 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { AgentRuntimeTokenUsageResult } from "@harness-anything/daemon/protocol";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { t } from "../i18n/index.tsx";
-import { Badge } from "../components/runtime/parts.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Region } from "../components/primitives/Region.tsx";
 import { QUERY_PACING_MS } from "../query-pacing.ts";
 import {
@@ -77,7 +77,7 @@ export function TokenUsageView({
         />
         <span className="flex-1" />
         {data?.status === "pending" ? (
-          <Badge status="planned">{t("agentRuntime.tokenUsageProjectionPending")}</Badge>
+          <StatusTag status="planned" label={t("agentRuntime.tokenUsageProjectionPending")} />
         ) : null}
       </header>
       {usage.isError ? (

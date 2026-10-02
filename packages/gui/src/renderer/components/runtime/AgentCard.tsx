@@ -17,23 +17,10 @@ import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
 import { ActionError } from "./ActionError.tsx";
 import { SkillEditorModal, type ViewingSkill } from "./SkillEditorModal.tsx";
-import {
-  AddChip,
-  Avatar,
-  Badge,
-  Card,
-  Chip,
-  ChipZone,
-  Crumbs,
-  CrumbSep,
-  Hint,
-  KindDot,
-  LiveDot,
-  RoleTag,
-  Sect,
-} from "./parts.tsx";
+import { AddChip, Avatar, Card, Chip, ChipZone, Crumbs, CrumbSep, Hint, KindDot, LiveDot, Sect } from "./parts.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { Empty } from "../primitives/Empty.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 export type AgentDraft = {
   readonly name: string;
@@ -225,7 +212,14 @@ export function AgentCard({
                 title={detail.id}
                 className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
               />
-              {row && <Badge tip={t("agentRuntime.layerTip", { layer: row.layer })}>{row.layer}</Badge>}
+              {row && (
+                <StatusTag
+                  tone="neutral"
+                  mono
+                  tip={t("agentRuntime.layerTip", { layer: row.layer })}
+                  label={row.layer}
+                />
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <SegCtl
@@ -257,9 +251,11 @@ export function AgentCard({
               {referencing.map((squad) => (
                 <Chip key={squad.id} tone="link" onClick={() => onSelectSquad(squad.id)}>
                   {squad.name}
-                  <RoleTag>
-                    {squad.leader === detail.id ? t("agentRuntime.roleCommander") : t("agentRuntime.roleWorker")}
-                  </RoleTag>
+                  <StatusTag
+                    tone="neutral"
+                    mono
+                    label={squad.leader === detail.id ? t("agentRuntime.roleCommander") : t("agentRuntime.roleWorker")}
+                  />
                 </Chip>
               ))}
             </div>
@@ -332,7 +328,7 @@ export function AgentCard({
                         className="flex min-w-0 flex-1 items-center gap-2 text-left"
                       >
                         <b className="font-mono ui-micro">{skill.id}</b>
-                        <Badge>{skill.source}</Badge>
+                        <StatusTag tone="neutral" mono label={skill.source} />
                         <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{skill.path}</span>
                       </button>
                       <button

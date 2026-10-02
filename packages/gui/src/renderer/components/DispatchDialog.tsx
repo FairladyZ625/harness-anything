@@ -13,7 +13,8 @@ import {
 import type { AgentDispatchPreview } from "../runtime-control.ts";
 import { t } from "../i18n/index.tsx";
 import { DispatchPreviewModal } from "./DispatchPreviewModal.tsx";
-import { Avatar, Badge, Chip, Hint, KindDot, LiveDot, Modal } from "./runtime/parts.tsx";
+import { Avatar, Chip, Hint, KindDot, LiveDot, Modal } from "./runtime/parts.tsx";
+import { StatusTag } from "./primitives/StatusTag.tsx";
 import { TextInput } from "./primitives/TextInput.tsx";
 import { planeAllowsEffort } from "../runtime-provider-planes.ts";
 import { runtimeKindForId } from "@harness-anything/daemon/protocol";
@@ -165,7 +166,7 @@ export function DispatchDialog({
               <>
                 <Avatar id={subject.agent.agentId} />
                 <b>{subject.agent.agentName}</b>
-                <Badge>{subject.agent.agentId}</Badge>
+                <StatusTag tone="neutral" mono label={subject.agent.agentId} />
                 <Hint>
                   {t("agentRuntime.runtimeConstraintIs", {
                     kind:
@@ -179,10 +180,10 @@ export function DispatchDialog({
               <>
                 <KindDot kind="any" />
                 <b>{subject.squadName}</b>
-                <Badge>{subject.squadId}</Badge>
+                <StatusTag tone="neutral" mono label={subject.squadId} />
                 <Avatar id={subject.leader.agentId} />
                 <b>{subject.leader.agentName}</b>
-                <Badge>{subject.leader.agentId}</Badge>
+                <StatusTag tone="neutral" mono label={subject.leader.agentId} />
                 <Hint>{t("agentRuntime.squadCommanderHint")}</Hint>
               </>
             )}

@@ -7,17 +7,19 @@ import type {
   AgentRuntimeTokenUsageRange,
   AgentRuntimeTokenUsageSessionRow,
 } from "@harness-anything/daemon/protocol";
+import type { SnapshotStatus } from "../../model/types";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { compactTokens, exactTokens } from "../../token-format.ts";
 import { formatDuration, formatTime } from "../../model/time.ts";
 import { usageIsUnreported, usageOutcomeKey, usageStateKey } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { QUERY_PACING_MS } from "../../query-pacing.ts";
-import { Badge, Card, CardBody, CardHead, CardTitle, Chip, KV, KVRow, Right } from "../runtime/parts.tsx";
+import { Card, CardBody, CardHead, CardTitle, Chip, KV, KVRow, Right } from "../runtime/parts.tsx";
 import { Empty } from "../primitives/Empty.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 import { tokenKindLayers, UsageTrendChart, UsageTrendTable } from "./UsageTrendChart.tsx";
 
-const OUTCOME_TONE: Readonly<Record<AgentRuntimeTokenUsageSessionRow["outcome"], string>> = {
+const OUTCOME_TONE: Readonly<Record<AgentRuntimeTokenUsageSessionRow["outcome"], SnapshotStatus>> = {
   succeeded: "done",
   failed: "blocked",
   aborted: "cancelled",
@@ -89,9 +91,12 @@ export function TokenUsageDetail({
                     : `${t("agentRuntime.tokenUsageSegmentAgents")} · ${data.member.agentId}`}
                 </Chip>
                 {usageIsUnreported(data.totals ?? { usageReportedDispatches: 1, usageUnavailableDispatches: 0 }) ? (
-                  <Badge status="cancelled" tip={t("agentRuntime.tokenUsageUnreportedTip")}>
-                    {t("agentRuntime.tokenUsageUnreported")}
-                  </Badge>
+                  <StatusTag
+                    status="cancelled"
+                    mono
+                    tip={t("agentRuntime.tokenUsageUnreportedTip")}
+                    label={t("agentRuntime.tokenUsageUnreported")}
+                  />
                 ) : null}
               </div>
               <p className="font-mono ui-micro text-text-faint">
@@ -230,9 +235,11 @@ export function TokenUsageDetail({
                               {formatDuration(session.durationMs)}
                             </td>
                             <td className="border-b border-border py-1 pr-3">
-                              <Badge status={OUTCOME_TONE[session.outcome]}>
-                                {t(usageOutcomeKey[session.outcome])}
-                              </Badge>
+                              <StatusTag
+                                status={OUTCOME_TONE[session.outcome]}
+                                mono
+                                label={t(usageOutcomeKey[session.outcome])}
+                              />
                             </td>
                             <td
                               className="border-b border-border py-1 pr-3 text-right font-mono ui-micro"

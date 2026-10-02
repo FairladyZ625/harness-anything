@@ -27,8 +27,9 @@ import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { ActionError } from "./ActionError.tsx";
-import { Badge, CfgRow, Hint, KindDot, Modal, WarnBar } from "./parts.tsx";
+import { CfgRow, Hint, KindDot, Modal, WarnBar } from "./parts.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 const kindLabel = (kindId: RuntimeKindId): string => runtimeKindForId(kindId).displayName;
@@ -192,9 +193,10 @@ export function NewRuntimeDialog({
             onChange={(next) => setForm((current) => applyRuntimeAuthMode(current, next ? "api-key" : "subscription"))}
           />
           <b className="ui-micro">{t("agentRuntime.apiOverride")}</b>
-          <Badge status={apiOn ? "active" : "planned"}>
-            {t(apiOn ? "agentRuntime.apiOverrideOn" : "agentRuntime.apiOverrideOff")}
-          </Badge>
+          <StatusTag
+            status={apiOn ? "active" : "planned"}
+            label={t(apiOn ? "agentRuntime.apiOverrideOn" : "agentRuntime.apiOverrideOff")}
+          />
         </div>
         <p className="mt-1 ui-micro text-text-faint">
           {t(planeUsesApiOverride(form.kindId) ? "agentRuntime.callPathClaude" : "agentRuntime.capabilityUnsupported", {

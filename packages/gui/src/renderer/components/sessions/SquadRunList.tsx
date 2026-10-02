@@ -7,7 +7,8 @@ import { shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
 import { RowTime } from "../primitives/DenseRow.tsx";
-import { Badge, LiveDot } from "../runtime/parts.tsx";
+import { LiveDot } from "../runtime/parts.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 /**
  * 小队编排段:一次 `ha squad run` 一个列表单元。GUI 发起的单次 squad 派工
@@ -76,7 +77,7 @@ export function SquadRunList({
                 className="flex w-full cursor-not-allowed items-center gap-2 px-4 py-3 text-left opacity-70"
               >
                 <span className="min-w-0 flex-1 truncate font-mono ui-micro text-text-faint">{run.squadRunId}</span>
-                <Badge tip={run.projectionError.hint}>{t("agentRuntime.catalogInvalid")}</Badge>
+                <StatusTag tone="neutral" tip={run.projectionError.hint} label={t("agentRuntime.catalogInvalid")} />
               </button>
             </section>
           ),

@@ -17,8 +17,9 @@ import {
 } from "@harness-anything/daemon/protocol";
 import type { ScheduleBuiltinEditInput, ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import { Badge, Chip, Hint, Modal, PlannedBox } from "./runtime/parts.tsx";
+import { Chip, Hint, Modal, PlannedBox } from "./runtime/parts.tsx";
 import { TextInput } from "./primitives/TextInput.tsx";
+import { StatusTag } from "./primitives/StatusTag.tsx";
 
 // M5 guided form: one segment asks one thing (identity → trigger → executor →
 // purpose → mission). The daemon persists identity, interval/cron trigger, executor,
@@ -394,7 +395,7 @@ export function ScheduleForm({
                   className="mt-1 flex items-center gap-1.5 font-mono ui-micro text-text-faint"
                 >
                   {option.agentId}
-                  <Badge tip={option.error.hint}>{scheduleAgentStateLabels()[option.state]}</Badge>
+                  <StatusTag tone="neutral" tip={option.error.hint} label={scheduleAgentStateLabels()[option.state]} />
                 </span>
               ))}
             </FormField>

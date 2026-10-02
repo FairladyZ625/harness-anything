@@ -7,7 +7,6 @@ import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ActionError } from "./ActionError.tsx";
 import {
   Avatar,
-  Badge,
   Card,
   CardBody,
   CardHead,
@@ -22,6 +21,7 @@ import {
 } from "./parts.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { Button } from "../primitives/Button.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 export type SquadDraft = {
   readonly name: string;
@@ -104,14 +104,18 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
       <Card>
         <CardHead>
           <CardTitle>{detail.name}</CardTitle>
-          <Badge>
-            <EntityRefLink
-              entityRef={`squad/${detail.id}`}
-              onNavigate={() => onSelectSquad(detail.id)}
-              title={detail.id}
-              className="text-text-muted hover:text-accent hover:underline"
-            />
-          </Badge>
+          <StatusTag
+            tone="neutral"
+            mono
+            label={
+              <EntityRefLink
+                entityRef={`squad/${detail.id}`}
+                onNavigate={() => onSelectSquad(detail.id)}
+                title={detail.id}
+                className="text-text-muted hover:text-accent hover:underline"
+              />
+            }
+          />
           <Right>
             <input
               aria-label={t("agentRuntime.squadName")}

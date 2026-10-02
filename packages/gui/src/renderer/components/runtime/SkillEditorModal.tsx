@@ -7,7 +7,8 @@ import { t } from "../../i18n/index.tsx";
 import { requestLocalDocument, saveLocalDocument } from "../../local-doc/local-doc-client.ts";
 import { LocalDocError } from "../../local-doc/LocalDocLayer.tsx";
 import { DocReader } from "../DocReader.tsx";
-import { Badge, Modal } from "./parts.tsx";
+import { Modal } from "./parts.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 /**
  * Skill 详情查看与编辑浮层(task_5dfe382f):点击 AgentCard 的技能药丸打开,解决
@@ -112,7 +113,7 @@ export function SkillEditorModal({
       onClose={onClose}
       footer={
         <div className="flex flex-wrap items-center gap-2">
-          {skill.source && <Badge>{skill.source}</Badge>}
+          {skill.source && <StatusTag tone="neutral" mono label={skill.source} />}
           <span
             className="min-w-0 flex-1 truncate font-mono ui-micro text-text-faint"
             data-testid="skill-editor-path"

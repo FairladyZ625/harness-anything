@@ -1,9 +1,11 @@
-import { Badge, Chip, Hint, KV, KVRow } from "../runtime/parts.tsx";
+import { Chip, Hint, KV, KVRow } from "../runtime/parts.tsx";
 import { Empty } from "../primitives/Empty.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
 import { DocReader } from "../DocReader.tsx";
 import { t } from "../../i18n/index.tsx";
 import type { ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
+import type { SnapshotStatus } from "../../model/types";
 import type { ScheduleGuiRunRowDto, ScheduleRunOutcomeWord } from "../../schedules-client.ts";
 import { RUN_OUTCOME_META, time } from "./runMeta.ts";
 import { formatDuration } from "../../model/time.ts";
@@ -12,7 +14,7 @@ import { formatDuration } from "../../model/time.ts";
 // 同一个 DocReader)、产出互链全部在这一页。没有的数据就是真实空态,不渲染模板句。
 // 实体跳转一律走宿主注入的 entity 导航(ref 由 entityRoutes 解析)。
 
-const RUN_TONE: Record<ScheduleRunOutcomeWord, string> = {
+const RUN_TONE: Record<ScheduleRunOutcomeWord, SnapshotStatus> = {
   running: "active",
   succeeded: "done",
   failed: "blocked",
@@ -53,7 +55,7 @@ export function ScheduleRunDetail({
   return (
     <div data-testid="schedule-run-detail" className="mt-3">
       <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2.5">
-        <Badge status={RUN_TONE[occurrence.outcome]}>{t(meta.key)}</Badge>
+        <StatusTag status={RUN_TONE[occurrence.outcome]} mono label={t(meta.key)} />
         <b className="font-mono ui-body">{occurrence.occurrenceId}</b>
         {occurrence.kind !== null && <Chip tone="mono">{occurrence.kind}</Chip>}
         <span className="flex-1" />

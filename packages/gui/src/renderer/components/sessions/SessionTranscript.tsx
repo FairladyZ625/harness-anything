@@ -8,8 +8,9 @@ import {
   type SessionTranscriptItemType,
 } from "../../session-transcript-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { Badge, Card, CardBody, CardHead, CardTitle, LiveDot } from "../runtime/parts.tsx";
+import { Card, CardBody, CardHead, CardTitle, LiveDot } from "../runtime/parts.tsx";
 import { Button } from "../primitives/Button.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 type DispatchCursorValue = Extract<NonNullable<ObserveTailRead["historyCursor"]>, { readonly kind: "dispatch" }>;
 type DispatchCursor = DispatchCursorValue | null;
@@ -205,9 +206,11 @@ export function SessionTranscriptTurns({ turns }: { readonly turns: readonly Ses
     <details key={turn.key} data-testid="session-transcript-turn" className="border-b border-border last:border-0">
       <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-2 ui-micro hover:bg-panel-soft">
         <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.transcriptTurn", { n: index + 1 })}</span>
-        <Badge status={turn.status === "completed" ? "done" : turn.status === "failed" ? "blocked" : "active"}>
-          {turn.status}
-        </Badge>
+        <StatusTag
+          status={turn.status === "completed" ? "done" : turn.status === "failed" ? "blocked" : "active"}
+          mono
+          label={turn.status}
+        />
         <span className="min-w-0 flex-1 truncate text-text-muted">{turn.items.at(-1)?.summary}</span>
         <span className="font-mono ui-micro text-text-faint">{turn.items.length}</span>
       </summary>
