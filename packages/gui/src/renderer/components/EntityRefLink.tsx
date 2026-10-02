@@ -15,7 +15,18 @@ import type { ReactNode } from "react";
  * 任务内记录引用(execution/<id>、review/<id>、consent/<id>、witness/<id>)也走
  * 本组件,但它们的「路」不是 entityRoutes 的全局实体页,而是所属任务详情收口
  * 页签的对应记录行——onNavigate 接该聚焦回调(如 Task 详情的 openCloseoutRecord)。
+ *
+ * 布局契约(标准 §4.1):行内收缩与截断由组件内部承担(min-w-0 + truncate),
+ * className 只叠加视觉(颜色、对齐、flex 份额),抹不掉截断;调用方不再补防溢出类。
+ * title 悬停始终给完整引用,children 收束显示不丢完整值。
  */
+
+/** 实体引用的排版基(标准 §4.1 mono + tabular):导航链接与展示叶 IdText 共用,不另立一套。 */
+export const REF_TYPOGRAPHY = "font-mono ui-micro";
+
+/** 截断/收缩布局基:组件内部所有,className 叠加不可抹除。 */
+const REF_LAYOUT = "min-w-0 max-w-full truncate";
+
 export function EntityRefLink({
   entityRef,
   onNavigate,
@@ -37,7 +48,7 @@ export function EntityRefLink({
       type="button"
       onClick={() => onNavigate(entityRef)}
       title={title ?? entityRef}
-      className={className ?? "font-mono ui-micro text-accent hover:underline"}
+      className={`${REF_LAYOUT} ${className ?? `${REF_TYPOGRAPHY} text-accent hover:underline`}`}
     >
       {children ?? entityRef}
     </button>

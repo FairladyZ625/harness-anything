@@ -203,7 +203,7 @@ export function TaskDetailView({
               entityRef={`task/${task.taskId}`}
               onNavigate={onNavigateEntity}
               title={task.taskId}
-              className="truncate font-mono ui-micro leading-3 text-text-muted hover:text-accent hover:underline"
+              className="font-mono ui-micro leading-3 text-text-muted hover:text-accent hover:underline"
             />
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">

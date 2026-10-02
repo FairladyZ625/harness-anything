@@ -13,6 +13,7 @@ import {
 } from "../../model/execution-evidence.ts";
 import { CloseoutBadge } from "../badges.tsx";
 import { CopyContextButton } from "../CopyContextButton.tsx";
+import { IdText } from "../IdText.tsx";
 import { Section } from "../primitives/Section";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
 import { TaskGateAttestCard } from "./TaskGateAttestCard.tsx";
@@ -351,7 +352,8 @@ function ExecutionOutputsGroup({
             }`}
           >
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono ui-micro">
-              <span className="font-semibold text-text">{execution.executionId}</span>
+              {/* executionId 是任务内记录的裸标识(行本体就是导航目标):展示叶截断 + 悬停完整值。 */}
+              <IdText value={execution.executionId} className="font-semibold text-text" />
               <span className="rounded border border-border px-1.5 py-0.5 text-text-muted">
                 {field(execution.state)}
               </span>
@@ -379,10 +381,11 @@ function ExecutionOutputsGroup({
                       "bg-surface-raised/35 px-2 py-1.5 font-mono ui-micro"
                     }
                   >
-                    <span className="min-w-0 truncate text-text">{field(output.evidenceId)}</span>
-                    <span className="min-w-0 truncate text-text-muted">
-                      {field(output.substrate)} · {field(output.locator)}
-                    </span>
+                    <IdText value={field(output.evidenceId)} className="text-text" />
+                    <IdText
+                      value={`${field(output.substrate)} · ${field(output.locator)}`}
+                      className="text-text-muted"
+                    />
                     <span
                       className={
                         output.isPassingReceipt
@@ -427,16 +430,24 @@ function AuditRow({
   return (
     <div
       id={recordRef === undefined ? undefined : closeoutRecordDomId(recordRef)}
-      className={`grid gap-2 py-3 sm:grid-cols-[11rem_minmax(0,1fr)_9rem] ${
+      className={`grid gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] ${
         focused ? "bg-accent/10 shadow-[inset_2px_0_0_var(--color-accent)]" : ""
       }`}
     >
-      <div>
-        <p className="font-mono ui-micro text-text-muted">{id}</p>
-        <p className="mt-0.5 font-mono ui-micro text-text-faint">{state}</p>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        {/* 记录 ID 无独立导航落点(行本体就是时间线的目标):展示叶截断 + 悬停完整值。 */}
+        <IdText value={id} className="text-text-muted" />
+        <span className="font-mono ui-micro text-text-faint">{state}</span>
       </div>
+      {/* 长正文(评审理由、路径清单)留在自身列:容器裁切,词内换行,不越列不叠字。 */}
       <p className="min-w-0 break-words ui-meta leading-5 text-text">{summary}</p>
-      <Timestamp value={at} />
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <Timestamp value={at} />
+        {/* 完整值复制放行的动作位(标准 §4.1):不在截断文字上叠按钮。 */}
+        {recordRef !== undefined ? (
+          <CopyContextButton compact label="复制" title="复制完整记录引用" buildText={() => recordRef} />
+        ) : null}
+      </div>
     </div>
   );
 }

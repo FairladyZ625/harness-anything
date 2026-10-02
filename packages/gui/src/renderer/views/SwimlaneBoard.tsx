@@ -5,6 +5,7 @@ import type { TaskRow, SnapshotStatus } from "../model/types";
 import { boardColumnOf, isExternal, isTerminal } from "../model/types";
 import { STATUS_META, freshnessBorder } from "../components/badges";
 import { ColumnResizeHandle } from "../components/ColumnResizeHandle.tsx";
+import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import {
   boardColumnPreferenceStorage,
   clearBoardColumnWidth,
@@ -186,7 +187,16 @@ const LaneCard = memo(function LaneCard({
         <TitleText title={task.title} />
       </p>
       <div className="mt-1.5 flex items-baseline justify-between gap-1.5">
-        <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{task.taskId}</span>
+        {/* B2 收口:taskId 是可寻址实体,从裸 span 迁到 EntityRefLink(截断由组件承担);
+            包一层 span 只为掐断冒泡——卡面 onClick 与链接同指一处,双触发无意义。 */}
+        <span className="min-w-0" onClick={(event) => event.stopPropagation()}>
+          <EntityRefLink
+            entityRef={`task/${task.taskId}`}
+            onNavigate={() => onSelect(task.taskId)}
+            title={task.taskId}
+            className="text-text-faint hover:text-accent"
+          />
+        </span>
         <RowTime at={task.lastKnownAt} className="shrink-0 font-mono ui-micro text-text-faint" />
       </div>
     </div>

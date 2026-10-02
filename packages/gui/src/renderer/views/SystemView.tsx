@@ -6,6 +6,7 @@ import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { formatDuration, formatTime } from "../model/time.ts";
 import { RepoModeBadge } from "../components/RepoModeBadge.tsx";
+import { IdText } from "../components/IdText.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { repoCellMeta, repoNeedsAttention } from "../model/repo-state.ts";
 
@@ -74,9 +75,11 @@ function RepoRow({
         <span className="flex flex-col gap-0.5">
           <span className="font-mono ui-meta text-text">{label}</span>
           {repo.displayName ? <span className="font-mono ui-micro text-text-faint">{repo.repoId}</span> : null}
-          <span className="block truncate font-mono ui-micro text-text-faint" title={repo.canonicalRoot ?? undefined}>
-            {repo.canonicalRoot || dash()}
-          </span>
+          {repo.canonicalRoot ? (
+            <IdText value={repo.canonicalRoot} />
+          ) : (
+            <span className="font-mono ui-micro text-text-faint">{dash()}</span>
+          )}
           {isCurrent ? (
             <span className="ui-micro font-medium uppercase tracking-wide text-text-muted">
               {t("views.settingsView.systemCurrentRepo")}
