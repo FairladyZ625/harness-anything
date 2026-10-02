@@ -17,7 +17,8 @@ import {
 } from "@harness-anything/daemon/protocol";
 import type { ScheduleBuiltinEditInput, ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import { Badge, Chip, Hint, Modal, PlannedBox, TextInput } from "./runtime/parts.tsx";
+import { Badge, Chip, Hint, Modal, PlannedBox } from "./runtime/parts.tsx";
+import { TextInput } from "./primitives/TextInput.tsx";
 
 // M5 guided form: one segment asks one thing (identity → trigger → executor →
 // purpose → mission). The daemon persists identity, interval/cron trigger, executor,

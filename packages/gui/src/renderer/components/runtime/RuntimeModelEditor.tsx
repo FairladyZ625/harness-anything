@@ -1,6 +1,7 @@
 import { t } from "../../i18n/index.tsx";
 import { runtimeCustomModels, runtimeDefaultModel, runtimeModels } from "../../runtime-instance-form.ts";
-import { Hint, TextInput } from "./parts.tsx";
+import { Hint } from "./parts.tsx";
+import { TextInput } from "../primitives/TextInput.tsx";
 import { Button } from "../primitives/Button.tsx";
 
 export function RuntimeModelEditor({

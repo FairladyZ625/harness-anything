@@ -3,7 +3,8 @@ import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../age
 import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { ActionError } from "./ActionError.tsx";
-import { Avatar, Badge, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
+import { Avatar, Badge, CfgRow, Hint, KindDot, Modal, WarnBar } from "./parts.tsx";
+import { TextInput } from "../primitives/TextInput.tsx";
 import { Button } from "../primitives/Button.tsx";
 
 type NewEntityRequestBase = {

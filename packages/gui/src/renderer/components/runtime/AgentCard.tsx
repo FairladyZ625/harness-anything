@@ -31,8 +31,8 @@ import {
   LiveDot,
   RoleTag,
   Sect,
-  TextInput,
 } from "./parts.tsx";
+import { TextInput } from "../primitives/TextInput.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 
 export type AgentDraft = {

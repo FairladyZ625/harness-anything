@@ -51,8 +51,8 @@ import {
   KV,
   KVRow,
   Right,
-  TextInput,
 } from "./parts.tsx";
+import { TextInput } from "../primitives/TextInput.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 

@@ -27,7 +27,8 @@ import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { ActionError } from "./ActionError.tsx";
-import { Badge, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
+import { Badge, CfgRow, Hint, KindDot, Modal, WarnBar } from "./parts.tsx";
+import { TextInput } from "../primitives/TextInput.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 const kindLabel = (kindId: RuntimeKindId): string => runtimeKindForId(kindId).displayName;
