@@ -5,7 +5,7 @@ description: Develop or review Harness Anything GUI pages and shared components 
 
 # Harness GUI development
 
-Start with the existing product, not a new visual system. Read the target page and adjacent consumers, then [GUI package guidance](../../packages/gui/README.md) and the actual shared component source under `packages/gui/src/renderer/components/primitives`. The runnable `packages/gui/component-catalog.html` imports production primitives and demonstrates their contract; inspect its source for real imports and supported states. Consult the project’s authored GUI design standard when the workspace supplies one. User-approved interaction changes take precedence over older examples.
+Start with the existing product, not a new visual system. Read the target page and adjacent consumers, then GUI package guidance at `packages/gui/README.md` (relative to the product repository root) and the actual shared component source under `packages/gui/src/renderer/components/primitives`. The runnable `packages/gui/component-catalog.html` imports production primitives and demonstrates their contract; inspect its source for real imports and supported states. Consult the project’s authored GUI design standard when the workspace supplies one. User-approved interaction changes take precedence over older examples.
 
 ## Choose the shared boundary
 
