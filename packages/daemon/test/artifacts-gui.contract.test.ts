@@ -178,7 +178,7 @@ test("the read joins task attribution, ledger time, and mtime fallback; non-arti
       ["artifacts/reports/dossier.pdf"],
     );
     const dossier = raw.artifacts[0]!;
-    assert.equal(dossier.mediaType, "application/octet-stream");
+    assert.equal(dossier.mediaType, "application/pdf");
     assert.equal(dossier.sizeBytes, "%PDF-1.7 body".length);
     assert.equal(dossier.taskId, "task_reported");
     assert.equal(dossier.timeSource, "ledger");
