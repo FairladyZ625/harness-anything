@@ -1,4 +1,5 @@
 export const LOCAL_DOC_READ_CHANNEL = "harness:localDoc:read";
+export const LOCAL_DOC_EXTRACT_WORD_CHANNEL = "harness:localDoc:extractWord";
 export const LOCAL_DOC_WRITE_CHANNEL = "harness:localDoc:write";
 
 /**
@@ -37,8 +38,6 @@ export interface LocalDocReadSuccess {
   readonly contentKind: "text" | "binary";
   readonly mediaType: string;
   readonly bytes: string | null;
-  /** Text-only preview for legacy .doc files; the original bytes remain available separately. */
-  readonly previewText?: string | null;
 }
 
 export interface LocalDocReadFailure {
@@ -87,6 +86,8 @@ export interface LocalDocWriteFailure {
 export type LocalDocWriteResult = LocalDocWriteSuccess | LocalDocWriteFailure;
 
 export interface LocalDocApi {
+  /** Convert already-authorized bytes; never resolves a local filesystem path. */
+  readonly extractWordText: (input: { readonly bytes: string }) => Promise<string>;
   readonly read: (input: LocalDocReadInput) => Promise<LocalDocReadResult>;
   readonly write: (input: LocalDocWriteInput) => Promise<LocalDocWriteResult>;
 }

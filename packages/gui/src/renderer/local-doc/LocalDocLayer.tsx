@@ -130,7 +130,6 @@ function LocalDocOverlay({
               path={query.data.path}
               mediaType={query.data.mediaType}
               bytes={query.data.bytes}
-              previewText={query.data.previewText}
               message="此文件已读取，但当前查看器无法渲染其内容。请使用系统查看器打开原始文件。"
             />
           ) : isMarkdownPath(path) ? (

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FileX } from "@phosphor-icons/react";
 import type { PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
+import { extractWordPreview } from "../local-doc/local-doc-client.ts";
 import { DocumentFrame } from "./DocumentFrame";
 
 const IMAGE_MEDIA = /^image\/(?:png|jpeg|gif|webp|avif|svg\+xml|bmp|x-icon)$/u;
@@ -11,13 +12,11 @@ export function BinaryDocumentPreview({
   path,
   mediaType,
   bytes,
-  previewText = null,
   message = "此格式已读取，但当前查看器不提供页式预览。",
 }: {
   readonly path: string;
   readonly mediaType: string | null;
   readonly bytes: string | null;
-  readonly previewText?: string | null;
   readonly message?: string;
 }) {
   const image = bytes !== null && IMAGE_MEDIA.test(mediaType ?? "");
@@ -29,15 +28,8 @@ export function BinaryDocumentPreview({
     );
   if (bytes !== null && mediaType === "application/pdf") return <PdfDocumentPreview path={path} bytes={bytes} />;
   if (bytes !== null && mediaType === DOCX_MEDIA) return <DocxDocumentPreview path={path} bytes={bytes} />;
-  if (mediaType === "application/msword" && previewText !== null)
-    return (
-      <DocumentFrame
-        testId="document-doc-text-preview"
-        toolbar={<div className="px-3 py-2 ui-meta">{path} · DOC 文本预览</div>}
-      >
-        <pre className="whitespace-pre-wrap break-words p-5 font-mono ui-meta leading-6 text-text">{previewText}</pre>
-      </DocumentFrame>
-    );
+  if (mediaType === "application/msword" && bytes !== null)
+    return <LegacyWordPreview key={bytes} path={path} bytes={bytes} />;
   return (
     <DocumentFrame
       testId="document-binary-preview"
@@ -157,5 +149,40 @@ function PreviewFailure({ message }: { readonly message: string }) {
     <div role="alert" className="p-6 ui-meta text-danger">
       无法渲染文件：{message}。仍可使用系统查看器打开原始文件。
     </div>
+  );
+}
+
+function LegacyWordPreview({ path, bytes }: { readonly path: string; readonly bytes: string }) {
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    void extractWordPreview(bytes).then(
+      (value) => {
+        if (active) setText(value);
+      },
+      (cause) => {
+        if (active) setError(cause instanceof Error ? cause.message : String(cause));
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [bytes]);
+  return (
+    <DocumentFrame
+      testId="document-doc-text-preview"
+      toolbar={<div className="px-3 py-2 ui-meta">{path} · DOC 文本预览</div>}
+    >
+      {error !== null ? (
+        <p role="alert" className="p-4 text-danger">
+          {error}
+        </p>
+      ) : text === null ? (
+        <p className="p-4">正在读取文档…</p>
+      ) : (
+        <pre className="whitespace-pre-wrap break-words p-5 font-mono ui-meta leading-6 text-text">{text}</pre>
+      )}
+    </DocumentFrame>
   );
 }

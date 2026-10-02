@@ -4,9 +4,14 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_WRITE_CHANNEL } from "../src/api/local-doc-contract.ts";
+import {
+  LOCAL_DOC_READ_CHANNEL,
+  LOCAL_DOC_WRITE_CHANNEL,
+  LOCAL_DOC_EXTRACT_WORD_CHANNEL,
+} from "../src/api/local-doc-contract.ts";
 import {
   classifyLocalDocFsError,
+  extractLegacyWordText,
   expandHomePath,
   LOCAL_DOC_MAX_BYTES,
   looksBinary,
@@ -43,23 +48,32 @@ test.after(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-test("only the local-doc read and write channels are registered, once each", () => {
+test("local document read, byte preview and write channels are registered once each", () => {
   const channels: string[] = [];
   registerLocalDocIpc({ handle: (channel) => channels.push(channel) }, { homeDir: () => "/home" }, trustedPolicy);
-  assert.deepEqual(channels, [LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_WRITE_CHANNEL]);
+  assert.deepEqual(channels, [LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_EXTRACT_WORD_CHANNEL, LOCAL_DOC_WRITE_CHANNEL]);
 });
 
-test("an untrusted renderer cannot reach the channel", async () => {
-  let handled: unknown = null;
+test("an untrusted renderer cannot reach any document channel", async () => {
+  const handlers: ((event: typeof trustedEvent, payload: unknown) => Promise<unknown>)[] = [];
   registerLocalDocIpc(
-    { handle: (_channel, listener) => (handled = listener) },
+    {
+      handle: (_channel, listener) => {
+        handlers.push(listener);
+      },
+    },
     { homeDir: () => "/home" },
     { isTrustedWebContentsId: () => false },
   );
-  await assert.rejects(
-    () => (handled as (event: unknown, payload: unknown) => Promise<unknown>)(trustedEvent, { path: "/etc/hosts" }),
-    /Rejected IPC message/u,
-  );
+  for (const handler of handlers)
+    await assert.rejects(() => handler(trustedEvent, { path: "/etc/hosts" }), /Rejected IPC message/u);
+});
+
+test("Word preview accepts bytes only, never a local path, and surfaces parse failures", async () => {
+  await assert.rejects(() => extractLegacyWordText({ path: "/etc/hosts" }), /base64 bytes/u);
+  await assert.rejects(() => extractLegacyWordText({ bytes: "abc" }), /base64 bytes/u);
+  await assert.rejects(() => extractLegacyWordText({ bytes: "YQ==", path: "/etc/hosts" }), /base64 bytes/u);
+  await assert.rejects(() => extractLegacyWordText({ bytes: "YQ==" }));
 });
 
 test("request shape is closed to {path} with a usable path string", () => {

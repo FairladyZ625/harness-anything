@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import {
   LOCAL_DOC_READ_CHANNEL,
+  LOCAL_DOC_EXTRACT_WORD_CHANNEL,
   LOCAL_DOC_WRITE_CHANNEL,
   type LocalDocReadInput,
   type LocalDocReadResult,
@@ -64,6 +65,10 @@ export function registerLocalDocIpc(
     assertTrustedIpcSender(event, trustPolicy);
     const input = validateLocalDocReadInput(payload);
     return readLocalDocument(input.path, services);
+  });
+  registrar.handle(LOCAL_DOC_EXTRACT_WORD_CHANNEL, async (event, payload) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    return extractLegacyWordText(payload);
   });
   registrar.handle(LOCAL_DOC_WRITE_CHANNEL, async (event, payload) => {
     assertTrustedIpcSender(event, trustPolicy);
@@ -203,7 +208,6 @@ export async function readLocalDocument(
       message: "Local document does not decode as text.",
     };
   const binary = mediaType !== null;
-  const previewText = mediaType === "application/msword" ? await extractLegacyWordText(bytes) : null;
   return {
     ok: true,
     path: realPath,
@@ -212,28 +216,32 @@ export async function readLocalDocument(
     contentKind: binary ? "binary" : "text",
     mediaType: mediaType ?? "text/plain",
     bytes: binary ? bytes.toString("base64") : null,
-    ...(previewText === null ? {} : { previewText }),
   };
 }
 
-async function extractLegacyWordText(bytes: Buffer): Promise<string | null> {
+/** Shared parser for local and remote document bytes; errors reach the preview error state. */
+export async function extractLegacyWordText(payload: unknown): Promise<string> {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload))
+    throw new Error("Word preview requires a bytes payload.");
+  const record = payload as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== 1 ||
+    typeof record.bytes !== "string" ||
+    record.bytes.length === 0 ||
+    record.bytes.length > Math.ceil((16 * 1024 * 1024) / 3) * 4 ||
+    record.bytes.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/u.test(record.bytes)
+  )
+    throw new Error("Word preview requires base64 bytes within the 16 MiB preview limit.");
   const WordExtractor = createRequire(import.meta.url)("word-extractor") as new () => {
     extract: (
       source: Buffer,
-    ) => Promise<{ getBody: () => string; getFootnotes?: () => string; getHeaders?: () => string }>;
+    ) => Promise<{ getBody: () => string; getFootnotes: () => string; getHeaders: () => string }>;
   };
-  return new WordExtractor()
-    .extract(bytes)
-    .then((document) => {
-      const sections = [document.getBody(), document.getHeaders?.(), document.getFootnotes?.()].filter(
-        (value): value is string => typeof value === "string" && value.trim().length > 0,
-      );
-      return sections.length === 0 ? null : sections.join("\n\n");
-    })
-    .catch((cause) => {
-      console.error("Legacy Word text extraction failed:", cause);
-      return null;
-    });
+  const document = await new WordExtractor().extract(Buffer.from(record.bytes, "base64"));
+  return [document.getBody(), document.getHeaders(), document.getFootnotes()]
+    .filter((value) => value.trim().length > 0)
+    .join("\n\n");
 }
 
 function mediaTypeForPath(filePath: string): string | null {
