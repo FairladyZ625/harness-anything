@@ -103,7 +103,7 @@ export default {
       }, PANEL_SCROLL_TESTID);
     await page.waitForFunction(
       ({ rowId, panelId }) => {
-        const row = document.querySelector(`[data-testid="${rowId}"]`);
+        const row = globalThis.document.querySelector(`[data-testid="${rowId}"]`);
         const panel = row?.closest(`[data-testid="${panelId}"]`) ?? row?.parentElement;
         if (!row || !panel) return false;
         const box = row.getBoundingClientRect(),
