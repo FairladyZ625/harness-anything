@@ -30,8 +30,10 @@ function decision(kind: string): AuthorizationDecision {
     evaluatedAtCut: cut,
   };
 }
-test("existing durable inventory size fence", () => {
-  assert.equal(durablePolicyActions.length, 138);
+test("retired People mutations are absent from the durable authorization inventory", () => {
+  assert.equal(durablePolicyActions.length, 136);
+  assert.equal(durablePolicyActions.includes("people-add"), false);
+  assert.equal(durablePolicyActions.includes("people-remove"), false);
 });
 test("every durable action requires a matching authority decision", () => {
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);
