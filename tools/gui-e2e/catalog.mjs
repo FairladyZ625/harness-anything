@@ -22,6 +22,7 @@ import daemonStartupWait from "./scenarios/daemon-startup-wait.mjs";
 import cadenceView from "./scenarios/cadence-view.mjs";
 import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
 import panelWorkspace from "./scenarios/panel-workspace.mjs";
+import panelWorkbenchCatalog from "./scenarios/panel-workbench-catalog.mjs";
 
 export const catalog = [
   shellNavigation,
@@ -48,6 +49,7 @@ export const catalog = [
   taskTimelineRecordNavigation,
   taskCloseoutLongValues,
   panelWorkspace,
+  panelWorkbenchCatalog,
 ];
 
 export function selectScenarios({ lane, ids }) {

@@ -35,7 +35,8 @@ const TIME_SOURCE_LABEL: Record<ArtifactGuiRowDto["timeSource"], MessageKey> = {
   mtime: "artifacts.timeSource.mtime",
 };
 
-const READ_ERROR_ROW_CLASS = [
+/** 读失败行(页面与工作台产物面板共用):等宽微字 + 红底细行。 */
+export const ARTIFACTS_READ_ERROR_ROW_CLASS = [
   "shrink-0 border-b border-border bg-status-blocked/10",
   "px-3.5 py-1.5 font-mono ui-micro text-status-blocked",
 ].join(" ");
@@ -76,7 +77,7 @@ export function ArtifactsView({
         }
       />
       {query.isError && (
-        <p role="alert" data-testid="artifacts-read-error" className={READ_ERROR_ROW_CLASS}>
+        <p role="alert" data-testid="artifacts-read-error" className={ARTIFACTS_READ_ERROR_ROW_CLASS}>
           {t("artifacts.readFailed", {
             error: query.error instanceof Error ? query.error.message : String(query.error),
           })}

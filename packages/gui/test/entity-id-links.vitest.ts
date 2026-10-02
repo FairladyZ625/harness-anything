@@ -686,6 +686,16 @@ const VIEW_RENDERERS = {
       recentRefs: [`decision/${DECISION_ID}`],
       entries: [],
       onOpenPalette: noop,
+      // 总览面板的数据与回调:与 overview 渲染器同一套 fixture(App 常驻读面同构)。
+      agenda: FIXTURE_AGENDA,
+      works: FIXTURE_WORK_INDEX,
+      titles: FIXTURE_TASK_TITLES,
+      workspaceSummary: FIXTURE_WORKSPACE_SUMMARY,
+      workspaceSummaryError: null,
+      health: SYSTEM_HEALTH,
+      onOpenTask: noop,
+      onOpenSessions: noop,
+      onUnpinTask: noop,
     }),
   decisionPool: () =>
     createElement(AttestationPoolView, {
