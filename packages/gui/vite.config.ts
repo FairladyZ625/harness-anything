@@ -45,6 +45,8 @@ export default defineConfig({
     },
   },
   build: {
+    // Production CSP permits self-hosted fonts; keep small math fonts out of data URLs.
+    assetsInlineLimit: (filePath) => (/\.(?:woff2?|ttf|otf)$/iu.test(filePath) ? false : undefined),
     rollupOptions: {
       input: "index.html",
       // Rollup keeps an import it cannot resolve as an external bare specifier and only warns; the
