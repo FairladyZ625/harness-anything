@@ -182,12 +182,13 @@ function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {
   if (route.commandClass === "repo-write") return 20_000;
   if (
     route.guiBridgeMethod === "createRuntimeInstance" ||
+    route.guiBridgeMethod === "updateRuntimeInstance" ||
+    route.guiBridgeMethod === "deleteRuntimeInstance" ||
     route.guiBridgeMethod === "listRuntimeInstances" ||
     (route.guiBridgeMethod === "showRuntimeInstance" && payload.probe === true)
   )
     return 20_000;
-  if (["showRuntimeInstance", "updateRuntimeInstance", "deleteRuntimeInstance"].includes(route.guiBridgeMethod))
-    return 2_000;
+  if (route.guiBridgeMethod === "showRuntimeInstance") return 2_000;
   if (["signInRuntimeInstance", "signOutRuntimeInstance"].includes(route.guiBridgeMethod)) return 1_000;
   // Reads share the daemon with the single-writer queue; sustained ledger writes hold the
   // workspace for seconds at a time, so any deadline that undercuts a normal write window
