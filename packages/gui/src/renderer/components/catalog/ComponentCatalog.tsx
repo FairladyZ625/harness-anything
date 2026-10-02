@@ -11,7 +11,10 @@ import { SegCtl } from "../primitives/SegCtl.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { Tabs } from "../primitives/Tabs.tsx";
 import { TabPanel } from "../primitives/EntryBoundary.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { IdText } from "../IdText.tsx";
 import "../../styles.css";
 
 /** Development-only Vite entry: real components, synthetic data, no daemon writes. */
@@ -102,6 +105,35 @@ function ComponentCatalog() {
               ),
             )}
           </div>
+        </section>
+        <section className="grid min-w-0 gap-3">
+          <h2 className="font-semibold ui-title">按钮 / Button</h2>
+          <p className="text-text-muted ui-meta">
+            全仓唯一按钮实现:plain / primary / danger / ghost 四档,sm / md 两档;禁用态透明度降低且不可点。
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button>次档 plain</Button>
+            <Button variant="primary">主档 primary</Button>
+            <Button variant="danger">危险 danger</Button>
+            <Button variant="ghost">幽灵 ghost</Button>
+            <Button size="sm">小档 sm</Button>
+            <Button disabled tip="禁用时提示仍可达">
+              禁用
+            </Button>
+          </div>
+        </section>
+        <section className="grid min-w-0 gap-3">
+          <h2 className="font-semibold ui-title">长值与空态 / IdText · Empty</h2>
+          <p className="text-text-muted ui-meta">
+            无导航落点的长值由 IdText 统一截断与悬停完整值;窄容器下不撑列。Empty 只承载「该有而无」。
+          </p>
+          <div className="min-w-0">
+            <IdText
+              value="sha256:9f2c1e77a4b0d83c5e6a1f29b8d4c7e0a3b6d9f2c5e8a1b4d7f0e3c6a9b2d5e8"
+              title="构建产物摘要"
+            />
+          </div>
+          <Empty>该工作还没有任何执行记录</Empty>
         </section>
         <section className="grid min-w-0 gap-3">
           <h2 className="font-semibold ui-title">列表与区域 / DenseRow · Region · Tabs</h2>

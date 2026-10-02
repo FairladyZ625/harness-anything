@@ -9,7 +9,7 @@ import { DenseRow } from "../components/primitives/DenseRow.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
-import { Empty } from "../components/runtime/parts.tsx";
+import { Empty } from "../components/primitives/Empty.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatListTime, formatTime } from "../model/time.ts";
 import { useTaskDocumentQuery } from "../task-data.ts";

@@ -19,7 +19,8 @@ import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../components/r
 import { ActionError } from "../components/runtime/ActionError.tsx";
 import { DegradedEntityCard, type SettingsRoleRef } from "../components/runtime/DegradedEntityCard.tsx";
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
-import { Empty, Hint } from "../components/runtime/parts.tsx";
+import { Hint } from "../components/runtime/parts.tsx";
+import { Empty } from "../components/primitives/Empty.tsx";
 import { IdentityRail, RoleLabel } from "../components/runtime/RuntimeRail.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";

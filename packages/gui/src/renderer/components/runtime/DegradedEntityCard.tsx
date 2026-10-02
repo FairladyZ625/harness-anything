@@ -3,7 +3,8 @@ import type { AgentEntityRow, SquadEntityAvailableRow } from "../../agent-entity
 import { t } from "../../i18n/index.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { Button } from "../primitives/Button.tsx";
-import { Card, Chip, Crumbs, CrumbSep, Empty, Sect } from "./parts.tsx";
+import { Card, Chip, Crumbs, CrumbSep, Sect } from "./parts.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 
 export type DegradedEntityRow = Extract<AgentEntityRow, { readonly state: "invalid" | "missing" }>;
 /** 设置里引用该实体 id 的角色键(如 roles.defaultReviewer)。 */

@@ -16,7 +16,8 @@ import {
   type RankScale,
 } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { Badge, Empty } from "../runtime/parts.tsx";
+import { Badge } from "../runtime/parts.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 
 /**
  * 「谁花的」排行(单 Worker / 小队 / 模型):每行名称完整一行,数值与占比并排在右,下面一根

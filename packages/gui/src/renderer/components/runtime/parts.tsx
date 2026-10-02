@@ -331,10 +331,6 @@ export function AddChip({ onClick, children }: { readonly onClick: () => void; r
 export function ChipZone({ children }: { readonly children: ReactNode }) {
   return <div className="flex flex-wrap items-center gap-1.5">{children}</div>;
 }
-export function Empty({ children }: { readonly children: ReactNode }) {
-  return <p className="py-1 ui-micro text-text-faint">{children}</p>;
-}
-
 export function CfgRow({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (
     <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
@@ -414,7 +410,7 @@ export function Modal({
       aria-modal="true"
       aria-label={title}
       data-testid={testId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6"
+      className="glass-scrim fixed inset-0 z-50 flex items-center justify-center p-6"
     >
       <div
         className={`flex max-h-[calc(100dvh-80px)] w-full flex-col overflow-hidden rounded-lg border border-border-strong bg-surface-raised shadow-2xl ${wide ? "max-w-[760px]" : "max-w-[640px]"}`}

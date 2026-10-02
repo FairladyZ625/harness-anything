@@ -9,7 +9,7 @@ import { harnessClient } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { workspaceTitleIndex } from "../model/workspace-readable.ts";
 import { useTasksQuery } from "../task-data.ts";
-import { Empty } from "../components/runtime/parts.tsx";
+import { Empty } from "../components/primitives/Empty.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Button } from "../components/primitives/Button.tsx";

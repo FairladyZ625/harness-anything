@@ -15,12 +15,12 @@ import {
   Chip,
   Crumbs,
   CrumbSep,
-  Empty,
   Hint,
   Right,
   Sect,
   WarnBar,
 } from "./parts.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 import { Button } from "../primitives/Button.tsx";
 
 export type SquadDraft = {

@@ -44,7 +44,6 @@ import {
   CfgRow,
   Crumbs,
   CrumbSep,
-  Empty,
   Field,
   FieldGrid,
   Hint,
@@ -54,6 +53,7 @@ import {
   Right,
   TextInput,
 } from "./parts.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 type Props = {

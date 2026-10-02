@@ -26,7 +26,6 @@ import {
   ChipZone,
   Crumbs,
   CrumbSep,
-  Empty,
   Hint,
   KindDot,
   LiveDot,
@@ -34,6 +33,7 @@ import {
   Sect,
   TextInput,
 } from "./parts.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 
 export type AgentDraft = {
   readonly name: string;

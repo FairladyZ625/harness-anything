@@ -16,7 +16,7 @@ import {
 } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
-import { Empty } from "../runtime/parts.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 
 /**
  * Token 消耗页的三块分析:花在什么事上(任务 / 工作)、单个会话的情况(统计、规模分布、

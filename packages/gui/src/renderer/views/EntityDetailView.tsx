@@ -5,6 +5,7 @@ import type { RelationCoverageRow, FactAnchorRow } from "../../api/renderer-dto"
 import { FactInspector } from "../components/FactInspector";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
+import { IdText } from "../components/IdText.tsx";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -170,7 +171,7 @@ function NeighborhoodPane({
                 {latestChange.label}
               </EntityRefLink>
             ) : (
-              latestChange.label
+              <IdText value={latestChange.ref} title={latestChange.label} />
             )}
           </span>
         ) : null}

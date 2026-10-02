@@ -1,4 +1,5 @@
-import { Badge, Chip, Empty, Hint, KV, KVRow } from "../runtime/parts.tsx";
+import { Badge, Chip, Hint, KV, KVRow } from "../runtime/parts.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
 import { DocReader } from "../DocReader.tsx";
 import { t } from "../../i18n/index.tsx";

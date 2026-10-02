@@ -18,13 +18,13 @@ import {
   CardTitle,
   Crumbs,
   CrumbSep,
-  Empty,
   Hint,
   KV,
   KVRow,
   LiveDot,
   Right,
 } from "./parts.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 import { Button } from "../primitives/Button.tsx";
 
 // Liveness vocabulary maps, not point comparisons: the daemon's liveness word decides the

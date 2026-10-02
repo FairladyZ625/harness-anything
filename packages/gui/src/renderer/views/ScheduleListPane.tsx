@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Play, Plus } from "@phosphor-icons/react";
 import type { ScheduleGuiListRowDto, ScheduleGuiRowDto, SchedulesListResult } from "@harness-anything/daemon/protocol";
-import { Empty } from "../components/runtime/parts.tsx";
+import { Empty } from "../components/primitives/Empty.tsx";
 import { CompletedDivider } from "../components/primitives/CompletedDivider.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { CardReason, SummaryCard, SummaryCardGroup } from "../components/primitives/SummaryCard.tsx";

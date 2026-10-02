@@ -8,7 +8,8 @@ import {
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
-import { Empty, KV, KVRow, LiveDot } from "../runtime/parts.tsx";
+import { KV, KVRow, LiveDot } from "../runtime/parts.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 
 /**
  * 会话页右栏:同一个选中会话从侧面的视角——归属事实 + 同组兄弟会话(设计稿 §7.1)。
