@@ -1,3 +1,4 @@
+import { Notice } from "../components/primitives/Notice.tsx";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { CornersIn, CornersOut } from "@phosphor-icons/react";
 import {
@@ -321,25 +322,31 @@ export function FloatingPanelGrid({
   return (
     <PanelRegistryContext.Provider value={registry}>
       <PanelActionsContext.Provider value={actions}>
-        <div ref={containerRef} className="floating-panel-grid h-full min-h-0 w-full" data-testid="floating-panel-grid">
-          <DockviewReact
-            components={components}
-            defaultTabComponent={defaultTab}
-            onReady={ready}
-            theme={isLight ? themeLight : themeAbyss}
-            className="h-full w-full"
-            disableDnd
-            disableTabsOverflowList
-            hideBorders
-            singleTabMode="fullwidth"
-            noPanelsOverlay="emptyGroup"
-          />
+        <section className="flex h-full min-h-0 flex-col">
           {persistUnavailable ? (
-            <p className="floating-panel-persist-status" role="status" data-testid="floating-panel-persist-status">
+            <Notice tone="bad" variant="strip" testId="floating-panel-persist-status">
               {t("views.panelWorkbench.persistUnavailable")}
-            </p>
+            </Notice>
           ) : null}
-        </div>
+          <div
+            ref={containerRef}
+            className="floating-panel-grid min-h-0 w-full flex-1"
+            data-testid="floating-panel-grid"
+          >
+            <DockviewReact
+              components={components}
+              defaultTabComponent={defaultTab}
+              onReady={ready}
+              theme={isLight ? themeLight : themeAbyss}
+              className="h-full w-full"
+              disableDnd
+              disableTabsOverflowList
+              hideBorders
+              singleTabMode="fullwidth"
+              noPanelsOverlay="emptyGroup"
+            />
+          </div>
+        </section>
       </PanelActionsContext.Provider>
     </PanelRegistryContext.Provider>
   );

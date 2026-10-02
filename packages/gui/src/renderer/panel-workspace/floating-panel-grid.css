@@ -135,24 +135,3 @@
 .floating-panel-grid .dv-resize-handle-right {
   width: 7px;
 }
-
-/* 存储不可用状态条:布局写不进本机时钉在画板底部,不占画布高度、不挡面板交互。 */
-.floating-panel-persist-status {
-  position: absolute;
-  left: 50%;
-  bottom: 10px;
-  z-index: 40;
-  max-width: min(560px, calc(100% - 32px));
-  transform: translateX(-50%);
-  margin: 0;
-  padding: 6px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background-color: var(--color-surface-raised);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--color-text-muted);
-  pointer-events: none;
-}

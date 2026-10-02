@@ -165,6 +165,14 @@ export default {
     try {
       await dragBy(page, container.locator(".dv-floating-titlebar"), 16, 0);
       await page.getByTestId("floating-panel-persist-status").waitFor();
+      assert.equal(
+        await page.getByTestId("floating-panel-persist-status").evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return element.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+        }),
+        true,
+        "save error must not be covered by floating panels",
+      );
       await shot("panel-workspace-save-error");
     } finally {
       await page.evaluate(() => {
