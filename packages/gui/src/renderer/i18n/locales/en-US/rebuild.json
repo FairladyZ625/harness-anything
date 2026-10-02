@@ -166,5 +166,6 @@
   "accessControl.error.daemonUnavailable": "The local daemon cannot be reached.",
   "accessControl.effective.allowedCount": "{count} actions allowed",
   "accessControl.effective.emptyTitle": "Effective permissions",
-  "accessControl.effective.emptyHint": "Choose a person and a scope and press Show effective permissions, or pick a grant on the right: this lists what that person can do on the scope, which group each action comes from, and what is denied."
+  "accessControl.effective.emptyHint": "Choose a person and a scope and press Show effective permissions, or pick a grant on the right: this lists what that person can do on the scope, which group each action comes from, and what is denied.",
+  "shell.nav.workbench": "Panel Workbench"
 }

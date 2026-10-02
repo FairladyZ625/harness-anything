@@ -2,6 +2,7 @@ import {
   Kanban,
   SquaresFour,
   Graph,
+  Cards,
   Stack,
   PlugsConnected,
   GearSix,
@@ -50,6 +51,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   decisionDetail: "shell.nav.decisionDetail",
   factDetail: "shell.nav.factDetail",
   graph: "shell.nav.graph",
+  workbench: "shell.nav.workbench",
   presets: "shell.nav.presets",
   entities: "shell.nav.entities",
   adapters: "shell.nav.adapters",
@@ -85,6 +87,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { id: "agenda", icon: <ListChecks weight="duotone" /> },
       { id: "board", icon: <Kanban weight="duotone" /> },
       { id: "graph", icon: <Graph weight="duotone" /> },
+      { id: "workbench", icon: <Cards weight="duotone" /> },
     ],
   },
   {
