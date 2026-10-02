@@ -8,6 +8,7 @@ import { formatTime } from "../model/time.ts";
 import { PresetDetailView } from "./PresetDetailView.tsx";
 import { t } from "../i18n/index.tsx";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { IdText } from "../components/IdText.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag, TONE_COLOR, type StatusTone } from "../components/primitives/StatusTag.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
@@ -136,7 +137,7 @@ export function PresetsView({
                     <span className="truncate">
                       <TitleText title={preset.title} />
                     </span>
-                    <span className="shrink-0 font-mono ui-micro text-text-faint">{preset.id}</span>
+                    <IdText value={preset.id} />
                     <span className="shrink-0 rounded-xs border border-border px-1.5 py-px font-mono ui-micro text-text-muted">
                       {preset.sourceKind}
                     </span>
@@ -173,7 +174,7 @@ export function PresetsView({
               title={
                 <span className="flex min-w-0 items-baseline gap-2">
                   <span className="truncate">{vertical.title}</span>
-                  <span className="shrink-0 font-mono ui-micro text-text-faint">{vertical.id}</span>
+                  <IdText value={vertical.id} />
                 </span>
               }
               reason={`${t("views.presetsView.source")} ${vertical.source}${

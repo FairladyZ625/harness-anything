@@ -636,7 +636,7 @@ describe("sessions page: single-session groups", () => {
   it("links the task detail and every related decision from the group footer", () => {
     const markup = groupList();
     expect(markup).toContain('data-testid="session-group-toggle-task_1994d52c"');
-    expect(markup).toContain('title="Open this task"');
+    expect(markup).toContain('title="Open this task · task/task_1994d52c"');
     expect(markup).toContain("Decision dec_57A9D27B…");
     expect(markup).toContain("Decision dec_11111111…");
     expect(sessionDecisionRefs(relations, "task_1994d52c")).toHaveLength(2);

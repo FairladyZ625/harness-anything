@@ -123,7 +123,7 @@ export function FactInspector({
             entityRef={fullRef}
             onNavigate={onFocusGraph}
             title={fullRef}
-            className="min-w-0 truncate font-mono text-xs text-text-muted hover:text-accent hover:underline"
+            className="font-mono text-xs text-text-muted hover:text-accent hover:underline"
           />
         ) : (
           <span className="min-w-0 truncate font-mono text-xs text-text-muted">{anchor}</span>

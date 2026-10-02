@@ -115,9 +115,10 @@ describe("sessions page: squad run detail", () => {
     expect(markup).toContain("after worker session");
     expect(markup).toContain("decision pending");
     expect(markup).toMatch(/data-testid="squad-run-turn-leader-2"/u);
-    // 当前 leader 轮高亮;轮次行直达 session/<id>(EntityRefLink 是 button 出口)。
+    // 当前 leader 轮高亮;轮次行直达 session/<id>(EntityRefLink 是 button 出口),
+    // 自定义短名 title 与完整 session 引用同时在场(§4.1 完整值始终可达)。
     expect(markup).toMatch(/border-accent\/40/u);
-    expect(markup).toContain('title="runtime-leader-2"');
+    expect(markup).toContain('title="runtime-leader-2 · session/runtime-leader-2"');
     expect(markup).toContain("runtime-leader-2");
     expect(markup).toContain("Ship the ontology work");
     // 扇出树:worker-1 挂在 leader-1 节内,且出现在 leader-2 之前(父子序,不是平铺)。
@@ -127,8 +128,8 @@ describe("sessions page: squad run detail", () => {
     expect(inLeader1).toBeGreaterThan(-1);
     expect(attemptAt).toBeGreaterThan(inLeader1);
     expect(attemptAt).toBeLessThan(leader2At);
-    // worker attempt 直达 session 详情。
-    expect(markup).toContain('title="runtime-worker-1"');
+    // worker attempt 直达 session 详情(短名 title 前缀 + 完整引用同场)。
+    expect(markup).toContain('title="runtime-worker-1 · session/runtime-worker-1"');
   });
 
   it("shows each leader turn's receipt verbatim in a collapsible block", () => {
