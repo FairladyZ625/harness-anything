@@ -25,6 +25,7 @@ export type ViewId =
   | "work"
   | "agenda"
   | "workspace"
+  | "workbench"
   | "board"
   | "decisionPool"
   | "freshness"

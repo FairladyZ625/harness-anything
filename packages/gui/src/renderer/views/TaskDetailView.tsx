@@ -450,7 +450,12 @@ export function TaskDetailView({
                 onAttest={onAttest}
               />
             ) : (
-              <TaskFilesTab task={task} activeDoc={activeDoc} onOpenDoc={openDocument} />
+              <TaskFilesTab
+                task={task}
+                activeDoc={activeDoc}
+                onOpenDoc={openDocument}
+                onNavigateEntity={onNavigateEntity}
+              />
             )}
           </TabPanel>
         </div>
