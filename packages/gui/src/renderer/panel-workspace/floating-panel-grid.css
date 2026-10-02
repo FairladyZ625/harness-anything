@@ -8,6 +8,12 @@
 
 .floating-panel-grid {
   position: relative;
+  /* 画板是自成一体的层叠世界:dockview 给每个浮窗写内联 z-index(999 起随抬升递增,
+   * 实测 1003+),会盖过 body 层的页头气泡(Popover fixed z-50)与 tooltip(z-300)。
+   * isolation 把整棵画板子树圈进一个 stacking context:内部浮窗的相对次序照旧,
+   * 对外整体让位于应用层气泡/模态。面板内渲染的模态(总览聚焦层/答问层)因此也
+   * 不能盖住兄弟浮窗——记录为任务残余风险。 */
+  isolation: isolate;
   /* 画板底纹:比页面 bg 更深一档的点阵,标识「这是自由画板」而不是普通页面流。 */
   background-image: radial-gradient(color-mix(in oklab, var(--color-border) 70%, transparent) 1px, transparent 1px);
   background-size: 22px 22px;
@@ -47,7 +53,7 @@
   opacity: 0.75;
 }
 
-/* 面板标签头(每面板一行):标题 + 放大/还原。压缩 dockview 默认标签高度,
+/* 面板标签头(每面板一行):标题 + 放大/还原 + 关闭。压缩 dockview 默认标签高度,
  * 把整块空间留给功能内容。 */
 .floating-panel-grid .dv-tabs-and-actions-container {
   --dv-tabs-and-actions-container-height: 30px;
@@ -76,7 +82,8 @@
   color: var(--color-text-muted);
 }
 
-.floating-panel-tab-maximize {
+.floating-panel-tab-maximize,
+.floating-panel-tab-close {
   display: grid;
   place-items: center;
   width: 22px;
@@ -88,13 +95,15 @@
   background: transparent;
 }
 
-.floating-panel-tab-maximize:hover {
+.floating-panel-tab-maximize:hover,
+.floating-panel-tab-close:hover {
   border-color: var(--color-border);
   background-color: var(--color-surface-raised);
   color: var(--color-text);
 }
 
-.floating-panel-tab-maximize:focus-visible {
+.floating-panel-tab-maximize:focus-visible,
+.floating-panel-tab-close:focus-visible {
   outline: 2px solid var(--color-status-active);
   outline-offset: 1px;
 }

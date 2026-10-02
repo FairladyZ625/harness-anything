@@ -1,6 +1,6 @@
 import { Notice } from "../components/primitives/Notice.tsx";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { CornersIn, CornersOut } from "@phosphor-icons/react";
+import { CornersIn, CornersOut, X } from "@phosphor-icons/react";
 import {
   DockviewReact,
   themeAbyss,
@@ -19,6 +19,7 @@ import {
   readPanelWorkspaceLayout,
   writePanelWorkspaceLayout,
   type PanelGeometry,
+  type PanelWorkspaceLayout,
   type PanelWorkspaceStorage,
 } from "./panel-workspace-layout.ts";
 
@@ -33,8 +34,12 @@ import {
  *   与面板内容里的图节点拖拽、文字选择、滚动互不重叠;disableDnd 一并关掉重停靠。
  * - 几何读浮窗元素的 offset 位(与 addFloatingGroup 的 x/y 同一坐标原点,见
  *   geometryOf 的注释);写回用 addFloatingGroup,面板内容不重建。
- * - 每面板一个标签头(标题 + 放大/还原);放大经「以全画布几何重挂浮动窗口」实现,
- *   还原回暂存几何。
+ * - 每面板一个标签头(标题 + 放大/还原 + 关闭);放大经「以全画布几何重挂浮动窗口」实现,
+ *   还原回暂存几何;关闭只是把面板从画板摘下(onClosePanel 交上层改选择,移除不销毁
+ *   面板类型本身,随时可从目录加回)。
+ * - 面板清单是上层的选择态(task_48fe291624e06a2e9ad9496c81):清单变化时这里做对称
+ *   同步——摘下不再选择的浮窗、按存量几何/预设几何挂上新选择的浮窗,既有浮窗的原位
+ *   不动(不因增删别的面板重排)。
  * - 布局持久化是「面板身份 → 画布几何」的自有模型(见 panel-workspace-layout.ts),
  *   按工作区(连接目标 + 仓)分槽;拖动/缩放结束即落盘,重置布局清槽并回预设。
  *   存储写失败(quota 满/隐私模式)在这里变成画板上的可见状态,不以成功伪装。
@@ -56,6 +61,8 @@ export interface FloatingPanelGridProps {
   readonly panels: readonly FloatingPanelDescriptor[];
   /** 预设几何:按实测画布尺寸给出(重置布局与首挂载缺省几何时用)。 */
   readonly presetGeometry: (canvas: FloatingPanelCanvas) => Readonly<Record<string, PanelGeometry>>;
+  /** 面板标签头的「关闭」:把面板交回上层做选择变更;缺省不渲染关闭钮。 */
+  readonly onClosePanel?: (panelId: string) => void;
   /** 测试注入的存储;缺省 renderer localStorage。 */
   readonly storage?: PanelWorkspaceStorage | null;
   /** 递增即重置:清掉持久化布局并按预设几何重排(面板内容不重建)。 */
@@ -65,10 +72,11 @@ export interface FloatingPanelGridProps {
 interface FloatingPanelActions {
   readonly maximizedId: string | null;
   readonly toggleMaximize: (panelId: string) => void;
+  readonly close: ((panelId: string) => void) | null;
 }
 
 const emptyRegistry: ReadonlyMap<string, FloatingPanelDescriptor> = new Map();
-const noopActions: FloatingPanelActions = { maximizedId: null, toggleMaximize: () => {} };
+const noopActions: FloatingPanelActions = { maximizedId: null, toggleMaximize: () => {}, close: null };
 
 const PanelRegistryContext = createContext<ReadonlyMap<string, FloatingPanelDescriptor>>(emptyRegistry);
 const PanelActionsContext = createContext<FloatingPanelActions>(noopActions);
@@ -126,6 +134,22 @@ function FloatingPanelTab(props: IDockviewPanelHeaderProps<FloatingPanelParams>)
       >
         {maximized ? <CornersIn weight="bold" className="ui-meta" /> : <CornersOut weight="bold" className="ui-meta" />}
       </button>
+      {actions.close !== null ? (
+        <button
+          type="button"
+          className="floating-panel-tab-close"
+          data-testid="floating-panel-close"
+          data-panel-id={panelId}
+          title={t("views.panelWorkbench.closePanel")}
+          aria-label={t("views.panelWorkbench.closePanel")}
+          onClick={(event) => {
+            event.stopPropagation();
+            actions.close?.(panelId);
+          }}
+        >
+          <X weight="bold" className="ui-meta" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -134,6 +158,7 @@ export function FloatingPanelGrid({
   workspaceId,
   panels,
   presetGeometry,
+  onClosePanel,
   storage = panelWorkspacePreferenceStorage(),
   resetNonce,
 }: FloatingPanelGridProps) {
@@ -149,6 +174,8 @@ export function FloatingPanelGrid({
   const presetGeometryRef = useRef(presetGeometry);
   const panelsRef = useRef(panels);
   const maximizedIdRef = useRef<string | null>(null);
+  /** 当前挂在画板上的面板身份集;与上层选择清单的差集驱动增删。 */
+  const mountedIdsRef = useRef<ReadonlySet<string>>(new Set());
   /** 放大前面板的几何,按面板身份暂存;持久化时放大中的面板写这份几何。 */
   const restoreGeometriesRef = useRef(new Map<string, PanelGeometry>());
   workspaceRef.current = workspaceId;
@@ -222,20 +249,30 @@ export function FloatingPanelGrid({
     storageAttempt(() => writePanelWorkspaceLayout(storageRef.current, workspaceRef.current, layout));
   }, [geometryOf, storageAttempt]);
 
-  /** 按当前面板清单(重挂浮动窗口,内容不重建)排布:restore 用存量偏好,reset 用预设。 */
-  const arrange = useCallback(
-    (mode: "restore" | "reset") => {
+  /**
+   * 把画板面板集合同步到上层的选择清单(内容不重建):
+   * - 摘下不再选择的浮窗(含它的放大/暂存几何善后);
+   * - "reposition"(首挂载恢复/重置)时把全部选择面板挂到给定几何;
+   *   "mount"(选择清单变化)时只挂新选择的面板,既有浮窗原位不动——不因增删
+   *   别的面板重排用户排好的窗口。
+   */
+  const syncPanels = useCallback(
+    (mode: "mount" | "reposition", layout: PanelWorkspaceLayout, preset: Readonly<Record<string, PanelGeometry>>) => {
       const api = apiRef.current;
       if (!api) return;
-      const layout = mode === "reset" ? {} : readPanelWorkspaceLayout(storageRef.current, workspaceRef.current);
-      if (mode === "reset") {
-        storageAttempt(() => clearPanelWorkspaceLayout(storageRef.current, workspaceRef.current));
-        restoreGeometriesRef.current.clear();
-        maximizedIdRef.current = null;
-        setMaximizedId(null);
+      const selected = new Set(panelsRef.current.map((panel) => panel.id));
+      for (const id of mountedIdsRef.current) {
+        if (selected.has(id)) continue;
+        const panel = api.getPanel(id);
+        if (panel) api.removePanel(panel);
+        if (maximizedIdRef.current === id) {
+          maximizedIdRef.current = null;
+          setMaximizedId(null);
+        }
+        restoreGeometriesRef.current.delete(id);
       }
-      const preset = presetGeometryRef.current(canvasOf());
       for (const descriptor of panelsRef.current) {
+        if (mode === "mount" && mountedIdsRef.current.has(descriptor.id)) continue;
         const geometry = layout[descriptor.id] ?? preset[descriptor.id] ?? fallbackGeometry;
         const panel = api.getPanel(descriptor.id);
         if (panel) {
@@ -250,8 +287,26 @@ export function FloatingPanelGrid({
         });
         api.addFloatingGroup(added, geometry);
       }
+      mountedIdsRef.current = selected;
     },
-    [canvasOf, storageAttempt],
+    [],
+  );
+
+  /** 按当前面板清单排布:restore 用存量偏好,reset 清槽回预设。 */
+  const arrange = useCallback(
+    (mode: "restore" | "reset") => {
+      const api = apiRef.current;
+      if (!api) return;
+      const layout = mode === "reset" ? {} : readPanelWorkspaceLayout(storageRef.current, workspaceRef.current);
+      if (mode === "reset") {
+        storageAttempt(() => clearPanelWorkspaceLayout(storageRef.current, workspaceRef.current));
+        restoreGeometriesRef.current.clear();
+        maximizedIdRef.current = null;
+        setMaximizedId(null);
+      }
+      syncPanels("reposition", layout, presetGeometryRef.current(canvasOf()));
+    },
+    [canvasOf, storageAttempt, syncPanels],
   );
 
   const ready = useCallback(
@@ -279,6 +334,21 @@ export function FloatingPanelGrid({
     resetNonceRef.current = resetNonce;
     arrange("reset");
   }, [arrange, resetNonce]);
+
+  // 选择清单变化:与挂载集做差集,摘下关掉的、挂上新选的;集合未变(仅引用变了)不动。
+  useEffect(() => {
+    if (!builtRef.current) return;
+    const selected = new Set(panelsRef.current.map((panel) => panel.id));
+    let changed = false;
+    for (const id of selected) if (!mountedIdsRef.current.has(id)) changed = true;
+    if (!changed) for (const id of mountedIdsRef.current) if (!selected.has(id)) changed = true;
+    if (!changed) return;
+    syncPanels(
+      "mount",
+      readPanelWorkspaceLayout(storageRef.current, workspaceRef.current),
+      presetGeometryRef.current(canvasOf()),
+    );
+  }, [panels, canvasOf, syncPanels]);
 
   const toggleMaximize = useCallback(
     (panelId: string) => {
@@ -316,7 +386,11 @@ export function FloatingPanelGrid({
     [canvasOf, geometryOf],
   );
 
-  const actions = useMemo<FloatingPanelActions>(() => ({ maximizedId, toggleMaximize }), [maximizedId, toggleMaximize]);
+  const close = onClosePanel ?? null;
+  const actions = useMemo<FloatingPanelActions>(
+    () => ({ maximizedId, toggleMaximize, close }),
+    [maximizedId, toggleMaximize, close],
+  );
   const registry = useMemo(() => new Map(panels.map((panel) => [panel.id, panel])), [panels]);
 
   return (
