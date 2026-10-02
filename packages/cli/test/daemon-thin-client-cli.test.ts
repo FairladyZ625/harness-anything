@@ -294,6 +294,7 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
       env: NodeJS.ProcessEnv;
       outputPath?: string;
       cwd?: string;
+      options?: { readonly windowsHide?: boolean };
     }> = [];
   try {
     process.env.ELECTRON_RENDERER_URL = "http://127.0.0.1:5173";
@@ -309,8 +310,8 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
             assert.equal(invokingRoot, process.cwd(), "daemon autostart must be rooted at the workspace being opened");
             return { ok: true, hint: "daemon is reachable", attempts: 0 };
           },
-          startDetached: (command, args, env, outputPath, cwd) => {
-            calls.push({ command, args, env, outputPath, cwd });
+          startDetached: (command, args, env, outputPath, cwd, options) => {
+            calls.push({ command, args, env, outputPath, cwd, options });
             return { pid: 42, on() {} } as unknown as ReturnType<NonNullable<GuiLaunchDependencies["startDetached"]>>;
           },
         },
@@ -354,6 +355,11 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
     );
     assert.equal(spawnedEnv.ELECTRON_RUN_AS_NODE, undefined, "node mode would start the main process without a window");
     assert.equal(spawnedEnv.HARNESS_GUI_ROOT, process.cwd(), "the shell must be told which workspace to open");
+    assert.equal(
+      calls[0]?.options?.windowsHide,
+      false,
+      "the shell must not hide its window: windowsHide becomes CREATE_NO_WINDOW, which leaves Electron's window created but never shown",
+    );
   } finally {
     delete process.env.ELECTRON_RENDERER_URL;
     delete process.env.ELECTRON_RUN_AS_NODE;

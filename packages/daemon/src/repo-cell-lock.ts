@@ -1,4 +1,4 @@
-import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { VcsCommandError, consumeKnownError } from "@harness-anything/kernel";
 import { type CanonicalRoot } from "./protocol/daemon-protocol.contract.ts";
 import { cellCodedError, cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
@@ -78,14 +78,45 @@ export async function acquireWorkspaceLock(rootDir: CanonicalRoot): Promise<{ re
   };
 }
 
+/**
+ * Whether an existing writer lock was left behind by a daemon that is gone.
+ *
+ * `process.kill(pid, 0)` only proves that *some* process holds that pid, and
+ * Windows reuses pids, so a crashed daemon's lock can look live forever
+ * (observed: one crashed daemon left five locks naming a pid that svchost had
+ * since taken over, and every one of those repos reported "writer lock is held"
+ * until the files were removed by hand).
+ *
+ * Callers only reach this check after winning the daemon singleton, so a lock
+ * written before this process started cannot belong to a daemon still entitled
+ * to it: no other daemon may hold a writer lock while this one owns the slot.
+ */
 export function staleWriterLock(target: string): boolean {
   let pid: number;
   try {
     pid = Number(readFileSync(target, "utf8").trim());
     if (!Number.isSafeInteger(pid) || pid < 1) return false;
     process.kill(pid, 0);
-    return false;
   } catch (error) {
-    return typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH";
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
+    // ESRCH proves the holder is gone. EPERM means the pid exists but we may not
+    // signal it, which is exactly how a reused pid looks once the OS has handed it
+    // to a system process (svchost answers EPERM), so it must not short-circuit the
+    // identity check below.
+    if (code === "ESRCH") return true;
+    if (code !== "EPERM") return false;
+    consumeKnownError(error);
+  }
+  return lockPredatesProcess(target);
+}
+
+let processStartedAtMs: number | null = null;
+function lockPredatesProcess(target: string): boolean {
+  processStartedAtMs ??= Date.now() - Math.round(process.uptime() * 1_000);
+  try {
+    return statSync(target).mtimeMs < processStartedAtMs;
+  } catch (error) {
+    consumeKnownError(error);
+    return false;
   }
 }

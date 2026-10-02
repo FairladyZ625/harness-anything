@@ -23,6 +23,11 @@ import {
 import { launchNative } from "./runtime-spawn-process.ts";
 import type { RuntimeProcess } from "./runtime-spawn.ts";
 
+/** Absolute attach ceiling: advancing progress re-arms the 30s stall watchdog below, but an
+ * attach that keeps moving without ever reaching ready is a livelock, not work. */
+const READY_ABSOLUTE_TIMEOUT_MS = 10 * 60_000;
+const READY_STALL_TIMEOUT_MS = 30_000;
+
 export interface WriterSupervisor {
   readonly request: <T>(
     method: RepoWriterRequestV1["method"],
@@ -169,11 +174,17 @@ export async function openWriterSupervisor(
         options.createWorker?.(writerWorkerUrl(), workerOptions) ?? new Worker(writerWorkerUrl(), workerOptions);
       let settled = false,
         lastAttachProgress: RepoCellAttachProgress | null = null;
+      const attachStartedAt = Date.now();
       let readyWatchdog: ReturnType<typeof setTimeout>;
       const readyInactive = () => {
         if (settled) return;
         settled = true;
-        const error = new Error("RepoWriterCell did not publish ready after 30000ms without progress");
+        const error =
+          Date.now() - attachStartedAt >= READY_ABSOLUTE_TIMEOUT_MS
+            ? new Error(
+                `RepoWriterCell did not publish ready after ${READY_ABSOLUTE_TIMEOUT_MS}ms even with progress`,
+              )
+            : new Error(`RepoWriterCell did not publish ready after ${READY_STALL_TIMEOUT_MS}ms without progress`);
         if (!opened) closed = true;
         reject(error);
         failActive(error);
@@ -181,7 +192,7 @@ export async function openWriterSupervisor(
       };
       const armReadyWatchdog = () => {
         clearTimeout(readyWatchdog);
-        readyWatchdog = setTimeout(readyInactive, 30_000);
+        readyWatchdog = setTimeout(readyInactive, READY_STALL_TIMEOUT_MS);
         readyWatchdog.unref?.();
       };
       armReadyWatchdog();

@@ -10,7 +10,30 @@ import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
 /** POSIX terminal fallback declared at the process-capability boundary. */
 export const posixShellFallback = "/bin/sh";
 
-export const detachedProcessOptions = Object.freeze({ detached: true, stdio: "ignore" as const, windowsHide: true });
+export interface DetachedProcessOptions {
+  readonly detached: true;
+  readonly stdio: "ignore";
+  readonly windowsHide: boolean;
+}
+
+export const detachedProcessOptions: DetachedProcessOptions = Object.freeze({
+  detached: true,
+  stdio: "ignore",
+  windowsHide: true,
+});
+/**
+ * Detached launch options for a child that owns a real window — the GUI shell.
+ *
+ * `windowsHide` becomes CREATE_NO_WINDOW on Windows, and Electron reacts to it
+ * by creating its window and then never showing it: `ready-to-show` never fires,
+ * so `ha gui` reports a pid while the user sees nothing at all. Only console-less
+ * helpers may hide; a window owner must not.
+ */
+export const detachedVisibleProcessOptions: DetachedProcessOptions = Object.freeze({
+  detached: true,
+  stdio: "ignore",
+  windowsHide: false,
+});
 // The child is returned (not awaited) because fire-and-forget callers such as the `ha gui`
 // launcher read its pid synchronously to fill their launch receipt.
 export function startDetachedProcess(
@@ -19,11 +42,12 @@ export function startDetachedProcess(
   env: NodeJS.ProcessEnv,
   outputPath?: string,
   cwd?: string,
+  options: DetachedProcessOptions = detachedProcessOptions,
 ): ChildProcess {
   const outputFd = outputPath ? openDaemonOutputFd(outputPath) : null;
   try {
     const child = spawn(command, [...args], {
-      ...detachedProcessOptions,
+      ...options,
       ...(outputFd === null ? {} : { stdio: ["ignore", outputFd, outputFd] }),
       ...(cwd ? { cwd } : {}),
       env,

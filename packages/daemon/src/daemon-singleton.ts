@@ -1,5 +1,5 @@
 import net from "node:net";
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 
@@ -7,6 +7,15 @@ import { consumeKnownError } from "@harness-anything/kernel";
 // pidfile created with O_EXCL (atomic test-and-set): the second serve reads the
 // holder pid, verifies liveness with kill(pid, 0), and defers to it. A holder
 // that is provably dead is replaced, so a crashed daemon never wedges the slot.
+//
+// kill(pid, 0) alone cannot keep that promise on Windows: the OS reuses pids, so
+// a dead daemon's slot can be "held" by an unrelated process (observed: a crashed
+// daemon's pid was reused by svchost and every later serve deferred forever). The
+// socket probe above already rules out a live daemon, so a still-live pid only
+// counts as a witness while the lock is young enough to be a daemon starting up.
+export const singletonWitnessMaxAgeMs = 15 * 60_000;
+/** The autostart flight is seconds long; a stale one must not block starting. */
+export const autostartWitnessMaxAgeMs = 2 * 60_000;
 export interface DaemonSingletonHeld {
   readonly claim: "acquired";
   readonly release: () => void;
@@ -50,7 +59,8 @@ export async function acquireDaemonAutostartFlight(input: {
       if (!isCode(error, "EEXIST")) throw error;
       consumeKnownError(error);
       const owner = await readHolderPid(lockPath);
-      if (owner !== null && processAlive(owner)) return { owner: false, release: () => undefined };
+      if (owner !== null && processAlive(owner) && lockAgeMs(lockPath) < autostartWitnessMaxAgeMs)
+        return { owner: false, release: () => undefined };
       try {
         unlinkSync(lockPath);
       } catch (cleanup) {
@@ -85,7 +95,12 @@ export async function acquireDaemonSingleton(input: {
       if (!isCode(error, "EEXIST")) throw error;
       consumeKnownError(error);
       const holder = await readHolderPid(lockPath);
-      if (holder !== null && holder !== pid && processAlive(holder))
+      if (
+        holder !== null &&
+        holder !== pid &&
+        processAlive(holder) &&
+        lockAgeMs(lockPath) < singletonWitnessMaxAgeMs
+      )
         return { claim: "incumbent", pid: holder, witness: "singleton-lock" };
       try {
         unlinkSync(lockPath);
@@ -126,8 +141,16 @@ function readPidFile(target: string): number | null {
     return null;
   }
 }
-function releaseIfHeld(lockPath: string, pid: number): void {
-  if (readPidFile(lockPath) === pid)
+/** Age of a lock file; Infinity when it cannot be stat'ed (treat as unusable). */
+function lockAgeMs(lockPath: string): number {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs;
+  } catch (error) {
+    consumeKnownError(error);
+    return Number.POSITIVE_INFINITY;
+  }
+}
+function releaseIfHeld(lockPath: string, pid: number): void {  if (readPidFile(lockPath) === pid)
     try {
       unlinkSync(lockPath);
     } catch (error) {

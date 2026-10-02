@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -120,7 +121,25 @@ export function assertDevRendererUrl(url: string): true {
  * `fromUrl` 只为可测性存在:生产调用一律用缺省值,测试注入两个入口位置各验一次。
  */
 export function resolveGuiPackageRoot(fromUrl: string = import.meta.url): string {
-  return path.dirname(createRequire(fromUrl).resolve("@harness-anything/gui/package.json"));
+  try {
+    return path.dirname(createRequire(fromUrl).resolve("@harness-anything/gui/package.json"));
+  } catch (error) {
+    // 打包态没有可查的清单:electron-builder 把工作区包原样放在
+    // `<resources>/app/packages/gui`,没有任何 node_modules 条目叫这个名字,上面的
+    // 清单解析必然失败(实测报 Cannot find module '@harness-anything/gui/package.json')。
+    // 这里改用运行时的应用根定位 —— 仍然不数目录层级,因为入口深度依旧会变。
+    const packagedRoot = packagedGuiPackageRoot();
+    if (packagedRoot !== null) return packagedRoot;
+    throw error;
+  }
+}
+
+/** `<resources>/app/packages/gui`,且清单确实存在;非打包态返回 null。 */
+function packagedGuiPackageRoot(): string | null {
+  const resourcesPath = (process as NodeJS.Process & { readonly resourcesPath?: string }).resourcesPath;
+  if (typeof resourcesPath !== "string" || resourcesPath === "") return null;
+  const candidate = path.join(resourcesPath, "app", "packages", "gui");
+  return existsSync(path.join(candidate, "package.json")) ? candidate : null;
 }
 
 export function packagedRendererIndexPath(fromUrl: string = import.meta.url): string {

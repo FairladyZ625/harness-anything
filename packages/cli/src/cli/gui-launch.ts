@@ -4,7 +4,7 @@ import path from "node:path";
 import type { DaemonAutostartResult } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { daemonIdFromEnv, daemonUserRoot } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { guiStdioLogPath } from "@harness-anything/daemon/internal/lifecycle-log";
-import { startDetachedProcess } from "@harness-anything/daemon/internal/process-port";
+import { detachedVisibleProcessOptions, startDetachedProcess } from "@harness-anything/daemon/internal/process-port";
 import { cliErrorMessage } from "../cli-error.ts";
 import { cliFailure } from "../cli-meta.ts";
 import { consumeKnownError } from "../daemon/client.ts";
@@ -90,6 +90,9 @@ export async function runGuiLaunch(
       guiLaunchEnvironment(launch.rootDir),
       logPath,
       guiPackageRoot,
+      // The shell owns the window: hiding it would make Electron create a window
+      // it never shows, which reads to the user as "ha gui did nothing".
+      detachedVisibleProcessOptions,
     );
     child.on?.("error", consumeKnownError);
     if (child.pid === undefined)

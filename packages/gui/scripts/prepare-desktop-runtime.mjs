@@ -91,6 +91,26 @@ function extractNodeArchive(extractDir) {
   execFileSync("tar", [extractFlag, archivePath, "-C", extractDir], { stdio: "inherit" });
 }
 
+/**
+ * Run one npm command.
+ *
+ * Node >= 20.12 (the CVE-2024-27980 hardening) refuses to spawn a `.cmd`/`.bat`
+ * without a shell and fails with EINVAL, so spawning `npm.cmd` directly — as
+ * this script used to — breaks `package:prepare` on Windows outright. Prefer
+ * npm's JS entry through this node; only fall back to a shell.
+ */
+function runNpm(args) {
+  const execPath = process.env.npm_execpath;
+  if (typeof execPath === "string" && execPath.endsWith(".js")) {
+    return execFileSync(process.execPath, [execPath, ...args], { cwd: repoRoot, encoding: "utf8" });
+  }
+  return execFileSync(npmExecutableName, args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    ...(platform === "win32" ? { shell: true } : {}),
+  });
+}
+
 async function prepareDaemonNodeModules() {
   rmSync(appNodeModulesDir, { recursive: true, force: true });
   mkdirSync(appNodeModulesDir, { recursive: true });
@@ -98,10 +118,7 @@ async function prepareDaemonNodeModules() {
   const dependencyPaths = [
     ...new Set(
       ["@harness-anything/cli", "@harness-anything/daemon"].flatMap((workspace) =>
-        execFileSync(npmExecutableName, ["ls", "--workspace", workspace, "--omit=dev", "--parseable", "--all"], {
-          cwd: repoRoot,
-          encoding: "utf8",
-        })
+        runNpm(["ls", "--workspace", workspace, "--omit=dev", "--parseable", "--all"])
           .split(/\r?\n/u)
           .map((line) => line.trim())
           .filter(Boolean),

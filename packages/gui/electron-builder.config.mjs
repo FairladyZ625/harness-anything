@@ -16,7 +16,10 @@ const config = {
   extraMetadata: {
     name: "harness-anything-gui",
     version: "0.0.1",
-    main: "packages/gui/src/main/electron-main.ts",
+    // The built bundle, not src/main/electron-main.ts: the .ts entry only loads
+    // where Node may strip types, and inside a package the workspace deps live
+    // under node_modules, where it may not.
+    main: "packages/gui/dist-electron/electron-main.js",
   },
   files: [
     "package.json",
@@ -24,6 +27,7 @@ const config = {
     "packages/gui/src/**/*",
     "packages/gui/dist/**/*",
     "packages/gui/dist-electron/**/*",
+    "packages/gui/icons/**/*",
     "packages/daemon/src/**/*",
     "packages/adapters/local/src/**/*",
     "packages/adapters/multica/src/**/*",
