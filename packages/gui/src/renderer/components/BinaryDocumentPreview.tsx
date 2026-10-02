@@ -130,7 +130,7 @@ function DocxDocumentPreview({ path, bytes }: { readonly path: string; readonly 
   return (
     <DocumentFrame testId="document-docx-preview" toolbar={<div className="px-3 py-2 ui-meta">{path} · DOCX</div>}>
       {error === null ? (
-        <div ref={body} className="docx-preview-host min-w-0 p-4" />
+        <div ref={body} className="docx-preview-host min-w-0 p-4 text-black" />
       ) : (
         <PreviewFailure message={error} />
       )}
