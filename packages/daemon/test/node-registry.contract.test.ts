@@ -11,7 +11,7 @@ import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin
 import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
 import { keycloakNodeRegistry } from "../src/fleet-center-admission.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
-import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
+import { managedRbacReceiptJournal, reserveCredentialFile } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoCellBinding, RepoTaskAction } from "../src/repo-cell-types.ts";
@@ -131,15 +131,22 @@ test("a first registration puts the credential in the caller's file and keeps it
   assert.equal(readFileSync(file, "utf8"), "somebody else's credential");
   assert.deepEqual([keycloak.writes, journal(), await nodes()], [[], [], []]);
   rmSync(file);
-  // Keycloak refusing the write leaves no empty file where a credential was expected.
+  // Keycloak refusing the write leaves the minted credential recoverable in its file and the
+  // intent waiting: the outcome is not knowable from the refusal alone, so reconcile settles the
+  // operation by what Keycloak shows, and once it shows nothing was created, removing the file
+  // clears the way to register again.
   const refusing = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
     fetch: ((input, init) =>
       init?.method === "POST" && String(input).endsWith("/clients")
         ? Promise.resolve(new Response("{}", { status: 500 }))
         : keycloak.fetch(input, init)) as typeof fetch,
   });
-  await assert.rejects(refusing.run({ ...register, operationId: randomUUID(), credentialFile: file }));
-  assert.equal(existsSync(file), false);
+  const refusedId = randomUUID();
+  await assert.rejects(refusing.run({ ...register, operationId: refusedId, credentialFile: file }));
+  assert.notEqual(readFileSync(file, "utf8"), "");
+  const reconciled = await refusing.run({ operation: "receipt-reconcile", operationId: refusedId });
+  assert.deepEqual([reconciled.ok, reconciled.outcome], [false, "failed"]);
+  rmSync(file);
 
   const registered = await run({ ...register, credentialFile: file });
   assert.deepEqual(
@@ -164,6 +171,153 @@ test("a first registration puts the credential in the caller's file and keeps it
   );
   assert.equal(existsSync(unused), false);
   assert.equal(readFileSync(file, "utf8"), credential);
+});
+
+// The whole fallible local half — minting the credential and writing it into the reserved file —
+// precedes the one external write, so the client never exists without the operator holding it.
+test("the credential is on disk before Keycloak is asked to store it", async (t) => {
+  const { keycloak, root, registry } = await fixture(),
+    directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
+    file = path.join(directory, "edge-a.credential");
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  keycloak.account("alice");
+  const ordered = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+    fetch: (async (input, init) => {
+      if (init?.method === "POST" && String(input).endsWith("/clients")) {
+        const secret = (JSON.parse(String(init.body)) as { secret?: unknown }).secret;
+        if (typeof secret !== "string" || secret === "" || secret !== readFileSync(file, "utf8"))
+          throw new Error("the machine credential was not in its file when Keycloak was written");
+      }
+      return keycloak.fetch(input, init);
+    }) as typeof fetch,
+  });
+  const registered = await ordered.run({
+    operation: "node-register",
+    nodeId: "edge-a",
+    personId: "alice",
+    operationId: randomUUID(),
+    credentialFile: file,
+  });
+  assert.equal(registered.ok, true);
+  assert.equal(await registry.authenticate("edge-a", readFileSync(file, "utf8")), true);
+});
+
+// A POST that lands but whose answer never arrives is not a non-creation: the credential stays in
+// its file, the intent stays unsettled, and reconcile settles the operation by what Keycloak shows.
+test("a registration whose answer is lost recovers through its file and a reconcile", async (t) => {
+  const { keycloak, journal, registry, root } = await fixture(),
+    directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
+    file = path.join(directory, "edge-a.credential");
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  keycloak.account("alice");
+  const cutOff = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+    fetch: (async (input, init) => {
+      if (init?.method === "POST" && String(input).endsWith("/clients")) {
+        await keycloak.fetch(input, init);
+        throw new Error("connection reset before the answer arrived");
+      }
+      return keycloak.fetch(input, init);
+    }) as typeof fetch,
+  });
+  const operationId = randomUUID();
+  await assert.rejects(
+    cutOff.run({
+      operation: "node-register",
+      nodeId: "edge-a",
+      personId: "alice",
+      credentialFile: file,
+      operationId,
+    }),
+  );
+  const credential = readFileSync(file, "utf8");
+  assert.notEqual(credential, "");
+  assert.deepEqual(
+    journal().map((line) => (JSON.parse(line) as { phase: string }).phase),
+    ["intent"],
+  );
+  const reconciled = await cutOff.run({ operation: "receipt-reconcile", operationId });
+  assert.deepEqual([reconciled.ok, reconciled.outcome], [true, "applied"]);
+  assert.equal(await registry.authenticate("edge-a", credential), true);
+  assert.equal(journal().join("\n").includes(credential), false);
+});
+
+// When the intent cannot be journaled the write never starts, so the reserved file must not
+// outlive the attempt: nothing reached Keycloak, and nothing holds the path.
+test("a registration whose intent cannot be journaled releases its reserved file", async (t) => {
+  const { keycloak, root } = await fixture(),
+    directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
+    file = path.join(directory, "edge-a.credential");
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  keycloak.account("alice");
+  const silent = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+    fetch: keycloak.fetch,
+    journal: {
+      read: () => [],
+      append: () => {
+        throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+      },
+    },
+  });
+  await assert.rejects(
+    silent.run({
+      operation: "node-register",
+      nodeId: "edge-a",
+      personId: "alice",
+      operationId: randomUUID(),
+      credentialFile: file,
+    }),
+  );
+  assert.equal(existsSync(file), false);
+  assert.deepEqual(keycloak.writes, []);
+});
+
+// Creating a node is one POST: nothing reads the client back, so a Keycloak that fails every read
+// after the write cannot strand a client its operator holds no credential for.
+test("creating a node reads nothing back after the write", async (t) => {
+  const { keycloak, root, registry } = await fixture(),
+    directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
+    file = path.join(directory, "edge-a.credential");
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  keycloak.account("alice");
+  let written = false;
+  const afterTheWrite: typeof fetch = async (input, init) => {
+    if (init?.method === "POST" && String(input).endsWith("/clients")) {
+      const response = await keycloak.fetch(input, init);
+      written = response.ok;
+      return response;
+    }
+    if (written && (init?.method ?? "GET") === "GET") return new Response("{}", { status: 500 });
+    return keycloak.fetch(input, init);
+  };
+  const registered = await new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+    fetch: afterTheWrite,
+  }).run({
+    operation: "node-register",
+    nodeId: "edge-a",
+    personId: "alice",
+    operationId: randomUUID(),
+    credentialFile: file,
+  });
+  assert.equal(registered.ok, true);
+  assert.equal(await registry.authenticate("edge-a", readFileSync(file, "utf8")), true);
+});
+
+// `keep` closes the file descriptor whether its write succeeded or failed; `discard` after it
+// must remove the reservation, not fail on the descriptor a failed write already closed.
+test("a credential reservation discards cleanly however keep ended", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
+    file = path.join(directory, "edge-a.credential");
+  try {
+    const reservation = reserveCredentialFile(file);
+    reservation.keep("a-credential");
+    reservation.discard();
+    assert.equal(existsSync(file), false);
+    const again = reserveCredentialFile(file);
+    again.discard();
+    assert.equal(existsSync(file), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("moving a node to another person applies to the next read and issues no second credential", async () => {

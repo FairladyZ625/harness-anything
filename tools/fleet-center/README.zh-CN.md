@@ -100,9 +100,9 @@ ha bootstrap --operation node-list
 `--person-id <new-person> --expected-version <version>` 重复 `node-register`。此时不铸造
 凭据、不需要 `--credential-file`。
 
-如果注册已创建 Keycloak client 却在返回凭据前失败，不要复用那次残缺注册：用 `node-list`
-读版本，用 `node-unregister --node-id <node-id> --expected-version <version>` 移除后，换新
-凭据文件重新注册。该残缺注册的自动清理另行跟踪。
+凭据文件在创建 Keycloak client 之前写好，因此注册要么生效且凭据已在文件里，要么失败且
+不留 client。若一次注册报错时文件已经落盘，以 `node-list` 的读数为准：节点已注册，则文件
+里的凭据即为可用凭据，无需重做；节点未注册，则删除该文件后重新注册。
 
 ### 人工确认
 

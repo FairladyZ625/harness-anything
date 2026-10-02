@@ -125,11 +125,11 @@ To change a node's owner, read its `version` from `node-list` and repeat
 `node-register` with `--person-id <new-person> --expected-version <version>`.
 No credential is minted and `--credential-file` is not needed.
 
-If registration created the Keycloak client but failed before returning its
-credential, do not reuse that incomplete registration. Read its version with
-`node-list`, remove it with `node-unregister --node-id <node-id>
---expected-version <version>`, then register it again with a new credential
-file. Automatic cleanup of this partial registration is tracked separately.
+The credential file is written before the Keycloak client is created, so a registration
+either takes effect with the credential in its file or fails without leaving a client
+behind. A registration that reports failure with the file already in place is settled by
+what `node-list` shows: when the node is registered, the file holds its working credential
+and there is nothing to redo; when it is not, remove the file and register again.
 
 ### Human confirmation
 
