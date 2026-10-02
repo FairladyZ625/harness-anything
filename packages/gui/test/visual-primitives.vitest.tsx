@@ -303,19 +303,20 @@ describe("FocusLayer", () => {
 
   it("打开时渲染 scrim、左列表与右详情;关闭时不渲染", () => {
     const { container, root } = mountOverlay(createElement(FocusLayer, base));
-    expect(container.querySelector("[data-focus-list]")?.textContent).toBe("左列表");
-    expect(container.querySelector("[data-focus-detail]")?.textContent).toBe("右详情");
-    expect(container.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("等我处理");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.querySelector("[data-focus-list]")?.textContent).toBe("左列表");
+    expect(document.body.querySelector("[data-focus-detail]")?.textContent).toBe("右详情");
+    expect(document.body.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("等我处理");
     act(() => root.unmount());
 
     const closed = mountOverlay(createElement(FocusLayer, { ...base, open: false }));
-    expect(closed.container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     act(() => closed.root.unmount());
   });
 
   it("左列表是纵向 flex 列:直接子行被默认拉伸撑满列宽(S3 移交缺陷的结构保证)", () => {
-    const { container, root } = mountOverlay(createElement(FocusLayer, base));
-    const list = container.querySelector("[data-focus-list]");
+    const { root } = mountOverlay(createElement(FocusLayer, base));
+    const list = document.body.querySelector("[data-focus-list]");
     expect(list?.className).toContain("flex");
     expect(list?.className).toContain("flex-col");
     act(() => root.unmount());
@@ -323,11 +324,11 @@ describe("FocusLayer", () => {
 
   it("Esc 与点 scrim 收回", () => {
     const onClose = vi.fn();
-    const { container, root } = mountOverlay(createElement(FocusLayer, { ...base, onClose }));
+    const { root } = mountOverlay(createElement(FocusLayer, { ...base, onClose }));
     pressKey("Escape");
     expect(onClose).toHaveBeenCalledTimes(1);
     act(() => {
-      (container.querySelector(".glass-scrim") as HTMLElement).click();
+      (document.body.querySelector(".glass-scrim") as HTMLElement).click();
     });
     expect(onClose).toHaveBeenCalledTimes(2);
     act(() => root.unmount());
@@ -367,16 +368,16 @@ describe("FocusLayer", () => {
   });
 
   it("关闭后随 AnimatePresence 即时卸载(减少动态效果:退出无动画)", async () => {
-    const { container, root } = mountOverlay(createElement(FocusLayer, base));
-    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    const { root } = mountOverlay(createElement(FocusLayer, base));
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
     await act(async () => {
       root.render(createElement(AppMotionConfig, null, createElement(FocusLayer, { ...base, open: false })));
     });
     await act(async () => {
       await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
     });
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(container.querySelector(".glass-scrim")).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.querySelector(".glass-scrim")).toBeNull();
     act(() => root.unmount());
   });
 });

@@ -10,6 +10,9 @@ const schema = "panel-workspace/v1",
  * toJSON 快照:几何由 dockview 的公共序列化类型 SerializedFloatingGroup.position
  * 读出(见 floating-panel-grid.tsx),坏的分量逐个丢弃而不是整份作废。
  *
+ * 面板选择(task_48fe291624e06a2e9ad9496c81)与几何同槽同记录:`panels` 是当前
+ * 打开的面板身份清单；选择与几何由画板一次性写入，损坏时使用默认布局。
+ *
  * 每个工作区(连接目标 + 仓,由调用方拼成不透明槽键)一个 localStorage 槽键:
  * 读写本槽不解析、不重写其他槽,损坏不外溢,也不需要逐出策略。只落 renderer
  * localStorage,不进 daemon 协议、不持久化业务内容。写失败(quota 满/隐私模式)
@@ -59,40 +62,52 @@ function parseLayout(value: unknown): PanelWorkspaceLayout {
   return layout;
 }
 
+export interface PanelWorkspaceSnapshot {
+  readonly layout: PanelWorkspaceLayout;
+  readonly panels: readonly string[] | null;
+}
+
+/** One record owns selection and geometry; malformed preferences reset together. */
 export function readPanelWorkspaceLayout(
   storage: Pick<PanelWorkspaceStorage, "getItem"> | null | undefined,
   workspaceId: string,
-): PanelWorkspaceLayout {
-  if (!storage) return {};
+): PanelWorkspaceSnapshot {
+  const empty: PanelWorkspaceSnapshot = { layout: {}, panels: null };
+  if (!storage) return empty;
   try {
     const parsed: unknown = JSON.parse(storage.getItem(slotKey(workspaceId)) ?? "null");
-    if (!isRendererRecord(parsed) || parsed.schema !== schema) return {};
-    return parseLayout(parsed.layout);
+    if (!isRendererRecord(parsed) || parsed.schema !== schema) return empty;
+    return {
+      layout: parseLayout(parsed.layout),
+      panels: Array.isArray(parsed.panels)
+        ? parsed.panels.filter((id): id is string => typeof id === "string" && id !== "")
+        : null,
+    };
   } catch {
-    // 槽里的字节损坏(写盘中断/手改):退回预设布局,重置手段是页头的「重置布局」。
-    return {};
+    return empty;
   }
 }
 
+/** Persist the whole current layout once; errors surface in the owning grid. */
 export function writePanelWorkspaceLayout(
   storage: PanelWorkspaceStorage | null | undefined,
   workspaceId: string,
-  layout: PanelWorkspaceLayout,
+  snapshot: PanelWorkspaceSnapshot,
 ): void {
   if (!storage) return;
-  const rounded: Record<string, PanelGeometry> = {};
-  for (const [panelId, panelGeometry] of Object.entries(layout)) {
-    rounded[panelId] = {
-      x: Math.round(panelGeometry.x),
-      y: Math.round(panelGeometry.y),
-      width: Math.round(panelGeometry.width),
-      height: Math.round(panelGeometry.height),
+  const layout: Record<string, PanelGeometry> = {};
+  for (const [id, box] of Object.entries(snapshot.layout)) {
+    layout[id] = {
+      x: Math.round(box.x),
+      y: Math.round(box.y),
+      width: Math.round(box.width),
+      height: Math.round(box.height),
     };
   }
-  storage.setItem(slotKey(workspaceId), JSON.stringify({ schema, layout: rounded }));
+  storage.setItem(slotKey(workspaceId), JSON.stringify({ schema, layout, panels: snapshot.panels }));
 }
 
-/** 重置布局:只清本工作区的槽,不动其他工作区的偏好。存储失败向上抛。 */
+/** 重置布局:只清本工作区的槽(几何与选择一起回默认),不动其他工作区的偏好。存储失败向上抛。 */
 export function clearPanelWorkspaceLayout(
   storage: PanelWorkspaceStorage | null | undefined,
   workspaceId: string,

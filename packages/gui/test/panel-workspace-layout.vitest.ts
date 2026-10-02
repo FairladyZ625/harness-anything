@@ -1,122 +1,59 @@
 // harness-test-tier: fast
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import {
-  clearPanelWorkspaceLayout,
   readPanelWorkspaceLayout,
   writePanelWorkspaceLayout,
+  clearPanelWorkspaceLayout,
   type PanelWorkspaceStorage,
 } from "../src/renderer/panel-workspace/panel-workspace-layout.ts";
-
-const slotPrefix = "harness:gui:panel-workspace:";
-
-function storage(seed: Record<string, string> = {}): PanelWorkspaceStorage & { readonly store: Map<string, string> } {
-  const store = new Map(Object.entries(seed));
+function storage(): PanelWorkspaceStorage & { store: Map<string, string> } {
+  const store = new Map<string, string>();
   return {
     store,
-    getItem: (key: string) => store.get(key) ?? null,
-    setItem: (key: string, value: string) => {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => {
       store.set(key, value);
     },
-    removeItem: (key: string) => {
+    removeItem: (key) => {
       store.delete(key);
     },
   };
 }
-
-describe("panel workbench layout persistence (task_f82b0d6058966986403ef1b635)", () => {
-  it("round-trips panel geometry per workspace slot and keeps other slots intact", () => {
-    const disk = storage();
-    writePanelWorkspaceLayout(disk, "center-1/repo-a", {
-      documents: { x: 16, y: 16, width: 320, height: 640 },
-      graph: { x: 352, y: 16, width: 640, height: 640 },
-    });
-    writePanelWorkspaceLayout(disk, "local/repo-b", { timeline: { x: 0, y: 0, width: 200, height: 100 } });
-    expect(readPanelWorkspaceLayout(disk, "center-1/repo-a")).toEqual({
-      documents: { x: 16, y: 16, width: 320, height: 640 },
-      graph: { x: 352, y: 16, width: 640, height: 640 },
-    });
-    expect(readPanelWorkspaceLayout(disk, "local/repo-b")).toEqual({
-      timeline: { x: 0, y: 0, width: 200, height: 100 },
-    });
+it("roundtrips selection and rounded geometry as one per-target snapshot", () => {
+  const disk = storage();
+  writePanelWorkspaceLayout(disk, "center/repo", {
+    panels: ["graph"],
+    layout: { graph: { x: 1.4, y: 2.7, width: 301.4, height: 200.8 } },
   });
-
-  it("isolates slots by connection target: same repoId under different connections never shares a layout", () => {
-    const disk = storage();
-    writePanelWorkspaceLayout(disk, "center-1/repo-a", { graph: { x: 1, y: 2, width: 3, height: 4 } });
-    writePanelWorkspaceLayout(disk, "center-2/repo-a", { graph: { x: 5, y: 6, width: 7, height: 8 } });
-    writePanelWorkspaceLayout(disk, "center-1/repo-a", { documents: { x: 9, y: 9, width: 90, height: 90 } });
-    expect(readPanelWorkspaceLayout(disk, "center-2/repo-a")).toEqual({ graph: { x: 5, y: 6, width: 7, height: 8 } });
-    expect(readPanelWorkspaceLayout(disk, "center-1/repo-a")).toEqual({
-      documents: { x: 9, y: 9, width: 90, height: 90 },
-    });
+  expect(readPanelWorkspaceLayout(disk, "center/repo")).toEqual({
+    panels: ["graph"],
+    layout: { graph: { x: 1, y: 3, width: 301, height: 201 } },
   });
-
-  it("writes each workspace to its own slot key without touching other keys", () => {
-    const disk = storage();
-    writePanelWorkspaceLayout(disk, "center-1/repo-a", { graph: { x: 1, y: 1, width: 2, height: 2 } });
-    writePanelWorkspaceLayout(disk, "local/repo-b", { timeline: { x: 3, y: 3, width: 4, height: 4 } });
-    expect([...disk.store.keys()].sort()).toEqual([`${slotPrefix}center-1/repo-a`, `${slotPrefix}local/repo-b`]);
-  });
-
-  it("rounds fractional geometry so stored layouts stay on the pixel grid", () => {
-    const disk = storage();
-    writePanelWorkspaceLayout(disk, "center-1/repo-a", {
-      graph: { x: -12.6, y: 8.2, width: 483.29, height: 99.4 },
-    });
-    expect(readPanelWorkspaceLayout(disk, "center-1/repo-a")).toEqual({
-      graph: { x: -13, y: 8, width: 483, height: 99 },
-    });
-  });
-
-  it("drops damaged geometry entries individually instead of failing the whole layout", () => {
-    const disk = storage({
-      [`${slotPrefix}center-1/repo-a`]: JSON.stringify({
-        schema: "panel-workspace/v1",
-        layout: {
-          documents: { x: 1, y: 2, width: 3, height: 4 },
-          graph: { x: "left", y: 2, width: 3, height: 4 },
-          timeline: { x: 1, y: Number.NaN, width: 3, height: 4 },
-          "": { x: 1, y: 2, width: 3, height: 4 },
-          stray: "not a geometry",
-        },
-      }),
-    });
-    expect(readPanelWorkspaceLayout(disk, "center-1/repo-a")).toEqual({
-      documents: { x: 1, y: 2, width: 3, height: 4 },
-    });
-  });
-
-  it("falls back to the empty layout on unreadable storage or foreign schema", () => {
-    const broken = storage({ [`${slotPrefix}center-1/repo-a`]: "{not json" });
-    expect(readPanelWorkspaceLayout(broken, "center-1/repo-a")).toEqual({});
-    const foreign = storage({
-      [`${slotPrefix}center-1/repo-a`]: JSON.stringify({ schema: "other/v9", layout: {} }),
-    });
-    expect(readPanelWorkspaceLayout(foreign, "center-1/repo-a")).toEqual({});
-    expect(readPanelWorkspaceLayout(null, "center-1/repo-a")).toEqual({});
-  });
-
-  it("clears only the requested workspace slot on reset", () => {
-    const disk = storage();
-    writePanelWorkspaceLayout(disk, "center-1/repo-a", { graph: { x: 1, y: 1, width: 2, height: 2 } });
-    writePanelWorkspaceLayout(disk, "local/repo-b", { graph: { x: 3, y: 3, width: 4, height: 4 } });
-    clearPanelWorkspaceLayout(disk, "center-1/repo-a");
-    expect(readPanelWorkspaceLayout(disk, "center-1/repo-a")).toEqual({});
-    expect(readPanelWorkspaceLayout(disk, "local/repo-b")).toEqual({ graph: { x: 3, y: 3, width: 4, height: 4 } });
-  });
-
-  it("propagates storage write failures instead of pretending the layout was saved", () => {
-    const disk = storage();
-    disk.store.set("sentinel", "keep");
-    const failing: PanelWorkspaceStorage = {
-      getItem: disk.getItem,
-      setItem: () => {
-        throw new Error("QuotaExceededError");
-      },
-      removeItem: disk.removeItem,
-    };
-    expect(() =>
-      writePanelWorkspaceLayout(failing, "center-1/repo-a", { graph: { x: 1, y: 1, width: 2, height: 2 } }),
-    ).toThrow("QuotaExceededError");
-  });
+  expect(readPanelWorkspaceLayout(disk, "other/repo")).toEqual({ panels: null, layout: {} });
+});
+it("preserves a deliberately empty canvas and resets only its target", () => {
+  const disk = storage();
+  writePanelWorkspaceLayout(disk, "a", { panels: [], layout: {} });
+  writePanelWorkspaceLayout(disk, "b", { panels: ["graph"], layout: {} });
+  expect(readPanelWorkspaceLayout(disk, "a").panels).toEqual([]);
+  clearPanelWorkspaceLayout(disk, "a");
+  expect(readPanelWorkspaceLayout(disk, "a").panels).toBeNull();
+  expect(readPanelWorkspaceLayout(disk, "b").panels).toEqual(["graph"]);
+});
+it("resets damaged records and filters malformed geometry and identities", () => {
+  const disk = storage();
+  disk.store.set("harness:gui:panel-workspace:a", "{invalid");
+  expect(readPanelWorkspaceLayout(disk, "a")).toEqual({ panels: null, layout: {} });
+  disk.store.set(
+    "harness:gui:panel-workspace:a",
+    JSON.stringify({ schema: "panel-workspace/v1", panels: ["graph", null, ""], layout: { graph: { x: "bad" } } }),
+  );
+  expect(readPanelWorkspaceLayout(disk, "a")).toEqual({ panels: ["graph"], layout: {} });
+});
+it("propagates write failures rather than claiming a saved layout", () => {
+  const disk = storage();
+  disk.setItem = () => {
+    throw new Error("QuotaExceededError");
+  };
+  expect(() => writePanelWorkspaceLayout(disk, "a", { panels: [], layout: {} })).toThrow("QuotaExceededError");
 });

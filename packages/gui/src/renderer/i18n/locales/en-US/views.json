@@ -1621,6 +1621,9 @@
   "views.panelWorkbench.documentsEmpty": "No tasks in this repo yet; once created, read their package documents side by side here.",
   "views.panelWorkbench.maximizePanel": "Maximize panel",
   "views.panelWorkbench.restorePanel": "Restore panel",
+  "views.panelWorkbench.closePanel": "Close panel",
+  "views.panelWorkbench.addPanel": "Add panels",
   "views.panelWorkbench.panelRetired": "This panel is no longer part of the workbench.",
+  "views.panelWorkbench.emptyCanvas": "All panels are closed. Open feature panels with “Add panels” in the header; Reset layout restores the default three.",
   "views.panelWorkbench.persistUnavailable": "Local storage is unavailable (quota full or private mode), so the panel layout won't be remembered across sessions; the arrangement still applies now, and Reset layout restores the preset anytime."
 }

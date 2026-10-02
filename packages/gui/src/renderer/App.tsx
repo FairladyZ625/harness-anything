@@ -709,6 +709,18 @@ function AppShell() {
                   entries={paletteEntries}
                   onOpenPalette={() => setPaletteOpen(true)}
                   onSearchActiveChange={onSearchActiveChange}
+                  // 总览面板的数据与回调:全部来自 App 常驻读面与既有出口,不新增请求。
+                  agenda={agendaQuery.data}
+                  works={workIndexQuery.data}
+                  titles={taskTitles}
+                  workspaceSummary={workspaceSummaryQuery.data ?? null}
+                  workspaceSummaryError={
+                    workspaceSummaryQuery.error instanceof Error ? workspaceSummaryQuery.error : null
+                  }
+                  health={runtimeHealth}
+                  onOpenTask={openTaskDetail}
+                  onOpenSessions={() => goto("sessions")}
+                  onUnpinTask={(taskId) => handleSetPin({ taskId }, false)}
                 />
               ) : view === "decisionDetail" ? (
                 <DecisionDetailView
