@@ -192,6 +192,46 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     ],
     reviewedDependencyLicenseChoices: [
       {
+        packageName: "dompurify",
+        declaredLicenseExpression: "(MPL-2.0 OR Apache-2.0)",
+        electedLicense: "Apache-2.0",
+        reviewedAt: "2026-10-02",
+        rationale:
+          "Reviewed dompurify 3.4.16 package.json and LICENSE. Elect its Apache-2.0 branch; preserve that license and notices. npm SBOM omits the compound expression.",
+      },
+      {
+        packageName: "jszip",
+        declaredLicenseExpression: "(MIT OR GPL-3.0-or-later)",
+        electedLicense: "MIT",
+        reviewedAt: "2026-10-02",
+        rationale:
+          "Reviewed jszip 3.10.2 package.json and LICENSE.markdown. Elect the MIT branch explicitly offered for this DOCX dependency; preserve copyright and permission notices.",
+      },
+      {
+        packageName: "khroma",
+        declaredLicenseExpression: "MIT",
+        electedLicense: "MIT",
+        reviewedAt: "2026-10-02",
+        rationale:
+          "Reviewed khroma 2.1.0 license file: MIT text and copyright notice are shipped, although package.json omits the license field. Preserve those notices.",
+      },
+      {
+        packageName: "pako",
+        declaredLicenseExpression: "(MIT AND Zlib)",
+        electedLicense: "MIT AND Zlib",
+        reviewedAt: "2026-10-02",
+        rationale:
+          "Reviewed pako 1.0.11 LICENSE and lib/zlib/deflate.js header. Both MIT and Zlib apply; this is not an OR election. Preserve both notices and mark any modified zlib source.",
+      },
+      {
+        packageName: "robust-predicates",
+        declaredLicenseExpression: "Unlicense",
+        electedLicense: "Unlicense",
+        reviewedAt: "2026-10-02",
+        rationale:
+          "Reviewed robust-predicates 3.0.3 LICENSE public-domain dedication and unrestricted use grant. Record this exact package only; do not add Unlicense to the general allowlist. Preserve the supplied license with distribution notices.",
+      },
+      {
         packageName: "expand-template",
         declaredLicenseExpression: "(MIT OR WTFPL)",
         electedLicense: "MIT",
