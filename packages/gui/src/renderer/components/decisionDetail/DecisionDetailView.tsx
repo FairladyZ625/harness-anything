@@ -142,7 +142,9 @@ export function DecisionDetailView({
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg" data-testid="decision-detail-view">
       <header className="shrink-0 border-b border-border bg-surface/80" data-testid="decision-detail-header">
-        <div className="flex min-h-14 items-center gap-2.5 px-3 py-2 lg:px-4">
+        {/* 两级都可换行:窄容器(工作台浮窗)里先保标题有可读宽度,动作钮/徽章
+            换到下一行,而不是把标题挤成 0 宽竖排。 */}
+        <div className="flex min-h-14 flex-wrap items-center gap-x-2.5 gap-y-1 px-3 py-2 lg:px-4">
           <button
             type="button"
             onClick={onBack}
@@ -154,7 +156,7 @@ export function DecisionDetailView({
           >
             <ArrowLeft weight="bold" />
           </button>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 basis-64">
             <div className="flex min-w-0 items-center gap-1 font-mono ui-micro leading-3 text-text-faint">
               <button type="button" onClick={onBack} className="truncate hover:text-text-muted">
                 {projectName}
@@ -175,9 +177,10 @@ export function DecisionDetailView({
                 className="font-mono ui-micro leading-3 text-text-muted hover:text-accent hover:underline"
               />
             </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-2">
-              {/* 标题自己折行;徽章不折行、不被压缩——先保徽章横排完整,标题在剩余宽度里换行。 */}
-              <h1 className="min-w-0 flex-1 ui-title font-semibold leading-5 tracking-[-0.01em] text-text">
+            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
+              {/* 标题自己折行;徽章不折行、不被压缩——先保徽章横排完整,标题在剩余宽度里换行;
+                  剩余宽度不足时徽章换行到标题下方,标题保住 basis 的可读宽度。 */}
+              <h1 className="min-w-0 flex-1 basis-52 ui-title font-semibold leading-5 tracking-[-0.01em] text-text">
                 {decision.title}
               </h1>
               <DecisionStateBadge state={decision.state} />

@@ -387,14 +387,16 @@ export function SettingsView({
         </header>
       )}
 
+      {/* 容器查询而非视口断点:设置页整页与工作台面板共用本视图,窄面板下
+          组导航回到单列堆叠,不按窗口宽度硬分两栏(SystemView 同一模式)。 */}
       <div
         data-testid="settings-content"
-        className="grid w-full grid-cols-1 gap-4 p-4 lg:grid-cols-[12rem_minmax(0,1fr)]"
+        className="@container grid w-full grid-cols-1 gap-4 p-4 @min-[900px]:grid-cols-[12rem_minmax(0,1fr)]"
       >
         <nav
           className={[
             "flex gap-1 overflow-x-auto rounded-lg border border-border bg-surface p-1",
-            "lg:flex-col lg:overflow-visible",
+            "@min-[900px]:flex-col @min-[900px]:overflow-visible",
           ].join(" ")}
         >
           {SETTINGS_TABS.map((tab) => (
@@ -408,7 +410,7 @@ export function SettingsView({
               }`}
             >
               <span className="ui-body font-semibold">{t(tab.labelKey)}</span>
-              <span className="mt-0.5 hidden ui-meta text-text-faint lg:block">{t(tab.descKey)}</span>
+              <span className="mt-0.5 hidden ui-meta text-text-faint @min-[900px]:block">{t(tab.descKey)}</span>
             </button>
           ))}
         </nav>

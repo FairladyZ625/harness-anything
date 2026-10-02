@@ -338,11 +338,12 @@ export function TaskDetailView({
             <ViewInGraphButton entityRef={`task/${task.taskId}`} onFocusGraph={onFocusGraph} />
           </div>
         </div>
-        {/* 标题行:标题经 TitleText(冒号前重点、冒号后弱色),状态徽标同行不换行。 */}
-        <div className="flex min-h-0 items-center gap-3 px-3 pb-1 lg:px-4">
+        {/* 标题行:标题经 TitleText(冒号前重点、冒号后弱色),状态徽标同行不换行;
+            容器放不下时徽章换到标题下一行,标题保住 basis 的可读宽度(工作台浮窗)。 */}
+        <div className="flex min-h-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-1 lg:px-4">
           <h1
             title={task.title}
-            className="min-w-0 flex-1 truncate ui-body font-semibold leading-6 tracking-[-0.01em] text-text"
+            className="min-w-0 flex-1 basis-52 truncate ui-body font-semibold leading-6 tracking-[-0.01em] text-text"
           >
             <TitleText title={task.title} />
           </h1>

@@ -260,9 +260,10 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
 
   it("侧栏固定轨道保留(列宽有意,外层仍铺满)", async () => {
     // G7 起预设列表页改为紧凑信息行(已解析内容移入详情页),不再有 20rem 侧栏轨道。
-    // system 的栏式切换改容器查询(标准 §1.9),面板收窄到 16rem 把宽度让给仓库表。
+    // system/settings 的栏式切换都改容器查询(标准 §1.9):面板收窄时单列堆叠,
+    // 整页或宽面板仍保留侧栏固定轨道。
     expect(await mountedContainerClasses("system-content")).toContain("@min-[900px]:grid-cols-[16rem_minmax(0,1fr)]");
-    expect(await mountedContainerClasses("settings-content")).toContain("lg:grid-cols-[12rem_minmax(0,1fr)]");
+    expect(await mountedContainerClasses("settings-content")).toContain("@min-[900px]:grid-cols-[12rem_minmax(0,1fr)]");
   });
 
   it("system 仓库表截断列宽保留(有意列宽),表体仍随外层铺满", async () => {

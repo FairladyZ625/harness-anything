@@ -88,8 +88,11 @@ export function UsageTrendChart({
       </p>
     );
   const width = measured > 0 ? measured : FALLBACK_WIDTH,
-    plotWidth = width - GUTTER,
-    band = plotWidth / buckets.length,
+    plotWidth = width - GUTTER;
+  // 图宽盖不住坐标轴留白(浮窗面板被拖到极窄/叠放中测量):保留测量宿主等再量,
+  // 不画柱区——继续渲染会得到负的 band,往 SVG 写负宽 rect(控制台报非法属性)。
+  if (plotWidth < 1) return <div ref={host} data-testid="token-usage-trend" className="relative min-h-1 min-w-0" />;
+  const band = plotWidth / buckets.length,
     barWidth = Math.max(3, Math.min(36, band * 0.62)),
     totals = buckets.map(({ totalTokens }) => totalTokens),
     peak = Math.max(...totals),

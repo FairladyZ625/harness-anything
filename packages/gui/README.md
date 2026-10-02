@@ -56,6 +56,17 @@ when a person explicitly requests a demonstration.
 检查主题、动效、窄容器、键盘与状态，不写 daemon。共享契约变化时同步例子，不能在目录里
 复制第二套实现；自动化验证保持 Electron 隐藏与独立 profile。
 
+## Workbench panel composition
+
+The panel workbench (面板工作台) composes every real App route as floating panels.
+The route coverage table and the mounting contract live in the
+`src/renderer/panel-workspace/workbench-panels.tsx` module doc: a view gains a
+`renderHeader` slot, a panel wrapper under `panel-workspace/panels/` reuses the
+feature body, and `WORKBENCH_PANEL_CATALOG` registers the identity. Detail panels
+select entities through `PanelEntityPicker` locally; terminal and browser panels
+reuse the page adapters so closing a panel detaches or destroys exactly what the
+page would. Follow that path for new pages instead of mounting a second shell.
+
 GUI implementation guidance: [harness-gui skill](../../skills/harness-gui/SKILL.md). GUI agents and the `gui-development` preset use this shared contract.
 
 GUI 开发指引：[harness-gui skill](../../skills/harness-gui/SKILL.md)。GUI Agent 与 `gui-development` preset 复用此契约。

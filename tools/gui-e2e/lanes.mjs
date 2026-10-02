@@ -15,6 +15,7 @@ import {
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
 import { seedTriadicEvents, writeTriadicLedger } from "../../packages/gui/test-support/triadic-ledger.mjs";
 import { seedGuiE2eRuntimeSessions } from "./scenarios/sessions-grouping.mjs";
+import { seedWorkbenchDetailEntities } from "./scenarios/workbench-remaining-panels.mjs";
 import { warmDaemonProjection } from "../e2e-probe.mjs";
 
 // Long script-free HTML report: tall enough that a 150px-default webview clips after
@@ -136,6 +137,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       beforeRestart: async (rootDir, repoId, writerFence) => {
         await seedTriadicEvents(rootDir, repoId, writerFence);
         await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence);
+        await seedWorkbenchDetailEntities(rootDir, repoId, writerFence);
       },
     });
   } finally {

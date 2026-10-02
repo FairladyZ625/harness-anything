@@ -20,6 +20,7 @@ import { Field, FieldGrid, KV, KVRow } from "../primitives/Fields.tsx";
 import { RecordRow } from "../primitives/RecordRow.tsx";
 import { Notice } from "../primitives/Notice.tsx";
 import { Modal } from "../primitives/Modal.tsx";
+import { Drawer } from "../primitives/Drawer.tsx";
 import { BoundedContent } from "../primitives/BoundedContent.tsx";
 import { Section } from "../primitives/Section.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
@@ -32,6 +33,7 @@ function ComponentCatalog() {
   const { preference, setPreference } = useMotionPreference();
   const [narrow, setNarrow] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [tab, setTab] = useState<"rows" | "empty">("rows");
   const [selected, setSelected] = useState<string | null>(null);
   const [navigation, setNavigation] = useState("尚未触发导航回调");
@@ -262,6 +264,32 @@ function ComponentCatalog() {
               ))}
             </BoundedContent>
           </div>
+        </section>
+        <section className="grid min-w-0 gap-3">
+          <h2 className="font-semibold ui-title">抽屉 / Drawer</h2>
+          <p className="text-text-muted ui-meta">
+            壳层 portal 到 body：在带 transform/overflow 裁切的宿主（如工作台浮窗）里打开，
+            抽屉也完整覆盖视口右侧，不被最近的裁切祖先切掉。宿主框故意带上这两层裁切。
+          </p>
+          <div
+            data-testid="catalog-drawer-host"
+            className="relative h-40 overflow-hidden rounded border border-border bg-surface p-3"
+            style={{ transform: "translateZ(0)" }}
+          >
+            <Button size="sm" onClick={() => setDrawerOpen(true)} testId="catalog-drawer-open">
+              在裁切宿主里开抽屉
+            </Button>
+            <p className="mt-2 text-text-faint ui-meta">宿主 overflow-hidden + transform，模拟浮窗面板。</p>
+          </div>
+          <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} ariaLabel="目录抽屉示例">
+            <div className="flex h-full flex-col gap-3 p-4">
+              <h3 className="font-semibold ui-title">抽屉内容</h3>
+              <p className="text-text-muted ui-meta">
+                打开后检查 <code>document.querySelector(&quot;body &gt; aside[role=&apos;dialog&apos;]&quot;)</code>
+                ：抽屉壳是 body 的直接子节点，不在裁切宿主里。Esc 关闭。
+              </p>
+            </div>
+          </Drawer>
         </section>
         <section className="grid min-w-0 gap-3">
           <h2 className="font-semibold ui-title">可交互贴片 / Chip</h2>

@@ -220,7 +220,13 @@ export default {
     await graph.locator("[data-testid='territory-chip'][data-nav-ref^='task/']").first().click();
     await graph.locator("[data-testid='ego-chip'], [data-testid='ego-card']").first().waitFor();
     await shot("panel-workspace-graph-focus");
-    await graph.locator("[data-testid='ego-chip'][data-entity='fact']").dblclick();
+    // 台账里有不止一条事实(隔离 lane 还种了详情切换探针事实):聚焦后的邻域里
+    // fact 节点可能以 chip 或 card 呈现(邻域大小决定),dblclick 两种都认——
+    // 意图是「双击 fact 节点聚焦」,不在于是哪一条、什么呈现。
+    await graph
+      .locator("[data-testid='ego-chip'][data-entity='fact'], [data-testid='ego-card'][data-entity='fact']")
+      .first()
+      .dblclick();
     await page.waitForFunction(() =>
       globalThis.document.querySelector('[data-testid="focus-history-bar"]')?.textContent?.includes("fact"),
     );
