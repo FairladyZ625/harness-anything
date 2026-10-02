@@ -473,6 +473,7 @@
   "views.overviewView.reviewRework": "打回",
   "views.overviewView.reviewAdjudication": "待初审",
   "views.overviewView.reviewTaskReviewing": "任务评审中",
+  "views.overviewView.reviewDecisionNeedsReview": "决策待派审",
   "views.overviewView.reviewDecisionReviewing": "决策评审中",
   "views.overviewView.reviewDecisionPending": "待点头",
   "views.overviewView.reviewInFlight": "在途 {count}",

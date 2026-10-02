@@ -645,6 +645,7 @@ function reviewRegion(reviews: readonly ReviewRow[], deps: OverviewRegionDeps): 
       ["rework", () => t("views.overviewView.reviewRework"), "wait"],
       ["adjudication", () => t("views.overviewView.reviewAdjudication"), "wait"],
       ["taskReviewing", () => t("views.overviewView.reviewTaskReviewing"), "wait"],
+      ["decisionNeedsReview", () => t("views.overviewView.reviewDecisionNeedsReview"), "wait"],
       ["decisionReviewing", () => t("views.overviewView.reviewDecisionReviewing"), "wait"],
       ["decisionPending", () => t("views.overviewView.reviewDecisionPending"), "wait"],
     ];
@@ -652,7 +653,7 @@ function reviewRegion(reviews: readonly ReviewRow[], deps: OverviewRegionDeps): 
     title: t("views.overviewView.regionReview"),
     top:
       reviews.length === 0 ? undefined : (
-        <div className="grid grid-cols-5 gap-1 border-b border-border px-3 pb-1.5 pt-2">
+        <div className="grid grid-cols-3 gap-1 border-b border-border px-3 pb-1.5 pt-2">
           {groups.map(([key, label]) => (
             <div key={key} className="min-w-0 text-center">
               <span className="block font-mono font-semibold leading-none tabular-nums text-text ui-heading">

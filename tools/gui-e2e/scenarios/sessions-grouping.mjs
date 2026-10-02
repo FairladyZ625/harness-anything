@@ -206,26 +206,38 @@ export default {
     await page.getByTestId("session-group-unattributed:no-task").waitFor();
     await page.getByTestId("session-group-unattributed:no-dispatch").waitFor();
 
-    // 2. 状态筛选:开启后列表只剩该状态,计数行把「筛选已开」说出来。
-    await page.getByTestId("sessions-status-failed").click();
-    await page.getByTestId("session-group-unattributed:no-task").waitFor();
-    assert.equal(
-      await page.getByTestId(`session-group-${FIXTURE_TASK}`).count(),
-      0,
-      "the failed filter must remove the succeeded session's task group",
-    );
-    assert.equal(
-      await page.getByTestId("session-group-unattributed:no-dispatch").count(),
-      0,
-      "the failed filter must remove the running session's no-dispatch group",
-    );
-    const counts = await page.getByTestId("sessions-counts").innerText();
-    assert.match(counts, /已按状态筛选|filtered to/u, "the counts line must say the status filter is on");
+    // Exercise both real responsive controls; a wide-only run cannot catch a hidden inline selector.
+    const originalViewport = await page.evaluate(() => ({
+      width: globalThis.innerWidth,
+      height: globalThis.innerHeight,
+    }));
+    for (const width of [1100, 1440]) {
+      await page.setViewportSize({ width, height: originalViewport.height });
+      await page
+        .getByTestId(width === 1100 ? "sessions-status-filter-menu" : "sessions-status-failed")
+        .waitFor({ state: "visible" });
+      // 状态筛选:开启后列表只剩该状态,计数行把「筛选已开」说出来。
+      await toggleFailedFilter(page);
+      await page.getByTestId("session-group-unattributed:no-task").waitFor();
+      assert.equal(
+        await page.getByTestId(`session-group-${FIXTURE_TASK}`).count(),
+        0,
+        "the failed filter must remove the succeeded session's task group",
+      );
+      assert.equal(
+        await page.getByTestId("session-group-unattributed:no-dispatch").count(),
+        0,
+        "the failed filter must remove the running session's no-dispatch group",
+      );
+      const counts = await page.getByTestId("sessions-counts").innerText();
+      assert.match(counts, /已按状态筛选|filtered to/u, "the counts line must say the status filter is on");
 
-    // 3. 关掉筛选:列表回到全部桶。
-    await page.getByTestId("sessions-status-failed").click();
-    await page.getByTestId(`session-group-${FIXTURE_TASK}`).waitFor();
-    await page.getByTestId("session-group-unattributed:no-dispatch").waitFor();
+      // 关掉筛选:列表回到全部桶。
+      await toggleFailedFilter(page);
+      await page.getByTestId(`session-group-${FIXTURE_TASK}`).waitFor();
+      await page.getByTestId("session-group-unattributed:no-dispatch").waitFor();
+    }
+    await page.setViewportSize(originalViewport);
 
     // 4. 各维度 totals.sessions 相等:对照 daemon 的 runtime-session-groups 读命令。
     const { endpoint, repoId } = await isolatedDaemonTarget(app);
@@ -247,3 +259,14 @@ export default {
       );
   },
 };
+
+async function toggleFailedFilter(page) {
+  const inline = page.getByTestId("sessions-status-failed");
+  if (await inline.isVisible()) {
+    await inline.click();
+    return;
+  }
+  await page.getByTestId("sessions-status-filter-menu").click();
+  await page.getByTestId("sessions-status-menu-failed").click();
+  await page.keyboard.press("Escape");
+}
