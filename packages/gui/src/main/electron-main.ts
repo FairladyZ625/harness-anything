@@ -48,6 +48,10 @@ import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 process.on("uncaughtException", (err) => console.error("[FATAL] uncaughtException:", err));
 process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledRejection:", err));
 
+// Automated Electron runs render normally but never claim the user's desktop.
+const backgroundTest = app.commandLine.hasSwitch("headless");
+if (backgroundTest && process.platform === "darwin") app.setActivationPolicy("accessory");
+
 let _globalMainWindow: BrowserWindow | null = null;
 
 export function createMainWindow(): BrowserWindow {
@@ -66,7 +70,9 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 1120,
     minHeight: 720,
     show: false,
+    focusable: !backgroundTest,
     webPreferences: {
+      backgroundThrottling: !backgroundTest,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -77,8 +83,10 @@ export function createMainWindow(): BrowserWindow {
   });
 
   mainWindow.once("ready-to-show", () => {
-    mainWindow.show();
-    mainWindow.focus();
+    if (!backgroundTest) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: evaluateWindowOpenRequest().action }));
   // 单文档应用:窗口只可停在入口文档上。dev 态同源任意路径(Markdown 外链的绝对
