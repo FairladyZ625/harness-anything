@@ -385,7 +385,7 @@ function readWorktreeDocument(
   };
 }
 
-function mediaTypeForBinaryPath(relative: string, fallback: string | null): string | null {
+export function mediaTypeForBinaryPath(relative: string, fallback: string | null): string | null {
   const extension = path.extname(relative).toLowerCase();
   return (
     {
