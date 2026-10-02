@@ -3,7 +3,8 @@ set -euo pipefail
 umask 077
 
 # User-space Fleet center deployment for the W5-R rehearsal. This script never
-# uses sudo, edits service configuration, or persists a Git credential.
+# uses sudo, edits service configuration, or touches the host's default Harness
+# daemon.
 
 action=${1:-}
 case "$action" in
@@ -22,8 +23,7 @@ daemon_id=${HARNESS_CENTER_DAEMON_ID:-center-rehearsal}
 repo_id=${HARNESS_CENTER_REPO_ID:-canonical}
 app_url=${HARNESS_CENTER_APP_URL:-https://github.com/FairladyZ625/harness-anything.git}
 app_ref=${HARNESS_CENTER_APP_REF:-origin/main}
-ledger_url=${HARNESS_CENTER_LEDGER_URL:-}
-ledger_branch=${HARNESS_CENTER_LEDGER_BRANCH:-master}
+backup_dir=${HARNESS_CENTER_BACKUP_DIR:-}
 fleet_port=${HARNESS_CENTER_PORT:-7443}
 fleet_bind=${HARNESS_CENTER_BIND:-0.0.0.0}
 fleet_quota_bytes=${HARNESS_CENTER_QUOTA_BYTES:-4294967296}
@@ -40,14 +40,6 @@ node_sha256=55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742
 node_root="$HOME/.local/opt/$node_dist"
 node_bin="$node_root/bin/node"
 cli_entry="$app_root/packages/cli/dist/cli/src/index.js"
-
-# Consume the first-start credential before git/npm inherit stdin. Keep it only
-# in this process and never place it in an argument, URL, file, or git config.
-center_git_token=
-if [[ ${HARNESS_CENTER_GIT_TOKEN_STDIN:-0} == 1 ]]; then
-  IFS= read -r center_git_token
-  [[ -n $center_git_token ]] || { echo "centerctl: GitLab token stdin was empty" >&2; exit 1; }
-fi
 
 fail() { echo "centerctl: $*" >&2; exit 1; }
 note() { echo "centerctl: $*"; }
@@ -122,36 +114,65 @@ stop_daemon_if_running() {
   fi
 }
 
-clone_private_ledger() {
-  [[ -n $ledger_url ]] || fail "set HARNESS_CENTER_LEDGER_URL for the first up"
-  [[ ${HARNESS_CENTER_GIT_TOKEN_STDIN:-0} == 1 ]] || fail "set HARNESS_CENTER_GIT_TOKEN_STDIN=1 and provide the token on stdin for the first up"
-  GITLAB_TOKEN=$center_git_token git \
-    -c 'credential.helper=!f() { echo username=oauth2; echo "password=$GITLAB_TOKEN"; }; f' \
-    clone --branch "$ledger_branch" "$ledger_url" "$repo_root/harness"
-  GITLAB_TOKEN=$center_git_token git -C "$repo_root/harness" \
-    -c 'credential.helper=!f() { echo username=oauth2; echo "password=$GITLAB_TOKEN"; }; f' \
-    fetch origin 'refs/ha/*:refs/ha/*'
-  unset center_git_token
-  git -C "$repo_root/harness" fsck --full --no-dangling
-  note "private inner ledger cloned without persisting its credential"
+# A Git clone of the private ledger is not a bootstrappable center: the SQLite
+# canonical store and its activation never enter Git (F-BE0B012E). The first up
+# instead restores a consistent backup produced by `ha backup` on the source
+# machine, which carries the accepted SQLite ledger, the activation, and the
+# authored tree as one verified unit.
+restore_repo_from_backup() {
+  if [[ -d $repo_root/harness ]]; then
+    validate_restore_receipt "$center_root/restore-receipt.json" ||
+      fail "$repo_root is present but has no accepted restore receipt; inspect $center_root/restore-receipt.json"
+    note "repository already present at $repo_root"
+    return
+  fi
+  [[ ! -e $repo_root ]] || fail "$repo_root already exists; inspect it instead of restoring over it"
+  [[ -n $backup_dir ]] || fail "set HARNESS_CENTER_BACKUP_DIR to a backup produced by 'ha backup' for the first up"
+  [[ -f $backup_dir/manifest.json ]] || fail "HARNESS_CENTER_BACKUP_DIR has no manifest.json; pass a directory produced by 'ha backup'"
+  admit_backup "$backup_dir/manifest.json" || fail "$backup_dir is not admissible for this center; inspect its manifest.json"
+  local receipt="$center_root/restore-receipt.json"
+  ha restore "$backup_dir" --to "$repo_root" >"$receipt" || fail "restore failed; inspect $receipt"
+  validate_restore_receipt "$receipt" || fail "restore did not produce a bootstrappable center ledger; inspect $receipt"
+  note "ledger restored to $repo_root from $backup_dir"
 }
 
-bootstrap_registry_and_clone() {
-  if [[ -d $repo_root/harness/.git ]]; then return; fi
-  [[ ! -e $repo_root/harness ]] || fail "$repo_root/harness exists but is not a Git checkout"
-  [[ ! -e $center_root/bootstrap-harness ]] || fail "$center_root/bootstrap-harness already exists while the real ledger is absent"
-  mkdir -p "$repo_root"
-  ha --root "$repo_root" init --repo-id "$repo_id" --person-id rehearsal-server-owner \
-    --display-name "W5-R Server Bootstrap" --name w5r-center-bootstrap >/dev/null
+# The admission decisions the backup's own manifest already carries: the restore
+# receipt only echoes these fields, so a backup this center would reject is
+# refused before `ha restore` materializes anything. A materialized-but-rejected
+# restore would leave a directory that a later up must not mistake for an
+# initialized repository.
+admit_backup() {
+  "$node_bin" -e '
+    const fs = require("node:fs"), manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const reject = (reason) => { process.stderr.write(`centerctl: ${reason}\n`); process.exit(1); };
+    if (manifest.schema !== "ledger-backup/v1") reject("the backup manifest is not ledger-backup/v1");
+    if (manifest.sqlite?.present !== true) reject("the backup carries no SQLite canonical store");
+    if (manifest.registration && manifest.registration.repoId !== process.argv[2])
+      reject(`the backup belongs to repository ${manifest.registration.repoId}, not ${process.argv[2]}`);
+  ' "$1" "$repo_id"
+}
+
+validate_restore_receipt() {
+  "$node_bin" -e '
+    const fs = require("node:fs"), receipt = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const reject = (reason) => { process.stderr.write(`centerctl: ${reason}\n`); process.exit(1); };
+    if (receipt.ok !== true || receipt.schema !== "ledger-restore-receipt/v1") reject("restore did not succeed");
+    if (receipt.sqlite?.present !== true) reject("the backup carries no SQLite canonical store");
+    if (receipt.registration && receipt.registration.repoId !== process.argv[2])
+      reject(`the backup belongs to repository ${receipt.registration.repoId}, not ${process.argv[2]}`);
+  ' "$1" "$repo_id"
+}
+
+register_restored_repo() {
   ha daemon repo register --repo-id "$repo_id" --root "$repo_root" --mode remote-center >/dev/null
-  stop_daemon_if_running
-  mv "$repo_root/harness" "$center_root/bootstrap-harness"
-  clone_private_ledger
 }
 
-start_daemon_and_wait() {
+start_daemon() {
   mkdir -p "$user_root"
   ha daemon start --service >/dev/null
+}
+
+wait_for_center_repo() {
   local deadline=$((SECONDS + 900)) status_file="$center_root/daemon-status.json"
   while (( SECONDS < deadline )); do
     if ha daemon status >"$status_file" 2>/dev/null && "$node_bin" -e '
@@ -218,7 +239,7 @@ NODE
   mv "$fleet_root/roster.json.staging" "$fleet_root/roster.json"
   local anchor
   anchor=$(find "$repo_root/harness/tasks" -type f -name INDEX.md -exec grep -l -F "task_id: $assignment_task_id" {} + 2>/dev/null | head -n 1 || true)
-  [[ -n $anchor ]] || fail "assignment anchor task $assignment_task_id is missing from the cloned ledger"
+  [[ -n $anchor ]] || fail "assignment anchor task $assignment_task_id is missing from the restored ledger"
 }
 
 tls_healthy() {
@@ -279,8 +300,10 @@ fi
 
 ensure_node
 ensure_app
-bootstrap_registry_and_clone
-start_daemon_and_wait
+restore_repo_from_backup
+start_daemon
+register_restored_repo
+wait_for_center_repo
 rebuild_projection
 start_authorization_service
 ensure_tls_and_roster
