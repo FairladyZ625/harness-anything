@@ -4,8 +4,8 @@ import { BoundedContent } from "./BoundedContent";
 /**
  * 记录行原语(标准 §4.1 长值契约的共用记录布局):长 ID、状态词、长正文、
  * 时间与行尾动作的收缩/换行/容器响应只在这里定——
- * - 元数据行是 minmax(0,1fr)_auto 两轨:长 ID 截断留在标识格,时间/动作行尾
- *   不被挤走;auto 轨道按 max-content 取宽会让长 ID 以自然宽撑破窄容器,标识轨必为定宽轨。
+ * - 窄容器元数据分行，宽容器两轨都可收缩；时间/长派工号/多动作不能用
+ *   intrinsic auto 轨道吃光标识宽度。正文独占下行，不受元数据排列影响。
  * - 长正文独占记录容器全宽(S7 实测:三列布局把评审正文挤进 ~320px 中列不可读):
  *   词内换行,读多少由记录实际拿到的宽度决定,不与标识/时间分列。
  * - 聚焦/选中态与 DenseRow.selected、DayDigest 行同一高亮语汇。
@@ -49,13 +49,13 @@ export function RecordRow({
       data-focused={focused || undefined}
       className={`@container ${focused ? FOCUS_CLS : ""}`}
     >
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 py-3">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-x-3 gap-y-2 py-3 @[640px]:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-0.5 break-words">
           {id}
           {state !== undefined ? state : null}
         </div>
         {time !== undefined || action !== undefined ? (
-          <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className="flex min-w-0 flex-col items-start gap-1 [overflow-wrap:anywhere] @[640px]:items-end">
             {time}
             {action}
           </div>
