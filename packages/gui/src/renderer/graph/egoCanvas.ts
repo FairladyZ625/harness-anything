@@ -23,7 +23,7 @@ import { STATUS_META } from "../components/badges";
  *   egoNeighborsOf   — 某节点经轴过滤的一跳邻居(expandNode 长出下一环用)。
  *   layoutEgoCanvas  — 给定 (focusId, shown, expanded, filters) → 节点位置 + 边。
  *
- * 不变量:布局只依赖 (focusId, shown, expanded, filters)。展开只往 shown 里加、
+ * 不变量:布局接续宿主保存的中心。初次摆放预留卡片范围;展开只往 shown 里加、
  * 收起只从 expanded 里减 —— 已铺开的邻居永不撤回,画布永不因节点交互重排
  * (换焦点/跳数步进/分层开关这些显式视图切换才重铺)。
  */
@@ -304,6 +304,8 @@ export interface EgoCanvasInput {
   shown: ReadonlyMap<string, number>;
   /** 渲染为原位卡片的 node id(其余为紧凑 chip)。 */
   expanded: ReadonlySet<string>;
+  /** 已摆放的中心,显式重铺时由宿主清空。 */
+  centers?: ReadonlyMap<string, { x: number; y: number }>;
 }
 
 export interface EgoCanvasLayout {
@@ -335,7 +337,9 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
   const typeOn = (entity: EgoEntity): boolean => filters.types === null || filters.types.has(entity);
   const dimOf = (id: string) => {
     const meta = byId.get(id);
-    return egoNodeDims(meta?.entity ?? "task", expanded.has(id), meta?.row, id === focusId);
+    const dims = egoNodeDims(meta?.entity ?? "task", true, meta?.row, id === focusId);
+    // 初次摆放预留卡片的最大阅读范围,展开时无须挪动邻居让位。
+    return { w: dims.w, h: id === focusId ? H_CAP_FOCUS : H_CAP_PERIPH };
   };
 
   // ── 可见集:shown ∩ 类型开关;焦点恒可见(不被自身类型开关抹掉) ──
@@ -396,8 +400,11 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     ["up", -1],
   ] as const) {
     let cx = dimOf(focusId).w / 2;
-    let depth = 1;
-    while (cols.has(`${sideKey}:${depth}`)) {
+    const depths = [...cols.keys()]
+      .filter((key) => key.startsWith(`${sideKey}:`))
+      .map((key) => Number(key.split(":")[1]))
+      .sort((a, b) => a - b);
+    for (const depth of depths) {
       const ids = cols.get(`${sideKey}:${depth}`)!;
       ids.sort((a, b) => barycenter(a, depth - 1) - barycenter(b, depth - 1) || a.localeCompare(b));
       const colW = Math.max(...ids.map((id) => dimOf(id).w));
@@ -410,8 +417,34 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
         y += h + GAP_Y;
       }
       cx += colW / 2;
-      depth += 1;
     }
+  }
+
+  // 已有节点锁定中心;新邻居只寻找空位,不会推走旧列。每次碰撞把候选 y
+  // 推到冲突节点的下边界之后,单调向下且已占用集合有限。
+  const placed = new Map<string, { x: number; y: number }>();
+  for (const id of vis) {
+    const center = input.centers?.get(id);
+    if (center) placed.set(id, center);
+  }
+  for (const id of vis) {
+    if (placed.has(id)) continue;
+    const center = { ...pos.get(id)! };
+    const dims = dimOf(id);
+    let conflicts: string[];
+    do {
+      conflicts = [...placed.keys()].filter((other) => {
+        const at = placed.get(other)!;
+        const size = dimOf(other);
+        return (
+          Math.abs(center.x - at.x) < (dims.w + size.w) / 2 + GAP_X &&
+          Math.abs(center.y - at.y) < (dims.h + size.h) / 2 + GAP_Y
+        );
+      });
+      if (conflicts.length)
+        center.y = Math.max(...conflicts.map((other) => placed.get(other)!.y + (dimOf(other).h + dims.h) / 2 + GAP_Y));
+    } while (conflicts.length > 0);
+    placed.set(id, center);
   }
 
   // ── 组装节点 ──
@@ -419,7 +452,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
   for (const id of vis) {
     const meta = byId.get(id);
     if (!meta) continue;
-    const center = pos.get(id) ?? { x: 0, y: 0 };
+    const center = placed.get(id)!;
     const isExpanded = expanded.has(id);
     const { w, h } = egoNodeDims(meta.entity, isExpanded, meta.row, id === focusId);
     // 「还有多少邻居没铺开」—— chip 上的 +N 徽章,点开这张卡片会长出它们。

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, createElement, useState } from "react";
+import { act, createElement, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ReactFlowProps } from "@xyflow/react";
 import type { EgoFlowNode, EgoFlowEdge } from "../src/renderer/graph/egoCanvas.ts";
@@ -10,10 +10,12 @@ import { projectedTaskFields } from "./task-projection-fields.ts";
 import { clearEgoSession, readEgoSessionFor } from "../src/renderer/graph/egoSession.ts";
 
 let flow: ReactFlowProps<EgoFlowNode, EgoFlowEdge>;
+const setCenter = vi.fn();
 vi.mock("@xyflow/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@xyflow/react")>();
   return {
     ...actual,
+    useReactFlow: () => ({ ...actual.useReactFlow(), setCenter }),
     ReactFlow: (props: ReactFlowProps<EgoFlowNode, EgoFlowEdge>) => {
       flow = props;
       return createElement(actual.ReactFlow, props);
@@ -99,7 +101,7 @@ beforeEach(async () => {
   document.body.appendChild(div);
   root = createRoot(div);
   await act(async () => {
-    root.render(createElement(Journey));
+    root.render(createElement(StrictMode, null, createElement(Journey)));
   });
 });
 afterEach(async () => {
@@ -125,12 +127,18 @@ describe("主图探索的所有权与节点中心", () => {
       flow.onMoveEnd!(null, { x: 0, y: 0, zoom: 1 });
     });
     await click(nodeElement("d", "ego-chip"));
+    expect(readEgoSessionFor("repo-a", "task/a")?.viewport).toEqual(viewport);
+    setCenter.mockClear();
     await click(div.querySelector<HTMLElement>("[data-testid='back']")!);
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
     expect(flow.nodes!.find((node) => node.data.focus)?.id).toBe("a");
     expect(nodeElement("fact/F-B", "ego-card")).toBeTruthy();
     expect(nodeElement("d", "ego-chip")).toBeTruthy();
     expect(flow.defaultViewport).toEqual(viewport);
     expect(centers()).toEqual(before);
+    expect(setCenter).not.toHaveBeenCalled();
     expect(readEgoSessionFor("repo-a", "task/a")?.expanded).toContain("fact/F-B");
   });
 
@@ -140,6 +148,20 @@ describe("主图探索的所有权与节点中心", () => {
     expect(flow.nodes!.some((node) => node.id === "d")).toBe(true);
     for (const [id, center] of before) expect(centers().get(id), id).toEqual(center);
     const expanded = centers();
+    for (const id of ["c", "d"]) {
+      await click(nodeElement(id, "ego-chip"));
+      expect(centers()).toEqual(expanded);
+    }
+    for (const node of flow.nodes!)
+      for (const other of flow.nodes!) {
+        if (node.id === other.id) continue;
+        expect(
+          node.position.x + Number(node.width) <= other.position.x ||
+            other.position.x + Number(other.width) <= node.position.x ||
+            node.position.y + Number(node.height) <= other.position.y ||
+            other.position.y + Number(other.height) <= node.position.y,
+        ).toBe(true);
+      }
     await click(nodeElement("fact/F-B", "ego-card-collapse"));
     expect(centers()).toEqual(expanded);
     await click(nodeElement("fact/F-B", "ego-chip"));

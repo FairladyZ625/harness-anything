@@ -191,6 +191,30 @@ describe("分层分列", () => {
 });
 
 describe("原位展开(图场景 2026-10-02:展开节点成卡片,尺寸随内容)", () => {
+  it("相同 shown/focus 下展开不改变任何中心,全部成卡后仍无重叠", () => {
+    const { tasks, decisions, facts, relations } = claimAnchoredFixture();
+    const graph = buildEgoGraph(tasks, decisions, facts, relations);
+    const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
+    const input = { focusId: "decision/dec_1", graph, relations, filters, shown };
+    const chips = layoutEgoCanvas({ ...input, expanded: new Set() });
+    const cards = layoutEgoCanvas({ ...input, expanded: new Set(shown.keys()) });
+    for (const node of cards.nodes) {
+      const before = chips.nodes.find((other) => other.id === node.id)!;
+      expect([node.position.x + Number(node.width) / 2, node.position.y + Number(node.height) / 2]).toEqual([
+        before.position.x + Number(before.width) / 2,
+        before.position.y + Number(before.height) / 2,
+      ]);
+      for (const other of cards.nodes) {
+        if (node.id === other.id) continue;
+        const separated =
+          node.position.x + Number(node.width) <= other.position.x ||
+          other.position.x + Number(other.width) <= node.position.x ||
+          node.position.y + Number(node.height) <= other.position.y ||
+          other.position.y + Number(other.height) <= node.position.y;
+        expect(separated).toBe(true);
+      }
+    }
+  });
   it("未展开的节点一律 chip 尺寸;展开的节点按卡片尺寸参与分列", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
@@ -263,6 +287,27 @@ describe("原位展开(图场景 2026-10-02:展开节点成卡片,尺寸随内�
 });
 
 describe("筛选", () => {
+  it("类型筛选移除中间节点后仍为孤立的 shown 节点摆放有限中心", () => {
+    const tasks = [task({ taskId: "root" }), task({ taskId: "leaf" })];
+    const decisions = [dec()];
+    const relations: RelationEdge[] = [
+      { from: "task/root", to: "decision/dec_1", kind: "derives", provenance: "local-document" },
+      { from: "decision/dec_1", to: "task/leaf", kind: "derives", provenance: "local-document" },
+    ];
+    const graph = buildEgoGraph(tasks, decisions, [], relations);
+    const layout = layoutEgoCanvas({
+      focusId: "root",
+      graph,
+      relations,
+      shown: bfsShownFromFocus(graph, "root", HOPS_2, filters.axes),
+      expanded: new Set(),
+      filters: { ...filters, types: new Set(["task"]) },
+    });
+    expect(layout.nodes.map((node) => node.id)).toEqual(["root", "leaf"]);
+    const leaf = layout.nodes.find((node) => node.id === "leaf")!;
+    expect(Number.isFinite(leaf.position.x) && Number.isFinite(leaf.position.y)).toBe(true);
+    expect(leaf.position.x).toBeGreaterThan(0);
+  });
   it("类型开关关掉 fact 后 fact 不进画布,但焦点恒可见", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);

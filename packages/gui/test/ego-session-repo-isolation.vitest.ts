@@ -67,6 +67,7 @@ async function mount(repoId: string) {
   await act(async () => {
     root.render(
       createElement(EgoNeighborhood, {
+        rememberSession: true,
         repoId,
         focusRef: "decision/d1",
         hops: { up: 1, down: 1 },

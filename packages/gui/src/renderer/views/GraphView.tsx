@@ -625,6 +625,7 @@ function GraphViewInner({
           )}
           <EgoNeighborhood
             repoId={repoId}
+            rememberSession
             focusRef={focusRef}
             tasks={tasks}
             decisions={decisions}

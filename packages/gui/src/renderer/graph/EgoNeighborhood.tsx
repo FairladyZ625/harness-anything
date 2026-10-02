@@ -51,7 +51,7 @@ import {
  * 契约:
  *   focusRef 变化 → 画布重排到新焦点(±hops 跳);
  *   focusRef 变 null → 累积态清空(与 GraphView 原 clearFocus 行为一致);
- *   挂载时 egoSession 有同仓同焦点会话 → 原样接续(焦点/铺开/展开/viewport 不重排);
+ *   主图启用 rememberSession 后同仓同焦点挂载 → 原样接续;嵌入邻域不读写会话;
  *   onRefocus        — 双击节点 / 卡片「设为焦点」(宿主决定是换焦点还是跳页);
  *   onNavigateEntity — 卡片「详情」(跳去该实体的详情页,返回经会话恢复原图)。
  */
@@ -77,6 +77,8 @@ export function defaultNeighborhoodFilters(): EgoNeighborhoodFilters {
 export type EgoNeighborhoodProps = {
   /** 会话归属仓:egoSession 按 repoId 隔离,同名 ref 跨仓不互读。 */
   repoId: string;
+  /** 主图导航上下文持有会话;嵌入邻域默认不读写它。 */
+  rememberSession?: boolean;
   focusRef: string | null;
   tasks: readonly TaskRow[];
   decisions: DecisionRow[];
@@ -116,6 +118,7 @@ const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 } as const;
 
 function EgoNeighborhoodInner({
   repoId,
+  rememberSession = false,
   focusRef,
   tasks,
   decisions,
@@ -140,7 +143,9 @@ function EgoNeighborhoodInner({
   const colorMode = useColorMode();
   const { setCenter, getZoom } = useReactFlow();
   // 会话恢复的视口只取一次(挂载时的初值);之后视口归用户的 pan/zoom。
-  const [initialViewport] = useState(() => readEgoSessionFor(repoId, focusRef)?.viewport ?? DEFAULT_VIEWPORT);
+  const [session] = useState(() => (rememberSession ? readEgoSessionFor(repoId, focusRef) : null));
+  const initialViewport = session?.viewport ?? DEFAULT_VIEWPORT;
+  const positionsRef = useRef({ version: 0, centers: new Map(session?.centers ?? []) });
 
   const statusFilter = filters.statusFilter ?? DEFAULT_STATUS_FILTER;
   const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
@@ -162,6 +167,7 @@ function EgoNeighborhoodInner({
     governed,
     axes: filters.axes,
     repoId,
+    rememberSession,
     focusRef,
     hops,
     allowedIds,
@@ -201,6 +207,7 @@ function EgoNeighborhoodInner({
             },
             shown: canvas.shown,
             expanded: canvas.expanded,
+            centers: positionsRef.current.version === canvas.layoutVersion ? positionsRef.current.centers : undefined,
           })
         : null,
     [
@@ -208,6 +215,7 @@ function EgoNeighborhoodInner({
       canvas.graph,
       canvas.shown,
       canvas.expanded,
+      canvas.layoutVersion,
       relations,
       filters.axes,
       filters.kinds,
@@ -215,6 +223,21 @@ function EgoNeighborhoodInner({
       filters.flowMode,
     ],
   );
+
+  useEffect(() => {
+    if (!spotlight?.focusId) return;
+    const centers =
+      positionsRef.current.version === canvas.layoutVersion
+        ? new Map(positionsRef.current.centers)
+        : new Map<string, { x: number; y: number }>();
+    for (const node of spotlight.nodes)
+      centers.set(node.id, {
+        x: node.position.x + Number(node.width) / 2,
+        y: node.position.y + Number(node.height) / 2,
+      });
+    positionsRef.current = { version: canvas.layoutVersion, centers };
+    if (rememberSession) mergeEgoSession(repoId, { focusRef: spotlight.focusId, centers: [...centers] });
+  }, [spotlight, canvas.layoutVersion, rememberSession, repoId]);
 
   const statusVisibleIds = useMemo(() => {
     if (!spotlight) return null;
@@ -273,14 +296,12 @@ function EgoNeighborhoodInner({
   // 布局器把焦点节点的几何中心恒置于流坐标原点,所以定心到 (0,0) 即是定心到焦点;
   // zoom 原样带过去 —— 缩放级别只由用户自己改,不由节点数决定。会话恢复的那次挂载
   // 不平移:用户离开时的 pan/zoom 由 defaultViewport 原样接续。
-  const skipFirstCenterRef = useRef(canvas.restored);
+  const hydratedFocusRef = useRef(canvas.restored ? canvas.focusId : null);
   useEffect(() => {
     if (!active) return;
     if (!canvas.focusId) return;
-    if (skipFirstCenterRef.current) {
-      skipFirstCenterRef.current = false;
-      return;
-    }
+    if (hydratedFocusRef.current === canvas.focusId) return;
+    hydratedFocusRef.current = null;
     const frame = requestAnimationFrame(() => void setCenter(0, 0, { zoom: getZoom(), duration: 200 }));
     return () => cancelAnimationFrame(frame);
   }, [active, canvas.focusId, setCenter, getZoom]);
@@ -288,9 +309,9 @@ function EgoNeighborhoodInner({
   // 用户 pan/zoom 落进会话(详情页返回按它恢复;非恢复挂载的初值即 DEFAULT_VIEWPORT)。
   const onMoveEnd: OnMoveEnd = useCallback(
     (_event, viewport) => {
-      mergeEgoSession(repoId, { viewport });
+      if (rememberSession) mergeEgoSession(repoId, { viewport });
     },
-    [repoId],
+    [repoId, rememberSession],
   );
 
   // Esc 收正文:收起全部原位卡片 + 清边选中。只动阅读层 —— 已长出的邻居(shown)

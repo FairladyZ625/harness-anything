@@ -42,6 +42,8 @@ export interface EgoCanvasState {
   expanded: Set<string>;
   /** 本次挂载是否从会话恢复(恢复的那一拍不重铺、不平移相机)。 */
   restored: boolean;
+  /** 显式重铺的代次;阅读层变化不会推进。 */
+  layoutVersion: number;
   /** 设为画布中心:切焦点 + 重排 ±hops 跳(双击节点 / 卡片「设为焦点」的唯一重排动作)。 */
   openFocus: (ref: string) => void;
   /** chip 就地展开成卡片,并把它的一跳邻居加入 shown(长出下一环,累积)。 */
@@ -65,6 +67,7 @@ export function useEgoCanvas({
   governed = [],
   axes,
   repoId,
+  rememberSession = false,
   focusRef,
   hops = EGO_DEFAULT_HOPS,
   allowedIds = null,
@@ -82,6 +85,8 @@ export function useEgoCanvas({
   axes: EgoAxisFilter;
   /** 会话归属仓(egoSession 的隔离键;同名 ref 跨仓不互读)。 */
   repoId: string;
+  /** 只有主图导航上下文接入恢复会话;详情/工作内的预览保持组件态。 */
+  rememberSession?: boolean;
   focusRef: string | null;
   /** 铺开跳数预算(父 ↑ / 子 ↓ 各一)。变更时从当前焦点重铺,累积展开集随之清空。 */
   hops?: EgoHopBudget;
@@ -92,13 +97,16 @@ export function useEgoCanvas({
 }): EgoCanvasState {
   // 会话恢复只在挂载时判定一次:同焦点的上一段会话原样接续,不做任何重铺。
   const hydrationRef = useRef<EgoSessionEntry | null | undefined>(undefined);
-  if (hydrationRef.current === undefined) hydrationRef.current = readEgoSessionFor(repoId, focusRef);
+  if (hydrationRef.current === undefined)
+    hydrationRef.current = rememberSession ? readEgoSessionFor(repoId, focusRef) : null;
   const hydration = hydrationRef.current;
   const restored = hydration !== null;
   const [focusId, setFocusId] = useState<string | null>(hydration?.focusRef ?? null);
   const [shown, setShown] = useState<Map<string, number>>(() => new Map(hydration?.shown ?? []));
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(hydration?.expanded ?? []));
-  const skipFirstLayoutRef = useRef(restored);
+  // 恢复输入没有改变时不重铺,包括 StrictMode 重放挂载 effect。
+  const hydratedLayoutRef = useRef(restored ? { focusRef, repoId, layered, hops } : null);
+  const [layoutVersion, setLayoutVersion] = useState(0);
 
   const graph = useMemo(
     () => buildEgoGraph(tasks, decisions, facts, relations, factAnchors, { agents, schedules }, governed),
@@ -112,6 +120,7 @@ export function useEgoCanvas({
       setShown(bfsShownFromFocus(graph, canonical, hops, axes, allowedIds));
       // 焦点默认展开成卡片(它是阅读主体),邻居保持紧凑 chip。
       setExpanded(new Set([canonical]));
+      setLayoutVersion((version) => version + 1);
     },
     [graph, axes, hops, allowedIds],
   );
@@ -149,8 +158,9 @@ export function useEgoCanvas({
     setFocusId(null);
     setShown(new Map());
     setExpanded(new Set());
-    clearEgoSession();
-  }, []);
+    setLayoutVersion((version) => version + 1);
+    if (rememberSession) clearEgoSession();
+  }, [rememberSession]);
 
   // 外部焦点(领地 chip / 命令面板 / 焦点历史)到达 → 重排画布到该焦点。
   // 密度分层开关翻转、跳数预算变更同样重铺(两者都是显式的视图切换,后者来自图谱页
@@ -159,19 +169,25 @@ export function useEgoCanvas({
   // 刷新变化不在此列 —— 那不是用户动作,不该清掉已铺开的画布。会话恢复的那一次
   // 挂载被跳过(状态已从会话种入)。
   useEffect(() => {
-    if (!focusRef) return;
-    if (skipFirstLayoutRef.current) {
-      skipFirstLayoutRef.current = false;
+    const hydrated = hydratedLayoutRef.current;
+    if (
+      hydrated &&
+      hydrated.focusRef === focusRef &&
+      hydrated.repoId === repoId &&
+      hydrated.layered === layered &&
+      hydrated.hops === hops
+    )
       return;
-    }
+    hydratedLayoutRef.current = null;
+    if (!focusRef) return;
     openFocusRef.current(focusRef);
   }, [focusRef, repoId, layered, hops]);
 
   // 会话落盘:焦点/铺开/展开变化即写入(详情页返回靠它接续);换仓的写入重置槽。
   useEffect(() => {
-    if (focusId === null) return;
+    if (!rememberSession || focusId === null) return;
     mergeEgoSession(repoId, { focusRef: focusId, shown: [...shown], expanded: [...expanded] });
-  }, [repoId, focusId, shown, expanded]);
+  }, [rememberSession, repoId, focusId, shown, expanded]);
 
   return {
     graph,
@@ -179,6 +195,7 @@ export function useEgoCanvas({
     shown,
     expanded,
     restored,
+    layoutVersion,
     openFocus,
     expandNode,
     collapseNode,

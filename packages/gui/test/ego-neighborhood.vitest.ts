@@ -65,6 +65,7 @@ async function mount(props: Partial<Parameters<typeof EgoNeighborhood>[0]> = {})
   await act(async () => {
     root.render(
       createElement(EgoNeighborhood, {
+        rememberSession: true,
         repoId: "repo-a",
         focusRef: "decision/d1",
         tasks: fixtures.tasks,
