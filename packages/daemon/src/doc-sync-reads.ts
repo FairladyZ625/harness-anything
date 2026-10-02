@@ -401,6 +401,10 @@ export function mediaTypeForBinaryPath(relative: string, fallback: string | null
       ".pdf": "application/pdf",
       ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       ".doc": "application/msword",
+      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+      ".xls": "application/vnd.ms-excel",
+      ".ods": "application/vnd.oasis.opendocument.spreadsheet",
     }[extension] ?? fallback
   );
 }

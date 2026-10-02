@@ -184,10 +184,15 @@ test("missing files, directories, binary files and oversize files fail typed", a
     assert.equal(image.bytes, pngBytes.toString("base64"));
   }
 
-  // Binary-format viewers also need textual encodings (SVG and uncompressed PDF).
+  // Binary-format viewers also need textual encodings (SVG and uncompressed PDF),
+  // and spreadsheet previews are keyed by extension with the macro-enabled type kept distinct.
   for (const [name, body, mediaType] of [
     ["drawing.svg", '<svg xmlns="http://www.w3.org/2000/svg"><text>Visible</text></svg>', "image/svg+xml"],
     ["document.pdf", "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n%%EOF", "application/pdf"],
+    ["table.xlsx", "PK\u0003\u0004 spreadsheet", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+    ["macro.xlsm", "PK\u0003\u0004 macro", "application/vnd.ms-excel.sheet.macroEnabled.12"],
+    ["legacy.xls", "\u00d0\u00cf spreadsheet", "application/vnd.ms-excel"],
+    ["sheet.ods", "PK\u0003\u0004 ods", "application/vnd.oasis.opendocument.spreadsheet"],
   ]) {
     const file = path.join(root, name);
     writeFileSync(file, body);

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { FileX } from "@phosphor-icons/react";
 import type { PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
 import { extractWordPreview } from "../local-doc/local-doc-client.ts";
-import { DocumentFrame } from "./DocumentFrame";
+import { DocumentFrame, PreviewFailure } from "./DocumentFrame";
+import { SpreadsheetPreview, spreadsheetFormatLabel } from "./SpreadsheetPreview.tsx";
 
 const IMAGE_MEDIA = /^image\/(?:png|jpeg|gif|webp|avif|svg\+xml|bmp|x-icon)$/u;
 const DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -30,6 +31,8 @@ export function BinaryDocumentPreview({
   if (bytes !== null && mediaType === DOCX_MEDIA) return <DocxDocumentPreview path={path} bytes={bytes} />;
   if (mediaType === "application/msword" && bytes !== null)
     return <LegacyWordPreview key={bytes} path={path} bytes={bytes} />;
+  if (bytes !== null && spreadsheetFormatLabel(mediaType) !== null)
+    return <SpreadsheetPreview path={path} mediaType={mediaType!} bytes={bytes} />;
   return (
     <DocumentFrame
       testId="document-binary-preview"
@@ -141,14 +144,6 @@ function DocxDocumentPreview({ path, bytes }: { readonly path: string; readonly 
       <div ref={body} hidden={error !== null} className="docx-preview-host min-w-0 p-4 text-black" />
       {error !== null && <PreviewFailure message={error} />}
     </DocumentFrame>
-  );
-}
-
-function PreviewFailure({ message }: { readonly message: string }) {
-  return (
-    <div role="alert" className="p-6 ui-meta text-danger">
-      无法渲染文件：{message}。仍可使用系统查看器打开原始文件。
-    </div>
   );
 }
 
