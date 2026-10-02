@@ -71,7 +71,7 @@
     "docx-preview": "^0.4.1",
     "electron": "42.11.9",
     "katex": "^0.16.25",
-    "mermaid": "^11.12.2",
+    "mermaid": "^11.17.2",
     "motion": "^13.4.5",
     "pdfjs-dist": "^6.3.289",
     "react": "19.2.7",
