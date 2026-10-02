@@ -207,7 +207,10 @@ export default {
     await page.getByTestId("session-group-unattributed:no-dispatch").waitFor();
 
     // Exercise both real responsive controls; a wide-only run cannot catch a hidden inline selector.
-    const originalViewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    const originalViewport = await page.evaluate(() => ({
+      width: globalThis.innerWidth,
+      height: globalThis.innerHeight,
+    }));
     for (const width of [1100, 1440]) {
       await page.setViewportSize({ width, height: originalViewport.height });
       await page
