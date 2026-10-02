@@ -305,7 +305,7 @@ describe("收口页两消费者共用 RecordRow:记录行与 execution 输出行
             substrate: "repository-path",
             locator: LONG_LOCATOR,
             isPassingReceipt: false,
-            checkerReceiptRef: null,
+            checkerReceiptRef: `checker-receipt/${"a".repeat(64)}`,
             checkerResult: "unknown",
             raw: {},
           },
@@ -335,7 +335,7 @@ describe("收口页两消费者共用 RecordRow:记录行与 execution 输出行
     );
     expect(evidenceLeaf).toBeDefined();
     expectRefLayoutHeld(evidenceLeaf as HTMLElement);
-    const locatorCol = recordRows[0]!.querySelector('[class*="break-words"]');
+    const locatorCol = recordRows[0]!.firstElementChild!.children[1];
     expect(locatorCol).not.toBeNull();
     expect(locatorCol!.textContent).toContain(LONG_LOCATOR);
   });

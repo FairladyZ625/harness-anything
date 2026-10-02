@@ -51,7 +51,7 @@ export function RecordRow({
       {/* 堆叠档也是 minmax(0,1fr) 轨道:auto 轨道按 max-content 取宽会让
           max-width:100% 在不定宽下失效(百分比当 none),长 ID 以自然宽撑破容器。 */}
       <div className="grid grid-cols-1 gap-2 py-3 @min-[420px]:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
-        <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 flex-col gap-0.5 break-words">
           {id}
           {state !== undefined ? state : null}
         </div>
