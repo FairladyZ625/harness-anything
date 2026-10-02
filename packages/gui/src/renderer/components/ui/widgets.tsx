@@ -29,35 +29,6 @@ export function Row({ label, desc, children }: { label: ReactNode; desc?: ReactN
   );
 }
 
-export function Toggle({
-  checked,
-  onChange,
-  disabled,
-}: {
-  checked: boolean;
-  onChange?: (v: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange?.(!checked)}
-      className={`relative inline-flex h-[18px] w-[32px] shrink-0 items-center rounded-full transition-colors ${
-        checked ? "bg-accent" : "bg-border-strong"
-      } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
-    >
-      <span
-        className={`absolute left-[2px] h-[14px] w-[14px] rounded-full transition-transform ${
-          checked ? "translate-x-[14px] bg-accent-fg" : "bg-surface"
-        }`}
-      />
-    </button>
-  );
-}
-
 export function Kbd({ children }: { children: ReactNode }) {
   return (
     <kbd className="rounded border border-border bg-surface-raised px-1.5 py-0.5 font-mono ui-body text-text-muted">

@@ -1,3 +1,4 @@
+import { Toggle } from "../../components/primitives/Toggle.tsx";
 import { SegCtl } from "../../components/primitives/SegCtl.tsx";
 import { useState } from "react";
 import { ArrowsLeftRight, Trash } from "@phosphor-icons/react";
@@ -6,7 +7,7 @@ import type { SystemRepoRow } from "../../api-client.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { t } from "../../i18n/index.tsx";
 import { useRepoAdminMutations } from "../../connection-data.ts";
-import { BTN, Row, Section, Toggle } from "../../components/ui/widgets.tsx";
+import { BTN, Row, Section } from "../../components/ui/widgets.tsx";
 import { RepoModeBadge, repoModeLabel } from "../../components/RepoModeBadge.tsx";
 import { centerConnectionAvailable, isRemoteProxy } from "./connectionTree.ts";
 
@@ -107,6 +108,7 @@ export function RepoDetailPanel({
         </Row>
         <Row label={t("views.repositories.repoStateLabel")} desc={t("views.repositories.repoStateHint")}>
           <Toggle
+            label={t("views.repositories.repoStateLabel")}
             checked={enabled}
             disabled={repoMutations.update.isPending}
             onChange={(state) =>

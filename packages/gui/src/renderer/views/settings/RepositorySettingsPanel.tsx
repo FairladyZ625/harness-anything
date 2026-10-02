@@ -1,7 +1,8 @@
+import { Toggle } from "../../components/primitives/Toggle.tsx";
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { t, type MessageKey } from "../../i18n/index.tsx";
-import { BTN, Section, Row, SettingSelect, Toggle, type SelectorOption } from "../../components/ui/widgets";
+import { BTN, Section, Row, SettingSelect, type SelectorOption } from "../../components/ui/widgets";
 import { useSettingsMutation, useSettingsQuery } from "../../settings-data.ts";
 import { useCatalogSnapshot } from "../../catalog-data.ts";
 import { agentEntityClient, isAvailableAgentEntityRow, type AgentEntityRow } from "../../agent-entity-client.ts";
@@ -601,7 +602,13 @@ function renderFieldControl(
         />
       );
     case "toggle":
-      return <Toggle checked={draft[row.field] === true} onChange={(enabled) => updateDraft(row.field, enabled)} />;
+      return (
+        <Toggle
+          label={row.field}
+          checked={draft[row.field] === true}
+          onChange={(enabled) => updateDraft(row.field, enabled)}
+        />
+      );
     case "number": {
       const value = draft[row.field];
       return (

@@ -1,3 +1,4 @@
+import { Toggle } from "./primitives/Toggle.tsx";
 import { useMemo, useState, type ReactNode } from "react";
 import {
   parseScheduleDuration,
@@ -15,7 +16,7 @@ import {
 } from "@harness-anything/daemon/protocol";
 import type { ScheduleBuiltinEditInput, ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle } from "./runtime/parts.tsx";
+import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput } from "./runtime/parts.tsx";
 
 // M5 guided form: one segment asks one thing (identity → trigger → executor →
 // purpose → mission). The daemon persists identity, interval/cron trigger, executor,

@@ -6,6 +6,7 @@ import { I18nProvider } from "../../i18n/index.tsx";
 import { PageHeader } from "../primitives/PageHeader.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { DenseRow, RowTime } from "../primitives/DenseRow.tsx";
+import { Toggle } from "../primitives/Toggle.tsx";
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { Tabs } from "../primitives/Tabs.tsx";
@@ -57,6 +58,13 @@ function ComponentCatalog() {
       </header>
       <div className="grid gap-10" style={{ maxWidth: narrow ? "24rem" : undefined }} data-testid="catalog-samples">
         <section className="grid gap-3">
+          <h2 className="font-semibold ui-title">开关 / Toggle</h2>
+          <div className="flex items-center gap-3">
+            <Toggle label="窄容器示例" checked={narrow} onChange={setNarrow} /> 窄容器
+          </div>
+          <div className="flex items-center gap-3">
+            <Toggle label="禁用开关" checked disabled /> 禁用
+          </div>
           <h2 className="font-semibold ui-title">分段选择 / SegCtl</h2>
           <p className="text-text-muted ui-meta">统一设置、权限和运行时的选择交互；原生按钮支持键盘并避免提交表单。</p>
           <div>

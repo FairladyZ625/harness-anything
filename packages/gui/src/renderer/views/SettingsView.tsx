@@ -1,3 +1,4 @@
+import { Toggle } from "../components/primitives/Toggle.tsx";
 import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { useState } from "react";
 import { CloudSlash } from "@phosphor-icons/react";
@@ -5,7 +6,7 @@ import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { useMotionPreference, type MotionPreference } from "../motion-config.tsx";
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
-import { BTN, Section, Row, Toggle, Kbd } from "../components/ui/widgets";
+import { BTN, Section, Row, Kbd } from "../components/ui/widgets";
 import {
   formatDuration,
   formatRelative,
@@ -302,7 +303,12 @@ export function SettingsView({
               label={t("views.settingsView.notifyCloseoutReadyLabel")}
               desc={t("views.settingsView.notifyCloseoutReadyDescription")}
             >
-              <Toggle checked={notifyOnReady} onChange={setNotifyOnReady} disabled />
+              <Toggle
+                label={t("views.settingsView.notifyCloseoutReadyLabel")}
+                checked={notifyOnReady}
+                onChange={setNotifyOnReady}
+                disabled
+              />
             </Row>
           </Section>
         );
@@ -331,7 +337,7 @@ export function SettingsView({
         return (
           <Section title={t("views.settingsView.sectionPrivacy")}>
             <Row label={t("views.settingsView.telemetryLabel")} desc={t("views.settingsView.telemetryDescription")}>
-              <Toggle checked={false} disabled />
+              <Toggle label={t("views.settingsView.telemetryLabel")} checked={false} disabled />
             </Row>
           </Section>
         );

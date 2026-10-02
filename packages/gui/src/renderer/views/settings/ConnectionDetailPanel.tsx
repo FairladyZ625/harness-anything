@@ -1,3 +1,4 @@
+import { Toggle } from "../../components/primitives/Toggle.tsx";
 import { useState } from "react";
 import { ArrowsClockwise, CheckSquare, Trash, Square } from "@phosphor-icons/react";
 import type { AdminConnectionRow, ConnectionProbeSuccess } from "../../../api/connection-admin-contract.ts";
@@ -5,7 +6,7 @@ import type { SystemRepoRow } from "../../api-client.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { t } from "../../i18n/index.tsx";
 import { useConnectionMutations, useRepoAdminMutations } from "../../connection-data.ts";
-import { BTN, Row, Section, Toggle } from "../../components/ui/widgets.tsx";
+import { BTN, Row, Section } from "../../components/ui/widgets.tsx";
 
 /**
  * 远端端点连接的详情面(设计稿 §3.2「远端端点连接」列):
@@ -175,6 +176,7 @@ export function ConnectionDetailPanel({
               desc={t("views.repositories.connectionStateHint")}
             >
               <Toggle
+                label={t("views.repositories.connectionStateLabel")}
                 checked={connection.state === "enabled"}
                 disabled={connectionMutations.update.isPending}
                 onChange={(state) => {

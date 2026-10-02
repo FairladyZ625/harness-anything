@@ -1,3 +1,4 @@
+import { Toggle } from "../primitives/Toggle.tsx";
 import { useEffect, useState } from "react";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import { runtimeIsolationState, runtimePermissionMode } from "@harness-anything/daemon/protocol";
@@ -52,7 +53,6 @@ import {
   KVRow,
   Right,
   TextInput,
-  Toggle,
 } from "./parts.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
