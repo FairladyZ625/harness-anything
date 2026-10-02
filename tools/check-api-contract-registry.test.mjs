@@ -89,6 +89,61 @@ test("W3 API registry follows a renamed transport-authority module", () =>
     assert.deepEqual(evaluateApiContractRegistry(root), []);
   }));
 
+for (const [label, before, after] of [
+  ["OIDC verification", "await oidc.bind(auth)", "auth"],
+  ["assignment binding call", "return nodeOwnerBinding(auth)", "return localDefaultBinding(auth, executor)"],
+  ["local expiry guard", "auth.oidcPrincipal.expiresAt <= Date.now()", "false"],
+  ["local person binding", "personId: auth.oidcPrincipal.personId", 'personId: "client-person"'],
+  ["Keycloak session connection", "withSessionEnvironment({", "unboundSession({"],
+  ["Keycloak session credential", "accessToken: auth.oidcPrincipal.accessToken", 'accessToken: "client-token"'],
+  ["registered owner guard", "owner.nodeId !== assignment.nodeId", "false"],
+  ["authenticated owner source", "owner = auth.nodePrincipal", "owner = clientOwner"],
+  ["authenticated assignment source", "assignment = auth.assignmentBinding!", "assignment = clientAssignment"],
+  ["registered person binding", "personId: owner.personId", 'personId: "client-person"'],
+  ["assignment provenance", "nodeId: owner.nodeId", 'nodeId: "client-node"'],
+  ["node Keycloak connection", "auth.keycloakCenter()", "otherAuthority()"],
+  ["center registry connection", "keycloakNodeRegistry(context.keycloakCenter)", "otherRegistry()"],
+  ["node credential validation", "adapter.authenticateNode(nodeId, credential)", "adapter.acceptNode(nodeId)"],
+  ["registered owner lookup", "adapter.readNode(token, nodeId)", "adapter.readClientOwner(nodeId)"],
+]) {
+  test(`API registry rejects loss of ${label} even with the old syntax in prose`, () =>
+    withFixture((root) => {
+      for (const [file, source] of [
+        ["transport-composition.ts", validHostComposition()],
+        ["transport-binding.ts", validTransportBinding()],
+        ["node-registry.ts", validNodeRegistry()],
+      ]) {
+        write(root, `packages/daemon/src/${file}`, source.replace(before, after) + `\n// ${before}\n`);
+      }
+      assert.match(evaluateApiContractRegistry(root).join("\n"), /missing authenticated principal wiring/u);
+    }));
+}
+
+test("API registry rejects a restored roster branch after OIDC binding", () =>
+  withFixture((root) => {
+    write(
+      root,
+      "packages/daemon/src/transport-binding.ts",
+      validTransportBinding().replace(
+        "return localDefaultBinding(auth, executor);\n}",
+        "return rosterBinding(auth);\n}",
+      ),
+    );
+    assert.match(evaluateApiContractRegistry(root).join("\n"), /local ingress must end at authenticated/u);
+  }));
+
+for (const field of ["actor", "root", "source"]) {
+  test(`API registry rejects client ${field} injection`, () =>
+    withFixture((root) => {
+      write(
+        root,
+        "packages/daemon/src/repository-dispatch.ts",
+        validRepositoryDispatch() + `\nexport const injected = payload.${field};\n`,
+      );
+      assert.match(evaluateApiContractRegistry(root).join("\n"), /must bind actor\/root\/source/u);
+    }));
+}
+
 for (const [label, specifier] of [
   ["relative source path", "./unsafe-authority.ts"],
   ["workspace package identity", "@harness-anything/daemon/internal/unsafe-authority"],
@@ -131,6 +186,7 @@ function withFixture(run) {
       "/** @daemon-transport-authority */\nexport function admit(auth) { return auth.assignmentBinding; }\n",
     );
     write(root, "packages/daemon/src/repository-dispatch.ts", validRepositoryDispatch());
+    write(root, "packages/daemon/src/node-registry.ts", validNodeRegistry());
     write(
       root,
       "packages/daemon/src/transport/auth-context.ts",
@@ -154,16 +210,48 @@ function validServer() {
 }
 function validHostComposition() {
   return `/** @daemon-transport-authority */
-import { binding } from "./transport-binding.ts";
+import { binding, binding as deriveBinding } from "./transport-binding.ts";
 import { admit } from "./mode-admission.ts";
 import { run } from "./repository-dispatch.ts";
-export function openDaemonHost() { const cells = new Map<string, RepoCell>(); return { cells, binding, admit, run }; }
+import { keycloakNodeRegistry } from "./node-registry.ts";
+export function openDaemonHost() {
+  const cells = new Map<string, RepoCell>();
+  const hostBinding = async (rootDir, auth, executor) => deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor);
+  const nodes = keycloakNodeRegistry(context.keycloakCenter);
+  return { cells, binding, admit, run, hostBinding, nodes };
+}
 `;
 }
 function validTransportBinding() {
   return `/** @daemon-transport-authority */
-export function binding(auth) { auth.assignmentBinding; ({ kind: "assignment" }); makeTransportDerivedIdentityProvider(); return { actor: true, source: "local" }; }
+export function localDefaultBinding(auth, executor) {
+  if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now()) throw new Error("authentication_required");
+  return withSessionEnvironment({ actor: { principal: { personId: auth.oidcPrincipal.personId }, executor }, source: "local" }, auth);
+}
+function withSessionEnvironment(binding, auth) {
+  return { ...binding, keycloakAuthorization: { session: { accessToken: auth.oidcPrincipal.accessToken } } };
+}
+function nodeOwnerBinding(auth) {
+  const assignment = auth.assignmentBinding!, owner = auth.nodePrincipal;
+  if (!owner || owner.nodeId !== assignment.nodeId || !auth.keycloakCenter) throw new Error("authentication_required");
+  return { actor: { principal: { personId: owner.personId }, executor: null },
+    source: { kind: "assignment", nodeId: owner.nodeId, assignmentId: assignment.assignmentId },
+    keycloakAuthorization: { center: auth.keycloakCenter() } };
+}
+export function binding(rootDir, auth, executor) {
+  if (auth.assignmentBinding) return nodeOwnerBinding(auth);
+  return localDefaultBinding(auth, executor);
+}
 `;
+}
+function validNodeRegistry() {
+  return `export function keycloakNodeRegistry(center) {
+    const open = async () => ({ adapter, token: (await center()).accessToken });
+    return {
+      authenticate: async (nodeId, credential) => (await open()).adapter.authenticateNode(nodeId, credential),
+      nodeOwner: async (nodeId) => { const { adapter, token } = await open(); return (await adapter.readNode(token, nodeId))?.personId || null; }
+    };
+  }`;
 }
 function validRepositoryDispatch() {
   return `/** @daemon-transport-authority */
