@@ -83,6 +83,7 @@ export async function openRepoCellProxy(
       outcomeWaiters.delete(runtimeSessionId);
       for (const waiter of waiters) waiter();
     };
+  let wakeReplica = (): void => undefined;
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   try {
     supervisor = await openWriterSupervisor(
@@ -100,6 +101,7 @@ export async function openRepoCellProxy(
       },
       {
         onAttachStatus: input.onStatus,
+        onPublishedStatus: () => wakeReplica(),
       },
     );
   } catch (error) {
@@ -149,6 +151,7 @@ export async function openRepoCellProxy(
       daemonGeneration: supervisor.status().generation ?? Date.now() * 1_000 + (process.pid % 1_000),
       ...(input.now ? { now: input.now } : {}),
     });
+  wakeReplica = () => replica.kick();
   relayRuntimeSignal = runtime.publish;
   let closed = false;
 
