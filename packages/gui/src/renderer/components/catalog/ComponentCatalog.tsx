@@ -1,6 +1,6 @@
 import { DocReader } from "../DocReader.tsx";
 import { BinaryDocumentPreview } from "../BinaryDocumentPreview.tsx";
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider, useTheme, type ThemeMode } from "../../theme.tsx";
 import { AppMotionConfig, useMotionPreference, type MotionPreference } from "../../motion-config.tsx";
@@ -35,6 +35,36 @@ function ComponentCatalog() {
   const [tab, setTab] = useState<"rows" | "empty">("rows");
   const [selected, setSelected] = useState<string | null>(null);
   const [navigation, setNavigation] = useState("尚未触发导航回调");
+  // 表格示例:用真实 xlsx 在内存里生成一个双表中文工作簿,与预览组件走同一解析路径。
+  const [spreadsheetBytes, setSpreadsheetBytes] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    void import("xlsx").then((XLSX) => {
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet([
+          ["季度", "收入", "同比", "备注"],
+          ["Q1", 1280, true, "华东"],
+          ["Q2", 1495, false, "  含尾差  "],
+        ]),
+        "汇总",
+      );
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet([
+          ["明细", "数量"],
+          ["甲", 3],
+          ["乙", 5],
+        ]),
+        "明细",
+      );
+      if (active) setSpreadsheetBytes(XLSX.write(workbook, { bookType: "xlsx", type: "base64" }));
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   return (
     <main className="min-h-screen bg-bg p-6 text-text sm:p-10" data-testid="component-catalog">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-6 border-b border-border pb-6">
@@ -333,6 +363,13 @@ function ComponentCatalog() {
               '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="180"><rect width="640" height="180" fill="#008c95"/><text x="32" y="100" fill="white" font-size="32">Image preview</text></svg>',
             )}
           />
+          {spreadsheetBytes !== null && (
+            <BinaryDocumentPreview
+              path="目录示例.xlsx"
+              mediaType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              bytes={spreadsheetBytes}
+            />
+          )}
           <BinaryDocumentPreview path="unsupported.bin" mediaType="application/octet-stream" bytes={null} />
         </section>
         <section className="grid min-w-0 gap-3">

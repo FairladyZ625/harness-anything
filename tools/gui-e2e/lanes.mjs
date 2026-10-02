@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import * as XLSX from "xlsx";
 import { daemonBuildStamp } from "../../packages/daemon/src/build-identity.ts";
 import {
   daemonIdFromEnv,
@@ -59,6 +60,29 @@ function writeRawArtifact(rootDir, packagePath) {
     .map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`)
     .join("")}trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   writeFileSync(path.join(artifactsRoot, "dossier.pdf"), Buffer.from(pdf, "latin1"));
+}
+
+// A real two-sheet Chinese workbook: wide (45 columns) and tall (510 rows) on the summary
+// sheet so the spreadsheet scenario proves cell values, sheet switching and two-axis
+// internal scrolling through the same authorized daemon read path as any other artifact.
+function writeSpreadsheetArtifact(rootDir, packagePath) {
+  const artifactsRoot = path.join(rootDir, "harness", packagePath, "artifacts", "tables");
+  mkdirSync(artifactsRoot, { recursive: true });
+  const workbook = XLSX.utils.book_new();
+  const summary = XLSX.utils.aoa_to_sheet([
+    ...Array.from({ length: 510 }, (_, row) =>
+      Array.from({ length: 45 }, (_, column) => (row === 0 ? `表头${column + 1}` : `第${row + 1}行${column + 1}列`)),
+    ),
+  ]);
+  summary["M2"] = { t: "n", v: 1280, f: "1000+280" };
+  XLSX.utils.book_append_sheet(workbook, summary, "汇总");
+  const detail = XLSX.utils.aoa_to_sheet([
+    ["明细", "数量"],
+    ["甲", 3],
+    ["乙", 5],
+  ]);
+  XLSX.utils.book_append_sheet(workbook, detail, "明细");
+  writeFileSync(path.join(artifactsRoot, "inventory.xlsx"), XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }));
 }
 
 /**
@@ -121,6 +145,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
   writeTriadicLedger(fixture.rootDir);
   writeHtmlPreviewArtifact(fixture.rootDir, fixture.packagePath);
   writeRawArtifact(fixture.rootDir, fixture.packagePath);
+  writeSpreadsheetArtifact(fixture.rootDir, fixture.packagePath);
   writeDeclaredEntitySource(fixture.rootDir);
   const isolatedEnv = { ...env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
   const driver = await startDriver({

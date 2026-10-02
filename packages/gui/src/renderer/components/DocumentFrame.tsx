@@ -22,3 +22,12 @@ export function DocumentFrame({
     </section>
   );
 }
+
+/** Shared render-failure strip for byte previews; the original file stays openable. */
+export function PreviewFailure({ message }: { readonly message: string }) {
+  return (
+    <div role="alert" className="p-6 ui-meta text-danger">
+      无法渲染文件：{message}。仍可使用系统查看器打开原始文件。
+    </div>
+  );
+}
