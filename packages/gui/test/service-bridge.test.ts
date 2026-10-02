@@ -487,6 +487,14 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       ["task-gui-smoke"],
     );
     assert.match(agenda.summary, /在飞线/u);
+    assert.equal(
+      agenda.awaitingYou.some(({ sourceRef }) => sourceRef === "decision/dec_gui_smoke"),
+      true,
+    );
+    assert.equal(
+      agenda.awaitingDecision.some(({ decisionId }) => decisionId === "dec_gui_smoke"),
+      false,
+    );
     assert.equal(tasks.rows[0]?.placement.origin, "native");
     const graph = parseDaemonGuiReadResult("repo.triadic.relationGraph", results.get("repo.triadic.relationGraph"));
     assert.deepEqual(
@@ -496,6 +504,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
           `${left.relationType}|${left.sourceRef}`.localeCompare(`${right.relationType}|${right.sourceRef}`),
         ),
       [
+        { sourceRef: "decision/dec_gui_smoke", targetRef: "person/person-gui", relationType: "awaits" },
         { sourceRef: "decision/dec_gui_smoke", targetRef: "task/task-gui-smoke", relationType: "derives" },
         {
           sourceRef: "decision/dec_gui_smoke/C1",

@@ -6,7 +6,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { prefersReducedMotion } from "motion/react";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
-import { attentionEntries, ATTENTION_META, workRows } from "../src/renderer/views/overview-model.ts";
+import {
+  attentionEntries,
+  ATTENTION_META,
+  workRows,
+  reviewRows,
+  reviewCounts,
+} from "../src/renderer/views/overview-model.ts";
 import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
@@ -608,5 +614,30 @@ describe("总览区域板(S3)", () => {
       undefined,
     );
     expect(rows.map((row) => row.taskId)).toEqual(["task_live", "task_done", "task_cancel"]);
+  });
+});
+
+describe("decision review queue visibility", () => {
+  it("keeps decisions needing dispatch visible without labeling them as already in review or ready for judgment", () => {
+    const rows = reviewRows(
+      agenda({
+        awaitingDecisionReview: [
+          {
+            decisionId: "dec_needs_review",
+            title: "Needs an independent review",
+            riskTier: "high",
+            urgency: "high",
+            proposedAt: AT,
+          },
+        ],
+        decisionReviewInProgress: [],
+        awaitingDecision: [],
+      }),
+    );
+    const decision = rows.find(({ decisionId }) => decisionId === "dec_needs_review");
+    expect(decision?.group).toBe("decisionNeedsReview");
+    expect(reviewCounts(rows).decisionNeedsReview).toBe(1);
+    expect(reviewCounts(rows).decisionReviewing).toBe(0);
+    expect(reviewCounts(rows).decisionPending).toBe(0);
   });
 });

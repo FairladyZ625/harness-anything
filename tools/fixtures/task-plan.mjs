@@ -28,6 +28,44 @@ export function realizedDecisionBody(title = "Fixture decision") {
   return `\n# ${title}\n\nThis fixture records concrete decision prose before exercising the canonical acceptance transition.\n`;
 }
 
+// A template-complete plan of an exact character count. The standing consumer is the
+// edge-retest regression (F-31931F21): a 950-character plan body crossing the fleet
+// channel whole instead of the short-scalar text cap.
+export function sizedTaskPlan(targetLength, title = "Sized edge plan") {
+  const headings = [
+      "Brief",
+      "Goal",
+      "Context",
+      "Required Reading",
+      "Entry Conditions",
+      "Dependencies",
+      "Execution Surface",
+      "Constraints",
+      "Checkpoint",
+      "Implementation Plan",
+      "Deliverable Contract",
+      "Evidence Protocol",
+    ],
+    filler = "边缘节点提交的多段计划正文，逐字穿过 Fleet 通道进入中心任务包并原样读回。",
+    tail = "\n## Verification\n读回任务包正文并逐字比对。\n";
+  let head = `# ${title}\n`;
+  for (const heading of headings) head += `\n## ${heading}\n\n${filler}\n`;
+  const room = targetLength - head.length - tail.length;
+  if (room < 0) throw new Error(`sizedTaskPlan cannot fit ${targetLength} characters under title ${title}.`);
+  const paragraphs = [];
+  let used = 0;
+  while (used + filler.length + 1 <= room) {
+    paragraphs.push(filler);
+    used += filler.length + 1;
+  }
+  const remainder = room - used,
+    padding =
+      paragraphs.join("\n") + (remainder > 0 ? `${paragraphs.length ? "\n" : ""}${filler.slice(0, remainder)}` : ""),
+    plan = head + padding + tail;
+  if (plan.length !== targetLength) throw new Error(`sizedTaskPlan produced ${plan.length}, wanted ${targetLength}.`);
+  return plan;
+}
+
 export async function realizeTaskPlanFixture(rootDir, packagePath, submit, title, appendix = "") {
   const planPath = `${packagePath}/task_plan.md`,
     authoredPath = path.join(rootDir, "harness", planPath),

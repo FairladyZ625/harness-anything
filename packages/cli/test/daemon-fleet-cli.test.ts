@@ -17,7 +17,7 @@ import path from "node:path";
 import test from "node:test";
 import { signInAt, signOutAt, spawnKeycloak } from "../../daemon/test/keycloak.fixtures.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
-import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { realizedTaskPlan, sizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { runDaemonControl } from "../src/daemon/control.ts";
 import { cliDaemonServeLaunch, daemonServeEntry } from "../src/daemon/client.ts";
@@ -40,7 +40,9 @@ test(
         op: "permit",
         personId: "edge-operator",
         resource: "fleet-demo",
-        actions: ["daemon-fleet-edge-sync"],
+        // task-create backs the edge-authored plan regression below; the sync action
+        // keeps the mirror flowing.
+        actions: ["daemon-fleet-edge-sync", "task-create"],
       });
       const machineCredential = await realm.control<string>({
         op: "node",
@@ -252,6 +254,26 @@ test(
       assert.equal(
         existsSync(path.join(fixture.centerUser, "fleet", "replica", "repos", "fleet-demo", "ack.sqlite")),
         true,
+      );
+      // N6 regression (F-31931F21): the edge CLI's --plan-file body crosses the fleet channel
+      // whole; the center lands the authored plan in the task package byte-for-byte.
+      const edgePlan = sizedTaskPlan(950, "边缘 CLI 计划");
+      mkdirSync(path.join(fixture.edgeRepo, "harness", "inputs"), { recursive: true });
+      writeFileSync(path.join(fixture.edgeRepo, "harness", "inputs", "edge-plan.md"), edgePlan);
+      const edgeCreated = run(fixture, "edge", [
+        "task",
+        "create",
+        "--title",
+        "Edge authored plan",
+        "--plan-file",
+        "harness/inputs/edge-plan.md",
+      ]);
+      assert.equal(edgeCreated.outcome, "applied", JSON.stringify(edgeCreated));
+      published(fixture, "center", edgeCreated);
+      assert.equal(
+        readFileSync(path.join(fixture.repo, "harness", String(edgeCreated.packagePath), "task_plan.md"), "utf8"),
+        edgePlan,
+        "the edge-authored 950-character plan body lands at the center byte-for-byte",
       );
     } finally {
       stop(fixture, "center");
