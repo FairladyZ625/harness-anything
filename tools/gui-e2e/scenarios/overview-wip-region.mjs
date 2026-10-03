@@ -118,36 +118,39 @@ export default {
     const list = region.getByTestId("overview-task-wip-list");
     await list.waitFor();
 
-    // 与 daemon 同一条读面独立取一份:页面名单必须与它逐 ID 一致(占用=N/上限=M 在标题行)。
-    // 页面经台账探针失效扇出跟随 daemon(秒级收敛):像 canonical 相一样收敛重试——同一
-    // 时刻两边一致即过,不是对产品缺陷的兜底重试。
-    let snapshot = null,
-      pageIds = null;
-    for (let round = 0; round < 10; round += 1) {
-      snapshot = await requestDaemonJsonRpcAt(
-        fixture.endpoint,
-        "repo.tasks.wip",
-        { repo: { repoId: fixture.repoId } },
-        2_000,
-        10_000,
-      );
-      const header = await region.locator("section").first().innerText();
-      pageIds = await list.locator("[data-dense-row]").evaluateAll((rows) =>
-        rows.map((row) => {
-          const ref = row.querySelector("button[title*='task/']");
-          const title = ref?.getAttribute("title") ?? "";
-          return title.slice(title.lastIndexOf("task/") + "task/".length);
-        }),
-      );
-      const expected = snapshot.counted.map((entry) => entry.taskId).sort();
-      if (
-        new RegExp(`(^|\\s)${snapshot.counted.length}/${snapshot.limit}(\\s|$)`).test(header) &&
-        JSON.stringify([...pageIds].sort()) === JSON.stringify(expected)
-      ) {
-        break;
-      }
-      await page.waitForTimeout(1_000);
-    }
+    // The fixture is stable: wait for the page to render its authoritative snapshot.
+    const snapshot = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "repo.tasks.wip",
+      { repo: { repoId: fixture.repoId } },
+      2_000,
+      10_000,
+    );
+    await page.waitForFunction(
+      ({ ids, occupancy }) => {
+        const region = globalThis.document.querySelector('[data-testid="overview-region-wip"]');
+        if (!region) return false;
+        const rows = [...region.querySelectorAll('[data-testid="overview-task-wip-list"] [data-dense-row]')];
+        const actual = rows
+          .map((row) => {
+            const title = row.querySelector("button[title*='task/']")?.getAttribute("title") ?? "";
+            return title.slice(title.lastIndexOf("task/") + "task/".length);
+          })
+          .sort();
+        return region.textContent.includes(occupancy) && JSON.stringify(actual) === JSON.stringify(ids);
+      },
+      {
+        ids: snapshot.counted.map((entry) => entry.taskId).sort(),
+        occupancy: `${snapshot.counted.length}/${snapshot.limit}`,
+      },
+      { timeout: 10_000 },
+    );
+    const pageIds = await list.locator("[data-dense-row]").evaluateAll((rows) =>
+      rows.map((row) => {
+        const title = row.querySelector("button[title*='task/']")?.getAttribute("title") ?? "";
+        return title.slice(title.lastIndexOf("task/") + "task/".length);
+      }),
+    );
     const header = await region.locator("section").first().innerText();
     assert.match(
       header,
