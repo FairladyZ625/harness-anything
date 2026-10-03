@@ -6,6 +6,7 @@ import { ThemeProvider, useTheme, type ThemeMode } from "../../theme.tsx";
 import { AppMotionConfig, useMotionPreference, type MotionPreference } from "../../motion-config.tsx";
 import { I18nProvider } from "../../i18n/index.tsx";
 import { PageHeader } from "../primitives/PageHeader.tsx";
+import { PageRegions } from "../primitives/page-regions.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { DenseRow, RowTime } from "../primitives/DenseRow.tsx";
 import { Toggle } from "../primitives/Toggle.tsx";
@@ -360,6 +361,47 @@ function ComponentCatalog() {
           </div>
         </section>
         <section className="grid min-w-0 gap-3">
+          <div className="flex h-[28rem] min-h-0">
+            <PageRegions
+              connectionId={null}
+              repoId="catalog"
+              slot="regions"
+              testId="catalog-page-regions"
+              columns={[["plan", "status"], ["progress"]]}
+              regions={[
+                {
+                  id: "plan",
+                  title: "计划",
+                  weight: 3,
+                  content: (
+                    <Region title="计划" padded>
+                      <DocReader content={"# 计划\n\n" + "内容在区域内滚动。\n\n".repeat(40)} fill />
+                    </Region>
+                  ),
+                },
+                {
+                  id: "status",
+                  title: "状态",
+                  content: (
+                    <Region title="状态">
+                      <DenseRow title="当前执行" />
+                    </Region>
+                  ),
+                },
+                {
+                  id: "progress",
+                  title: "进展",
+                  content: (
+                    <Region title="进展">
+                      {Array.from({ length: 15 }, (_, index) => (
+                        <DenseRow key={index} title={`步骤 ${index + 1}`} />
+                      ))}
+                    </Region>
+                  ),
+                },
+              ]}
+            />
+          </div>
           <h2 className="font-semibold ui-title">列表与区域 / DenseRow · Region · Tabs</h2>
           <Tabs
             idPrefix="catalog"

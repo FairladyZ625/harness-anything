@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 import { assertUnscrolledLayout } from "./helpers.mjs";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 
 /**
  * task_fb3ba20d66…:原页面内容区域可调布局的 Electron 实测(isolated lane)。
  *
  * 覆盖两处真实消费:
- *   1) 任务详情「文件树|正文」——默认自适应(保留可操作分隔条);左右排列后拖真实
+ *   1) 任务详情「文件树|正文」——默认自适应(无分隔条/内联模板);左右排列后拖真实
  *      指针调比例(窗口缩放后有界)、键盘微调、刷新记忆、折叠/召回、上下排列、重置回
  *      自适应;树里塞 120 个种子文件,展开后树在自己窗内滚动、不挤死正文。
  *   2) 工作概况「主区|最近进展」——通过 daemon 真实建一个子任务让夹具根任务成为工作根
@@ -35,42 +35,6 @@ async function setSize(app, page, width, height) {
   await page.setViewportSize({ width: actual[0], height: actual[1] });
   await page.waitForFunction(([w, h]) => globalThis.innerWidth === w && globalThis.innerHeight === h, actual);
   return { requested: [width, height], actual };
-}
-
-/** 真实几何:两个 testid 盒子的宽/高与容器(去掉 6px 分隔条)的占比。 */
-async function paneRatios(page, containerId, firstId, secondId, axis) {
-  return page.evaluate(
-    ([containerSelector, firstSelector, secondSelector, direction]) => {
-      const pick = (selector) => {
-        const element = globalThis.document.querySelector(selector);
-        if (element === null) throw new Error(`missing element ${selector}`);
-        return element.getBoundingClientRect();
-      };
-      const box = pick(containerSelector),
-        first = pick(firstSelector),
-        second = pick(secondSelector),
-        span = (rect) => (direction === "row" ? rect.width : rect.height);
-      const total = span(box) - 6;
-      return {
-        container: span(box),
-        first: span(first),
-        second: span(second),
-        firstRatio: span(first) / total,
-        secondRatio: span(second) / total,
-        firstContained:
-          first.left >= box.left - 1 &&
-          first.right <= box.right + 1 &&
-          first.top >= box.top - 1 &&
-          first.bottom <= box.bottom + 1,
-        secondContained:
-          second.left >= box.left - 1 &&
-          second.right <= box.right + 1 &&
-          second.top >= box.top - 1 &&
-          second.bottom <= box.bottom + 1,
-      };
-    },
-    [`[data-testid="${containerId}"]`, `[data-testid="${firstId}"]`, `[data-testid="${secondId}"]`, axis],
-  );
 }
 
 async function dragDivider(page, testId, delta, axis) {
@@ -127,6 +91,83 @@ async function expandSeedTree(page) {
   throw new Error("seeded 120-file tree never stays expanded long enough to measure");
 }
 
+async function checkLayout(page, shot, boardId, first, second, label, reopen) {
+  const board = page.getByTestId(boardId);
+  const box = (id) => board.locator(`[data-region="${id}"]`).first().boundingBox();
+  const handle = (id) => board.getByTestId(`region-handle-${id}`);
+  if (boardId === "task-detail-content-grid") {
+    const geometry = await page.getByTestId("task-detail-panel-scroll").boundingBox();
+    await shot(`${label}-body-${Math.round(geometry.width)}x${Math.round(geometry.height)}`);
+  }
+  await handle(first).waitFor();
+  await board.getByTestId(`${boardId}-controls-row`).click();
+  const initial = await box(first),
+    other = await box(second);
+  assert.ok(initial && other && initial.width > 0 && initial.height > 0, label);
+  await shot(`${label}-before`);
+  const source = await handle(first).boundingBox(),
+    target = await handle(second).boundingBox();
+  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 12 });
+  await board.locator('[data-drop-preview="true"]').first().waitFor();
+  await shot(`${label}-preview`);
+  await page.mouse.up();
+  await page.waitForFunction(
+    ({ boardId, first, x, y }) => {
+      const rect = globalThis.document
+        .querySelector(`[data-testid="${boardId}"] [data-region="${first}"]`)
+        .getBoundingClientRect();
+      return Math.abs(rect.x - x) < 3 && Math.abs(rect.y - y) < 3;
+    },
+    { boardId, first, x: other.x, y: other.y },
+  );
+  await shot(`${label}-moved`);
+  // Reload preserves actual placement, not just a serialized preference.
+  await page.reload();
+  if (reopen) await reopen();
+  await handle(first).waitFor({ timeout: 30000 });
+  const reloaded = await box(first);
+  assert.ok(
+    Math.abs(reloaded.x - other.x) < 3 && Math.abs(reloaded.y - other.y) < 3,
+    `${label} reload ${JSON.stringify(reloaded)}`,
+  );
+  await shot(`${label}-reloaded`);
+  // Cancellation cannot commit a new order.
+  const cancelFrom = await handle(first).boundingBox(),
+    cancelTo = await handle(second).boundingBox();
+  await page.mouse.move(cancelFrom.x + 12, cancelFrom.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(cancelTo.x + 12, cancelTo.y + 12, { steps: 8 });
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  const cancelled = await box(first);
+  assert.ok(Math.abs(cancelled.x - reloaded.x) < 3 && Math.abs(cancelled.y - reloaded.y) < 3, `${label} cancel`);
+  await board.getByTestId(`${boardId}-controls-reset`).click();
+  await board.getByTestId(`${boardId}-controls-row`).click();
+  const reset = await box(first);
+  assert.ok(Math.abs(reset.x - initial.x) < 3 && Math.abs(reset.y - initial.y) < 3, `${label} reset`);
+  await handle(first).press("ArrowRight");
+  const keyboard = await box(first);
+  assert.ok(Math.abs(keyboard.x - reset.x) > 3 || Math.abs(keyboard.y - reset.y) > 3, `${label} keyboard move`);
+  await board.getByTestId(`${boardId}-controls-reset`).click();
+  await board.getByTestId(`${boardId}-controls-row`).click();
+  const divider = board.getByTestId(`${boardId}-divider`);
+  if (await divider.count()) {
+    const before = Number(await divider.getAttribute("aria-valuenow"));
+    await divider.press("ArrowRight");
+    assert.equal(Number(await divider.getAttribute("aria-valuenow")), before + 16, `${label} keyboard resize`);
+    const start = await box(first);
+    await dragDivider(page, `${boardId}-divider`, 25, "row");
+    const resized = await box(first);
+    assert.ok(Math.abs(resized.width - start.width) > 10, `${label} pointer resize`);
+  }
+  await board.getByTestId(`${boardId}-controls-column`).click();
+  await shot(`${label}-column`);
+  await board.getByTestId(`${boardId}-controls-reset`).click();
+  await shot(`${label}-reset`);
+}
+
 export default {
   id: "page-split-layout",
   feature: "split-layout",
@@ -157,7 +198,38 @@ export default {
     const packagePath = String(created.packagePath);
     const seedDir = path.join(rootDir, "harness", packagePath, "split");
     mkdirSync(seedDir, { recursive: true });
-    const paths = [];
+    const paths = [`${packagePath}/task_plan.md`];
+    const sections = [
+      "Brief",
+      "Goal",
+      "Context",
+      "Required Reading",
+      "Entry Conditions",
+      "Dependencies",
+      "Execution Surface",
+      "Constraints",
+      "Checkpoint",
+      "Implementation Plan",
+      "Deliverable Contract",
+      "Evidence Protocol",
+      "Verification",
+    ];
+    writeFileSync(
+      path.join(rootDir, "harness", packagePath, "task_plan.md"),
+      `# ${CHILD_TITLE}\n\nTask Contract: harness-task v1\n\n` +
+        sections
+          .map(
+            (heading) =>
+              `## ${heading}\n\nVerify page region movement in the isolated Electron fixture. Read packages/gui/src/renderer/components/primitives/page-regions.tsx. Keep all test data in this dedicated fixture repository; do not contact production services. Capture actual geometry, reload preferences, and reset the layout.\n`,
+          )
+          .join("\n") +
+        "\n" +
+        Array.from(
+          { length: 80 },
+          (_, index) =>
+            `Layout evidence paragraph ${index}: the plan remains readable while its region scrolls independently.\n`,
+        ).join("\n"),
+    );
     for (let index = 0; index < SEED_FILES; index += 1) {
       const relative = `split/seed-${index}.md`;
       writeFileSync(
@@ -178,6 +250,20 @@ export default {
     );
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
+    for (const taskId of [CHILD_TASK_ID, "task-gui-smoke"]) {
+      const started = await requestDaemonJsonRpcAt(
+        endpoint,
+        "repo.task.run",
+        {
+          repo: { repoId },
+          payload: { action: { kind: "task-start", taskId, executionId: `execution-layout-${taskId}` } },
+        },
+        1000,
+        30000,
+      );
+      assert.equal(started.ok, true, JSON.stringify(started));
+    }
+
     try {
       await resize(1440, 900);
       await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
@@ -185,267 +271,45 @@ export default {
       // 等文件清单投影追平:树里出现种子目录。
       await page.getByTestId("task-document-tree").filter({ hasText: "split/" }).waitFor({ timeout: 30_000 });
 
-      // ---- 任务详情:默认自适应,分隔条直接可拖。 ----
-      const grid = page.getByTestId("task-detail-content-grid");
-      assert.notEqual(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
-      assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 1);
-      await shot("task-split-auto-wide");
-      // 自适应宽屏:树与正文按比例分配,首次拖动不跳变。
-      let ratios = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "row",
-      );
-      assert.ok(Math.abs(ratios.firstRatio - 0.22) < 0.02, `auto proportional tree ${ratios.firstRatio}`);
-      await dragDivider(page, "task-doc-split-divider", 20, "row");
-      const firstDrag = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "row",
+      const hidden = await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().map((window) => ({ visible: window.isVisible(), focused: window.isFocused() })),
       );
       assert.ok(
-        Math.abs(firstDrag.first - ratios.first - 20) < 4,
-        `first drag must move only its pointer delta: ${firstDrag.first - ratios.first}`,
+        hidden.every((window) => !window.visible && !window.focused),
+        JSON.stringify(hidden),
       );
-      await page.getByTestId("task-doc-split-controls-reset").click();
-
-      // ---- 左右排列:显式接管,默认 22%;展开 120 个文件,树在窗内滚、外部几何不变。 ----
-      await page.getByTestId("task-doc-split-controls-row").click();
-      await page.getByTestId("task-doc-split-divider").waitFor();
-      ratios = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "row",
-      );
-      assert.ok(Math.abs(ratios.firstRatio - 0.22) < 0.03, `row default ratio, got ${ratios.firstRatio}`);
-      const gridHeightBefore = await page
-        .getByTestId("task-detail-content-grid")
-        .evaluate((node) => node.getBoundingClientRect().height);
+      await checkLayout(page, shot, "task-detail-content-grid", "files", "content", "task-wide");
       await expandSeedTree(page);
-      const treeScroll = page.getByTestId("task-document-tree-scroll");
-      const treeGeometry = await treeScroll.evaluate((node) => {
-        const gridBox = node.closest('[data-testid="task-detail-content-grid"]');
-        node.scrollTop = node.scrollHeight;
-        return {
-          clientHeight: node.clientHeight,
-          scrollHeight: node.scrollHeight,
-          gridHeight: gridBox === null ? 0 : gridBox.getBoundingClientRect().height,
-        };
-      });
-      assert.ok(
-        treeGeometry.scrollHeight > treeGeometry.clientHeight,
-        "expanded 120-file tree must scroll inside its pane",
-      );
-      assert.ok(Math.abs(treeGeometry.gridHeight - gridHeightBefore) < 2, "expanding the tree must not grow the card");
-      await shot("task-split-row-expanded");
-
-      // ---- 真实指针拖拽:拉到约 45%;窗口缩放后仍按比例(有界)。 ----
-      const before = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "row",
-      );
-      await dragDivider(
-        page,
-        "task-doc-split-divider",
-        Math.round((0.45 - before.firstRatio) * before.container),
-        "row",
-      );
-      let after = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "row",
-      );
-      assert.ok(Math.abs(after.firstRatio - 0.45) < 0.04, `dragged ratio, got ${after.firstRatio}`);
-      await resize(1000, 800);
-      after = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "row",
-      );
-      assert.ok(Math.abs(after.firstRatio - 0.45) < 0.04, `resized ratio stays bounded, got ${after.firstRatio}`);
-      assert.ok(
-        after.firstContained && after.secondContained,
-        `resized panes stay inside their container: ${JSON.stringify(after)}`,
-      );
-      await resize(1440, 900);
-      await shot("task-split-row-dragged");
-
-      // ---- 键盘微调:分隔条聚焦后 → 加 16px。 ----
-      const handle = page.getByTestId("task-doc-split-divider");
-      await handle.focus();
-      const panePx = (
-        await paneRatios(page, "task-detail-content-grid", "task-document-tree", "task-detail-panel-scroll", "row")
-      ).first;
-      await handle.press("ArrowRight");
-      after = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "row",
-      );
-      assert.ok(Math.abs(after.first - (panePx + 16)) < 2, `keyboard step, got ${after.first} after ${panePx}`);
-      assert.equal(await handle.getAttribute("role"), "separator");
-
-      // ---- 拖到极限有界:首窗不超过 75%。 ----
-      await dragDivider(page, "task-doc-split-divider", 4000, "row");
-      after = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "row",
-      );
-      assert.ok(after.firstRatio <= 0.75 + 0.01, `clamped max ratio, got ${after.firstRatio}`);
-      assert.ok(after.secondRatio >= 0.25 - 0.01, "content pane stays usable");
-
-      // ---- 刷新记忆:重载后仍是显式左右与拖过的比例。 ----
-      const persisted = after.firstRatio;
-      await page.reload();
-      await page.getByTestId("task-detail-view").waitFor({ timeout: 30_000 });
-      await page.getByTestId("task-doc-split-divider").waitFor();
-      after = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "row",
-      );
-      assert.ok(Math.abs(after.firstRatio - persisted) < 0.02, `ratio survives reload, got ${after.firstRatio}`);
-
-      // ---- 上下排列:模板换轴,分隔条横置;已拖比例跟随(切换排列保留用户比例),
-      //      再纵向拖一次到 35%。 ----
-      await page.getByTestId("task-doc-split-controls-column").click();
-      after = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "column",
-      );
-      assert.ok(
-        Math.abs(after.firstRatio - persisted) < 0.02,
-        `column keeps the dragged ratio, got ${after.firstRatio}`,
-      );
-      await dragDivider(
-        page,
-        "task-doc-split-divider",
-        Math.round((0.35 - after.firstRatio) * after.container),
-        "column",
-      );
-      after = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "column",
-      );
-      assert.ok(Math.abs(after.firstRatio - 0.35) < 0.04, `column dragged ratio, got ${after.firstRatio}`);
-      const dividerTrack = page.getByTestId("task-doc-split-divider-track");
-      const trackBox = await dividerTrack.boundingBox();
-      assert.ok(trackBox !== null && trackBox.height < trackBox.width * 4, "column divider lies horizontally");
-      await shot("task-split-column");
-
-      // ---- 折叠与召回。 ----
-      await page.getByTestId("task-doc-split-controls-collapse").click();
+      const tree = await page
+        .getByTestId("task-document-tree-scroll")
+        .evaluate((node) => ({ height: node.clientHeight, scroll: node.scrollHeight }));
+      assert.ok(tree.scroll > tree.height, "long tree scrolls inside its region");
+      await page.getByTestId("task-detail-content-grid-controls-collapse").click();
       assert.equal(await page.getByTestId("task-document-tree").count(), 0);
-      await shot("task-split-collapsed");
-      await page.getByTestId("task-doc-split-expand").click();
+      await page.getByTestId("task-detail-content-grid-expand").click();
       await page.getByTestId("task-document-tree").waitFor();
-
-      // ---- 重置:回自适应(分隔条仍可操作)。 ----
-      await page.getByTestId("task-doc-split-controls-reset").click();
-      assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 1);
-      assert.notEqual(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
-
-      // 窄窗自适应:单栏叠放,文件树横排在上(共享比例上限),正文仍有可用区域。
+      await checkLayout(page, shot, "task-overview-tab", "plan", "progress", "task-plan-wide");
       await resize(1120, 800);
-      await page.waitForFunction(
-        () =>
-          globalThis.document
-            .querySelector('[data-testid="task-doc-split-divider"]')
-            ?.getAttribute("aria-orientation") === "horizontal",
-      );
-      const narrow = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "column",
-      );
-      assert.ok(narrow.second > 160, `narrow auto keeps the reader usable, body ${narrow.second}px`);
-      assert.ok(
-        narrow.firstContained && narrow.secondContained,
-        `auto panes stay inside their container: ${JSON.stringify(narrow)}`,
-      );
-      await dragDivider(page, "task-doc-split-divider", 20, "column");
-      const narrowDragged = await paneRatios(
-        page,
-        "task-detail-content-grid",
-        "task-document-tree",
-        "task-detail-panel-scroll",
-        "column",
-      );
-      assert.ok(Math.abs(narrowDragged.first - narrow.first - 20) < 4, "narrow default drag follows its pointer delta");
-      await page.getByTestId("task-doc-split-controls-reset").click();
-      await shot("task-split-auto-narrow");
+      await checkLayout(page, shot, "task-detail-content-grid", "files", "content", "task-narrow");
+      await shot("task-plan-narrow");
+      const body = await page.getByTestId("task-detail-panel-scroll").boundingBox();
+      assert.ok(body.width > 300 && body.height > 160, `usable narrow body ${JSON.stringify(body)}`);
       await resize(1440, 900);
-
-      // ---- 工作概况:根任务因有子任务成为工作根;概况板可调主区|最近进展。 ----
       await page.getByTestId("task-detail-work").click();
-      await page.getByTestId("workspace-view").waitFor();
       await page.getByTestId("work-overview-board").waitFor();
-      const board = page.getByTestId("work-overview-board");
-      assert.notEqual(await board.evaluate((node) => node.style.gridTemplateColumns), "");
-      await page.getByTestId("work-overview-split-bar").waitFor();
-      await page.getByTestId("work-overview-split-divider").waitFor();
-      let boardRatios = await paneRatios(page, "work-overview-board", "work-overview-main", "work-timeline", "row");
-      assert.ok(Math.abs(boardRatios.firstRatio - 0.6) < 0.04, `board default ratio, got ${boardRatios.firstRatio}`);
-      await shot("work-split-row");
-
-      // 键盘先验证交互路径,再做真实指针拖拽(失败时区分交互失效与事件被吞)。
-      const boardHandle = page.getByTestId("work-overview-split-divider");
-      await boardHandle.focus();
-      await boardHandle.press("ArrowLeft");
-      let stepped = await paneRatios(page, "work-overview-board", "work-overview-main", "work-timeline", "row");
-      assert.ok(stepped.firstRatio < boardRatios.firstRatio - 0.001, `board keyboard step, got ${stepped.firstRatio}`);
-
-      // 真实指针拖拽时间线分隔条到约 45% 主区;重载记忆;重置回自适应。
-      await dragDivider(
-        page,
-        "work-overview-split-divider",
-        Math.round((0.45 - stepped.firstRatio) * stepped.container),
-        "row",
+      await checkLayout(page, shot, "work-overview-board", "structure", "recent", "work-wide");
+      await resize(1120, 800);
+      await checkLayout(page, shot, "work-overview-board", "structure", "recent", "work-narrow");
+      await page.getByRole("tab", { name: /根任务|Root task/u }).click();
+      await page.getByTestId("task-detail-view").waitFor();
+      await checkLayout(page, shot, "task-detail-content-grid", "files", "content", "root-narrow", () =>
+        page.getByRole("tab", { name: /根任务|Root task/u }).click(),
       );
-      boardRatios = await paneRatios(page, "work-overview-board", "work-overview-main", "work-timeline", "row");
-      assert.ok(Math.abs(boardRatios.firstRatio - 0.45) < 0.04, `board dragged ratio, got ${boardRatios.firstRatio}`);
-      const boardPersisted = boardRatios.firstRatio;
-      await page.reload();
-      await page.getByTestId("work-overview-split-divider").waitFor({ timeout: 30_000 });
-      boardRatios = await paneRatios(page, "work-overview-board", "work-overview-main", "work-timeline", "row");
-      assert.ok(
-        Math.abs(boardRatios.firstRatio - boardPersisted) < 0.02,
-        `board ratio survives reload, got ${boardRatios.firstRatio}`,
+      await checkLayout(page, shot, "task-overview-tab", "plan", "progress", "root-plan-narrow", () =>
+        page.getByRole("tab", { name: /根任务|Root task/u }).click(),
       );
-      await shot("work-split-dragged");
-      await page.getByTestId("work-overview-split-controls-reset").click();
-      assert.notEqual(await board.evaluate((node) => node.style.gridTemplateColumns), "");
-      assert.equal(await page.locator('[data-testid="work-overview-split-divider"]').count(), 1);
-      await shot("work-split-reset-auto");
-
+      await resize(1440, 900);
+      await shot("root-wide");
       // The work graph fills its own flex viewport; both narrow and wide
       // containers must fit the canvas without a horizontal scrollbar.
       await page.locator("#workspace-tab-graph").click();
@@ -464,17 +328,21 @@ export default {
       });
       writeFileSync(path.join(runRoot, "work-graph-layout.json"), `${JSON.stringify(graphLayouts, null, 2)}\n`);
 
-      // ---- 英文界面:语言偏好只写本会话的临时 profile(每次运行全新 user-data-dir)。 ----
+
+      await page.getByRole("button", { name: /^(?:总览|Overview)$/u }).click();
+      await page.getByTestId("overview-board").waitFor();
+      const overviewIds = await page
+        .getByTestId("overview-board")
+        .locator("[data-region]")
+        .evaluateAll((nodes) => nodes.map((node) => node.dataset.region));
+      assert.ok(overviewIds.length >= 2, `overview fixture needs multiple regions: ${overviewIds}`);
+      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-wide");
+      await resize(1120, 800);
+      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-narrow");
       await page.evaluate(() => globalThis.localStorage.setItem("harness-locale", "en-US"));
       await page.reload();
-      await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
-      await openChildDetail(page);
-      await page.getByTestId("task-doc-split-controls-row").click();
-      await page.getByTestId("task-doc-split-divider").waitFor();
-      await shot("task-split-row-en");
-      await page.getByTestId("task-detail-work").click();
-      await page.getByTestId("work-overview-board").waitFor();
-      await shot("work-split-auto-en");
+      await page.getByTestId("overview-board").waitFor();
+      await shot("overview-en");
     } finally {
       // ---- 清理:软删子任务(soft 需要 reason),不留工作根结构给同轮后续场景;
       //      清理失败不吞原始错误,挪到 finally 之外抛。 ----

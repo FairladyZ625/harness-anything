@@ -308,5 +308,11 @@
   "components.splitLayout.collapse": "收起首窗",
   "components.splitLayout.expand": "展开首窗",
   "components.splitLayout.reset": "恢复默认布局",
-  "components.splitLayout.resetTitle": "恢复默认自适应布局（清除本页的排列与比例记忆）"
+  "components.splitLayout.resetTitle": "恢复默认自适应布局（清除本页的排列与比例记忆）",
+  "components.pageRegions.move": "移动{title}（拖至另一标题区域；方向键换位；Esc 取消）",
+  "components.pageRegions.resize": "调整区域比例",
+  "components.pageRegions.height": "调整区域高度",
+  "components.pageRegions.expand": "展开区域",
+  "components.pageRegions.files": "任务文件",
+  "components.pageRegions.content": "正文"
 }

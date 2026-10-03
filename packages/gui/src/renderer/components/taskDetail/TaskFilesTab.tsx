@@ -1,3 +1,4 @@
+import { RegionDragHandle, RegionLayoutControls } from "../primitives/page-regions.tsx";
 import { useEffect, useMemo, type ReactNode } from "react";
 import { CaretRight, FileText } from "@phosphor-icons/react";
 import { EntityRefLink, entityRefOf } from "../EntityRefLink.tsx";
@@ -52,13 +53,17 @@ export function TaskDocumentSidebar(props: TaskDocumentSidebarProps) {
   return (
     <nav
       aria-label="任务包文件"
-      className="flex min-h-0 flex-col border-b border-border bg-surface @min-[1100px]:border-r @min-[1100px]:border-b-0"
+      className="flex min-h-0 min-w-0 flex-col border-b border-border bg-surface @min-[1100px]:border-r @min-[1100px]:border-b-0"
       data-testid="task-document-tree"
     >
-      <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-3">
+      <div className="flex shrink-0 items-center gap-1 px-2 py-1">
+        <RegionDragHandle />
         <p className="min-w-0 truncate font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">
           Task 文件
         </p>
+        <span className="ml-auto shrink-0">
+          <RegionLayoutControls />
+        </span>
         {props.headerExtra ? <span className="ml-auto flex shrink-0 items-center">{props.headerExtra}</span> : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3" data-testid="task-document-tree-scroll">
