@@ -49,6 +49,8 @@ export async function runDaemonMetrics(argv: readonly string[], userRoot: string
           ...(cursor ? { cursor: cursor as unknown as JsonObject } : {}),
         },
       });
+      if (result.ok === false && typeof result.code === "string" && typeof result.rejectionExplanation === "string")
+        throw Object.assign(new Error(result.rejectionExplanation), { code: result.code });
       const errors = validateObserveTailResult(result);
       if (errors.length) throw new Error(`Invalid observe.tail result: ${errors.join("; ")}`);
       return result as unknown as ObserveTailResult;

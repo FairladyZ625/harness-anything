@@ -14,6 +14,8 @@ import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/clien
 import { startDaemon } from "@harness-anything/daemon/internal/runtime";
 import { initIngressRepo } from "../../daemon/test/fixtures/runtime-ingress.ts";
 import { registerBootstrappedDaemonRepo, openFencedRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
+import { signInPolicyTestUser } from "../../daemon/test/keycloak-policy.fixtures.ts";
+import { OidcSessionService, signOutAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { runDaemonControl } from "../src/daemon/control.ts";
 import { readMetricsHistory } from "../src/daemon/metrics.ts";
 import { requestWindowMetrics } from "../src/daemon/metrics-summary.ts";
@@ -29,6 +31,7 @@ test("real runtime metrics twice preserves request retention, denominator and P9
   try {
     initIngressRepo(rootDir, process.getuid?.() ?? 0);
     registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    signInPolicyTestUser(userRoot, "metrics-reader", [repoId], "viewer");
     const at = new Date(Date.now() - 600_000).toISOString();
     const rows = Array.from({ length: 78 }, (_, index) => ({
       schema: "daemon-request-log/v1",
@@ -81,6 +84,11 @@ test("real runtime metrics twice preserves request retention, denominator and P9
       assert.equal(metrics.latency.serviceMs.p95Ms, 75_000);
       assert.equal(metrics.history.pages, 2);
     }
+    signOutAt(userRoot);
+    await assert.rejects(
+      runDaemonMetrics(["daemon", "metrics", "--root", rootDir, "--repo", repoId], userRoot, daemonId),
+      { code: "authentication_required", message: "Sign in with Keycloak before performing this action." },
+    );
     // Runtime shutdown drains the real async recordRequest and recordTraffic sinks, without sleeps.
     await daemon.stop();
     assert.equal(readFileSync(log, "utf8"), retained);
@@ -92,7 +100,7 @@ test("real runtime metrics twice preserves request retention, denominator and P9
           .split("\n")
           .map((line) => JSON.parse(line)),
       );
-    assert.equal(traffic.filter((record) => record.event === "request" && record.method === "observe.tail").length, 4);
+    assert.equal(traffic.filter((record) => record.event === "request" && record.method === "observe.tail").length, 5);
   } finally {
     if (daemon && !("pid" in daemon)) await daemon.stop();
     rmSync(parent, { recursive: true, force: true });
@@ -115,6 +123,8 @@ test("native metrics reads real rotated logs over one socket and rejects an actu
   try {
     initIngressRepo(rootDir, process.getuid?.() ?? 0);
     registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    signInPolicyTestUser(userRoot, "metrics-reader", [repoId], "viewer");
+    const oidc = new OidcSessionService(userRoot);
     const now = Date.now();
     const rows = Array.from({ length: 130 }, (_, index) => ({
       schema: "daemon-request-log/v1",
@@ -138,7 +148,13 @@ test("native metrics reads real rotated logs over one socket and rejects an actu
       daemonId,
       socketPath: endpoint,
       createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host: host!, build: { commit: null }, authContext, emit }),
+        createJsonRpcProtocolServer({
+          host: host!,
+          build: { commit: null },
+          authContext,
+          emit,
+          sessionPrincipal: async () => (await oidc.bind(authContext)).oidcPrincipal,
+        }),
     });
     await transport.start();
     let receipt: Record<string, unknown> = {};
@@ -185,13 +201,13 @@ test("native metrics reads real rotated logs over one socket and rejects an actu
             direction: "history",
             ...(cursor ? { cursor } : {}),
           },
-          {
+          await oidc.bind({
             transportKind: "unix-socket",
             unixSocketOwnerBoundary: {
               ownerUid: process.getuid?.() ?? 0,
               source: "unix-socket-filesystem-owner-boundary",
             },
-          },
+          }),
         );
         if (reads === 1) writeFileSync(log, "");
         return page;
@@ -199,6 +215,30 @@ test("native metrics reads real rotated logs over one socket and rejects an actu
       { code: "service_rejected" },
     );
     assert.equal(reads, 2);
+    signOutAt(userRoot);
+    assert.equal(
+      await runDaemonControl(
+        [
+          "daemon",
+          "metrics",
+          "--root",
+          rootDir,
+          "--repo",
+          repoId,
+          "--user-root",
+          userRoot,
+          "--daemon-id",
+          daemonId,
+          "--json",
+        ],
+        (value) => {
+          receipt = value;
+        },
+      ),
+      1,
+    );
+    assert.equal(receipt.code, "authentication_required");
+    assert.equal((receipt.error as { hint: string }).hint, "Sign in with Keycloak before performing this action.");
   } finally {
     await transport?.stop();
     await host?.close();
