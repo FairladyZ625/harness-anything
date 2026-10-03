@@ -185,13 +185,18 @@ export default {
     assert.deepEqual(keyed, ["task-wip-nav-b"], "arrow key must move to the next visible row");
     assert.notEqual(keyed[0], "task-gui-smoke", "a row hidden by the filter must not be selectable via keyboard");
 
-    // 行点击 → 详情「打开任务」→ 真实任务详情;再回总览量紧凑入口的几何。
+    // 行点击 → 详情「打开任务」→ 真实任务详情;从详情页头的「总览」返回路径回到总览,
+    // 再量紧凑入口的几何(侧栏也有同名「总览」按钮,nav helper 的严格定位会撞二义)。
     await dialog.getByTestId("overview-task-wip-search").fill("导航甲");
     await dialog.getByRole("button", { name: /打开任务|Open task/u }).click();
     await page.getByTestId("task-detail-view").waitFor();
     await shot("overview-wip-task-detail");
 
-    await nav(page, /^(?:总览|Overview)$/u, "overview-view");
+    await page
+      .getByTestId("task-detail-header")
+      .getByRole("button", { name: /^(?:总览|Overview)$/u })
+      .click();
+    await page.getByTestId("overview-region-drill").waitFor();
     await settledWipGeometry(page);
     await shot("overview-wip-settled");
   },
