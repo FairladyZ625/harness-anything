@@ -113,7 +113,9 @@ export interface AccessGroupWrite {
 
 /** What the renderer may ask of access administration; the main process adds the operation id of each write. */
 export type AccessAdminRequest = { readonly repoId?: string } & (
-  | { readonly operation: "team-list" | "group-list" | "grant-list" | "receipt-list" | "session-lifetime" }
+  | {
+      readonly operation: "node-list" | "team-list" | "group-list" | "grant-list" | "receipt-list" | "session-lifetime";
+    }
   | { readonly operation: "team-create"; readonly teamName: string }
   | ({ readonly operation: "team-update"; readonly teamName: string } & AccessTeamChange)
   | ({ readonly operation: "team-delete" } & AccessTeamChange)
@@ -133,6 +135,9 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
 
 export interface AccessAdminApi {
   readonly forRepository: (repoId?: string) => AccessAdminApi;
+  readonly nodes: () => Reply<{
+    readonly nodes: readonly { readonly nodeId: string; readonly personId: string; readonly version: string }[];
+  }>;
   readonly teams: () => Reply<AccessTeamsReply>;
   readonly createTeam: (input: { readonly teamName: string }) => Reply<AccessReceipt>;
   readonly updateTeam: (input: AccessTeamChange & { readonly teamName: string }) => Reply<AccessReceipt>;

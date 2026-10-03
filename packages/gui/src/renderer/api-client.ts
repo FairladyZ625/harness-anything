@@ -491,6 +491,23 @@ export const harnessClient = {
     return readGuiActionResult(await invoke("repo.task.consent", payload, "consentReview"));
   },
   /** 台账 pin 的唯一 GUI 写通道:daemon 侧就是 `ha task pin` 的 pinned-only amend。 */
+  async assignTask(
+    payload: RepoScope & {
+      readonly taskId: string;
+      readonly expectedVersion: number;
+      readonly personId?: string;
+      readonly nodeId?: string;
+      readonly teamId?: string;
+      readonly expiresAt?: string;
+    },
+  ): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.task.assign", payload, "assignTask"));
+  },
+  async unassignTask(
+    payload: RepoScope & { readonly taskId: string; readonly expectedVersion: number },
+  ): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.task.unassign", payload, "unassignTask"));
+  },
   async pinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.task.pin", payload, "pinTask"));
   },

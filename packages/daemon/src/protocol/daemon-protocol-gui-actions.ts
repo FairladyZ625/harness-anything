@@ -101,6 +101,31 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/tasks/:taskId/submit",
     "repo-write",
   ),
+  guiAction(
+    "task.assign",
+    "repo.task.assign",
+    "task-assign",
+    shape({
+      taskId: "string",
+      expectedVersion: "number",
+      personId: "string?",
+      nodeId: "string?",
+      teamId: "string?",
+      expiresAt: "string?",
+    }),
+    "assignTask",
+    "/api/tasks/:taskId/assign",
+    "repo-write",
+  ),
+  guiAction(
+    "task.unassign",
+    "repo.task.unassign",
+    "task-unassign",
+    shape({ taskId: "string", expectedVersion: "number" }),
+    "unassignTask",
+    "/api/tasks/:taskId/unassign",
+    "repo-write",
+  ),
   ...taskCompletionGuiActions,
   // Task buttons are aliases onto the repository-wide Entity Pin write path.
   guiAction(

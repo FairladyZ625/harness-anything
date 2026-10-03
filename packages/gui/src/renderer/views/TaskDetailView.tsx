@@ -9,6 +9,7 @@ import { TitleText } from "../components/primitives/TitleText";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { ViewInGraphButton } from "../components/ViewInGraphButton.tsx";
 import { TaskDispatchTab, TaskEvidenceTab, TaskOverviewTab } from "../components/taskDetail/TaskDetailSections.tsx";
+import { TaskAssignmentPanel } from "../components/taskDetail/TaskAssignmentPanel.tsx";
 import { TaskCloseoutTab } from "../components/taskDetail/TaskCloseoutTab.tsx";
 import { TaskRelationsTab, type TaskDecisionRef } from "../components/taskDetail/TaskRelationsTab.tsx";
 import { TaskDocumentSidebar, TaskFilesTab } from "../components/taskDetail/TaskFilesTab.tsx";
@@ -444,11 +445,14 @@ export function TaskDetailView({
                         onOpenRecord={openCloseoutRecord}
                       />
                     ) : activeTab === "dispatch" ? (
-                      <TaskDispatchTab
-                        task={task}
-                        focusedSessionId={focusedSessionId}
-                        onNavigateEntity={onNavigateEntity}
-                      />
+                      <>
+                        {!external && <TaskAssignmentPanel key={`${task.projectId}:${task.taskId}`} task={task} />}
+                        <TaskDispatchTab
+                          task={task}
+                          focusedSessionId={focusedSessionId}
+                          onNavigateEntity={onNavigateEntity}
+                        />
+                      </>
                     ) : activeTab === "evidence" ? (
                       <TaskEvidenceTab
                         task={task}

@@ -15,6 +15,7 @@ type Field = "text" | "names" | "seconds";
 
 /** The fields each operation carries to the daemon. Anything else the renderer sends is refused. */
 const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>> = {
+  "node-list": {},
   "team-list": {},
   "team-create": { teamName: "text" },
   "team-update": { teamId: "text", teamName: "text", expectedVersion: "text" },

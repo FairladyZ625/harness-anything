@@ -179,5 +179,20 @@
   "accessControl.teams.refresh": "Load latest",
   "accessControl.teams.choose": "Create or select a team to manage its members.",
   "accessControl.teams.new": "New team",
-  "accessControl.teams.empty": "No work teams. Create a team to assign tasks to its members."
+  "accessControl.teams.empty": "No work teams. Create a team to assign tasks to its members.",
+  "taskAssignment.title": "Task assignment",
+  "taskAssignment.rule": "Reassign only after releasing the active lease. Team membership does not grant permission to start.",
+  "taskAssignment.none": "Unassigned",
+  "taskAssignment.person": "Person",
+  "taskAssignment.node": "Node",
+  "taskAssignment.team": "Work team",
+  "taskAssignment.kind": "Assign to",
+  "taskAssignment.target": "Recipient",
+  "taskAssignment.choose": "Choose a recipient",
+  "taskAssignment.loading": "Loading recipients…",
+  "taskAssignment.expiry": "Expiry (local time)",
+  "taskAssignment.save": "Assign",
+  "taskAssignment.remove": "Remove assignment",
+  "taskAssignment.defaultExpiry": "Leave expiry empty to use the repository default. Changing the default does not change existing assignments.",
+  "taskAssignment.saved": "Assignment saved."
 }

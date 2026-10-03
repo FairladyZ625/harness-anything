@@ -231,6 +231,7 @@ export function task(value: unknown): boolean {
       "pinned",
     ],
     optional = [
+      "assignment",
       "provenance",
       "metadata",
       "packageDisposition",
@@ -240,6 +241,8 @@ export function task(value: unknown): boolean {
       "closeoutOverrides",
       "archiveOnComplete",
     ];
+  const assignment = isJsonObject(value) ? value.assignment : undefined,
+    assignee = isJsonObject(assignment) ? assignment.assignee : undefined;
   return (
     recordWith(value, required) &&
     Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
@@ -255,6 +258,18 @@ export function task(value: unknown): boolean {
     (value.presetSnapshotDigest === null || digest(value.presetSnapshotDigest)) &&
     (value.provenance === undefined ||
       (Array.isArray(value.provenance) && value.provenance.length > 0 && value.provenance.every(sessionProvenance))) &&
+    (assignment === undefined ||
+      assignment === null ||
+      (exactRecord(assignment, ["assignee", "expiresAt"]) &&
+        nonEmpty(assignment.expiresAt) &&
+        Number.isFinite(Date.parse(assignment.expiresAt)) &&
+        isJsonObject(assignee) &&
+        (assignee.kind === "team"
+          ? exactRecord(assignee, ["kind", "teamId"]) && nonEmpty(assignee.teamId)
+          : assignee.kind === "person" &&
+            nonEmpty(assignee.personId) &&
+            Object.keys(assignee).every((key) => ["kind", "personId", "nodeId"].includes(key)) &&
+            (assignee.nodeId === undefined || nonEmpty(assignee.nodeId))))) &&
     typeof value.pinned === "boolean" &&
     isJsonObject(value.graph) &&
     (value.metadata === undefined || validTaskMetadata(value.metadata)) &&

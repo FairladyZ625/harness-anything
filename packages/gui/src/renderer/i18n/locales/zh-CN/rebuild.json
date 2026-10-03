@@ -179,5 +179,20 @@
   "accessControl.teams.refresh": "加载最新",
   "accessControl.teams.choose": "创建或选择工作组以管理成员。",
   "accessControl.teams.new": "新建工作组",
-  "accessControl.teams.empty": "尚无工作组。创建后可将任务指派给组内成员。"
+  "accessControl.teams.empty": "尚无工作组。创建后可将任务指派给组内成员。",
+  "taskAssignment.title": "任务指派",
+  "taskAssignment.rule": "执行中须先释放租约再改派。工作组成员关系不自动授予开工权限。",
+  "taskAssignment.none": "未指派",
+  "taskAssignment.person": "人",
+  "taskAssignment.node": "节点",
+  "taskAssignment.team": "工作组",
+  "taskAssignment.kind": "指派类型",
+  "taskAssignment.target": "指派对象",
+  "taskAssignment.choose": "选择对象",
+  "taskAssignment.loading": "正在读取对象…",
+  "taskAssignment.expiry": "期限（本地时间）",
+  "taskAssignment.save": "指派",
+  "taskAssignment.remove": "取消指派",
+  "taskAssignment.defaultExpiry": "期限留空使用仓库默认值。修改默认值不会改变已有指派期限。",
+  "taskAssignment.saved": "指派已保存。"
 }

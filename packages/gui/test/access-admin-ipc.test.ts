@@ -56,6 +56,7 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.sessionLifetime();
   await api.setSessionLifetime({ sessionLifetimeSeconds: 3_600, expectedVersion: "21600" });
   await api.forRepository("server-b").groups();
+  await api.nodes();
   await api.teams();
   await api.createTeam({ teamName: "Builders" });
   await api.updateTeam({ teamId: "team-1", teamName: "Reviewers", expectedVersion: "v1" });
@@ -81,6 +82,7 @@ test("every preload method reaches the daemon as one operation the protocol cont
       operationId: "operation-6",
     },
     { operation: "group-list", repoId: "server-b" },
+    { operation: "node-list" },
     { operation: "team-list" },
     { operation: "team-create", teamName: "Builders", operationId: "operation-7" },
     {
@@ -199,6 +201,7 @@ test("work team operations preserve versions and reject renderer authority field
   const { sent, invoke } = fixture(),
     api = accessAdminPreloadApi((_channel, request) => invoke(request)),
     change = { teamId: "team-1", expectedVersion: "v1" };
+  await api.nodes();
   await api.teams();
   await api.createTeam({ teamName: "Builders" });
   await api.updateTeam({ ...change, teamName: "Reviewers" });
@@ -208,7 +211,7 @@ test("work team operations preserve versions and reject renderer authority field
   for (const params of sent) assert.deepEqual(validateDaemonRpcCall({ method: "daemon.rbac.manage", params }), []);
   assert.deepEqual(
     sent.map((params) => params.expectedVersion),
-    [undefined, undefined, "v1", "v1", "v1", "v1"],
+    [undefined, undefined, undefined, "v1", "v1", "v1", "v1"],
   );
   assert.throws(() =>
     accessAdminParams({ operation: "team-member-add", ...change, personId: "alice", actor: "admin" }, () => "id"),

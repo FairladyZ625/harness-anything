@@ -12,6 +12,7 @@ export function accessAdminPreloadApi(
     invoke(ACCESS_ADMIN_CHANNEL, { ...request, ...(repoId ? { repoId } : {}) }) as Promise<never>;
   return {
     forRepository: (repoId) => accessAdminPreloadApi(invoke, repoId),
+    nodes: () => ask({ operation: "node-list" }),
     teams: () => ask({ operation: "team-list" }),
     createTeam: (input) => ask({ operation: "team-create", ...input }),
     updateTeam: (input) => ask({ operation: "team-update", ...input }),
