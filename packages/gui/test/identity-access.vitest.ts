@@ -43,6 +43,38 @@ afterEach(() => {
 });
 
 describe("IdentityAccessView", () => {
+  it("shows a center binding without offering local configuration to an edge user", async () => {
+    await render(
+      auth({
+        status: vi.fn(async () => ({ authenticated: true, personId: "ordinary-person" })),
+        bindingStatus: vi.fn(async () => ({
+          source: "fleet-center",
+          mode: "external",
+          ready: true,
+          url: "https://center.example",
+          realm: "harness",
+        })),
+      }),
+    );
+    expect(container.textContent).toContain("ordinary-person");
+    expect(container.textContent).toContain("https://center.example");
+    expect(container.textContent).not.toContain("尚未绑定 Keycloak");
+    expect(container.querySelector('[data-testid="external-binding-form"]')).toBeNull();
+  });
+
+  it("shows discovery failure without offering configuration or claiming an unbound state", async () => {
+    await render(
+      auth({
+        bindingStatus: vi.fn(async () => {
+          throw new Error("ECONNREFUSED: center unavailable");
+        }),
+      }),
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("center unavailable");
+    expect(container.textContent).not.toContain("尚未绑定 Keycloak");
+    expect(container.querySelector('[data-testid="external-binding-form"]')).toBeNull();
+  });
+
   it("shows daemon rejection details when external configuration is rejected", async () => {
     await render(
       auth({

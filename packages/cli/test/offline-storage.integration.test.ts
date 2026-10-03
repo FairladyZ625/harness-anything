@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -12,6 +13,7 @@ import { event } from "../../kernel/test/store/task-event-store.fixtures.ts";
 import {
   activateEmptyCanonicalGeneration,
   makeTaskEventStore,
+  openSqliteEventStore,
   registerDaemonRepo,
   taskLifecycleWritePlan,
 } from "@harness-anything/kernel";
@@ -181,6 +183,76 @@ test("CLI delegates backup and restore drill to the daemon while event tail stay
     rmSync(backupDir, { recursive: true, force: true });
     rmSync(restoredRoot, { recursive: true, force: true });
     rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("real CLI refuses a backup whose accepted content is absent or has the wrong size", async () => {
+  const parent = mkdtempSync(path.join(os.tmpdir(), "ha-cli-content-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "state"),
+    backupDir = path.join(parent, "backup"),
+    body = "accepted plan\n",
+    sha256 = createHash("sha256").update(body).digest("hex"),
+    claim = {
+      path: "tasks/task-1/task_plan.md",
+      sha256,
+      size: Buffer.byteLength(body),
+      mediaType: "text/markdown",
+      policyId: "markdown-body-replaceable/v1",
+    } as const;
+  try {
+    register(userRoot, root, "content-check");
+    const store = openSqliteEventStore({ repoId: "content-check", rootInput: root, generation: 2 }),
+      claimedEvent = { ...event, payload: { ...event.payload, documentClaims: [claim] } },
+      object = path.join(path.dirname(store.databasePath), "objects/sha256", sha256.slice(0, 2), sha256.slice(2));
+    try {
+      store.appendCommand({
+        fence: { repoId: "content-check", holder: "test", epoch: 1 },
+        intent: {
+          opId: event.opId,
+          intentDigest: `sha256:${createHash("sha256").update(JSON.stringify(claimedEvent)).digest("hex")}`,
+          summary: event.type,
+        },
+        events: [claimedEvent],
+        blobs: [{ ...claim, body }],
+      });
+    } finally {
+      store.close();
+    }
+    invokeCli(["backup", backupDir, "--root", root], userRoot);
+    invokeCli(["restore", backupDir, "--to", path.join(parent, "healthy")], userRoot);
+    rmSync(object);
+    for (const state of ["missing", "size"]) {
+      if (state === "size") writeFileSync(object, "short");
+      const result = invokeCliResult(["backup", path.join(parent, state), "--root", root], userRoot);
+      assert.equal(result.status, 1, result.stdout);
+      assert.match(result.stdout, new RegExp(`content object ${sha256} (is missing|size differs)`, "u"));
+      console.log(`CONTENT_BACKUP_${state}=${result.stdout.trim()}`);
+    }
+    // Healthy frozen payload restores independently of the damaged live source.
+    invokeCli(["restore", backupDir, "--to", path.join(parent, "frozen")], userRoot);
+    const payloadObject = path.join(backupDir, "payload", path.relative(root, object));
+    rmSync(payloadObject);
+    const lost = invokeCliResult(["restore", backupDir, "--to", path.join(parent, "lost")], userRoot);
+    assert.equal(lost.status, 1);
+    assert.match(lost.stdout, /inventory differs/u);
+    const manifestPath = path.join(backupDir, "manifest.json"),
+      manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.files = manifest.files.filter(
+      (entry: { path: string }) =>
+        entry.path !== path.relative(path.join(backupDir, "payload"), payloadObject).split(path.sep).join("/"),
+    );
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const incomplete = invokeCliResult(["restore", backupDir, "--to", path.join(parent, "incomplete")], userRoot),
+      receipt = JSON.parse(incomplete.stdout);
+    assert.equal(incomplete.status, 1);
+    assert.equal(receipt.code, "offline_storage_failed");
+    assert.equal(receipt.ok, false);
+    assert.match(receipt.hint, new RegExp(`content object ${sha256} is missing`, "u"));
+    console.log(`CONTENT_RESTORE=${incomplete.stdout.trim()}`);
+  } finally {
+    invokeCliResult(["daemon", "stop"], userRoot);
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 
