@@ -84,7 +84,8 @@ export const create: Transition = {
 /**
  * The state-side admissibility of StartExecution: a new execution, the
  * unleased active execution of the current round, or a review node stranded
- * without the submitted execution needed to proceed. An `orphaned` lease — the
+ * without the submitted execution needed to proceed, or a submitted task whose
+ * contract migration opened a round with no execution. An `orphaned` lease — the
  * time-aware projection's view of a held lease past its TTL — no longer gates
  * the round: the holder is gone, and the reservation CAS fences the takeover.
  * Exported so the daemon preview and this transition answer with one rule instead of two. */
@@ -99,9 +100,13 @@ export function canStartExecution(snapshot: TaskLifecycleSnapshot, executionId: 
       !snapshot.executions.some(
         (value) => isNativeExecution(value) && value.iteration === task.iteration && value.state === "submitted",
       ),
+    unexecutedSubmission =
+      task?.status === "submitted" &&
+      !snapshot.executions.some((value) => isNativeExecution(value) && value.iteration === task.iteration),
     startablePhase =
       (["planned", "active"].includes(task?.status ?? "") && task?.currentNode === "implementation") ||
-      (["planned", "active", "in_review"].includes(task?.status ?? "") && recoverableReview);
+      (["planned", "active", "in_review"].includes(task?.status ?? "") && recoverableReview) ||
+      (unexecutedSubmission && ["implementation", "review"].includes(task?.currentNode ?? ""));
   return (
     Boolean(task) &&
     startablePhase &&
@@ -133,7 +138,8 @@ export const start: Transition = {
         lifecycleContractIssue(
           "invalid_transition",
           "StartExecution requires a new execution, or the unleased active execution of the current round, " +
-            "in planned or returned implementation, or a review node with no current submitted execution",
+            "in planned or returned implementation, a review node with no current submitted execution, " +
+            "or a submitted task with no execution in the current contract iteration",
         ),
       );
     if (
