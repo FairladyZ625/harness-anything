@@ -31,7 +31,11 @@ import { assertDecisionWritePlan } from "../domain/decision-event.ts";
 import { assertFactWritePlan } from "../domain/fact-event.ts";
 import { assertTaskLifecycleWritePlan } from "../domain/task-lifecycle-publication.ts";
 import type { TaskProjection, TaskProjectionQueries, TaskProjectionReader } from "./task-projection-port.ts";
-import type { EventStreamPort, ProjectionContext } from "./rebuildable-task-projection-types.ts";
+import type {
+  EventStreamPort,
+  ProjectionContext,
+  TaskProjectionCatchUpProgress,
+} from "./rebuildable-task-projection-types.ts";
 import {
   closeDatabase,
   discardDatabase,
@@ -52,11 +56,7 @@ import { readStateDigest, readProjectionCut, transaction, watermark } from "./re
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
-export interface TaskProjectionCatchUpProgress {
-  readonly applied: number;
-  readonly total?: number;
-  readonly watermark: number;
-}
+export type { TaskProjectionCatchUpProgress } from "./rebuildable-task-projection-types.ts";
 
 // Public projection construction and local source-head handling.
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string {
@@ -136,7 +136,7 @@ export function makeTaskProjection(options: {
     },
     rebuild: () => {
       closeDatabase(projectionPath, readHead);
-      return rebuildProjection(projectionPath, readHead, options.eventStore, limit);
+      return rebuildProjection(projectionPath, readHead, options.eventStore, limit, onProgress);
     },
     catchUp: () => {
       const initialWatermark = withDatabase(projectionPath, readHead, watermark);

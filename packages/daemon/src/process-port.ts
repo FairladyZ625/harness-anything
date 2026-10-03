@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import {
   execFile,
   /* @gate-identity check-sync-subprocess/sync-subprocess-008 */
@@ -244,4 +245,39 @@ export function makeGitReadinessSource() {
       }
     },
   };
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? error.code : null;
+    if (code !== "ESRCH" && code !== "EPERM") throw error;
+    return code === "EPERM";
+  }
+}
+
+/** ESRCH proves death; only Windows also checks creation time against the lock's write time.
+ * Query failures propagate to the caller and cannot authorize lock recovery. */
+export function processLockHolderDead(lockPath: string, pid: number): boolean {
+  if (!processExists(pid)) return true;
+  if (process.platform !== "win32") return false;
+  const output = runProcessText(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `$ErrorActionPreference = 'Stop'; (Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToFileTimeUtc()`,
+    ],
+    undefined,
+    undefined,
+    8_000,
+  ).trim();
+  if (!/^[0-9]+$/u.test(output) || BigInt(output) <= 0n)
+    throw new Error(`Cannot determine Windows process creation time for PID ${pid}`);
+  // Round down to milliseconds: insufficient precision must retain the incumbent.
+  const startedAtMs = Number(BigInt(output) / 10_000n - 11_644_473_600_000n);
+  return startedAtMs > statSync(lockPath).mtimeMs;
 }
