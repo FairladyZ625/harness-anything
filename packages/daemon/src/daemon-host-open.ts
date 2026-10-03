@@ -642,6 +642,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           : undefined);
       if (request.repoId && !loginTarget)
         throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
+      if (
+        request.operation === "health" &&
+        request.mode !== "external" &&
+        loginTarget &&
+        readFleetEdgeConfig(loginTarget)
+      )
+        return oidc.bindingHealth(loginTarget);
       if (request.operation === "login") return oidc.beginDevice(loginTarget);
       if (request.operation === "login-poll") return oidc.pollDevice();
       if (request.operation === "login-begin") {

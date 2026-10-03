@@ -14,6 +14,7 @@ import {
   OIDC_LOGOUT_CHANNEL,
   OIDC_BOOTSTRAP_STATUS_CHANNEL,
   OIDC_BOOTSTRAP_ADMIN_CHANNEL,
+  OIDC_BINDING_STATUS_CHANNEL,
 } from "../src/api/oidc-auth-contract.ts";
 
 test("a local repository keeps the original socket bootstrap status and a targeted administrator mutation is refused", async () => {
@@ -121,6 +122,44 @@ test("binding IPC projects an unconfigured receipt as an explicit state", () => 
     }),
     { ok: true, configured: false },
   );
+});
+
+test("binding IPC forwards the selected edge and preserves center metadata and discovery errors", async () => {
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
+  const event = { sender: { id: 7 }, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent;
+  const binding = {
+    source: "fleet-center",
+    mode: "external",
+    ready: true,
+    url: "https://center.example",
+    realm: "harness",
+    clientId: "harness-node-edge",
+  };
+  let failed = false;
+  registerOidcAuthIpc(
+    {
+      handle: (channel, handler) => {
+        handlers.set(channel, handler);
+      },
+    },
+    {
+      isTrustedWebContentsId: (id) => id === 7,
+      rendererUrl: { packagedRendererUrl: "file:///renderer/index.html" },
+    },
+    {
+      daemonRequest: async (params) => {
+        assert.deepEqual(params, { operation: "health", repoId: "edge" });
+        return failed
+          ? { ok: false, code: "oidc_listener_required", rejectionExplanation: "Center discovery refused." }
+          : binding;
+      },
+      openExternal: async () => undefined,
+    },
+  );
+  const read = () => handlers.get(OIDC_BINDING_STATUS_CHANNEL)!(event, { repoId: "edge" });
+  assert.deepEqual(await read(), binding);
+  failed = true;
+  await assert.rejects(read(), { code: "oidc_listener_required" });
 });
 
 test("system-browser login opens only after the loopback callback is listening", async () => {
