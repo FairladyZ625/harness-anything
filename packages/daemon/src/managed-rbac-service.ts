@@ -66,6 +66,7 @@ export interface ManagedRbacRequest extends AccessAdminRequest {
   readonly url?: string;
   readonly realm?: string;
   readonly clientId?: string;
+  readonly clientSecret?: string;
   readonly backupDir?: string;
   readonly redirectUri?: string;
   readonly code?: string;
@@ -593,11 +594,13 @@ export class ManagedRbacService {
   }
 
   async #configureExternal(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
-    if (!request.url || !request.realm || !request.clientId)
+    if (!request.url || !request.realm || !request.clientId || !request.clientSecret?.trim())
       throw managedRbacError(
         "rbac_external_config_incomplete",
-        "External mode requires --url, --realm, and --client-id.",
+        "External mode requires URL, realm, client ID and a write-only client secret.",
       );
+    if (request.clientId !== "harness-center")
+      throw managedRbacError("rbac_external_client_invalid", "The fleet resource server must be harness-center.");
     const url = new URL(request.url);
     if (url.protocol !== "https:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost")
       throw managedRbacError("rbac_external_url_insecure", "External Keycloak must use HTTPS unless it is loopback.");
@@ -608,6 +611,54 @@ export class ManagedRbacService {
         "rbac_external_probe_failed",
         `External Keycloak realm probe returned HTTP ${probe.status}; configuration was not changed.`,
       );
+    const tokenResponse = await this.#ports.fetch(
+      `${normalizedUrl}/realms/${encodeURIComponent(request.realm)}/protocol/openid-connect/token`,
+      {
+        method: "POST",
+        redirect: "error",
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: request.clientId,
+          client_secret: request.clientSecret.trim(),
+        }),
+      },
+    );
+    if (!tokenResponse.ok)
+      throw managedRbacError(
+        "rbac_external_credentials_rejected",
+        "External Keycloak rejected the center credentials; configuration was not changed.",
+      );
+    let token: { readonly access_token?: unknown };
+    try {
+      token = (await tokenResponse.json()) as { readonly access_token?: unknown };
+    } catch {
+      throw managedRbacError(
+        "rbac_external_credentials_rejected",
+        "External Keycloak returned an invalid service token response; configuration was not changed.",
+      );
+    }
+    if (!token || typeof token.access_token !== "string" || !token.access_token)
+      throw managedRbacError(
+        "rbac_external_credentials_rejected",
+        "External Keycloak omitted the service token; configuration was not changed.",
+      );
+    // Check the administration read used by first-admin bootstrap before persisting either value.
+    const admin = await this.#ports.fetch(
+      `${normalizedUrl}/admin/realms/${encodeURIComponent(request.realm)}/users?max=1`,
+      {
+        headers: { authorization: `Bearer ${token.access_token}` },
+        redirect: "error",
+      },
+    );
+    if (!admin.ok)
+      throw managedRbacError(
+        "rbac_external_credentials_rejected",
+        "The center credentials cannot administer the realm; configuration was not changed.",
+      );
+    mkdirSync(this.#root, { recursive: true, mode: 0o700 });
+    const secretFile = path.join(this.#root, "center-client-secret");
+    writeFileSync(secretFile, request.clientSecret.trim(), { mode: 0o600 });
+    chmodSync(secretFile, 0o600);
     this.#writeConfig({
       schema: "harness-managed-rbac/v1",
       mode: "external",

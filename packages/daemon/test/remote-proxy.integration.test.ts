@@ -341,6 +341,13 @@ test(
     );
 
     await t.test("Goal 5: A rejects local bootstrap and local control authority for a proxy repo", async () => {
+      const external = await rpcA("daemon.rbac.manage", { repoId, operation: "health", mode: "external" });
+      assert.equal(external.ok, false);
+      assert.equal(
+        external.code,
+        "local_transport_required",
+        "a read operation cannot carry external configuration through the proxy",
+      );
       const bootstrap = await rpcA("daemon.repo.bootstrap", {
         repoId,
         rootDir: path.join(parent, "must-not-exist"),

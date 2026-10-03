@@ -36,6 +36,30 @@ for browser approval. Open that URL on another device and sign in as the first
 administrator. Center and edge use the same Device login/session/logout entry.
 Node registration writes its machine credential once to a new protected file.
 
+## External Keycloak center credentials
+
+On the center host, use an existing fleet realm with the `harness-center`
+confidential service-account client and the Harness realm-management and
+Authorization Services configuration. Browser login uses `harness-gui`.
+Configure it before the first-administrator commands above:
+
+```bash
+ha bootstrap --mode external --url https://identity.example.com --realm fleet --client-id harness-center --client-secret-stdin < /path/to/protected-client-secret
+```
+
+The secret is accepted only through redirected stdin and the original local
+socket. It is stored in the center user root with owner-only file permissions,
+never returned in health/status or receipts. A failed realm or credential check
+leaves the existing configuration unchanged. Other client IDs are refused.
+After the first administrator exists, replacing this configuration requires an
+`access-admin` session against the current authority.
+
+In the local GUI, open **Identity & access → Connect external Keycloak**, enter
+the URL, realm and center client secret, then apply. The password field clears
+on submission, including failure. The first-administrator form also appears for
+an external realm when bootstrap is required. Edge and remote-proxy connections
+cannot configure the center credentials.
+
 ## Connection modes
 
 | Registry mode                   | Use it for                                | Local machine                                        | Data and write authority                      |

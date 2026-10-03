@@ -205,7 +205,7 @@ export function createJsonRpcProtocolServer(options: {
             "invite",
             ...accessAdminOperations,
           ];
-          if (!permitted.includes(String(params.operation)))
+          if (params.mode === "external" || !permitted.includes(String(params.operation)))
             throw Object.assign(new Error("This RBAC operation requires the center's original local socket."), {
               code: "local_transport_required",
             });

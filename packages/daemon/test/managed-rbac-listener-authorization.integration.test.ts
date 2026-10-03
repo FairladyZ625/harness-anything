@@ -115,6 +115,21 @@ test("the first-admin window closes and later listener changes require access-ad
     await assert.rejects(host.manageRbac({ ...change, expectedVersion: current }, auth), {
       code: "authorization_denied",
     });
+    await assert.rejects(
+      host.manageRbac(
+        {
+          mode: "external",
+          url: "https://identity.example.test",
+          realm: "fleet",
+          clientId: "harness-center",
+          clientSecret: "unused",
+        },
+        auth,
+      ),
+      {
+        code: "authorization_denied",
+      },
+    );
     // An access administrator's request is the one that reaches the listener: it is judged on its content.
     session = signedIn(["access-admin"]);
     await assert.rejects(host.manageRbac({ ...change, expectedVersion: current }, auth), {

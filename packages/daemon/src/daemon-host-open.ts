@@ -636,6 +636,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     ...lifecycle,
     manageRbac: (request, auth) => {
       localOnly(auth);
+      if (request.mode === "external") return oidc.configureAuthority(() => managedRbac.run(request));
       const loginTarget =
         request.rootDir ??
         (request.repoId
@@ -683,7 +684,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       }
       if ((accessAdminOperations as readonly string[]).includes(request.operation ?? "bootstrap"))
         return accessAdmin.run(request);
-      if (request.operation === "listener-set") return oidc.changeListener(() => managedRbac.run(request));
+      if (request.operation === "listener-set") return oidc.configureAuthority(() => managedRbac.run(request));
       return requireAuthorizedHostAction({
         kind: "rbac-bootstrap",
         // Lifecycle bootstrap is the sole socket-owner exception: it can install/start the
