@@ -286,6 +286,20 @@ export function createScheduleV1(input: {
   return schedule;
 }
 
+/** Project accepted historical evidence into the current run view; never used for new wire input. */
+export function projectScheduleHistory(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.status)) return value;
+  const run = (entry: unknown): unknown => {
+    if (!isRecord(entry) || !Object.hasOwn(entry, "assignmentId")) return entry;
+    const { assignmentId: _retired, ...current } = entry;
+    return current;
+  };
+  return {
+    ...value,
+    status: { ...value.status, activeRun: run(value.status.activeRun), lastRun: run(value.status.lastRun) },
+  };
+}
+
 export function scheduleDefinition(schedule: ScheduleV1): ScheduleDefinitionV1 {
   return {
     schema: schedule.schema,
