@@ -86,21 +86,29 @@ export function artifactRpcDiagnostics(
             // Async server logs can lag; an absent conn_open is not proof that accept never happened.
             connections: connectionEvidence(userRoot, daemonId),
             // Only lifecycle fields relevant to startup/exit, never raw stderr, RPC params or credentials.
-            lifecycle: readDaemonLifecycleRecords(userRoot, daemonId)
-              .slice(-12)
-              .map(({ at, event, pid, endpoint, outcome, exitCode, signal }) => ({
-                at,
-                event,
-                pid,
-                endpoint,
-                outcome,
-                exitCode,
-                signal,
-              })),
+            lifecycle: lifecycleEvidence(userRoot, daemonId),
           }),
         );
       }
     };
+}
+
+function lifecycleEvidence(userRoot: string, daemonId: string) {
+  try {
+    return readDaemonLifecycleRecords(userRoot, daemonId)
+      .slice(-12)
+      .map(({ at, event, pid, endpoint, outcome, exitCode, signal }) => ({
+        at,
+        event,
+        pid,
+        endpoint,
+        outcome,
+        exitCode,
+        signal,
+      }));
+  } catch (error) {
+    return { readError: errorCode(error) };
+  }
 }
 
 function errorCode(error: unknown): string {

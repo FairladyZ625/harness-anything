@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { channel } from "node:diagnostics_channel";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -9,7 +9,11 @@ import test from "node:test";
 import { connectSocket } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { daemonPidPath } from "@harness-anything/daemon/internal/daemon-singleton";
-import { openDaemonLifecycleLog } from "@harness-anything/daemon/internal/lifecycle-log";
+import {
+  daemonLifecycleLogPath,
+  openDaemonLifecycleLog,
+  readDaemonLifecycleRecords,
+} from "@harness-anything/daemon/internal/lifecycle-log";
 import { artifactRpcDiagnostics } from "./release-artifact-rpc-diagnostics.fixture.ts";
 
 for (const mode of ["connected", "missing", "deadline"] as const) {
@@ -70,6 +74,37 @@ for (const mode of ["connected", "missing", "deadline"] as const) {
     } finally {
       context.mock.timers.reset();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      rmSync(userRoot, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const outcome of ["resolved", "rejected"] as const) {
+  test(`Artifact RPC diagnostics preserve the original ${outcome} value when lifecycle reading fails`, async () => {
+    const userRoot = mkdtempSync(path.join(tmpdir(), "ha-artifact-rpc-")),
+      daemonId = "diagnostic",
+      secret = "must-not-appear-in-read-error",
+      lines: string[] = [],
+      original = { token: secret },
+      rejection = Object.assign(new Error(secret), { code: "original-rejection" }),
+      trace = artifactRpcDiagnostics(userRoot, daemonId, (line) => lines.push(line)),
+      request = trace(async (_target: { socketPath: string }) => {
+        if (outcome === "rejected") throw rejection;
+        return original;
+      });
+    try {
+      mkdirSync(daemonLifecycleLogPath(userRoot, daemonId), { recursive: true });
+      assert.throws(() => readDaemonLifecycleRecords(userRoot, daemonId), { code: "EISDIR" });
+      const pending = request({ socketPath: path.join(userRoot, "daemon.sock") });
+      if (outcome === "resolved") assert.equal(await pending, original);
+      else await assert.rejects(pending, (error) => error === rejection);
+      assert.equal(lines.length, 1);
+      const evidence = JSON.parse(lines[0]);
+      assert.deepEqual(evidence.lifecycle, { readError: "EISDIR" });
+      assert.equal(evidence.outcome, outcome === "resolved" ? "resolved" : "original-rejection");
+      assert.ok(!lines[0].includes(secret));
+      assert.equal(channel("net.client.socket").hasSubscribers, false);
+    } finally {
       rmSync(userRoot, { recursive: true, force: true });
     }
   });
