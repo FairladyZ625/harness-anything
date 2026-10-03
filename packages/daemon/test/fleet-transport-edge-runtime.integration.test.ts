@@ -1,57 +1,36 @@
 // harness-test-tier: integration
-import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
-import path from "node:path";
-import test, { type TestContext } from "node:test";
-import {
-  fleetHostWriterOptions,
-  fleetLedgerRevision,
-  fleetNodeOwners,
-  waitForFleetPublication,
-} from "./fleet-store.fixture.ts";
-import { setTimeout as delay } from "node:timers/promises";
-import { connect, type TLSSocket } from "node:tls";
 import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import assert from "node:assert/strict";
+
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import type { AgentRuntimeSessionDto } from "../src/agent-runtime-contract.ts";
+import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
+import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { listenFleetTls } from "../src/fleet/center.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import {
+  fleetFixture,
+  git,
+  initRepo,
+  localAuthFixture,
+  rawPeer,
+  runFaultChild,
+} from "./fleet-runtime-recovery.fixtures.ts";
+import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { evidence } from "./task-surface.fixtures.ts";
-import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/contract.ts";
-import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { definition as settlementDefinition, scheduleRuntimePorts, eventually } from "./schedule-actions.fixtures.ts";
-import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { eventually } from "./schedule-actions.fixtures.ts";
 const replicaQuota = 64 * 1024 * 1024;
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
 // teardown does not run on the timeout path. Every fixture therefore owns its OS resources and every test hands
 // `fixture.close` to `t.after`, which node:test does run after a timeout. Sockets and edge children are dropped
 // before the centers so `server.close()` is never left waiting on a peer that outlived the test.
-function reclaimer() {
-  const closers: Array<() => void> = [],
-    centers: FleetTlsCenter[] = [];
-  return {
-    track: (close: () => void) => {
-      closers.push(close);
-    },
-    hold: async (opening: Promise<FleetTlsCenter>) => {
-      const center = await opening;
-      centers.push(center);
-      return center;
-    },
-    reclaim: async () => {
-      for (const close of closers.splice(0)) close();
-      for (const center of centers.splice(0)) await center.close();
-    },
-  };
-}
 test("fixture teardown reclaims a still-running edge child and its TLS center", { timeout: 60_000 }, async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
@@ -326,7 +305,17 @@ test(
     );
     const after = await fixture.host.read(fixture.assignment.repoId, "repo.tasks.list", {}, fixture.auth);
     assert.ok(after.sourceRevision > before.sourceRevision);
-    await t.test("provider session resume keeps the center-observed runtime instance", async () => {
+    await t.test("provider resume recovers when the center loses the outcome publication", async () => {
+      const outcomeFailure = fixture.failNextRuntimeOutcome();
+      let reportQueueFailure!: () => void;
+      const queueFailure = new Promise<void>((resolve) => {
+        reportQueueFailure = resolve;
+      });
+      const originalError = console.error;
+      const errorProbe = t.mock.method(console, "error", (...args: unknown[]) => {
+        originalError(...args);
+        if (String(args[0]).includes("[fleet-edge-runtime] Pending runtime work failed:")) reportQueueFailure();
+      });
       const resumed = await edgeHost.fleet.edgeRuntime(
         {
           host: "127.0.0.1",
@@ -352,7 +341,82 @@ test(
         localAuth,
       );
       assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
-      assert.equal((await waitForOutcome(resumed.runtimeSessionId))?.session.activity.outcome, "succeeded");
+      assert.equal(typeof resumed.runtimeSessionId, "string", JSON.stringify(resumed));
+      await outcomeFailure;
+      await queueFailure;
+      errorProbe.mock.restore();
+      const partial = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+        .read()
+        .events.filter(
+          (event) =>
+            (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+            event.payload.runtimeSessionId === resumed.runtimeSessionId,
+        );
+      assert.deepEqual(
+        partial.map((event) => event.type),
+        ["runtime_session_exited"],
+      );
+      const partialSession = await fixture.host.read(
+        fixture.assignment.repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: resumed.runtimeSessionId },
+        fixture.auth,
+      );
+      assert.deepEqual(
+        {
+          liveness: partialSession.session.liveness,
+          outcome: partialSession.session.activity.outcome,
+          lease: partialSession.session.associations.find((item) => item.taskId === fixture.assignment.taskId)?.lease
+            ?.phase,
+        },
+        { liveness: "exited", outcome: null, lease: "released" },
+        "the accepted exit and released task lease stay authoritative while outcome is missing",
+      );
+
+      await edgeHost.fleet.edgeRuntime(
+        {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: fixture.certFile,
+          nodeId: fixture.assignment.nodeId,
+          credential: "machine-secret",
+          rosterPath,
+          assignmentId: fixture.assignment.assignmentId,
+          repoId: fixture.assignment.repoId,
+          viewRoot,
+          quotaBytes: replicaQuota,
+          workspaceRoot: edgeRoot,
+          method: "repo.agentRuntime.overview",
+          action: { limit: 1 },
+        },
+        localAuth,
+      );
+      const recoveredSession = await waitForOutcome(resumed.runtimeSessionId);
+      assert.deepEqual(
+        {
+          liveness: recoveredSession?.session.liveness,
+          outcome: recoveredSession?.session.activity.outcome,
+        },
+        { liveness: "exited", outcome: "succeeded" },
+        "a supported edge request should recover the outcome after the center accepted exited",
+      );
+      assert.match(String(recoveredSession?.session.activity.resultRef), /^artifact:runtime-result\/sha256\//u);
+      assert.equal(
+        recoveredSession?.session.associations.find((item) => item.taskId === fixture.assignment.taskId)?.lease?.phase,
+        "released",
+      );
+      const settled = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+        .read()
+        .events.filter(
+          (event) =>
+            (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+            event.payload.runtimeSessionId === resumed.runtimeSessionId,
+        );
+      assert.deepEqual(
+        settled.map((event) => event.type),
+        ["runtime_session_exited", "runtime_session_outcome_observed"],
+        "retrying an applied exited op must not duplicate terminal events",
+      );
       assert.equal(launchedInstances.at(-1), runtimeDefinition.instanceId);
     });
     await t.test("another assignment cannot replay terminal events for this runtime session", async () => {
@@ -789,854 +853,3 @@ test("fleet runtime waits over five seconds for every configured overview page",
     true,
   );
 });
-test(
-  "remote-edge dispatch serves the causal block fresh from the center, never its stale mirror",
-  { timeout: 60_000 },
-  async (t) => {
-    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
-    t.after(() => fixture.close());
-    const center = await fixture.center(),
-      edgeRoot = path.join(fixture.root, "causal-edge"),
-      edgeUserRoot = path.join(fixture.root, "causal-edge-user"),
-      viewRoot = path.join(fixture.root, "causal-edge-view"),
-      rosterPath = path.join(fixture.root, "causal-roster.json"),
-      uid = process.getuid?.() ?? 0,
-      localAuth = {
-        transportKind: "unix-socket",
-        unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" },
-      } as const;
-    mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
-    initRepo(edgeRoot);
-    writeFileSync(
-      path.join(edgeRoot, "harness/harness.yaml"),
-      "schema: harness-anything/v1\nname: causal-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-    );
-    git(edgeRoot, "add", "harness");
-    git(edgeRoot, "commit", "-qm", "edge harness");
-    // The mirror is pulled BEFORE the causal neighborhood exists at the center,
-    // so the decision, fact, and relations recorded below cannot be present in
-    // any edge-local copy. If the provider prompt still carries them, the block
-    // provably came from the center's canonical cut on this dispatch.
-    await runFleetReplicaPullClient({
-      port: center.port,
-      ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
-      credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
-      viewRoot,
-      diskQuotaBytes: replicaQuota,
-    });
-    applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, edgeRoot, "pull");
-    // Relation writes are admitted against the canonical vertical's relation
-    // direction registry, which reads the materialized declaration document —
-    // migrate publishes it through the real write path.
-    const vertical = await fixture.host.run(
-      fixture.assignment.repoId,
-      { kind: "vertical-declaration-migrate" },
-      localAuthFixture(),
-    );
-    assert.ok(vertical.outcome === "applied" || vertical.outcome === "no_changes", JSON.stringify(vertical));
-    if (vertical.outcome === "applied")
-      await waitForFleetPublication(fixture.host, fixture.assignment.repoId, vertical.opId, localAuthFixture());
-    const proposed = await fixture.host.run(
-        fixture.assignment.repoId,
-        {
-          kind: "decision-propose",
-          jsonInput: JSON.stringify({
-            title: "CENTERFRESH-ZQ decision",
-            question: "Does the edge see post-pull center context?",
-            riskTier: "low",
-            urgency: "low",
-            vertical: "software/coding",
-            preset: "standard-task",
-            decisionClass: "ordinary",
-            appliesTo: { modules: ["daemon"], productLines: [] },
-            chosen: [{ id: "CH1", text: "Serve the center cut over fleet reads", rationale: "Edge mirrors lag." }],
-            rejected: [{ id: "RJ1", text: "Summarize the mirror", whyNot: "Stale markdown is not canonical." }],
-            claims: [{ id: "C1", text: "Mirrors trail the center cut.", loadBearing: true }],
-            fulfillments: [],
-          }),
-          body: "# CENTERFRESH-ZQ decision\n\nServe the center cut.\n",
-        },
-        localAuthFixture(),
-      ),
-      decisionId = String(evidence(proposed).decisionId);
-    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
-    await waitForFleetPublication(fixture.host, fixture.assignment.repoId, proposed.opId, localAuthFixture());
-    const fact = await fixture.host.run(
-      fixture.assignment.repoId,
-      {
-        kind: "fact-record",
-        factId: "F-C1EDFACE",
-        statement: "CENTERFRESH-ZQ evidence recorded post-pull.",
-        evidenceSource: "packages/daemon/src/fleet-edge-runtime.ts",
-        confidence: "high",
-        memoryClass: "semantic",
-      },
-      localAuthFixture(),
-    );
-    assert.equal(fact.outcome, "applied", JSON.stringify(fact));
-    await waitForFleetPublication(fixture.host, fixture.assignment.repoId, fact.opId, localAuthFixture());
-    for (const [sourceRef, targetRef, relationType] of [
-      [`decision/${decisionId}/CH1`, `task/${fixture.assignment.taskId}`, "derives"],
-      [`decision/${decisionId}/C1`, "fact/F-C1EDFACE", "evidenced-by"],
-    ] as const) {
-      const related = await fixture.host.run(
-        fixture.assignment.repoId,
-        { kind: "relation-relate", sourceRef, targetRef, relationType, rationale: "Fixture edge.", expectedVersion: 0 },
-        localAuthFixture(),
-      );
-      assert.equal(related.outcome, "applied", JSON.stringify(related));
-      await waitForFleetPublication(fixture.host, fixture.assignment.repoId, related.opId, localAuthFixture());
-    }
-    writeFileSync(
-      rosterPath,
-      `${JSON.stringify({ schema: "fleet-roster/v3", assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId: fixture.assignment.repoId, viewId: fixture.assignment.viewId, expiresAt: fixture.assignment.expiresAt, scope: { kind: "task", taskId: fixture.assignment.taskId, executionId: fixture.assignment.executionId, paths: fixture.assignment.paths } }] })}
-`,
-    );
-    registerDaemonRepo({
-      canonicalRoot: edgeRoot,
-      repoId: fixture.assignment.repoId,
-      mode: "remote-edge",
-      userRoot: edgeUserRoot,
-      createConvenienceLinks: false,
-    });
-    const runtimeDefinition: AgentDefinitionSnapshot = {
-        schema: "agent-definition-snapshot/v1",
-        configVersion: 1,
-        instanceId: "causal-edge-codex",
-        installationId: "causal-edge-installation",
-        kindId: "codex",
-        providerId: "openai",
-        model: "causal-edge-model",
-        reasoningEffort: "high",
-        baseUrl: null,
-        authMode: "subscription",
-      },
-      runtimeInstallation: RuntimeInstallationWitness = {
-        installationId: runtimeDefinition.installationId,
-        kindId: runtimeDefinition.kindId,
-        executablePath: "/usr/bin/true",
-        version: "1.0.0",
-        observedAt: "2026-08-23T00:00:00.000Z",
-      },
-      launchedPrompts: string[] = [];
-    const edgeHost = await openDaemonHost({
-      daemonId: "fleet-causal-edge",
-      userRoot: edgeUserRoot,
-      runtimeDiscover: () => [runtimeInstallation],
-      runtimeLaunch: (prepared) => {
-        launchedPrompts.push(prepared.prompt);
-        let output: ((chunk: string) => void) | null = null,
-          exit: ((code: number | null) => void) | null = null;
-        return {
-          pid: 91234 + launchedPrompts.length,
-          onOutput: (listener) => {
-            output = listener;
-          },
-          onErrorOutput: () => undefined,
-          onExit: (listener) => {
-            exit = listener;
-            queueMicrotask(() => {
-              output?.(
-                `${JSON.stringify({ type: "thread.started", thread_id: "causal-edge-provider" })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "edge done" } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
-              );
-              exit?.(0);
-            });
-          },
-          terminate: () => undefined,
-        };
-      },
-    });
-    t.after(() => edgeHost.close());
-    await edgeHost.attachmentsSettled();
-    await edgeHost.runtimeInstance(
-      "daemon.runtimeInstance.create",
-      {
-        instanceId: runtimeDefinition.instanceId,
-        name: "Causal Edge Codex",
-        kindId: runtimeDefinition.kindId,
-        installationId: runtimeDefinition.installationId,
-        providerId: runtimeDefinition.providerId,
-        models: [runtimeDefinition.model],
-        codex: { reasoningEffort: runtimeDefinition.reasoningEffort },
-        authMode: runtimeDefinition.authMode,
-      },
-      localAuth,
-    );
-    const causalBlock = (prompt: string) =>
-      /# Task Causal Context[\s\S]*?(?=\r?\n\r?\n|\r?\n# |\s*$)/u.exec(prompt)?.[0] ?? null;
-    // Explicit-prompt dispatch: the center block must be prepended to the caller text.
-    const explicit = await edgeHost.fleet.edgeRuntime(
-      {
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: fixture.certFile,
-        nodeId: fixture.assignment.nodeId,
-        credential: "machine-secret",
-        rosterPath,
-        assignmentId: fixture.assignment.assignmentId,
-        repoId: fixture.assignment.repoId,
-        viewRoot,
-        quotaBytes: replicaQuota,
-        workspaceRoot: edgeRoot,
-        method: "repo.agentRuntime.spawn",
-        action: {
-          runtimeInstanceId: runtimeDefinition.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: "Explicit edge mission.",
-          taskId: fixture.assignment.taskId,
-          idempotencyKey: "causal-edge-explicit",
-        },
-      },
-      localAuth,
-    );
-    assert.equal(explicit.outcome, "applied", JSON.stringify(explicit));
-    const explicitPrompt = launchedPrompts.at(-1);
-    assert.ok(explicitPrompt !== undefined, "the provider launch captured no prompt");
-    const explicitBlock = causalBlock(explicitPrompt);
-    assert.ok(explicitBlock !== null, `no causal block in remote-edge prompt:\n${explicitPrompt}`);
-    assert.match(explicitBlock, /CENTERFRESH-ZQ decision/u);
-    assert.match(explicitBlock, /CENTERFRESH-ZQ evidence recorded post-pull\./u);
-    assert.match(explicitBlock, /Refs: [^\s]/u);
-    assert.doesNotMatch(explicitBlock, /ha graph/u, "the bare graph command word left the Refs tail");
-    assert.ok(
-      Buffer.byteLength(explicitBlock, "utf8") <= 500,
-      `causal block is ${Buffer.byteLength(explicitBlock, "utf8")} bytes`,
-    );
-    // Wait for the first session to settle so the task lease frees, then prove
-    // the task-bound (no explicit prompt) remote path carries the same block.
-    const outcomeOf = async (runtimeSessionId: unknown) =>
-      (
-        await fixture.host.read(
-          fixture.assignment.repoId,
-          "repo.agentRuntime.sessions.read",
-          { runtimeSessionId },
-          fixture.auth,
-        )
-      ).session.activity.outcome;
-    assert.equal(await eventually(async () => (await outcomeOf(explicit.runtimeSessionId)) !== null), true);
-    assert.equal(
-      await outcomeOf(explicit.runtimeSessionId),
-      "succeeded",
-      JSON.stringify(fixture.runtimeArchiveReceipts),
-    );
-    const taskBound = await edgeHost.fleet.edgeRuntime(
-      {
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: fixture.certFile,
-        nodeId: fixture.assignment.nodeId,
-        credential: "machine-secret",
-        rosterPath,
-        assignmentId: fixture.assignment.assignmentId,
-        repoId: fixture.assignment.repoId,
-        viewRoot,
-        quotaBytes: replicaQuota,
-        workspaceRoot: edgeRoot,
-        method: "repo.agentRuntime.spawn",
-        action: {
-          runtimeInstanceId: runtimeDefinition.instanceId,
-          cwd: { scope: "repo-root" },
-          taskId: fixture.assignment.taskId,
-          idempotencyKey: "causal-edge-task-bound",
-        },
-      },
-      localAuth,
-    );
-    assert.equal(taskBound.outcome, "applied", JSON.stringify(taskBound));
-    const taskBoundBlock = causalBlock(launchedPrompts.at(-1) ?? "");
-    assert.ok(taskBoundBlock !== null, "task-bound remote-edge dispatch lost the causal block");
-    assert.match(taskBoundBlock, /CENTERFRESH-ZQ decision/u);
-    // The second dispatch settles against the center too: teardown must not close the center under it.
-    assert.equal(await eventually(async () => (await outcomeOf(taskBound.runtimeSessionId)) !== null), true);
-  },
-);
-// Each damaged local mirror retains the preceding admission conditions. These are
-// edge task-context assertions, independent of the center ingress scope checks.
-for (const probe of [
-  { name: "task scope", code: "assignment_scope_mismatch", message: /outside assignment/u },
-  { name: "package absent", code: "runtime_task_package_unavailable", message: /exactly one/u },
-  { name: "plan unreadable", code: "runtime_task_package_unavailable", message: /readable mirrored task plan/u },
-  { name: "mission absent", code: "runtime_mission_unavailable", message: /no current mirrored mission/u },
-  { name: "mission unreadable", code: "runtime_mission_unavailable", message: /is unreadable/u },
-  { name: "mission empty", code: "runtime_mission_unavailable", message: /is empty/u },
-  {
-    name: "contract unreadable",
-    code: "runtime_task_package_unavailable",
-    message: /readable mirrored task contract/u,
-  },
-  { name: "contract unresolved", code: "runtime_task_package_unavailable", message: /scaffold is not resolvable/u },
-]) {
-  test(`edge task context rejects ${probe.name}`, { timeout: 60_000 }, async (t) => {
-    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
-    t.after(() => fixture.close());
-    const missionLogical = "tasks/task-fleet-fleet/artifacts/missions/probe.md";
-    mkdirSync(path.join(fixture.repo, "harness/tasks/task-fleet-fleet/artifacts/missions"), { recursive: true });
-    writeFileSync(path.join(fixture.repo, "harness", missionLogical), "Run the probe.\n");
-    const published = await fixture.host.run(
-      fixture.assignment.repoId,
-      { kind: "doc-submit", paths: [missionLogical] },
-      localAuthFixture(),
-    );
-    assert.equal(published.outcome, "applied", JSON.stringify(published));
-    await waitForFleetPublication(fixture.host, fixture.assignment.repoId, published.opId, localAuthFixture());
-    const center = await fixture.center(),
-      workspaceRoot = path.join(fixture.root, "counterexample-edge"),
-      viewRoot = path.join(fixture.root, "counterexample-view");
-    mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
-    writeFileSync(
-      path.join(workspaceRoot, "harness/harness.yaml"),
-      "schema: harness-anything/v1\nname: counterexample-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-    );
-    await runFleetReplicaPullClient({
-      port: center.port,
-      ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
-      credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
-      viewRoot,
-      diskQuotaBytes: replicaQuota,
-    });
-    applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, workspaceRoot, "pull");
-    const packageRoot = path.join(workspaceRoot, "harness/tasks/task-fleet-fleet"),
-      missionPath = path.join(packageRoot, "artifacts/missions/probe.md"),
-      contractPath = path.join(packageRoot, "task-contract.json");
-    assert.match(readFileSync(path.join(packageRoot, "task_plan.md"), "utf8"), /Fleet/u);
-    assert.equal(readFileSync(missionPath, "utf8"), "Run the probe.\n");
-    if (probe.name === "package absent") writeFileSync(path.join(packageRoot, "INDEX.md"), "task_id: another-task\n");
-    if (probe.name === "plan unreadable") rmSync(path.join(packageRoot, "task_plan.md"));
-    if (probe.name === "mission unreadable") rmSync(missionPath);
-    if (probe.name === "mission empty") writeFileSync(missionPath, " \n");
-    if (probe.name === "contract unreadable") writeFileSync(contractPath, "{");
-    if (probe.name === "contract unresolved") writeFileSync(contractPath, JSON.stringify({ documents: [] }));
-    // An absent mission is requested under a different name, preserving the
-    // current manifest and every readable local file before that guard.
-    const runtime = openFleetEdgeRuntime({
-      request: {
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: fixture.certFile,
-        nodeId: fixture.assignment.nodeId,
-        credential: "machine-secret",
-        assignmentId: fixture.assignment.assignmentId,
-        repoId: fixture.assignment.repoId,
-        viewRoot,
-        quotaBytes: replicaQuota,
-        workspaceRoot,
-        method: "repo.agentRuntime.spawn",
-        action: {},
-      },
-      daemonGeneration: 1,
-      daemonRoute: {
-        userRoot: path.join(fixture.root, "counterexample-user"),
-        daemonId: "counterexample-edge",
-        endpoint: path.join(fixture.root, "counterexample.sock"),
-      },
-      ports: {
-        runtimeInstances: () => [],
-        prepareWorkerGitEnvironment: async () => null,
-        prepareRuntimeLaunch: async () => {
-          throw new Error("rejected mirror must never launch");
-        },
-      },
-    });
-    fixture.track(() => runtime.close());
-    await assert.rejects(
-      runtime.run("repo.agentRuntime.spawn", {
-        taskId: probe.name === "task scope" ? "task-other" : fixture.assignment.taskId,
-        missionName: probe.name === "mission absent" ? "missing" : "probe",
-        runtimeInstanceId: "unavailable-instance",
-        cwd: { scope: "repo-root" },
-        idempotencyKey: "mirror-probe",
-      }),
-      (error: unknown) => {
-        assert.equal((error as { code?: string }).code, probe.code);
-        assert.match((error as Error).message, probe.message);
-        return true;
-      },
-    );
-  });
-}
-test(
-  "the center delivers the task's worktree binding and refuses a second node's dispatch while the lease is held",
-  { timeout: 60_000 },
-  async (t) => {
-    const fixture = await fleetFixture(t);
-    t.after(() => fixture.close());
-    const { repoId, taskId } = fixture.assignment;
-    // dec_57370FF2021DADF04E3B21724D CH1: one read carries what the launching node needs from the center.
-    const context = await fixture.host.read(repoId, "repo.tasks.runtimeContext.read", { taskId }, fixture.auth);
-    assert.deepEqual(
-      { schema: context.schema, taskId: context.taskId, worktree: context.worktree },
-      {
-        schema: "task-runtime-context-read/v1",
-        taskId,
-        worktree: { branch: taskId, path: `.worktrees/${taskId}` },
-      },
-    );
-    await assert.rejects(
-      fixture.host.read(repoId, "repo.tasks.causalContext.read" as never, { taskId }, fixture.auth),
-      "the superseded read name is gone, not aliased",
-    );
-    // CH5: the fixture's assignment started the task and holds its lease; another node's assignment for the same
-    // task, with its own execution, dispatches late.
-    const late = {
-        ...fixture.assignment,
-        nodeId: "node-two",
-        assignmentId: "assignment-two",
-        viewId: "node-two_task-fleet",
-        executionId: "execution-late",
-      },
-      idempotencyKey = "late-node-dispatch",
-      hash = createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex"),
-      // The verdict's code, whichever way the ingress hands it back.
-      dispatch = (assignment: FleetAssignmentRecord, role: string | null) =>
-        fixture.host
-          .runtimeIngress(
-            repoId,
-            {
-              kind: "event",
-              type: "runtime_dispatch_requested",
-              opId: `runtime-spawn-${hash.slice(0, 32)}`,
-              payload: {
-                idempotencyKey,
-                dispatchId: `dispatch_${hash.slice(0, 24)}`,
-                runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
-              },
-              dispatchContext: { role, taskId: assignment.taskId, executionId: assignment.executionId },
-            },
-            fixture.owners.auth(assignment),
-          )
-          .then(
-            (receipt) => String(receipt.code ?? receipt.outcome),
-            (error: unknown) => String((error as { readonly code?: unknown }).code),
-          );
-    assert.equal(await dispatch(late, null), "runtime_task_lease_required");
-    // The fence is the lease, not the node: the holder's own dispatch and a reviewer's pass it and are judged on.
-    assert.notEqual(await dispatch(fixture.assignment, null), "runtime_task_lease_required");
-    assert.equal(await dispatch(late, "reviewer"), "task_not_submitted");
-  },
-);
-test("edge terminal task settlement rejects a changed assignment holder", { timeout: 60_000 }, async (t) => {
-  const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
-  t.after(() => fixture.close());
-  const center = await fixture.center(),
-    workspaceRoot = path.join(fixture.root, "settlement-edge"),
-    viewRoot = path.join(fixture.root, "settlement-view");
-  mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(workspaceRoot, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: settlement-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-  await runFleetReplicaPullClient({
-    port: center.port,
-    ca: fixture.cert,
-    nodeId: fixture.assignment.nodeId,
-    credential: "machine-secret",
-    assignmentId: fixture.assignment.assignmentId,
-    viewRoot,
-    diskQuotaBytes: replicaQuota,
-  });
-  applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, workspaceRoot, "pull");
-  let terminal: (() => void) | undefined;
-  const runtime = openFleetEdgeRuntime({
-    request: {
-      host: "127.0.0.1",
-      port: center.port,
-      caPath: fixture.certFile,
-      nodeId: fixture.assignment.nodeId,
-      credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
-      repoId: fixture.assignment.repoId,
-      viewRoot,
-      quotaBytes: replicaQuota,
-      workspaceRoot,
-      method: "repo.agentRuntime.spawn",
-      action: {},
-    },
-    daemonGeneration: 1,
-    daemonRoute: {
-      userRoot: path.join(fixture.root, "settlement-user"),
-      daemonId: "settlement-edge",
-      endpoint: path.join(fixture.root, "settlement.sock"),
-    },
-    ports: scheduleRuntimePorts(),
-    launch: () => {
-      let output: ((chunk: string) => void) | undefined;
-      return {
-        pid: 81234,
-        onOutput: (listener) => {
-          output = listener;
-        },
-        onErrorOutput: () => undefined,
-        onExit: (listener) => {
-          terminal = () => {
-            output?.(`${JSON.stringify({ type: "turn.completed" })}\n`);
-            listener(0);
-          };
-        },
-        terminate: () => undefined,
-      };
-    },
-  });
-  fixture.track(() => runtime.close());
-  const launched = await runtime.run("repo.agentRuntime.spawn", {
-    taskId: fixture.assignment.taskId,
-    runtimeInstanceId: settlementDefinition.instanceId,
-    cwd: { scope: "repo-root" },
-    prompt: "Finish this task.",
-    idempotencyKey: "holder-change",
-  });
-  assert.equal(launched.outcome, "applied", JSON.stringify(launched));
-  assert.ok(terminal);
-  // The node moves to another owner mid-run: the lease its previous owner holds is not the new owner's to release.
-  fixture.setOwner("replacement-owner");
-  terminal();
-  const outcomes = () =>
-    makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
-      .read()
-      .events.filter(
-        (event) =>
-          event.type === "runtime_session_outcome_observed" &&
-          event.payload.runtimeSessionId === launched.runtimeSessionId,
-      )
-      .map((event) => event.payload);
-  assert.equal(await eventually(async () => outcomes().length > 0), true);
-  assert.equal(outcomes()[0]?.reasonCode, "runtime_lease_release_failed", JSON.stringify(outcomes()));
-  assert.equal(outcomes()[0]?.outcome, "failed", JSON.stringify(outcomes()));
-});
-async function fleetFixture(
-  t: TestContext,
-  paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"],
-  /** The runtime installations the center host discovers; an Agent installs only against an enabled instance. */
-  centerRuntimes: readonly RuntimeInstallationWitness[] = [],
-) {
-  // The product names a checkout by its resolved path; the fixture root is resolved once so every path derived
-  // from it compares equal where the temporary directory is itself a symbolic link.
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-fleet-one-"))),
-    repo = path.join(root, "repo"),
-    userRoot = path.join(root, "user"),
-    stateRoot = path.join(root, "state"),
-    keyFile = path.join(root, "tls.key"),
-    certFile = path.join(root, "tls.crt"),
-    emptyPath = path.join(root, "empty-path"),
-    owned = reclaimer();
-  let nodeActive = true,
-    expiresAt = "2099-01-01T00:00:00.000Z",
-    assignmentDelayMs = 0,
-    taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
-  const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
-  mkdirSync(path.join(repo, "harness"), { recursive: true });
-  mkdirSync(emptyPath);
-  initRepo(repo);
-  writeFileSync(
-    path.join(repo, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-  writePeopleFixture(repo);
-  git(repo, "add", "harness");
-  git(repo, "commit", "-qm", "harness");
-  registerDaemonRepo({ canonicalRoot: repo, repoId: "fleet-repo", userRoot, createConvenienceLinks: false });
-  execFileSync(
-    "openssl",
-    [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-nodes",
-      "-keyout",
-      keyFile,
-      "-out",
-      certFile,
-      "-subj",
-      "/CN=localhost",
-      "-days",
-      "1",
-      "-addext",
-      "subjectAltName=DNS:localhost",
-    ],
-    { stdio: "ignore" },
-  );
-  const key = readFileSync(keyFile),
-    cert = readFileSync(certFile),
-    host = await openDaemonHost({
-      daemonId: "fleet-center",
-      userRoot,
-      ...(centerRuntimes.length ? { runtimeDiscover: () => [...centerRuntimes] } : {}),
-    }),
-    owners = await fleetNodeOwners({
-      userRoot,
-      owners: { "node-one": "person-owner", "node-two": "person-owner" },
-      repoIds: ["fleet-repo"],
-    });
-  t.after(async () => {
-    try {
-      await owned.reclaim();
-    } finally {
-      try {
-        await host.close();
-      } finally {
-        await owners.close();
-        rmSync(root, { recursive: true, force: true });
-      }
-    }
-  });
-  await host.attachmentsSettled();
-  const assignment: FleetAssignmentRecord = {
-      nodeId: "node-one",
-      assignmentId: "assignment-one",
-      repoId: "fleet-repo",
-      taskId: "task-fleet",
-      executionId: "execution-fleet",
-      paths,
-      viewId: "node-one_task-fleet",
-      expiresAt: "2099-01-01T00:00:00.000Z",
-    },
-    slowAssignment: FleetAssignmentRecord = {
-      ...assignment,
-      assignmentId: "assignment-slow",
-      viewId: "node-one_task-fleet-slow",
-    },
-    auth = owners.auth(assignment);
-  const created = await host.run(
-    assignment.repoId,
-    { kind: "task-create", taskId: assignment.taskId, title: "Fleet" },
-    auth,
-  );
-  assert.equal(created.outcome, "applied");
-  await waitForFleetPublication(host, assignment.repoId, created.opId, auth);
-  await realizeTaskPlanFixture(
-    repo,
-    String((created as Record<string, unknown>).packagePath),
-    (planPath) => host.run(assignment.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
-    "Fleet",
-  );
-  const started = await host.run(
-    assignment.repoId,
-    { kind: "task-start", taskId: assignment.taskId, executionId: assignment.executionId },
-    auth,
-  );
-  assert.equal(started.outcome, "applied", JSON.stringify(started));
-  await waitForReceiptCommit(host, assignment.repoId, started.opId, auth);
-  return {
-    root,
-    repo,
-    stateRoot,
-    writerOptions: fleetHostWriterOptions(userRoot, ["fleet-repo"]),
-    path: assignment.paths[0]!,
-    assignment,
-    slowAssignment,
-    auth,
-    host,
-    key,
-    cert,
-    certFile,
-    emptyPath,
-    track: owned.track,
-    hold: owned.hold,
-    owners,
-    setOwner: (personId: string) => owners.reassign(assignment.nodeId, personId),
-    setActive: (value: boolean) => {
-      nodeActive = value;
-    },
-    setExpiry: (value: string) => {
-      expiresAt = value;
-    },
-    setAssignmentDelay: (value: number) => {
-      assignmentDelayMs = value;
-    },
-    blockTaskRelease: () => {
-      let started!: () => void, release!: () => void;
-      const startedPromise = new Promise<void>((resolve) => {
-          started = resolve;
-        }),
-        wait = new Promise<void>((resolve) => {
-          release = resolve;
-        });
-      taskReleaseBarrier = { started, wait };
-      return { started: startedPromise, release };
-    },
-    eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
-    runtimeArchiveReceipts,
-    center: (port?: number) =>
-      owned.hold(
-        listenFleetTls({
-          host: {
-            ...host,
-            runtimeIngress: async (...args: Parameters<typeof host.runtimeIngress>) => {
-              const receipt = await host.runtimeIngress(...args);
-              if (args[1].kind === "archive") runtimeArchiveReceipts.push(receipt);
-              return receipt;
-            },
-            run: async (...args: Parameters<typeof host.run>) => {
-              const barrier = taskReleaseBarrier;
-              if (args[1].kind === "task-release" && barrier) {
-                barrier.started();
-                await barrier.wait;
-                if (taskReleaseBarrier === barrier) taskReleaseBarrier = null;
-              }
-              return host.run(...args);
-            },
-          },
-          stateRoot,
-          ...(port === undefined ? {} : { port }),
-          ...fleetHostWriterOptions(userRoot, ["fleet-repo"]),
-          key,
-          cert,
-          replicaDiskQuotaBytes: replicaQuota,
-          authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
-          nodeOwner: owners.nodeOwner,
-          isNodeActive: () => nodeActive,
-          resolveAssignment: async (assignmentId) => {
-            if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
-            return assignmentId === assignment.assignmentId
-              ? { ...assignment, expiresAt }
-              : assignmentId === slowAssignment.assignmentId
-                ? { ...slowAssignment, expiresAt }
-                : null;
-          },
-        }),
-      ),
-    close: async () => {
-      await owned.reclaim();
-      await host.close();
-      rmSync(root, { recursive: true, force: true });
-    },
-  };
-}
-function initRepo(rootDir: string): void {
-  git(rootDir, "init", "-q");
-  git(rootDir, "config", "user.name", "Fleet Test");
-  git(rootDir, "config", "user.email", "fleet@example.invalid");
-  git(rootDir, "commit", "--allow-empty", "-qm", "base");
-}
-function git(rootDir: string, ...args: string[]): string {
-  // Git ranks these four variables above every config file, so a caller's ambient identity would
-  // override the one each fixture repository configures for itself; every fixture commit states
-  // its author from the repository config, never from the environment the test host runs under.
-  const env = { ...process.env };
-  delete env.GIT_AUTHOR_NAME;
-  delete env.GIT_AUTHOR_EMAIL;
-  delete env.GIT_COMMITTER_NAME;
-  delete env.GIT_COMMITTER_EMAIL;
-  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", env }).trim();
-}
-function writePeopleFixture(rootDir: string): void {
-  const ownerUid = process.getuid?.() ?? 0;
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "fleet-fixture", displayName: "Fleet Fixture", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(ownerUid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
-  );
-}
-function localAuthFixture() {
-  return {
-    transportKind: "unix-socket" as const,
-    unixSocketOwnerBoundary: {
-      ownerUid: process.getuid?.() ?? 0,
-      source: "unix-socket-filesystem-owner-boundary" as const,
-    },
-  };
-}
-async function rawPeer(
-  track: (close: () => void) => void,
-  port: number,
-  ca: Buffer,
-  nodeId: string,
-  credential: string,
-) {
-  const socket = await new Promise<TLSSocket>((resolve, reject) => {
-      const candidate = connect({ host: "127.0.0.1", port, ca, servername: "localhost" }, () => resolve(candidate));
-      candidate.once("error", reject);
-    }),
-    frames: FleetFrameV1[] = [],
-    waiters: Array<(frame: FleetFrameV1) => void> = [];
-  track(() => socket.destroy());
-  let buffer = "";
-  socket.on("data", (chunk) => {
-    buffer += chunk.toString("utf8");
-    for (;;) {
-      const end = buffer.indexOf("\n");
-      if (end < 0) break;
-      const frame = parseFleetFrame(buffer.slice(0, end));
-      buffer = buffer.slice(end + 1);
-      const waiter = waiters.shift();
-      if (waiter) waiter(frame);
-      else frames.push(frame);
-    }
-  });
-  const next = () =>
-      frames.length ? Promise.resolve(frames.shift()!) : new Promise<FleetFrameV1>((resolve) => waiters.push(resolve)),
-    request = async (frame: FleetFrameV1) => {
-      socket.write(serializeFleetFrame(frame));
-      return next();
-    },
-    raw = async (frame: unknown) => {
-      socket.write(`${JSON.stringify(frame)}\n`);
-      return next();
-    },
-    split = async (frame: FleetFrameV1, marker: string) => {
-      splitWrite(socket, frame, marker);
-      return next();
-    };
-  const hello = await request({
-    schema: "fleet.session.hello/v1",
-    messageId: "hello",
-    protocolVersion: { major: 1, minor: 0 },
-    nodeId,
-    credential,
-  });
-  if (hello.schema === "fleet.error/v1") throw new Error(hello.code);
-  return { request, raw, split, close: () => socket.destroy() };
-}
-function splitWrite(socket: TLSSocket, frame: FleetFrameV1, marker: string): void {
-  const bytes = Buffer.from(serializeFleetFrame(frame)),
-    markerOffset = bytes.indexOf(Buffer.from(marker));
-  if (markerOffset < 0) throw new Error("split marker missing");
-  socket.setNoDelay(true);
-  socket.write(bytes.subarray(0, markerOffset + 1));
-  setTimeout(() => socket.write(bytes.subarray(markerOffset + 1)), 100);
-}
-async function waitForReceiptCommit(
-  host: Awaited<ReturnType<typeof openDaemonHost>>,
-  repoId: string,
-  opId: string,
-  binding: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
-): Promise<void> {
-  const deadline = performance.now() + 15_000;
-  do {
-    const receipt = await host.run(repoId, { kind: "receipt-show", opId }, binding);
-    if (typeof receipt.commitSha === "string") return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  } while (performance.now() < deadline);
-  throw new Error(`Git materialization did not publish ${opId} within the bounded wait`);
-}
-function runFaultChild(
-  fixture: Awaited<ReturnType<typeof fleetFixture>>,
-  config: Record<string, unknown>,
-): Promise<{ code: number; output: string }> {
-  const configFile = path.join(fixture.root, `fault-${Date.now()}-${Math.random()}.json`);
-  writeFileSync(configFile, JSON.stringify(config));
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [path.join(import.meta.dirname, "fixtures/fleet-edge-child.mjs"), configFile],
-      { env: { ...process.env, PATH: fixture.emptyPath }, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    fixture.track(() => child.kill("SIGKILL"));
-    let output = "",
-      errors = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => {
-      output += chunk;
-    });
-    child.stderr.setEncoding("utf8").on("data", (chunk) => {
-      errors += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === null || ![0, 73, 74, 75].includes(code)) reject(new Error(`fault edge exited ${code}: ${errors}`));
-      else resolve({ code, output });
-    });
-  });
-}

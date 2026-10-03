@@ -1,9 +1,12 @@
 import { readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
   LOCAL_DOC_READ_CHANNEL,
+  LOCAL_DOC_EXTRACT_WORD_CHANNEL,
   LOCAL_DOC_WRITE_CHANNEL,
+  LOCAL_DOC_PPTX_CHANNEL,
   type LocalDocReadInput,
   type LocalDocReadResult,
   type LocalDocWriteInput,
@@ -35,6 +38,7 @@ import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 
 /** 单文件读写上限:按「一篇文档」设定,超限给页内错误而非卡死渲染或吞掉超大写入。 */
 export const LOCAL_DOC_MAX_BYTES = 2 * 1024 * 1024;
+export const LOCAL_DOC_PREVIEW_MAX_BYTES = 16 * 1024 * 1024;
 
 /** 二进制嗅探窗口:UTF-8 解码后前 4 KiB 内替换字符占比超过该阈值判定为二进制。 */
 const BINARY_SNIFF_WINDOW = 4096;
@@ -64,10 +68,53 @@ export function registerLocalDocIpc(
     const input = validateLocalDocReadInput(payload);
     return readLocalDocument(input.path, services);
   });
+  registrar.handle(LOCAL_DOC_EXTRACT_WORD_CHANNEL, async (event, payload) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    return extractLegacyWordText(payload);
+  });
   registrar.handle(LOCAL_DOC_WRITE_CHANNEL, async (event, payload) => {
     assertTrustedIpcSender(event, trustPolicy);
     const input = validateLocalDocWriteInput(payload);
     return writeLocalDocument(input.path, input.content, services);
+  });
+  registrar.handle(LOCAL_DOC_PPTX_CHANNEL, async (event, payload) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    if (typeof payload !== "object" || payload === null || typeof (payload as { bytes?: unknown }).bytes !== "string")
+      throw new Error("PPTX preview requires authorized bytes.");
+    const bytes = Buffer.from((payload as { bytes: string }).bytes, "base64");
+    if (bytes.byteLength > LOCAL_DOC_PREVIEW_MAX_BYTES) throw new Error("PPTX preview exceeds the 16 MiB limit.");
+    const { openPptxPresentation } = await import("@silurus/ooxml/node");
+    const session = await openPptxPresentation(bytes);
+    try {
+      const slides = [];
+      const images = new Map<string, string>();
+      // Images can occur in pictures, fills and bullets, including nested groups.
+      const collectImages = (value: unknown): void => {
+        if (typeof value !== "object" || value === null) return;
+        const record = value as Record<string, unknown>;
+        if (typeof record.imagePath === "string" && typeof record.mimeType === "string")
+          images.set(record.imagePath, record.mimeType);
+        if (typeof record.svgImagePath === "string") images.set(record.svgImagePath, "image/svg+xml");
+        for (const child of Object.values(record)) collectImages(child);
+      };
+      const { slideWidth, slideHeight } = session;
+      const resources: Record<string, { bytes: string; mediaType: string }> = Object.create(null);
+      for await (const slide of session.slides()) {
+        if (slide.parseError) throw new Error(`PPTX parse failed: ${slide.parseError}`);
+        slides.push(slide);
+        collectImages(slide);
+        // The library closes its session when iteration ends; consume resources before advancing.
+        for (const [path, mediaType] of images) {
+          if (resources[path]) continue;
+          const blob = await session.getImage(path, mediaType);
+          resources[path] = { bytes: Buffer.from(await blob.arrayBuffer()).toString("base64"), mediaType: blob.type };
+        }
+      }
+      if (slides.length === 0) throw new Error("PPTX contains no readable slides.");
+      return { slideWidth, slideHeight, slides, resources };
+    } finally {
+      await session.close();
+    }
   });
 }
 
@@ -146,7 +193,6 @@ export async function readLocalDocument(
   rawPath: string,
   services: LocalDocServices = { homeDir: homedir },
 ): Promise<LocalDocReadResult> {
-  const maxBytes = services.maxBytes ?? LOCAL_DOC_MAX_BYTES;
   const expanded = expandHomePath(rawPath, services.homeDir());
   if (!path.isAbsolute(expanded))
     return {
@@ -163,6 +209,8 @@ export async function readLocalDocument(
     return fsFailure(classifyLocalDocFsError(cause), expanded, cause);
   }
 
+  const mediaType = mediaTypeForPath(realPath);
+  const maxBytes = services.maxBytes ?? (mediaType === null ? LOCAL_DOC_MAX_BYTES : LOCAL_DOC_PREVIEW_MAX_BYTES);
   let size: number, isFile: boolean;
   try {
     const info = await stat(realPath);
@@ -186,20 +234,81 @@ export async function readLocalDocument(
       message: `Local document is ${size} bytes; the in-app reader accepts at most ${maxBytes}.`,
     };
 
-  let content: string;
+  let bytes: Buffer;
   try {
-    content = await readFile(realPath, "utf8");
+    bytes = await readFile(realPath);
   } catch (cause) {
     return fsFailure(classifyLocalDocFsError(cause), realPath, cause);
   }
-  if (looksBinary(content))
+  const content = bytes.toString("utf8");
+  if (looksBinary(content) && mediaType === null)
     return {
       ok: false,
       code: "binary_file",
       path: realPath,
       message: "Local document does not decode as text.",
     };
-  return { ok: true, path: realPath, content, sizeBytes: size };
+  const binary = mediaType !== null;
+  return {
+    ok: true,
+    path: realPath,
+    content: binary ? "" : content,
+    sizeBytes: size,
+    contentKind: binary ? "binary" : "text",
+    mediaType: mediaType ?? "text/plain",
+    bytes: binary ? bytes.toString("base64") : null,
+  };
+}
+
+/** Shared parser for local and remote document bytes; errors reach the preview error state. */
+export async function extractLegacyWordText(payload: unknown): Promise<string> {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload))
+    throw new Error("Word preview requires a bytes payload.");
+  const record = payload as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== 1 ||
+    typeof record.bytes !== "string" ||
+    record.bytes.length === 0 ||
+    record.bytes.length > Math.ceil(LOCAL_DOC_PREVIEW_MAX_BYTES / 3) * 4 ||
+    record.bytes.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/u.test(record.bytes)
+  )
+    throw new Error("Word preview requires base64 bytes within the 16 MiB preview limit.");
+  const WordExtractor = createRequire(import.meta.url)("word-extractor") as new () => {
+    extract: (
+      source: Buffer,
+    ) => Promise<{ getBody: () => string; getFootnotes: () => string; getHeaders: () => string }>;
+  };
+  const document = await new WordExtractor().extract(Buffer.from(record.bytes, "base64"));
+  return [document.getBody(), document.getHeaders(), document.getFootnotes()]
+    .filter((value) => value.trim().length > 0)
+    .join("\n\n");
+}
+
+function mediaTypeForPath(filePath: string): string | null {
+  const extension = path.extname(filePath).toLowerCase();
+  return (
+    {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".avif": "image/avif",
+      ".bmp": "image/bmp",
+      ".ico": "image/x-icon",
+      ".svg": "image/svg+xml",
+      ".pdf": "application/pdf",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".doc": "application/msword",
+      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ".ppt": "application/vnd.ms-powerpoint",
+      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+      ".xls": "application/vnd.ms-excel",
+      ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+    }[extension] ?? null
+  );
 }
 
 type WriteTargetResolution =

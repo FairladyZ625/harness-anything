@@ -102,6 +102,7 @@ afterEach(async () => {
     for (const root of mounted.splice(0)) root.unmount();
   });
   document.body.replaceChildren();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -384,6 +385,8 @@ describe("overview narrative", () => {
   });
 
   it("collapses progress into day digests and lists planned work as two-line rows", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T10:00:00.000Z"));
     const host = await mount(
       <WorkspaceView
         scope={{
@@ -429,6 +432,8 @@ describe("overview narrative", () => {
   });
 
   it("lays out every progress day on the overview (no first-2-days cap) and shows the executor on a second line", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T10:00:00.000Z"));
     // v2(标准 §1.8):概况的按天进展全部天直接铺开,不截前两天。
     const day = (index: number) => [
       {

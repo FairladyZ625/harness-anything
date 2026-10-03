@@ -221,8 +221,11 @@ test(
         cut: { revision: number };
       };
       assert.equal(current.cut.revision, pulled.ackCut);
-      stop(fixture, "edge");
-      assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
+      const stoppedPid = stop(fixture, "edge");
+      const restarted = run(fixture, "edge", ["daemon", "start", "--service"]);
+      assert.equal(restarted.ok, true);
+      assert.equal(Number.isSafeInteger(restarted.pid), true);
+      assert.notEqual(restarted.pid, stoppedPid, "replay must run in a new daemon process");
       const again = sync();
       assert.equal(again.status, "fleet.replica.current/v1");
       assert.deepEqual(again.cut, pulled.cut);
@@ -696,11 +699,17 @@ function spawnedRun(
     child.once("close", (status) => resolve({ status, argv, stdout, stderr }));
   });
 }
-function stop(fixture: ReturnType<typeof setup>, machine: "center" | "edge"): void {
-  spawnSync(process.execPath, [cli, "--json", "daemon", "stop"], {
+function stop(fixture: ReturnType<typeof setup>, machine: "center" | "edge"): number {
+  const result = spawnSync(process.execPath, [cli, "--json", "daemon", "stop", "--daemon-id", "default"], {
     encoding: "utf8",
     env: { ...process.env, HARNESS_DAEMON_USER_ROOT: machine === "center" ? fixture.centerUser : fixture.edgeUser },
   });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  const receipt = JSON.parse(result.stdout) as { ok: boolean; pid: number; draining?: boolean };
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.draining, undefined, "stop must finish, not merely start draining");
+  assert.equal(Number.isSafeInteger(receipt.pid), true);
+  return receipt.pid;
 }
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
@@ -893,7 +902,10 @@ test("daemon control reports Git follower failure while SQLite keeps accepting c
   } finally {
     rmSync(indexLock, { force: true });
     if (refLock !== null) rmSync(refLock, { force: true });
-    runJsonResult(fixture, ["daemon", "stop"]);
+    const stopped = runJsonResult(fixture, ["daemon", "stop", "--daemon-id", "default"]);
+    assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
+    assert.equal(stopped.receipt.ok, true);
+    assert.equal(stopped.receipt.draining, undefined);
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

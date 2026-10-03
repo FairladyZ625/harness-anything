@@ -14,12 +14,13 @@
 
 ## 原语默认责任(调用方不背清单)
 
-- **Button**:全仓唯一按钮。四档 `variant`(plain/primary/danger/ghost)× 两档 `size`(sm/md),
-  不搞变体矩阵、不接受 className 覆写。**命中区由默认边界承担**:min-h/min-w 40px 是真实布局
-  尺寸,密度分档不降低它,不靠会侵占邻居的透明伪元素外扩。纯交互外壳(EntityRefLink 这类自带
-  语义的 button)不由此承载。
-- **Toggle / SegCtl**:同一选择语义各只有一个名字。Toggle 的小轨道放进 40px 真实 button 外壳;
-  SegCtl 段钮 min-h 40px,容器用 overflow-hidden 收圆角。
+- **Button**:全仓唯一按钮。四档 `variant`(plain/primary/danger/ghost)× 两档 `size`(sm/md)，
+  不接受页面 className 覆写。桌面采用共享 `--control-height-compact`（24px）和
+  `--control-height`（28px）最小尺寸，允许随字体自然增高；不把小功能按钮统一撑到40px。
+  粗指针由 `--control-height-touch` 提供至少40px的真实点击盒，不用遮挡邻居的透明伪元素。
+  EntityRefLink 这类自带语义的交互外壳不由此承载。
+- **Toggle / SegCtl**:使用同一 `ui-control` 桌面/粗指针密度。Toggle 的轨道保持紧凑；
+  SegCtl 容器用 overflow-hidden 收圆角，段钮不再另行定义40px桌面高度。
 - **StatusTag**:唯一的标签形状。状态词(`status`)、自定义 `tone`+`label`、`icon`/`count`/`mono`
   小档都在这一个组件内;调用点不写状态色数值、不自造标签形状。六类领域徽章(收口/决策/引擎/
   新鲜度/风险/紧急)的词表在 `badges.tsx`,渲染全部经 StatusTag。
@@ -31,6 +32,20 @@
 - **RecordRow**:记录行布局。元数据行(标识/状态左、时间/动作行尾)+ **全宽正文**——长正文占满
   记录容器宽度,不与标识/时间挤三列;长 ID 截断在标识格,窄容器不溢出。
 - **BoundedContent**:日志、评审、时间线和文件预览的长内容边界。最大高度统一使用 `--long-content-cap:55cqb`，相对最近 `content-viewport` 的可用块轴尺寸；无此容器时CSS使用小视口参照,超出内容在自身区域滚动，标题和动作位留在边界外。
+
+## Document format matrix
+
+| Format                                    | In-app path                      | Boundary                                                                                                                                                                                                                               |
+| ----------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Markdown | `MarkdownDocument` / `DocReader` | GFM, math and Mermaid inside the bounded frame; strict Mermaid with explicit errors. |
+| HTML | Existing `HtmlArtifactPreview` in ArtifactsView | Retains the existing isolated HTML artifact preview. Task/local text views do not execute HTML. |
+| Text, JSON, CSV, source code | Existing text view / DocReader | Text content is readable; no spreadsheet editing or semantic CSV grid is claimed. |
+| PNG, JPEG, GIF, WebP, AVIF, BMP, ICO, SVG | `BinaryDocumentPreview`          | Decoded from authorized base64 bytes; SVG is displayed as an image and never inserted as markup.                                                                                                                                       |
+| PDF                                       | `BinaryDocumentPreview`          | PDF.js renders every authorized page to canvases inside the bounded frame; malformed bytes show a typed error and preserve the external-open action.                                                                                   |
+| DOCX                                      | `BinaryDocumentPreview`          | `docx-preview` renders authorized bytes, including page breaks, headers, footers, footnotes, endnotes, tables, and images. The renderer is lazy-loaded.                                                                                |
+| DOC                                       | `BinaryDocumentPreview`          | `word-extractor` supplies an explicitly labelled Unicode text preview (body, headers, footnotes); original bytes remain available, but original page layout/images are not claimed.                                                    |
+| XLSX / XLSM / XLS / ODS                    | `BinaryDocumentPreview`          | `SpreadsheetPreview` parses authorized bytes in memory with the official SheetJS `xlsx` distribution and renders real cached cell values with sheet switching, merged cells, and two-axis scrolling inside the bounded frame. Formulas show cached values (or explicit formula text when the file carries none) and are never recalculated; macros never execute. Very large sheets are windowed with visible row/column ranges and paging, never silently truncated. XLSM is classified by its `macroEnabled` media type, never disguised as XLSX. |
+
 - **Modal**:共享弹层使用原生dialog承担焦点限制、Escape关闭及返回原触发器；遮罩、标题/关闭、滚动正文和固定页脚由原语承担；领域表单只提供
   `children` 与 `footer`,不从 runtime 私有 parts 取弹层布局。
 - **Section**:区块三档——默认文档区块、hero/warn 注意力左粗边、panel 设置面板档(吸收原

@@ -160,7 +160,12 @@ export function openFleetEdgeRuntime(input: {
   const schedule = (work: () => void | Promise<void>): void => {
     tail = tail.then(work).then(
       () => undefined,
-      () => undefined,
+      (error: unknown) => {
+        console.error("[fleet-edge-runtime] Pending runtime work failed:", error);
+        // Durable dispatch streams remain the recovery source. The next supported request
+        // re-enters adoption instead of treating failed initialization as permanent readiness.
+        ready = null;
+      },
     );
   };
   const spawner = makeRuntimeSpawner({
@@ -354,24 +359,22 @@ export function openFleetEdgeRuntime(input: {
         scheduled,
         terminal.resultRef ?? terminal.reason,
       );
-      schedule(async () => {
-        const response = await runFleetScheduleCommandClient({
-          ...peer,
-          repoId: request.repoId,
+      const response = await runFleetScheduleCommandClient({
+        ...peer,
+        repoId: request.repoId,
+        scheduleId: scheduled.scheduleId,
+        opId: `${terminal.runtimeSessionId}-schedule-attempt-terminal`,
+        action: {
+          kind: "schedule-settle",
           scheduleId: scheduled.scheduleId,
-          opId: `${terminal.runtimeSessionId}-schedule-attempt-terminal`,
-          action: {
-            kind: "schedule-settle",
-            scheduleId: scheduled.scheduleId,
-            claimFence: scheduled.claimFence,
-            outcome: terminal.outcome,
-            endedAt: terminal.endedAt,
-            ...(detail ? { detail } : {}),
-          },
-        });
-        if (response.outcome !== "applied")
-          throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule settlement was ${response.outcome}.`);
+          claimFence: scheduled.claimFence,
+          outcome: terminal.outcome,
+          endedAt: terminal.endedAt,
+          ...(detail ? { detail } : {}),
+        },
       });
+      if (response.outcome !== "applied")
+        throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule settlement was ${response.outcome}.`);
     },
     ...(input.launch ? { launch: input.launch } : {}),
     schedule,

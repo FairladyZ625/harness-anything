@@ -110,7 +110,8 @@ export function fakeKeycloak() {
           id: id("node-client"),
           clientId,
           attributes: { ...serverClientAttributes(), ...(body!.attributes as Record<string, string>) },
-          secret: id("node-secret"),
+          // Keycloak 26 stores the secret a caller supplies with a new client (F-2CBA6A96).
+          secret: typeof body!.secret === "string" && body!.secret ? body!.secret : id("node-secret"),
         };
       if (nodeClients.has(clientId)) return json({ errorMessage: `Client ${clientId} already exists` }, 409);
       nodeClients.set(clientId, client);
@@ -129,7 +130,6 @@ export function fakeKeycloak() {
     }
     const nodeClient = [...nodeClients.values()].find((client) => route.startsWith(`/clients/${client.id}`));
     if (nodeClient) {
-      if (route.endsWith("/client-secret")) return json({ type: "secret", value: nodeClient.secret });
       if (method === "DELETE") {
         nodeClients.delete(nodeClient.clientId);
         return new Response(null, { status: 204 });

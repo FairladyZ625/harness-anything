@@ -116,9 +116,12 @@ export function workspaceStructureFromProjection(
 
   const groups = descendants.filter((row) => (children.get(row.taskId)?.length ?? 0) > 0);
   const leaves = descendants.filter((row) => !children.has(row.taskId));
+  // A superseded archived leaf is a retired plan, not open work: it leaves the counts and the leaf page,
+  // while descendantCount/archivedCount/memberTaskIds keep the history queryable.
+  const executableLeaves = leaves.filter((row) => !supersededArchivedLeaf(row));
   const counts: Record<keyof WorkspaceScopeStatusCounts, number> = emptyScopeCounts();
-  for (const row of leaves) counts[scopeStatus(row.status)] += 1;
-  const sortedLeaves = [...leaves].sort((left, right) => left.taskId.localeCompare(right.taskId));
+  for (const row of executableLeaves) counts[scopeStatus(row.status)] += 1;
+  const sortedLeaves = [...executableLeaves].sort((left, right) => left.taskId.localeCompare(right.taskId));
   const limit = input.limit ?? 100;
   const start = input.cursor ? sortedLeaves.findIndex(({ taskId }) => taskId.localeCompare(input.cursor!) > 0) : 0;
   const pageStart = start < 0 ? sortedLeaves.length : start;
@@ -145,7 +148,7 @@ export function workspaceStructureFromProjection(
     counts,
     scope: {
       descendantCount: descendants.length,
-      executableLeafCount: leaves.length,
+      executableLeafCount: executableLeaves.length,
       archivedCount: descendants.filter(({ packageDisposition }) => packageDisposition !== "active").length,
     },
     groups: groups.map(row),
@@ -184,6 +187,12 @@ function workspaceEventSummaries(
 
 export function emptyScopeCounts(): Record<keyof WorkspaceScopeStatusCounts, number> {
   return { done: 0, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 };
+}
+
+/** `ha task supersede`'s footprint: archived with a recorded replacement. Only that proven pair retires
+ * a leaf from open accounting; archived-without-replacement keeps its existing meaning. */
+function supersededArchivedLeaf(row: TaskIndexProjectionRow): boolean {
+  return row.packageDisposition === "archived" && row.supersededBy !== null;
 }
 
 export function scopeStatus(status: TaskIndexProjectionRow["status"]): keyof WorkspaceScopeStatusCounts {

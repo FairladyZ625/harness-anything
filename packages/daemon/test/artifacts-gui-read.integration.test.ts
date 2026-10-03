@@ -69,6 +69,9 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     // 工作树侧:从未 doc-sync 的产物(mtime 来源)+ 非 artifacts/ 目录的 html(阴性)。
     const packageDir = path.join(rootDir, "harness", packagePath);
     writeFileSync(path.join(packageDir, "artifacts", "unsynced.html"), "<p>draft</p>\n");
+    // 表格产物:媒体类型按扩展名判定,字节内容不影响分类。
+    writeFileSync(path.join(packageDir, "artifacts", "unsynced-table.xlsx"), Buffer.from("PK-spreadsheet-bytes"));
+    writeFileSync(path.join(packageDir, "artifacts", "unsynced-macro.xlsm"), Buffer.from("PK-macro-bytes"));
     mkdirSync(path.join(packageDir, "docs"), { recursive: true });
     writeFileSync(path.join(packageDir, "docs", "not-an-artifact.html"), "<p>no</p>\n");
 
@@ -79,7 +82,7 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     assert.equal(html.ok, true);
     assert.equal(html.kind, "html");
     assert.equal(html.repoId, workspaceId(repoId));
-    assert.deepEqual(html.counts, { html: 2, md: 1, raw: 1 });
+    assert.deepEqual(html.counts, { html: 2, md: 1, raw: 3 });
     // 两个文件都产自本测试的"现在",先后取决于毫秒级时钟,断言集合而非顺序。
     const htmlPaths = [...html.artifacts.map((row) => row.path)].sort();
     assert.deepEqual(htmlPaths, ["artifacts/reports/weathering-escalation-decisions.html", "artifacts/unsynced.html"]);
@@ -112,12 +115,13 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     // raw 面:这条行以前根本不存在,时间线只认 html/md,已入账的 PDF 是不可见的。
     const raw = await list({ kind: "raw" });
     assert.equal(raw.kind, "raw");
-    assert.deepEqual(
-      raw.artifacts.map((row) => row.path),
-      ["artifacts/reports/dossier.pdf"],
-    );
-    const dossier = raw.artifacts[0]!;
-    assert.equal(dossier.mediaType, "application/octet-stream");
+    assert.deepEqual([...raw.artifacts.map((row) => row.path)].sort(), [
+      "artifacts/reports/dossier.pdf",
+      "artifacts/unsynced-macro.xlsm",
+      "artifacts/unsynced-table.xlsx",
+    ]);
+    const dossier = raw.artifacts.find((row) => row.path === "artifacts/reports/dossier.pdf")!;
+    assert.equal(dossier.mediaType, "application/pdf");
     assert.equal(dossier.sizeBytes, pdf.byteLength);
     assert.equal(dossier.taskId, "task-artifact");
     assert.equal(dossier.packagePath, packagePath);
@@ -133,6 +137,24 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     assert.equal(read.contentKind, "binary");
     assert.equal(read.size, dossier.sizeBytes);
     assert.equal(read.mediaType, dossier.mediaType);
+
+    // 表格媒体类型在列表与预览读两侧同源:XLSX 用 spreadsheetml,XLSM 用 macroEnabled,
+    // 不把启用宏的工作簿伪装成普通表格。
+    const expectedSpreadsheetTypes: Readonly<Record<string, string>> = {
+      "artifacts/unsynced-table.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "artifacts/unsynced-macro.xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+    };
+    for (const [sheetPath, expectedMediaType] of Object.entries(expectedSpreadsheetTypes)) {
+      const row = raw.artifacts.find((candidate) => candidate.path === sheetPath)!;
+      assert.equal(row.mediaType, expectedMediaType);
+      const sheetRead = (await cell.read("repo.tasks.document.read", {
+        taskId: "task-artifact",
+        path: sheetPath,
+      })) as { readonly contentKind: string; readonly mediaType: string | null; readonly bytes: string | null };
+      assert.equal(sheetRead.contentKind, "binary");
+      assert.equal(sheetRead.mediaType, expectedMediaType);
+      assert.equal(typeof sheetRead.bytes, "string", "spreadsheet preview bytes ride the same inline path");
+    }
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

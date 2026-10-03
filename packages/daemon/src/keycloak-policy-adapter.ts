@@ -365,36 +365,24 @@ export class KeycloakPolicyAdapter {
   }
 
   /**
-   * Registers a node, or moves a registered node to another owner. Keycloak mints the machine credential
-   * when the client is created; only that first registration returns it.
+   * Creates the node's client in one POST carrying the machine credential the center minted for
+   * it, so no read-back can fail between the client existing and its holder knowing the credential.
    */
-  async writeNode(adminAccessToken: string, node: KeycloakNode): Promise<string | undefined> {
-    const current = await this.#nodeClient(adminAccessToken, node.nodeId),
-      body = {
-        clientId: `${nodeClientPrefix}${node.nodeId}`,
-        enabled: true,
-        publicClient: false,
-        serviceAccountsEnabled: true,
-        standardFlowEnabled: true,
-        directAccessGrantsEnabled: false,
-        redirectUris: ["http://127.0.0.1/*"],
-        attributes: { [personAttribute]: node.personId, ...keycloakLoginAttributes },
-        protocolMappers: keycloakLoginMappers(this.#config.resourceServerClientId),
-      };
-    if (current) {
-      await this.#request(adminAccessToken, `/clients/${current.id}`, { method: "PUT", body: JSON.stringify(body) });
-      return undefined;
-    }
-    await this.#request(adminAccessToken, "/clients", { method: "POST", body: JSON.stringify(body) });
-    const created = await this.#nodeClient(adminAccessToken, node.nodeId);
-    if (!created) throw new Error(`Keycloak did not return node ${node.nodeId} after creating it.`);
-    const secret = await this.#json<{ readonly value?: unknown }>(
-      adminAccessToken,
-      `/clients/${created.id}/client-secret`,
-    );
-    if (typeof secret.value !== "string" || !secret.value)
-      throw new Error(`Keycloak did not return a credential for node ${node.nodeId}.`);
-    return secret.value;
+  async createNode(adminAccessToken: string, node: KeycloakNode, secret: string): Promise<void> {
+    await this.#request(adminAccessToken, "/clients", {
+      method: "POST",
+      body: JSON.stringify({ ...nodeClientBody(this.#config, node), secret }),
+    });
+  }
+
+  /** Moves a registered node to another owner; its machine credential is never touched here. */
+  async moveNode(adminAccessToken: string, node: KeycloakNode): Promise<void> {
+    const current = await this.#nodeClient(adminAccessToken, node.nodeId);
+    if (!current) throw new Error(`Keycloak has no client for node ${node.nodeId}; it was removed.`);
+    await this.#request(adminAccessToken, `/clients/${current.id}`, {
+      method: "PUT",
+      body: JSON.stringify(nodeClientBody(this.#config, node)),
+    });
   }
 
   /** Deletes the node's client, so Keycloak refuses its machine credential from then on. */
@@ -578,6 +566,21 @@ function coveringResources(resource: AuthorizationResource): readonly string[] {
   return resource.kind === "entity"
     ? [encodeAuthorizationResource({ kind: "repository", repoId: resource.repoId }), encoded]
     : [encoded];
+}
+
+/** The client representation one node is created or moved with; its secret travels only with creation. */
+function nodeClientBody(config: KeycloakPolicyAdapterConfig, node: KeycloakNode): Readonly<Record<string, unknown>> {
+  return {
+    clientId: `${nodeClientPrefix}${node.nodeId}`,
+    enabled: true,
+    publicClient: false,
+    serviceAccountsEnabled: true,
+    standardFlowEnabled: true,
+    directAccessGrantsEnabled: false,
+    redirectUris: ["http://127.0.0.1/*"],
+    attributes: { [personAttribute]: node.personId, ...keycloakLoginAttributes },
+    protocolMappers: keycloakLoginMappers(config.resourceServerClientId),
+  };
 }
 
 function nodeOf(client: NodeClient): KeycloakNode {

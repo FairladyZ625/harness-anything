@@ -1,5 +1,5 @@
 import { SegCtl } from "../components/primitives/SegCtl.tsx";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { isAvailableSquadRunSummary } from "@harness-anything/daemon/protocol";
 import { Popover } from "../components/Popover.tsx";
@@ -47,6 +47,10 @@ import {
  * (sessionGroups / squad.runs.list),前端一次 RPC 拿组,不再翻 overview 分页、不再
  * 前端 join 派工台账。选择可寻址:session/<id>、tasksessions/<taskId>,导航回撤
  * 原路返回。
+ *
+ * 本体即功能体(task_48fe291624e06a2e9ad9496c81 起与工作台会话面板共用):页面用
+ * 默认 renderHeader 装 PageHeader(标题 + 计数结论 + 检查器开关),工作台面板传
+ * 空渲染——面板标签即标题,计数行不进面板。
  */
 type Segment = "sessions" | "squads";
 type Range = "24h" | "7d" | "30d" | "all";
@@ -63,18 +67,34 @@ const rangeToSince = (range: Range): string => {
   return new Date(span === 0 ? 0 : Date.now() - span * 1000).toISOString();
 };
 
+export interface SessionsViewProps {
+  readonly repoId: string;
+  readonly relations: readonly RelationEdge[];
+  readonly focusedEntityRef: string | null;
+  readonly onSelectEntity: (ref: string) => void;
+  readonly onOpenTask: (taskId: string) => void;
+}
+
+/** 页头插槽:计数结论与主动作由工作区实况派生,页面/面板各自决定要不要装。 */
+export interface SessionsHeaderSlot {
+  readonly countsNote: ReactNode;
+  readonly headerActions: ReactNode;
+}
+
+function renderSessionsPageHeader({ countsNote, headerActions }: SessionsHeaderSlot) {
+  return <PageHeader title={t("agentRuntime.sessionsTitle")} note={countsNote} actions={headerActions} />;
+}
+
 export function SessionsView({
   repoId,
   relations,
   focusedEntityRef,
   onSelectEntity,
   onOpenTask,
-}: {
-  readonly repoId: string;
-  readonly relations: readonly RelationEdge[];
-  readonly focusedEntityRef: string | null;
-  readonly onSelectEntity: (ref: string) => void;
-  readonly onOpenTask: (taskId: string) => void;
+  renderHeader = renderSessionsPageHeader,
+}: SessionsViewProps & {
+  /** 页面组合的页头渲染;工作台面板传空渲染(面板标签即标题)。 */
+  readonly renderHeader?: (slot: SessionsHeaderSlot) => ReactNode;
 }) {
   const [segment, setSegment] = useState<Segment>("sessions");
   const [groupBy, setGroupBy] = useState<SessionGroupBy>("task");
@@ -420,45 +440,43 @@ export function SessionsView({
   };
   const visibleRead = segment === "sessions" ? workspace.groups : workspace.squadRuns;
   const visibleReadError = visibleRead.error instanceof Error ? visibleRead.error.message : String(visibleRead.error);
+  // 页头插槽的实况件:计数结论句与检查器开关(页面装进 PageHeader,面板不装)。
+  const countsNote = (
+    <span data-testid="sessions-counts" className="truncate">
+      {segment === "sessions"
+        ? t("agentRuntime.sessionsCounts", {
+            range: rangeLabel[range],
+            groups: totals.groups,
+            sessions: totals.sessions,
+          }) +
+          // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
+          // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
+          (status.length === 0
+            ? ""
+            : t("agentRuntime.sessionsStatusFilterNote", {
+                statuses: status.map((word) => t(sessionStatusKey[word] as never)).join(" / "),
+              })) +
+          " · " +
+          t("agentRuntime.liveSessions", { count: liveCount })
+        : t("agentRuntime.squadRunsCounts", { range: rangeLabel[range], runs: runTotals.runs }) +
+          " · " +
+          t("agentRuntime.squadRunsActive", { count: activeRunCount })}
+    </span>
+  );
+  const headerActions =
+    segment === "sessions" && selectedSessionId !== null ? (
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => setInspector(!inspector)}
+        tip={t("agentRuntime.toggleInspector")}
+      >
+        ▐
+      </Button>
+    ) : undefined;
   return (
     <section data-testid="sessions-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <PageHeader
-        title={t("agentRuntime.sessionsTitle")}
-        note={
-          <span data-testid="sessions-counts" className="truncate">
-            {segment === "sessions"
-              ? t("agentRuntime.sessionsCounts", {
-                  range: rangeLabel[range],
-                  groups: totals.groups,
-                  sessions: totals.sessions,
-                }) +
-                // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
-                // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
-                (status.length === 0
-                  ? ""
-                  : t("agentRuntime.sessionsStatusFilterNote", {
-                      statuses: status.map((word) => t(sessionStatusKey[word] as never)).join(" / "),
-                    })) +
-                " · " +
-                t("agentRuntime.liveSessions", { count: liveCount })
-              : t("agentRuntime.squadRunsCounts", { range: rangeLabel[range], runs: runTotals.runs }) +
-                " · " +
-                t("agentRuntime.squadRunsActive", { count: activeRunCount })}
-          </span>
-        }
-        actions={
-          segment === "sessions" && selectedSessionId !== null ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setInspector(!inspector)}
-              tip={t("agentRuntime.toggleInspector")}
-            >
-              ▐
-            </Button>
-          ) : undefined
-        }
-      />
+      {renderHeader !== undefined ? renderHeader({ countsNote, headerActions }) : null}
       <div
         data-testid="sessions-toolbar"
         className="flex min-h-12 shrink-0 flex-wrap items-center gap-2.5 px-5 py-2 @container [&>span[role=group]]:shrink-0 [&_button]:whitespace-nowrap"

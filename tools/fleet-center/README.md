@@ -109,8 +109,8 @@ ha bootstrap --operation node-list
 
 The first registration of a node mints its machine credential once and writes
 it to `--credential-file`, a new file readable only by its owner (`0600`). The
-receipt names the file and never carries the credential. The command is
-refused without `--credential-file`, and refused with
+receipt names the file and never carries the credential. The registration is
+refused with `credential_file_required` without `--credential-file`, and with
 `credential_file_unavailable` when the file already exists; in both cases
 nothing is registered. Use one directory per node and never share a credential
 between nodes. `<node-id>` must be the `nodeId` of the roster assignment.
@@ -125,11 +125,11 @@ To change a node's owner, read its `version` from `node-list` and repeat
 `node-register` with `--person-id <new-person> --expected-version <version>`.
 No credential is minted and `--credential-file` is not needed.
 
-If registration created the Keycloak client but failed before returning its
-credential, do not reuse that incomplete registration. Read its version with
-`node-list`, remove it with `node-unregister --node-id <node-id>
---expected-version <version>`, then register it again with a new credential
-file. Automatic cleanup of this partial registration is tracked separately.
+The credential file is written before the Keycloak client is created, so a registration
+either takes effect with the credential in its file or fails without leaving a client
+behind. A registration that reports failure with the file already in place is settled by
+what `node-list` shows: when the node is registered, the file holds its working credential
+and there is nothing to redo; when it is not, remove the file and register again.
 
 ### Human confirmation
 
@@ -145,10 +145,12 @@ To remove a node:
 ha bootstrap --operation node-unregister --node-id <node-id> --expected-version <version>
 ```
 
-A stale version answers `version_conflict`. After removal the credential is
-rejected on new connections. A connection that was already open may still get
-answers to some frames (tracked as `task_957ec2cdea3f65a73487641bdb`), and
-leases the node holds are reclaimed by their existing timeout, not revoked.
+A stale version answers `version_conflict`. Once removal settles, the
+credential is rejected on new connections and the node's live TLS sessions at
+the center are cut before the operation returns, their buffered frames neither
+processed nor answered; a removal settled later by `receipt-reconcile` cuts
+them too. Leases the node holds are reclaimed by their existing timeout, not
+revoked.
 
 ### When a first sync is refused
 

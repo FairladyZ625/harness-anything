@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { archiveDispatchStream, readDispatchStream, scrubProviderValue } from "./dispatch-stream.ts";
+import {
+  archiveDispatchStream,
+  readDispatchStream,
+  scrubProviderValue,
+  type DispatchTerminalOutcome,
+} from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import { pushWorkerBranch, workerBranchHasDelivery } from "./runtime-worker-push.ts";
@@ -17,10 +22,11 @@ export async function publishExit(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   code: number | null,
+  resumePublishedExit = false,
 ): Promise<void> {
   if (
     context.exiting.has(active.runtimeSessionId) ||
-    (!context.input.remote && context.requiredRuntimeStore(context.input).readEvent(`${active.dispatchOpId}-exited`))
+    (!context.input.remote && context.requiredRuntimeStore(context.input).readEvent(`${active.dispatchOpId}-outcome`))
   )
     return;
   context.exiting.add(active.runtimeSessionId);
@@ -29,6 +35,15 @@ export async function publishExit(
     terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
     squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
   try {
+    const persistedTerminal = readDispatchStream(context.input.rootDir, active.dispatchId)?.terminalOutcome;
+    // A local snapshot alone does not prove that the center accepted settlement.
+    // Only an already-published exit lets adoption skip those side effects.
+    if (resumePublishedExit && persistedTerminal) {
+      context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+      await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);
+      return;
+    }
     if (!cancelled && code === null)
       context.input.stream.publish(active.runtimeSessionId, {
         type: "error",
@@ -69,7 +84,8 @@ export async function publishExit(
           ? "Worker completed the attempt successfully."
           : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
     };
-    active.stream.appendAttemptOutcome(attemptOutcome, context.input.now());
+    const endedAt = context.input.now();
+    active.stream.appendAttemptOutcome(attemptOutcome, endedAt);
     const runtimeMetrics = {
       inputTokens: active.inputTokens,
       cacheReadTokens: active.cacheReadTokens,
@@ -80,7 +96,7 @@ export async function publishExit(
     };
     active.stream.appendRuntimeMetrics?.(
       { ...runtimeMetrics, compacted: active.compacted, raw: active.rawUsage },
-      context.input.now(),
+      endedAt,
     );
     let body = context.runtimeResultText(active, code, outcome);
     let hasDelivery =
@@ -137,45 +153,44 @@ export async function publishExit(
         mediaType: context.resultMediaType,
       },
       resultRef = `artifact:runtime-result/sha256/${sha256}`;
-    const endedAt = context.input.now(),
-      archive: RuntimeDispatchArchive | null = active.task
-        ? {
-            dispatchId: active.dispatchId,
-            taskId: active.task.taskId,
-            executionId: active.task.executionId,
-            ...(active.agent ? { agentId: active.agent.id, agentName: active.agent.name } : {}),
-            ...(active.squadId ? { squadId: active.squadId } : {}),
-            ...(active.parentRuntimeSessionId ? { parentRuntimeSessionId: active.parentRuntimeSessionId } : {}),
-            ...(active.delegatedBy
-              ? {
-                  delegatedByAgentId: active.delegatedBy.id,
-                  delegatedByAgentName: active.delegatedBy.name,
-                }
-              : {}),
-            instanceId: active.instanceId,
-            model: active.model,
-            reasoningEffort: active.reasoningEffort,
-            fast: active.fast,
-            cwd: active.cwd,
-            prompt: scrubProviderValue(active.prompt) as string,
-            ...(active.promptSource ? { promptSource: active.promptSource } : {}),
-            ...(active.onExitCommand ? { onExitCommand: active.onExitCommand } : {}),
-            runtimeSessionId: active.runtimeSessionId,
-            providerSessionId: active.providerSessionId,
-            startedAt: active.startedAt,
-            endedAt,
-            outcome,
-            exitCode: cancelled ? null : code,
-            resultRef,
-            resultText: body,
-            eventStreamRef: active.stream.ref,
-            attemptGroupId: attemptOutcome.attemptGroupId,
-            attemptIndex: attemptOutcome.attemptIndex,
-            provider: { instance: attemptOutcome.provider.instance, model: attemptOutcome.provider.model },
-            classification: attemptOutcome.classification,
-            reason: attemptOutcome.reason,
-          }
-        : null;
+    const archive: RuntimeDispatchArchive | null = active.task
+      ? {
+          dispatchId: active.dispatchId,
+          taskId: active.task.taskId,
+          executionId: active.task.executionId,
+          ...(active.agent ? { agentId: active.agent.id, agentName: active.agent.name } : {}),
+          ...(active.squadId ? { squadId: active.squadId } : {}),
+          ...(active.parentRuntimeSessionId ? { parentRuntimeSessionId: active.parentRuntimeSessionId } : {}),
+          ...(active.delegatedBy
+            ? {
+                delegatedByAgentId: active.delegatedBy.id,
+                delegatedByAgentName: active.delegatedBy.name,
+              }
+            : {}),
+          instanceId: active.instanceId,
+          model: active.model,
+          reasoningEffort: active.reasoningEffort,
+          fast: active.fast,
+          cwd: active.cwd,
+          prompt: scrubProviderValue(active.prompt) as string,
+          ...(active.promptSource ? { promptSource: active.promptSource } : {}),
+          ...(active.onExitCommand ? { onExitCommand: active.onExitCommand } : {}),
+          runtimeSessionId: active.runtimeSessionId,
+          providerSessionId: active.providerSessionId,
+          startedAt: active.startedAt,
+          endedAt,
+          outcome,
+          exitCode: cancelled ? null : code,
+          resultRef,
+          resultText: body,
+          eventStreamRef: active.stream.ref,
+          attemptGroupId: attemptOutcome.attemptGroupId,
+          attemptIndex: attemptOutcome.attemptIndex,
+          provider: { instance: attemptOutcome.provider.instance, model: attemptOutcome.provider.model },
+          classification: attemptOutcome.classification,
+          reason: attemptOutcome.reason,
+        }
+      : null;
     if (archive) {
       try {
         const archived = context.input.remote
@@ -234,12 +249,6 @@ export async function publishExit(
         active.cancelOpId ?? `${active.dispatchOpId}-cancelled`,
         cancelBinding,
       );
-      await context.publishRuntimeEvent(
-        "runtime_session_exited",
-        { runtimeSessionId: active.runtimeSessionId },
-        `${active.dispatchOpId}-exited`,
-        terminalBinding,
-      );
     }
     context.processes.delete(active.runtimeSessionId);
     active.process.release?.();
@@ -285,16 +294,8 @@ export async function publishExit(
         result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
         resultRef = `artifact:runtime-result/sha256/${sha256}`;
       });
-    if (!cancelled)
-      await context.publishRuntimeEvent(
-        "runtime_session_exited",
-        { runtimeSessionId: active.runtimeSessionId },
-        `${active.dispatchOpId}-exited`,
-        terminalBinding,
-      );
-    const outcomeEvent = await context.publishRuntimeEvent(
-      "runtime_session_outcome_observed",
-      {
+    const terminalOutcome: DispatchTerminalOutcome = {
+      payload: {
         runtimeSessionId: active.runtimeSessionId,
         outcome,
         exitCode: cancelled ? null : code,
@@ -305,45 +306,66 @@ export async function publishExit(
         endedAt,
         runtimeMetrics,
       },
-      `${active.dispatchOpId}-outcome`,
-      terminalBinding,
       body,
-    );
-    context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
-    // This lifecycle boundary is the daemon's drain signal, so it follows the terminal outcome
-    // write rather than merely the native process exit.
-    context.input.recordLifecycle?.({
-      event: "runtime_exit",
-      runtimeSessionId: active.runtimeSessionId,
-      dispatchId: active.dispatchId,
-      pid: active.process.pid,
-      exitCode: active.lossExitCode ?? (cancelled ? null : code),
-      signal: active.lossSignal,
-      outcome: active.lossReason ? "lost" : outcome,
-      reason: active.lossReason ?? (outcome === "succeeded" ? null : attemptOutcome.reason),
-    });
-    context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome });
-    if (readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState !== "scheduled")
-      archiveDispatchStream(context.input.rootDir, active.dispatchId);
-    const onExitCommand = active.onExitCommand;
-    if (typeof onExitCommand === "string")
-      setImmediate(() =>
-        context.launchExitNotification({
-          command: onExitCommand,
-          cwd: active.cwd,
-          stream: active.stream,
-          payload: {
-            schema: "runtime-session-exited/v1" as const,
-            runtimeSessionId: active.runtimeSessionId,
-            outcome,
-            exitCode: cancelled ? null : code,
-          },
-          now: context.input.now,
-        }),
-      );
+      reason: attemptOutcome.reason,
+    };
+    active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
+    await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome);
   } finally {
     context.exiting.delete(active.runtimeSessionId);
   }
+}
+
+async function publishTerminalOutcome(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  terminalBinding: ActiveRuntime["binding"],
+  terminal: DispatchTerminalOutcome,
+): Promise<void> {
+  const { payload, body } = terminal;
+  await context.publishRuntimeEvent(
+    "runtime_session_exited",
+    { runtimeSessionId: active.runtimeSessionId },
+    `${active.dispatchOpId}-exited`,
+    terminalBinding,
+  );
+  const outcomeEvent = await context.publishRuntimeEvent(
+    "runtime_session_outcome_observed",
+    payload,
+    `${active.dispatchOpId}-outcome`,
+    terminalBinding,
+    body,
+  );
+  context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
+  context.input.recordLifecycle?.({
+    event: "runtime_exit",
+    runtimeSessionId: active.runtimeSessionId,
+    dispatchId: active.dispatchId,
+    pid: active.process.pid,
+    exitCode: active.lossExitCode ?? payload.exitCode,
+    signal: active.lossSignal,
+    outcome: active.lossReason ? "lost" : payload.outcome,
+    reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
+  });
+  context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
+  if (readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState !== "scheduled")
+    archiveDispatchStream(context.input.rootDir, active.dispatchId);
+  const onExitCommand = active.onExitCommand;
+  if (typeof onExitCommand === "string")
+    setImmediate(() =>
+      context.launchExitNotification({
+        command: onExitCommand,
+        cwd: active.cwd,
+        stream: active.stream,
+        payload: {
+          schema: "runtime-session-exited/v1" as const,
+          runtimeSessionId: active.runtimeSessionId,
+          outcome: payload.outcome,
+          exitCode: payload.exitCode,
+        },
+        now: context.input.now,
+      }),
+    );
 }
 
 function unsubmittedDeliveryRecovery(

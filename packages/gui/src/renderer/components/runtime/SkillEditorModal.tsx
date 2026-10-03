@@ -86,7 +86,15 @@ export function SkillEditorModal({
     setSaving(false);
     if (result.ok) {
       // 保存成功后以写回结果对齐已加载基线:路径用主进程返回的真身,脏标记随之清零。
-      setRead({ ok: true, path: result.path, content: draft, sizeBytes: result.sizeBytes });
+      setRead({
+        ok: true,
+        path: result.path,
+        content: draft,
+        sizeBytes: result.sizeBytes,
+        contentKind: "text",
+        mediaType: "text/markdown",
+        bytes: null,
+      });
       setSavedOnce(true);
     } else setWriteFailure(result);
   }, [saving, read, draft]);

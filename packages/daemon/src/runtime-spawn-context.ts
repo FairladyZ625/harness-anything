@@ -79,7 +79,7 @@ export interface RuntimeSpawnerContext {
   ) => string;
   readonly resultMediaType: "text/plain; charset=utf-8";
   readonly launchExitNotification: typeof launchExitNotification;
-  readonly publishExit: (active: ActiveRuntime, code: number | null) => Promise<void>;
+  readonly publishExit: (active: ActiveRuntime, code: number | null, resumePublishedExit?: boolean) => Promise<void>;
   readonly controlReceipt: (opId: string, runtimeSessionId: string, detail?: string) => JsonObject;
   readonly captureErrorOutput: (active: ActiveRuntime, chunk: string) => void;
   readonly prepareWorkerGitEnvironment: (instanceId: string) => Promise<NodeJS.ProcessEnv | undefined>;

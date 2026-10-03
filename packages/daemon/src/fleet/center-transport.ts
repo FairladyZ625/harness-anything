@@ -23,6 +23,7 @@ export async function serve(
   socket: TLSSocket,
   options: FleetCenterOptions,
   handle: (nodeId: string, frame: FleetFrameV1, window: SessionWindow, clientGone: () => boolean) => Promise<Delivery>,
+  sessions: Map<string, Set<TLSSocket>>,
 ): Promise<void> {
   let nodeId: string | null = null,
     pumping = false;
@@ -39,6 +40,8 @@ export async function serve(
       reject: (error: unknown) => void;
     }> = [],
     send = async (frame: FleetFrameV1) => {
+      // A session the center cut is never answered, not even from a delivery already in flight.
+      if (socket.destroyed) return;
       const line = serializeFleetFrame(frame),
         bytes = Buffer.byteLength(line);
       if (bytes > FLEET_KEY_SEND_WINDOW_BYTES) throw new FleetFault("busy", "Per-key send window is full.", true);
@@ -79,6 +82,8 @@ export async function serve(
       }
     };
   socket.on("data", (chunk) => {
+    // A cut session stops processing: lines still buffered on it never reach a handler.
+    if (socket.destroyed) return;
     try {
       for (const line of reader.push(chunk)) void dispatch(line);
     } catch (error) {
@@ -99,8 +104,22 @@ export async function serve(
     try {
       frame = parseFleetFrame(line);
       if (nodeId === null) {
+        if (frame.schema !== "fleet.session.hello/v1")
+          throw new FleetFault("authentication_failed", "Machine credential was rejected.");
+        // The connection joins its node's session set before authentication resolves, so an
+        // unregistration landing mid-handshake cuts this socket instead of letting a stale
+        // authenticate verdict revive the connection afterwards.
+        const helloNodeId = frame.nodeId,
+          live = sessions.get(helloNodeId) ?? new Set<TLSSocket>();
+        sessions.set(helloNodeId, live.add(socket));
+        socket.once("close", () => {
+          const set = sessions.get(helloNodeId);
+          if (set) {
+            set.delete(socket);
+            if (set.size === 0) sessions.delete(helloNodeId);
+          }
+        });
         if (
-          frame.schema !== "fleet.session.hello/v1" ||
           !isContractVersionCompatible(frame.protocolVersion, currentFleetProtocolVersion) ||
           !(await options.authenticate(frame.nodeId, frame.credential))
         )
@@ -120,8 +139,6 @@ export async function serve(
       }
       if (frame.schema === "fleet.session.hello/v1")
         throw new FleetFault("hello_replayed", "Session hello is only valid as the first frame.");
-      if (options.isNodeActive && !(await options.isNodeActive(nodeId)))
-        throw new FleetFault("credential_revoked", "Node credential was revoked.");
       await enqueue(await handle(nodeId, frame, window, () => socket.destroyed));
     } catch (error) {
       consumeKnownError(error);
@@ -139,7 +156,7 @@ export async function serve(
           resumeOffset: fault.resumeOffset,
         }),
       );
-      if (fault.code === "authentication_failed" || fault.code === "credential_revoked") socket.end();
+      if (fault.code === "authentication_failed") socket.end();
     }
   };
 }

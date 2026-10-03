@@ -21,6 +21,9 @@
    outside one (e.g. a portal) CSS resolves it against the small viewport.
    Unlike percentages in max-height, this stays definite for intrinsic-height records. */
 :root {
+  --control-height: 28px;
+  --control-height-compact: 24px;
+  --control-height-touch: 40px;
   --long-content-cap: 55cqb;
   --overlay-content-cap: 85dvh;
 }
@@ -766,4 +769,47 @@ html[data-theme="light"] ::selection {
 .component-modal::backdrop {
   background: color-mix(in oklch, var(--color-bg) 70%, transparent);
   backdrop-filter: blur(6px);
+}
+
+/* A wide table/code block stays inside its own reading column. */
+.document-wide-block {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  break-inside: avoid;
+}
+.docx-preview-host .docx-wrapper {
+  align-items: flex-start;
+}
+.docx-preview-host table {
+  color: inherit;
+}
+
+.document-wide-block > table {
+  inline-size: max-content;
+  min-inline-size: 100%;
+}
+
+/* Mermaid owns label colors; document paragraph rules must not recolor its SVG labels. */
+.document-diagram .nodeLabel p,
+.document-diagram .edgeLabel p {
+  color: inherit;
+  margin: 0;
+}
+
+/* Desktop tools stay compact; coarse pointers receive real, non-overlapping targets. */
+.ui-control {
+  min-height: var(--control-height);
+  min-width: var(--control-height);
+}
+.ui-control[data-control-size="sm"] {
+  min-height: var(--control-height-compact);
+  min-width: var(--control-height-compact);
+}
+@media (pointer: coarse) {
+  .ui-control,
+  .ui-control[data-control-size="sm"] {
+    min-height: var(--control-height-touch);
+    min-width: var(--control-height-touch);
+  }
 }

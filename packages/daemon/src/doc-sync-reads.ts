@@ -204,9 +204,11 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
       };
 }
 
-/** Raw bytes this read carries inline, the same ceiling as repo.entity.content.read. Above it the
+/** Raw bytes this document preview read carries inline. Above it the
  * read still answers with true metadata and the repository path the bytes materialize at. */
-export const TASK_DOCUMENT_INLINE_BYTES_MAX = 2 * 1024 * 1024;
+// Viewer payloads are still bounded per request, but common PDF/DOCX files may be larger than the
+// old 2 MiB text-oriented ceiling. The source remains the authorized content object or task package.
+export const TASK_DOCUMENT_INLINE_BYTES_MAX = 16 * 1024 * 1024;
 
 /** What this read needs from the repo cell: the layout, the projection, and the content-object store
  * the canonical bytes come from. Structural on purpose, the same way readArtifactsGui takes its own. */
@@ -236,10 +238,15 @@ export function readProjectedDocument(
       document === null ? classifyRawArtifactPath(logical) !== null : document.policyId === RAW_ARTIFACT_POLICY_ID,
     packageRoot = taskPackageWorktreeRoot(rootDir, packagePath),
     worktree = readWorktreeDocument(packageRoot, requested, binary),
-    inline =
+    canonicalBytes =
       binary && document !== null && Number(document.size) <= TASK_DOCUMENT_INLINE_BYTES_MAX
         ? context.store.readContentBlob(document.blobSha256)
-        : null;
+        : null,
+    inline =
+      canonicalBytes !== null && canonicalBytes.byteLength <= TASK_DOCUMENT_INLINE_BYTES_MAX ? canonicalBytes : null,
+    worktreeBytes = binary ? (worktree?.bytes ?? null) : null,
+    selectedBytes =
+      worktree !== null && worktree.blobSha256 !== (document?.blobSha256 ?? null) ? worktreeBytes : inline;
   return {
     ok: true as const,
     status: read.status,
@@ -249,11 +256,13 @@ export function readProjectedDocument(
     blobSha256: document?.blobSha256 ?? null,
     /** `binary` = raw artifact bytes: `body` is empty because there is no text, not because the file is. */
     contentKind: binary ? ("binary" as const) : ("text" as const),
-    mediaType: document?.mediaType ?? worktree?.mediaType ?? null,
+    mediaType: binary
+      ? mediaTypeForBinaryPath(requested, document?.mediaType ?? worktree?.mediaType ?? null)
+      : (document?.mediaType ?? worktree?.mediaType ?? null),
     size: document === null ? (worktree?.size ?? null) : Number(document.size),
     /** Canonical content-object bytes, base64. Null for text, for an unreadable object, and above the
      * inline ceiling — in which case `repositoryPath` is the route to the same bytes. */
-    bytes: inline === null ? null : Buffer.from(inline).toString("base64"),
+    bytes: selectedBytes === null ? null : Buffer.from(selectedBytes).toString("base64"),
     /** Where this document materializes under the configured authored root; never assembled by a renderer. */
     repositoryPath: repositoryPathOf(rootDir, logical),
     // Live worktree view (task_e5defe69): the GUI file surface must show what is on disk
@@ -317,7 +326,7 @@ export function listProjectedTaskDocuments(
   };
 }
 
-const worktreeDocumentMaxBytes = 2 * 1024 * 1024,
+const worktreeDocumentMaxBytes = TASK_DOCUMENT_INLINE_BYTES_MAX,
   worktreeDocumentMaxEntries = 2000;
 
 type WorktreeDocumentRow = {
@@ -357,6 +366,7 @@ function readWorktreeDocument(
   binary: boolean,
 ): {
   readonly body: string | null;
+  readonly bytes: Buffer;
   readonly blobSha256: string;
   readonly size: number;
   readonly mediaType: string | null;
@@ -368,10 +378,37 @@ function readWorktreeDocument(
   const bytes = readFileSync(target);
   return {
     body: binary ? null : bytes.toString("utf8"),
+    bytes,
     blobSha256: sha256Bytes(bytes),
     size: bytes.byteLength,
     mediaType: binary ? RAW_ARTIFACT_MEDIA_TYPE : worktreeDocumentMediaType(relative),
   };
+}
+
+export function mediaTypeForBinaryPath(relative: string, fallback: string | null): string | null {
+  const extension = path.extname(relative).toLowerCase();
+  return (
+    {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".avif": "image/avif",
+      ".bmp": "image/bmp",
+      ".ico": "image/x-icon",
+      ".svg": "image/svg+xml",
+      ".pdf": "application/pdf",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".doc": "application/msword",
+      ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ".ppt": "application/vnd.ms-powerpoint",
+      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+      ".xls": "application/vnd.ms-excel",
+      ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+    }[extension] ?? fallback
+  );
 }
 
 /** Document-shaped files currently on disk under the task package. The worktree is the

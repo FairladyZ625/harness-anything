@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useQuery } from "@tanstack/react-query";
 import { FileText, X } from "@phosphor-icons/react";
 import { DocReader } from "../components/DocReader.tsx";
+import { BinaryDocumentPreview } from "../components/BinaryDocumentPreview.tsx";
 import { t } from "../i18n/index.tsx";
 import { requestLocalDocument } from "./local-doc-client.ts";
 import { LocalDocContext, type LocalDocOpener } from "./local-doc-context.ts";
@@ -124,6 +125,13 @@ function LocalDocOverlay({
             ) : (
               <LocalDocError result={query.data} />
             )
+          ) : query.data.contentKind === "binary" ? (
+            <BinaryDocumentPreview
+              path={query.data.path}
+              mediaType={query.data.mediaType}
+              bytes={query.data.bytes}
+              message="此文件已读取，但当前查看器无法渲染其内容。请使用系统查看器打开原始文件。"
+            />
           ) : isMarkdownPath(path) ? (
             <DocReader content={query.data.content} />
           ) : (

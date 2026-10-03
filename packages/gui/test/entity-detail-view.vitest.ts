@@ -121,7 +121,7 @@ describe("FactDetailView", () => {
     );
     const chip = [...div.querySelectorAll("[data-testid='ego-chip']")].find((c) => c.textContent?.includes("任务A"))!;
     await act(async () => {
-      chip.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      chip.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 }));
     });
     expect(onNavigateEntity).toHaveBeenCalledWith("task/task_a");
     await act(async () => {

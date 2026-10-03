@@ -12,6 +12,7 @@ import decisionReviewResponses from "./scenarios/decision-review-responses.mjs";
 import sessionsArtifacts from "./scenarios/sessions-artifacts.mjs";
 import artifactsHtmlPreview from "./scenarios/artifacts-html-preview.mjs";
 import artifactsRawPreview from "./scenarios/artifacts-raw-preview.mjs";
+import artifactsSpreadsheetPreview from "./scenarios/artifacts-spreadsheet-preview.mjs";
 import settings from "./scenarios/settings-appearance.mjs";
 import declaredEntityKinds from "./scenarios/declared-entity-kinds.mjs";
 import systemDaemonLogs from "./scenarios/system-daemon-logs.mjs";
@@ -35,6 +36,7 @@ export const catalog = [
   sessionsArtifacts,
   artifactsHtmlPreview,
   artifactsRawPreview,
+  artifactsSpreadsheetPreview,
   settings,
   declaredEntityKinds,
   systemDaemonLogs,

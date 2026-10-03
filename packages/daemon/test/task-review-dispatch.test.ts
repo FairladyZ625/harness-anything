@@ -54,6 +54,7 @@ test("review prompts truncate oversized artifact bodies and keep the frozen anch
     gates: [],
   });
   assert.match(prompt, /Independently review task task_review_bounds/u);
+  assert.doesNotMatch(prompt, /Owner adjudication context/u);
   assert.match(prompt, /execution-frozen delivery baseline.*b{40}/u);
   assert.match(prompt, /Read the G33 production-delta result/u);
   assert.match(prompt, /REVIEW-ARTIFACT-HEAD/u);

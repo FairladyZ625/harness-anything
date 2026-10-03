@@ -180,7 +180,7 @@ describe("EgoNeighborhood standalone reuse (W4)", () => {
     const onRefocus = vi.fn();
     const { div, root } = await mount({ onRefocus });
     await act(async () => {
-      chipOf(div, "任务一").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      chipOf(div, "任务一").dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 }));
     });
     expect(onRefocus).toHaveBeenCalledWith("task/t1");
     await unmount(root);
