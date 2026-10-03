@@ -77,7 +77,7 @@ for (const platformName of ["linux", "darwin"] as const) {
   });
 }
 
-test("all lock paths retain old live holders and have one concurrent claimant", async (t) => {
+test("all lock paths retain live holders and have one concurrent claimant", async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-live-locks-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   fs.mkdirSync(path.join(dir, "repo"));
@@ -90,7 +90,8 @@ test("all lock paths retain old live holders and have one concurrent claimant", 
   }
   const flight = await acquireDaemonAutostartFlight({ userRoot: dir, daemonId: "flight" });
   const flightPath = daemonAutostartLockPath(dir, "flight");
-  utimesSync(flightPath, new Date(2000), new Date(2000));
+  // A lock predating its current PID is a recycle witness on Windows, not a live-holder fixture.
+  if (process.platform !== "win32") utimesSync(flightPath, new Date(2000), new Date(2000));
   try {
     assert.equal((await acquireDaemonAutostartFlight({ userRoot: dir, daemonId: "flight" })).owner, false);
   } finally {
@@ -103,7 +104,7 @@ test("all lock paths retain old live holders and have one concurrent claimant", 
   );
   assert.equal(outcomes.filter((outcome) => outcome.claim === "acquired").length, 1);
   const singletonPath = daemonSingletonLockPath(dir, "race");
-  utimesSync(singletonPath, new Date(2000), new Date(2000));
+  if (process.platform !== "win32") utimesSync(singletonPath, new Date(2000), new Date(2000));
   assert.equal(
     (await acquireDaemonSingleton({ userRoot: dir, daemonId: "race", endpoint: "unused", probe: async () => false }))
       .claim,
