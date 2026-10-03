@@ -39,7 +39,7 @@ export function validateBackupDestination(rootDir: string, backup: string): stri
 }
 
 export function backupRepo(
-  input: { readonly rootDir: string; readonly backupDir: string } & (
+  input: { readonly rootDir: string; readonly backupDir: string; readonly onSnapshotCaptured?: () => void } & (
     | { readonly registration: DaemonRegistryRepo; readonly writerEpoch: number }
     | { readonly registration?: never; readonly writerEpoch?: never }
   ),
@@ -47,6 +47,7 @@ export function backupRepo(
   return createLedgerBackup({
     rootInput: input.rootDir,
     backupDir: input.backupDir,
+    ...(input.onSnapshotCaptured ? { onSnapshotCaptured: input.onSnapshotCaptured } : {}),
     ...(input.registration
       ? {
           registration: {

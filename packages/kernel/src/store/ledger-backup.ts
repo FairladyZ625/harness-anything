@@ -44,6 +44,8 @@ export function createLedgerBackup(input: {
   readonly now?: Date;
   readonly generation?: 1 | 2;
   readonly registration?: LedgerBackupRegistrationV1;
+  /** All live sources are frozen; subsequent validation reads only the payload. */
+  readonly onSnapshotCaptured?: () => void;
 }): LedgerBackupManifestV1 {
   const backupDir = path.resolve(input.backupDir);
   if (!path.isAbsolute(input.backupDir)) throw new Error("backup directory must be absolute");
@@ -61,8 +63,11 @@ export function createLedgerBackup(input: {
     const database = sqliteLedgerPath(input.rootInput, generation);
     if (fileSystem.exists(database)) vacuumSqlite(layout.rootDir, database, payloadRoot);
   }
-  const sqlite = sqlitePresent ? inspectSqlite(sqlitePath) : null,
-    legacy = sqlitePresent ? null : readStoppedLegacyGeneration({ rootInput: input.rootInput }),
+  input.onSnapshotCaptured?.();
+  const sqlite = sqlitePresent
+      ? inspectSqlite(path.join(payloadRoot, path.relative(layout.rootDir, sqlitePath)))
+      : null,
+    legacy = sqlitePresent ? null : readStoppedLegacyGeneration({ rootInput: payloadRoot }),
     files = inventory(payloadRoot).map((backupFile) => {
       const relative = portable(path.relative(payloadRoot, backupFile)),
         vacuumed = /^\.harness\/store\/generations\/[12]\/ledger\.sqlite$/u.test(relative),
@@ -284,7 +289,7 @@ function copyVanishingTree(
         if (fileSystem.exists(destination)) fileSystem.remove(destination);
         fileSystem.symlink(fileSystem.readLink(source), destination);
       } else {
-        fileSystem.copy(source, destination);
+        fileSystem.copy(source, destination, { mode: fileSystem.cloneMode });
       }
       return true;
     } catch (error) {

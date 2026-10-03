@@ -762,10 +762,12 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           cell: {
             rootDir: context.rootDir,
             now: context.now,
-            runSnapshot: <T>(work: () => T): Promise<T> => {
+            runSnapshot: <T>(work: () => T | PromiseLike<T>): Promise<T> => {
               context.queueDepth += 1;
-              const snapshot = chainRepoCellWrite(context.tail, () => {
+              const snapshot = chainRepoCellWrite(context.tail, async () => {
                 context.queueDepth -= 1;
+                // Await the existing follower before worker IO yields this event loop.
+                await context.store.settlePendingMaterialization?.("backup capture");
                 if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
                 assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
                 const current = context.projection.getEntity("schedule", schedule.scheduleId)?.value as
