@@ -9,6 +9,7 @@ const task = (
   status: "planned" | "active" | "blocked" | "done" | "cancelled",
   taskClass: "standard" | "work" = "standard",
   packageDisposition: "active" | "archived" = "active",
+  supersededBy: string | null = null,
 ) => ({
   taskId,
   parentTaskId,
@@ -20,6 +21,7 @@ const task = (
   riskTier: null,
   urgency: null,
   packageDisposition,
+  supersededBy,
   packagePath: `harness/tasks/${taskId}`,
   updatedAt: "2026-09-20T00:00:00.000Z",
 });
@@ -60,6 +62,26 @@ test("workspace scope counts only executable leaves and keeps cancellation separ
   );
   assert.equal(result.page.nextCursor, "doing");
   assert.deepEqual(result.memberTaskIds, ["cancelled", "doing", "done", "group"]);
+});
+
+test("workspace scope retires superseded archived leaves from open accounting but keeps history totals", () => {
+  const rows = [
+    task("root", null, "active", "work"),
+    task("live", "root", "planned"),
+    task("archived-only", "root", "planned", "standard", "archived"),
+    task("retired", "root", "planned", "standard", "archived", "task_replacement"),
+  ];
+  const result = workspaceScopeFromProjection(projection(rows), { rootTaskId: "root" });
+
+  assert.deepEqual(result.counts, { done: 0, executing: 0, pending: 0, blocked: 0, planned: 2, cancelled: 0 });
+  assert.deepEqual(
+    result.tasks.map(({ taskId }) => taskId),
+    ["archived-only", "live"],
+  );
+  assert.deepEqual(result.memberTaskIds, ["archived-only", "live", "retired"]);
+  assert.equal(result.scope.descendantCount, 3);
+  assert.equal(result.scope.executableLeafCount, 2);
+  assert.equal(result.scope.archivedCount, 2);
 });
 
 test("workspace scope reports a missing ancestor instead of inventing a breadcrumb", () => {

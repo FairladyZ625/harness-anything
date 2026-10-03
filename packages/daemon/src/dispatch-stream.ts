@@ -18,6 +18,7 @@ import {
   consumeKnownError,
   resolveHarnessLayout,
   type ActorIdentity,
+  type AgentRuntimeEventV1,
   type WriteSource,
 } from "@harness-anything/kernel";
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
@@ -103,6 +104,11 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
 }
 
 export type DispatchStreamRecord = Record<string, unknown>;
+export type DispatchTerminalOutcome = {
+  readonly payload: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>["payload"];
+  readonly body: string;
+  readonly reason: string;
+};
 export type { RuntimeMetrics };
 export type DispatchProcessState = {
   readonly pid: number;
@@ -126,6 +132,7 @@ export interface DispatchStreamWriter {
     occurredAt: string,
   ) => void;
   readonly appendAttemptOutcome: (value: RuntimeAttemptOutcome, occurredAt: string) => void;
+  readonly appendTerminalOutcome: (value: DispatchTerminalOutcome, occurredAt: string) => void;
   readonly appendFallbackState: (
     value:
       | {
@@ -176,6 +183,7 @@ const summaryKinds = new Set([
   "process_exit",
   "process_lost",
   "attempt_outcome",
+  "terminal_outcome",
   "fallback_state",
   "squad_run_state",
   "squad_run_cancelled",
@@ -232,6 +240,13 @@ export function openDispatchStream(
       appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
         schema: streamSchema,
         kind: "attempt_outcome",
+        occurredAt,
+        ...value,
+      }),
+    appendTerminalOutcome: (value, occurredAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "terminal_outcome",
         occurredAt,
         ...value,
       }),
@@ -441,6 +456,7 @@ export function readDispatchStream(
   readonly providerSessionId: string | null;
   readonly process: DispatchProcessState | null;
   readonly attemptOutcome: RuntimeAttemptOutcome | null;
+  readonly terminalOutcome: DispatchTerminalOutcome | null;
   readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
   readonly fallbackSchedule: {
     readonly notBeforeAt: string;
@@ -721,6 +737,7 @@ function summarizeDispatch(
   let providerSessionId: string | null = null,
     processState: DispatchProcessState | null = null,
     attemptOutcome: RuntimeAttemptOutcome | null = null,
+    terminalOutcome: DispatchTerminalOutcome | null = null,
     fallbackState: "scheduled" | "dispatched" | "exhausted" | null = null,
     fallbackSchedule: DispatchStreamSummary["fallbackSchedule"] = null,
     nextDispatchId: string | null = null,
@@ -738,6 +755,8 @@ function summarizeDispatch(
         exited: true,
       };
     if (record.kind === "attempt_outcome" && isRuntimeAttemptOutcome(record)) attemptOutcome = record;
+    if (record.kind === "terminal_outcome" && isDispatchTerminalOutcome(record, header.runtimeSessionId))
+      terminalOutcome = { payload: record.payload, body: record.body, reason: record.reason };
     if (record.kind === "fallback_state" && ["scheduled", "dispatched", "exhausted"].includes(String(record.state))) {
       fallbackState = record.state as typeof fallbackState;
       fallbackSchedule =
@@ -756,6 +775,7 @@ function summarizeDispatch(
     providerSessionId,
     process: processState,
     attemptOutcome,
+    terminalOutcome,
     fallbackState,
     fallbackSchedule,
     nextDispatchId,
@@ -775,6 +795,26 @@ function isRuntimeMetrics(value: Record<string, unknown>): value is RuntimeMetri
     typeof value.raw === "object" &&
     value.raw !== null &&
     !Array.isArray(value.raw)
+  );
+}
+
+function isDispatchTerminalOutcome(
+  value: Record<string, unknown>,
+  runtimeSessionId: string,
+): value is Record<string, unknown> & DispatchTerminalOutcome {
+  const payload = value.payload;
+  return (
+    value.kind === "terminal_outcome" &&
+    typeof value.body === "string" &&
+    typeof value.reason === "string" &&
+    payload !== null &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    (payload as Record<string, unknown>).runtimeSessionId === runtimeSessionId &&
+    ["succeeded", "failed", "unknown", "cancelled"].includes(String((payload as Record<string, unknown>).outcome)) &&
+    typeof (payload as Record<string, unknown>).resultRef === "string" &&
+    (payload as Record<string, unknown>).result !== undefined &&
+    typeof (payload as Record<string, unknown>).endedAt === "string"
   );
 }
 

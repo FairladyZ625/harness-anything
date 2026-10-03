@@ -44,6 +44,7 @@ export async function openWriterSupervisor(
       workerOptions: { readonly execArgv: readonly string[]; readonly workerData: RepoWriterBootstrapV1 },
     ) => Worker;
     readonly onAttachStatus?: (status: RepoCellStatus) => void;
+    readonly onPublishedStatus?: () => void;
   } = {},
 ): Promise<WriterSupervisor> {
   let worker: Worker | null = null,
@@ -205,6 +206,7 @@ export async function openWriterSupervisor(
               status = published;
               statusObservedAt = Date.now();
             }
+            options.onPublishedStatus?.();
             if (!settled && attaching) options.onAttachStatus?.(published);
             if (
               !settled &&
@@ -321,6 +323,8 @@ export async function openWriterSupervisor(
         return input.shouldStop!();
       case "runtimeInstances":
         return input.runtimeInstances!();
+      case "keycloakCenter":
+        return input.keycloakCenter!();
       case "fleetRoster":
         return input.fleetRoster!();
       case "prepareRuntimeLaunch": {
@@ -422,6 +426,7 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       killpoint: input.killpoint !== undefined,
       shouldStop: input.shouldStop !== undefined,
       runtimeInstances: input.runtimeInstances !== undefined,
+      keycloakCenter: input.keycloakCenter !== undefined,
       prepareRuntimeLaunch: input.prepareRuntimeLaunch !== undefined,
       prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment !== undefined,
       // Runtime worker hosts belong to the daemon process, not the replaceable

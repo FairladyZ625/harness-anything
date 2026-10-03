@@ -15,7 +15,7 @@ import {
   makeTaskProjection,
 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
@@ -94,7 +94,7 @@ test("distill claim streaming preserves first nonblank lines across UTF-8 chunk 
 
 const kind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
   researchKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
-  binding = withRoleBinding(
+  binding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-artifact-import" },
@@ -102,9 +102,9 @@ const kind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
-  secondaryNodeBinding = withRoleBinding(
+  secondaryNodeBinding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-artifact-import-secondary" },
@@ -112,7 +112,7 @@ const kind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   );
 
 test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuildable", async () => {

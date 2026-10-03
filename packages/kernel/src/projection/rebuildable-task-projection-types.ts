@@ -1,4 +1,4 @@
-import type { CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
+import type { PersistedCanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 
 // Source-stream and shared projection operation shapes.
 export interface EventStreamPort {
@@ -12,7 +12,7 @@ export interface EventStreamPort {
     maxItems: number,
   ) => {
     readonly sourceRevision: number;
-    readonly events: readonly CanonicalEventV1[];
+    readonly events: readonly PersistedCanonicalEventV1[];
     readonly cursor: string | null;
     readonly done: boolean;
     readonly accessedItems: number;
@@ -20,7 +20,9 @@ export interface EventStreamPort {
   };
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
 }
-export type EventContentPrefetch = (events: readonly CanonicalEventV1[]) => ReadonlyMap<string, Uint8Array | null>;
+export type EventContentPrefetch = (
+  events: readonly PersistedCanonicalEventV1[],
+) => ReadonlyMap<string, Uint8Array | null>;
 export interface ProjectionContext {
   readonly projectionPath: string;
   readonly readHead: EventStreamPort["readHead"];

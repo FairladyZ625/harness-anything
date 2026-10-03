@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { OPAQUE_TEXTUAL_MEDIA_TYPE } from "../../src/domain/artifact-text-classification.ts";
-import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
 import {
   DOC_POLICY_ID,
   decideDocWrite,
@@ -41,8 +40,8 @@ export const lease = {
 } as const;
 export function authorizeDocWrite(
   actionActor: ActorIdentity = actor,
-  runtimeBinding: TaskBoundRuntimeBinding | null = null,
-  writeSource: WriteSource = "local",
+  _runtimeBinding: TaskBoundRuntimeBinding | null = null,
+  _writeSource: WriteSource = "local",
 ) {
   return authorizationPort.authorize(
     {
@@ -51,22 +50,20 @@ export function authorizeDocWrite(
       kind: "doc-submit",
       target: `execution/${lease.executionId}`,
       actor: actionActor,
-      authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
+      authorizationRef: "keycloak-policy@1",
       idempotencyKey: "doc-op",
     },
     {
-      roleBindings: [
-        {
-          actor: { kind: "person", id: actionActor.principal.personId },
-          role: "repo-write",
-          target: "settings/repository",
-          source: "declared",
-          expiresAt: null,
-        },
-      ],
-      roleBindingTargets: ["settings/repository"],
-      writeSource,
-      target: { lease, runtimeBinding },
+      decision: {
+        policyRef: "keycloak-policy@1",
+        actor: actionActor,
+        subject: `execution/${lease.executionId}`,
+        outcome: "allowed",
+        bindingsUsed: [{ authority: "keycloak", scope: "doc-submit" }],
+        reasonCodes: ["keycloak_allowed"],
+        nextActions: [],
+        evaluatedAtCut: "canonical:test",
+      },
       evaluatedAtCut: "canonical:test",
     },
   );

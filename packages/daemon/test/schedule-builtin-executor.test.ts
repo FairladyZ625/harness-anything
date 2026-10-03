@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -13,7 +13,7 @@ import {
 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { definition, initHarnessRepo } from "./schedule-actions.fixtures.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -27,9 +27,9 @@ import {
 
 type WriteReceipt = { readonly outcome: string; readonly opId: string; readonly revision: number };
 
-const actor = withRoleBinding(
+const actor = withPolicyGroup(
   { actor: { principal: { personId: "builtin-schedule-operator" }, executor: null }, source: "local" as const },
-  "repo-write",
+  "contributor",
 );
 const dayMs = 86_400_000;
 
@@ -355,13 +355,17 @@ test("a partially written backup of the same occurrence is retaken, a verified o
         settledActions.push(action);
         return { outcome: "applied", opId: `op-${settledActions.length}`, revision: settledActions.length };
       };
-      const executorCell = { rootDir: canonicalRoot(root), now: () => new Date().toISOString() };
+      const executorCell = {
+        rootDir: canonicalRoot(root),
+        now: () => new Date().toISOString(),
+        runSnapshot: async <T>(work: () => T) => work(),
+      };
       // A previous attempt died mid-copy: the partial directory is owned by this very
       // occurrence and must be removed and retaken, not drilled against.
       const partial = path.join(
         root,
         scheduledLedgerBackupRoot,
-        claimed.status.activeRun!.occurrenceId.replace("manual_", "ledger-backup-"),
+        `ledger-backup-${claimed.status.activeRun!.occurrenceId}`,
       );
       mkdirSync(partial, { recursive: true });
       writeFileSync(path.join(partial, "ledger.sqlite"), "half a copy");
@@ -418,34 +422,7 @@ test(
       };
     try {
       initHarnessRepo(repo, "builtin-seed");
-      writeFileSync(
-        path.join(repo, "harness/people.yaml"),
-        `${JSON.stringify(
-          {
-            schema: "harness-people/v1",
-            people: [
-              {
-                personId: "owner",
-                displayName: "Owner",
-                roles: ["owner"],
-                credentials: [
-                  {
-                    kind: "unix-socket-owner-boundary",
-                    issuer: `host:${hostname()}`,
-                    subject: String(process.getuid?.() ?? 0),
-                  },
-                ],
-              },
-            ],
-            roles: [{ roleId: "owner", commandClasses: ["repo-read", "repo-write"] }],
-          },
-          null,
-          2,
-        )}\n`,
-      );
-      const { execFileSync } = await import("node:child_process");
-      execFileSync("git", ["-C", repo, "add", "harness"], { stdio: "ignore" });
-      execFileSync("git", ["-C", repo, "commit", "-qm", "people"], { stdio: "ignore" });
+      signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
       registerDaemonRepo({
         canonicalRoot: repo,
         repoId,
@@ -456,6 +433,7 @@ test(
       let host = await openDaemonHost({ daemonId: "builtin-seed-test", userRoot });
       try {
         await host.attachmentsSettled();
+        await seedBuiltinSchedules({ cell: { run: (action) => host.run(repoId, action, localAuth) }, binding: actor });
         const first = (await host.run(repoId, { kind: "schedule-list" }, localAuth)) as {
           schedules: readonly { scheduleId: string }[];
         };
@@ -493,8 +471,8 @@ test(
   },
 );
 
-// CEO R7: internal Schedule authority must exist independently of any user's roster.
-test("a roster-free attach seeds builtins as the explicit daemon Schedule principal", async () => {
+// RBAC v2: background attachment cannot manufacture a principal or grants.
+test("an unsigned attach does not seed schedules as an implicit system principal", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-system-principal-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
@@ -511,11 +489,7 @@ test("a roster-free attach seeds builtins as the explicit daemon Schedule princi
         const seeds = reader
           .read()
           .events.filter((event) => event.schema === "schedule-event/v1" && event.type === "schedule_created");
-        assert.equal(seeds.length, 2);
-        assert.deepEqual(
-          seeds.map((event) => event.actor.principal.personId),
-          ["system:daemon-scheduler", "system:daemon-scheduler"],
-        );
+        assert.deepEqual(seeds, []);
       } finally {
         await reader.drain();
       }

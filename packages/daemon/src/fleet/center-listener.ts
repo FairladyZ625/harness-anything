@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { createServer, type Server } from "node:tls";
+import { createServer, type Server, type TLSSocket } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openFleetLeaseBroker } from "../lease-broker.ts";
@@ -505,8 +505,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         );
       assertFrameEpoch(a.repoId, frame.writerEpoch);
       const ingressAuth = await auth(a),
-        baseReceipt = await options.host.run(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth),
-        receipt = await attachTrustedScheduleAgent(options.host, a.repoId, frame.action.kind, baseReceipt, ingressAuth);
+        receipt = await options.host.run(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth);
       if (isSquadControlResult(receipt))
         throw new FleetFault(
           "assignment_scope_mismatch",
@@ -642,8 +641,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
   };
+  // One row per node for every TLS session it holds, from the moment its hello is dispatched.
+  // Unregistration settles in the access-admin queue; this table is how that cut reaches sockets.
+  const sessions = new Map<string, Set<TLSSocket>>();
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
-    serve(socket, options, handle),
+    serve(socket, options, handle, sessions),
   );
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -657,6 +659,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   let closed = false;
   return {
     port: address.port,
+    disconnectNode: (nodeId: string) => {
+      const live = sessions.get(nodeId);
+      if (!live) return;
+      sessions.delete(nodeId);
+      for (const socket of live) socket.destroy();
+    },
     close: async () => {
       if (closed) return;
       closed = true;
@@ -707,35 +715,4 @@ function normalizeAssignmentRecord(value: FleetAssignmentRecord | null): FleetAs
         },
       }
     : null;
-}
-
-async function attachTrustedScheduleAgent(
-  host: FleetCenterOptions["host"],
-  repoId: string,
-  actionKind: string,
-  receipt: Awaited<ReturnType<FleetCenterOptions["host"]["run"]>>,
-  auth: Parameters<FleetCenterOptions["host"]["run"]>[2],
-): Promise<Awaited<ReturnType<FleetCenterOptions["host"]["run"]>> & { readonly trustedAgent?: unknown }> {
-  if (actionKind !== "schedule-run-now" || receipt.outcome !== "applied") return receipt;
-  const schedule = (
-      receipt as unknown as {
-        readonly schedule?: { readonly spec?: { readonly target?: { readonly agentId?: unknown } } };
-      }
-    ).schedule,
-    agentId = schedule?.spec?.target?.agentId;
-  if (typeof agentId !== "string")
-    throw new FleetFault("schedule_claim_invalid", "Applied Schedule claim omitted its Agent target.");
-  const inspected = await host.run(repoId, { kind: "agent-inspect", agentId }, auth);
-  if (inspected.outcome !== "applied" || typeof inspected.evidence !== "string")
-    throw new FleetFault(
-      "schedule_agent_unavailable",
-      `Schedule Agent ${agentId} is unavailable at the claimed center cut.`,
-    );
-  let trustedAgent: unknown;
-  try {
-    trustedAgent = (JSON.parse(inspected.evidence) as { readonly agent?: unknown }).agent;
-  } catch {
-    throw new FleetFault("schedule_agent_unavailable", `Schedule Agent ${agentId} projection evidence is invalid.`);
-  }
-  return { ...receipt, trustedAgent };
 }

@@ -41,7 +41,7 @@ import { canonicalRelationDirections } from "./relation-direction.ts";
 import { reviewVerdicts } from "./review.ts";
 import { SCHEDULE_V1_SCHEMA, scheduleEventTypes, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
 import { SETTINGS_REPOSITORY_V1_SCHEMA } from "./settings.ts";
-import { PERSON_V1_SCHEMA } from "./people-roster.ts";
+import { PERSON_V1_SCHEMA } from "./person-profile.ts";
 import { createTaskActionCatalog } from "./task-action-contract.ts";
 import { createScheduleActionCatalog } from "./schedule-action-contract.ts";
 import { createRuntimeSessionActionCatalog } from "./runtime-session-action-contract.ts";
@@ -169,7 +169,6 @@ export type EntityKindContract<E extends BaseEntity = BaseEntity, T = unknown> =
       | "agent-runtime-event"
       | "schedule-event"
       | "settings-event"
-      | "people-event"
       | "relation-event";
     readonly contractRef: string;
   } | null;
@@ -323,7 +322,7 @@ export const entityAction = (
     actor: Object.freeze({ source: "authenticated-binding" as const, authorityRef: "actor-identity/v1" }),
     target: Object.freeze({ kind, refTemplate: identity.refTemplate }),
     input: emptyActionInput,
-    policy: Object.freeze({ ref: "default@5", action: null }),
+    policy: Object.freeze({ ref: "keycloak-policy@1", action: null }),
     criteria: Object.freeze([]),
     concurrency: defaultConcurrency(kind, identity.refTemplate),
     effects: Object.freeze([]),
@@ -876,7 +875,7 @@ export const entityKindContracts = withDeclaredEntityActions([
     canonicalProjection: null,
     actionCatalog: personActionCatalog,
     entityStore: null,
-    authoring: { kind: "people-event", contractRef: "people-event/v1" },
+    authoring: null,
     sdkExposure: noSdkExposure,
   },
 ] as const satisfies readonly EntityKindContract[]);

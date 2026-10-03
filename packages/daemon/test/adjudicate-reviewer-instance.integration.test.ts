@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +14,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
-import { writeOwnerRoster } from "./role-binding.fixtures.ts";
+import { grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
 
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-adjudicate-instance-bin-"));
 const originalPath = process.env.PATH;
@@ -31,12 +31,12 @@ after(() => {
   rmSync(ciBin, { recursive: true, force: true });
 });
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
   {
     actor: { principal: { personId: "person-adjudicate-instance" }, executor: null },
     source: "local" as const,
   },
-  "owner",
+  "admin",
 );
 const installation: RuntimeInstallationWitness = {
   installationId: "installation-adjudicate-instance",
@@ -48,16 +48,19 @@ const installation: RuntimeInstallationWitness = {
 
 // An unpinned bundled reviewer (closeout-reviewer declares no instance and no model) would
 // otherwise land on an unpredictable default instance; --instance/--model must pin the dispatch.
-test("adjudicate --forward pins the reviewer dispatch instance and model", async () => {
+test("adjudicate --forward pins reviewer resources and carries the owner context", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-adjudicate-instance-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     instances = ["review-instance-a", "review-instance-b"].map(runtimeInstance),
-    launched: { readonly instanceId: string; readonly model: string }[] = [];
+    launched: { readonly instanceId: string; readonly model: string }[] = [],
+    prompts: string[] = [],
+    ownerNote =
+      "Owner context: review the submitted source cut.\nPost-merge verification remains a separate completion step.";
   let pid = 9100;
   mkdirSync(root);
   initRepo(root);
-  writeOwnerRoster(root, [binding.actor.principal.personId]);
+  grantTestPolicyGroups([binding.actor.principal.personId], "admin");
   const cell = await openRepoCell({
     repoId: workspaceId("adjudicate-instance"),
     rootDir: canonicalRoot(root),
@@ -91,6 +94,7 @@ test("adjudicate --forward pins the reviewer dispatch instance and model", async
     }),
     runtimeLaunch: (prepared) => {
       launched.push({ instanceId: prepared.definition.instanceId, model: prepared.definition.model });
+      prompts.push(prepared.prompt);
       return fakeProcess(++pid);
     },
   });
@@ -116,7 +120,7 @@ test("adjudicate --forward pins the reviewer dispatch instance and model", async
         taskId,
         executionId,
         forward: true,
-        reason: "Forward with pinned reviewer resources.",
+        reason: ownerNote,
         reviewer: "closeout-reviewer",
         runtimeInstanceId: "review-instance-b",
         model: "review-pinned-model",
@@ -125,6 +129,8 @@ test("adjudicate --forward pins the reviewer dispatch instance and model", async
     );
     assert.equal(adjudicated.outcome, "applied", JSON.stringify(adjudicated));
     assert.deepEqual(launched, [{ instanceId: "review-instance-b", model: "review-pinned-model" }]);
+    assert.equal(prompts.length, 1);
+    assert.ok(prompts[0].includes(ownerNote), "the launched reviewer must receive the complete owner note");
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });

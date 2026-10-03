@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,12 +15,12 @@ import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-sett
 import { evidence, git } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
   {
     actor: { principal: { personId: "squad-owner" }, executor: { kind: "agent" as const, id: "coordinator" } },
     source: "local" as const,
   },
-  "owner",
+  "admin",
 );
 type Provider = {
   prompt: string;

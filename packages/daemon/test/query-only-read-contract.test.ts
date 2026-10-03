@@ -9,11 +9,11 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import type { RepoTaskAction } from "../src/repo-cell.ts";
 import { initIngressRepo } from "./fixtures/runtime-ingress.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: null },
-  binding = withRoleBinding({ actor, source: "local" as const }, "repo-read"),
+  binding = withPolicyGroup({ actor, source: "local" as const }, "viewer"),
   actions = new Map<string, RepoTaskAction>([
     ["decision-list", { kind: "decision-list" }],
     ["decision-show", { kind: "decision-show", decisionId: "dec_MISSING" }],

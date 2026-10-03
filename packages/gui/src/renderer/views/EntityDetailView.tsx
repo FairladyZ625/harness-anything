@@ -5,6 +5,7 @@ import type { RelationCoverageRow, FactAnchorRow } from "../../api/renderer-dto"
 import { FactInspector } from "../components/FactInspector";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
+import { IdText } from "../components/IdText.tsx";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -23,6 +24,7 @@ import { t } from "../i18n/index.tsx";
  * 加载完仍找不到 → 「不在当前投影」态,不编造内容。
  */
 export function FactDetailView({
+  repoId,
   factRef,
   facts,
   tasks,
@@ -36,6 +38,8 @@ export function FactDetailView({
   onNavigateTask,
   onFocusGraph,
 }: {
+  /** 会话归属仓:透传给邻域画布(egoSession 按 repoId 隔离)。 */
+  repoId: string;
   factRef: string | null;
   facts: FactRef[];
   tasks: readonly TaskRow[];
@@ -76,6 +80,7 @@ export function FactDetailView({
         <DetailPendingColumn loading={loading} refLabel={factRef ?? "—"} />
       )}
       <NeighborhoodPane
+        repoId={repoId}
         focusRef={inProjection ? factRef : null}
         tasks={tasks}
         decisions={decisions}
@@ -92,7 +97,7 @@ function DetailPendingColumn({ loading, refLabel }: { loading: boolean; refLabel
   return (
     <aside
       data-testid="entity-detail-pending"
-      className="flex w-[26rem] shrink-0 flex-col gap-3 border-r border-border bg-surface px-3 py-3"
+      className="flex w-[26rem] max-w-full shrink-0 flex-col gap-3 border-r border-border bg-surface px-3 py-3"
     >
       {loading ? (
         <p className="font-mono ui-meta text-text-faint">{t("views.entityDetail.loadingProjection")}</p>
@@ -110,6 +115,7 @@ function DetailPendingColumn({ loading, refLabel }: { loading: boolean; refLabel
 }
 
 function NeighborhoodPane({
+  repoId,
   focusRef,
   tasks,
   decisions,
@@ -118,6 +124,7 @@ function NeighborhoodPane({
   factAnchors,
   onNavigateEntity,
 }: {
+  repoId: string;
   focusRef: string | null;
   tasks: readonly TaskRow[];
   decisions: DecisionRow[];
@@ -164,7 +171,7 @@ function NeighborhoodPane({
                 {latestChange.label}
               </EntityRefLink>
             ) : (
-              latestChange.label
+              <IdText value={latestChange.ref} title={latestChange.label} />
             )}
           </span>
         ) : null}
@@ -172,6 +179,7 @@ function NeighborhoodPane({
       </div>
       <div className="flex min-h-0 flex-1">
         <EgoNeighborhood
+          repoId={repoId}
           focusRef={focusRef}
           tasks={tasks}
           decisions={decisions}
@@ -179,8 +187,9 @@ function NeighborhoodPane({
           relations={relations}
           factAnchors={factAnchors}
           onNavigateEntity={onNavigateEntity}
-          // 详情页里「设为画布中心」(双击节点)的语义 = 跳去该邻居自己的详情页。
+          // 详情页里「设为焦点」(卡片按钮/双击节点)的语义 = 跳去该邻居自己的详情页。
           onRefocus={onNavigateEntity}
+          refocusTitle={t("views.entityDetail.refocusHint")}
         />
       </div>
     </div>

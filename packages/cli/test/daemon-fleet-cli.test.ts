@@ -17,7 +17,7 @@ import path from "node:path";
 import test from "node:test";
 import { signInAt, signOutAt, spawnKeycloak } from "../../daemon/test/keycloak.fixtures.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
-import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { realizedTaskPlan, sizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { runDaemonControl } from "../src/daemon/control.ts";
 import { cliDaemonServeLaunch, daemonServeEntry } from "../src/daemon/client.ts";
@@ -40,7 +40,9 @@ test(
         op: "permit",
         personId: "edge-operator",
         resource: "fleet-demo",
-        actions: ["daemon-fleet-edge-sync"],
+        // task-create backs the edge-authored plan regression below; the sync action
+        // keeps the mirror flowing.
+        actions: ["daemon-fleet-edge-sync", "task-create"],
       });
       const machineCredential = await realm.control<string>({
         op: "node",
@@ -141,6 +143,14 @@ test(
         ]).ok,
         true,
       );
+      const initialStatus = run(fixture, "edge", ["daemon", "status"]);
+      assert.equal(initialStatus.ok, true, "an unsynced edge has no canonical Git publication to fail");
+      assert.equal(
+        (initialStatus.repos as { repoId: string; materialization: unknown }[]).find(
+          ({ repoId }) => repoId === "fleet-demo",
+        )?.materialization,
+        null,
+      );
       const syncArgs = [
         "daemon",
         "fleet",
@@ -171,6 +181,18 @@ test(
       const pulled = first.ok === false && first.code === "replica_pending" ? retryReplicaPending(sync) : first;
       assert.equal(pulled.status, "fleet.ack.result/v1");
       assert.equal(pulled.viewId, "edge-one-view");
+      const syncedStatus = run(fixture, "edge", ["daemon", "status"]);
+      assert.equal(
+        syncedStatus.ok,
+        true,
+        "a synced edge reports its host status without claiming a local canonical publisher",
+      );
+      assert.equal(
+        (syncedStatus.repos as { repoId: string; materialization: unknown }[]).find(
+          ({ repoId }) => repoId === "fleet-demo",
+        )?.materialization,
+        null,
+      );
       assert.equal((pulled.cut as { revision: number }).revision, pulled.ackCut);
       const viewRoot = path.join(fixture.viewRoot, "repos", "fleet-demo", "views", "edge-one-view");
       assert.equal(readCutFile(viewRoot, pulled.ackCut as number, docPath), docBody);
@@ -199,8 +221,11 @@ test(
         cut: { revision: number };
       };
       assert.equal(current.cut.revision, pulled.ackCut);
-      stop(fixture, "edge");
-      assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
+      const stoppedPid = stop(fixture, "edge");
+      const restarted = run(fixture, "edge", ["daemon", "start", "--service"]);
+      assert.equal(restarted.ok, true);
+      assert.equal(Number.isSafeInteger(restarted.pid), true);
+      assert.notEqual(restarted.pid, stoppedPid, "replay must run in a new daemon process");
       const again = sync();
       assert.equal(again.status, "fleet.replica.current/v1");
       assert.deepEqual(again.cut, pulled.cut);
@@ -252,6 +277,26 @@ test(
       assert.equal(
         existsSync(path.join(fixture.centerUser, "fleet", "replica", "repos", "fleet-demo", "ack.sqlite")),
         true,
+      );
+      // N6 regression (F-31931F21): the edge CLI's --plan-file body crosses the fleet channel
+      // whole; the center lands the authored plan in the task package byte-for-byte.
+      const edgePlan = sizedTaskPlan(950, "边缘 CLI 计划");
+      mkdirSync(path.join(fixture.edgeRepo, "harness", "inputs"), { recursive: true });
+      writeFileSync(path.join(fixture.edgeRepo, "harness", "inputs", "edge-plan.md"), edgePlan);
+      const edgeCreated = run(fixture, "edge", [
+        "task",
+        "create",
+        "--title",
+        "Edge authored plan",
+        "--plan-file",
+        "harness/inputs/edge-plan.md",
+      ]);
+      assert.equal(edgeCreated.outcome, "applied", JSON.stringify(edgeCreated));
+      published(fixture, "center", edgeCreated);
+      assert.equal(
+        readFileSync(path.join(fixture.repo, "harness", String(edgeCreated.packagePath), "task_plan.md"), "utf8"),
+        edgePlan,
+        "the edge-authored 950-character plan body lands at the center byte-for-byte",
       );
     } finally {
       stop(fixture, "center");
@@ -654,11 +699,17 @@ function spawnedRun(
     child.once("close", (status) => resolve({ status, argv, stdout, stderr }));
   });
 }
-function stop(fixture: ReturnType<typeof setup>, machine: "center" | "edge"): void {
-  spawnSync(process.execPath, [cli, "--json", "daemon", "stop"], {
+function stop(fixture: ReturnType<typeof setup>, machine: "center" | "edge"): number {
+  const result = spawnSync(process.execPath, [cli, "--json", "daemon", "stop", "--daemon-id", "default"], {
     encoding: "utf8",
     env: { ...process.env, HARNESS_DAEMON_USER_ROOT: machine === "center" ? fixture.centerUser : fixture.edgeUser },
   });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  const receipt = JSON.parse(result.stdout) as { ok: boolean; pid: number; draining?: boolean };
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.draining, undefined, "stop must finish, not merely start draining");
+  assert.equal(Number.isSafeInteger(receipt.pid), true);
+  return receipt.pid;
 }
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
@@ -851,7 +902,10 @@ test("daemon control reports Git follower failure while SQLite keeps accepting c
   } finally {
     rmSync(indexLock, { force: true });
     if (refLock !== null) rmSync(refLock, { force: true });
-    runJsonResult(fixture, ["daemon", "stop"]);
+    const stopped = runJsonResult(fixture, ["daemon", "stop", "--daemon-id", "default"]);
+    assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
+    assert.equal(stopped.receipt.ok, true);
+    assert.equal(stopped.receipt.draining, undefined);
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

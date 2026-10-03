@@ -223,7 +223,7 @@ export function PresetDocumentSidebar({
       aria-label={t("views.presetDetailView.packageDocuments")}
       className={[
         "min-h-0 overflow-y-auto border-b border-border bg-surface p-3",
-        "@max-[1100px]:max-h-72 @min-[1100px]:border-r @min-[1100px]:border-b-0",
+        "@max-[1100px]:max-h-[var(--long-content-cap)] @min-[1100px]:border-r @min-[1100px]:border-b-0",
       ].join(" ")}
       data-testid="preset-document-sidebar"
     >

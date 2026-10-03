@@ -1,6 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
 import { parseEntityRef } from "../domain/entity-ref.ts";
-import { PEOPLE_ROSTER_PATH, parsePeopleRosterDocument } from "../domain/people-roster.ts";
 import type { EntityFreshness, EntityVersionWitness } from "../domain/entity-freshness.ts";
 import { prepareQuery, projectionTables } from "./rebuildable-task-projection-sql.ts";
 
@@ -74,39 +73,14 @@ export function readEntityVersionWitnesses(
       readonly current_version: string | number | null;
       readonly state: string | null;
     }[];
-  const roster = requests.some(({ kind }) => kind === "person") ? readPeopleRoster(db, tables) : null;
-  for (const row of rows) {
-    const personId = roster && row.freshness === "unknown" ? /^person\/(.+)$/u.exec(row.ref)?.[1] : undefined;
-    witnesses.set(
-      row.ref,
-      personId !== undefined && roster!.personIds.has(personId)
-        ? { entityRef: row.ref, freshness: "current", currentVersion: roster!.revision }
-        : {
-            entityRef: row.ref,
-            freshness: row.freshness,
-            currentVersion: row.current_version,
-            ...(row.state === null ? {} : { state: row.state }),
-          },
-    );
-  }
+  for (const row of rows)
+    witnesses.set(row.ref, {
+      entityRef: row.ref,
+      freshness: row.freshness,
+      currentVersion: row.current_version,
+      ...(row.state === null ? {} : { state: row.state }),
+    });
   return witnesses;
-}
-
-/** A Person lives in the people.yaml roster document, not in entity_projection; its version is the roster's. */
-function readPeopleRoster(
-  db: DatabaseSync,
-  tables: ReadonlySet<string>,
-): { readonly personIds: ReadonlySet<string>; readonly revision: number } | null {
-  if (!tables.has("document")) return null;
-  const row = prepareQuery(db, "SELECT workspace_revision, value_json FROM document WHERE path=?").get(
-    PEOPLE_ROSTER_PATH,
-  ) as { readonly workspace_revision: number; readonly value_json: string } | undefined;
-  if (row === undefined) return null;
-  const { body } = JSON.parse(row.value_json) as { readonly body: string };
-  return {
-    personIds: new Set(parsePeopleRosterDocument(body).people.map(({ personId }) => personId)),
-    revision: row.workspace_revision,
-  };
 }
 
 const coreVersionLookups = [

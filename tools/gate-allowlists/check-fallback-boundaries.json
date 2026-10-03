@@ -177,7 +177,6 @@
       "packages/daemon/src/schedule-scheduler.ts#evaluationPlan",
       "packages/daemon/src/schedule-scheduler.ts#tick",
       "packages/daemon/src/squad-coordinator.ts#continueLeader",
-      "packages/daemon/src/task-action-explanation-read.ts#personRosterAtCut",
       "packages/daemon/src/task-completion-read.ts#readTaskCompletion",
       "packages/daemon/src/task-index-query.ts#decodeCursor",
       "packages/daemon/src/task-review-dispatch.ts#dispatchTaskReview",
@@ -318,12 +317,6 @@
         "reason": "Existing request-path historical scan pending a bounded-read deletion task."
       },
       {
-        "file": "packages/daemon/src/task-action-explanation-read.ts",
-        "function": "readTaskActionExplanation",
-        "task": "task_212cde7d9f5f916bee17bf2c63",
-        "reason": "Person-ref explanation still reads the whole ledger to build the roster at cut (no narrow people read yet); the task/decision refs on this path became point reads in batch 9. Pending a people point-read in batch 17 / G4."
-      },
-      {
         "file": "packages/gui/src/renderer/components/taskDetail/TaskDetailSections.tsx",
         "function": "queryFn",
         "task": "task_403e958e3fefd3496820e8843d",
@@ -390,8 +383,6 @@
       "packages/gui/src/renderer/navigation/viewHistoryStorage.ts#readViewHistory",
       "packages/gui/src/renderer/session-transcript-model.ts#contentOf",
       "packages/kernel/src/domain/contract-version.ts#parseContractVersion",
-      "packages/kernel/src/domain/people-roster.ts#rosterShapeError",
-      "packages/kernel/src/domain/person-action-contract.ts#evaluateInvariant",
       "packages/kernel/src/markdown/flow-frontmatter.ts#unquote",
       "packages/kernel/src/projection/relation-flow-frontmatter.ts#parseRelationFlowValue",
       "packages/kernel/src/store/entity-store.ts#contractForKind",

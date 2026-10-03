@@ -9,27 +9,16 @@ import { formatTime } from "../../model/time.ts";
 import { exactTokens } from "../../token-format.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
-import {
-  Avatar,
-  Badge,
-  Btn,
-  Card,
-  CardBody,
-  CardHead,
-  CardTitle,
-  Crumbs,
-  CrumbSep,
-  Empty,
-  Hint,
-  KV,
-  KVRow,
-  LiveDot,
-  Right,
-} from "./parts.tsx";
+import { Avatar, Card, CardBody, CardHead, CardTitle, Crumbs, CrumbSep, Hint, LiveDot, Right } from "./parts.tsx";
+import { KV, KVRow } from "../primitives/Fields.tsx";
+import { Empty } from "../primitives/Empty.tsx";
+import { Button } from "../primitives/Button.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
+import type { SnapshotStatus } from "../../model/types";
 
 // Liveness vocabulary maps, not point comparisons: the daemon's liveness word decides the
 // badge tone and the cancel affordance through table lookups alone.
-const LIVENESS_BADGE: Record<string, string> = { live: "active", exited: "done" };
+const LIVENESS_BADGE: Record<string, SnapshotStatus> = { live: "active", exited: "done" };
 const LIVENESS_LIVE: Record<string, boolean> = { live: true };
 const MISSING_EVIDENCE_KEY = {
   "exit-code-and-result": "agentRuntime.outcomeMissingExitAndResult",
@@ -162,9 +151,12 @@ function SessionMetricsCard({ metrics }: { readonly metrics: NonNullable<AgentRu
         <CardTitle>{t("agentRuntime.sessionMetricsTitle")}</CardTitle>
         {metrics.compacted === true && (
           <span data-testid="session-metrics-compacted">
-            <Badge status="blocked" tip={t("agentRuntime.sessionMetricsCompactedTip")}>
-              ⚠ {t("agentRuntime.sessionMetricsCompacted")}
-            </Badge>
+            <StatusTag
+              status="blocked"
+              mono
+              tip={t("agentRuntime.sessionMetricsCompactedTip")}
+              label={`⚠ ${t("agentRuntime.sessionMetricsCompacted")}`}
+            />
           </span>
         )}
       </CardHead>
@@ -255,11 +247,13 @@ export function SessionDetailView({
               </EntityRefLink>
             )}
           </CardTitle>
-          <Badge status={LIVENESS_BADGE[session.liveness] ?? "unknown"}>{session.liveness}</Badge>
-          {installationBadge && <Badge tip={session.installationError?.hint}>{t(installationBadge)}</Badge>}
+          <StatusTag status={LIVENESS_BADGE[session.liveness] ?? "unknown"} mono label={session.liveness} />
+          {installationBadge && (
+            <StatusTag tone="neutral" mono tip={session.installationError?.hint} label={t(installationBadge)} />
+          )}
           <Right>
             {LIVENESS_LIVE[session.liveness] && (
-              <Btn
+              <Button
                 size="sm"
                 variant="danger"
                 testId="agent-runtime-cancel"
@@ -267,12 +261,12 @@ export function SessionDetailView({
                 onClick={() => onCancel(session.runtimeSessionId)}
               >
                 {t("agentRuntime.cancelSession")}
-              </Btn>
+              </Button>
             )}
             {resume && (
-              <Btn size="sm" testId="agent-runtime-resume" disabled={busy} onClick={() => setConfirmResume(true)}>
+              <Button size="sm" testId="agent-runtime-resume" disabled={busy} onClick={() => setConfirmResume(true)}>
                 {t("agentRuntime.resumeSession")}
-              </Btn>
+              </Button>
             )}
             <Hint>{t("agentRuntime.livenessFromChild")}</Hint>
           </Right>
@@ -292,17 +286,17 @@ export function SessionDetailView({
                 })}
               </p>
               <div className="mt-2 flex gap-2">
-                <Btn
+                <Button
                   size="sm"
                   testId="agent-runtime-resume-confirm"
                   disabled={busy}
                   onClick={() => void onResume(resume.dispatchId)}
                 >
                   {t("agentRuntime.resumeConfirm")}
-                </Btn>
-                <Btn size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmResume(false)}>
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmResume(false)}>
                   {t("agentRuntime.resumeCancel")}
-                </Btn>
+                </Button>
               </div>
             </div>
           )}
@@ -405,7 +399,9 @@ export function SessionDetailView({
             <CardTitle>{t("agentRuntime.resultText")}</CardTitle>
           </CardHead>
           <CardBody>
-            <pre className="rt-pre max-h-56 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">{result}</pre>
+            <pre className="rt-pre bounded-content overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {result}
+            </pre>
           </CardBody>
         </Card>
       )}

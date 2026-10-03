@@ -1,50 +1,19 @@
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
-import { DEFAULT_POLICY, type AuthorizationContext, type AuthorizationDecision } from "@harness-anything/kernel";
-import { authorizeAction } from "./authorization.ts";
+import { actionDeclarations, type AuthorizationDecision } from "@harness-anything/kernel";
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
 import { evaluateKeycloakPerson, keycloakDecision } from "./repo-cell-authorization.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 
-export function authorizeHostAction(input: {
-  readonly kind: string;
-  readonly binding: RepoCellBinding;
-  readonly actionId: string;
-  readonly evaluatedAtCut: string;
-  readonly now?: string;
-}): AuthorizationDecision {
-  const context: AuthorizationContext = {
-      ...(input.binding.source === "local" && input.binding.authorizationBindingMode !== "declared"
-        ? {
-            defaultBinding: {
-              principalPersonId: input.binding.actor.principal.personId,
-              source: "local" as const,
-            },
-          }
-        : {}),
-      ...(input.binding.roleBindings === undefined ? {} : { roleBindings: input.binding.roleBindings }),
-      roleBindingTargets: ["settings/repository"],
-      ...(input.now ? { evaluatedAt: input.now } : {}),
-      writeSource: input.binding.source,
-      target: {},
-      evaluatedAtCut: input.evaluatedAtCut,
-    },
-    envelope = composeDurableActionEnvelope({
-      actionId: input.actionId,
-      kind: input.kind,
-      target: "settings/repository",
-      actor: input.binding.actor,
-    });
-  return authorizeAction({ ...envelope, authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}` }, context);
-}
-
-export function requireAuthorizedHostAction(input: Parameters<typeof authorizeHostAction>[0]): AuthorizationDecision {
-  const decision = authorizeHostAction(input);
+export async function requireAuthorizedHostAction(
+  input: Parameters<typeof evaluateFleetAction>[0],
+): Promise<AuthorizationDecision> {
+  const decision = await evaluateFleetAction(input);
   if (decision.outcome === "denied")
-    throw Object.assign(
-      new Error(decision.nextActions.join(" ") || `Policy ${decision.policyRef} denied ${input.kind}.`),
-      { code: "authorization_denied", authorizationDecision: decision },
-    );
+    throw Object.assign(new Error(decision.nextActions.join(" ")), {
+      code: "authorization_denied",
+      authorizationDecision: decision,
+    });
   return decision;
 }
 
@@ -67,7 +36,21 @@ export async function evaluateFleetAction(input: {
       actor: input.binding.actor,
     }),
     credential = input.binding.keycloakAuthorization;
-  if (!credential) return keycloakDecision(envelope, input.evaluatedAtCut, "denied", "authentication_required");
+  if (!credential) {
+    const declaration = actionDeclarations.find((candidate) => candidate.kind === input.kind);
+    if (
+      input.binding.source === "local" &&
+      input.binding.daemonSocketOwner === true &&
+      declaration &&
+      declaration.residency.scope !== "canonical"
+    )
+      return {
+        ...keycloakDecision(envelope, input.evaluatedAtCut, "allowed", "daemon_socket_owner"),
+        policyRef: "daemon-socket-owner@1",
+        bindingsUsed: [{ proof: "unix-socket-owner-boundary", scope: input.kind }],
+      };
+    return keycloakDecision(envelope, input.evaluatedAtCut, "denied", "authentication_required");
+  }
   const result = await evaluateKeycloakPerson({
     credential,
     personId: input.binding.actor.principal.personId,
@@ -91,12 +74,5 @@ export async function requireAuthorizedFleetAction(input: {
   const binding = await localSystemActionBinding(input.userRoot, input.kind, input.auth, () =>
     Promise.resolve(localDefaultBinding(input.auth)),
   );
-  if (!binding.keycloakAuthorization) return requireAuthorizedHostAction({ ...input, binding });
-  const decision = await evaluateFleetAction({ ...input, binding });
-  if (decision.outcome === "denied")
-    throw Object.assign(new Error(decision.nextActions.join(" ")), {
-      code: "authorization_denied",
-      authorizationDecision: decision,
-    });
-  return decision;
+  return requireAuthorizedHostAction({ ...input, binding });
 }

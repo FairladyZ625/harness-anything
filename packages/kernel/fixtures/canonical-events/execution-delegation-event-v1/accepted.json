@@ -1,0 +1,1 @@
+{"actor":{"executor":null,"principal":{"personId":"person-fixture"}},"eventId":"event-fixture-delegation","occurredAt":"2026-09-19T10:00:00.000Z","opId":"delegation-fixture","payload":{"operation":"issue","tokenId":"det_fixture"},"schema":"execution-delegation-event/v1","source":"local","type":"execution_delegation_changed","workspaceRevision":1}

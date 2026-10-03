@@ -16,7 +16,8 @@ import {
   type RankScale,
 } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { Badge, Empty } from "../runtime/parts.tsx";
+import { Empty } from "../primitives/Empty.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 /**
  * 「谁花的」排行(单 Worker / 小队 / 模型):每行名称完整一行,数值与占比并排在右,下面一根
@@ -50,7 +51,7 @@ export function UsageRanking({
   const peak = Math.max(...rows.map(({ totalTokens }) => totalTokens)),
     floor = rankLogFloor(rows.map(({ totalTokens }) => totalTokens));
   return (
-    <ol data-testid="token-usage-ranking" className="max-h-[440px] overflow-y-auto">
+    <ol data-testid="token-usage-ranking" className="bounded-content overflow-y-auto">
       {rows.map((row) => {
         const unreported = usageIsUnreported(row),
           parts = tokenComposition(row),
@@ -61,9 +62,12 @@ export function UsageRanking({
                   {row.name}
                 </span>
                 {unreported ? (
-                  <Badge status="cancelled" tip={t("agentRuntime.tokenUsageUnreportedTip")}>
-                    {t("agentRuntime.tokenUsageUnreported")}
-                  </Badge>
+                  <StatusTag
+                    status="cancelled"
+                    mono
+                    tip={t("agentRuntime.tokenUsageUnreportedTip")}
+                    label={t("agentRuntime.tokenUsageUnreported")}
+                  />
                 ) : (
                   <>
                     <span className="font-mono tabular-nums ui-body text-text" title={exactTokens(row.totalTokens)}>
@@ -138,7 +142,7 @@ export function UsageRankingTable({
   const head = "border-b border-border pb-1.5 pr-3 text-right font-normal",
     cell = "border-b border-border py-1.5 pr-3 text-right font-mono tabular-nums ui-meta";
   return (
-    <div className="max-h-[440px] overflow-auto px-3.5 pb-2">
+    <div className="bounded-content overflow-auto px-3.5 pb-2">
       <table data-testid={testId} className="w-full border-separate border-spacing-0">
         <thead>
           <tr className="text-left ui-meta text-text-faint">
@@ -191,9 +195,12 @@ export function UsageRankingTable({
                 </td>
                 <td className="border-b border-border py-1.5 text-right">
                   {usageIsUnreported(row) ? (
-                    <Badge status="cancelled" tip={t("agentRuntime.tokenUsageUnreportedTip")}>
-                      {t("agentRuntime.tokenUsageUnreported")}
-                    </Badge>
+                    <StatusTag
+                      status="cancelled"
+                      mono
+                      tip={t("agentRuntime.tokenUsageUnreportedTip")}
+                      label={t("agentRuntime.tokenUsageUnreported")}
+                    />
                   ) : (
                     <span className="font-mono ui-meta text-text-faint">
                       {t("agentRuntime.tokenUsageReportedCount", {

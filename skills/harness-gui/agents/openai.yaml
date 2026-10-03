@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness GUI 开发"
+  short_description: "复用共享组件和设计规范开发 Harness GUI，并以后台 Electron 验证真实交互"
+  default_prompt: "使用 $harness-gui 开发或改进这个 GUI 页面，复用现有组件并验证长内容、窄窗口及后台交互。"

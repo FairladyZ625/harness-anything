@@ -401,7 +401,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // 138 → 136: people-set-role and people-bind were deleted by RBAC v2 S4 (dec_D60FAA451F24160E970323B6F3).
   // 136 → 138: daemon-service-install and daemon-service-uninstall, the host-local half of the resident
   // service (dec_089F1AE27C5DC0A3969062FE0D CH5); daemon-service-status is a read and declares no action.
-  assert.equal(actionDeclarations.length, 138);
+  // RBAC v2 CH1 retires people-add and people-remove.
+  assert.equal(actionDeclarations.length, 136);
   assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
   for (const [kind, descriptor] of protocol) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);

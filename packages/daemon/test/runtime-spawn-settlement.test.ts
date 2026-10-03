@@ -146,6 +146,7 @@ test("a failed attempt persists a one-line reason that references the dispatch s
       stream: {
         ref: "file:.harness/runtime/dispatches/dispatch_0123456789abcdef01234567.jsonl",
         appendAttemptOutcome: (value) => outcomes.push(value),
+        appendTerminalOutcome: () => undefined,
       } as never,
       buffer: "",
       durableOutputCount: 0,
@@ -268,6 +269,7 @@ test("terminal settlement reports a runtime archive failure and still publishes 
       stream: {
         ref: "runtime-stream:dispatch_0123456789abcdef01234567",
         appendAttemptOutcome: () => undefined,
+        appendTerminalOutcome: () => undefined,
       } as never,
       buffer: "",
       durableOutputCount: 0,
@@ -364,6 +366,7 @@ test("terminal settlement keeps the worker result when fallback settlement fails
       stream: {
         ref: "runtime-stream:dispatch_0123456789abcdef01234567",
         appendAttemptOutcome: () => undefined,
+        appendTerminalOutcome: () => undefined,
       } as never,
       buffer: "",
       durableOutputCount: 0,
@@ -816,6 +819,7 @@ function tasklessSettlementRuntime(rootDir: string, finalText: string | null): A
     stream: {
       ref: "runtime-stream:dispatch-taskless",
       appendAttemptOutcome: () => undefined,
+      appendTerminalOutcome: () => undefined,
     } as never,
     buffer: "",
     durableOutputCount: 0,
@@ -896,6 +900,7 @@ function workerSettlementRuntime(fixture: WorkerGitFixture, overrides: Partial<A
     stream: {
       ref: "runtime-stream:dispatch_0123456789abcdef01234567",
       appendAttemptOutcome: () => undefined,
+      appendTerminalOutcome: () => undefined,
     } as never,
     buffer: "",
     durableOutputCount: 0,

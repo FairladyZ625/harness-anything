@@ -1,5 +1,8 @@
+import type { Slide } from "@silurus/ooxml/pptx";
 export const LOCAL_DOC_READ_CHANNEL = "harness:localDoc:read";
+export const LOCAL_DOC_EXTRACT_WORD_CHANNEL = "harness:localDoc:extractWord";
 export const LOCAL_DOC_WRITE_CHANNEL = "harness:localDoc:write";
+export const LOCAL_DOC_PPTX_CHANNEL = "harness:localDoc:pptx";
 
 /**
  * 「GUI 内读本机文档」(task_89d324b5)与「写回本机文档」(task_5dfe382f)的 renderer→main 契约。
@@ -34,6 +37,9 @@ export interface LocalDocReadSuccess {
   readonly path: string;
   readonly content: string;
   readonly sizeBytes: number;
+  readonly contentKind: "text" | "binary";
+  readonly mediaType: string;
+  readonly bytes: string | null;
 }
 
 export interface LocalDocReadFailure {
@@ -82,6 +88,14 @@ export interface LocalDocWriteFailure {
 export type LocalDocWriteResult = LocalDocWriteSuccess | LocalDocWriteFailure;
 
 export interface LocalDocApi {
+  /** Convert already-authorized bytes; never resolves a local filesystem path. */
+  readonly extractWordText: (input: { readonly bytes: string }) => Promise<string>;
   readonly read: (input: LocalDocReadInput) => Promise<LocalDocReadResult>;
   readonly write: (input: LocalDocWriteInput) => Promise<LocalDocWriteResult>;
+  readonly pptx: (input: { readonly bytes: string }) => Promise<{
+    readonly slideWidth: number;
+    readonly slideHeight: number;
+    readonly slides: readonly Slide[];
+    readonly resources: Readonly<Record<string, { readonly bytes: string; readonly mediaType: string }>>;
+  }>;
 }

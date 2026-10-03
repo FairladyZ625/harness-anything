@@ -10,7 +10,9 @@ import {
   runtimeAuthPresentationText,
   type RuntimeAuthProbeState,
 } from "../../runtime-auth-presentation.ts";
-import { Avatar, CapDot, Empty, KindDot, KV, KVRow, LiveDot } from "./parts.tsx";
+import { Avatar, CapDot, KindDot, LiveDot } from "./parts.tsx";
+import { KV, KVRow } from "../primitives/Fields.tsx";
+import { Empty } from "../primitives/Empty.tsx";
 import type { RuntimeDockRow, RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 // W6 IA 拆分:原四类通吃的 RuntimeInspector 拆成三个页级 inspector——右栏仍是

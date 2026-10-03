@@ -539,21 +539,20 @@ test("event saga rejects a second executor and self-review, then completes on Re
         kind: "task-review-execution",
         target: "execution/execution-1",
         actor: owner,
-        authorizationRef: "default@5",
+        authorizationRef: "keycloak-policy@1",
         idempotencyKey: "review-self",
       },
       {
-        roleBindings: [
-          {
-            actor: { kind: "person", id: owner.principal.personId },
-            role: "arbiter",
-            target: "settings/repository",
-            source: "declared",
-            expiresAt: null,
-          },
-        ],
-        roleBindingTargets: ["settings/repository"],
-        target: { executionActor: owner, runtimeBinding: null },
+        decision: {
+          policyRef: "keycloak-policy@1",
+          actor: owner,
+          subject: "execution/execution-1",
+          bindingsUsed: [{ authority: "keycloak", scope: "task-review-execution" }],
+          outcome: "allowed",
+          reasonCodes: ["keycloak_allowed"],
+          nextActions: [],
+          evaluatedAtCut: "canonical:3",
+        },
         evaluatedAtCut: "canonical:3",
       },
     );

@@ -270,8 +270,9 @@ function AppShell() {
     enabled: fullProjectionMounted,
     graphEnabled: fullGraphProjectionMounted,
   });
-  // 运行时平面(agent/schedule 行 + agent→task 派发边):只有关系图页读;三条既有
-  // 读(agent 目录/Schedule 列表/关系图切面)与各自入口共享缓存,不另立读方法。
+  // 运行时平面(agent/schedule 行 + agent→task 派发边):只有关系图页读取;
+  // 三条既有读(agent 目录/Schedule 列表/关系图切面)与各自入口共享
+  // 缓存,不另立读方法。
   const graphRuntimeMounted = view === "graph";
   const runtimePlane = useRuntimePlaneQuery(activeRepoId, { enabled: graphRuntimeMounted });
   // 任务预览抽屉、任务详情与会话页渲染的是关系边本身;完整图已在缓存里(刚从图/
@@ -545,7 +546,7 @@ function AppShell() {
             identity={pageEntryIdentity(projectId, location)}
             className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden"
           >
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="content-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {selected && selectedWorkRootId === null ? (
                 renderTaskDetail(selected, {
                   onBack: () => updateLocation({ selectedId: null }),
@@ -653,6 +654,7 @@ function AppShell() {
                 />
               ) : view === "graph" ? (
                 <EntityWorkspace
+                  repoId={projectId}
                   entityKinds={entityKinds}
                   governedEntities={governedEntities}
                   focusedEntityRef={focusedEntityRef}
@@ -707,6 +709,7 @@ function AppShell() {
                 />
               ) : view === "factDetail" ? (
                 <FactDetailView
+                  repoId={projectId}
                   factRef={focusedEntityRef?.startsWith("fact/") ? focusedEntityRef : null}
                   facts={facts}
                   tasks={tasks}

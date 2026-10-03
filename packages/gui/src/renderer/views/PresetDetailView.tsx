@@ -10,6 +10,7 @@ import {
   PresetShaField,
 } from "../components/presetDetail/PresetDetailSections.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
+import { IdText } from "../components/IdText.tsx";
 import { useCatalogPreset } from "../catalog-data.ts";
 import { t } from "../i18n/index.tsx";
 
@@ -87,7 +88,7 @@ export function PresetDetailView({
                 {fromViewLabel}
               </button>
               <CaretRight weight="bold" className="shrink-0" />
-              <span className="truncate font-mono ui-micro leading-3 text-text-muted">{presetId}</span>
+              <IdText value={presetId} className="leading-3 text-text-muted" />
             </div>
             <div className="mt-0.5 flex min-w-0 items-center gap-2">
               <h1 className="truncate ui-title font-semibold leading-5 tracking-[-0.01em] text-text">

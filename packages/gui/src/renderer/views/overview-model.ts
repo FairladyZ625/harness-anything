@@ -311,7 +311,13 @@ export function recentDayGroups(input: {
 /** 评审与合并区域的行:打回/待初审/任务评审中/决策评审中/待点头,按读面分组顺序。 */
 export interface ReviewRow {
   readonly id: string;
-  readonly group: "rework" | "adjudication" | "taskReviewing" | "decisionReviewing" | "decisionPending";
+  readonly group:
+    | "rework"
+    | "adjudication"
+    | "taskReviewing"
+    | "decisionNeedsReview"
+    | "decisionReviewing"
+    | "decisionPending";
   readonly title: string;
   readonly detail: string | null;
   readonly since: string;
@@ -356,6 +362,17 @@ export function reviewRows(agenda: AgendaSuccess | undefined): readonly ReviewRo
         decisionId: null,
       }),
     ),
+    ...agenda.awaitingDecisionReview.map(
+      (row): ReviewRow => ({
+        id: `decisionNeedsReview:${row.decisionId}`,
+        group: "decisionNeedsReview",
+        title: row.title,
+        detail: null,
+        since: row.proposedAt,
+        taskId: null,
+        decisionId: row.decisionId,
+      }),
+    ),
     ...agenda.decisionReviewInProgress.flatMap((row): ReviewRow[] => [
       {
         id: `decisionReviewing:${row.decisionId}`,
@@ -386,10 +403,18 @@ export function reviewCounts(rows: readonly ReviewRow[]): {
   readonly rework: number;
   readonly adjudication: number;
   readonly taskReviewing: number;
+  readonly decisionNeedsReview: number;
   readonly decisionReviewing: number;
   readonly decisionPending: number;
 } {
-  const counts = { rework: 0, adjudication: 0, taskReviewing: 0, decisionReviewing: 0, decisionPending: 0 };
+  const counts = {
+    rework: 0,
+    adjudication: 0,
+    taskReviewing: 0,
+    decisionNeedsReview: 0,
+    decisionReviewing: 0,
+    decisionPending: 0,
+  };
   for (const row of rows) counts[row.group] += 1;
   return counts;
 }

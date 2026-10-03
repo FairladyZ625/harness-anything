@@ -195,7 +195,7 @@
   "components.localDoc.errorNotARegularFile": "Not a regular file (directory or special file): {path}",
   "components.localDoc.errorNotReadable": "Not readable (permission denied or read failed): {path}",
   "components.localDoc.errorBinaryFile": "The file is not text and cannot be read in the GUI: {path}",
-  "components.localDoc.errorTooLarge": "The file exceeds the in-app reader limit (2 MiB): {path}",
+  "components.localDoc.errorTooLarge": "The file exceeds the preview limit (text 2 MiB; images, PDF and Word 16 MiB): {path}",
   "components.localDoc.errorRequestRejected": "Request rejected: {message}",
   "components.localDoc.errorBridgeUnavailable": "The local document bridge is unavailable (requires the Electron shell).",
   "components.primitives.expand": "Expand",

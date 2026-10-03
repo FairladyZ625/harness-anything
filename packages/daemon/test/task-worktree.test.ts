@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,7 +29,7 @@ const taskId = "task_12345678",
 test("attach cancels a rejected Squad child through the task lifecycle writer", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-startup-squad-orphan-")),
     repoId = workspaceId("startup-squad-orphan"),
-    cellBinding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    cellBinding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     orphanTaskId = "task-squad-orphan",
     squadRunId = "squad_0123456789abcdef01234567",
     leaderDispatchId = "dispatch_000000000000000000000001";

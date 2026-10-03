@@ -18,6 +18,7 @@ import {
   type ReplicaProjectionBasis,
 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
+import { openRepoCell } from "../src/repo-cell.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
@@ -491,7 +492,7 @@ test("a manifest that drifts from the exact L2 basis cannot publish a cut", asyn
   }
 });
 
-test("RepoCell returns writes before the active replica pump builds the next repo-wide cut", async () => {
+test("RepoCell wakes a pending replica cut when its projection catches up", { timeout: 15_000 }, async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-cell-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user");
@@ -511,7 +512,24 @@ test("RepoCell returns writes before the active replica pump builds the next rep
     userRoot,
     createConvenienceLinks: false,
   });
-  const host = await openDaemonHost({ daemonId: "replica-test", userRoot }),
+  let armed = false;
+  const reached = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  const host = await openDaemonHost({
+      daemonId: "replica-test",
+      userRoot,
+      openCell: (input) =>
+        openRepoCell({
+          ...input,
+          killpoint: async (point) => {
+            if (armed && point === "after_sqlite_commit") {
+              armed = false;
+              reached.resolve();
+              await release.promise;
+            }
+          },
+        }),
+    }),
     owners = await fleetNodeOwners({ userRoot, owners: { "node-one": "person-one" }, repoIds: ["replica-repo"] }),
     assignment: FleetAssignmentRecord = {
       nodeId: "node-one",
@@ -531,9 +549,20 @@ test("RepoCell returns writes before the active replica pump builds the next rep
     const replica = host.replica("replica-repo"),
       bootstrap = replica.activate()!;
     assert.equal(bootstrap.revision, first.revision);
-    const second = await host.run("replica-repo", { kind: "task-create", taskId: "task-two", title: "Two" }, auth);
+    t.signal.addEventListener("abort", () => replica.close(), { once: true });
+    armed = true;
+    const writing = host.run("replica-repo", { kind: "task-create", taskId: "task-two", title: "Two" }, auth);
+    await reached.promise;
+    const target = replica.ledgerCut()!.revision;
+    const waiting = replica.waitForCut(target);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    release.resolve();
+    const second = await writing;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    // The writer completion notification must wake the host replica without another request.
+    assert.equal((await waiting).revision, target);
     assert.equal(second.outcome, "applied");
-    assert.equal(replica.latest()?.revision, bootstrap.revision);
+    assert.equal(replica.latest()?.revision, second.revision);
     const cut = await replica.waitForCut(second.revision!);
     assert.equal(cut.revision, second.revision);
     assert.equal(

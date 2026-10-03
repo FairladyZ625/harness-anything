@@ -6,21 +6,12 @@ import {
   Background,
   BackgroundVariant,
   ReactFlowProvider,
-  Panel,
   useReactFlow,
 } from "@xyflow/react";
-import type { EdgeMouseHandler, NodeMouseHandler } from "@xyflow/react";
+import type { EdgeMouseHandler, NodeMouseHandler, OnMoveEnd } from "@xyflow/react";
 import type { ReactNode } from "react";
 import type { TaskRow, RelationEdge, DecisionRow, FactRef, RelationKind } from "../model/types";
 import type { FactAnchorRow } from "../../api/renderer-dto";
-import { endpointToNodeId, type NodePos } from "./endpoint";
-import { GraphDrawer } from "./GraphDrawer";
-import { EgoNode } from "./nodes/EgoNode";
-import { InteractiveEdge } from "./edges/InteractiveEdge";
-import { useColorMode, minimapMaskColor } from "./colorMode";
-import { EGO_DEFAULT_HOPS, useEgoCanvas } from "./useEgoCanvas";
-import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
-import type { GovernedEntityRow } from "./governedEntities";
 import {
   layoutEgoCanvas,
   type EgoAxisFilter,
@@ -28,6 +19,14 @@ import {
   type EgoFlowNode,
   type EgoHopBudget,
 } from "./egoCanvas";
+import { mergeEgoSession, readEgoSessionFor } from "./egoSession";
+import { GraphDrawer } from "./GraphDrawer";
+import { EgoNode } from "./nodes/EgoNode";
+import { InteractiveEdge } from "./edges/InteractiveEdge";
+import { useColorMode, minimapMaskColor } from "./colorMode";
+import { EGO_DEFAULT_HOPS, useEgoCanvas } from "./useEgoCanvas";
+import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
+import type { GovernedEntityRow } from "./governedEntities";
 import { defaultAxisFilter, defaultKindFilter, edgePassesKindFilter, type FlowAnimMode } from "./relationVisual";
 import {
   defaultEntityStatusFilter,
@@ -40,17 +39,20 @@ import {
  * 可复用邻域画布(W4):「这个实体周围有什么」的独立组件形态。
  *
  * 从 GraphView 的聚光灯分支抽出,自包含 ego 状态机(useEgoCanvas)+ 布局
- * (layoutEgoCanvas)+ 交互(单击选中/Esc 清选)+ 抽屉(GraphDrawer)。
- * 交互契约按视觉规范 §5.2:单击节点 = 选中(描边高亮、邻居加亮)+ 抽屉显示摘要,
- * 节点不放大;双击 = 以它为中心重排邻域。不含页面级状态:领地模式、筛选面板、
+ * (layoutEgoCanvas)+ 交互(单击原位展开/双击设中心/Esc 收正文)+ 边抽屉
+ * (GraphDrawer)。图场景 2026-10-02 恢复节点原位展开(task_baca8e2b3e32c288fbd14b71f0,
+ * 业主批准;旧 §5.2「节点一律 chip、摘要进抽屉」被该指令覆盖):单击节点 = 原位展开
+ * 摘要卡片并长出下一环邻居(不自动开抽屉,节点与抽屉正文不重复);双击 = 以它为中心
+ * 重排邻域;Esc = 收正文(已长出的邻居保留)。不含页面级状态:领地模式、筛选面板、
  * 焦点历史条、左栏焦点切换器都留在宿主里,宿主通过 props 注入筛选与跳转回调。
  * 首个消费者是关系图页本身,随后是 Fact/Decision 详情页与 Task 详情(W3)。
  *
  * 契约:
  *   focusRef 变化 → 画布重排到新焦点(±hops 跳);
  *   focusRef 变 null → 累积态清空(与 GraphView 原 clearFocus 行为一致);
- *   onRefocus        — 双击节点 / 抽屉跳转(宿主决定是换焦点还是跳页);
- *   onNavigateEntity — 抽屉「打开」(跳去该实体的详情页)。
+ *   主图启用 rememberSession 后同仓同焦点挂载 → 原样接续;嵌入邻域不读写会话;
+ *   onRefocus        — 双击节点 / 卡片「设为焦点」(宿主决定是换焦点还是跳页);
+ *   onNavigateEntity — 卡片「详情」(跳去该实体的详情页,返回经会话恢复原图)。
  */
 export interface EgoNeighborhoodFilters {
   axes: EgoAxisFilter;
@@ -72,6 +74,10 @@ export function defaultNeighborhoodFilters(): EgoNeighborhoodFilters {
 }
 
 export type EgoNeighborhoodProps = {
+  /** 会话归属仓:egoSession 按 repoId 隔离,同名 ref 跨仓不互读。 */
+  repoId: string;
+  /** 主图导航上下文持有会话;嵌入邻域默认不读写它。 */
+  rememberSession?: boolean;
   focusRef: string | null;
   tasks: readonly TaskRow[];
   decisions: DecisionRow[];
@@ -94,6 +100,8 @@ export type EgoNeighborhoodProps = {
   /** 现有 task pin 动作;其他实体没有 action 时保持只读。 */
   onSetTaskPin?: (task: TaskRow, pinned: boolean) => void;
   onRefocus?: (ref: string) => void;
+  /** 「设为焦点」按钮/双击的提示文案;详情页里该动作语义是跳页,由宿主改写。 */
+  refocusTitle?: string;
   /** 布局统计回调(宿主页头用:聚光灯 header 的「N 节点 · M 边」与焦点面包屑标题)。 */
   onLayoutStats?: (stats: { nodes: number; edges: number; focusLabel: string | null }) => void;
   /** 左上角面板插槽(宿主塞筛选面板等页面级 chrome)。 */
@@ -105,8 +113,11 @@ export type EgoNeighborhoodProps = {
 const nodeTypes = { ego: EgoNode };
 const edgeTypes = { interactive: InteractiveEdge };
 const DEFAULT_STATUS_FILTER = defaultEntityStatusFilter();
+const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 } as const;
 
 function EgoNeighborhoodInner({
+  repoId,
+  rememberSession = false,
   focusRef,
   tasks,
   decisions,
@@ -123,12 +134,17 @@ function EgoNeighborhoodInner({
   onNavigateEntity,
   onSetTaskPin,
   onRefocus,
+  refocusTitle,
   onLayoutStats,
   panelSlot,
   active = true,
 }: EgoNeighborhoodProps & { filters: EgoNeighborhoodFilters; hops: EgoHopBudget }) {
   const colorMode = useColorMode();
   const { setCenter, getZoom } = useReactFlow();
+  // 会话恢复的视口只取一次(挂载时的初值);之后视口归用户的 pan/zoom。
+  const [session] = useState(() => (rememberSession ? readEgoSessionFor(repoId, focusRef) : null));
+  const initialViewport = session?.viewport ?? DEFAULT_VIEWPORT;
+  const positionsRef = useRef({ version: 0, centers: new Map(session?.centers ?? []) });
 
   const statusFilter = filters.statusFilter ?? DEFAULT_STATUS_FILTER;
   const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
@@ -149,6 +165,8 @@ function EgoNeighborhoodInner({
     schedules,
     governed,
     axes: filters.axes,
+    repoId,
+    rememberSession,
     focusRef,
     hops,
     allowedIds,
@@ -187,14 +205,16 @@ function EgoNeighborhoodInner({
               flowMode: filters.flowMode,
             },
             shown: canvas.shown,
-            highlight: canvas.highlight,
+            expanded: canvas.expanded,
+            centers: positionsRef.current.version === canvas.layoutVersion ? positionsRef.current.centers : undefined,
           })
         : null,
     [
       canvas.focusId,
       canvas.graph,
       canvas.shown,
-      canvas.highlight,
+      canvas.expanded,
+      canvas.layoutVersion,
       relations,
       filters.axes,
       filters.kinds,
@@ -202,6 +222,21 @@ function EgoNeighborhoodInner({
       filters.flowMode,
     ],
   );
+
+  useEffect(() => {
+    if (!spotlight?.focusId) return;
+    const centers =
+      positionsRef.current.version === canvas.layoutVersion
+        ? new Map(positionsRef.current.centers)
+        : new Map<string, { x: number; y: number }>();
+    for (const node of spotlight.nodes)
+      centers.set(node.id, {
+        x: node.position.x + Number(node.width) / 2,
+        y: node.position.y + Number(node.height) / 2,
+      });
+    positionsRef.current = { version: canvas.layoutVersion, centers };
+    if (rememberSession) mergeEgoSession(repoId, { focusRef: spotlight.focusId, centers: [...centers] });
+  }, [spotlight, canvas.layoutVersion, rememberSession, repoId]);
 
   const statusVisibleIds = useMemo(() => {
     if (!spotlight) return null;
@@ -230,13 +265,16 @@ function EgoNeighborhoodInner({
       .filter((n) => (statusVisibleIds ? statusVisibleIds.has(n.id) : true))
       .map((n) => ({
         ...n,
-        selected: n.id === canvas.selectId,
         data: {
           ...n.data,
+          onCollapse: canvas.collapseNode,
+          onRefocus: openFocus,
+          onNavigate: onNavigateEntity,
           onSetPin: onSetTaskPin,
+          ...(refocusTitle ? { refocusTitle } : {}),
         },
       }));
-  }, [spotlight, statusVisibleIds, canvas.selectId, onSetTaskPin]);
+  }, [spotlight, statusVisibleIds, canvas.collapseNode, openFocus, onNavigateEntity, onSetTaskPin, refocusTitle]);
 
   const displayEdges = useMemo(() => {
     if (!spotlight) return [];
@@ -253,170 +291,127 @@ function EgoNeighborhoodInner({
   }, [displayNodes, displayEdges.length, onLayoutStats, canvas.focusId]);
 
   // 视口策略:相机归用户动作管,不归内容管。换焦点(双击设为中心 / 领地 chip / 搜索 /
-  // 命令面板 / 焦点历史)是用户动作,平移到新焦点;单击展开长出邻居只是内容变多,相机不动。
+  // 命令面板 / 焦点历史)是用户动作,平移到新焦点;展开长出邻居只是内容变多,相机不动。
   // 布局器把焦点节点的几何中心恒置于流坐标原点,所以定心到 (0,0) 即是定心到焦点;
-  // zoom 原样带过去 —— 缩放级别只由用户自己改,不由节点数决定(旧实现 fitView 依赖
-  // displayNodes.length,每次单击都把整张图塞进一屏,几百节点的工作下缩到看不清)。
+  // zoom 原样带过去 —— 缩放级别只由用户自己改,不由节点数决定。会话恢复的那次挂载
+  // 不平移:用户离开时的 pan/zoom 由 defaultViewport 原样接续。
+  const hydratedFocusRef = useRef(canvas.restored ? canvas.focusId : null);
   useEffect(() => {
     if (!active) return;
     if (!canvas.focusId) return;
+    if (hydratedFocusRef.current === canvas.focusId) return;
+    hydratedFocusRef.current = null;
     const frame = requestAnimationFrame(() => void setCenter(0, 0, { zoom: getZoom(), duration: 200 }));
     return () => cancelAnimationFrame(frame);
   }, [active, canvas.focusId, setCenter, getZoom]);
 
-  // Esc 清选/清边。
+  // 用户 pan/zoom 落进会话(详情页返回按它恢复;非恢复挂载的初值即 DEFAULT_VIEWPORT)。
+  const onMoveEnd: OnMoveEnd = useCallback(
+    (_event, viewport) => {
+      if (rememberSession) mergeEgoSession(repoId, { viewport });
+    },
+    [repoId, rememberSession],
+  );
+
+  // Esc 收正文:收起全部原位卡片 + 清边选中。只动阅读层 —— 已长出的邻居(shown)
+  // 与焦点不动,探索范围不缩水。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (e.target instanceof HTMLElement && e.target.closest("input,textarea,select")) return;
-      canvas.clearSelect();
+      canvas.collapseAll();
       setFocusEdgeId(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [canvas]);
 
-  // 单击 = 选中 + 抽屉(§5.2:节点只做选中态,内容只在抽屉里出现一次);再点取消。
+  // 单击 = 原位展开摘要卡片 + 长出下一环邻居;再点已展开的卡片 = 收起
+  // (已长出的邻居保留,画布不重排)。
   const onNodeClick: NodeMouseHandler<EgoFlowNode> = useCallback(
-    (_, node) => {
-      canvas.selectNode(node.id);
+    (event, node) => {
+      // The first click can replace a chip with a card. Handle the second click here,
+      // before toggling it closed, instead of relying on a dblclick on the replaced DOM.
+      if (event.detail >= 2) {
+        openFocus(node.data.navRef);
+        return;
+      }
+      if (canvas.expanded.has(node.id)) canvas.collapseNode(node.id);
+      else canvas.expandNode(node.id);
     },
-    [canvas],
+    [canvas, openFocus],
   );
 
-  // 双击 = 设为画布中心(唯一会重排画布的节点交互)。
-  const onNodeDoubleClick: NodeMouseHandler<EgoFlowNode> = useCallback(
-    (_, node) => {
-      const navRef = node.data.navRef;
-      openFocus(navRef);
-    },
-    [openFocus],
-  );
-
-  const onEdgeClick: EdgeMouseHandler<EgoFlowEdge> = useCallback(
-    (_, edge) => {
-      canvas.clearSelect();
-      setFocusEdgeId((prev) => (prev === edge.id ? null : edge.id));
-    },
-    [canvas],
-  );
+  const onEdgeClick: EdgeMouseHandler<EgoFlowEdge> = useCallback((_, edge) => {
+    setFocusEdgeId((prev) => (prev === edge.id ? null : edge.id));
+  }, []);
 
   const onPaneClick = useCallback(() => {
-    canvas.clearSelect();
     setFocusEdgeId(null);
-  }, [canvas]);
-
-  // ---- Drawer ----
-  // 视觉基线 §2.6/§5.2:画布铺满内容区,抽屉只在用户选中节点/边时出现(选中驱动)。
-  // 实体摘要在抽屉里且只在抽屉里 —— 节点一律 chip,不再有画布中央的焦点卡。
-  const drawerNodeId = canvas.selectId;
-
-  const drawerNodesMap = useMemo(() => {
-    const map = new Map<string, NodePos>();
-    if (spotlight) {
-      for (const n of spotlight.nodes) {
-        const data = n.data;
-        map.set(n.id, {
-          id: n.id,
-          entity: data.entity,
-          label: data.label,
-          ...(data.sub ? { sub: data.sub } : {}),
-          task: data.entity === "task" ? (data.raw as TaskRow) : undefined,
-          raw: data.raw,
-          hop: data.hop,
-          degree: data.degree,
-          hiddenCount: data.hiddenCount,
-          x: n.position.x,
-          y: n.position.y,
-        });
-      }
-    }
-    return map;
-  }, [spotlight]);
+  }, []);
 
   const focusEdge = useMemo(
     () => (focusEdgeId ? displayEdges.find((e) => e.id === focusEdgeId) : null),
     [focusEdgeId, displayEdges],
   );
 
-  // 上下游计数读**全量 relations**,不是当前可见边 —— 画布只铺开了一部分,
-  // 用可见边计数会把「还没铺开」误报成「没有关系」。
-  const { upCount, downCount } = useMemo(() => {
-    if (!drawerNodeId) return { upCount: 0, downCount: 0 };
-    let up = 0;
-    let down = 0;
-    for (const e of relations) {
-      if (endpointToNodeId(e.from) === drawerNodeId) down += 1;
-      if (endpointToNodeId(e.to) === drawerNodeId) up += 1;
-    }
-    return { upCount: up, downCount: down };
-  }, [drawerNodeId, relations]);
-
   // 非激活(宿主在领地模式)时不渲染画布子树:DOM 里同一时刻只有一个
   // ReactFlow(可访问性 role=application 不重复,`.react-flow` 选择器不二义)。
-  // ego 累积态(shown/selectId)在 hooks 里,组件保持挂载即保留。
+  // ego 累积态(shown/expanded)在 hooks 里,组件保持挂载即保留。
   if (!active) return null;
 
   return (
-    // 画布铺满内容区(§2.6);GraphDrawer 是 fixed 定位的右侧覆盖抽屉,不占布局流。
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1">
-      <ReactFlow<EgoFlowNode, EgoFlowEdge>
-        nodes={displayNodes}
-        edges={displayEdges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodeClick={onNodeClick}
-        onNodeDoubleClick={onNodeDoubleClick}
-        onEdgeClick={onEdgeClick}
-        onPaneClick={onPaneClick}
-        colorMode={colorMode}
-        minZoom={0.05}
-        maxZoom={2}
-        zoomOnDoubleClick={false}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        attributionPosition="bottom-right"
-      >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--color-border)" />
-        <Controls className="bg-surface-raised border-border" />
-        <MiniMap<EgoFlowNode>
-          data-testid="graph-minimap"
-          bgColor="var(--color-surface)"
-          nodeColor={(n) => {
-            const entity = n.data.entity;
-            if (entity === "decision") return "var(--color-axis-authority)";
-            if (entity === "fact") return "var(--color-axis-evidence)";
-            if (entity === "agent" || entity === "schedule") return "var(--color-axis-assoc)";
-            return "var(--color-axis-execution)";
-          }}
-          nodeStrokeColor="var(--color-border-strong)"
-          maskColor={minimapMaskColor(colorMode)}
-          className="border border-border rounded overflow-hidden"
-          pannable
-          zoomable
-        />
-        {panelSlot && <Panel position="top-left">{panelSlot}</Panel>}
-      </ReactFlow>
+    // 画布铺满内容区(§2.6);GraphDrawer 是 fixed 定位的右侧覆盖抽屉,只承载边。
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      {panelSlot && <div className="shrink-0 border-b border-border bg-surface px-2 py-2">{panelSlot}</div>}
+      <div className="min-h-0 flex-1">
+        <ReactFlow<EgoFlowNode, EgoFlowEdge>
+          nodes={displayNodes}
+          edges={displayEdges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodeClick={onNodeClick}
+          onEdgeClick={onEdgeClick}
+          onPaneClick={onPaneClick}
+          onMoveEnd={onMoveEnd}
+          defaultViewport={initialViewport}
+          colorMode={colorMode}
+          minZoom={0.05}
+          maxZoom={2}
+          zoomOnDoubleClick={false}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          attributionPosition="bottom-right"
+        >
+          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--color-border)" />
+          <Controls className="bg-surface-raised border-border" />
+          <MiniMap<EgoFlowNode>
+            data-testid="graph-minimap"
+            bgColor="var(--color-surface)"
+            nodeColor={(n) => {
+              const entity = n.data.entity;
+              if (entity === "decision") return "var(--color-axis-authority)";
+              if (entity === "fact") return "var(--color-axis-evidence)";
+              if (entity === "agent" || entity === "schedule") return "var(--color-axis-assoc)";
+              return "var(--color-axis-execution)";
+            }}
+            nodeStrokeColor="var(--color-border-strong)"
+            maskColor={minimapMaskColor(colorMode)}
+            className="border border-border rounded overflow-hidden"
+            pannable
+            zoomable
+          />
+        </ReactFlow>
+      </div>
 
-      {(drawerNodeId || focusEdge) && (
+      {focusEdge && (
         <GraphDrawer
-          focusNode={drawerNodeId ? (drawerNodesMap.get(drawerNodeId) ?? undefined) : undefined}
-          focusEdge={focusEdge?.data}
-          nodes={drawerNodesMap}
-          edges={relations}
-          upCount={upCount}
-          downCount={downCount}
-          onClose={() => {
-            canvas.clearSelect();
-            setFocusEdgeId(null);
-          }}
+          focusEdge={focusEdge.data!}
+          onClose={() => setFocusEdgeId(null)}
           onFocus={(id) => {
-            if (!id) return;
-            const data = drawerNodesMap.get(id);
-            openFocus(data?.entity === "task" ? `task/${id}` : id);
+            if (id) openFocus(id);
           }}
           onNavigateEntity={onNavigateEntity}
-          onSetTaskPin={onSetTaskPin}
         />
       )}
     </div>

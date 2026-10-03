@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,9 +13,9 @@ import type { SchedulesListResult } from "../src/protocol/schedules-gui-contract
 import type { RepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
-const actor = withRoleBinding(
+const actor = withPolicyGroup(
   { actor: { principal: { personId: "schedule-repair-test" }, executor: null }, source: "local" as const },
-  "owner",
+  "admin",
 );
 
 test("a canonical Schedule row missing a newly required field stays readable and can repair itself", async () => {

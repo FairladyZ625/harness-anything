@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,17 +18,17 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-import { writeOwnerRoster } from "./role-binding.fixtures.ts";
+import { grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
 
 const bindingSessionId = "runtime_89abcdef0123456789abcdef",
-  personBinding = withRoleBinding(
+  personBinding = withPolicyGroup(
     {
       actor: { principal: { personId: "person-parent-session" }, executor: null },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   ),
-  executorBinding = withRoleBinding(
+  executorBinding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-parent-session" },
@@ -36,7 +36,7 @@ const bindingSessionId = "runtime_89abcdef0123456789abcdef",
       },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   ),
   installation: RuntimeInstallationWitness = {
     installationId: "installation-parent-session",
@@ -50,7 +50,7 @@ test("a local binding executor names the parent runtime session when the caller 
   const parent = mkdtempSync(path.join(tmpdir(), "ha-parent-session-binding-")),
     root = path.join(parent, "repo");
   mkdirSync(root);
-  writeOwnerRoster(root, ["person-parent-session"]);
+  grantTestPolicyGroups(["person-parent-session"], "admin");
   git(root, "init", "-q");
   git(root, "config", "user.name", "Parent Session Test");
   git(root, "config", "user.email", "parent-session@example.invalid");
@@ -103,7 +103,7 @@ test("a leader-only squad decision keeps attribution and settles success or fail
     executionId = "execution-parent-session-archive";
   let launches = 0;
   mkdirSync(root);
-  writeOwnerRoster(root, ["person-parent-session"]);
+  grantTestPolicyGroups(["person-parent-session"], "admin");
   git(root, "init", "-q");
   git(root, "config", "user.name", "Parent Session Test");
   git(root, "config", "user.email", "parent-session@example.invalid");

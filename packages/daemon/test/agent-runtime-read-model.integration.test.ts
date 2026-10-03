@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -529,7 +529,7 @@ test("task writes keep aggregate CAS after runtime events advance the shared wor
       rootDir: canonicalRoot(rootDir),
       ownerId: "runtime-cas-1",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
       created = await cell.run({ kind: "task-create", taskId: "task-runtime", title: "Runtime CAS" }, binding);
     assert.equal(created.outcome, "applied");
     await waitForFixturePublication(cell, created.opId, binding);
@@ -578,7 +578,7 @@ test("task dispatch read accepts one bounded batch and degrades missing tasks pe
       ["task-batch-b", "Batch B"],
     ] as const)
       assert.equal(
-        (await cell.run({ kind: "task-create", taskId, title }, withRoleBinding({ actor, source: "local" }, "owner")))
+        (await cell.run({ kind: "task-create", taskId, title }, withPolicyGroup({ actor, source: "local" }, "admin")))
           .outcome,
         "applied",
       );

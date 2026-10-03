@@ -8,12 +8,17 @@ import {
   type EntityRelationRecord,
   type RelationType,
 } from "../domain/entity-relation.ts";
-import type { EntityVersion, EntityVersionWitness, RelationFreshness } from "../domain/entity-freshness.ts";
+import {
+  keycloakPersonIdentityWitness,
+  relationFreshnessAtCut,
+  type EntityVersion,
+  type EntityVersionWitness,
+  type RelationFreshness,
+} from "../domain/entity-freshness.ts";
 import { validateTaskV2, type ReplayTaskStatus, type TaskV2 } from "../domain/task.ts";
 import type { TaskIndexProjectionRow } from "./projection-reads.ts";
 import { prepareQuery, queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 import { readEntityVersionWitnesses } from "./entity-freshness-projection.ts";
-import { relationFreshnessAtCut } from "../domain/entity-freshness.ts";
 
 /**
  * Narrow-query companions for the rebuildable task projection. Everything here
@@ -234,6 +239,7 @@ export function readTaskIndexRows(
       return [
         {
           taskId: row.task_id,
+          supersededBy: task.supersededBy ?? null,
           title: task.title,
           status: query.presentationStatus ? row.presentation_status : task.status,
           pinned: task.pinned,
@@ -911,7 +917,8 @@ function taskRelationRow(
     targetObservedVersion =
       typeof row.target_observed_version === "string" || typeof row.target_observed_version === "number"
         ? row.target_observed_version
-        : null;
+        : null,
+    currentTarget = keycloakPersonIdentityWitness(targetRef, targetObservedVersion) ?? target;
   return {
     relationId,
     workspaceRevision: typeof row.relation_revision === "number" ? row.relation_revision : null,
@@ -923,10 +930,10 @@ function taskRelationRow(
     origin: String(row.origin) as TaskRelationProjectionRow["origin"],
     state: String(row.state) as TaskRelationProjectionRow["state"],
     targetObservedVersion,
-    currentTargetVersion: target.currentVersion,
+    currentTargetVersion: currentTarget.currentVersion,
     freshness: relationFreshnessAtCut({
       anchor: relationFreshnessAnchorForType(relationType),
-      target,
+      target: currentTarget,
       targetObservedVersion,
       source,
     }),

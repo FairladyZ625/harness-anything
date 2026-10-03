@@ -1,3 +1,4 @@
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useEffect, useState } from "react";
 import type {
   AccessAdminApi,
@@ -17,7 +18,7 @@ import { DenseRow } from "../primitives/DenseRow.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
-import { BTN, Segmented } from "../ui/widgets.tsx";
+import { Button } from "../primitives/Button.tsx";
 import { AccessNotice, INPUT, asRejection, useAccessRead } from "./AccessParts.tsx";
 
 const NEW_GROUP = "\u0000new";
@@ -156,25 +157,22 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
                   </span>
                   <span className="ml-auto flex flex-none items-center gap-2">
                     {!creating && (
-                      <button
-                        type="button"
-                        data-testid="access-group-delete"
-                        className={BTN}
+                      <Button
+                        testId="access-group-delete"
                         disabled={busy || readOnly}
                         onClick={() => (confirmingDelete ? void remove() : setConfirmingDelete(true))}
                       >
                         {t(confirmingDelete ? "accessControl.groups.confirmDelete" : "accessControl.groups.delete")}
-                      </button>
+                      </Button>
                     )}
-                    <button
-                      type="button"
-                      data-testid="access-group-save"
-                      className={`${BTN} border-accent text-accent`}
+                    <Button
+                      testId="access-group-save"
+                      variant="primary"
                       disabled={busy || readOnly || draft.groupId.trim() === ""}
                       onClick={() => void save()}
                     >
                       {t(creating ? "accessControl.groups.create" : "accessControl.groups.save")}
-                    </button>
+                    </Button>
                   </span>
                 </>
               }
@@ -192,14 +190,9 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
                         current: (refusal.currentVersion ?? "").slice(0, 8),
                       })}
                     </span>
-                    <button
-                      type="button"
-                      className={BTN}
-                      data-testid="access-group-load-latest"
-                      onClick={() => void loadLatest()}
-                    >
+                    <Button testId="access-group-load-latest" onClick={() => void loadLatest()}>
                       {t("accessControl.groups.loadLatest")}
-                    </button>
+                    </Button>
                   </div>
                 ) : refusal ? (
                   <div className="sticky top-0 z-10 bg-surface">
@@ -265,10 +258,10 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
                 <div className="flex flex-col gap-3" data-testid="access-action-picker">
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="font-semibold ui-meta">{t("accessControl.groups.actions")}</span>
-                    <Segmented
+                    <SegCtl
                       value={facet}
                       onChange={setFacet}
-                      options={ACTION_FACETS.map((key) => ({ key, label: t(FACET_LABEL[key]) }))}
+                      options={ACTION_FACETS.map((key) => ({ value: key, label: t(FACET_LABEL[key]) }))}
                     />
                   </div>
                   {groupActionsByFacet(data.actions, facet).map((section) => {
@@ -338,15 +331,11 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
           title={t("accessControl.groups.listTitle")}
           big={groups.length}
           footer={
-            <button
-              type="button"
-              data-testid="access-group-new"
-              className={`${BTN} ml-auto`}
-              disabled={busy}
-              onClick={() => open(NEW_GROUP)}
-            >
-              {t("accessControl.groups.new")}
-            </button>
+            <span className="ml-auto">
+              <Button testId="access-group-new" disabled={busy} onClick={() => open(NEW_GROUP)}>
+                {t("accessControl.groups.new")}
+              </Button>
+            </span>
           }
         >
           {groups.map((group) => (

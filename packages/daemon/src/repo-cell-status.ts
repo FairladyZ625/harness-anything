@@ -23,7 +23,8 @@ export function repoCellStatus(context: {
     lastError: context.lastError,
     causeClass: context.causeClass,
     recoveryMs: context.recovery.elapsedMs,
-    materialization: context.store.materializationHealth(),
+    // Git-less edges mirror the center cut; their local store is not a canonical Git publisher.
+    materialization: context.mode === "remote-edge" ? null : context.store.materializationHealth(),
   };
 }
 

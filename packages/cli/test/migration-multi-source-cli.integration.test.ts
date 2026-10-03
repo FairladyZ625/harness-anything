@@ -4,9 +4,22 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
+
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "owner" });
+for (const resource of ["source-first", "source-second", "center"])
+  await realm.control({
+    op: "permit",
+    personId: "owner",
+    resource,
+    actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+  });
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -16,6 +29,8 @@ test("CLI imports two immutable legacy Git Harness repositories into a SQLite ce
     second = path.join(parent, "second"),
     center = path.join(parent, "center"),
     userRoot = path.join(parent, "user");
+  realm.bind(userRoot);
+  signInAt(userRoot, "owner");
   try {
     initialize(first, userRoot, "source-first", true);
     initialize(second, userRoot, "source-second", true);

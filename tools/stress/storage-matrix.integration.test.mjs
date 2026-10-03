@@ -9,7 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "../../packages/daemon/test/repo-settings.fixture.ts";
-import { withRoleBinding } from "../../packages/daemon/test/role-binding.fixtures.ts";
+import { withPolicyGroup } from "../../packages/daemon/test/keycloak-policy.fixtures.ts";
 import { actor } from "../../packages/daemon/test/task-surface.fixtures.ts";
 import { serializePersistedCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
@@ -386,7 +386,7 @@ async function runContention(root) {
           title: `Stress S2 F07 ${index + 1}`,
           profileId: "baseline",
         },
-        withRoleBinding({ actor, source: "local" }, "repo-write"),
+        withPolicyGroup({ actor, source: "local" }, "contributor"),
       ),
     ),
   );

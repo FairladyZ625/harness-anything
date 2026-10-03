@@ -172,7 +172,7 @@ export function DecisionDetailView({
                 entityRef={`decision/${decision.decisionId}`}
                 onNavigate={onNavigateEntity}
                 title={decision.decisionId}
-                className="truncate font-mono ui-micro leading-3 text-text-muted hover:text-accent hover:underline"
+                className="font-mono ui-micro leading-3 text-text-muted hover:text-accent hover:underline"
               />
             </div>
             <div className="mt-0.5 flex min-w-0 items-center gap-2">

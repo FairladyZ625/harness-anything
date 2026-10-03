@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -22,7 +22,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       ownerId: "task-query-real",
       now: () => "2026-08-16T00:00:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     for (const [index, title] of [
       ["Alpha", "Alpha"],
       ["Beta", "Beta"],
@@ -417,7 +417,7 @@ test("fact surface serves controlled types, GUI vocabulary, reclassify, and show
       ownerId: "fact-query-real",
       now: () => "2026-08-16T00:00:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     assert.equal(
       (
         await cell.run(
@@ -519,7 +519,7 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
       ownerId: "task-read-surface",
       now: () => "2026-08-15T03:00:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     await cell.run(
       {
         kind: "task-create",
@@ -790,7 +790,7 @@ test("a lapsed lease stays readable through task show and releasable through tas
       ownerId: "task-lease-exit",
       now: () => clock,
     });
-    const holder = withRoleBinding(
+    const holder = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-surface" },
@@ -798,9 +798,9 @@ test("a lapsed lease stays readable through task show and releasable through tas
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     );
-    const reclaimer = withRoleBinding(
+    const reclaimer = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-surface" },
@@ -808,7 +808,7 @@ test("a lapsed lease stays readable through task show and releasable through tas
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     );
     const created = await cell.run({ kind: "task-create", taskId: "task_lease", title: "Lease exit" }, holder);
     assert.equal(created.outcome, "applied");
@@ -876,7 +876,7 @@ test("a lapsed lease stays readable through task show and releasable through tas
     assert.equal(bite.outcome, "op_rejected", JSON.stringify(bite));
     assert.equal(bite.code, "progress_lease_required", JSON.stringify(bite));
     assert.deepEqual(bite.diagnostic, { kind: "failure", code: "progress_lease_required" });
-    const outsider = withRoleBinding(
+    const outsider = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-outsider" },
@@ -884,7 +884,7 @@ test("a lapsed lease stays readable through task show and releasable through tas
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     );
     const crossPrincipal = await cell.run(
       {
@@ -952,7 +952,7 @@ test("a released round is re-enterable by its own execution and still refuses a 
       ownerId: "task-round-reenter",
       now: () => "2026-08-15T02:00:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     const created = await cell.run(
       {
         kind: "task-create",
@@ -1075,7 +1075,7 @@ test("read commands report projection readiness instead of asserting canonical v
       ownerId: "task-readiness",
       now: () => "2026-08-15T02:00:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     assert.equal(
       (await cell.run({ kind: "task-create", taskId: "task_ready", title: "Readiness" }, binding)).outcome,
       "applied",

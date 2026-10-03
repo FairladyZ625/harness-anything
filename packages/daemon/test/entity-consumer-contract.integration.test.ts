@@ -7,11 +7,11 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { validateDaemonRpcCall } from "../src/protocol/daemon-protocol-rpc-validation.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
   {
     actor: {
       principal: { personId: "person-entity-consumer" },
@@ -19,7 +19,7 @@ const binding = withRoleBinding(
     },
     source: "local" as const,
   },
-  "repo-write",
+  "contributor",
 );
 
 const surveyKind = {

@@ -140,7 +140,7 @@ export function CommandPalette({
           />
           <kbd className="rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-faint">ESC</kbd>
         </div>
-        <div className="max-h-[50vh] overflow-y-auto py-1">
+        <div className="bounded-content overflow-y-auto py-1">
           {filtered.length === 0 ? (
             <div className="px-3 py-6 text-center ui-meta text-text-faint">无匹配实体</div>
           ) : (

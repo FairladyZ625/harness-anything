@@ -5,7 +5,7 @@
 // log with their true media type, byte length and canonical bytes, instead of an empty string that
 // is indistinguishable from an empty file.
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +50,7 @@ test("raw task artifacts read back with true metadata and canonical bytes, never
   initRepo(rootDir);
   const repoId = workspaceId("raw-consumer"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "raw-consumer" }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const created = (await cell.run(
       { kind: "task-create", taskId: "task-consumer", title: "Consumer" },
@@ -102,7 +102,20 @@ test("raw task artifacts read back with true metadata and canonical bytes, never
       assert.equal(read.status, "ready", `${destination}: projection not ready`);
       assert.deepEqual(
         [read.contentKind, read.mediaType, read.size, read.blobSha256],
-        [raw ? "binary" : "text", mediaType, bytes.byteLength, sha256Bytes(bytes)],
+        [
+          raw ? "binary" : "text",
+          raw
+            ? (
+                {
+                  "screenshots/logo.png": "image/png",
+                  "reports/dossier.pdf": "application/pdf",
+                  "logs/dispatch.log": RAW_MEDIA_TYPE,
+                } as Record<string, string>
+              )[destination]
+            : mediaType,
+          bytes.byteLength,
+          sha256Bytes(bytes),
+        ],
         `${destination}: content facts`,
       );
       assert.equal(
@@ -157,7 +170,20 @@ test("raw task artifacts read back with true metadata and canonical bytes, never
       })) as DocumentRead;
       assert.deepEqual(
         [read.contentKind, read.mediaType, read.size, read.uncommitted],
-        [mediaType === RAW_MEDIA_TYPE ? "binary" : "text", mediaType, bytes.byteLength, false],
+        [
+          mediaType === RAW_MEDIA_TYPE ? "binary" : "text",
+          mediaType === RAW_MEDIA_TYPE
+            ? (
+                {
+                  "screenshots/logo.png": "image/png",
+                  "reports/dossier.pdf": "application/pdf",
+                  "logs/dispatch.log": RAW_MEDIA_TYPE,
+                } as Record<string, string>
+              )[destination]
+            : mediaType,
+          bytes.byteLength,
+          false,
+        ],
         `${destination}: rebuild keeps the same content facts`,
       );
       assert.deepEqual(
@@ -177,7 +203,7 @@ test("a binary file in a task's artifacts tree is listed and routed, not hidden 
   initRepo(rootDir);
   const repoId = workspaceId("raw-consumer-wt"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "raw-consumer-wt" }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const created = (await cell.run({ kind: "task-create", taskId: "task-loose", title: "Loose" }, binding)) as Record<
       string,
@@ -207,12 +233,49 @@ test("a binary file in a task's artifacts tree is listed and routed, not hidden 
     })) as DocumentRead;
     serializeDaemonDocumentRead(read);
     assert.deepEqual(
-      [read.contentKind, read.body, read.worktreeBody, read.bytes, read.blobSha256, read.uncommitted],
-      ["binary", "", null, null, null, true],
-      "an unpublished binary is declared binary with no bytes to serve, not shown as empty text",
+      [read.contentKind, read.body, read.worktreeBody, read.bytes === null, read.blobSha256, read.uncommitted],
+      ["binary", "", null, false, null, true],
+      "an unpublished binary is declared binary with its authorized worktree bytes, not shown as empty text",
     );
-    assert.deepEqual([read.mediaType, read.size], [RAW_MEDIA_TYPE, png.byteLength]);
+    assert.deepEqual(Buffer.from(String(read.bytes), "base64"), png, "unpublished worktree bytes remain unmodified");
+    assert.deepEqual([read.mediaType, read.size], ["image/png", png.byteLength]);
     assert.equal(read.repositoryPath, `harness/${packagePath}/artifacts/capture.png`);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("an edited canonical binary serves the live worktree bytes and digest", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-raw-consumer-live-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("raw-consumer-live"),
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "raw-consumer-live" }),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  try {
+    const created = (await cell.run({ kind: "task-create", taskId: "task-live", title: "Live" }, binding)) as Record<
+      string,
+      unknown
+    >;
+    await waitForFixturePublication(cell, String(created.opId), binding);
+    const packagePath = String(created.packagePath),
+      source = path.join(rootDir, "live.png");
+    writeFileSync(source, png);
+    const added = (await cell.run(
+      { kind: "task-artifact-add", taskId: "task-live", source: "live.png", destination: "live.png" },
+      binding,
+    )) as Record<string, unknown>;
+    await waitForFixturePublication(cell, String(added.opId), binding);
+    const target = path.join(rootDir, "harness", packagePath, "artifacts", "live.png"),
+      edited = Buffer.concat([png, Buffer.from([0x01, 0x02])]);
+    writeFileSync(target, edited);
+    const read = (await cell.read("repo.tasks.document.read", {
+      taskId: "task-live",
+      path: "artifacts/live.png",
+    })) as DocumentRead;
+    assert.equal(read.uncommitted, true);
+    assert.deepEqual(Buffer.from(String(read.bytes), "base64"), edited);
+    assert.equal(read.blobSha256, sha256Bytes(png));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

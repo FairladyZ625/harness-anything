@@ -1,5 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import {
   makePersonActionExplanationService,
   makeSquadActionExplanationService,
@@ -7,28 +5,25 @@ import {
 } from "@harness-anything/application";
 import {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
-  consumeKnownError,
-  isPeopleEvent,
-  parsePeopleRosterDocument,
+  getEntityKindContract,
   parseEntityRef,
   parseSquadDeclarationV1,
   projectBaseEntityAtCut,
   requireEntityTypeContract,
-  resolveHarnessLayout,
   validateEntityActionExplainRequest,
   validateEntityActionExplanationSet,
   type BaseEntity,
   type CanonicalEventStore,
-  type EntityActionContract,
+  type AuthorizationDecision,
   type EntityActionExplainRequestV1,
   type EntityActionExplanationFailureCode,
   type EntityActionExplanationSetV1,
   type EntityActionExplanationSubjectV1,
   type EntityRef,
-  type PeopleRosterDocumentV1,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { taskActionCommandUsage } from "./protocol/daemon-protocol-commands.ts";
 import { compiledArtifactKinds } from "./artifact-entity-action.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
@@ -40,6 +35,7 @@ export interface TaskActionExplanationReadDependencies {
   readonly projection: TaskProjection;
   readonly binding?: RepoCellBinding;
   readonly rootDir: string;
+  readonly repoId?: string;
   readonly now: () => string;
 }
 
@@ -70,42 +66,33 @@ export function readTaskActionExplanation(
   const headRevision = dependencies.store.readHead()?.revision ?? 0,
     cut = `canonical:${headRevision}`,
     evaluatedAt = dependencies.now(),
-    authorize = ({
-      action,
-      target,
-      evaluatedAtCut,
-    }: {
-      readonly action: EntityActionContract;
-      readonly target: EntityRef;
-      readonly evaluatedAtCut: string;
-    }) => {
-      const ingress = action.execution?.ingress;
-      if (!ingress) throw new Error(`${action.target.kind} Action ${action.id} has no executable ingress.`);
-      const targetId = target.slice(`${action.target.kind}/`.length);
-      return authorizeRepoCellAction({
-        action: {
-          kind: ingress,
-          ...(action.target.kind === "task" ? { taskId: targetId } : { personId: targetId }),
-        },
-        binding,
-        actionId: `explain:${evaluatedAtCut}:${target}:${action.id}`,
-        revision: headRevision,
-        now: evaluatedAt,
-        targetOverride: target,
-      });
-    },
     taskService = makeTaskActionExplanationService({
       actor: binding.actor,
       authorize: ({ action, target, evaluatedAtCut }) =>
-        explainAuthorization(action, target, evaluatedAtCut, "task", binding, headRevision, evaluatedAt),
+        binding.explanationDecisions?.get(`${target}:${action.id}`) ??
+        missingExplanationDecision(binding, target, evaluatedAtCut),
       usage: taskActionCommandUsage,
     }),
     squadService = makeSquadActionExplanationService({
       actor: binding.actor,
       authorize: ({ action, target, evaluatedAtCut }) =>
-        explainAuthorization(action, target, evaluatedAtCut, "squad", binding, headRevision, evaluatedAt),
+        binding.explanationDecisions?.get(`${target}:${action.id}`) ??
+        missingExplanationDecision(binding, target, evaluatedAtCut),
     }),
-    personService = makePersonActionExplanationService({ actor: binding.actor, authorize }),
+    personService = makePersonActionExplanationService({
+      actor: binding.actor,
+      authorize: ({ action, target, evaluatedAtCut }) =>
+        binding.personExplanation?.decisions.get(`${target}:${action.id}`) ?? {
+          policyRef: "keycloak-policy@1",
+          actor: binding.actor,
+          subject: target,
+          bindingsUsed: [],
+          outcome: "denied",
+          reasonCodes: ["keycloak_evaluation_missing"],
+          nextActions: ["Retry the explanation after Keycloak authorization is available."],
+          evaluatedAtCut,
+        },
+    }),
     parsed = request.refs.map((ref) => ({ ref, parsed: parseEntityRef(ref) })),
     supported = parsed.filter(
       ({ parsed: entity }) =>
@@ -129,9 +116,6 @@ export function readTaskActionExplanation(
       const [event] = dependencies.projection.readCanonicalEvents(revision - 1, 1).events;
       return event !== undefined && event.workspaceRevision === revision ? event : undefined;
     },
-    personCut = parsed.some(({ parsed: entity }) => entity?.kind === "person" && !entity.externalHarness)
-      ? personRosterAtCut(dependencies.rootDir, dependencies.store.read().events, headRevision, binding, evaluatedAt)
-      : null,
     cache = new Map<string, EntityActionExplanationSubjectV1>(),
     subjects = parsed.map(({ ref, parsed: entity }) => {
       const cached = cache.get(ref);
@@ -158,41 +142,29 @@ export function readTaskActionExplanation(
           ["Use catalog mode to discover the supported Entity Action surfaces."],
         );
       else if (entity.kind === "person") {
-        const person = personCut?.roster.people.find(({ personId }) => personId === entity.id);
-        if (!personCut)
-          subject = failure(
-            "person",
-            entity.raw as EntityRef,
-            "projection_pending",
-            `The authoritative People roster has no readable witness at ${cut}.`,
-            ["Restore people.yaml or retry after the canonical People event settles."],
-          );
-        else if (!person)
+        // Person identity is no longer projected from people.yaml. The only local witness we can
+        // safely materialize is the daemon-authenticated Keycloak principal itself; every other
+        // person ref must fail closed instead of inventing a profile from authored content.
+        if (!binding.personExplanation?.existsIds.has(entity.id))
           subject = failure(
             "person",
             entity.raw as EntityRef,
             "entity_not_found",
             `Person ${entity.id} was not found.`,
-            ["Choose an existing Person identity from people.yaml."],
+            ["Confirm the Person is provisioned in Keycloak, then retry the explanation."],
           );
         else {
           const entityWitness = projectBaseEntityAtCut<BaseEntity<"person">>(requireEntityTypeContract("person"), {
-              kind: "person",
-              id: entity.id,
-              workspaceRevision: personCut.revision,
-              occurredAt: personCut.occurredAt,
-              actor: personCut.actor,
-              source: personCut.source,
-              pinned: false,
-              disposition: "active",
-            }),
-            explained = personService.object({
-              entity: entityWitness,
-              roster: personCut.roster,
-              evaluatedAtCut: cut,
-              evaluatedAt,
-            });
-          subject = explained.subjects[0]!;
+            kind: "person",
+            id: entity.id,
+            workspaceRevision: headRevision,
+            occurredAt: evaluatedAt,
+            actor: binding.actor,
+            source: binding.source,
+            pinned: false,
+            disposition: "active",
+          });
+          subject = personService.object({ entity: entityWitness, evaluatedAtCut: cut, evaluatedAt }).subjects[0]!;
         }
       } else if (!projectionReady)
         subject = failure(
@@ -295,42 +267,102 @@ export function readTaskActionExplanation(
   return Object.freeze(result);
 }
 
-function personRosterAtCut(
-  rootDir: string,
-  events: ReturnType<CanonicalEventStore["read"]>["events"],
-  streamRevision: number,
-  binding: RepoCellBinding,
-  evaluatedAt: string,
-): {
-  readonly roster: PeopleRosterDocumentV1;
-  readonly revision: number;
-  readonly occurredAt: string;
-  readonly actor: RepoCellBinding["actor"];
-  readonly source: RepoCellBinding["source"];
-} | null {
-  const peopleEvent = events.filter(isPeopleEvent).at(-1);
-  if (peopleEvent)
+/** Resolve Person identity and action decisions online before entering the synchronous read cut. */
+export async function preparePersonActionExplanationBinding(
+  input: {
+    readonly store: CanonicalEventStore;
+    readonly repoId: string;
+    readonly now: () => string;
+    readonly binding?: RepoCellBinding;
+  },
+  payload: Readonly<Record<string, unknown>>,
+): Promise<RepoCellBinding> {
+  const binding = requireTaskActionExplanationBinding(input.binding),
+    request = payload as unknown as EntityActionExplainRequestV1;
+  if (request.mode !== "object") return binding;
+  const refs = [
+    ...new Set(
+      request.refs.flatMap((ref) => {
+        const entity = parseEntityRef(ref);
+        return entity && !entity.externalHarness && ["person", "task", "squad"].includes(entity.kind)
+          ? [{ kind: entity.kind, id: entity.id, ref: entity.raw as EntityRef }]
+          : [];
+      }),
+    ),
+  ];
+  if (refs.length === 0) return binding;
+  const credential = binding.keycloakAuthorization;
+  if (!credential)
     return {
-      roster: peopleEvent.payload.roster,
-      revision: peopleEvent.workspaceRevision,
-      occurredAt: peopleEvent.occurredAt,
-      actor: peopleEvent.actor,
-      source: peopleEvent.source,
+      ...binding,
+      personExplanation: { existsIds: new Set(), decisions: new Map() },
+      explanationDecisions: new Map(),
     };
-  const rosterPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "people.yaml");
-  if (!existsSync(rosterPath) || streamRevision < 1) return null;
-  try {
-    return {
-      roster: parsePeopleRosterDocument(readFileSync(rosterPath, "utf8")),
-      revision: streamRevision,
-      occurredAt: evaluatedAt,
-      actor: binding.actor,
-      source: binding.source,
-    };
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
+  const decisions = new Map<string, AuthorizationDecision>(),
+    personExistsIds = new Set<string>(),
+    revision = input.store.readHead()?.revision ?? 0;
+  for (const entity of refs) {
+    const contract = getEntityKindContract(entity.kind);
+    if (!contract?.actionCatalog) throw new Error(`The ${entity.kind} Entity Action catalog is unavailable.`);
+    if (entity.kind === "person") {
+      const exists =
+        credential.session?.personId === entity.id ||
+        (credential.center !== undefined &&
+          (await new KeycloakPolicyAdapter({
+            url: credential.center.url,
+            realm: credential.center.realm,
+            resourceServerClientId: credential.center.clientId,
+          }).findUserId(credential.center.accessToken, entity.id)) !== undefined);
+      if (exists) personExistsIds.add(entity.id);
+      if (!exists) continue;
+    }
+    await Promise.all(
+      contract.actionCatalog.actions.map(async (action) => {
+        const ingress = action.execution?.ingress;
+        if (!ingress) return;
+        const repoAction = {
+            kind: ingress,
+            ...(entity.kind === "task"
+              ? { taskId: entity.id }
+              : entity.kind === "squad"
+                ? { squadId: entity.id }
+                : { entityRef: entity.ref }),
+          } as RepoTaskAction,
+          decision = await evaluateRepoCellAction({
+            action: repoAction,
+            binding,
+            actionId: `explain:${revision}:${entity.ref}:${action.id}`,
+            repoId: input.repoId,
+            revision,
+            now: input.now(),
+            targetOverride: entity.ref,
+          });
+        decisions.set(`${entity.ref}:${action.id}`, decision);
+      }),
+    );
   }
+  return {
+    ...binding,
+    personExplanation: { existsIds: personExistsIds, decisions },
+    explanationDecisions: decisions,
+  };
+}
+
+function missingExplanationDecision(
+  binding: RepoCellBinding,
+  target: EntityRef,
+  evaluatedAtCut: string,
+): AuthorizationDecision {
+  return {
+    policyRef: "keycloak-policy@1",
+    actor: binding.actor,
+    subject: target,
+    bindingsUsed: [],
+    outcome: "denied",
+    reasonCodes: ["keycloak_evaluation_missing"],
+    nextActions: ["Retry the explanation after Keycloak authorization is available."],
+    evaluatedAtCut,
+  };
 }
 
 function catalogExplanation(
@@ -395,31 +427,6 @@ function catalogExplanation(
     return Object.freeze(result);
   }
   throw invalidCommand(`Entity Action catalog explain does not support ${kind}.`);
-}
-
-function explainAuthorization(
-  action: EntityActionContract,
-  target: EntityRef,
-  evaluatedAtCut: string,
-  kind: "task" | "squad",
-  binding: RepoCellBinding,
-  revision: number,
-  now: string,
-) {
-  const ingress = action.execution?.ingress;
-  if (!ingress) throw new Error(`${kind} Action ${action.id} has no executable ingress.`);
-  const id = target.slice(`${kind}/`.length),
-    actionPayload = {
-      kind: ingress,
-      ...(kind === "task" ? { taskId: id } : { squadId: id }),
-    } as RepoTaskAction;
-  return authorizeRepoCellAction({
-    action: actionPayload,
-    binding,
-    actionId: `explain:${evaluatedAtCut}:${target}:${action.id}`,
-    revision,
-    now,
-  });
 }
 
 function failure(

@@ -48,9 +48,8 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 `down` 只停止本部署的隔离 daemon，有意保留仓库、TLS 物料、名册与副本状态以备审计/恢复。
 主机重启后登录并执行 `up`；daemon 与 Fleet 监听器都是进程持有的，需要重新建立。
 
-恢复出的台账带着源机器的本地 Unix-socket 凭据，在中心主机上不会命中。本部署不编辑
-`people.yaml`，也不向 remote center 放行本地写入：写入来自持有节点凭据的 Fleet 边缘，而
-人通过连接到该 daemon 的桌面应用登录。
+人的身份与仓库权限来自 Keycloak；恢复出的仓库中的 `people.yaml` 不授予访问权限。本部署不向 remote center 放行本地仓库写入：
+写入来自持有节点凭据的 Fleet 边缘，而人通过连接到该 daemon 的桌面应用登录。
 
 ## 名册与节点
 
@@ -65,14 +64,14 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 
 之后的每一步都需要一个人完成，脚本不会代做：
 
-1. 创建首位管理员并登录。本版本两者都只能通过连接到该 daemon 的桌面应用完成；没有桌面
-   入口的服务器两者都无从谈起（跟踪于 `task_8352efd2f05ab2eda87b724761`）。
+1. 通过桌面应用或 `ha bootstrap --operation bootstrap-admin` 创建首位管理员；CLI 需提供
+   身份字段与 `--password-file`（见 `ha bootstrap --help`）。通过应用或
+   `ha bootstrap --operation login` 登录；后者使用设备登录，不需要本地浏览器。
 2. 给节点属主开账号，并授予该人仓库上的 `daemon-fleet-edge-sync`。
 3. 由持有 `access-admin` 的管理员登录后注册节点。
 
-保持这个顺序：先 `up` 起监听器，再登录。一旦管理员在该 daemon 上登录，
-`ha daemon fleet center start` 会被 `authorization_denied` 拒绝，之后需要再次启动监听器的
-`up` 会卡在这一步。这是本版本的已知限制。
+Keycloak 启动后，管理员登录前后都可以启动监听器。已登录管理员只有持有该仓库的
+`daemon-fleet-center-start` 权限时，才可启动或重新启动监听器。
 
 ### 注册一个节点
 
@@ -88,9 +87,10 @@ ha bootstrap --operation node-list
 ```
 
 节点首次注册会一次性铸造机器凭据，写入 `--credential-file` 指定的新文件，仅属主可读
-（`0600`）。回执只点名文件、绝不携带凭据本身。不带 `--credential-file` 会被拒绝；文件已
-存在时以 `credential_file_unavailable` 拒绝——两种情况下都不会注册任何内容。每个节点用
-独立目录，绝不共享凭据。`<node-id>` 必须是名册 assignment 的 `nodeId`。
+（`0600`）。回执只点名文件、绝不携带凭据本身。不带 `--credential-file` 以
+`credential_file_required` 拒绝；文件已存在时以 `credential_file_unavailable` 拒绝——两种
+情况下都不会注册任何内容。每个节点用独立目录，绝不共享凭据。`<node-id>` 必须是名册
+assignment 的 `nodeId`。
 
 把你信任的通道把文件送到边缘机器后，删除中心侧副本。在边缘，凭据写进工作区的
 `fleet-edge.json`（`credential`），或以 `ha daemon fleet edge sync --credential` 传入；
@@ -100,9 +100,9 @@ ha bootstrap --operation node-list
 `--person-id <new-person> --expected-version <version>` 重复 `node-register`。此时不铸造
 凭据、不需要 `--credential-file`。
 
-如果注册已创建 Keycloak client 却在返回凭据前失败，不要复用那次残缺注册：用 `node-list`
-读版本，用 `node-unregister --node-id <node-id> --expected-version <version>` 移除后，换新
-凭据文件重新注册。该残缺注册的自动清理另行跟踪。
+凭据文件在创建 Keycloak client 之前写好，因此注册要么生效且凭据已在文件里，要么失败且
+不留 client。若一次注册报错时文件已经落盘，以 `node-list` 的读数为准：节点已注册，则文件
+里的凭据即为可用凭据，无需重做；节点未注册，则删除该文件后重新注册。
 
 ### 人工确认
 
@@ -116,16 +116,16 @@ Fleet 节点以机器身份认证，即使其属主是人。来自该连接的 `
 ha bootstrap --operation node-unregister --node-id <node-id> --expected-version <version>
 ```
 
-版本过期会得到 `version_conflict`。移除后凭据对新连接立即失效；已建立的连接可能仍能应答
-部分帧（跟踪于 `task_957ec2cdea3f65a73487641bdb`），节点持有的 lease 由既有超时回收，而非
-立即吊销。
+版本过期会得到 `version_conflict`。移除结算后，凭据对新连接立即失效，节点在中心的现存
+TLS 会话也会在操作返回前被切断，已缓冲的帧不再处理或应答；经 `receipt-reconcile` 迟后结算
+的移除同样切断。节点持有的 lease 由既有超时回收，而非立即吊销。
 
 ### 首次同步被拒绝时
 
-| Code | 含义 |
-| --- | --- |
-| `authentication_failed` | 节点未注册，或凭据不对。两者刻意不可区分。 |
-| `authorization_denied` | 节点已注册，但其属主没有该仓库的 `daemon-fleet-edge-sync` 授权。 |
+| Code                    | 含义                                                             |
+| ----------------------- | ---------------------------------------------------------------- |
+| `authentication_failed` | 节点未注册，或凭据不对。两者刻意不可区分。                       |
+| `authorization_denied`  | 节点已注册，但其属主没有该仓库的 `daemon-fleet-edge-sync` 授权。 |
 
 如果出站 GitHub 访问不可靠，可预置 `~/harness-center/app` 为包含 `HARNESS_CENTER_APP_REF`
 的干净 Git 检出。只有该固定 ref 缺失时 `up` 才会拉取，因此经审计的 Git bundle 或 rsync

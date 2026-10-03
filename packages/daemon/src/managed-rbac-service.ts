@@ -734,24 +734,32 @@ export function managedRbacReceiptJournal(userRoot: string): {
 }
 
 /**
- * Reserves a new file only its owner can read, for a credential Keycloak returns once. A path that is
- * already taken throws instead of being overwritten; `discard` removes a reservation nothing went into.
+ * Reserves a new file only its owner can read, for a credential the caller writes before the
+ * external write that makes it real. A path that is already taken throws instead of being
+ * overwritten; the descriptor closes exactly once, so `discard` after a `keep` whose write failed
+ * removes the reservation instead of failing on the closed descriptor.
  */
 export function reserveCredentialFile(file: string): {
   readonly keep: (credential: string) => void;
   readonly discard: () => void;
 } {
   const descriptor = openSync(file, "wx", 0o600);
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    closeSync(descriptor);
+  };
   return {
     keep: (credential) => {
       try {
         writeFileSync(descriptor, credential);
       } finally {
-        closeSync(descriptor);
+        close();
       }
     },
     discard: () => {
-      closeSync(descriptor);
+      close();
       rmSync(file, { force: true });
     },
   };

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { Worker } from "node:worker_threads";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -62,9 +62,9 @@ test("production writer requests open the epoch database once and never block on
         },
       },
     );
-    const binding = withRoleBinding(
+    const binding = withPolicyGroup(
         { actor, source: "local" as const, writerEpoch: fence.epoch, writerEpochFence: fence },
-        "repo-write",
+        "contributor",
       ),
       opIds: string[] = [],
       startedAt = Date.now();
@@ -159,9 +159,9 @@ test("sync capability round trips reuse one shared buffer pair for the writer's 
         },
       },
     );
-    const binding = withRoleBinding(
+    const binding = withPolicyGroup(
       { actor, source: "local" as const, writerEpoch: fence.epoch, writerEpochFence: fence },
-      "repo-write",
+      "contributor",
     );
     for (const taskId of ["task_sab_a", "task_sab_b", "task_sab_c"]) {
       const receipt = await supervisor.request<{ readonly outcome: string }>(

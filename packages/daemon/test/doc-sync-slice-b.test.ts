@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { signInAt } from "./keycloak.fixtures.ts";
 import { classifyTextualArtifactPath, documentPath, makeTaskEventReader } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -18,18 +20,18 @@ import {
   seedSettingsEvent,
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const policyId = "markdown-body-replaceable/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const assignmentSource = { kind: "assignment", nodeId: "node-one", assignmentId: "assignment-one" } as const;
-const localBinding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+const localBinding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
 
 // The execution worker rides the held-lease channel like any direct executor; the reviewer is a
 // runtime-session actor that must not reach reviewed prose once submit releases the lease.
-const workerBinding = withRoleBinding(
+const workerBinding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-owner" },
@@ -37,9 +39,9 @@ const workerBinding = withRoleBinding(
       },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   ),
-  reviewerBinding = withRoleBinding(
+  reviewerBinding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-owner" },
@@ -47,7 +49,7 @@ const workerBinding = withRoleBinding(
       },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   );
 
 test("local doc submit rejects the retired selection assembler", async () => {
@@ -175,7 +177,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
     const first = await fixture.cell.run(firstAction, binding);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     await waitForWorktree(fixture.cell, first, binding);
-    assert.equal(first.authorizationDecision?.policyRef, "default@5");
+    assert.equal(first.authorizationDecision?.policyRef, "keycloak-policy@1");
     assert.equal(first.authorizationDecision?.outcome, "allowed");
     const retried = await fixture.cell.run(firstAction, binding);
     assert.equal(retried.outcome, "no_changes");
@@ -285,13 +287,22 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
   } finally {
     authority.close();
   }
+  for (const [personId, group] of [
+    ["admin", "admin"],
+    ["writer", "contributor"],
+    ["otherWriter", "contributor"],
+    ["reader", "viewer"],
+  ] as const)
+    await signInPolicyTestUser(fixture.userRoot, personId, ["rbac"], group);
   const host = await openDaemonHost({ daemonId: "doc-rbac", userRoot: fixture.userRoot });
   await host.attachmentsSettled();
-  const auth = (ownerUid: number) =>
-    ({
+  const auth = (ownerUid: number) => {
+    signInAt(fixture.userRoot, Object.entries(fixture.ids).find(([, uid]) => uid === ownerUid)![0]);
+    return {
       transportKind: "unix-socket",
       unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" },
-    }) as const;
+    } as const;
+  };
   try {
     await host.admin({ kind: "register", rootDir: fixture.rootDir, repoId: "rbac" }, auth(fixture.ids.admin));
     const created = await host.run(
@@ -626,7 +637,7 @@ test("the authored walls manifest can be created and edited through doc sync", a
       rootDir: canonicalRoot(rootDir),
       ownerId: "governance-doc-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     logical = documentPath("governance/walls/walls.json");
   try {
     for (const walls of [[], [{ id: "retired-preset", expect: "exit==0" }]]) {
@@ -727,7 +738,7 @@ async function startLease(
   source: RepoCellBinding["source"],
   ttlMs?: number,
 ): Promise<unknown> {
-  const roleBinding = withRoleBinding({ actor, source }, "repo-write");
+  const roleBinding = withPolicyGroup({ actor, source }, "contributor");
   const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, roleBinding);
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForWorktree(cell, created, roleBinding);
@@ -764,7 +775,7 @@ function assignmentBinding(repoId: string, paths: readonly string[]): RepoCellBi
   return {
     actor,
     source: assignmentSource,
-    roleBindings: withRoleBinding({ actor }, "owner").roleBindings,
+    keycloakAuthorization: withPolicyGroup({ actor }, "admin").keycloakAuthorization,
     assignmentScope: {
       repoId,
       scope: { kind: "task", taskId: "task-doc", executionId: "execution-doc", paths },
@@ -830,21 +841,6 @@ function rbacFixture() {
   writeFileSync(
     path.join(rootDir, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: rbac\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-  const people = Object.entries(ids).map(([role, uid]) => ({
-    personId: role,
-    displayName: role,
-    roles: [role === "writer" || role === "otherWriter" ? "repo-write" : role],
-    credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }],
-  }));
-  const roles = [
-    { roleId: "reader", commandClasses: ["repo-read"] },
-    { roleId: "repo-write", commandClasses: ["repo-write", "repo-read"] },
-    { roleId: "admin", commandClasses: ["admin"] },
-  ];
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people, roles }, null, 2)}\n`,
   );
   git(rootDir, "add", "harness");
   git(rootDir, "commit", "--quiet", "-m", "rbac");

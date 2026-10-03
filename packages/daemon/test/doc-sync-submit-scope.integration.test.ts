@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,7 +20,7 @@ test("a submit without --task or --path is refused and lists its candidates grou
       rootDir: canonicalRoot(rootDir),
       ownerId: "doc-submit-scope-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const createdA = (await cell.run({ kind: "task-create", taskId: "task-scope-a", title: "Scope A" }, binding)) as {
         readonly outcome: string;
@@ -75,7 +75,7 @@ test("the local --all shape rides the same scope refusal", async () => {
       rootDir: canonicalRoot(rootDir),
       ownerId: "doc-submit-scope-all-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const created = (await cell.run(
         { kind: "task-create", taskId: "task-scope-all", title: "Scope All" },
@@ -114,7 +114,7 @@ test("--task submits only that task's candidates while the other task's files st
       rootDir: canonicalRoot(rootDir),
       ownerId: "doc-submit-scope-isolation-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const createdA = (await cell.run({ kind: "task-create", taskId: "task-iso-a", title: "Isolation A" }, binding)) as {
         readonly outcome: string;
@@ -164,7 +164,7 @@ test("a scopeless submit over a clean workspace still names the missing scope", 
       rootDir: canonicalRoot(rootDir),
       ownerId: "doc-submit-scope-clean-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const rejected = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as {
       readonly outcome: string;

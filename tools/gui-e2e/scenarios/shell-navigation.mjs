@@ -6,8 +6,15 @@ export default {
   feature: "shell-navigation",
   lane: "both",
   description: "Preload, projection, primary navigation, and history render without console errors.",
-  async run({ page, app }) {
+  async run({ page, app, shot }) {
     await bridgeReady(page);
+    assert.equal(await page.getByRole("button", { name: /^(?:面板工作台|Panel Workbench)$/u }).count(), 0);
+    await nav(page, /^(?:工作|Work)$/u, "work-view");
+    await page.getByTestId("work-view").getByRole("status").waitFor({ state: "hidden" });
+    await shot("shell-work");
+    await page.getByRole("button", { name: /^(?:关系图|Graph)$/u }).click();
+    await page.getByTestId("territory-chip").or(page.getByTestId("triadic-graph-empty-state")).first().waitFor();
+    await shot("shell-graph");
     await nav(page, /^(?:看板|Board)$/u, "board-task-card");
     await nav(page, /^(?:会话|Sessions)$/u, "sessions-view");
     await nav(page, /^(?:Agent · 含 Squad|Agents · Squads)$/u, "agent-squad-view");

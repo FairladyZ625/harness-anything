@@ -1,16 +1,9 @@
-import { isValidElement, useMemo, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import Markdown from "react-markdown";
-import type { Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+import { DocumentFrame } from "./DocumentFrame";
+import { MarkdownDocument } from "./MarkdownDocument";
+import { SegCtl } from "./primitives/SegCtl";
 import { MagnifyingGlass } from "@phosphor-icons/react";
-import { MarkdownAnchor } from "../local-doc/MarkdownAnchor.tsx";
-import { markdownUrlTransform } from "../local-doc/markdown-links.ts";
-
-// mermaid diagram rendering is intentionally omitted in the Electron shell:
-// its runtime injects inline <style>/<script>, which the production CSP
-// (style-src 'self'; script-src 'self') blocks, and the bundle is heavy.
-// mermaid code fences fall back to a readable source block.
 
 type ReaderLayout = "auto" | "single" | "double";
 type ReaderFont = "sans" | "serif" | "mono";
@@ -45,40 +38,6 @@ export function DocReader({
 
   // 链接拦截(task_89d324b5):锚点永远不做文档导航。本机文件链接转本机文档浮层,
   // 包内相对链接走宿主提供的导航出口;components 随 props 重建以捕获最新闭包。
-  const components = useMemo<Components>(() => {
-    const base: Components = {
-      pre({ node: _node, children }) {
-        if (isValidElement(children)) {
-          const childProps = children.props as {
-            className?: string;
-            children?: ReactNode;
-          };
-          if (childProps.className?.includes("language-mermaid")) {
-            return (
-              <pre
-                className={
-                  "my-4 overflow-x-auto rounded-md border border-border bg-surface p-3 " +
-                  "font-mono ui-meta text-text-muted"
-                }
-              >
-                <code>{String(childProps.children ?? "").trim()}</code>
-              </pre>
-            );
-          }
-        }
-        return <pre>{children}</pre>;
-      },
-    };
-    if (packageBasePath !== null || onOpenPackageDoc !== undefined) {
-      base.a = (props) => (
-        <MarkdownAnchor {...props} packageBasePath={packageBasePath} onOpenPackageDoc={onOpenPackageDoc} />
-      );
-    } else {
-      base.a = MarkdownAnchor;
-    }
-    return base;
-  }, [packageBasePath, onOpenPackageDoc]);
-
   const matchCount = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return null;
@@ -90,96 +49,79 @@ export function DocReader({
   } as CSSProperties;
 
   return (
-    <section
-      className="overflow-clip rounded-lg border border-border bg-surface shadow-sm"
-      data-testid="doc-reader"
-      style={readerStyle}
-    >
-      <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
-        <div className="flex w-56 max-w-full items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1">
-          <MagnifyingGlass weight="bold" className="shrink-0 ui-meta text-text-faint" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="文档内搜索…"
-            aria-label="文档内搜索"
-            className="w-full bg-transparent ui-meta text-text outline-none placeholder:text-text-faint"
-          />
-        </div>
-        {matchCount !== null && (
-          <span className={`shrink-0 font-mono ui-micro ${matchCount > 0 ? "text-text-muted" : "text-text-faint"}`}>
-            {matchCount} 处匹配
-          </span>
-        )}
-      </div>
-      <div className="pointer-events-none sticky top-3 z-20 -mb-11 flex justify-end px-3 pt-3">
-        <div
-          className="glass pointer-events-auto flex items-center gap-1 rounded-lg p-1"
-          data-testid="reader-floating-toolbar"
-        >
-          {/* 栏数默认「自适应」:由 .doc-flow 容器查询按可用宽度自动分栏,无需点击;
-              单栏/双栏是显式覆盖,手动选择后仍可切回自适应。 */}
-          <div className="flex items-center rounded-md border border-border bg-surface p-0.5" aria-label="阅读栏数">
-            {readerLayouts.map(({ value, label }) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={layout === value}
-                onClick={() => setLayout(value)}
-                className={`rounded px-2 py-1 ui-micro ${
-                  layout === value ? "bg-accent text-accent-fg" : "text-text-muted hover:text-text"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+    <DocumentFrame
+      testId="doc-reader"
+      toolbar={
+        <>
+          <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
+            <div className="flex w-56 max-w-full items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1">
+              <MagnifyingGlass weight="bold" className="shrink-0 ui-meta text-text-faint" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="文档内搜索…"
+                aria-label="文档内搜索"
+                className="w-full bg-transparent ui-meta text-text outline-none placeholder:text-text-faint"
+              />
+            </div>
+            {matchCount !== null && (
+              <span className={`shrink-0 font-mono ui-micro ${matchCount > 0 ? "text-text-muted" : "text-text-faint"}`}>
+                {matchCount} 处匹配
+              </span>
+            )}
           </div>
-          <select
-            aria-label="文档字体"
-            value={font}
-            onChange={(event) => setFont(event.target.value as ReaderFont)}
-            className="h-7 rounded-md border border-border bg-surface px-1.5 ui-micro text-text"
-          >
-            <option value="sans">无衬线</option>
-            <option value="serif">衬线</option>
-            <option value="mono">等宽</option>
-          </select>
-          <button
-            type="button"
-            aria-label="缩小字号"
-            disabled={fontSize <= 13}
-            onClick={() => setFontSize((size) => Math.max(13, size - 1))}
-            className={[
-              "grid size-7 place-items-center rounded-md ui-prose text-text-muted",
-              "hover:bg-surface hover:text-text disabled:opacity-35",
-            ].join(" ")}
-          >
-            −
-          </button>
-          <span className="w-8 text-center font-mono ui-micro text-text-faint" aria-label={`字号 ${fontSize} 像素`}>
-            {fontSize}
-          </span>
-          <button
-            type="button"
-            aria-label="放大字号"
-            disabled={fontSize >= 19}
-            onClick={() => setFontSize((size) => Math.min(19, size + 1))}
-            className={[
-              "grid size-7 place-items-center rounded-md ui-prose text-text-muted",
-              "hover:bg-surface hover:text-text disabled:opacity-35",
-            ].join(" ")}
-          >
-            ＋
-          </button>
-        </div>
-      </div>
-      <div className="doc-flow px-5 pb-6 pt-16 sm:px-6">
+          <div className="flex flex-wrap justify-end px-3 pb-2">
+            <div className="flex flex-wrap items-center gap-1" data-testid="reader-floating-toolbar">
+              {/* 栏数默认「自适应」:由 .doc-flow 容器查询按可用宽度自动分栏,无需点击;
+              单栏/双栏是显式覆盖,手动选择后仍可切回自适应。 */}
+              <SegCtl label="阅读栏数" value={layout} onChange={setLayout} options={readerLayouts} />
+              <select
+                aria-label="文档字体"
+                value={font}
+                onChange={(event) => setFont(event.target.value as ReaderFont)}
+                className="min-h-[40px] rounded-md border border-border bg-surface px-1.5 ui-micro text-text"
+              >
+                <option value="sans">无衬线</option>
+                <option value="serif">衬线</option>
+                <option value="mono">等宽</option>
+              </select>
+              <button
+                type="button"
+                aria-label="缩小字号"
+                disabled={fontSize <= 13}
+                onClick={() => setFontSize((size) => Math.max(13, size - 1))}
+                className={[
+                  "grid min-h-[40px] min-w-[40px] place-items-center rounded-md ui-prose text-text-muted",
+                  "hover:bg-surface hover:text-text disabled:opacity-35",
+                ].join(" ")}
+              >
+                −
+              </button>
+              <span className="w-8 text-center font-mono ui-micro text-text-faint" aria-label={`字号 ${fontSize} 像素`}>
+                {fontSize}
+              </span>
+              <button
+                type="button"
+                aria-label="放大字号"
+                disabled={fontSize >= 19}
+                onClick={() => setFontSize((size) => Math.min(19, size + 1))}
+                className={[
+                  "grid min-h-[40px] min-w-[40px] place-items-center rounded-md ui-prose text-text-muted",
+                  "hover:bg-surface hover:text-text disabled:opacity-35",
+                ].join(" ")}
+              >
+                ＋
+              </button>
+            </div>
+          </div>
+        </>
+      }
+    >
+      <div className="doc-flow min-w-0 px-5 py-5 sm:px-6" style={readerStyle}>
         <div className="prose-harness" data-layout={layout} data-font={font}>
-          <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={markdownUrlTransform}>
-            {content}
-          </Markdown>
+          <MarkdownDocument content={content} packageBasePath={packageBasePath} onOpenPackageDoc={onOpenPackageDoc} />
         </div>
       </div>
-    </section>
+    </DocumentFrame>
   );
 }

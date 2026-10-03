@@ -6,7 +6,9 @@ import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { t } from "../../i18n/index.tsx";
 import { inspectWorkspace } from "../../connection-admin-client.ts";
 import { useRepoAdminMutations } from "../../connection-data.ts";
-import { BTN, Row, Section } from "../../components/ui/widgets.tsx";
+import { Row } from "../../components/ui/widgets.tsx";
+import { Section } from "../../components/primitives/Section.tsx";
+import { Button } from "../../components/primitives/Button.tsx";
 import { RepoModeBadge } from "../../components/RepoModeBadge.tsx";
 import { guiHostBridge } from "../../gui-transport.ts";
 
@@ -108,7 +110,7 @@ export function AddLocalRepositoryPanel({
         </div>
       ) : null}
 
-      <Section title={t("views.repositories.localReposTitle")}>
+      <Section variant="panel" title={t("views.repositories.localReposTitle")}>
         {repos.length === 0 ? (
           <p className="px-3 py-2 ui-meta text-text-faint">{t("views.repositories.localReposEmpty")}</p>
         ) : (
@@ -124,12 +126,13 @@ export function AddLocalRepositoryPanel({
       </Section>
 
       <Section
+        variant="panel"
         title={t("views.repositories.addLocalTitle")}
         action={
-          <button data-testid="add-local-choose" className={BTN} onClick={() => void chooseFolder()}>
+          <Button testId="add-local-choose" onClick={() => void chooseFolder()}>
             <FolderOpen className="mr-1 inline size-3" />
             {t("views.repositories.chooseFolder")}
-          </button>
+          </Button>
         }
       >
         {mode === "idle" ? (
@@ -199,9 +202,8 @@ export function AddLocalRepositoryPanel({
               <p className="px-3 py-1 ui-micro text-text-faint">{t("views.repositories.registerExistingHint")}</p>
             )}
             <div className="flex items-center gap-2 px-3 py-2">
-              <button
-                data-testid={mode === "register" ? "add-local-register" : "add-local-bootstrap"}
-                className={BTN}
+              <Button
+                testId={mode === "register" ? "add-local-register" : "add-local-bootstrap"}
                 disabled={busy || !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId.trim())}
                 onClick={() => void (mode === "register" ? submitRegister() : submitBootstrap())}
               >
@@ -212,7 +214,7 @@ export function AddLocalRepositoryPanel({
                   : busy
                     ? t("views.repositories.bootstrapPending")
                     : t("views.repositories.bootstrapAction")}
-              </button>
+              </Button>
               <span className="ui-micro text-text-faint">
                 {mode === "register"
                   ? t("views.repositories.registerExistingHint")

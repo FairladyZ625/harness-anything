@@ -12,6 +12,7 @@ import decisionReviewResponses from "./scenarios/decision-review-responses.mjs";
 import sessionsArtifacts from "./scenarios/sessions-artifacts.mjs";
 import artifactsHtmlPreview from "./scenarios/artifacts-html-preview.mjs";
 import artifactsRawPreview from "./scenarios/artifacts-raw-preview.mjs";
+import artifactsSpreadsheetPreview from "./scenarios/artifacts-spreadsheet-preview.mjs";
 import settings from "./scenarios/settings-appearance.mjs";
 import declaredEntityKinds from "./scenarios/declared-entity-kinds.mjs";
 import systemDaemonLogs from "./scenarios/system-daemon-logs.mjs";
@@ -19,6 +20,7 @@ import sessionsGrouping from "./scenarios/sessions-grouping.mjs";
 import scheduleRunHistory from "./scenarios/schedule-run-history.mjs";
 import daemonStartupWait from "./scenarios/daemon-startup-wait.mjs";
 import cadenceView from "./scenarios/cadence-view.mjs";
+import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
 
 export const catalog = [
   shellNavigation,
@@ -34,6 +36,7 @@ export const catalog = [
   sessionsArtifacts,
   artifactsHtmlPreview,
   artifactsRawPreview,
+  artifactsSpreadsheetPreview,
   settings,
   declaredEntityKinds,
   systemDaemonLogs,
@@ -42,6 +45,7 @@ export const catalog = [
   daemonStartupWait,
   cadenceView,
   taskTimelineRecordNavigation,
+  taskCloseoutLongValues,
 ];
 
 export function selectScenarios({ lane, ids }) {

@@ -537,8 +537,8 @@ test("seed and audit dry-runs report the two-layer inventory without mutation", 
       },
       {
         schema: "preset-audit-report/v1",
-        total: 12,
-        valid: 12,
+        total: 13,
+        valid: 13,
         unavailable: 0,
         blocked: 0,
         issues: [],
@@ -555,7 +555,7 @@ test("seed and audit dry-runs report the two-layer inventory without mutation", 
     };
     assert.equal(drySeed.schema, "preset-seed-report/v1");
     assert.equal(drySeed.mode, "dry-run");
-    assert.equal(drySeed.packageCount, 12);
+    assert.equal(drySeed.packageCount, 13);
     assert.deepEqual(
       drySeed.packages.map(({ presetId }) => presetId),
       [
@@ -565,6 +565,7 @@ test("seed and audit dry-runs report the two-layer inventory without mutation", 
         "decision-conformance",
         "docs-task",
         "github-issue-repair",
+        "gui-development",
         "legacy-migration",
         "lifecycle-blackbox-acceptance",
         "standard-task",
@@ -578,8 +579,8 @@ test("seed and audit dry-runs report the two-layer inventory without mutation", 
       rootDir,
       action: { kind: "preset-seed" },
     })) as { mode: string; packageCount: number };
-    assert.deepEqual({ mode: seeded.mode, packageCount: seeded.packageCount }, { mode: "apply", packageCount: 12 });
-    assert.equal(readdirSync(path.join(userRoot, "active")).length, 12);
+    assert.deepEqual({ mode: seeded.mode, packageCount: seeded.packageCount }, { mode: "apply", packageCount: 13 });
+    assert.equal(readdirSync(path.join(userRoot, "active")).length, 13);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

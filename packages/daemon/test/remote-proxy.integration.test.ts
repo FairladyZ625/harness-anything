@@ -7,6 +7,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { runDaemonControl } from "@harness-anything/cli/internal/daemon/control";
 import { registerDaemonRepo } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
@@ -37,6 +38,8 @@ test(
         path.join(parent, "codex-stub.mjs"),
         "if (process.argv[2] === '--version') console.log('codex-stub 1.0.0');\n",
       );
+    signInPolicyTestUser(userRootA, "owner", [repoId], "admin");
+    signInPolicyTestUser(userRootB, "owner", [repoId], "admin");
     initRepo(repoRoot, repoId, uid);
     registerBootstrappedDaemonRepo({
       canonicalRoot: repoRoot,
@@ -187,6 +190,25 @@ test(
         payload: { taskId: "task_proxy_round_trip", path: "INDEX.md" },
       });
       assert.match(String(document.worktreeBody), /Proxy round trip/u);
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=",
+        "base64",
+      );
+      const artifactRoot = path.join(repoRoot, "harness", String(created.packagePath), "artifacts");
+      mkdirSync(artifactRoot, { recursive: true });
+      writeFileSync(path.join(artifactRoot, "remote-preview.png"), png);
+      const binary = await rpcA("repo.tasks.document.read", {
+        repo: { repoId },
+        payload: { taskId: "task_proxy_round_trip", path: "artifacts/remote-preview.png" },
+      });
+      assert.equal(binary.contentKind, "binary");
+      assert.equal(binary.mediaType, "image/png");
+      assert.deepEqual(
+        Buffer.from(String(binary.bytes), "base64"),
+        png,
+        "remote GUI read must preserve server-only image bytes across A to B",
+      );
+
       assert.equal((await rpcA("repo.artifacts.list", { repo: { repoId }, payload: {} })).ok, true);
       assert.equal((await rpcA("daemon.connection.probe", { endpoint: tcpB.endpoint })).ok, true);
     });

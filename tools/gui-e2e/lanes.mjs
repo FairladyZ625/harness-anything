@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import * as XLSX from "xlsx";
 import { daemonBuildStamp } from "../../packages/daemon/src/build-identity.ts";
 import {
   daemonIdFromEnv,
@@ -35,20 +36,53 @@ function writeHtmlPreviewArtifact(rootDir, packagePath) {
   );
 }
 
-// A real binary Task output. The bytes are a valid one-page PDF header/trailer with a byte
-// no UTF-8 decoder accepts, so a preview that "renders the body" produces a blank page and a
-// materialized copy made from a string is a different file than the one that was published.
+// A complete one-page PDF. The page paints a teal rectangle, allowing the GUI scenario
+// to prove actual pixels arrived through the document read path, not merely metadata.
 function writeRawArtifact(rootDir, packagePath) {
   const artifactsRoot = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
   mkdirSync(artifactsRoot, { recursive: true });
-  writeFileSync(
-    path.join(artifactsRoot, "dossier.pdf"),
-    Buffer.concat([
-      Buffer.from("%PDF-1.7\n1 0 obj<</Type/Catalog>>endobj\n"),
-      Buffer.from([0xff, 0xd8, 0x00, 0x1a, 0x80, 0xfe]),
-      Buffer.from("\ntrailer<</Root 1 0 R>>\n%%EOF\n"),
-    ]),
-  );
+  const stream = "0 0.55 0.58 rg 20 20 260 160 re f\n";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,
+  ];
+  let pdf = "%PDF-1.7\n%\xFF\xFE\n";
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(pdf, "latin1"));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(pdf, "latin1");
+  pdf += `xref\n0 5\n0000000000 65535 f \n${offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`)
+    .join("")}trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  writeFileSync(path.join(artifactsRoot, "dossier.pdf"), Buffer.from(pdf, "latin1"));
+}
+
+// A real two-sheet Chinese workbook: wide (45 columns) and tall (510 rows) on the summary
+// sheet so the spreadsheet scenario proves cell values, sheet switching and two-axis
+// internal scrolling through the same authorized daemon read path as any other artifact.
+function writeSpreadsheetArtifact(rootDir, packagePath) {
+  const artifactsRoot = path.join(rootDir, "harness", packagePath, "artifacts", "tables");
+  mkdirSync(artifactsRoot, { recursive: true });
+  const workbook = XLSX.utils.book_new();
+  const summary = XLSX.utils.aoa_to_sheet([
+    ...Array.from({ length: 510 }, (_, row) =>
+      Array.from({ length: 45 }, (_, column) => (row === 0 ? `表头${column + 1}` : `第${row + 1}行${column + 1}列`)),
+    ),
+  ]);
+  summary["M2"] = { t: "n", v: 1280, f: "1000+280" };
+  XLSX.utils.book_append_sheet(workbook, summary, "汇总");
+  const detail = XLSX.utils.aoa_to_sheet([
+    ["明细", "数量"],
+    ["甲", 3],
+    ["乙", 5],
+  ]);
+  XLSX.utils.book_append_sheet(workbook, detail, "明细");
+  writeFileSync(path.join(artifactsRoot, "inventory.xlsx"), XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }));
 }
 
 /**
@@ -111,6 +145,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
   writeTriadicLedger(fixture.rootDir);
   writeHtmlPreviewArtifact(fixture.rootDir, fixture.packagePath);
   writeRawArtifact(fixture.rootDir, fixture.packagePath);
+  writeSpreadsheetArtifact(fixture.rootDir, fixture.packagePath);
   writeDeclaredEntitySource(fixture.rootDir);
   const isolatedEnv = { ...env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
   const driver = await startDriver({

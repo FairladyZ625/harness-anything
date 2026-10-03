@@ -42,8 +42,8 @@ function parseRbacBootstrap(
 ): ThinParseResult {
   const f = readFlags("rbac-bootstrap", args.slice(1), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
-  // Registering without a version read creates the node, and Keycloak mints its credential then and
-  // only then. Refusing here keeps a credential from being minted with nowhere to put it.
+  // Registering without a version read creates the node, and the center mints its credential then
+  // and only then. Refusing here keeps a credential from being minted with nowhere to put it.
   if (
     f.one.get("--operation") === "node-register" &&
     !f.one.get("--expected-version") &&
@@ -51,7 +51,7 @@ function parseRbacBootstrap(
   )
     return rejected(
       "missing_field",
-      "A first node registration returns the node's machine credential once. Add --credential-file <path> to receive it in a new file only you can read; nothing was registered.",
+      "A first node registration writes the node's machine credential into --credential-file <path>, a new file only you can read; nothing was registered.",
       json,
     );
   const administratorFields = ["--username", "--email", "--display-name", "--person-id", "--password-file"];
@@ -380,10 +380,8 @@ function parseLedgerReconcileRouted(
 }
 
 const peopleRequiredInputs: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  "people-add": ["--person-id", "--display-name", "--role", "--command-class"],
   "people-delegate": ["--token-id", "--runtime-session-id", "--action", "--expires-at"],
   "people-revoke-delegation": ["--token-id"],
-  "people-remove": ["--person-id"],
 });
 
 function parseEntityRouted(
@@ -467,15 +465,7 @@ function parsePeople(
     const field = input.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase());
     if (!Object.hasOwn(action, field)) return rejectInput(inputs, route.id, input, json);
   }
-  if (route.id !== "people-add") return projected;
-  const credentials = [action.credentialKind, action.credentialIssuer, action.credentialSubject];
-  return credentials.some((value) => value !== undefined) && credentials.some((value) => value === undefined)
-    ? rejected(
-        "invalid_field",
-        "Credential kind, issuer, and subject must be supplied together, or all three must be omitted.",
-        json,
-      )
-    : projected;
+  return projected;
 }
 
 function parseRelationRouted(

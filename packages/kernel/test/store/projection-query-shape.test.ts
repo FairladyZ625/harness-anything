@@ -687,7 +687,7 @@ test("a projection connection prepares each statement once and reads its table s
   }
 });
 
-test("a person ref is witnessed by the people roster document it lives in", () => {
+test("retired people documents cannot witness current Person identity", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(
@@ -697,7 +697,7 @@ test("a person ref is witnessed by the people roster document it lives in", () =
     assert.deepEqual(
       refs.map((ref) => readEntityVersionWitnesses(db, refs).get(ref)?.freshness),
       ["unknown", "unknown"],
-      "without a roster no person exists",
+      "Person identity is witnessed by Keycloak, not the ledger",
     );
     const body = [
       "schema: harness-people/v1",
@@ -714,8 +714,8 @@ test("a person ref is witnessed by the people roster document it lives in", () =
     const witnesses = readEntityVersionWitnesses(db, refs);
     assert.deepEqual(witnesses.get("person/person_owner"), {
       entityRef: "person/person_owner",
-      freshness: "current",
-      currentVersion: 9,
+      freshness: "unknown",
+      currentVersion: null,
     });
     assert.equal(witnesses.get("person/person_missing")?.currentVersion, null);
   } finally {

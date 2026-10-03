@@ -178,7 +178,7 @@ test("RepoCell online evaluation uses the authenticated token and asks for the r
   assert.deepEqual(missing.reasonCodes, ["authentication_required"]);
 });
 
-test("RepoCell keeps RoleBinding authorization until its owning slice retires it; a node qualifies nobody", async () => {
+test("retired roster bindings and machine authentication confer no repository permission", async () => {
   const actor = { principal: { personId: "person-legacy" }, executor: null },
     common = {
       actor,
@@ -227,7 +227,7 @@ test("RepoCell keeps RoleBinding authorization until its owning slice retires it
       revision: 9,
       now: "2026-09-30T00:00:05.000Z",
     });
-  assert.equal(roleAllowed.outcome, "allowed");
+  assert.equal(roleAllowed.outcome, "denied");
   // Arriving through a node is where a write came from, not a reason to allow it.
   assert.equal(throughNodeOnly.outcome, "denied");
   assert.equal(noImplicitDefault.outcome, "denied");

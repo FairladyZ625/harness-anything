@@ -4,13 +4,9 @@ import {
   durablePolicyActions,
   isSameExecution,
   parseEntityRef,
-  parsePeopleRosterDocument,
-  PEOPLE_ROSTER_PATH,
   taskIsDescendantOf,
   stableStringify,
-  DEFAULT_POLICY,
   verifyDelegatedExecutionToken,
-  type ActorIdentity,
   type AuthorizationDecision,
   type AuthorizationResource,
   type DelegatedExecutionToken,
@@ -22,7 +18,7 @@ import {
   type ReceiptDiagnostic,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { declaredRoleBindingsFromRoster } from "./identity/declared-role-binding-projection.ts";
+import type { ExecutionDelegationRecord } from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
 import { KeycloakPolicyAdapter, type KeycloakPermissionDecision } from "./keycloak-policy-adapter.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -47,29 +43,12 @@ export async function evaluateRepoCellAction(input: {
       actor: input.binding.actor,
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     });
-  const admitted = input.binding.authorizationDecision;
-  if (keycloakAllowsAction(admitted, input.action.kind, envelope.actor)) {
-    const token = input.binding.delegatedExecutionToken;
-    return token
-      ? {
-          ...admitted,
-          actor: envelope.actor,
-          subject: envelope.target,
-          bindingsUsed: [
-            ...admitted.bindingsUsed,
-            {
-              proof: "delegated-execution-token",
-              tokenId: token.tokenId,
-              issuerPersonId: token.issuer.personId,
-              runtimeSessionId: token.delegate.runtimeSessionId,
-            },
-          ],
-          evaluatedAtCut: `canonical:${input.revision}`,
-        }
-      : admitted;
-  }
   const credential = input.binding.keycloakAuthorization;
-  if (!credential) return authorizeDurableRepoCellAction(input);
+  if (!credential)
+    return authorizeDurableRepoCellAction({
+      ...input,
+      binding: { ...input.binding, authorizationDecision: undefined },
+    });
   const result = await evaluateKeycloakPerson({
     credential,
     personId: envelope.actor.principal.personId,
@@ -80,7 +59,22 @@ export async function evaluateRepoCellAction(input: {
         : { kind: "entity", repoId: input.repoId, entityRef: target },
     fetchPort: input.fetchPort,
   });
-  return keycloakDecision(envelope, `canonical:${input.revision}`, result.outcome, result.reasonCode);
+  const decision = keycloakDecision(envelope, `canonical:${input.revision}`, result.outcome, result.reasonCode),
+    token = input.binding.delegatedExecutionToken;
+  return token
+    ? {
+        ...decision,
+        bindingsUsed: [
+          ...decision.bindingsUsed,
+          {
+            proof: "delegated-execution-token",
+            tokenId: token.tokenId,
+            issuerPersonId: token.issuer.personId,
+            runtimeSessionId: token.delegate.runtimeSessionId,
+          },
+        ],
+      }
+    : decision;
 }
 
 /**
@@ -130,48 +124,10 @@ export function authorizeRepoCellAction(input: {
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     }),
     decision = input.binding.authorizationDecision;
-  if (keycloakAllowsAction(decision, input.action.kind, envelope.actor)) return decision;
-  if (input.binding.keycloakAuthorization)
-    return keycloakDecision(envelope, `canonical:${input.revision}`, "denied", "keycloak_denied");
-  return legacyBindingDecision(envelope, input.binding, target, input.now, `canonical:${input.revision}`);
-}
-
-/** An admitted decision speaks for the person it was evaluated for and for no one else. */
-function keycloakAllowsAction(
-  decision: AuthorizationDecision | undefined,
-  action: string,
-  actor: ActorIdentity,
-): decision is AuthorizationDecision {
-  return (
-    decision?.policyRef === "keycloak-policy@1" &&
-    decision.outcome === "allowed" &&
-    decision.actor.principal.personId === actor.principal.personId &&
-    decision.bindingsUsed.some((binding) => binding.scope === action)
-  );
-}
-
-function legacyBindingDecision(
-  action: ReturnType<typeof composeDurableActionEnvelope>,
-  binding: RepoCellBinding,
-  target: EntityRef,
-  now: string,
-  evaluatedAtCut: string,
-): AuthorizationDecision {
-  const decision = authorizeAction(
-    { ...action, authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}` },
-    {
-      roleBindings: binding.roleBindings,
-      roleBindingTargets: [target, repositoryTarget],
-      evaluatedAt: now,
-      delegatedExecutionToken: binding.delegatedExecutionToken,
-      writeSource: binding.source,
-      target: {},
-      evaluatedAtCut,
-    },
-  );
-  return !binding.roleBindings?.length && !binding.delegatedExecutionToken
-    ? { ...decision, reasonCodes: ["authentication_required"] }
-    : decision;
+  return authorizeAction(envelope, {
+    decision,
+    evaluatedAtCut: `canonical:${input.revision}`,
+  });
 }
 
 export function keycloakDecision(
@@ -307,11 +263,7 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "migrate-import":
       return authorizeRepoCellAction(input);
-    case "people-add":
-      return authorizeRepoCellAction(input);
     case "people-delegate":
-      return authorizeRepoCellAction(input);
-    case "people-remove":
       return authorizeRepoCellAction(input);
     case "people-revoke-delegation":
       return authorizeRepoCellAction(input);
@@ -476,6 +428,7 @@ export function bindVerifiedExecutorClaim(input: {
     "read" | "readRuntimeSession" | "readRuntimeDispatch" | "currentLease" | "readDocument"
   >;
   readonly now: string;
+  readonly executionDelegations?: readonly ExecutionDelegationRecord[];
 }): { readonly action: RepoTaskAction; readonly binding: RepoCellBinding } {
   if (!Object.hasOwn(input.action, "executor")) return { action: input.action, binding: input.binding };
   const { executor: raw, ...action } = input.action;
@@ -488,9 +441,6 @@ export function bindVerifiedExecutorClaim(input: {
       Object.keys(raw).some((field) => field !== "kind" && field !== "id")
     )
       throw invalidExecutorBindingFor(input, raw, "Executor claims must use a valid agent id.");
-    // Host-derived bindings always declare how authorization was projected. A binding without
-    // that marker is the legacy direct RepoCell API, where action.executor was never authoritative.
-    if (input.binding.authorizationBindingMode === undefined) return { action, binding: input.binding };
     const claimedActor = {
         principal: input.binding.actor.principal,
         executor: { kind: "agent" as const, id: raw.id },
@@ -624,24 +574,20 @@ interface DelegationFailure {
   readonly reasonCode: DelegatedExecutionTokenReasonCode;
 }
 
-/**
- * Resolves one session-scoped DelegatedExecutionToken from the writer-cut People document. A valid token
- * rewrites the binding to the issuer-projected actor; otherwise the returned expectation states which
- * delegation condition failed so the rejected session knows whom to ask for what. A workspace without a
- * readable People document has no delegation route at all, so its expectation stays null and the legacy
- * executor-binding diagnostics keep their original wording.
- */
+/** Resolve only records from the center private store at the current writer turn. */
 function resolveDelegatedExecution(
   input: Parameters<typeof bindVerifiedExecutorClaim>[0],
   runtimeSessionId: string,
   actionKind: string,
 ): DelegatedExecutionResolution {
-  const body = input.projection.readDocument(PEOPLE_ROSTER_PATH).document?.body ?? null;
-  if (body === null) return { binding: null, expectation: null };
-  const roster = parsePeopleRosterDocument(body),
-    candidates = roster.delegatedExecutionTokens.filter(
-      (candidate) => candidate.delegate.runtimeSessionId === runtimeSessionId,
-    );
+  const candidates = (input.executionDelegations ?? [])
+    .filter(
+      (record) =>
+        stableStringify(record.source) === stableStringify(input.binding.source) &&
+        record.token.issuer.personId === input.binding.actor.principal.personId &&
+        record.token.delegate.runtimeSessionId === runtimeSessionId,
+    )
+    .map((record) => record.token);
   if (candidates.length === 0)
     return { binding: null, expectation: delegationAbsenceExpectation(runtimeSessionId, actionKind) };
   let failure: DelegationFailure | null = null;
@@ -657,7 +603,6 @@ function resolveDelegatedExecution(
           ...input.binding,
           actor,
           delegatedExecutionToken: token,
-          roleBindings: declaredRoleBindingsFromRoster(roster, actor, input.now),
         },
         expectation: null,
       };

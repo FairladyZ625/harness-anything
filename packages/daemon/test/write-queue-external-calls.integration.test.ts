@@ -8,16 +8,16 @@ import { makeTaskEventReader } from "@harness-anything/kernel";
 import { credentialPort, runCredentialCommand } from "../src/agent-runtime-credential-port.ts";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 // Each test injects one external command that never answers until the test releases it (or deletes its
 // directory), then proves an unrelated write to the same repository is still accepted.
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
   { actor: { principal: { personId: "person-write-queue" }, executor: null }, source: "local" as const },
-  "repo-write",
+  "contributor",
 );
 
 async function waitForFile(file: string): Promise<void> {

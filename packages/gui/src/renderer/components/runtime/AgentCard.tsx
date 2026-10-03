@@ -1,3 +1,5 @@
+import { SegCtl } from "../primitives/SegCtl.tsx";
+import { Button } from "../primitives/Button.tsx";
 import { useEffect, useState } from "react";
 import { Eye } from "@phosphor-icons/react";
 import type { AgentDeclarationV1 } from "@harness-anything/daemon/protocol";
@@ -15,25 +17,11 @@ import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
 import { ActionError } from "./ActionError.tsx";
 import { SkillEditorModal, type ViewingSkill } from "./SkillEditorModal.tsx";
-import {
-  AddChip,
-  Avatar,
-  Badge,
-  Btn,
-  Card,
-  Chip,
-  ChipZone,
-  Crumbs,
-  CrumbSep,
-  Empty,
-  Hint,
-  KindDot,
-  LiveDot,
-  RoleTag,
-  Sect,
-  SegCtl,
-  TextInput,
-} from "./parts.tsx";
+import { AddChip, Avatar, Card, ChipZone, Crumbs, CrumbSep, Hint, KindDot, LiveDot, Sect } from "./parts.tsx";
+import { Chip } from "../primitives/Chip.tsx";
+import { TextInput } from "../primitives/TextInput.tsx";
+import { Empty } from "../primitives/Empty.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 
 export type AgentDraft = {
   readonly name: string;
@@ -225,7 +213,14 @@ export function AgentCard({
                 title={detail.id}
                 className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
               />
-              {row && <Badge tip={t("agentRuntime.layerTip", { layer: row.layer })}>{row.layer}</Badge>}
+              {row && (
+                <StatusTag
+                  tone="neutral"
+                  mono
+                  tip={t("agentRuntime.layerTip", { layer: row.layer })}
+                  label={row.layer}
+                />
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <SegCtl
@@ -257,9 +252,11 @@ export function AgentCard({
               {referencing.map((squad) => (
                 <Chip key={squad.id} tone="link" onClick={() => onSelectSquad(squad.id)}>
                   {squad.name}
-                  <RoleTag>
-                    {squad.leader === detail.id ? t("agentRuntime.roleCommander") : t("agentRuntime.roleWorker")}
-                  </RoleTag>
+                  <StatusTag
+                    tone="neutral"
+                    mono
+                    label={squad.leader === detail.id ? t("agentRuntime.roleCommander") : t("agentRuntime.roleWorker")}
+                  />
                 </Chip>
               ))}
             </div>
@@ -316,7 +313,7 @@ export function AgentCard({
               placeholder={t("agentRuntime.skillSearchPlaceholder")}
             />
             {skillSearch.trim() && (
-              <div className="max-h-36 overflow-y-auto rounded border border-border bg-surface p-1">
+              <div className="bounded-content overflow-y-auto rounded border border-border bg-surface p-1">
                 {filteredSkills.length ? (
                   filteredSkills.map((skill) => (
                     <div
@@ -332,7 +329,7 @@ export function AgentCard({
                         className="flex min-w-0 flex-1 items-center gap-2 text-left"
                       >
                         <b className="font-mono ui-micro">{skill.id}</b>
-                        <Badge>{skill.source}</Badge>
+                        <StatusTag tone="neutral" mono label={skill.source} />
                         <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{skill.path}</span>
                       </button>
                       <button
@@ -373,7 +370,7 @@ export function AgentCard({
             <Hint>{t("agentRuntime.presetHint")}</Hint>
           </div>
           {presetSearch.trim() && (
-            <div className="mt-1.5 max-h-36 overflow-y-auto rounded border border-border bg-surface p-1">
+            <div className="mt-1.5 bounded-content overflow-y-auto rounded border border-border bg-surface p-1">
               {filteredPresets.length ? (
                 filteredPresets.map((preset) => (
                   <button
@@ -422,7 +419,7 @@ export function AgentCard({
                   }
                   className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-px font-mono ui-micro text-text outline-none focus-visible:border-accent"
                 />
-                <Btn
+                <Button
                   size="sm"
                   variant="ghost"
                   disabled={index === 0}
@@ -430,8 +427,8 @@ export function AgentCard({
                   tip={t("agentRuntime.moveUp")}
                 >
                   ↑
-                </Btn>
-                <Btn
+                </Button>
+                <Button
                   size="sm"
                   variant="ghost"
                   disabled={index === draft.prompts.length - 1}
@@ -439,18 +436,18 @@ export function AgentCard({
                   tip={t("agentRuntime.moveDown")}
                 >
                   ↓
-                </Btn>
-                <Btn size="sm" variant="primary" disabled={!prompt.trim()} onClick={() => onDispatch(prompt)}>
+                </Button>
+                <Button size="sm" variant="primary" disabled={!prompt.trim()} onClick={() => onDispatch(prompt)}>
                   {t("agentRuntime.dispatchWithPrompt")}
-                </Btn>
-                <Btn
+                </Button>
+                <Button
                   size="sm"
                   variant="ghost"
                   onClick={() => patch({ prompts: draft.prompts.filter((_, position) => position !== index) })}
                   tip={t("agentRuntime.remove")}
                 >
                   ✕
-                </Btn>
+                </Button>
               </div>
             ))
           ) : (
@@ -534,9 +531,9 @@ export function AgentCard({
               />
             ) : null}
             <Hint>{t("agentRuntime.compatibleCount", { count: compatible.length })}</Hint>
-            <Btn size="sm" variant="ghost" onClick={() => setRuntimeListOpen(!runtimeListOpen)}>
+            <Button size="sm" variant="ghost" onClick={() => setRuntimeListOpen(!runtimeListOpen)}>
               {t(runtimeListOpen ? "agentRuntime.collapse" : "agentRuntime.expand")}
-            </Btn>
+            </Button>
           </div>
           {runtimeListOpen && (
             <div className="mt-2 rounded border border-border px-2 py-1.5">
@@ -564,19 +561,19 @@ export function AgentCard({
 
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
-            <Btn variant="primary" testId={`dispatch-entry-${detail.id}`} onClick={() => onDispatch("")}>
+            <Button variant="primary" testId={`dispatch-entry-${detail.id}`} onClick={() => onDispatch("")}>
               {t("agentRuntime.dispatch")}
-            </Btn>
+            </Button>
             <Hint>{t("agentRuntime.dispatchHint")}</Hint>
             <span className="flex-1" />
-            <Btn
+            <Button
               variant="primary"
               testId="agent-save"
               disabled={busy || !dirty || !draft.name.trim() || !draft.instructions.trim()}
               onClick={() => onSave(agentDeclarationFrom(detail.id, draft))}
             >
               {t(dirty ? "agentRuntime.saveDeclaration" : "agentRuntime.saved")}
-            </Btn>
+            </Button>
           </div>
           {actionError ? <ActionError>{actionError}</ActionError> : null}
         </Sect>

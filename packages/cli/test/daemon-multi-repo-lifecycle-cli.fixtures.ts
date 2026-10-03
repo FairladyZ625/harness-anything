@@ -1,3 +1,6 @@
+import { after } from "node:test";
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -11,24 +14,37 @@ import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 export const cli = path.resolve("packages/cli/src/index.ts");
 export const builtCli = path.resolve("packages/cli/dist/cli/src/index.js");
 
-export function setup(): {
+const realm = await spawnKeycloak();
+after(() => realm.close());
+const scopes = effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin");
+await realm.control({ op: "account", personId: "owner" });
+
+async function authorize(userRoot: string, repoIds: readonly string[]): Promise<void> {
+  realm.bind(userRoot);
+  signInAt(userRoot, "owner");
+  for (const resource of repoIds) await realm.control({ op: "permit", personId: "owner", resource, actions: scopes });
+}
+
+export async function setup(): Promise<{
   root: string;
   userRoot: string;
   alpha: string;
   beta: string;
-} {
+}> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-"));
   const alpha = path.join(root, "alpha"),
     beta = path.join(root, "beta"),
     userRoot = path.join(root, "user");
   for (const repo of [alpha, beta]) initialize(repo);
+  await authorize(userRoot, ["alpha", "beta"]);
   return { root, userRoot, alpha, beta };
 }
-export function setupEmpty(): { root: string; userRoot: string; repo: string } {
+export async function setupEmpty(repoId = "fresh"): Promise<{ root: string; userRoot: string; repo: string }> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-init-"));
   const repo = path.join(root, "repo"),
     userRoot = path.join(root, "user");
   mkdirSync(repo);
+  await authorize(userRoot, [repoId]);
   return { root, userRoot, repo };
 }
 export function makeCanary(
@@ -112,6 +128,7 @@ export function median(values: readonly number[]): number {
 }
 
 export async function register(root: string, userRoot: string, repoId: string, entry = cli): Promise<void> {
+  await authorize(userRoot, [repoId]);
   const stateRoot = path.join(userRoot, "fleet"),
     authority = openPersistentWriterEpoch({ stateRoot, holderId: "cli-fixture" });
   // The seed store holds this process's ledger connection open until drained; Windows teardown

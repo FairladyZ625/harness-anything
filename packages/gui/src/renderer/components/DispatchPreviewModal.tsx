@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { AgentDispatchPreview } from "../runtime-control.ts";
 import { t } from "../i18n/index.tsx";
-import { Btn, Modal } from "./runtime/parts.tsx";
+import { Modal } from "./primitives/Modal.tsx";
+import { Button } from "./primitives/Button.tsx";
 
 // Read-only rendering of an agent-dispatch-preview/v1 receipt: the mission as authored and
 // the full prompt the daemon would inject at this dispatch's launch boundary. The renderer
@@ -27,13 +28,13 @@ export function DispatchPreviewModal({
       onClose={onClose}
       footer={
         <div className="flex items-center gap-2">
-          <Btn testId="dispatch-preview-copy" onClick={() => void copy()}>
+          <Button testId="dispatch-preview-copy" onClick={() => void copy()}>
             {t(copied ? "agentRuntime.previewCopied" : "agentRuntime.previewCopy")}
-          </Btn>
+          </Button>
           <span className="flex-1" />
-          <Btn variant="primary" onClick={onClose}>
+          <Button variant="primary" onClick={onClose}>
             {t("agentRuntime.previewClose")}
-          </Btn>
+          </Button>
         </div>
       }
     >
@@ -54,7 +55,7 @@ export function DispatchPreviewModal({
         </b>
         <p
           data-testid="dispatch-preview-prompt"
-          className="mt-1 max-h-[50dvh] [overflow-wrap:anywhere] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-surface px-2 py-1.5 font-mono ui-micro text-text"
+          className="mt-1 bounded-content [overflow-wrap:anywhere] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-surface px-2 py-1.5 font-mono ui-micro text-text"
         >
           {preview.prompt}
         </p>

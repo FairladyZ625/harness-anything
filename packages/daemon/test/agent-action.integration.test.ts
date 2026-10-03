@@ -4,18 +4,18 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { compileEntityUpsert, makeTaskEventReader, openSqliteEventStore, sha256Bytes } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
   {
     actor: { principal: { personId: "person-agent-action" }, executor: null },
     source: "local" as const,
   },
-  "repo-write",
+  "contributor",
 );
 // A remote edge with no role binding: neither a declared repo-write role nor the local default binding holds
 // for it, so the policy is the only thing standing between this caller and a durable delete.
@@ -25,7 +25,7 @@ const unauthorized = {
     executor: { kind: "agent" as const, id: "agent-action-reader-edge" },
   },
   source: "remote_direct" as const,
-  roleBindings: [],
+  keycloakAuthorization: undefined,
 };
 const declaration = {
   schema: "agent-declaration/v1",
@@ -255,7 +255,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
       refusedSquad = await cell.run(deleteSquad, unauthorized);
     assert.equal(refusedSquad.outcome, "op_rejected", JSON.stringify(refusedSquad));
     assert.equal(refusedSquad.authorizationDecision?.outcome, "denied", JSON.stringify(refusedSquad));
-    assert.equal(refusedSquad.authorizationDecision?.policyRef, "default@5");
+    assert.equal(refusedSquad.authorizationDecision?.policyRef, "keycloak-policy@1");
     const deletedSquad = await cell.run(deleteSquad, binding);
     assert.equal(deletedSquad.outcome, "applied", JSON.stringify(deletedSquad));
     assert.deepEqual(deletedSquad.effects, ["entity-event/entity_deleted"]);
@@ -273,7 +273,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
       refusedAgent = await cell.run(deleteAgent, unauthorized);
     assert.equal(refusedAgent.outcome, "op_rejected", JSON.stringify(refusedAgent));
     assert.equal(refusedAgent.authorizationDecision?.outcome, "denied", JSON.stringify(refusedAgent));
-    assert.equal(refusedAgent.authorizationDecision?.policyRef, "default@5");
+    assert.equal(refusedAgent.authorizationDecision?.policyRef, "keycloak-policy@1");
     const deleted = await cell.run(deleteAgent, binding);
     assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
     assert.deepEqual(deleted.effects, ["entity-event/entity_deleted"]);
@@ -457,7 +457,7 @@ test("RepoCell fixtures preserve an unnamed local caller's missing authority", a
     reader = makeTaskEventReader({ repoId, rootDir });
   try {
     const local = { actor: binding.actor, source: "local" as const };
-    for (const caller of [local, { ...local, roleBindings: [] }]) {
+    for (const caller of [local, { ...local, keycloakAuthorization: undefined }]) {
       const denied = await cell.run({ kind: "agent-install", declaration }, caller);
       assert.equal(denied.code, "authorization_denied", JSON.stringify(denied));
       assert.equal(denied.authorizationDecision?.outcome, "denied");

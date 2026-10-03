@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -52,13 +52,13 @@ test("task create rejects ids that cannot form task entity references", async (t
   t.after(() => cell.close());
   const rejected = await cell.run(
     { kind: "task-create", taskId: "t0", title: "Invalid id" },
-    withRoleBinding({ actor, source: "local" }, "owner"),
+    withPolicyGroup({ actor, source: "local" }, "admin"),
   );
   assert.equal(rejected.outcome, "op_rejected");
   assert.equal(rejected.code, "invalid_field");
   const accepted = await cell.run(
     { kind: "task-create", taskId: "task-t0", title: "Valid id" },
-    withRoleBinding({ actor, source: "local" }, "owner"),
+    withPolicyGroup({ actor, source: "local" }, "admin"),
   );
   assert.equal(accepted.outcome, "applied");
   // Bench F7: the same admission guard covers every lifecycle identity, not only task create.
@@ -80,7 +80,7 @@ test("task create rejects ids that cannot form task entity references", async (t
           claims: [{ id: "C1", text: "It is needed", loadBearing: false }],
         }),
       },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     ),
     decisionId = (JSON.parse(String(proposed.evidence)) as { readonly decisionId: string }).decisionId;
   for (const action of [
@@ -88,10 +88,10 @@ test("task create rejects ids that cannot form task entity references", async (t
     { kind: "task-start", commandType: "StartExecution", taskId: "task-t0", executionId: "exec.1" },
     { kind: "task-review-execution", commandType: "RecordReview", taskId: "task-t0", reviewId: "review.1" },
   ]) {
-    const refused = await cell.run(action, withRoleBinding({ actor, source: "local" }, "owner"));
+    const refused = await cell.run(action, withPolicyGroup({ actor, source: "local" }, "admin"));
     assert.deepEqual([refused.outcome, refused.code], ["op_rejected", "invalid_field"], JSON.stringify(refused));
   }
-  const listed = await cell.run({ kind: "task-list" }, withRoleBinding({ actor, source: "local" }, "owner"));
+  const listed = await cell.run({ kind: "task-list" }, withPolicyGroup({ actor, source: "local" }, "admin"));
   assert.match(String(listed.evidence), /task-t0/u);
 });
 
@@ -106,7 +106,7 @@ test("task create publishes complete metadata and first-class relations survive 
       ownerId: "task-surface-create",
       now: () => "2026-08-15T00:00:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     assert.equal(
       (
         await cell.run(
@@ -210,7 +210,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
       ownerId: "task-lifecycle-surface",
       now: () => "2026-08-15T01:00:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     for (const [taskId, title] of [
       ["task_lifecycle", "Lifecycle"],
       ["task_replacement", "Replacement"],
@@ -331,9 +331,9 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
         evidence: [],
         asOwner: true,
       },
-      withRoleBinding(
+      withPolicyGroup(
         { actor: { principal: { personId: "person-outsider" }, executor: null }, source: "local" as const },
-        "owner",
+        "admin",
       ),
     );
     assert.equal(outsiderBackfill.outcome, "op_rejected");
@@ -583,7 +583,7 @@ test("a lifecycle rejection bound to a declared criterion reports the guard's ow
   t.after(() => cell.close());
   await cell.run(
     { kind: "task-create", taskId: "task-reason", title: "Reason" },
-    withRoleBinding({ actor, source: "local" }, "owner"),
+    withPolicyGroup({ actor, source: "local" }, "admin"),
   );
   const refused = await cell.run(
     {
@@ -593,7 +593,7 @@ test("a lifecycle rejection bound to a declared criterion reports the guard's ow
       reviewId: "review-reason",
       jsonInput: JSON.stringify({ verdict: "approved", reason: "Looks done.", evidenceChecked: ["read"] }),
     },
-    withRoleBinding({ actor, source: "local" }, "owner"),
+    withPolicyGroup({ actor, source: "local" }, "admin"),
   );
   assert.equal(refused.unmetCriteria?.[0]?.ref, "task-lifecycle-review-transitions/review.validate");
   assert.match(String(refused.rejectionExplanation), /Current submitted execution candidates: none/u);
@@ -611,7 +611,7 @@ test("cancellation and reinstatement are audited and terminal tasks require supe
       ownerId: "task-terminal-surface",
       now: () => "2026-08-15T02:00:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     await cell.run(
       {
         kind: "task-create",
@@ -757,7 +757,7 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
       ownerId: "task-status-replay",
       now: () => "2026-08-15T02:15:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     assert.equal(
       (
         await cell.run(
@@ -864,7 +864,7 @@ test("batch archive preflights every selected task before publishing any event",
       ownerId: "task-archive-preflight",
       now: () => "2026-08-15T02:30:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     await cell.run(
       {
         kind: "task-create",
@@ -951,7 +951,7 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
         mode: "dry-run",
         taskId: "task_legacy_l1",
       },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     );
     assert.equal(receipt.outcome, "pending");
     assert.equal(receipt.acceptance, null);
@@ -978,7 +978,7 @@ test("task amend refuses to retitle a plan with unsynced local edits, then retit
       ownerId: "task-amend-prose",
       now: () => "2026-09-22T00:00:00.000Z",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     const created = await cell.run(
       { kind: "task-create", taskId: "task_amendprose", title: "Delete the module", profileId: "baseline" },
       binding,
@@ -1036,7 +1036,7 @@ async function waitForWorktree(cell: Awaited<ReturnType<typeof openRepoCell>>, r
       waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
       timeoutMs: 5_000,
     },
-    withRoleBinding({ actor, source: "local" }, "owner"),
+    withPolicyGroup({ actor, source: "local" }, "admin"),
   );
   assert.equal(shown.status, "accepted_durable", JSON.stringify(shown));
   assert.equal(shown.wait?.state, "satisfied", JSON.stringify(shown));

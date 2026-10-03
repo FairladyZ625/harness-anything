@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import {
   lstatSync,
@@ -18,13 +18,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "@harness-anything/kernel";
-import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, openFencedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 import {
   actor,
-  bootstrapPerson,
   bootstrapRoster,
   coverageCompleteFixture,
   git,
@@ -63,7 +61,7 @@ import {
       });
       const result = (await cell.run(
         { kind: "migrate-import", sourceRoots: sources(source) },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       )) as Record<string, unknown>;
       assert.equal(result.exitCode, 1, JSON.stringify(result));
       assert.equal(result.outcome, "op_rejected");
@@ -81,7 +79,7 @@ import {
             resolutions: resolution,
             dryRun: true,
           },
-          withRoleBinding({ actor, source: "local" }, "owner"),
+          withPolicyGroup({ actor, source: "local" }, "admin"),
         )) as Record<string, unknown>;
       assert.equal(preview.exitCode, 0, JSON.stringify(preview));
       assert.equal(preview.outcome, "pending");
@@ -105,10 +103,10 @@ import {
           sourceRoots: sources(source),
           resolutions: resolution,
         },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       )) as Record<string, unknown>;
       assert.equal(applied.exitCode, 0, JSON.stringify(applied));
-      await waitForFixturePublication(cell, String(applied.opId), withRoleBinding({ actor, source: "local" }, "owner"));
+      await waitForFixturePublication(cell, String(applied.opId), withPolicyGroup({ actor, source: "local" }, "admin"));
       assert.equal(readFileSync(target, "utf8"), sourceBody);
       assert.equal(
         readdirSync(path.dirname(target)).some((name) => name.includes(".conflict-")),
@@ -164,10 +162,10 @@ import {
           sourceRoots: sources(source),
           resolutions: ["harness/field-notes/2024/xyz.md=destination"],
         },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       )) as Record<string, unknown>;
       assert.equal(result.exitCode, 0, JSON.stringify(result));
-      await waitForFixturePublication(cell, String(result.opId), withRoleBinding({ actor, source: "local" }, "owner"));
+      await waitForFixturePublication(cell, String(result.opId), withPolicyGroup({ actor, source: "local" }, "admin"));
       assert.equal(readFileSync(target, "utf8"), destinationBody);
       assert.match(
         String(result.summary),
@@ -224,13 +222,13 @@ import {
             sourceRoots: sources(source),
             resolutions: ["harness/field-notes/latest.md=source"],
           },
-          withRoleBinding({ actor, source: "local" }, "owner"),
+          withPolicyGroup({ actor, source: "local" }, "admin"),
         )) as Record<string, unknown>;
         assert.equal(result.exitCode, 0, JSON.stringify(result));
         await waitForFixturePublication(
           cell,
           String(result.opId),
-          withRoleBinding({ actor, source: "local" }, "owner"),
+          withPolicyGroup({ actor, source: "local" }, "admin"),
         );
         assert.equal(readlinkSync(target), sourceTarget);
         assert.equal(
@@ -295,13 +293,13 @@ import {
             sourceRoots: sources(source),
             resolutions: ["harness/field-notes/2024/xyz.md=source"],
           },
-          withRoleBinding({ actor, source: "local" }, "owner"),
+          withPolicyGroup({ actor, source: "local" }, "admin"),
         )) as Record<string, unknown>;
         assert.equal(result.exitCode, 0, JSON.stringify(result));
         await waitForFixturePublication(
           cell,
           String(result.opId),
-          withRoleBinding({ actor, source: "local" }, "owner"),
+          withPolicyGroup({ actor, source: "local" }, "admin"),
         );
         assert.equal(lstatSync(target).isFile(), true);
         assert.equal(
@@ -345,7 +343,7 @@ import {
           resolutions: ["harness/field-notes/2024/xyz.md=source"],
           dryRun: true,
         },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       )) as Record<string, unknown>;
       assert.equal(unsupported.outcome, "op_rejected");
       assert.equal(unsupported.code, "invalid_migration_resolution");
@@ -357,7 +355,7 @@ import {
           resolutions: ["harness/field-notes/2024/xyz.md=destination"],
           dryRun: true,
         },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       )) as Record<string, unknown>;
       assert.equal(kept.exitCode, 0, JSON.stringify(kept));
       assert.match(String(kept.summary), /resolved: destination[\s\S]*destination kind=directory/u);
@@ -390,7 +388,7 @@ import {
             resolutions,
             dryRun: true,
           },
-          withRoleBinding({ actor, source: "local" }, "owner"),
+          withPolicyGroup({ actor, source: "local" }, "admin"),
         );
       for (const values of [
         ["../outside.md=source"],
@@ -436,7 +434,7 @@ import {
       });
       const required = (await cell.run(
         { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       )) as Record<string, unknown>;
       assert.match(String(required.summary), /referenced CAS blob.*missing/u);
       const rejected = (await cell.run(
@@ -446,7 +444,7 @@ import {
           resolutions: [`harness/${relative}=source`],
           dryRun: true,
         },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       )) as Record<string, unknown>;
       assert.equal(rejected.outcome, "op_rejected");
       assert.equal(rejected.code, "invalid_migration_resolution");
@@ -462,8 +460,8 @@ import {
 // repo-cell fixture.
 {
   const openRepoCell = openBootstrappedRepoCell;
-  test("a destination roster and a source roster both survive the migration without an operator decision", async () => {
-    const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-union-")),
+  test("migration excludes retired people authority and preserves destination audit bytes", async () => {
+    const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-retired-")),
       source = path.join(scratch, "legacy"),
       destination = path.join(scratch, "new");
     let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -471,146 +469,35 @@ import {
       unfamiliarDocumentFixture(source);
       writeFileSync(path.join(source, "harness/people.yaml"), legacyRoster);
       initRepo(destination);
-      cell = await openRepoCell({
-        repoId: workspaceId("migration-people-union"),
-        rootDir: canonicalRoot(destination),
-        ownerId: "migration-daemon",
-        now: () => "2026-06-01T00:00:00.000Z",
-      });
-      const result = (await cell.run(
-        { kind: "migrate-import", sourceRoots: sources(source) },
-        withRoleBinding({ actor, source: "local" }, "owner"),
-      )) as Record<string, unknown>;
-      assert.equal(result.exitCode, 0, JSON.stringify(result));
-      assert.equal(result.outcome, "applied");
-      await cell.settlePendingMaterialization("inspect imported roster");
-      assert.match(
-        String(result.summary),
-        /\| people-registry \| migrated \| 1 \| PASS \| unioned both rosters into the destination: 2 people \(1 carried from the source: person_dingwen, 1 enriched in place: person_zeyu\), 1 roles \(0 carried from the source\) \|/u,
-      );
-      const roster = peopleRosterFromDocument(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"));
-      assert.deepEqual(
-        roster.people.map(({ personId }) => personId),
-        ["person_zeyu", "person_dingwen"],
-      );
-      assert.equal(roster.people[0]!.primaryEmail, "lizeyu990625@gmail.com");
-      assert.deepEqual([...roster.people[0]!.credentials], [...bootstrapPerson.credentials]);
-      await cell.close();
-      cell = undefined;
-      const event = makeTaskEventReader({
-        repoId: "migration-people-union",
-        rootDir: destination,
-      })
-        .read()
-        .events.find((candidate) => candidate.schema === "people-event/v1")!;
-      assert.equal(event.schema, "people-event/v1");
-      if (event.schema === "people-event/v1") {
-        assert.equal(event.payload.action, "people-reconcile");
-        assert.equal(event.payload.baseDocumentSha256, sha256Text(bootstrapRoster()));
-      }
-    } finally {
-      await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
-    }
-  });
-
-  test("a roster the destination already covers is reported as covered rather than rewritten", async () => {
-    const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-covered-")),
-      source = path.join(scratch, "legacy"),
-      destination = path.join(scratch, "new");
-    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-    try {
-      unfamiliarDocumentFixture(source);
-      writeFileSync(path.join(source, "harness/people.yaml"), legacyRoster.replace(/^ +primaryEmail:.*\n/mu, ""));
-      initRepo(
-        destination,
-        bootstrapRoster([
-          bootstrapPerson,
-          {
-            personId: "person_dingwen",
-            displayName: "Dingwen",
-            roles: ["owner"],
-            credentials: [
-              {
-                kind: "email-address",
-                issuer: "example.invalid",
-                subject: "dingwen@example.invalid",
-              },
-            ],
-          },
-        ]),
-      );
       const before = readFileSync(path.join(destination, "harness/people.yaml"), "utf8");
       cell = await openRepoCell({
-        repoId: workspaceId("migration-people-covered"),
+        repoId: workspaceId("migration-people-retired"),
         rootDir: canonicalRoot(destination),
         ownerId: "migration-daemon",
         now: () => "2026-06-01T00:00:00.000Z",
       });
-      const result = (await cell.run(
+      const result = await cell.run(
         { kind: "migrate-import", sourceRoots: sources(source) },
-        withRoleBinding({ actor, source: "local" }, "owner"),
-      )) as Record<string, unknown>;
-      assert.equal(result.exitCode, 0, JSON.stringify(result));
-      assert.match(
-        String(result.summary),
-        /\| people-registry \| excluded \| 1 \| PASS \| the destination roster already contains every source entry/u,
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       );
+      assert.equal(result.outcome, "applied", JSON.stringify(result));
+      await cell.settlePendingMaterialization("inspect retired authority exclusion");
       assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), before);
+      const events = makeTaskEventReader({ repoId: "migration-people-retired", rootDir: destination }).read().events;
       assert.equal(
-        makeTaskEventReader({
-          repoId: "migration-people-covered",
-          rootDir: destination,
-        })
-          .read()
-          .events.some((event) => event.schema === "people-event/v1"),
+        events.some((event) => event.schema === "people-event/v1"),
         false,
       );
-    } finally {
-      await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
-    }
-  });
-
-  test("rosters that genuinely contradict still stop, name the contradiction, and keep the explicit resolution", async () => {
-    const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-contradiction-")),
-      source = path.join(scratch, "legacy"),
-      destination = path.join(scratch, "new");
-    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-    try {
-      unfamiliarDocumentFixture(source);
-      writeFileSync(
-        path.join(source, "harness/people.yaml"),
-        legacyRoster.replace('displayName: "Zeyu Li"\n    primaryEmail', 'displayName: "Li Zeyu"\n    primaryEmail'),
+      assert.equal(
+        events.some(
+          (event) => event.schema === "migration-import-event/v1" && event.payload.migratedFrom === "people.yaml",
+        ),
+        false,
       );
-      initRepo(destination);
-      cell = await openRepoCell({
-        repoId: workspaceId("migration-people-contradiction"),
-        rootDir: canonicalRoot(destination),
-        ownerId: "migration-daemon",
-        now: () => "2026-06-01T00:00:00.000Z",
-      });
-      const blocked = (await cell.run(
-        { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
-        withRoleBinding({ actor, source: "local" }, "owner"),
-      )) as Record<string, unknown>;
-      assert.equal(blocked.exitCode, 1, JSON.stringify(blocked));
-      assert.match(String(blocked.summary), /REQUIRED people\.yaml/u);
-      assert.match(
-        String(blocked.summary),
-        /the two rosters cannot be unioned: person person_zeyu declares a different displayName on each side.*resolve with --resolve harness\/people\.yaml=destination\|source/u,
+      assert.equal(
+        readFileSync(path.join(destination, "harness/field-notes/2024/xyz.md"), "utf8"),
+        "# Field observation\n\nUnknown directories are ordinary authored content.\n",
       );
-      const resolved = (await cell.run(
-        {
-          kind: "migrate-import",
-          sourceRoots: sources(source),
-          resolutions: ["harness/people.yaml=destination"],
-        },
-        withRoleBinding({ actor, source: "local" }, "owner"),
-      )) as Record<string, unknown>;
-      assert.equal(resolved.exitCode, 0, JSON.stringify(resolved));
-      await cell.settlePendingMaterialization("inspect resolved roster");
-      assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), bootstrapRoster());
     } finally {
       await cell?.close();
       rmSync(scratch, { recursive: true, force: true });
@@ -638,7 +525,7 @@ import {
           kind: "migrate-import",
           sourceRoots: [...sources(firstSource), ...sources(secondSource)],
         },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       )) as Record<string, unknown>;
       assert.equal(result.exitCode, 0, JSON.stringify(result));
       await cell.settlePendingMaterialization("inspect multi-source import");
@@ -696,24 +583,17 @@ import {
           ),
         true,
       );
-      const roster = peopleRosterFromDocument(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"));
-      assert.deepEqual(
-        roster.people.map(({ personId }) => personId),
-        ["person_zeyu", "person_alpha", "person_beta"],
-      );
+      assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), bootstrapRoster());
       assert.equal(
-        makeTaskEventReader({
-          repoId: "migration-multi-source-target",
-          rootDir: destination,
-        })
+        makeTaskEventReader({ repoId: "migration-multi-source-target", rootDir: destination })
           .read()
           .events.filter((event) => event.schema === "people-event/v1").length,
-        2,
+        0,
       );
       const revision = result.revision,
         repeated = (await cell.run(
           { kind: "migrate-import", sourceRoots: [firstSource, secondSource] },
-          withRoleBinding({ actor, source: "local" }, "owner"),
+          withPolicyGroup({ actor, source: "local" }, "admin"),
         )) as Record<string, unknown>;
       assert.equal(repeated.exitCode, 0, JSON.stringify(repeated));
       assert.equal(repeated.revision, revision, JSON.stringify(repeated));
@@ -778,7 +658,7 @@ import {
       writeFileSync(path.join(source, "uncommitted.txt"), "not part of the source cut\n");
       const dirty = await cell.run(
         { kind: "migrate-import", sourceRoots: [source] },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       );
       assert.equal(dirty.outcome, "op_rejected");
       assert.equal(dirty.code, "invalid_migration_source_git");
@@ -793,7 +673,7 @@ import {
       execFileSync("git", ["clone", "-q", "--depth", "1", `file://${source}`, shallow]);
       const rejected = await cell.run(
         { kind: "migrate-import", sourceRoots: [shallow] },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       );
       assert.equal(rejected.outcome, "op_rejected");
       assert.equal(rejected.code, "invalid_migration_source_git");
@@ -801,7 +681,7 @@ import {
       git(source, "merge", "-q", "--allow-unrelated-histories", unrelatedRoot, "-m", "merge unrelated root");
       const split = await cell.run(
         { kind: "migrate-import", sourceRoots: [source] },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       );
       assert.equal(split.outcome, "op_rejected");
       assert.equal(split.code, "invalid_migration_source_git");
@@ -833,7 +713,7 @@ import {
           sourceRoots: [...sources(first), ...sources(second)],
           dryRun: true,
         },
-        withRoleBinding({ actor, source: "local" }, "owner"),
+        withPolicyGroup({ actor, source: "local" }, "admin"),
       );
       assert.equal(result.outcome, "op_rejected");
       assert.equal(result.code, "multi_source_dry_run_requires_staging");
@@ -855,7 +735,7 @@ import {
       thirdSource = path.join(scratch, "legacy-third"),
       rootDir = path.join(scratch, "repo"),
       repoId = workspaceId("migration-import-acceptance"),
-      binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+      binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     let armed = false,
       first: Awaited<ReturnType<typeof openRepoCell>> | undefined,
       retry: Awaited<ReturnType<typeof openRepoCell>> | undefined;

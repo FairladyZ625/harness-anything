@@ -1,8 +1,9 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { isAvailableAgentEntityRow } from "../agent-entity-client.ts";
 import { t } from "../i18n/index.tsx";
 import { ActionError } from "../components/runtime/ActionError.tsx";
-import { Btn, CapDot, Empty, Hint } from "../components/runtime/parts.tsx";
+import { CapDot, Hint } from "../components/runtime/parts.tsx";
+import { Empty } from "../components/primitives/Empty.tsx";
 import { NewRuntimeDialog } from "../components/runtime/NewRuntimeDialog.tsx";
 import { orderProviderRows, ProviderRail } from "../components/runtime/RuntimeRail.tsx";
 import { ProviderInspector } from "../components/runtime/RuntimeInspector.tsx";
@@ -10,6 +11,7 @@ import { RuntimeCard } from "../components/runtime/RuntimeCard.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
+import { Button } from "../components/primitives/Button.tsx";
 import { runtimeAuthPresentation } from "../runtime-auth-presentation.ts";
 import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
 
@@ -17,14 +19,63 @@ import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/run
 // 实例卡片(编辑/auth/self-test/权限/删除)与右栏 health。live 计数取 overview 的
 // session liveness(daemon 自己的在跑投影),这一页不读 dispatch 台账。跨页出口:
 // 兼容 Agent chips → Agent 入口,相关会话 → 会话入口;均为可寻址路由。
-export function ProvidersView({
-  repoId,
-  focusedEntityRef,
-  onSelectEntity,
-}: {
+//
+// 功能体是 ProvidersWorkspace(task_48fe291624e06a2e9ad9496c81 起与工作台 Provider
+// 面板共用):页面经 renderHeader 装上 PageHeader(标题 + 状态点图例 + 检查器开关),
+// 工作台面板不带头部——面板标签即标题。
+export interface ProvidersViewProps {
   readonly repoId: string;
   readonly focusedEntityRef: string | null;
   readonly onSelectEntity: (ref: string) => void;
+}
+
+/** 页头插槽:主动作(检查器开关)由工作区实况派生,页面/面板各自决定要不要装。 */
+export interface ProvidersHeaderSlot {
+  readonly headerActions: ReactNode;
+}
+
+export function ProvidersView(props: ProvidersViewProps) {
+  return (
+    <ProvidersWorkspace
+      {...props}
+      renderHeader={({ headerActions }) => (
+        <PageHeader
+          title={t("agentRuntime.providersTitle")}
+          note={t("agentRuntime.providersSubtitle")}
+          actions={
+            <>
+              {/* 图例解释左列状态点的含义,随视图开关放页头右侧。 */}
+              <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 ui-micro text-text-muted">
+                <span className="flex items-center gap-1 whitespace-nowrap">
+                  <CapDot size={10} state="full" tip={t("agentRuntime.legendReadyTip")} />
+                  {t("agentRuntime.legendReady")}
+                </span>
+                <span className="flex items-center gap-1 whitespace-nowrap">
+                  <CapDot size={10} state="part" tip={t("agentRuntime.legendPartialTip")} />
+                  {t("agentRuntime.legendPartial")}
+                </span>
+                <span className="flex items-center gap-1 whitespace-nowrap">
+                  <CapDot size={10} state="none" tip={t("agentRuntime.legendBlockedTip")} />
+                  {t("agentRuntime.legendBlocked")}
+                </span>
+              </span>
+              {headerActions}
+            </>
+          }
+        />
+      )}
+    />
+  );
+}
+
+export function ProvidersWorkspace({
+  repoId,
+  focusedEntityRef,
+  onSelectEntity,
+  renderHeader,
+}: ProvidersViewProps & {
+  /** 页面组合的页头渲染;工作台面板不传(面板标签即标题)。 */
+  readonly renderHeader?: (slot: ProvidersHeaderSlot) => ReactNode;
 }) {
   const refSelection = runtimeSelectionFromRef(focusedEntityRef);
   const refId = refSelection?.type === "runtime" ? refSelection.id : null;
@@ -47,39 +98,14 @@ export function ProvidersView({
   const liveSessions = selectedId === null ? 0 : (workspace.liveByInstance.get(selectedId) ?? 0);
   const carrierSessions =
     workspace.overview.data?.sessions.filter((session) => session.instanceId === selectedId) ?? [];
+  const headerActions = (
+    <Button size="sm" variant="ghost" onClick={() => setInspector(!inspector)} tip={t("agentRuntime.toggleInspector")}>
+      ▐
+    </Button>
+  );
   return (
     <section data-testid="providers-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <PageHeader
-        title={t("agentRuntime.providersTitle")}
-        note={t("agentRuntime.providersSubtitle")}
-        actions={
-          <>
-            {/* 图例解释左列状态点的含义,随视图开关放页头右侧。 */}
-            <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 ui-micro text-text-muted">
-              <span className="flex items-center gap-1 whitespace-nowrap">
-                <CapDot size={10} state="full" tip={t("agentRuntime.legendReadyTip")} />
-                {t("agentRuntime.legendReady")}
-              </span>
-              <span className="flex items-center gap-1 whitespace-nowrap">
-                <CapDot size={10} state="part" tip={t("agentRuntime.legendPartialTip")} />
-                {t("agentRuntime.legendPartial")}
-              </span>
-              <span className="flex items-center gap-1 whitespace-nowrap">
-                <CapDot size={10} state="none" tip={t("agentRuntime.legendBlockedTip")} />
-                {t("agentRuntime.legendBlocked")}
-              </span>
-            </span>
-            <Btn
-              size="sm"
-              variant="ghost"
-              onClick={() => setInspector(!inspector)}
-              tip={t("agentRuntime.toggleInspector")}
-            >
-              ▐
-            </Btn>
-          </>
-        }
-      />
+      {renderHeader !== undefined ? renderHeader({ headerActions }) : null}
       {workspace.machine.error && (
         <p
           role="alert"

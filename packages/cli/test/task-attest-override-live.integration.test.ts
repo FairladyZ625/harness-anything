@@ -1,8 +1,10 @@
 // harness-test-tier: integration
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
 import { daemonServeEntry } from "../src/daemon/client.ts";
@@ -38,6 +40,16 @@ after(() => {
   rmSync(ciBin, { recursive: true, force: true });
 });
 
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "owner" });
+await realm.control({
+  op: "permit",
+  personId: "owner",
+  resource: "attest-override-live",
+  actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+});
+
 const cli = path.resolve("packages/cli/src/index.ts");
 
 test("an owner break-glasses a gate with no automated receipt; a later receipt voids the waiver", async (context) => {
@@ -50,6 +62,8 @@ test("an owner break-glasses a gate with no automated receipt; a later receipt v
   stubFile = path.join(parent, "gh-stub.json");
   let daemon: ChildProcess | undefined;
   initialize(root);
+  realm.bind(userRoot);
+  signInAt(userRoot, "owner");
   seedSettingsEvent({ rootDir: root, repoId: "attest-override-live" });
   writeFileSync(stubFile, JSON.stringify({ list: [] }));
   try {
@@ -365,23 +379,7 @@ settings:
       adapter: none
 `,
   );
-  writeFileSync(
-    path.join(root, "harness/people.yaml"),
-    `schema: harness-people/v1
-people:
-  - personId: owner
-    displayName: Owner
-    primaryEmail: owner@example.test
-    roles: [owner]
-    credentials:
-      - kind: unix-socket-owner-boundary
-        issuer: host:${hostname()}
-        subject: ${process.getuid?.() ?? 0}
-roles:
-  - roleId: owner
-    commandClasses: [admin, repo-write, repo-read, arbiter]
-`,
-  );
+
   git(root, "init", "--quiet");
   git(root, "config", "user.name", "Attest Override Live Test");
   git(root, "config", "user.email", "attest-override-live@example.test");

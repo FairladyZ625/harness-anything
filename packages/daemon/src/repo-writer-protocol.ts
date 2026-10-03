@@ -29,6 +29,7 @@ export interface RepoWriterBootstrapV1 {
     readonly killpoint: boolean;
     readonly shouldStop: boolean;
     readonly runtimeInstances: boolean;
+    readonly keycloakCenter: boolean;
     readonly prepareRuntimeLaunch: boolean;
     readonly prepareWorkerGitEnvironment: boolean;
     readonly runtimeLaunch: boolean;
@@ -115,6 +116,7 @@ export type RepoWriterCapabilityName =
   | "killpoint"
   | "shouldStop"
   | "runtimeInstances"
+  | "keycloakCenter"
   | "prepareRuntimeLaunch"
   | "prepareWorkerGitEnvironment"
   | "runtimeLaunch"

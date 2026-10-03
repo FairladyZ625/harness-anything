@@ -1,6 +1,5 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,6 +10,7 @@ import { canonicalRoot, validateDaemonRpcCall, workspaceId } from "../src/protoc
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
+import { serveKeycloak } from "./keycloak.fixtures.ts";
 
 const method = "repo.entity.actions.explain" as const,
   requestSchema = "entity-action-explain-request/v1" as const,
@@ -19,7 +19,21 @@ const method = "repo.entity.actions.explain" as const,
 test("typed Entity Action read preserves one cut for 1..500 refs and has no write side effects", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-action-explain-")),
     repoId = workspaceId("action-explain"),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    realm = await serveKeycloak(),
+    binding = {
+      actor,
+      source: "local" as const,
+      keycloakAuthorization: {
+        session: {
+          personId: actor.principal.personId,
+          accessToken: realm.keycloak.account(actor.principal.personId),
+          url: realm.url,
+          realm: "harness",
+          clientId: "harness-center",
+        },
+      },
+    };
+  realm.keycloak.permit(actor.principal.personId, "action-explain", ["task-create"]);
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -105,6 +119,25 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
       true,
     );
 
+    const personRef = `person/${actor.principal.personId}`;
+    realm.keycloak.permit(actor.principal.personId, `action-explain:${personRef}`, ["people-delegate"]);
+    const person = await cell.read(
+        method,
+        { schema: requestSchema, mode: "object", entityKind: null, refs: [personRef] },
+        binding,
+      ),
+      personDelegate = person.subjects[0]!.actions.find(({ action }) => action.id === "delegate");
+    assert.equal(person.mode, "object");
+    assert.equal(person.subjects[0]!.ref, personRef);
+    assert.equal(personDelegate?.authorizationDecision?.policyRef, "keycloak-policy@1");
+    assert.equal(personDelegate?.authorizationDecision?.outcome, "allowed");
+    const missingPerson = await cell.read(
+      method,
+      { schema: requestSchema, mode: "object", entityKind: null, refs: ["person/person_missing"] },
+      binding,
+    );
+    assert.equal(missingPerson.subjects[0]!.failure?.code, "entity_not_found");
+
     assert.deepEqual(observerStore.read(), beforeStream);
     assert.deepEqual(observerStore.readHead(), beforeHead);
     assert.deepEqual(observerProjection.currentLease("task-explain", fixedNow), beforeLease);
@@ -135,6 +168,7 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
     assert.equal(edgeFirst.evaluatedAtCut, edgeSecond.evaluatedAtCut);
   } finally {
     await cell?.close();
+    await realm.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

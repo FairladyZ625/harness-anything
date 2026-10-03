@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { CaretRight, FileText } from "@phosphor-icons/react";
+import { EntityRefLink, entityRefOf } from "../EntityRefLink.tsx";
 import { DocReader } from "../DocReader.tsx";
 import { HtmlArtifactPreview } from "../HtmlArtifactPreview.tsx";
 import { buildDocTree, projectedDocuments } from "../../model/docTree.ts";
@@ -48,7 +49,7 @@ export function TaskDocumentSidebar(props: TaskDocumentSidebarProps) {
   return (
     <nav
       aria-label="任务包文件"
-      className="min-h-0 overflow-y-auto border-b border-border bg-surface p-3 @max-[1100px]:max-h-72 @min-[1100px]:border-r @min-[1100px]:border-b-0"
+      className="min-h-0 overflow-y-auto border-b border-border bg-surface p-3 @max-[1100px]:max-h-[var(--long-content-cap)] @min-[1100px]:border-r @min-[1100px]:border-b-0"
       data-testid="task-document-tree"
     >
       <p className="mb-2 px-1 font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">
@@ -73,16 +74,27 @@ export function TaskFilesTab({
   task,
   activeDoc,
   onOpenDoc,
+  onNavigateEntity,
 }: {
   readonly task: TaskRow;
   readonly activeDoc: string;
   /** 包内相对链接的导航出口(task_89d324b5):正文里点 `artifacts/x.md` 直接切到该文件。 */
   readonly onOpenDoc?: (path: string) => void;
+  /** 面包屑里的任务编号经 EntityRefLink 激活(G10);不提供回调时退回纯文本。 */
+  readonly onNavigateEntity?: (ref: string) => void;
 }) {
   return (
     <section className="min-w-0" data-testid="task-files-tab">
       <div className="mb-4 flex flex-wrap items-center gap-1.5 border-b border-border pb-3">
-        <span className="font-mono ui-micro text-text-faint">{task.taskId}</span>
+        {onNavigateEntity ? (
+          <EntityRefLink
+            entityRef={entityRefOf("task", task.taskId)}
+            onNavigate={onNavigateEntity}
+            className="font-mono ui-micro text-text-faint hover:underline"
+          />
+        ) : (
+          <span className="font-mono ui-micro text-text-faint">{task.taskId}</span>
+        )}
         <CaretRight weight="bold" className="ui-micro text-text-faint" />
         <span className="font-mono ui-micro text-text-muted">{activeDoc || "未选择文件"}</span>
       </div>

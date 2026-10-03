@@ -1,3 +1,5 @@
+import { Notice } from "../primitives/Notice";
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "@phosphor-icons/react";
@@ -6,28 +8,21 @@ import type {
   AgentRuntimeTokenUsageRange,
   AgentRuntimeTokenUsageSessionRow,
 } from "@harness-anything/daemon/protocol";
+import type { SnapshotStatus } from "../../model/types";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { compactTokens, exactTokens } from "../../token-format.ts";
 import { formatDuration, formatTime } from "../../model/time.ts";
 import { usageIsUnreported, usageOutcomeKey, usageStateKey } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { QUERY_PACING_MS } from "../../query-pacing.ts";
-import {
-  Badge,
-  Card,
-  CardBody,
-  CardHead,
-  CardTitle,
-  Chip,
-  Empty,
-  KV,
-  KVRow,
-  Right,
-  SegCtl,
-} from "../runtime/parts.tsx";
+import { Card, CardBody, CardHead, CardTitle, Right } from "../runtime/parts.tsx";
+import { Chip } from "../primitives/Chip.tsx";
+import { KV, KVRow } from "../primitives/Fields.tsx";
+import { Empty } from "../primitives/Empty.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 import { tokenKindLayers, UsageTrendChart, UsageTrendTable } from "./UsageTrendChart.tsx";
 
-const OUTCOME_TONE: Readonly<Record<AgentRuntimeTokenUsageSessionRow["outcome"], string>> = {
+const OUTCOME_TONE: Readonly<Record<AgentRuntimeTokenUsageSessionRow["outcome"], SnapshotStatus>> = {
   succeeded: "done",
   failed: "blocked",
   aborted: "cancelled",
@@ -73,15 +68,11 @@ export function TokenUsageDetail({
         {t("agentRuntime.tokenUsageBackToOverview")}
       </button>
       {detail.isError ? (
-        <p
-          role="alert"
-          data-testid="runtime-read-error"
-          className="mb-2 rounded border border-danger/40 bg-status-blocked/10 px-2.5 py-2 font-mono ui-micro text-status-blocked"
-        >
+        <Notice tone="bad" variant="panel" testId="runtime-read-error">
           {t("agentRuntime.readFailed", {
             error: detail.error instanceof Error ? detail.error.message : String(detail.error),
           })}
-        </p>
+        </Notice>
       ) : null}
       {detail.isPending || data === undefined ? (
         <Empty>{t("agentRuntime.loading")}</Empty>
@@ -99,9 +90,12 @@ export function TokenUsageDetail({
                     : `${t("agentRuntime.tokenUsageSegmentAgents")} · ${data.member.agentId}`}
                 </Chip>
                 {usageIsUnreported(data.totals ?? { usageReportedDispatches: 1, usageUnavailableDispatches: 0 }) ? (
-                  <Badge status="cancelled" tip={t("agentRuntime.tokenUsageUnreportedTip")}>
-                    {t("agentRuntime.tokenUsageUnreported")}
-                  </Badge>
+                  <StatusTag
+                    status="cancelled"
+                    mono
+                    tip={t("agentRuntime.tokenUsageUnreportedTip")}
+                    label={t("agentRuntime.tokenUsageUnreported")}
+                  />
                 ) : null}
               </div>
               <p className="font-mono ui-micro text-text-faint">
@@ -240,9 +234,11 @@ export function TokenUsageDetail({
                               {formatDuration(session.durationMs)}
                             </td>
                             <td className="border-b border-border py-1 pr-3">
-                              <Badge status={OUTCOME_TONE[session.outcome]}>
-                                {t(usageOutcomeKey[session.outcome])}
-                              </Badge>
+                              <StatusTag
+                                status={OUTCOME_TONE[session.outcome]}
+                                mono
+                                label={t(usageOutcomeKey[session.outcome])}
+                              />
                             </td>
                             <td
                               className="border-b border-border py-1 pr-3 text-right font-mono ui-micro"

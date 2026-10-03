@@ -5,7 +5,8 @@ import type { DecisionRow } from "../../model/types.ts";
 import { decisionReviewRef } from "../../navigation/decisionReviewRoutes.ts";
 import type { DecisionReviewWriteFeedback } from "../../decision-review-actions.ts";
 import { DecisionMutationFeedback } from "../DecisionMutationFeedback.tsx";
-import { actorText, atText, cardClass, primaryButtonClass, secondaryButtonClass } from "./parts.tsx";
+import { actorText, atText, cardClass } from "./parts.tsx";
+import { Button } from "../primitives/Button.tsx";
 
 type Disposition = "adopt" | "rebut";
 type Draft = { readonly disposition: Disposition | null; readonly rationale: string; readonly amendmentRef: string };
@@ -162,30 +163,16 @@ export function DecisionRespondTab({
       {error && <p className="ui-micro text-danger">{error}</p>}
       <div className="flex flex-wrap gap-2">
         {findings.length > 0 && (
-          <button
-            type="button"
-            data-testid="decision-respond-save"
-            disabled={pending}
-            onClick={() => void submit()}
-            className={primaryButtonClass}
-          >
+          <Button variant="primary" testId="decision-respond-save" disabled={pending} onClick={() => void submit()}>
             {t("views.decisionReview.saveResponses")}
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          className={secondaryButtonClass}
-          onClick={() => onNavigateEntity(decisionReviewRef(decision.decisionId, "review"))}
-        >
+        <Button onClick={() => onNavigateEntity(decisionReviewRef(decision.decisionId, "review"))}>
           {t("views.decisionReview.backToProposal")}
-        </button>
-        <button
-          type="button"
-          className={secondaryButtonClass}
-          onClick={() => onNavigateEntity(decisionReviewRef(decision.decisionId, "judge"))}
-        >
+        </Button>
+        <Button onClick={() => onNavigateEntity(decisionReviewRef(decision.decisionId, "judge"))}>
           {t("views.decisionReview.judgeThis")}
-        </button>
+        </Button>
       </div>
       <DecisionMutationFeedback feedback={feedback} />
     </div>

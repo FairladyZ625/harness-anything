@@ -3,8 +3,6 @@
   "graph.graphDrawer.ariaLabel": "关系详情",
   "graph.graphDrawer.jumpSourceNode": "跳转源节点",
   "graph.graphDrawer.jumpTargetNode": "跳转目标节点",
-  "graph.graphDrawer.openSidebarTaskDetailsDecisionDecisionPool": "打开详情(task · decision · fact)",
-  "graph.graphDrawer.open": "打开",
   "graph.graphDrawer.unknown": "未知",
   "graph.graphDrawer.node": "节点",
   "graph.graphDrawer.edgeRelation": "边（关系）",
@@ -22,9 +20,6 @@
   "graph.graphDrawer.anchorValue": "锚点：{anchor}",
   "graph.graphDrawer.anchorLabel": "锚点：",
   "graph.graphDrawer.edgeKindMessage": "这是一个 {kind} 关系边。",
-  "graph.graphDrawer.chainCounts": "链路：上游 {up} · 下游 {down}",
-  "graph.graphDrawer.outEdgesCount": "出边 {count}",
-  "graph.graphDrawer.inEdgesCount": "入边 {count}",
   "graph.axis.authority": "权威",
   "graph.axis.evidence": "证据",
   "graph.axis.execution": "执行",
@@ -39,5 +34,9 @@
   "graph.graphDrawer.scheduleTarget": "target agent",
   "graph.graphDrawer.scheduleTargetNone": "squad target(未投影为 agent 节点)",
   "graph.graphDrawer.nodeMeta": "度 {degree} · 第 {hop} 跳",
-  "graph.graphDrawer.hiddenNeighbors": "未铺开 {count}"
+  "graph.graphDrawer.hiddenNeighbors": "未铺开 {count}",
+  "graph.egoCard.collapse": "收起(已展开的邻居保留)",
+  "graph.egoCard.setFocus": "设为焦点,以它为中心重排邻域",
+  "graph.egoCard.openDetail": "打开完整详情",
+  "graph.egoCard.hiddenHint": "还有 {count} 个邻居未铺开 —— 单击展开这张卡片会长出它们"
 }

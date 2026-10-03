@@ -6,6 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -47,6 +48,7 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
         source: "unix-socket-filesystem-owner-boundary",
       },
     } as const;
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   initRepo(root, uid);
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
 

@@ -1,8 +1,10 @@
 // harness-test-tier: integration
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
 import { daemonServeEntry } from "../src/daemon/client.ts";
@@ -28,6 +30,16 @@ after(() => {
   rmSync(ciBin, { recursive: true, force: true });
 });
 
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "owner" });
+await realm.control({
+  op: "permit",
+  personId: "owner",
+  resource: "executor-null-live",
+  actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+});
+
 const cli = path.resolve("packages/cli/src/index.ts");
 type TaskSnapshot = {
   readonly task: { readonly status: string; readonly currentNode: string };
@@ -48,6 +60,8 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
     reviewId = "review-executor-null-live";
   let daemon: ChildProcess | undefined;
   initialize(root);
+  realm.bind(userRoot);
+  signInAt(userRoot, "owner");
   seedSettingsEvent({ rootDir: root, repoId: "executor-null-live" });
   try {
     daemon = spawnBinDaemon(root, userRoot, daemonId);
@@ -222,23 +236,7 @@ function initialize(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "README.md"), "# Fixture\n");
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n");
-  writeFileSync(
-    path.join(root, "harness/people.yaml"),
-    `schema: harness-people/v1
-people:
-  - personId: owner
-    displayName: Owner
-    primaryEmail: owner@example.test
-    roles: [owner]
-    credentials:
-      - kind: unix-socket-owner-boundary
-        issuer: host:${hostname()}
-        subject: ${process.getuid?.() ?? 0}
-roles:
-  - roleId: owner
-    commandClasses: [admin, repo-write, repo-read, arbiter]
-`,
-  );
+
   git(root, "init", "--quiet");
   git(root, "config", "user.name", "Executor Null Live Test");
   git(root, "config", "user.email", "executor-null-live@example.test");

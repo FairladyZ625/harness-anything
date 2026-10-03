@@ -36,7 +36,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <p className="mt-0.5 ui-micro text-text-faint">This view hit an error</p>
           <p
             className={
-              "mt-3 max-h-40 overflow-auto break-words rounded border border-border bg-surface " +
+              "mt-3 bounded-content overflow-auto break-words rounded border border-border bg-surface " +
               "p-2 text-left font-mono ui-micro text-status-blocked"
             }
           >

@@ -3,26 +3,14 @@ import {
   defineCliCommand,
   workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
-import { credentialKindWords, peopleCommandClassWords } from "./daemon-protocol-vocabulary.ts";
 
-export const peopleAddJsonFields = Object.freeze(["personId", "displayName", "role", "commandClass"] as const),
-  peopleAddJsonAllowedFields = Object.freeze([
-    ...peopleAddJsonFields,
-    "primaryEmail",
-    "credentialKind",
-    "credentialIssuer",
-    "credentialSubject",
-    "idempotencyKey",
-  ] as const),
-  peopleDelegateJsonFields = Object.freeze(["tokenId", "runtimeSessionId", "action", "expiresAt"] as const),
+export const peopleDelegateJsonFields = Object.freeze(["tokenId", "runtimeSessionId", "action", "expiresAt"] as const),
   peopleDelegateJsonAllowedFields = Object.freeze([...peopleDelegateJsonFields, "idempotencyKey"] as const),
   peopleRevokeDelegationJsonFields = Object.freeze(["tokenId"] as const),
   peopleRevokeDelegationJsonAllowedFields = Object.freeze([
     ...peopleRevokeDelegationJsonFields,
     "idempotencyKey",
-  ] as const),
-  peopleRemoveJsonFields = Object.freeze(["personId"] as const),
-  peopleRemoveJsonAllowedFields = Object.freeze([...peopleRemoveJsonFields, "idempotencyKey"] as const);
+  ] as const);
 
 const peopleWriteTopology = {
     commandClass: "admin" as const,
@@ -61,18 +49,6 @@ const peopleWriteTopology = {
       },
     ),
   ],
-  personIdInput = () =>
-    cliInput(
-      "--person-id",
-      "single",
-      false,
-      {
-        code: "missing_field",
-      },
-      { regex: "^[A-Za-z][A-Za-z0-9_-]{0,62}$", conflictsWith: ["--from-file"] },
-    ),
-  roleInput = () =>
-    cliInput("--role", "single", false, { code: "missing_field" }, { minLength: 1, conflictsWith: ["--from-file"] }),
   tokenIdInput = () =>
     cliInput(
       "--token-id",
@@ -86,69 +62,9 @@ const peopleWriteTopology = {
         conflictsWith: ["--from-file"],
       },
     ),
-  commandClassInput = () =>
-    cliInput(
-      "--command-class",
-      "repeated",
-      false,
-      {
-        code: "missing_field",
-      },
-      { enum: peopleCommandClassWords, minItems: 1, unique: true, conflictsWith: ["--from-file"] },
-    ),
-  idempotencyInput = () => textInput("--idempotency-key", false),
-  credentialInput = (name: string) =>
-    cliInput(
-      name,
-      "single",
-      false,
-      {
-        code: "invalid_field",
-      },
-      {
-        requires: ["--credential-kind", "--credential-issuer", "--credential-subject"],
-      },
-    );
+  idempotencyInput = () => textInput("--idempotency-key", false);
 
 export const peopleProtocolCommands = Object.freeze([
-  defineCliCommand({
-    id: "people-add",
-    actionKind: "people-add",
-    phase: "Persons-Registry",
-    path: ["people", "add"],
-    summary: "Add a Person to people.yaml through the canonical Action writer.",
-    method: "repo.task.run",
-    inputs: [
-      ...packetInputs(peopleAddJsonFields, peopleAddJsonAllowedFields),
-      personIdInput(),
-      cliInput(
-        "--display-name",
-        "single",
-        false,
-        { code: "missing_field" },
-        { minLength: 1, conflictsWith: ["--from-file"] },
-      ),
-      textInput("--primary-email", false),
-      roleInput(),
-      commandClassInput(),
-      cliInput(
-        "--credential-kind",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        {
-          enum: credentialKindWords,
-          requires: ["--credential-issuer", "--credential-subject"],
-        },
-      ),
-      credentialInput("--credential-issuer"),
-      credentialInput("--credential-subject"),
-      idempotencyInput(),
-    ],
-    ...peopleWriteTopology,
-  }),
   defineCliCommand({
     id: "people-delegate",
     actionKind: "people-delegate",
@@ -205,20 +121,6 @@ export const peopleProtocolCommands = Object.freeze([
     inputs: [
       ...packetInputs(peopleRevokeDelegationJsonFields, peopleRevokeDelegationJsonAllowedFields),
       tokenIdInput(),
-      idempotencyInput(),
-    ],
-    ...peopleWriteTopology,
-  }),
-  defineCliCommand({
-    id: "people-remove",
-    actionKind: "people-remove",
-    phase: "Persons-Registry",
-    path: ["people", "remove"],
-    summary: "Remove a Person from people.yaml through the canonical Action writer.",
-    method: "repo.task.run",
-    inputs: [
-      ...packetInputs(peopleRemoveJsonFields, peopleRemoveJsonAllowedFields),
-      personIdInput(),
       idempotencyInput(),
     ],
     ...peopleWriteTopology,

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -552,9 +552,9 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
         taskId: null,
         idempotencyKey: "superseded-readopt",
       },
-      withRoleBinding(
+      withPolicyGroup(
         { actor: { principal: { personId: "person-superseded-readopt" }, executor: null }, source: "local" },
-        "owner",
+        "admin",
       ),
     );
     assert.equal(spawnReceipt.outcome, "applied", JSON.stringify(spawnReceipt));
@@ -778,9 +778,9 @@ test("a superseded exit hands the slot over while a --wait client's parked await
         taskId: null,
         idempotencyKey: "superseded-await",
       },
-      withRoleBinding(
+      withPolicyGroup(
         { actor: { principal: { personId: "person-superseded-await" }, executor: null }, source: "local" },
-        "owner",
+        "admin",
       ),
     );
     assert.equal(spawnReceipt.outcome, "applied", JSON.stringify(spawnReceipt));
@@ -1001,9 +1001,9 @@ test("a parked --wait survives a drain that outlasts its settle re-read and stil
         taskId: null,
         idempotencyKey: "drain-outlasts-await",
       },
-      withRoleBinding(
+      withPolicyGroup(
         { actor: { principal: { personId: "person-drain-outlasts-await" }, executor: null }, source: "local" },
-        "owner",
+        "admin",
       ),
     );
     assert.equal(spawnReceipt.outcome, "applied", JSON.stringify(spawnReceipt));

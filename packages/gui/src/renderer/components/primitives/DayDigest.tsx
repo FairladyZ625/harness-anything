@@ -1,6 +1,7 @@
 import { Fragment, useState, type ReactNode } from "react";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { IdText } from "../IdText.tsx";
 import { StatusTag, type StatusTone } from "./StatusTag";
 
 export interface DayPathStep {
@@ -104,17 +105,12 @@ export function DayDigest({
                   entityRef={path.recordRef!}
                   onNavigate={openRecord}
                   title={path.title ?? path.ref}
-                  className="min-w-0 flex-1 truncate text-right font-mono ui-micro text-accent hover:underline"
+                  className="flex-1 text-right font-mono ui-micro text-accent hover:underline"
                 >
                   {path.ref}
                 </EntityRefLink>
               ) : (
-                <span
-                  className="min-w-0 flex-1 truncate text-right font-mono text-text-faint ui-micro"
-                  title={path.title ?? path.ref}
-                >
-                  {path.ref}
-                </span>
+                <IdText value={path.ref} title={path.title ?? path.ref} className="flex-1 text-right" />
               );
             // 行链与行尾实体链接并存时,行退化为纯行,两个动作各是原生 button——
             // button 里嵌 button 是非法 HTML,会破坏两个动作的可达性。

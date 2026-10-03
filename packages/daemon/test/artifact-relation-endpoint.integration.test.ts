@@ -7,11 +7,11 @@ import path from "node:path";
 import test from "node:test";
 import { deriveRelationId, makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const kind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
-  binding = withRoleBinding(
+  binding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-artifact-relation" },
@@ -19,7 +19,7 @@ const kind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   );
 
 test("A vertical artifact entity is a relation endpoint for its declared triple only", async () => {

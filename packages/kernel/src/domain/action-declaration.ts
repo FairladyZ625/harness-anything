@@ -146,9 +146,7 @@ export const actionDeclarations = Object.freeze([
   canonical("fact-rematerialize", null, "repo-write"),
   canonical("fact-type-register", "fact/type-register", "repo-write"),
   canonical("migrate-import", null, "repo-write"),
-  canonical("people-add", "person/add", "admin"),
   canonical("people-delegate", "person/delegate", "admin"),
-  canonical("people-remove", "person/remove", "admin"),
   canonical("people-revoke-delegation", "person/revoke-delegation", "admin"),
   canonical("preset-install", null, "repo-write", "none"),
   canonical("preset-run-start", null, "repo-write"),
@@ -241,3 +239,8 @@ if (actionDeclarationByCatalogId.size !== actionDeclarations.filter(({ catalogId
 export function getActionDeclarationByCatalogId(catalogId: string): ActionDeclaration | undefined {
   return actionDeclarationByCatalogId.get(catalogId);
 }
+
+/** Non-read policy scopes derive solely from ActionDeclaration. */
+export const durablePolicyActions = Object.freeze(
+  actionDeclarations.flatMap(({ policyAction }) => (policyAction === null ? [] : [policyAction])),
+);

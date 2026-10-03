@@ -9,7 +9,6 @@ import type {
   ActorIdentity,
   AgentRuntimeEventV1,
   AuthorizationDecision,
-  RoleBinding,
   RuntimeSession,
   SessionIdentity,
   WriteSource,
@@ -69,9 +68,6 @@ export interface RuntimeCallbackRelay {
 export type RuntimeBinding = {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
-  /** Preserve whether local authorization came from the default or authored binding projection. */
-  readonly authorizationBindingMode?: "default" | "declared";
-  readonly roleBindings?: readonly RoleBinding[];
   readonly assignmentScope?: FleetAssignmentScope;
   readonly authorizationDecision?: AuthorizationDecision;
 };
@@ -81,10 +77,6 @@ export function runtimeBindingForDispatch(binding: RuntimeBinding): RuntimeBindi
   return {
     actor: binding.actor,
     source: binding.source,
-    ...(binding.authorizationBindingMode === undefined
-      ? {}
-      : { authorizationBindingMode: binding.authorizationBindingMode }),
-    ...(binding.roleBindings === undefined ? {} : { roleBindings: binding.roleBindings }),
     ...(binding.assignmentScope === undefined ? {} : { assignmentScope: binding.assignmentScope }),
   };
 }
@@ -284,7 +276,7 @@ export interface RuntimeSpawnerInput {
   readonly repoId: string;
   readonly rootDir: string;
   readonly daemonGeneration: number;
-  readonly runtimeNodeId?: string;
+  readonly runtimeAssignment?: { readonly nodeId: string; readonly assignmentId: string };
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly store?: () => CanonicalEventStore;
   readonly projection?: () => TaskProjection;
@@ -341,15 +333,18 @@ export interface RuntimeSpawnerInput {
     payload: JsonObject,
     binding: RuntimeBinding,
     actionId: string,
-  ) => RuntimeBinding;
+  ) => RuntimeBinding | Promise<RuntimeBinding>;
   /** Re-authorizes each local RuntimeSession catalog Action at its commit cut. */
   readonly authorizeRuntimeEvent?: (input: {
     readonly type: AgentRuntimeEventV1["type"];
     readonly payload: AgentRuntimeEventV1["payload"];
     readonly opId: string;
     readonly binding: RuntimeBinding;
-  }) => RuntimeBinding;
+  }) => RuntimeBinding | Promise<RuntimeBinding>;
   /** Re-authorizes a local terminal archive at the settlement cut. */
-  readonly authorizeRuntimeArchive?: (archive: RuntimeDispatchArchive, binding: RuntimeBinding) => RuntimeBinding;
+  readonly authorizeRuntimeArchive?: (
+    archive: RuntimeDispatchArchive,
+    binding: RuntimeBinding,
+  ) => RuntimeBinding | Promise<RuntimeBinding>;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }

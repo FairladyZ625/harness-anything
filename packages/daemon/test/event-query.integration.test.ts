@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import test from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +11,7 @@ import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
 
-const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
 
 async function withCell(name: string, run: (cell: Cell) => Promise<void>): Promise<void> {
   const rootDir = mkdtempSync(path.join(tmpdir(), `ha-${name}-`));

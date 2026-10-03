@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { successfulAgentRuntimeResult } from "@harness-anything/daemon/protocol";
 import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { NewRuntimeDialog } from "../src/renderer/components/runtime/NewRuntimeDialog.tsx";
-import { TextInput } from "../src/renderer/components/runtime/parts.tsx";
+import { TextInput } from "../src/renderer/components/primitives/TextInput.tsx";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
 import { IdentityInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
 import { IdentityRail, ProviderRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";

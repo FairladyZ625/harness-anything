@@ -22,6 +22,8 @@ import { TerritoryModeBar, type WorkspaceMode } from "./TerritoryModeBar.tsx";
  * 缺字段(PLT/parent)显示「未投影」,不假分组(REQ-GUI-03 验收硬项)。
  */
 export interface EntityWorkspaceProps {
+  /** 会话归属仓:透传给 GraphView(egoSession 按 repoId 隔离)。 */
+  repoId: string;
   focusedEntityRef: string | null;
   tasks: readonly TaskRow[];
   relations: RelationEdge[];
@@ -56,6 +58,7 @@ export interface EntityWorkspaceProps {
 const FOCUS_REF_DECISION = /^decision\//u;
 
 export function EntityWorkspace({
+  repoId,
   focusedEntityRef,
   tasks,
   relations,
@@ -127,6 +130,7 @@ export function EntityWorkspace({
           />
         ) : (
           <GraphView
+            repoId={repoId}
             tasks={tasks}
             relations={relations}
             decisions={decisions}

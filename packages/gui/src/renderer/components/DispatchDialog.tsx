@@ -1,3 +1,5 @@
+import { SegCtl } from "./primitives/SegCtl.tsx";
+import { Button } from "./primitives/Button.tsx";
 import { useMemo, useState, type ReactNode } from "react";
 import type { AgentRuntimeInstanceDto } from "@harness-anything/daemon/protocol";
 import {
@@ -11,7 +13,11 @@ import {
 import type { AgentDispatchPreview } from "../runtime-control.ts";
 import { t } from "../i18n/index.tsx";
 import { DispatchPreviewModal } from "./DispatchPreviewModal.tsx";
-import { Avatar, Badge, Btn, Chip, Hint, KindDot, LiveDot, Modal, SegCtl, TextInput } from "./runtime/parts.tsx";
+import { Avatar, Hint, KindDot, LiveDot } from "./runtime/parts.tsx";
+import { Modal } from "./primitives/Modal.tsx";
+import { Chip } from "./primitives/Chip.tsx";
+import { StatusTag } from "./primitives/StatusTag.tsx";
+import { TextInput } from "./primitives/TextInput.tsx";
 import { planeAllowsEffort } from "../runtime-provider-planes.ts";
 import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 
@@ -132,17 +138,17 @@ export function DispatchDialog({
                 </span>
               )}
               <span className="flex-1" />
-              <Btn onClick={onCancel}>{t("agentRuntime.cancel")}</Btn>
-              <Btn
+              <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+              <Button
                 testId="dispatch-preview-entry"
                 disabled={!ready || busy || previewing}
                 onClick={() => void runPreview()}
               >
                 {t(previewing ? "agentRuntime.previewing" : "agentRuntime.previewInjected")}
-              </Btn>
-              <Btn variant="primary" testId="dispatch-submit" disabled={!ready || busy} onClick={submit}>
+              </Button>
+              <Button variant="primary" testId="dispatch-submit" disabled={!ready || busy} onClick={submit}>
                 {busy ? t("agentRuntime.dispatching") : t("agentRuntime.dispatchNow")}
-              </Btn>
+              </Button>
             </div>
           </>
         }
@@ -162,7 +168,7 @@ export function DispatchDialog({
               <>
                 <Avatar id={subject.agent.agentId} />
                 <b>{subject.agent.agentName}</b>
-                <Badge>{subject.agent.agentId}</Badge>
+                <StatusTag tone="neutral" mono label={subject.agent.agentId} />
                 <Hint>
                   {t("agentRuntime.runtimeConstraintIs", {
                     kind:
@@ -176,10 +182,10 @@ export function DispatchDialog({
               <>
                 <KindDot kind="any" />
                 <b>{subject.squadName}</b>
-                <Badge>{subject.squadId}</Badge>
+                <StatusTag tone="neutral" mono label={subject.squadId} />
                 <Avatar id={subject.leader.agentId} />
                 <b>{subject.leader.agentName}</b>
-                <Badge>{subject.leader.agentId}</Badge>
+                <StatusTag tone="neutral" mono label={subject.leader.agentId} />
                 <Hint>{t("agentRuntime.squadCommanderHint")}</Hint>
               </>
             )}

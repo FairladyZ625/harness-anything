@@ -3,14 +3,12 @@ import type { AccessReceipt, AccessRejection } from "../../../api/access-admin-c
 import { isRejection, receiptTitle, rejectionText } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
+import { Button } from "../primitives/Button.tsx";
 import { DenseRow } from "../primitives/DenseRow.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
-import { BTN } from "../ui/widgets.tsx";
 
 export const INPUT =
   "min-w-0 rounded-xs border border-border bg-surface-raised px-2.5 py-1.5 text-text ui-body outline-none placeholder:text-text-faint focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-50";
-
-export const SMALL_BTN = `${BTN} !px-2 !py-0.5 ui-meta`;
 
 type AccessReply<T> = ({ readonly ok: true } & T) | AccessRejection;
 
@@ -100,15 +98,14 @@ export function ReceiptRows({
             reason={`${receipt.actor} · ${receipt.operationId}`}
             time={
               receipt.phase === "intent" && onReconcile ? (
-                <button
-                  type="button"
+                <Button
+                  size="sm"
                   disabled={busy}
-                  className={SMALL_BTN}
-                  data-testid={`receipt-reconcile-${receipt.operationId}`}
+                  testId={`receipt-reconcile-${receipt.operationId}`}
                   onClick={() => onReconcile(receipt.operationId)}
                 >
                   {t("accessControl.receipt.reconcile")}
-                </button>
+                </Button>
               ) : at ? (
                 formatTime(at, { style: "month-day-time" })
               ) : undefined

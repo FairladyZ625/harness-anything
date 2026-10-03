@@ -1,7 +1,10 @@
+import { executionDelegationPath, readExecutionDelegations } from "./execution-delegation-store.ts";
 import {
   assertCurrentWriter,
+  stableStringify,
   durablePolicyActions,
   getExecutableEntityAction,
+  parseEntityRef,
   readAcceptedCommandOutcome,
   VcsCommandError,
   type AuthorizationDecision,
@@ -31,6 +34,7 @@ import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 
 function targetsBuiltinSchedule(context: RepoCellApiContext, action: RepoTaskAction): boolean {
   if (context.state !== "attached" || getExecutableEntityAction(action.kind)?.target.kind !== "schedule") return false;
@@ -59,6 +63,21 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
         try {
           ({ action, binding } = bindVerifiedExecutorClaim({
             ...requested,
+            executionDelegations: context.input.runtimeDaemonRoute
+              ? readExecutionDelegations(
+                  executionDelegationPath(context.input.runtimeDaemonRoute, context.input.repoId),
+                  context.input.repoId,
+                ).records.filter((record) => {
+                  const issue = context.store.readEvent(record.issuedByOperationId);
+                  return (
+                    issue?.schema === "execution-delegation-event/v1" &&
+                    issue.payload.operation === "issue" &&
+                    issue.payload.tokenId === record.token.tokenId &&
+                    issue.actor.principal.personId === record.token.issuer.personId &&
+                    stableStringify(issue.source) === stableStringify(record.source)
+                  );
+                })
+              : [],
             projection: context.projection,
             now: context.now(),
           }));
@@ -102,6 +121,10 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
           repoId: context.input.repoId,
           revision,
           now: context.now(),
+        }).then(async (decision) => {
+          if (decision.outcome === "allowed")
+            binding = await bindCurrentPersonIdentityWitnesses(action, binding, context.projection);
+          return decision;
         });
       },
       frameCurrent = async (
@@ -323,4 +346,48 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
     );
   };
   return run;
+}
+
+async function bindCurrentPersonIdentityWitnesses(
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  projection: RepoCellApiContext["projection"],
+): Promise<RepoCellBinding> {
+  const ids = new Set<string>();
+  if (action.kind === "relation-relate" && typeof action.targetRef === "string") {
+    const target = parseEntityRef(action.targetRef);
+    if (target?.kind === "person") ids.add(target.id);
+  }
+  if (
+    action.kind === "decision-review" &&
+    action.verdict === "changes_requested" &&
+    typeof action.decisionId === "string"
+  ) {
+    const proposer = projection.readDecision(action.decisionId).decision?.proposer.principal.personId;
+    if (proposer) ids.add(proposer);
+  }
+  if (ids.size === 0) return binding;
+  const credential = binding.keycloakAuthorization;
+  if (!credential)
+    throw Object.assign(new Error("Person identity references require Keycloak."), { code: "authentication_required" });
+  const center = credential.center,
+    adapter = center
+      ? new KeycloakPolicyAdapter({ url: center.url, realm: center.realm, resourceServerClientId: center.clientId })
+      : null,
+    witnesses = new Map(binding.personIdentityWitnesses ?? []);
+  for (const personId of ids) {
+    if (witnesses.has(personId)) continue;
+    const userId =
+      credential.session?.personId === personId
+        ? `session-${personId}`
+        : center && adapter
+          ? await adapter.findUserId(center.accessToken, personId)
+          : undefined;
+    if (!userId)
+      throw Object.assign(new Error(`Person ${personId} was not found in the current Keycloak realm.`), {
+        code: "entity_not_found",
+      });
+    witnesses.set(personId, userId);
+  }
+  return { ...binding, personIdentityWitnesses: witnesses };
 }

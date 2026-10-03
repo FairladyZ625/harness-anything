@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { revokeTestPolicyActions } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -496,3 +497,20 @@ test(
     }
   },
 );
+
+test("owner forwarding cannot lend its authorization decision to runtime-spawn", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, { autoForward: false });
+  try {
+    await f.install();
+    revokeTestPolicyActions(owner.actor.principal.personId, "completion-review", ["runtime-spawn"]);
+    const result = await f.forward();
+    assert.equal(result.outcome, "applied", JSON.stringify(result));
+    assert.equal(f.launches.length, 0, "forward remains authorized, but reviewer launch has no permission");
+    assert.equal(
+      f.events().some((event) => event.type === "runtime_dispatch_requested"),
+      false,
+    );
+  } finally {
+    await f.close();
+  }
+});

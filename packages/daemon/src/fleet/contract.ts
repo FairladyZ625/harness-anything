@@ -297,6 +297,9 @@ const id: Check = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,96}$
   text: Check = (value) => typeof value === "string" && value.length > 0 && value.length <= 512;
 const uint: Check = (value) => Number.isSafeInteger(value) && Number(value) >= 0,
   sha64: Check = (value) => typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);
+// Document bodies (task plans, schedule missions) cross the wire whole; their
+// upper bound is the body budget, with the frame cap as the outer limit.
+const bodyText: Check = (value) => typeof value === "string" && value.length > 0 && value.length <= 32 * 1024;
 const nullable =
     (check: Check): Check =>
     (value) =>
@@ -414,7 +417,7 @@ const fleetActionChecks: Readonly<Record<FleetTaskCommandKind, Check>> = {
       taskClass: one("standard", "work", "long_running"),
       reviewReturnBudget: positiveInt,
       // The resolved plan body crosses the wire; --plan-file itself stays center-local like --from-file.
-      plan: text,
+      plan: bodyText,
       locale: one("zh-CN", "en-US"),
       dryRun: boolean,
     },
@@ -543,8 +546,7 @@ const taskLease = shape({
 const taskAssignmentScope = shape({ kind: one("task"), taskId: id, executionId: id, paths: array(logicalPath) }),
   scheduleAssignmentScope = shape({ kind: one("schedule"), scheduleId: id, paths: array(logicalPath) }),
   assignmentScope: Check = (value) => taskAssignmentScope(value) || scheduleAssignmentScope(value);
-const scheduleMission: Check = (value) => typeof value === "string" && value.length > 0 && value.length <= 32 * 1024,
-  scheduleActionShapes: Readonly<Record<string, Check>> = {
+const scheduleActionShapes: Readonly<Record<string, Check>> = {
     "schedule-create": (value) =>
       optionalShape(
         {
@@ -557,7 +559,7 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
           timezone: text,
           agentId: id,
           runtimeInstanceId: id,
-          mission: scheduleMission,
+          mission: bodyText,
           model: text,
           reasoningEffort: one("minimal", "low", "medium", "high", "xhigh", "max"),
           fast: boolean,
@@ -593,7 +595,7 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
           timezone: text,
           agentId: id,
           runtimeInstanceId: id,
-          mission: scheduleMission,
+          mission: bodyText,
           model: nullable(text),
           reasoningEffort: nullable(one("minimal", "low", "medium", "high", "xhigh", "max")),
           fast: boolean,
@@ -664,7 +666,7 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
           claimFence: id,
           outcome: one("succeeded", "failed", "unknown", "cancelled"),
           endedAt: isUtcTimestamp,
-          detail: scheduleMission,
+          detail: bodyText,
           idempotencyKey: text,
         },
         ["kind", "scheduleId", "claimFence", "outcome", "endedAt"],

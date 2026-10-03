@@ -18,6 +18,17 @@ export interface EntityVersionWitness {
   readonly state?: string;
 }
 
+export function keycloakPersonIdentityWitness(
+  entityRef: string,
+  observedVersion: EntityVersion | null,
+): EntityVersionWitness | null {
+  if (typeof observedVersion !== "string" || !observedVersion.startsWith("keycloak-user:")) return null;
+  const personId = /^person\/([A-Za-z][A-Za-z0-9_-]{0,62})$/u.exec(entityRef)?.[1],
+    witnessed = /^keycloak-user:([^:]+):([^:]+)$/u.exec(observedVersion);
+  if (!personId || witnessed?.[1] !== personId || !witnessed[2]) return null;
+  return { entityRef, freshness: "current", currentVersion: observedVersion };
+}
+
 export function relationFreshnessAtCut(input: {
   readonly anchor: RelationFreshnessAnchor;
   readonly target: EntityVersionWitness;

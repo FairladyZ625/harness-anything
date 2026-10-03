@@ -1,4 +1,7 @@
 // harness-test-tier: integration
+import { after } from "node:test";
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
 
@@ -17,7 +20,7 @@ import {
 
 import { createServer } from "node:net";
 
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 
 import path from "node:path";
 
@@ -63,6 +66,34 @@ import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-accept
 
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "owner" });
+for (const resource of [
+  "autostart",
+  "clean-autostart",
+  "relay-admin",
+  "relay-conflict",
+  "runtime-bootstrap",
+  "vertical-wedge",
+  "runtime-attach-live",
+  "vertical-disconnect",
+  "vertical-unaffected",
+  "diagnostic",
+  "receipt-wait",
+  "slow-warming",
+  "executor-axis",
+  "reinstate",
+  "contract-receipt",
+  "autostart-fail",
+])
+  await realm.control({
+    op: "permit",
+    personId: "owner",
+    resource,
+    actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+  });
+
 const cli = path.resolve("packages/cli/src/index.ts");
 
 function assertValidWriteReceipt(value: unknown): void {
@@ -90,12 +121,16 @@ function cliEnv(root: string, userRoot: string, actor?: string): NodeJS.ProcessE
   };
 }
 
-function setup(): { parent: string; root: string; userRoot: string } {
+function setup(authenticated = true): { parent: string; root: string; userRoot: string } {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
   ownDaemonFixture({ parent, userRoot, daemonId: "default", env: cliEnv(root, userRoot) });
   setupRepository(parent, "repo");
+  if (authenticated) {
+    realm.bind(userRoot);
+    signInAt(userRoot, "owner");
+  }
   return { parent, root, userRoot };
 }
 
@@ -104,15 +139,11 @@ function setupRepository(parent: string, name: string): string {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "README.md"), "# Fixture\n", "utf8");
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
-  writeFileSync(
-    path.join(root, "harness/people.yaml"),
-    `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`,
-    "utf8",
-  );
+
   git(root, "init", "--quiet");
   git(root, "config", "user.name", "Autostart Test");
   git(root, "config", "user.email", "autostart@example.test");
-  git(root, "add", "README.md", "harness/harness.yaml", "harness/people.yaml");
+  git(root, "add", "README.md", "harness/harness.yaml");
   git(root, "commit", "--quiet", "-m", "fixture");
   return root;
 }
@@ -420,7 +451,6 @@ export {
   rmSync,
   writeFileSync,
   createServer,
-  hostname,
   tmpdir,
   path,
   JsonRpcLineClient,

@@ -7,22 +7,22 @@ import path from "node:path";
 import test from "node:test";
 import { deriveRelationId, makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-const proposer = withRoleBinding(
+const proposer = withPolicyGroup(
     {
       actor: { principal: { personId: "person-proposer" }, executor: { kind: "agent", id: "codex" } } as const,
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
-  arbiter = withRoleBinding(
-    withRoleBinding(
+  arbiter = withPolicyGroup(
+    withPolicyGroup(
       { actor: { principal: { personId: "person-arbiter" }, executor: null } as const, source: "local" as const },
-      "arbiter",
+      "maintainer",
     ),
-    "repo-write",
+    "contributor",
   );
 
 test("Decision F06 surface preserves amend, transition, relation, repin, validation, distill, and cold rebuild semantics", async () => {

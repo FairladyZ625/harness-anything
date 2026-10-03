@@ -69,7 +69,7 @@ test("resident daemon autostart strips the worker callback relay marker", () => 
 });
 
 test("stopping a cold daemon leaves the user root untouched", () => {
-  const fixture = setup();
+  const fixture = setup(false);
 
   const stopped = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "stop"], {
     encoding: "utf8",

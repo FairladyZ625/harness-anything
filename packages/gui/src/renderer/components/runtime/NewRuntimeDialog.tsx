@@ -1,3 +1,7 @@
+import { Notice } from "../primitives/Notice";
+import { Toggle } from "../primitives/Toggle.tsx";
+import { SegCtl } from "../primitives/SegCtl.tsx";
+import { Button } from "../primitives/Button.tsx";
 import { useState } from "react";
 import { runtimeIsolationState, runtimePermissionMode } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstallationRow, RuntimeInstanceCreateInput } from "../../runtime-instance-client.ts";
@@ -24,7 +28,10 @@ import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { ActionError } from "./ActionError.tsx";
-import { Badge, Btn, CfgRow, Hint, KindDot, Modal, SegCtl, TextInput, Toggle, WarnBar } from "./parts.tsx";
+import { CfgRow, Hint, KindDot } from "./parts.tsx";
+import { Modal } from "../primitives/Modal.tsx";
+import { TextInput } from "../primitives/TextInput.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
 const kindLabel = (kindId: RuntimeKindId): string => runtimeKindForId(kindId).displayName;
@@ -104,8 +111,8 @@ export function NewRuntimeDialog({
             {installation?.installationId ?? t("agentRuntime.noWitnessedInstallation", { kind: form.kindId })}
           </Hint>
           <span className="flex-1" />
-          <Btn onClick={onCancel}>{t("agentRuntime.cancel")}</Btn>
-          <Btn
+          <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+          <Button
             variant="primary"
             testId="new-runtime-create"
             disabled={busy || !ready}
@@ -114,7 +121,7 @@ export function NewRuntimeDialog({
             }
           >
             {t(apiOn ? "agentRuntime.createWithApiKey" : "agentRuntime.createSubscription")}
-          </Btn>
+          </Button>
         </div>
       }
     >
@@ -188,9 +195,10 @@ export function NewRuntimeDialog({
             onChange={(next) => setForm((current) => applyRuntimeAuthMode(current, next ? "api-key" : "subscription"))}
           />
           <b className="ui-micro">{t("agentRuntime.apiOverride")}</b>
-          <Badge status={apiOn ? "active" : "planned"}>
-            {t(apiOn ? "agentRuntime.apiOverrideOn" : "agentRuntime.apiOverrideOff")}
-          </Badge>
+          <StatusTag
+            status={apiOn ? "active" : "planned"}
+            label={t(apiOn ? "agentRuntime.apiOverrideOn" : "agentRuntime.apiOverrideOff")}
+          />
         </div>
         <p className="mt-1 ui-micro text-text-faint">
           {t(planeUsesApiOverride(form.kindId) ? "agentRuntime.callPathClaude" : "agentRuntime.capabilityUnsupported", {
@@ -401,9 +409,9 @@ export function NewRuntimeDialog({
           requires_openai_auth
         </label>
       )}
-      <WarnBar>
+      <Notice>
         <span>{t(apiOn ? "agentRuntime.createApiWarn" : "agentRuntime.createSubscriptionWarn")}</span>
-      </WarnBar>
+      </Notice>
     </Modal>
   );
 }

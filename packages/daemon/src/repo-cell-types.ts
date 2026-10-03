@@ -8,7 +8,6 @@ import {
   type DaemonRepoMode,
   type DelegatedExecutionToken,
   type MaterializationHealth,
-  type RoleBinding,
   type WriteReceipt,
   type WriteReceiptDraft,
   type WriteSource,
@@ -40,8 +39,8 @@ export type RepoTaskAction = Readonly<Record<string, unknown>> & {
 export interface RepoCellBinding {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
-  /** Authored roster projection closes default-open local policy; omitted local bindings use the default. */
-  readonly authorizationBindingMode?: "default" | "declared";
+  /** Established exclusively by the daemon local socket boundary for host-resident actions. */
+  readonly daemonSocketOwner?: true;
   readonly sessionEnvironment?: Readonly<Record<string, string | undefined>>;
   /**
    * Daemon-established material for online Keycloak evaluation; never accepted from action payloads. A
@@ -58,14 +57,21 @@ export interface RepoCellBinding {
     };
     readonly center?: KeycloakCenterCredential;
   };
-  readonly roleBindings?: readonly RoleBinding[];
   /**
    * Center-verified DelegatedExecutionToken covering the one Action currently executing; resolved from the
-   * writer-cut People document together with the issuer-projected actor, never supplied by transport.
+   * repository-private delegation record together with the issuer actor, never supplied by transport.
    */
   readonly delegatedExecutionToken?: DelegatedExecutionToken;
   /** Center-issued decision for the one Action currently executing; transport never supplies this. */
   readonly authorizationDecision?: AuthorizationDecision;
+  /** Keycloak-resolved Person identity and per-action decisions prepared before a synchronous read cut. */
+  readonly personExplanation?: {
+    readonly existsIds: ReadonlySet<string>;
+    readonly decisions: ReadonlyMap<string, AuthorizationDecision>;
+  };
+  /** Keycloak user IDs resolved at the writer cut for Person endpoints used by this Action. */
+  readonly personIdentityWitnesses?: ReadonlyMap<string, string>;
+  readonly explanationDecisions?: ReadonlyMap<string, AuthorizationDecision>;
   readonly assignmentScope?: FleetAssignmentScope;
   readonly writerEpoch?: number;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;

@@ -1,6 +1,10 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { after } from "node:test";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { provisionPolicyTestRepository, withPolicyGroup, revokeTestPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
   bindWriterGenerationToken,
   type DelegatedExecutionToken,
@@ -11,8 +15,9 @@ import { createRepoCellApi, type RepoCellApiContext } from "../src/repo-cell-api
 import { failed } from "../src/repo-cell-settlement.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 
-// The People roster document is plain JSON; the reader under test parses and normalizes it.
-const serializePeopleRosterDocument = (roster: unknown): string => `${JSON.stringify(roster, null, 2)}\n`;
+provisionPolicyTestRepository("repository");
+const root = mkdtempSync(path.join(tmpdir(), "ha-delegated-executor-"));
+after(() => rmSync(root, { recursive: true, force: true }));
 
 const now = "2026-09-19T12:00:00.000Z";
 const ownedTaskId = "task-delegation-owned",
@@ -82,53 +87,19 @@ function token(overrides: Partial<DelegatedExecutionToken> = {}): DelegatedExecu
   };
 }
 
-function rosterBody(tokens: readonly DelegatedExecutionToken[] = [token()]): string {
-  return serializePeopleRosterDocument({
-    schema: "harness-people/v1",
-    people: [
-      {
-        personId: issuerPersonId,
-        displayName: "Issuing Principal",
-        roles: ["owner"],
-        credentials: [],
-      },
-    ],
-    roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }],
-    bindings: [],
-    delegatedExecutionTokens: [...tokens],
-  });
-}
-
 function bindingFor(principalPersonId = issuerPersonId): RepoCellBinding {
-  const actor = { principal: { personId: principalPersonId }, executor: null };
-  return {
-    actor,
-    source: "local",
-    authorizationBindingMode: "declared",
-    roleBindings: [
-      {
-        actor: { kind: "person", id: principalPersonId },
-        role: "owner",
-        target: "settings/repository",
-        source: "declared",
-        expiresAt: null,
-      },
-    ],
-    authorizationDecision: {
-      policyRef: "keycloak-policy@1",
-      actor,
-      subject: `task/${targetTaskId}`,
-      bindingsUsed: [{ authority: "keycloak", scope: delegatedAction.kind }],
-      outcome: "allowed",
-      reasonCodes: ["keycloak_allowed"],
-      nextActions: [],
-      evaluatedAtCut: "fixture:keycloak",
+  return withPolicyGroup(
+    {
+      actor: { principal: { personId: principalPersonId }, executor: null },
+      source: "local" as const,
+      authorizationBindingMode: "declared" as const,
     },
-  };
+    "admin",
+  );
 }
 
 test("a delegated executor claim crosses task bindings through a valid token", async () => {
-  const context = contextFor(() => rosterBody());
+  const context = contextFor([token()]);
   const receipt = await createRepoCellApi(context).run(delegatedAction, bindingFor());
 
   assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -150,98 +121,40 @@ test("a delegated executor claim crosses task bindings through a valid token", a
 });
 
 test("the delegated claim still requires the issuer's Keycloak permission", async () => {
-  const ownerRoster = serializePeopleRosterDocument({
-      schema: "harness-people/v1",
-      people: [
-        { personId: issuerPersonId, displayName: "Issuing Principal", roles: ["owner"], credentials: [] },
-        { personId: "person_operator", displayName: "Local Operator", roles: ["reviewer"], credentials: [] },
-      ],
-      roles: [
-        { roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] },
-        { roleId: "reviewer", commandClasses: ["repo-read"] },
-      ],
-      bindings: [],
-      delegatedExecutionTokens: [token()],
-    }),
-    ownerContext = contextFor(() => ownerRoster),
-    ownerBinding: RepoCellBinding = {
-      ...bindingFor("person_operator"),
-      authorizationBindingMode: "declared",
-      roleBindings: [],
-    },
-    allowed = await createRepoCellApi(ownerContext).run(delegatedAction, ownerBinding);
-  assert.equal(allowed.outcome, "applied", JSON.stringify(allowed));
-  assert.deepEqual(ownerContext.observedActor, delegatedActor);
-
-  const reviewerOnly = serializePeopleRosterDocument({
-      schema: "harness-people/v1",
-      people: [
-        { personId: issuerPersonId, displayName: "Issuing Reviewer", roles: ["reviewer"], credentials: [] },
-        { personId: "person_operator", displayName: "Local Operator", roles: ["owner"], credentials: [] },
-      ],
-      roles: [
-        { roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] },
-        { roleId: "reviewer", commandClasses: ["repo-read"] },
-      ],
-      bindings: [],
-      delegatedExecutionTokens: [token()],
-    }),
-    reviewerContext = contextFor(() => reviewerOnly),
-    denied = await createRepoCellApi(reviewerContext).run(delegatedAction, {
-      ...ownerBinding,
-      authorizationDecision: undefined,
-    });
+  const context = contextFor([token()]),
+    binding = bindingFor();
+  assert.equal((await createRepoCellApi(context).run(delegatedAction, binding)).outcome, "applied");
+  revokeTestPolicyGroup(issuerPersonId, "admin");
+  const denied = await createRepoCellApi(context).run(delegatedAction, binding);
   assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
   assert.equal(denied.code, "authorization_denied");
-  assert.equal(reviewerContext.observedActor, null);
 });
 
 test("an agent holds exactly the issuer's permission intersected with the token allowlist", async () => {
-  const roster = (issuerRole: "owner" | "reviewer", allowedActions: readonly string[]): string =>
-      serializePeopleRosterDocument({
-        schema: "harness-people/v1",
-        people: [
-          { personId: issuerPersonId, displayName: "Issuing Principal", roles: [issuerRole], credentials: [] },
-          { personId: "person_operator", displayName: "Local Operator", roles: ["owner"], credentials: [] },
-        ],
-        roles: [
-          { roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] },
-          { roleId: "reviewer", commandClasses: ["repo-read"] },
-        ],
-        bindings: [],
-        delegatedExecutionTokens: [token({ allowedActions: [...allowedActions] })],
-      }),
-    // The operator who relays the agent's command is admitted for every action; that must never widen the agent.
-    operatorBinding: RepoCellBinding = { ...bindingFor("person_operator"), roleBindings: [] },
-    cases = [
-      { issuerRole: "owner", allowedActions: ["task-amend"], outcome: "applied", code: undefined },
-      {
-        issuerRole: "owner",
-        allowedActions: ["task-annotate"],
-        outcome: "op_rejected",
-        code: "executor_binding_invalid",
-      },
-      { issuerRole: "reviewer", allowedActions: ["task-amend"], outcome: "op_rejected", code: "authorization_denied" },
-      {
-        issuerRole: "reviewer",
-        allowedActions: ["task-annotate"],
-        outcome: "op_rejected",
-        code: "executor_binding_invalid",
-      },
-    ] as const;
+  for (const permitted of [true, false])
+    for (const covers of [true, false]) {
+      const context = contextFor([token({ allowedActions: [covers ? "task-amend" : "task-annotate"] })]),
+        binding = bindingFor();
+      if (!permitted) revokeTestPolicyGroup(issuerPersonId, "admin");
+      const receipt = await createRepoCellApi(context).run(delegatedAction, binding);
+      assert.equal(receipt.outcome, permitted && covers ? "applied" : "op_rejected", JSON.stringify(receipt));
+      assert.equal(
+        receipt.code,
+        !covers ? "executor_binding_invalid" : !permitted ? "authorization_denied" : undefined,
+      );
+      assert.deepEqual(context.observedActor, permitted && covers ? delegatedActor : null);
+    }
+});
 
-  for (const entry of cases) {
-    const context = contextFor(() => roster(entry.issuerRole, entry.allowedActions)),
-      receipt = await createRepoCellApi(context).run(delegatedAction, operatorBinding),
-      label = `${entry.issuerRole} issuer, token allows ${entry.allowedActions.join(",")}`;
-    assert.equal(receipt.outcome, entry.outcome, `${label}: ${JSON.stringify(receipt)}`);
-    assert.equal(receipt.code, entry.code, label);
-    assert.deepEqual(context.observedActor, entry.outcome === "applied" ? delegatedActor : null, label);
-  }
+test("another signed-in principal cannot borrow an issuer's private delegation", async () => {
+  const context = contextFor([token()]);
+  const receipt = await createRepoCellApi(context).run(delegatedAction, bindingFor("person_operator"));
+  assert.equal(receipt.code, "executor_binding_invalid");
+  assert.equal(context.observedActor, null);
 });
 
 test("a claim without any covering token keeps the executor binding rejection", async () => {
-  const receipt = await createRepoCellApi(contextFor(() => rosterBody([]))).run(delegatedAction, bindingFor());
+  const receipt = await createRepoCellApi(contextFor([])).run(delegatedAction, bindingFor());
 
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.code, "executor_binding_invalid");
@@ -256,24 +169,24 @@ test("a claim without any covering token keeps the executor binding rejection", 
 });
 
 test("a token pinned to another RuntimeSession does not cover this session's claim", async () => {
-  const foreign = rosterBody([token({ delegate: { runtimeSessionId: "other-runtime" } })]),
-    receipt = await createRepoCellApi(contextFor(() => foreign)).run(delegatedAction, bindingFor());
+  const foreign = [token({ delegate: { runtimeSessionId: "other-runtime" } })],
+    receipt = await createRepoCellApi(contextFor(foreign)).run(delegatedAction, bindingFor());
 
   assert.equal(receipt.code, "executor_binding_invalid");
   assert.match(String(receipt.diagnostic?.expectation), /No DelegatedExecutionToken is issued/u);
 });
 
 test("an expired token is rejected with its expiry in the diagnostic", async () => {
-  const expired = rosterBody([token({ expiresAt: "2026-09-19T11:30:00.000Z" })]),
-    receipt = await createRepoCellApi(contextFor(() => expired)).run(delegatedAction, bindingFor());
+  const expired = [token({ expiresAt: "2026-09-19T11:30:00.000Z" })],
+    receipt = await createRepoCellApi(contextFor(expired)).run(delegatedAction, bindingFor());
 
   assert.equal(receipt.code, "executor_binding_invalid");
   assert.match(String(receipt.diagnostic?.expectation), /det_ledger_ops_1.*expired at 2026-09-19T11:30:00\.000Z/u);
 });
 
 test("a revoked token is rejected even when it has not expired", async () => {
-  const revoked = rosterBody([token({ revokedAt: "2026-09-19T11:30:00.000Z" })]),
-    context = contextFor(() => revoked),
+  const revoked = [token({ revokedAt: "2026-09-19T11:30:00.000Z" })],
+    context = contextFor(revoked),
     receipt = await createRepoCellApi(context).run(delegatedAction, bindingFor());
 
   assert.equal(receipt.code, "executor_binding_invalid");
@@ -282,21 +195,20 @@ test("a revoked token is rejected even when it has not expired", async () => {
 });
 
 test("an Action outside the delegated set names the missing Action", async () => {
-  const narrow = rosterBody([token({ allowedActions: ["task-annotate"] })]),
-    receipt = await createRepoCellApi(contextFor(() => narrow)).run(delegatedAction, bindingFor());
+  const narrow = [token({ allowedActions: ["task-annotate"] })],
+    receipt = await createRepoCellApi(contextFor(narrow)).run(delegatedAction, bindingFor());
 
   assert.equal(receipt.code, "executor_binding_invalid");
   assert.match(String(receipt.diagnostic?.expectation), /det_ledger_ops_1.*does not allow task-amend/u);
 });
 
 test("revocation observed at the writer cut rejects the queued write after it", async () => {
-  let revoked = false;
-  const context = contextFor(() => rosterBody(revoked ? [token({ revokedAt: now })] : [token()])),
+  const context = contextFor([token()]),
     api = createRepoCellApi(context),
     before = await api.run(delegatedAction, bindingFor());
   assert.equal(before.outcome, "applied", JSON.stringify(before));
 
-  revoked = true;
+  context.setDelegations([token({ revokedAt: now })]);
   const after = await api.run(delegatedAction, bindingFor());
   assert.equal(after.outcome, "op_rejected");
   assert.equal(after.code, "executor_binding_invalid");
@@ -304,22 +216,39 @@ test("revocation observed at the writer cut rejects the queued write after it", 
 });
 
 test("a delegated claim still requires the claimed RuntimeSession to exist", async () => {
-  const receipt = await createRepoCellApi(contextFor(() => rosterBody(), { session: null })).run(
-    delegatedAction,
-    bindingFor(),
-  );
+  const receipt = await createRepoCellApi(contextFor([token()], { session: null })).run(delegatedAction, bindingFor());
 
   assert.equal(receipt.code, "executor_binding_invalid");
   assert.match(String(receipt.rejectionExplanation), /not canonically bound/u);
 });
 
 function contextFor(
-  roster: () => string,
+  tokens: readonly DelegatedExecutionToken[],
   options: { readonly session?: RuntimeSession | null } = {},
 ): RepoCellApiContext & {
   readonly observedActor: RepoCellBinding["actor"] | null;
   readonly tailAssignments: number;
+  readonly setDelegations: (tokens: readonly DelegatedExecutionToken[]) => void;
 } {
+  const userRoot = mkdtempSync(path.join(root, "case-"));
+  mkdirSync(path.join(userRoot, "execution-delegations"));
+  const setDelegations = (current: readonly DelegatedExecutionToken[]) =>
+    writeFileSync(
+      path.join(userRoot, "execution-delegations/repository.json"),
+      JSON.stringify({
+        schema: "execution-delegations/v1",
+        repoId: "repository",
+        operations: {},
+        records: current.map((token) => ({
+          token,
+          repoId: "repository",
+          source: "local",
+          issuedByOperationId: "issue-fixture",
+        })),
+      }),
+      { mode: 0o600 },
+    );
+  setDelegations(tokens);
   let currentTail: Promise<void> = Promise.resolve(),
     tailAssignments = 0;
   const activeWriter = { workspaceId: "repository", generation: 1, ownerId: "daemon" },
@@ -334,7 +263,8 @@ function contextFor(
       },
       mode: "local",
       fleetRoster: null,
-      input: { repoId: "repository" },
+      input: { repoId: "repository", runtimeDaemonRoute: { userRoot, daemonId: "fixture", endpoint: "fixture" } },
+      setDelegations,
       rejected: (opId: string, code: string, nextAction: string) => ({
         outcome: "op_rejected",
         opId,
@@ -385,7 +315,15 @@ function contextFor(
           recordedAt: now,
           memberOpIds: ["op-delegated-executor"],
         }),
-        readEvent: () => ({ opId: "op-delegated-executor" }),
+        readEvent: (opId: string) =>
+          opId === "issue-fixture"
+            ? {
+                schema: "execution-delegation-event/v1",
+                actor: { principal: { personId: issuerPersonId }, executor: null },
+                source: "local",
+                payload: { operation: "issue", tokenId: "det_ledger_ops_1" },
+              }
+            : { opId: "op-delegated-executor" },
         publication: () => ({
           commitSha: null,
           cut: { repoId: "repository", revision: 3, headDigest: "sha256:fixture" },
@@ -408,23 +346,6 @@ function contextFor(
         readRuntimeSession: () => session,
         currentLease: () => ownedLease,
         readCut: () => ({ status: "ready", watermark: 3, sourceRevision: 3 }),
-        readDocument: () => {
-          const body = roster();
-          return {
-            status: "ready",
-            document: {
-              path: "people.yaml",
-              blobSha256: "sha256:people-fixture",
-              body,
-              size: body.length,
-              mediaType: "application/json",
-              policyId: "people-registry",
-              workspaceRevision: 1,
-            },
-            watermark: 3,
-            sourceRevision: 3,
-          };
-        },
       },
       now: () => now,
       executeAction: (_action: unknown, verified: RepoCellBinding) => {
@@ -452,5 +373,6 @@ function contextFor(
   return fixture as unknown as RepoCellApiContext & {
     readonly observedActor: RepoCellBinding["actor"] | null;
     readonly tailAssignments: number;
+    readonly setDelegations: (tokens: readonly DelegatedExecutionToken[]) => void;
   };
 }

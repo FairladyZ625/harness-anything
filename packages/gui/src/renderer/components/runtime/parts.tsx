@@ -5,13 +5,15 @@ import type { ReactNode } from "react";
 // segmented control / switch / avatar / dots), so the surfaces below stay declarative and
 // no view re-invents a border radius.
 
+// Avatar 身份色已入 @theme token(--color-avatar-*,两主题成对,C13):
+// 组件不再持有 oklch 字面色,亮色主题跟随。
 export const AVATAR_COLORS = [
-  "oklch(0.75 0.12 195)",
-  "oklch(0.75 0.12 305)",
-  "oklch(0.75 0.12 150)",
-  "oklch(0.75 0.12 75)",
-  "oklch(0.75 0.10 250)",
-  "oklch(0.72 0.12 25)",
+  "var(--color-avatar-1)",
+  "var(--color-avatar-2)",
+  "var(--color-avatar-3)",
+  "var(--color-avatar-4)",
+  "var(--color-avatar-5)",
+  "var(--color-avatar-6)",
 ] as const;
 export const KIND_COLORS: Record<string, string> = {
   codex: "var(--color-status-in-review)",
@@ -94,149 +96,12 @@ export function Sect({
   );
 }
 
-export function FieldGrid({ children }: { readonly children: ReactNode }) {
-  return <dl className="grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-2">{children}</dl>;
-}
-export function Field({
-  label,
-  value,
-  mono = true,
-  faint = false,
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly mono?: boolean;
-  readonly faint?: boolean;
-}) {
-  return (
-    <div className="min-w-0">
-      <dt className="mb-0.5 font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">{label}</dt>
-      <dd
-        className={`[overflow-wrap:anywhere] ${mono ? "font-mono ui-micro" : "ui-meta"} ${faint ? "text-text-faint" : "text-text"}`}
-      >
-        {value}
-      </dd>
-    </div>
-  );
-}
-export function KV({ children }: { readonly children: ReactNode }) {
-  return <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-[3px] ui-micro">{children}</dl>;
-}
-export function KVRow({
-  name,
-  title,
-  children,
-}: {
-  readonly name: ReactNode;
-  /** 值被收束/截断时,原始串放悬停(视觉基线 v2:机器编号不当主文字)。 */
-  readonly title?: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <>
-      <dt className="whitespace-nowrap font-mono ui-micro text-text-faint">{name}</dt>
-      <dd title={title} className="[overflow-wrap:anywhere] text-text">
-        {children}
-      </dd>
-    </>
-  );
-}
+// 只读字段/键值(FieldGrid/Field/KV/KVRow)已迁入 primitives/Fields.tsx(C9):
+// 详情字段是跨域共享契约,不随 runtime 第二库生长。
 
-export function Chip({
-  tip,
-  tone = "plain",
-  onClick,
-  onRemove,
-  removeLabel = "Remove",
-  children,
-}: {
-  readonly tip?: string;
-  readonly tone?: "plain" | "link" | "mono";
-  readonly onClick?: () => void;
-  /** 存在时 Chip 拆成「点击主体 + 独立删除热区」两个交互面(task_5dfe382f)。 */
-  readonly onRemove?: () => void;
-  /** 删除热区的无障碍名;调用方传本地化文案。 */
-  readonly removeLabel?: string;
-  readonly children: ReactNode;
-}) {
-  const base = `inline-flex items-center gap-1.5 rounded border border-border-strong bg-surface px-[7px] py-0.5 ui-micro ${tone === "mono" ? "font-mono ui-micro" : ""}`;
-  // onRemove 形态:外层必须是 span —— button 嵌 button 是非法 DOM,点击会紊乱。
-  if (onRemove !== undefined)
-    return (
-      <span data-tip={tip} className={`${base} ${onClick !== undefined ? "hover:border-accent" : ""}`}>
-        {onClick !== undefined ? (
-          <button type="button" onClick={onClick} className="text-left hover:text-accent">
-            {children}
-          </button>
-        ) : (
-          <span>{children}</span>
-        )}
-        <button
-          type="button"
-          aria-label={removeLabel}
-          data-tip={removeLabel}
-          onClick={(event) => {
-            event.stopPropagation();
-            onRemove();
-          }}
-          className="text-text-faint hover:text-danger"
-        >
-          ✕
-        </button>
-      </span>
-    );
-  return onClick ? (
-    <button type="button" data-tip={tip} onClick={onClick} className={`${base} hover:border-accent`}>
-      {children}
-    </button>
-  ) : (
-    <span data-tip={tip} className={base}>
-      {children}
-    </span>
-  );
-}
-export function RoleTag({
-  tone = "in-review",
-  children,
-}: {
-  readonly tone?: "in-review" | "done" | "active";
-  readonly children: ReactNode;
-}) {
-  const color = `var(--color-status-${tone})`;
-  return (
-    <span
-      className="rounded-[3px] border px-[3px] font-mono ui-micro tracking-[0.03em]"
-      style={{
-        color,
-        borderColor: `color-mix(in oklab, ${color} 40%, transparent)`,
-        background: `color-mix(in oklab, ${color} 14%, transparent)`,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-export function Badge({
-  status,
-  tip,
-  children,
-}: {
-  readonly status?: string;
-  readonly tip?: string;
-  readonly children: ReactNode;
-}) {
-  const color = status ? `var(--color-status-${status})` : undefined;
-  return (
-    <span
-      data-tip={tip}
-      className="inline-flex items-center gap-1 rounded-[3px] border border-border-strong px-1.5 py-px font-mono ui-micro tracking-[0.03em] text-text-muted"
-      style={color ? { color, borderColor: `color-mix(in oklab, ${color} 45%, transparent)` } : undefined}
-    >
-      {color && <span className="size-1.5 rounded-full" style={{ background: color }} />}
-      {children}
-    </span>
-  );
-}
+// 可交互 Chip 已迁入 primitives/Chip.tsx(C8):点击/链接/删除贴片是跨域契约;
+// AddChip/ChipZone 是 runtime 配置面的伴生形状,留在此域。
+
 export function KindDot({ kind }: { readonly kind: string }) {
   return (
     <span
@@ -268,7 +133,7 @@ export function Avatar({ id, size = "sm" }: { readonly id: string; readonly size
   return (
     <span
       aria-hidden
-      className={`flex shrink-0 items-center justify-center font-mono font-bold text-[oklch(0.15_0.01_285)] ${size === "lg" ? "size-10 rounded-lg ui-title" : "size-[18px] rounded ui-micro"}`}
+      className={`flex shrink-0 items-center justify-center font-mono font-bold text-avatar-fg ${size === "lg" ? "size-10 rounded-lg ui-title" : "size-[18px] rounded ui-micro"}`}
       style={{ background: AVATAR_COLORS[colorSeed(id)] }}
     >
       {initials(id)}
@@ -317,46 +182,6 @@ export function CapDot({
   );
 }
 
-export function Btn({
-  variant = "plain",
-  size = "md",
-  type = "button",
-  tip,
-  testId,
-  disabled,
-  onClick,
-  children,
-}: {
-  readonly variant?: "plain" | "primary" | "danger" | "ghost";
-  readonly size?: "sm" | "md";
-  readonly type?: "button" | "submit";
-  readonly tip?: string;
-  readonly testId?: string;
-  readonly disabled?: boolean;
-  readonly onClick?: () => void;
-  readonly children: ReactNode;
-}) {
-  const tone =
-    variant === "primary"
-      ? "border-transparent bg-accent font-semibold text-accent-fg hover:brightness-110"
-      : variant === "danger"
-        ? "border-danger/45 text-danger hover:bg-danger/10"
-        : variant === "ghost"
-          ? "border-transparent text-text-muted hover:border-border-strong"
-          : "border-border-strong text-text hover:border-text-faint hover:bg-surface";
-  return (
-    <button
-      type={type}
-      data-tip={tip}
-      data-testid={testId}
-      disabled={disabled}
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded border ${size === "sm" ? "px-2 py-0.5 ui-micro" : "px-2.5 py-1 ui-meta"} ${tone} disabled:cursor-not-allowed disabled:opacity-45`}
-    >
-      {children}
-    </button>
-  );
-}
 export function AddChip({ onClick, children }: { readonly onClick: () => void; readonly children: ReactNode }) {
   return (
     <button
@@ -371,76 +196,6 @@ export function AddChip({ onClick, children }: { readonly onClick: () => void; r
 export function ChipZone({ children }: { readonly children: ReactNode }) {
   return <div className="flex flex-wrap items-center gap-1.5">{children}</div>;
 }
-export function Empty({ children }: { readonly children: ReactNode }) {
-  return <p className="py-1 ui-micro text-text-faint">{children}</p>;
-}
-
-export function SegCtl<T extends string>({
-  value,
-  options,
-  onChange,
-  label,
-}: {
-  readonly value: T;
-  readonly options: readonly { readonly value: T; readonly label: string; readonly tip?: string }[];
-  readonly onChange: (value: T) => void;
-  readonly label?: string;
-}) {
-  return (
-    <span
-      role="group"
-      aria-label={label}
-      // overflow-hidden 会把段钮的命中区伪元素一并裁掉;首末段自带内圆角
-      // (容器圆角 3.5px − 1px 边框)补回原本由裁切提供的圆角观感。
-      className="inline-flex flex-wrap rounded border border-border-strong"
-    >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          data-tip={option.tip}
-          aria-pressed={option.value === value}
-          onClick={() => onChange(option.value)}
-          className={`relative px-2.5 py-0.5 ui-micro first:rounded-l-[2.5px] last:rounded-r-[2.5px] after:absolute after:content-[''] after:inset-x-0 after:-top-[10.5px] after:-bottom-[10.5px] ${
-            option.value === value ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"
-          }`}
-        >
-          {option.label}
-        </button>
-      ))}
-    </span>
-  );
-}
-export function Toggle({
-  checked,
-  onChange,
-  label,
-  disabled,
-}: {
-  readonly checked: boolean;
-  readonly onChange: (checked: boolean) => void;
-  readonly label: string;
-  readonly disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={
-        "relative h-4 w-[30px] shrink-0 rounded-full border transition-colors disabled:opacity-50 " +
-        (checked ? "border-transparent bg-accent" : "border-border-strong bg-surface")
-      }
-    >
-      <span
-        className={`absolute top-[2px] size-2.5 rounded-full transition-transform ${checked ? "translate-x-[16px] bg-accent-fg" : "translate-x-[2px] bg-text-faint"}`}
-      />
-    </button>
-  );
-}
 export function CfgRow({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (
     <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
@@ -449,97 +204,10 @@ export function CfgRow({ label, children }: { readonly label: string; readonly c
     </div>
   );
 }
-export function WarnBar({ children }: { readonly children: ReactNode }) {
-  return (
-    <div className="mt-2 flex items-start gap-2 rounded border border-dashed border-stale/60 bg-stale/[0.07] px-2.5 py-[7px] ui-micro leading-[1.45] text-text-muted">
-      {children}
-    </div>
-  );
-}
 export function PlannedBox({ children }: { readonly children: ReactNode }) {
   return (
     <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">
       {children}
-    </div>
-  );
-}
-export function TextInput({
-  value,
-  onChange,
-  placeholder,
-  mono = false,
-  type = "text",
-  label,
-  disabled,
-  testId,
-}: {
-  readonly value: string;
-  readonly onChange: (value: string) => void;
-  readonly placeholder?: string;
-  readonly mono?: boolean;
-  readonly type?: "text" | "password" | "number";
-  readonly label: string;
-  readonly disabled?: boolean;
-  readonly testId?: string;
-}) {
-  return (
-    <input
-      type={type}
-      aria-label={label}
-      data-testid={testId}
-      value={value}
-      disabled={disabled}
-      placeholder={placeholder}
-      autoComplete={type === "password" ? "off" : undefined}
-      spellCheck={type === "password" ? false : undefined}
-      onChange={(event) => onChange(event.target.value)}
-      className={`min-w-0 rounded border border-border-strong bg-surface px-2 py-1 ui-meta text-text outline-none focus-visible:border-accent disabled:opacity-50 ${mono ? "font-mono ui-micro" : ""}`}
-    />
-  );
-}
-export function Modal({
-  title,
-  hint,
-  wide = false,
-  testId,
-  footer,
-  onClose,
-  children,
-}: {
-  readonly title: string;
-  readonly hint?: string;
-  readonly wide?: boolean;
-  readonly testId?: string;
-  readonly footer: ReactNode;
-  readonly onClose: () => void;
-  readonly children: ReactNode;
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      data-testid={testId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6"
-    >
-      <div
-        className={`flex max-h-[calc(100dvh-80px)] w-full flex-col overflow-hidden rounded-lg border border-border-strong bg-surface-raised shadow-2xl ${wide ? "max-w-[760px]" : "max-w-[640px]"}`}
-      >
-        <header className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
-          <b className="ui-body font-[650]">{title}</b>
-          {hint && <Hint>{hint}</Hint>}
-          <button
-            type="button"
-            aria-label="close"
-            onClick={onClose}
-            className="ml-auto px-1 ui-prose text-text-faint hover:text-text"
-          >
-            ✕
-          </button>
-        </header>
-        <div className="flex-1 overflow-y-auto px-3.5 py-3">{children}</div>
-        <footer className="border-t border-border px-3.5 py-2.5">{footer}</footer>
-      </div>
     </div>
   );
 }

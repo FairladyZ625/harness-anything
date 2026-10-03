@@ -5,8 +5,9 @@ import type { SystemRepoRow } from "../../api-client.ts";
 import { Popover } from "../../components/Popover.tsx";
 import { DenseRow } from "../../components/primitives/DenseRow.tsx";
 import { StatusTag, TONE_COLOR } from "../../components/primitives/StatusTag.tsx";
+import { Button } from "../../components/primitives/Button.tsx";
 import { RepoModeBadge } from "../../components/RepoModeBadge.tsx";
-import { Btn } from "../../components/runtime/parts.tsx";
+
 import { useRepoAdminMutations } from "../../connection-data.ts";
 import { t } from "../../i18n/index.tsx";
 import { guiHostBridge } from "../../gui-transport.ts";
@@ -348,10 +349,10 @@ function ProjectActions({
         {t(disabling ? "views.homeView.confirmDisableBody" : "views.homeView.confirmRemoveBody")}
       </p>
       <div className="mt-2.5 flex justify-end gap-2">
-        <Btn variant="ghost" testId="home-entry-confirm-cancel" onClick={close}>
+        <Button variant="ghost" testId="home-entry-confirm-cancel" onClick={close}>
           {t("views.homeView.actionCancel")}
-        </Btn>
-        <Btn
+        </Button>
+        <Button
           variant="danger"
           testId="home-entry-confirm-ok"
           disabled={busy}
@@ -367,7 +368,7 @@ function ProjectActions({
           }}
         >
           {t(disabling ? "views.homeView.actionDisable" : "views.homeView.actionRemove")}
-        </Btn>
+        </Button>
       </div>
     </div>
   );

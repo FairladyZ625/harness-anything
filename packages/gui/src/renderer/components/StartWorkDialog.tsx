@@ -1,3 +1,4 @@
+import { Notice } from "./primitives/Notice";
 import { useMemo, useState } from "react";
 import { CheckCircle, Question, WarningCircle } from "@phosphor-icons/react";
 import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
@@ -16,7 +17,10 @@ import {
   type StartWorkPrecondition,
 } from "../start-work-flow.ts";
 import { CopyContextButton } from "./CopyContextButton.tsx";
-import { Btn, CfgRow, Hint, Modal, PlannedBox, Sect, TextInput, WarnBar } from "./runtime/parts.tsx";
+import { CfgRow, Hint, PlannedBox, Sect } from "./runtime/parts.tsx";
+import { Modal } from "./primitives/Modal.tsx";
+import { TextInput } from "./primitives/TextInput.tsx";
+import { Button } from "./primitives/Button.tsx";
 
 /**
  * G1「开始一项工作」(S5):选目标类型 → 写目标与交付要求 → 确认执行资源与必要条件。
@@ -120,29 +124,34 @@ export function StartWorkDialog({
             {stepIndex + 1}/{STEPS.length} · {STEP_LABEL[step]()}
           </span>
           <span className="ml-auto flex items-center gap-2">
-            <Btn
+            <Button
               size="sm"
               disabled={stepIndex === 0}
               onClick={() => setStep(STEPS[Math.max(0, stepIndex - 1)])}
               testId="start-work-back"
             >
               {t("views.work.startWork.back")}
-            </Btn>
+            </Button>
             {stepIndex === STEPS.length - 1 ? (
-              <Btn size="sm" onClick={onClose} testId="start-work-close">
+              <Button size="sm" onClick={onClose} testId="start-work-close">
                 {t("views.work.startWork.close")}
-              </Btn>
+              </Button>
             ) : (
-              <Btn size="sm" variant="primary" onClick={() => setStep(STEPS[stepIndex + 1])} testId="start-work-next">
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => setStep(STEPS[stepIndex + 1])}
+                testId="start-work-next"
+              >
                 {t("views.work.startWork.next")}
-              </Btn>
+              </Button>
             )}
           </span>
         </div>
       }
     >
       {catalogError !== null ? (
-        <WarnBar>{t("views.work.startWork.catalogError", { error: catalogError })}</WarnBar>
+        <Notice>{t("views.work.startWork.catalogError", { error: catalogError })}</Notice>
       ) : catalog === undefined ? (
         <PlannedBox>{t("views.work.startWork.catalogLoading")}</PlannedBox>
       ) : step === "type" ? (
@@ -312,7 +321,7 @@ function IntentStep({
         onChange={(event) => onChange({ ...draft, intent: event.target.value })}
         className="mt-1 w-full rounded border border-border bg-surface px-2 py-1.5 ui-micro text-text outline-none focus:border-border-strong"
       />
-      <WarnBar>{t("views.work.startWork.intentNote")}</WarnBar>
+      <Notice>{t("views.work.startWork.intentNote")}</Notice>
     </Sect>
   );
 }
@@ -373,7 +382,7 @@ function ResourcesStep({
         ) : (
           <PlannedBox>{t("views.work.startWork.executorNone")}</PlannedBox>
         )}
-        <WarnBar>{t("views.work.startWork.executorNote")}</WarnBar>
+        <Notice>{t("views.work.startWork.executorNote")}</Notice>
       </Sect>
       <Sect
         title={t("views.work.startWork.commandTitle")}
@@ -385,11 +394,11 @@ function ResourcesStep({
         }
       >
         {blockers.length > 0 ? (
-          <WarnBar>
+          <Notice>
             {t("views.work.startWork.commandBlocked", {
               fields: blockers.map((blocker) => BLOCKER_LABEL[blocker]()).join(" / "),
             })}
-          </WarnBar>
+          </Notice>
         ) : (
           <>
             <pre
@@ -404,7 +413,7 @@ function ResourcesStep({
             <p className="mt-2 ui-micro text-text-muted">{t("views.work.startWork.planLabel")}</p>
             <pre
               data-testid="start-work-plan-body"
-              className="mt-1 max-h-40 overflow-auto rounded border border-border bg-surface px-2.5 py-2 ui-micro whitespace-pre-wrap text-text-muted"
+              className="mt-1 bounded-content overflow-auto rounded border border-border bg-surface px-2.5 py-2 ui-micro whitespace-pre-wrap text-text-muted"
             >
               {draft.intent}
             </pre>
@@ -419,15 +428,15 @@ function ResourcesStep({
       </Sect>
       <Sect title={t("views.work.startWork.verifyTitle")} desc={t("views.work.startWork.verifyDesc")}>
         <span className="flex flex-wrap items-center gap-2">
-          <Btn size="sm" onClick={onVerify} testId="start-work-verify">
+          <Button size="sm" onClick={onVerify} testId="start-work-verify">
             {t("views.work.startWork.verify")}
-          </Btn>
+          </Button>
           {created ? (
             <>
               <Hint>{t("views.work.startWork.verifyFound", { taskId: created.taskId })}</Hint>
-              <Btn size="sm" variant="primary" onClick={() => onOpenTask(created.taskId)} testId="start-work-open">
+              <Button size="sm" variant="primary" onClick={() => onOpenTask(created.taskId)} testId="start-work-open">
                 {t("views.work.startWork.verifyOpen")}
-              </Btn>
+              </Button>
             </>
           ) : lookupRequested ? (
             <Hint>{t("views.work.startWork.verifyMissing", { title: draft.title })}</Hint>

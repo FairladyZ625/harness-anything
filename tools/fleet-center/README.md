@@ -60,11 +60,10 @@ the repository, TLS material, roster, and replica state for audit/recovery.
 After a host reboot, log in and run `up`; the daemon and Fleet listener are
 both process-owned and must be re-established.
 
-The restored ledger carries the source machine's local Unix-socket credential,
-which does not bind on the center host. The deployment does not edit
-`people.yaml` and does not admit local writes to the remote center: writes
-arrive from Fleet edges with node credentials, and a person signs in through
-the desktop app connected to this daemon.
+Human identity and repository permissions come from Keycloak; a restored
+repository's `people.yaml` does not grant access. The deployment does not admit local repository writes to the remote
+center: writes arrive from Fleet edges with node credentials, and a person
+signs in through the desktop app connected to this daemon.
 
 ## Roster and nodes
 
@@ -82,17 +81,17 @@ kept at `~/harness-center/rbac-bootstrap.json`.
 
 Everything after that needs a person and is not run by the script:
 
-1. Create the first administrator and sign in. This version offers both only
-   through the desktop app connected to this daemon; a server without one has
-   no entry for either (tracked as `task_8352efd2f05ab2eda87b724761`).
+1. Create the first administrator through the desktop app or
+   `ha bootstrap --operation bootstrap-admin` with the required identity fields
+   and `--password-file` (see `ha bootstrap --help`). Sign in through the app or
+   `ha bootstrap --operation login`, which uses device login without a local browser.
 2. Give the node's owner an account and grant that person
    `daemon-fleet-edge-sync` on the repository.
 3. Register the node, signed in as an administrator holding `access-admin`.
 
-Keep that order: start the listener with `up` first, then sign in. Once an
-administrator is signed in on this daemon, `ha daemon fleet center start` is
-refused with `authorization_denied`, so a later `up` that has to start the
-listener again fails at that step. This is a known limit of this version.
+After Keycloak is running, the listener can be started before or after an
+administrator signs in. Starting or restarting it while signed in is allowed
+when that person has the repository's `daemon-fleet-center-start` permission.
 
 ### Registering a node
 
@@ -109,8 +108,8 @@ ha bootstrap --operation node-list
 
 The first registration of a node mints its machine credential once and writes
 it to `--credential-file`, a new file readable only by its owner (`0600`). The
-receipt names the file and never carries the credential. The command is
-refused without `--credential-file`, and refused with
+receipt names the file and never carries the credential. The registration is
+refused with `credential_file_required` without `--credential-file`, and with
 `credential_file_unavailable` when the file already exists; in both cases
 nothing is registered. Use one directory per node and never share a credential
 between nodes. `<node-id>` must be the `nodeId` of the roster assignment.
@@ -125,11 +124,11 @@ To change a node's owner, read its `version` from `node-list` and repeat
 `node-register` with `--person-id <new-person> --expected-version <version>`.
 No credential is minted and `--credential-file` is not needed.
 
-If registration created the Keycloak client but failed before returning its
-credential, do not reuse that incomplete registration. Read its version with
-`node-list`, remove it with `node-unregister --node-id <node-id>
---expected-version <version>`, then register it again with a new credential
-file. Automatic cleanup of this partial registration is tracked separately.
+The credential file is written before the Keycloak client is created, so a registration
+either takes effect with the credential in its file or fails without leaving a client
+behind. A registration that reports failure with the file already in place is settled by
+what `node-list` shows: when the node is registered, the file holds its working credential
+and there is nothing to redo; when it is not, remove the file and register again.
 
 ### Human confirmation
 
@@ -145,17 +144,19 @@ To remove a node:
 ha bootstrap --operation node-unregister --node-id <node-id> --expected-version <version>
 ```
 
-A stale version answers `version_conflict`. After removal the credential is
-rejected on new connections. A connection that was already open may still get
-answers to some frames (tracked as `task_957ec2cdea3f65a73487641bdb`), and
-leases the node holds are reclaimed by their existing timeout, not revoked.
+A stale version answers `version_conflict`. Once removal settles, the
+credential is rejected on new connections and the node's live TLS sessions at
+the center are cut before the operation returns, their buffered frames neither
+processed nor answered; a removal settled later by `receipt-reconcile` cuts
+them too. Leases the node holds are reclaimed by their existing timeout, not
+revoked.
 
 ### When a first sync is refused
 
-| Code | Meaning |
-| --- | --- |
-| `authentication_failed` | The node is not registered, or the credential is wrong. The two are deliberately indistinguishable. |
-| `authorization_denied` | The node is registered, but its owner holds no grant for `daemon-fleet-edge-sync` on the repository. |
+| Code                    | Meaning                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `authentication_failed` | The node is not registered, or the credential is wrong. The two are deliberately indistinguishable.  |
+| `authorization_denied`  | The node is registered, but its owner holds no grant for `daemon-fleet-edge-sync` on the repository. |
 
 If outbound GitHub access is unreliable, preseed `~/harness-center/app` with a
 clean Git checkout containing `HARNESS_CENTER_APP_REF`. `up` only fetches when

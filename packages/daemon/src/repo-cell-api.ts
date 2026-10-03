@@ -1,3 +1,4 @@
+import { executeBuiltinScheduleOccurrence } from "./schedule-builtin-executor.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import { openTaskWorktreeBinding, presetSnapshotReader } from "./task-worktree.ts";
@@ -26,6 +27,7 @@ import {
   type EventPublicationKillpoint,
   type TaskProjection,
   type TaskProjectionListQuery,
+  type ScheduleV1,
   type WriteReceipt,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
@@ -99,6 +101,7 @@ export interface RepoCellApiContext {
   readonly fleetRoster: FleetRoster | null;
   readonly input: {
     readonly repoId: string;
+    readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
   };
@@ -464,6 +467,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           projection: context.projection,
           binding: verified.binding,
           rootDir: context.rootDir,
+          repoId: context.input.repoId,
           now: context.now,
         },
         request,
@@ -743,11 +747,68 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       return context.appendAuxiliaryRuntimeIngress(action, authorizedBinding);
     });
   };
+  // Backup lifetimes serialize independently of ledger writes: retention cannot remove
+  // another builtin's in-progress snapshot. A replay shares the same claim's execution.
+  const builtinRuns = new Map<string, Promise<WriteReceipt>>();
+  let builtinTail: Promise<void> = Promise.resolve();
+  const continueBuiltin = (action: RepoTaskAction, binding: RepoCellBinding, receipt: WriteReceipt) => {
+    if (action.kind !== "schedule-run-now" || receipt.outcome !== "applied") return Promise.resolve(receipt);
+    const schedule = (receipt as WriteReceipt & { readonly schedule?: ScheduleV1 }).schedule,
+      active = schedule?.status.activeRun;
+    if (schedule?.spec.target.kind !== "builtin" || !active) return Promise.resolve(receipt);
+    const running = builtinRuns.get(active.claimFence);
+    if (running) return running;
+    const pending = builtinTail
+      .then(() =>
+        executeBuiltinScheduleOccurrence({
+          cell: {
+            rootDir: context.rootDir,
+            now: context.now,
+            runSnapshot: <T>(work: () => T): Promise<T> => {
+              context.queueDepth += 1;
+              const snapshot = chainRepoCellWrite(context.tail, () => {
+                context.queueDepth -= 1;
+                if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
+                assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
+                const current = context.projection.getEntity("schedule", schedule.scheduleId)?.value as
+                  | ScheduleV1
+                  | undefined;
+                if (current?.status.activeRun?.claimFence !== active.claimFence)
+                  throw context.cellCodedError("schedule_claim_stale", "Backup claim is no longer current.");
+                return work();
+              });
+              context.tail = snapshot.then(
+                () => undefined,
+                () => undefined,
+              );
+              return snapshot;
+            },
+          },
+          schedule,
+          idempotencyKey: String(action.idempotencyKey ?? `builtin:${active.claimFence}`),
+          binding,
+          runInternal: async (settlement, actor) => {
+            const result = await run(settlement, actor);
+            if (isSquadControlResult(result))
+              throw context.cellCodedError("invalid_command", "Builtin settlement requires a write receipt.");
+            return result;
+          },
+        }),
+      )
+      .finally(() => builtinRuns.delete(active.claimFence));
+    builtinRuns.set(active.claimFence, pending);
+    builtinTail = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pending;
+  };
   const runCommand: RepoCell["run"] = async (action, binding, signal) => {
     const receipt = await run(action, binding, signal);
     if (isSquadControlResult(receipt)) return receipt;
     if (isSquadControlCommand(action.kind)) return squadControlRejected(action.kind, receipt);
-    return withSquadTerminalOutcome(action, await settleWriteReceipt(context, action, receipt, signal));
+    const completed = await continueBuiltin(action, binding, receipt);
+    return withSquadTerminalOutcome(action, await settleWriteReceipt(context, action, completed, signal));
   };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
@@ -807,6 +868,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     },
     close: async () => {
       if (context.state === "closed") return;
+      await builtinTail;
       context.state = "closed";
       context.runtimeSpawner.close();
       await context.terminal.close();

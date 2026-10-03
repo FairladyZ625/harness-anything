@@ -27,7 +27,7 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
   resultBody?: string,
   dispatchContext?: FleetRuntimeDispatchContext,
 ): Promise<RuntimeEventPublication<T>> {
-  const authorizedBinding = context.input.authorizeRuntimeEvent?.({ type, payload, opId, binding }) ?? binding,
+  const authorizedBinding = await (context.input.authorizeRuntimeEvent?.({ type, payload, opId, binding }) ?? binding),
     published = context.input.remote
       ? await context.input.remote.publish({
           type,

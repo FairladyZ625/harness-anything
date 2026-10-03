@@ -198,6 +198,24 @@ export async function seedTriadicEvents(rootDir, repoId, writerFence) {
       },
       { principal: { personId: "person-gui-reviewer" }, executor: null },
     );
+    // This fixture bypasses the daemon command lane. Seed its review notification as well,
+    // matching decision-review-awaits so owner work is visible in the agenda's awaits group.
+    const reviewAwait = {
+      source: "decision/dec_gui_smoke",
+      target: "person/person-gui",
+      type: "awaits",
+      direction: "directed",
+    };
+    append("decision_related", "dec_gui_smoke", {
+      relation: {
+        relation_id: deriveRelationId(reviewAwait),
+        ...reviewAwait,
+        strength: "strong",
+        origin: "declared",
+        state: "active",
+        rationale: "consent: Decision dec_gui_smoke has review changes to resolve.",
+      },
+    });
   } finally {
     projection.close();
     await store.drain();

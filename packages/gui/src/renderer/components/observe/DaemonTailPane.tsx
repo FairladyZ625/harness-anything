@@ -88,7 +88,7 @@ const PANE_LENS_CHIP = [
   "bg-accent/10 px-1.5 py-1 font-mono ui-micro text-accent",
 ].join(" ");
 const PANE_LENS_PANEL = [
-  "absolute right-0 z-20 mt-1 flex max-h-64 w-80 flex-col gap-2 overflow-y-auto",
+  "absolute right-0 z-20 mt-1 flex bounded-content w-80 flex-col gap-2 overflow-y-auto",
   "rounded border border-border bg-surface p-2 shadow-lg",
 ].join(" ");
 const PANE_LENS_CANDIDATE = [

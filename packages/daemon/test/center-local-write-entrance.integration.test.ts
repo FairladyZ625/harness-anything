@@ -6,7 +6,6 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { localScheduleBinding } from "../src/daemon-host-binding.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
@@ -15,12 +14,13 @@ import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
+import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { definition, initHarnessRepo } from "./schedule-actions.fixtures.ts";
 
-const operator = withRoleBinding(
+const operator = withPolicyGroup(
   { actor: { principal: { personId: "center-operator" }, executor: null }, source: "local" as const },
-  "repo-write",
+  "admin",
 );
 
 type Receipt = {
@@ -70,6 +70,7 @@ async function openModes(prefix: string) {
       createConvenienceLinks: false,
     });
   }
+  signInPolicyTestUser(userRoot, "writer", ["center", "edge"], "admin");
   const host = await openDaemonHost({ daemonId: "center-entrance", userRoot });
   await host.attachmentsSettled();
   return { parent, host };
@@ -110,15 +111,16 @@ test("the center admits no unauthenticated source and the edge admits no local l
       ...auth,
       unixSocketOwnerBoundary: { ...auth.unixSocketOwnerBoundary, ownerUid: (process.getuid?.() ?? 0) + 1_000 },
     };
+    signOutAt(path.join(parent, "user"));
     const denied = (await host.run(
       "center",
       { kind: "task-create", taskId: "task-center-stranger", title: "Stranger" },
       stranger,
     )) as Receipt;
     assert.equal(denied.outcome, "op_rejected");
-    assert.equal(denied.code, "credential_unknown");
+    assert.equal(denied.code, "authentication_required");
 
-    // A center without a roster resolves no principal at all: the write stops at sign-in.
+    // Repository registration does not sign the operator in.
     const bare = path.join(parent, "bare");
     initHarnessRepo(bare, "bare");
     registerDaemonRepo({
@@ -128,12 +130,14 @@ test("the center admits no unauthenticated source and the edge admits no local l
       userRoot: path.join(parent, "user"),
       createConvenienceLinks: false,
     });
+    signInAt(path.join(parent, "user"), "writer");
     const refreshed = await host.requestControl({ kind: "refresh", authorityRepoId: "center" }, auth);
     for (let attempt = 0; host.status().repos.every(({ repoId }) => repoId !== "bare"); attempt++) {
       assert.ok(attempt < 200, `refresh ${refreshed.operationId} never attached the roster-free center`);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     await host.attachmentsSettled();
+    signOutAt(path.join(parent, "user"));
     const unauthenticated = (await host.run(
       "bare",
       { kind: "task-create", taskId: "task-center-unauthenticated", title: "Unauthenticated" },
@@ -142,6 +146,7 @@ test("the center admits no unauthenticated source and the edge admits no local l
     assert.equal(unauthenticated.outcome, "op_rejected");
     assert.equal(unauthenticated.code, "authentication_required");
 
+    signInAt(path.join(parent, "user"), "writer");
     for (const action of [
       { kind: "task-create", taskId: "task-edge-local", title: "Edge local" },
       schedule("edge-probe"),
@@ -164,7 +169,7 @@ test("the center admits no unauthenticated source and the edge admits no local l
   }
 });
 
-test("the daemon Schedule principal and an operator write a remote-center cell", async () => {
+test("the authorized Schedule creator and an operator write a remote-center cell", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-center-entrance-system-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -195,7 +200,7 @@ test("the daemon Schedule principal and an operator write a remote-center cell",
         },
       ],
     });
-    const created = (await cell.run(schedule("node-heartbeat-edge-one") as never, localScheduleBinding())) as Receipt;
+    const created = (await cell.run(schedule("node-heartbeat-edge-one") as never, operator)) as Receipt;
     assert.equal(created.outcome, "applied", JSON.stringify(created));
 
     const packageSource = path.join(root, "source", "center-agent");
@@ -228,7 +233,7 @@ test("the daemon Schedule principal and an operator write a remote-center cell",
           .read()
           .events.filter((event) => event.schema === "schedule-event/v1")
           .map((event) => [event.type, event.actor.principal.personId, event.source]),
-        [["schedule_created", "system:daemon-scheduler", "local"]],
+        [["schedule_created", "center-operator", "local"]],
       );
     } finally {
       await reader.drain();

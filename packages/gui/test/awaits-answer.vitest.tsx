@@ -75,7 +75,8 @@ async function mountPanel(subject: AwaitsPanelSubject) {
       ),
     );
   });
-  return { container, onClose, onNavigateEntity };
+  expect(container.querySelector('[data-testid="awaits-answer-panel"]')).toBeNull();
+  return { container: document.body, onClose, onNavigateEntity };
 }
 
 const byTestId = (container: HTMLElement, testId: string) =>

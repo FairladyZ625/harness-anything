@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
@@ -30,7 +30,9 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { serveKeycloak, signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
@@ -69,7 +71,10 @@ async function waitForAcceptedReceipt(
 }
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 // The fixture's lifecycle persona writes and closes: closing a task is the maintainer tier's, so it holds both roles.
-const repoWriteBinding = withRoleBinding(withRoleBinding({ actor, source: "local" as const }, "repo-write"), "arbiter");
+const repoWriteBinding = withPolicyGroup(
+  withPolicyGroup({ actor, source: "local" as const }, "contributor"),
+  "maintainer",
+);
 // prettier-ignore
 
 test("work-closeout uses the normal completion facade, review, and gates exactly once", async () => {
@@ -78,13 +83,13 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     executionId = "execution-complete",
     packagePath = "tasks/task-complete-completion-facade",
     binding = repoWriteBinding,
-    ownerFromAnotherAgent = withRoleBinding(withRoleBinding({
+    ownerFromAnotherAgent = withPolicyGroup(withPolicyGroup({
       actor: {
         principal: actor.principal,
         executor: { kind: "agent" as const, id: "other-owner-agent" },
       },
       source: "local" as const,
-    }, "repo-write"), "arbiter");
+    }, "contributor"), "maintainer");
   try {
     initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n  closeout:\n    profile: strict\n"); /* The completion facade is a strict-profile closeout gate. */ cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
     const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "work-closeout" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
@@ -144,7 +149,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     assert.deepEqual({ outcome: missingReview.outcome, code: missingReview.code }, { outcome: "op_rejected", code: "review_missing" });
     assert.deepEqual((missingReview.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type), ["completion_gate_verified"]);
     assert.equal(store().read().revision, beforeReviewBlock + 1);
-    const reviewBinding = (id: string) => withRoleBinding({ actor: { principal: { personId: `person-${id}` }, executor: { kind: "agent" as const, id } }, source: "local" as const }, "arbiter");
+    const reviewBinding = (id: string) => withPolicyGroup({ actor: { principal: { personId: `person-${id}` }, executor: { kind: "agent" as const, id } }, source: "local" as const }, "maintainer");
     const recordReview = async (reviewId: string, verdict: "approved" | "dismissed") => { writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict, reason: `${reviewId} ${verdict}.`, evidenceChecked: ["tests"] })); const reportPath = `${packagePath}/artifacts/reports/${reviewId.replace(/^review-/u, "")}.md`; mkdirSync(path.join(rootDir, "harness", packagePath, "artifacts", "reports"), { recursive: true }); writeFileSync(path.join(rootDir, "harness", reportPath), `# Review ${reviewId}\n\nPhysical review findings.\n`); assert.equal((await cell!.run({ kind: "doc-submit", paths: [reportPath] }, binding)).outcome, "applied"); const receipt = await cell!.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, reviewBinding(reviewId)); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const visible = await waitForAcceptedReceipt(cell!, receipt, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); return receipt; };
     await recordReview("review-dismissed", "dismissed");
     assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/INDEX.md`), "utf8"), /ha task dispatch-review/u, "a dismissed Review must leave the execution awaiting review");
@@ -194,24 +199,11 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     assert.deepEqual(completed.next, []);
     assert.equal(readFileSync(path.join(rootDir, "harness", closeoutPath), "utf8").includes("All checks passed"), true);
     assert.equal(readFileSync(path.join(rootDir, "harness", artifactPath), "utf8").includes("Canonical flow"), true);
-    assert.equal((completed.authorizationDecision as Record<string, unknown>).policyRef, "default@5");
+    assert.equal((completed.authorizationDecision as Record<string, unknown>).policyRef, "keycloak-policy@1");
     assert.equal((completed.authorizationDecision as Record<string, unknown>).outcome, "allowed");
     assert.deepEqual(
       (completed.authorizationDecision as { bindingsUsed: readonly Readonly<Record<string, unknown>>[] }).bindingsUsed,
-      [
-        {
-          predicate: "hasRoleBinding",
-          satisfied: true,
-          role: "arbiter",
-          matched: {
-            actor: { kind: "person", id: actor.principal.personId },
-            role: "arbiter",
-            target: "settings/repository",
-            source: "declared",
-            expiresAt: null,
-          },
-        },
-      ],
+      [{ authority: "keycloak", scope: "task-complete" }],
     );
     const completeEvent = store().readEvent(String(completed.opId)); assert.equal(completeEvent?.type, "task_completed"); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(store().read().events.filter((event) => event.type !== "task_completed").every((event) => event.schema !== "task-event/v1" || event.payload.task.status !== "done"), true); const revision = store().read().revision, repeated = await cell.run({ kind: "task-complete", taskId, executionId }, binding); assert.equal(repeated.opId, completed.opId); assert.equal(store().read().revision, revision);
     const completedShow = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, binding)).evidence)) as { task: { status: string; currentNode: string } }, completedList = JSON.parse(String((await cell.run({ kind: "task-list" }, binding)).evidence)) as { rows: { taskId: string; status: string }[] }; assert.deepEqual({ status: completedShow.task.status, currentNode: completedShow.task.currentNode }, { status: "done", currentNode: "review" }); assert.equal(completedList.rows.find((row) => row.taskId === taskId)?.status, "done");
@@ -257,7 +249,7 @@ test("invalid Decision payload stays invalid_command and reckon records exact pr
     assert.equal((proposed as Record<string, unknown>).path, decisionPath); assert.equal(proposed.status, "accepted_durable");
     const placement = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === "task-decision")!.placement; assert.equal(Object.hasOwn(placement, "moduleKeys"), false, JSON.stringify(placement)); assert.equal(placement.provenance.some(({ kind }) => kind === "decision-relation"), true, JSON.stringify(placement));
     const decisionBody = readFileSync(decisionFile, "utf8"); assert.match(decisionBody, /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n# Canonical\n\nUse the canonical event-backed flow for this fixture\.\n\n<!-- harness:relation-neighborhood:start -->[\s\S]*<!-- harness:relation-neighborhood:end -->\n$/u); const decisionEvent = makeTaskEventReader({ repoId: "decision-cell", rootDir }).readEvent(proposed.opId); assert.equal(decisionEvent?.schema, "decision-event/v1"); if (decisionEvent?.schema === "decision-event/v1") { assert.equal(decisionEvent.payload.decisionDocumentClaim.path, decisionPath); assert.equal(decisionEvent.payload.decisionDocumentClaim.sha256, String((proposed as Record<string, unknown>).documentSha256)); }
-    const invalid = await cell.run({ kind: "decision-accept", decisionId, rationale: "x".repeat(200) }, withRoleBinding(withRoleBinding({ actor: { principal: { personId: "person-arbiter" }, executor: null }, source: "local" }, "arbiter"), "repo-write"));
+    const invalid = await cell.run({ kind: "decision-accept", decisionId, rationale: "x".repeat(200) }, withPolicyGroup(withPolicyGroup({ actor: { principal: { personId: "person-arbiter" }, executor: null }, source: "local" }, "maintainer"), "contributor"));
     assert.deepEqual({ outcome: invalid.outcome, code: invalid.code, state: cell.status().state }, { outcome: "op_rejected", code: "invalid_command", state: "attached" }); assert.equal(makeTaskEventReader({ repoId: "decision-cell", rootDir }).readHead()?.revision, beforeInvalid);
     const reckon = await cell.run({ kind: "decision-reckon", decisionId, taskId: "task-decision" }, binding); assert.equal(reckon.outcome, "applied", JSON.stringify(reckon)); const fact = JSON.parse(reckon.evidence) as { evidenceSource: string; statement: string; workspaceRevision: number };
     assert.equal(fact.evidenceSource, `decision/${decisionId}@${beforeInvalid}`); assert.match(fact.statement, new RegExp(`basisRevision ${beforeInvalid}`, "u")); assert.equal(fact.workspaceRevision, beforeInvalid + 1);
@@ -310,9 +302,9 @@ test("Decision proposal packet defaults optional fields, checks boundaries befor
 
 test("Decision proposal-owner judgment uses repo-write and returns the embedded consent identity", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-decision-consent-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-consent"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const human = { principal: { personId: "person-ceo" }, executor: null } as const, binding = withRoleBinding({ actor: human, source: "local" as const, authorizationBindingMode: "declared" as const }, "repo-write"), proposed = await cell.run(decisionProposal("Consent", "May the CEO judge this proposal?"), binding), decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-consent"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const human = { principal: { personId: "person-ceo" }, executor: null } as const, binding = withPolicyGroup({ actor: human, source: "local" as const, authorizationBindingMode: "declared" as const }, "contributor"), proposed = await cell.run(decisionProposal("Consent", "May the CEO judge this proposal?"), binding), decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId;
     const accepted = await cell.run({ kind: "decision-accept", decisionId, rationale: "CEO approval", judgmentOnlyRationale: "Explicit CEO judgment." }, binding); assert.equal(accepted.outcome, "applied", JSON.stringify(accepted)); assert.match(String((accepted as Record<string, unknown>).consentId), /^djc_[0-9a-f]{26}$/u); const event = makeTaskEventReader({ repoId: "decision-consent", rootDir }).readEvent(accepted.opId); assert.equal(event?.schema, "decision-event/v1"); if (event?.schema === "decision-event/v1" && event.type === "decision_accepted") assert.equal(event.payload.judgmentConsent.consentId, (accepted as Record<string, unknown>).consentId);
-    assert.equal(accepted.authorizationDecision?.policyRef, "default@5");
+    assert.equal(accepted.authorizationDecision?.policyRef, "keycloak-policy@1");
     assert.equal(accepted.authorizationDecision?.outcome, "allowed");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
@@ -321,7 +313,7 @@ test("Decision proposal-owner judgment uses repo-write and returns the embedded 
 test("Decision full vertical golden rebuilds proposal, prose, claim, relation, consent, list, and show", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-vertical-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); mkdirSync(path.join(rootDir, "packages/daemon"), { recursive: true }); writeFileSync(path.join(rootDir, "packages/daemon/index.ts"), "export const daemon = true;\n"); git(rootDir, "add", "."); git(rootDir, "commit", "--quiet", "-m", "add daemon scope"); cell = await openRepoCell({ repoId: workspaceId("decision-vertical"), rootDir: canonicalRoot(rootDir), ownerId: "decision-vertical" }); const binding = repoWriteBinding, proposal = await cell.run(decisionProposal("Vertical Decision", "Does the full Decision flow rebuild?"), binding), proposalVisible = await waitForAcceptedReceipt(cell, proposal, binding); assert.equal(proposalVisible.wait?.state, "satisfied", JSON.stringify(proposalVisible)); const decisionId = (JSON.parse(String(proposal.evidence)) as { decisionId: string }).decisionId, logical = `decisions/decision-${decisionId}/decision.md`, target = path.join(rootDir, "harness", logical), canonical = readFileSync(target, "utf8"), split = canonical.indexOf("\n---\n", 4) + 5, prose = `${realizedDecisionBody("Vertical Decision")}\nCanonical body from doc-sync.\n`; writeFileSync(target, `${canonical.slice(0, split)}${prose}`);
-    const synced = await cell.run({ kind: "doc-submit", paths: [logical] }, binding); assert.equal(synced.outcome, "applied", JSON.stringify(synced)); assert.equal((await cell.run({ kind: "decision-claim-add", decisionId, claimId: "C1", text: "The vertical flow is event-derived.", loadBearing: true }, binding)).outcome, "applied"); assert.equal((await cell.run({ kind: "relation-relate", sourceRef: `decision/${decisionId}/C1`, relationType: "supports", targetRef: `decision/${decisionId}/CH1`, rationale: "The chosen option demonstrates the claim.", expectedVersion: 0 }, binding)).outcome, "applied"); const accepted = await cell.run({ kind: "decision-accept", decisionId, rationale: "Evidence relation reviewed.", judgmentOnlyRationale: null }, withRoleBinding(withRoleBinding({ actor: { principal: { personId: "person-ceo" }, executor: null }, source: "local" }, "arbiter"), "repo-write")); assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    const synced = await cell.run({ kind: "doc-submit", paths: [logical] }, binding); assert.equal(synced.outcome, "applied", JSON.stringify(synced)); assert.equal((await cell.run({ kind: "decision-claim-add", decisionId, claimId: "C1", text: "The vertical flow is event-derived.", loadBearing: true }, binding)).outcome, "applied"); assert.equal((await cell.run({ kind: "relation-relate", sourceRef: `decision/${decisionId}/C1`, relationType: "supports", targetRef: `decision/${decisionId}/CH1`, rationale: "The chosen option demonstrates the claim.", expectedVersion: 0 }, binding)).outcome, "applied"); const accepted = await cell.run({ kind: "decision-accept", decisionId, rationale: "Evidence relation reviewed.", judgmentOnlyRationale: null }, withPolicyGroup(withPolicyGroup({ actor: { principal: { personId: "person-ceo" }, executor: null }, source: "local" }, "maintainer"), "contributor")); assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
     const invalidList = await cell.run({ kind: "decision-list", legacyRange: { start: 10, end: 2 }, authoredFallback: true }, binding); assert.equal(invalidList.code, "invalid_command"); const listed = JSON.parse(String((await cell.run({ kind: "decision-list", search: "Canonical body" }, binding)).evidence)) as { decisions: readonly Record<string, unknown>[] }, shown = JSON.parse(String((await cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence)) as { decision: { state: string; body: { body: string }; claims: readonly unknown[]; judgmentConsents: readonly unknown[] } }; assert.deepEqual(listed.decisions.map(({ decisionId: id }) => id), [decisionId]); const pagedList = JSON.parse(String((await cell.run({ kind: "decision-list", limit: 1 }, binding)).evidence)) as { decisions: readonly { decisionId: string }[]; page?: { limit: number; cursor: string | null; nextCursor: string | null } }; assert.deepEqual(pagedList.decisions.map(({ decisionId: id }) => id), [decisionId]); assert.deepEqual(pagedList.page, { limit: 1, cursor: null, nextCursor: null }); assert.equal(Object.hasOwn(listed.decisions[0]!, "body"), false); assert.deepEqual({ state: shown.decision.state, body: shown.decision.body.body, claims: shown.decision.claims.length, consents: shown.decision.judgmentConsents.length }, { state: "in_effect", body: prose, claims: 1, consents: 1 }); const gui = await cell.read("repo.decisions.list"), graph = await cell.read("repo.triadic.relationGraph", { limit: 500 }); assert.deepEqual(gui.decisions.map(({ decisionId: id }) => id), listed.decisions.map(({ decisionId: id }) => id)); assert.equal(gui.decisions[0]?.readiness?.conflictMarker.state, "clear"); assert.deepEqual(gui.decisions[0]?.capabilities.filter(({ available }) => available).map(({ id }) => id), ["supersede", "retire"]); assert.equal(gui.decisions[0]?.claimsOpen, true); assert.deepEqual(validateDaemonDecisionList(gui), []); const support = graph.edges.find((edge) => edge.sourceRef === `decision/${decisionId}/C1` && edge.targetRef === `decision/${decisionId}/CH1`); assert.deepEqual({ state: support?.state, freshness: support?.freshness, strength: support?.strength, current: support?.current }, { state: "active", freshness: "suspect", strength: "strong", current: false }); process.stdout.write(`[RELATION-CURRENT-DIVERGENCE] state=${support?.state} freshness=${support?.freshness} strength=${support?.strength} current=${support?.current}\n`); assert.deepEqual(validateDaemonRelationGraph(graph), []); // the read carries the kernel's uncovered-cause classification on every uncovered row
     // (here: claim C1 declares no fulfillment mode), so consumers never re-derive the judgment;
     assert.deepEqual(graph.coverageRows.map((row) => ({ claimRef: row.claimRef, status: row.status, covered: row.covered, freshnessReason: row.freshnessReason })), [{ claimRef: `decision/${decisionId}/C1`, status: "uncovered", covered: false, freshnessReason: "fulfillment-undeclared" }]); // #1542: event-backed truth already answers this read (all three projections are ready),
@@ -564,53 +556,87 @@ for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_
 // prettier-ignore
 
 test("Policy rejects a principal without a durable-action RoleBinding", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-surfaces-")), root = path.join(parent, "repo"), second = path.join(parent, "second"), userRoot = path.join(parent, "user");
-  const ids = { reader: 4101, writer: 4102, arbiter: 4103, admin: 4104 }; [root, second].forEach((repo) => rbacRepo(repo, ids)); const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "rbac-seed" }), lease = authority.acquire("rbac"); seedSettingsEvent({ repoId: "rbac", rootDir: root, writerEpochFence: { schema: "harness-writer-epoch-fence/v1", stateRoot: path.join(userRoot, "fleet"), repoId: "rbac", holderId: lease.holderId, epoch: lease.epoch } }); authority.close();
-  const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-surfaces-")), root = path.join(parent, "repo"), second = path.join(parent, "second"), userRoot = path.join(parent, "user"), realm = await serveKeycloak();
+  [root, second].forEach((repo) => {
+    mkdirSync(repo, { recursive: true });
+    initRepo(repo);
+    mkdirSync(path.join(repo, "harness"), { recursive: true });
+  });
+  writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nname: rbac\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
+  mkdirSync(path.join(second, "harness"), { recursive: true });
+  writeFileSync(path.join(second, "harness/harness.yaml"), "schema: harness-anything/v1\nname: second\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
+  const groups = deriveBasePolicyGroups(), grants = { reader: "viewer", writer: "contributor", arbiter: "maintainer", admin: "admin" } as const;
+  realm.bind(userRoot);
+  for (const [personId, group] of Object.entries(grants)) {
+    realm.keycloak.account(personId);
+    realm.keycloak.permit(personId, "rbac", effectivePolicyGroupScopes(groups, group));
+  }
+  realm.keycloak.permit("admin", "second", effectivePolicyGroupScopes(groups, "admin"));
+  const auth = (personId: keyof typeof grants, ownerUid: number) => {
+    signInAt(userRoot, personId);
+    return { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const;
+  };
+  const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "rbac-seed" }), lease = authority.acquire("rbac"); seedSettingsEvent({ repoId: "rbac", rootDir: root, writerEpochFence: { schema: "harness-writer-epoch-fence/v1", stateRoot: path.join(userRoot, "fleet"), repoId: "rbac", holderId: lease.holderId, epoch: lease.epoch } }); authority.close();
   const host = await openDaemonHost({ daemonId: "rbac", userRoot });
   try {
-    assert.equal((await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: root, repoId: "rbac" })).outcome, "applied");
-    const created = await host.run("rbac", { kind: "task-create", taskId: "task-rbac", title: "RBAC" }, auth(ids.writer)); assert.equal(created.outcome, "applied", JSON.stringify(created)); const visible = await host.run("rbac", { kind: "receipt-show", opId: created.opId, waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"], timeoutMs: 5_000 }, auth(ids.writer)); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); assert.equal(visible.status, "accepted_durable"); await realizeTaskPlanFixture(root, String((created as Record<string, unknown>).packagePath), (planPath) => host.run("rbac", { kind: "doc-submit", paths: [planPath] }, auth(ids.writer)));
-    const executionId = "exec-rbac"; assert.equal((await host.run("rbac", { kind: "task-start", taskId: "task-rbac", executionId }, auth(ids.writer))).outcome, "applied");
-    assert.equal((await host.run("rbac", { kind: "task-show", taskId: "task-rbac" }, auth(ids.reader))).outcome, "applied");
-    const deniedWrite = await host.run("rbac", { kind: "task-create", taskId: "task-denied", title: "Denied" }, auth(ids.reader));
+    assert.equal((await rpc(host, auth("admin", 4104), "daemon.repo.register", { rootDir: root, repoId: "rbac" })).outcome, "applied");
+    const created = await host.run("rbac", { kind: "task-create", taskId: "task-rbac", title: "RBAC" }, auth("writer", 4102)); assert.equal(created.outcome, "applied", JSON.stringify(created)); const visible = await host.run("rbac", { kind: "receipt-show", opId: created.opId, waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"], timeoutMs: 5_000 }, auth("writer", 4102)); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); assert.equal(visible.status, "accepted_durable"); await realizeTaskPlanFixture(root, String((created as Record<string, unknown>).packagePath), (planPath) => host.run("rbac", { kind: "doc-submit", paths: [planPath] }, auth("writer", 4102)));
+    const executionId = "exec-rbac"; assert.equal((await host.run("rbac", { kind: "task-start", taskId: "task-rbac", executionId }, auth("writer", 4102))).outcome, "applied");
+    assert.equal((await host.run("rbac", { kind: "task-show", taskId: "task-rbac" }, auth("reader", 4101))).outcome, "applied");
+    const deniedWrite = await host.run("rbac", { kind: "task-create", taskId: "task-denied", title: "Denied" }, auth("reader", 4101));
     assert.equal(deniedWrite.outcome, "op_rejected"); assert.equal(deniedWrite.code, "authorization_denied");
-    const deniedPresetRun = await host.presetRun("rbac", { kind: "preset-run-start", presetId: "missing", entrypoint: "run", idempotencyKey: "denied" }, auth(ids.reader)), readableStatus = await host.presetRun("rbac", { kind: "preset-run-status", runId: "run_missing" }, auth(ids.reader)); assert.equal(deniedPresetRun.code, "authorization_denied"); assert.equal(readableStatus.code, "run_not_found");
-    const missingStatus = await host.run("rbac", { kind: "doc-status", paths: ["context/notes.md"] }, auth(ids.reader)); assert.equal(missingStatus.outcome, "op_rejected"); assert.equal(missingStatus.code, "document_not_found");
+    const deniedPresetRun = await host.presetRun("rbac", { kind: "preset-run-start", presetId: "missing", entrypoint: "run", idempotencyKey: "denied" }, auth("reader", 4101)), readableStatus = await host.presetRun("rbac", { kind: "preset-run-status", runId: "run_missing" }, auth("reader", 4101)); assert.equal(deniedPresetRun.code, "authorization_denied"); assert.equal(readableStatus.code, "run_not_found");
+    const missingStatus = await host.run("rbac", { kind: "doc-status", paths: ["context/notes.md"] }, auth("reader", 4101)); assert.equal(missingStatus.outcome, "op_rejected"); assert.equal(missingStatus.code, "document_not_found");
     mkdirSync(path.join(root, "harness/context"), { recursive: true }); writeFileSync(path.join(root, "harness/context/notes.md"), "# Reader denied\n");
-    const readerDoc = await host.run("rbac", { kind: "doc-submit", executionId, paths: ["context/notes.md"] }, auth(ids.reader));
+    const readerDoc = await host.run("rbac", { kind: "doc-submit", executionId, paths: ["context/notes.md"] }, auth("reader", 4101));
     assert.equal(readerDoc.code, "authorization_denied"); assert.equal(readerDoc.authorizationDecision.outcome, "denied");
-    const deniedReview = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac" }, auth(ids.reader));
+    const deniedReview = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac" }, auth("reader", 4101));
     assert.equal(deniedReview.outcome, "op_rejected"); assert.equal(deniedReview.code, "authorization_denied");
-    const deniedAdmin = await rpc(host, auth(ids.reader), "daemon.repo.register", { rootDir: second, repoId: "second" });
+    const deniedAdmin = await rpc(host, auth("reader", 4101), "daemon.repo.register", { rootDir: second, repoId: "second" });
     assert.equal(deniedAdmin.outcome, "op_rejected"); assert.equal(deniedAdmin.code, "authorization_denied");
     await writeCloseout(
-      () => host.run("rbac", { kind: "doc-materialize", paths: [], all: true }, auth(ids.writer)),
+      () => host.run("rbac", { kind: "doc-materialize", paths: [], all: true }, auth("writer", 4102)),
       root,
       String((created as Record<string, unknown>).packagePath),
       "Role-bound delivery complete.",
     );
-    assert.equal((await host.run("rbac", { kind: "task-submit", taskId: "task-rbac", executionId }, auth(ids.writer))).outcome, "applied");
+    assert.equal((await host.run("rbac", { kind: "task-submit", taskId: "task-rbac", executionId }, auth("writer", 4102))).outcome, "applied");
     // Having created the task grants no authority to command its cut: the creator holds the contributor tier only.
-    const creatorAdjudicates = await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reason: "The creator forwards its own cut." }, auth(ids.writer));
+    const creatorAdjudicates = await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reason: "The creator forwards its own cut." }, auth("writer", 4102));
     assert.deepEqual({ outcome: creatorAdjudicates.outcome, code: creatorAdjudicates.code }, { outcome: "op_rejected", code: "authorization_denied" });
-    assert.equal((await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reason: "A maintainer forwards the RBAC fixture." }, auth(ids.arbiter))).outcome, "applied");
+    assert.equal((await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reason: "A maintainer forwards the RBAC fixture." }, auth("arbiter", 4103))).outcome, "applied");
     writeFileSync(path.join(root, "review.json"), JSON.stringify({ verdict: "approved", reason: "checked", evidenceChecked: [] }));
     const rbacReportDir = path.join(root, "harness", String((created as Record<string, unknown>).packagePath), "artifacts", "reports"); mkdirSync(rbacReportDir, { recursive: true }); writeFileSync(path.join(rbacReportDir, "rbac.md"), "# Review rbac\n\nPhysical review findings.\n");
-    const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth(ids.arbiter)); assert.equal(review.outcome, "applied", JSON.stringify(review));
-    const attached = await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: second, repoId: "second", mode: "remote-edge" }); assert.equal(attached.outcome, "applied"); assert.equal((attached.repo as Record<string, unknown>).mode, "remote-edge");
-    const deniedEdgePreset = await rpc(host, auth(ids.writer), "repo.preset.run.start", { repo: { repoId: "second" }, payload: { presetId: "standard-task", entrypoint: "run", idempotencyKey: "edge-preset" } }); assert.equal(deniedEdgePreset.outcome, "op_rejected"); assert.equal(deniedEdgePreset.code, "repo_mode_read_only");
-    const deniedUnbind = await rpc(host, auth(ids.reader), "daemon.repo.unbind", { repoId: "second" }); assert.equal(deniedUnbind.outcome, "op_rejected"); assert.equal(deniedUnbind.code, "authorization_denied"); const deniedPurge = await rpc(host, auth(ids.reader), "daemon.repo.purge", { repoId: "second", scope: "cache" }); assert.equal(deniedPurge.outcome, "op_rejected"); assert.equal(deniedPurge.code, "authorization_denied");
-    for (const [method, params] of [["daemon.repo.backup", { rootDir: second, backupDir: path.join(parent, "denied-backup") }], ["daemon.repo.restoreDrill", { rootDir: second, backupDir: path.join(parent, "denied-backup") }]] as const) { const denied = await rpc(host, auth(ids.reader), method, params); assert.deepEqual({ outcome: denied.outcome, code: denied.code }, { outcome: "op_rejected", code: "authorization_denied" }, method); }
-  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+    const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth("arbiter", 4103)); assert.equal(review.outcome, "applied", JSON.stringify(review));
+    const attached = await rpc(host, auth("admin", 4104), "daemon.repo.register", { rootDir: second, repoId: "second", mode: "remote-edge" }); assert.equal(attached.outcome, "applied"); assert.equal((attached.repo as Record<string, unknown>).mode, "remote-edge");
+    const deniedEdgePreset = await rpc(host, auth("writer", 4102), "repo.preset.run.start", { repo: { repoId: "second" }, payload: { presetId: "standard-task", entrypoint: "run", idempotencyKey: "edge-preset" } }); assert.equal(deniedEdgePreset.outcome, "op_rejected"); assert.equal(deniedEdgePreset.code, "repo_mode_read_only");
+    const deniedUnbind = await rpc(host, auth("reader", 4101), "daemon.repo.unbind", { repoId: "second" }); assert.equal(deniedUnbind.outcome, "op_rejected"); assert.equal(deniedUnbind.code, "authorization_denied"); const deniedPurge = await rpc(host, auth("reader", 4101), "daemon.repo.purge", { repoId: "second", scope: "cache" }); assert.equal(deniedPurge.outcome, "op_rejected"); assert.equal(deniedPurge.code, "authorization_denied");
+    for (const [method, params] of [["daemon.repo.backup", { rootDir: second, backupDir: path.join(parent, "denied-backup") }], ["daemon.repo.restoreDrill", { rootDir: second, backupDir: path.join(parent, "denied-backup") }]] as const) { const denied = await rpc(host, auth("reader", 4101), method, params); assert.deepEqual({ outcome: denied.outcome, code: denied.code }, { outcome: "op_rejected", code: "authorization_denied" }, method); }
+  } finally { await realm.close(); await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 // prettier-ignore
 
 test("runtime witness issuance binds the server principal without transport role authorization", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-witness-rbac-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), ids = { writer: 4201, admin: 4202, dualAdmin: 4203, dualArbiter: 4204 }; rbacRepo(root, ids); const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-witness-rbac-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), realm = await serveKeycloak(), ids = { writer: 4201, admin: 4202, dualAdmin: 4203, dualArbiter: 4204 };
+  mkdirSync(root, { recursive: true });
+  initRepo(root);
+  mkdirSync(path.join(root, "harness"), { recursive: true });
+  writeFileSync(path.join(root, "harness/harness.yaml"), "schema: harness-anything/v1\nname: runtime-witness\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n");
+  realm.bind(userRoot);
+  const groups = deriveBasePolicyGroups();
+  for (const personId of ["writer", "admin", "dualAdmin", "dualArbiter"]) realm.keycloak.account(personId);
+  realm.keycloak.permit("writer", "runtime-witness", effectivePolicyGroupScopes(groups, "contributor"));
+  realm.keycloak.permit("admin", "runtime-witness", effectivePolicyGroupScopes(groups, "admin"));
+  realm.keycloak.permit("dualAdmin", "runtime-witness", effectivePolicyGroupScopes(groups, "contributor"));
+  realm.keycloak.permit("dualArbiter", "runtime-witness", effectivePolicyGroupScopes(groups, "contributor"));
+  const transport = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
+  const auth = (personId: "writer" | "admin" | "dualAdmin" | "dualArbiter") => {
+    signInAt(userRoot, personId);
+    return transport(ids[personId]);
+  };
   const runtimeActor = { principal: { personId: "fixture" }, executor: null } as const, definition = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "instance-runtime", installationId: "installation-runtime", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: null, authMode: "subscription" } as const, store = makeTaskEventStore({ repoId: "runtime-witness", rootDir: root, activationPreflight: activateEmptyCanonicalGeneration }), events = [{ schema: "agent-runtime-event/v1", eventId: "runtime-installation", workspaceRevision: 1, opId: "runtime-installation", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", type: "runtime_installation_observed", payload: { installationId: "installation-runtime", kindId: "codex", protocolFamily: "codex", hostRef: "host:local", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"] } }, { schema: "agent-runtime-event/v1", eventId: "runtime-dispatch", workspaceRevision: 2, opId: "runtime-dispatch", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:01.000Z", type: "runtime_dispatch_requested", payload: { dispatchId: "dispatch-runtime", runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, idempotencyKey: "runtime-witness", definitionSnapshotRef: "artifact:runtime-definition/test", definitionSnapshot: definition } }, { schema: "agent-runtime-event/v1", eventId: "runtime-session", workspaceRevision: 3, opId: "runtime-session", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:02.000Z", type: "runtime_session_started", payload: { runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, definitionSnapshotRef: "artifact:runtime-definition/test", launchGeneration: 1, attachable: true } }] as const satisfies readonly AgentRuntimeEventV1[]; for (const event of events) store.append({ event, plan: runtimeWritePlan(event), blobs: [] }); await store.drain();
-    const host = await openDaemonHost({ daemonId: "runtime-witness", userRoot }); try { await host.admin({ kind: "register", rootDir: root, repoId: "runtime-witness" }, auth(ids.admin)); const issued = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ids.writer)), bound = host.bindRuntimeWitness("runtime-witness", issued.token); assert.equal(bound.actor.principal.personId, "writer"); assert.deepEqual(bound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "activity", activity: "tool" }).type, "activity"); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "heartbeat", actor: "provider-supplied" } as never).type, "heartbeat"); const owners = await fleetNodeOwners({ userRoot, owners: { "node-runtime": "worker" }, repoIds: ["runtime-witness"] }), assignment = { ...owners.auth({ nodeId: "node-runtime", repoId: "runtime-witness", taskId: "task-runtime", executionId: "execution-runtime", assignmentId: "assignment-runtime", paths: [] } as never), transportKind: "unix-socket" } as const, assignmentToken = await host.issueRuntimeWitness("runtime-witness", "session-runtime", assignment), assignmentBound = host.bindRuntimeWitness("runtime-witness", assignmentToken.token); assert.deepEqual(assignmentBound.source, { kind: "assignment", nodeId: "node-runtime", assignmentId: "assignment-runtime" }); assert.deepEqual(assignmentBound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); for (const [personId, ownerUid] of [["dualAdmin", ids.dualAdmin], ["dualArbiter", ids.dualArbiter]] as const) { const token = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ownerUid)); assert.equal(host.bindRuntimeWitness("runtime-witness", token.token).actor.principal.personId, personId); } } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
-});
+    const host = await openDaemonHost({ daemonId: "runtime-witness", userRoot }); try { await host.admin({ kind: "register", rootDir: root, repoId: "runtime-witness" }, auth("admin")); const issued = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth("writer")), bound = host.bindRuntimeWitness("runtime-witness", issued.token); assert.equal(bound.actor.principal.personId, "writer"); assert.deepEqual(bound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "activity", activity: "tool" }).type, "activity"); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "heartbeat", actor: "provider-supplied" } as never).type, "heartbeat"); signOutAt(userRoot); const owners = await fleetNodeOwners({ userRoot, owners: { "node-runtime": "worker" }, repoIds: ["runtime-witness"] }), assignment = { ...owners.auth({ nodeId: "node-runtime", repoId: "runtime-witness", taskId: "task-runtime", executionId: "execution-runtime", assignmentId: "assignment-runtime", paths: [] } as never), transportKind: "unix-socket" } as const, assignmentToken = await host.issueRuntimeWitness("runtime-witness", "session-runtime", assignment), assignmentBound = host.bindRuntimeWitness("runtime-witness", assignmentToken.token); assert.deepEqual(assignmentBound.source, { kind: "assignment", nodeId: "node-runtime", assignmentId: "assignment-runtime" }); assert.deepEqual(assignmentBound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); for (const personId of ["dualAdmin", "dualArbiter"] as const) { const token = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(personId)); assert.equal(host.bindRuntimeWitness("runtime-witness", token.token).actor.principal.personId, personId); } } finally { await realm.close(); await host.close(); rmSync(parent, { recursive: true, force: true }); }
+  });
 test("task mutation rejections name the missing field and current execution status", async (context) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-rejection-diagnostics-")),
     taskId = "task-rejection-diagnostics",
@@ -650,12 +676,12 @@ test("task mutation rejections name the missing field and current execution stat
         reviewId: "review-premature",
         fromFile: "review.json",
       },
-      withRoleBinding(
+      withPolicyGroup(
         {
           actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "arbiter" } },
           source: "local",
         },
-        "arbiter",
+        "maintainer",
       ),
     );
     assert.equal(prematureReview.code, "invalid_transition", JSON.stringify(prematureReview));
@@ -668,12 +694,12 @@ test("task mutation rejections name the missing field and current execution stat
     });
     const derivedPrematureReview = await cell.run(
       { kind: "task-review-execution", taskId, reviewId: "review-derived-premature", fromFile: "review.json" },
-      withRoleBinding(
+      withPolicyGroup(
         {
           actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "arbiter" } },
           source: "local",
         },
-        "arbiter",
+        "maintainer",
       ),
     );
     assert.equal(derivedPrematureReview.code, "invalid_command", JSON.stringify(derivedPrematureReview));
@@ -1084,12 +1110,12 @@ async function prepareReadyCompletion(
   assert.equal((await cell.run({ kind: "doc-submit", paths: [readyReportPath] }, binding)).outcome, "applied");
   const reviewed = await cell.run(
     { kind: "task-review-execution", taskId, executionId, reviewId: "review-ready", fromFile: "review.json" },
-    withRoleBinding(
+    withPolicyGroup(
       {
         actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "arbiter" } },
         source: "local",
       },
-      "arbiter",
+      "maintainer",
     ),
   );
   assert.equal((await waitForAcceptedReceipt(cell, reviewed, binding)).wait?.state, "satisfied");
@@ -1204,42 +1230,6 @@ async function publishCiObservation(
     await store.drain();
     authority.close();
   }
-}
-function rbacRepo(rootDir: string, ids: Readonly<Record<string, number>>): void {
-  mkdirSync(rootDir, { recursive: true });
-  initRepo(rootDir);
-  mkdirSync(path.join(rootDir, "harness"));
-  writeFileSync(
-    path.join(rootDir, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: rbac\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-  const policyRoles: Readonly<Record<string, readonly string[]>> = {
-      reader: ["reader"],
-      writer: ["repo-write"],
-      arbiter: ["arbiter"],
-      admin: ["admin"],
-      dualAdmin: ["repo-write", "admin"],
-      dualArbiter: ["repo-write", "arbiter"],
-    },
-    people = Object.entries(ids).map(([role, uid]) => ({
-      personId: role,
-      displayName: role,
-      roles: policyRoles[role],
-      credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }],
-    }));
-  const commands: Readonly<Record<string, readonly string[]>> = {
-      reader: ["repo-read"],
-      "repo-write": ["repo-write"],
-      arbiter: ["arbiter"],
-      admin: ["admin"],
-    },
-    roles = Object.keys(commands).map((roleId) => ({ roleId, commandClasses: commands[roleId] }));
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people, roles }, null, 2)}\n`,
-  );
-  git(rootDir, "add", "harness");
-  git(rootDir, "commit", "--quiet", "-m", "add RBAC fixture");
 }
 async function rpc(
   host: Awaited<ReturnType<typeof openDaemonHost>>,

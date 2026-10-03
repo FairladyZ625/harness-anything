@@ -38,7 +38,7 @@ import {
 test("derived doc-sync contract closes intent and event schemas", () => {
   assert.deepEqual(
     docSyncContract.schemas.map((schema) => schema.id),
-    ["doc-write-intent/v1", "doc-event/v1", "people-event/v1"],
+    ["doc-write-intent/v1", "doc-event/v1"],
   );
   assert.equal(
     docSyncContract.schemas.every((schema) => schema.negativeFixtures.length > 0),
@@ -215,8 +215,8 @@ test("default prose route is open while typed internal routes are denied", () =>
     requiredRoute: "canonical-event",
   });
   assert.deepEqual(resolveDocRoute(documentPath("people.yaml")), {
-    allowed: false,
-    requiredRoute: "people-registry",
+    allowed: true,
+    requiredRoute: "doc-sync",
   });
   assert.throws(() => documentPath("../outside.md"));
 });

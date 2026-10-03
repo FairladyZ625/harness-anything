@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -16,9 +16,9 @@ import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";
 
-const actor = withRoleBinding(
+const actor = withPolicyGroup(
   { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const },
-  "owner",
+  "admin",
 );
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,12 +41,12 @@ test("RepoCell accepts in SQLite before independently verified Git and worktree 
     const before = makeTaskEventReader({ repoId, rootDir }).read().revision,
       accepted = await cell.run(
         { kind: "task-create", taskId: "task-sqlite-accept", title: "SQLite accept" },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor: { principal: { personId: "sqlite-accept-owner" }, executor: null },
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
 
@@ -74,12 +74,12 @@ test("RepoCell accepts in SQLite before independently verified Git and worktree 
         waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
         timeoutMs: 5_000,
       },
-      withRoleBinding(
+      withPolicyGroup(
         {
           actor: { principal: { personId: "sqlite-accept-owner" }, executor: null },
           source: "local",
         },
-        "owner",
+        "admin",
       ),
     );
     assert.equal(settled.wait?.state, "timed_out", JSON.stringify(settled));

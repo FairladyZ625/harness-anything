@@ -38,3 +38,24 @@ The policy separates:
 
 The unsigned candidate is installed manually with the documented macOS
 right-click Open flow. It is not a claim of signed production distribution.
+
+## Component catalog
+
+For contributor previews, run `npm run dev -w @harness-anything/gui` and open
+`/component-catalog.html` on the printed local Vite URL. This separate development
+entry imports the real primitives and uses synthetic data; it does not invoke
+daemon mutations or appear in production navigation. Theme, motion preference,
+container width, list selection, tabs and entity-reference callbacks are interactive.
+
+Add examples here when a shared component contract changes. Keep behavior in the
+component, not a second implementation in the catalog. Electron automation should
+use its default hidden window and an isolated profile; only use visible windows
+when a person explicitly requests a demonstration.
+
+开发者可运行上述命令并打开 `/component-catalog.html`。目录直接复用真实组件，以示例数据
+检查主题、动效、窄容器、键盘与状态，不写 daemon。共享契约变化时同步例子，不能在目录里
+复制第二套实现；自动化验证保持 Electron 隐藏与独立 profile。
+
+GUI implementation guidance: [harness-gui skill](../../skills/harness-gui/SKILL.md). GUI agents and the `gui-development` preset use this shared contract.
+
+GUI 开发指引：[harness-gui skill](../../skills/harness-gui/SKILL.md)。GUI Agent 与 `gui-development` preset 复用此契约。

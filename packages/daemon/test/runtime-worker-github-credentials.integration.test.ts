@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -124,7 +124,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     });
 
     const actor = { principal: { personId: "person-github-worker" }, executor: null },
-      binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+      binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
       unbound = await cell.spawnRuntime(
         {
           runtimeInstanceId: instanceId,

@@ -1,22 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { spawn } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import test, { type TestContext } from "node:test";
-import {
-  fleetHostWriterOptions,
-  fleetLedgerRevision,
-  fleetNodeOwners,
-  waitForFleetPublication,
-} from "./fleet-store.fixture.ts";
+import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { connect, createServer, type TLSSocket } from "node:tls";
+import { createServer } from "node:tls";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
-import { AccessAdminService } from "../src/access-admin-service.ts";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { digestId } from "../src/fleet/center-transport.ts";
 import {
   readFleetAssignmentClient,
@@ -25,9 +16,7 @@ import {
   type FleetReplicaPullClientOptions,
   type FleetWriteClientOptions,
 } from "../src/fleet/edge.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
-import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import {
   FleetUtf8LineDecoder,
   parseFleetFrame,
@@ -35,30 +24,15 @@ import {
   type FleetCut,
   type FleetFrameV1,
 } from "../src/fleet/contract.ts";
-import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-const replicaQuota = 64 * 1024 * 1024;
-// A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
-// teardown does not run on the timeout path. Every fixture therefore owns its OS resources and every test hands
-// `fixture.close` to `t.after`, which node:test does run after a timeout. Sockets and edge children are dropped
-// before the centers so `server.close()` is never left waiting on a peer that outlived the test.
-function reclaimer() {
-  const closers: Array<() => void> = [],
-    centers: FleetTlsCenter[] = [];
-  return {
-    track: (close: () => void) => {
-      closers.push(close);
-    },
-    hold: async (opening: Promise<FleetTlsCenter>) => {
-      const center = await opening;
-      centers.push(center);
-      return center;
-    },
-    reclaim: async () => {
-      for (const close of closers.splice(0)) close();
-      for (const center of centers.splice(0)) await center.close();
-    },
-  };
-}
+import {
+  fleetFixture,
+  git,
+  localAuthFixture,
+  rawPeer,
+  replicaQuota,
+  splitWrite,
+  waitForReceiptCommit,
+} from "./fleet-tls-session.fixture.ts";
 type RoundTripOptions = FleetWriteClientOptions & Pick<FleetReplicaPullClientOptions, "viewRoot" | "edgeKillpoint">;
 async function runFleetRoundTrip(options: RoundTripOptions) {
   const peer = {
@@ -174,67 +148,75 @@ test(
     assert.equal(shown.evidence, secondBody);
   },
 );
-// The center reads a node's owner again for every frame that acts for somebody, so unregistering a node
-// reaches a session that is already connected: the refusal does not wait for a reconnect.
-test("a node unregistered while it stays connected is refused on its next frame", { timeout: 30_000 }, async (t) => {
-  const fixture = await fleetFixture(t);
-  t.after(() => fixture.close());
-  const center = await fixture.center(),
-    { nodeId, assignmentId, repoId, taskId } = fixture.assignment,
-    peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
-    answer = (frame: FleetFrameV1) =>
-      frame.schema === "fleet.error/v1"
-        ? frame.code
-        : frame.schema === "fleet.task.result/v1"
-          ? frame.outcome
-          : frame.schema,
-    assigned = await peer.request({ schema: "fleet.assignment.get/v1", messageId: "assignment", assignmentId });
-  assert.equal(assigned.schema, "fleet.assignment.result/v1");
-  if (assigned.schema !== "fleet.assignment.result/v1") return;
-  const receipt = (messageId: string) =>
-      peer.request({ schema: "fleet.receipt.get/v1", messageId, assignmentId, opId: "op-unknown" }),
-    task = (opId: string, action: Record<string, unknown>) =>
-      peer.request({
-        schema: "fleet.task.command/v1",
-        messageId: opId,
+// A settled unregistration cuts the node's live session before the operation returns; whatever
+// authenticates afterwards still finds no owner for its frames. Both layers are observable here.
+test(
+  "a node unregistered while it stays connected is cut, and its next session has no owner",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const center = await fixture.center(),
+      { nodeId, assignmentId, repoId, taskId } = fixture.assignment,
+      peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+      answer = (frame: FleetFrameV1) =>
+        frame.schema === "fleet.error/v1"
+          ? frame.code
+          : frame.schema === "fleet.task.result/v1"
+            ? frame.outcome
+            : frame.schema,
+      assigned = await peer.request({ schema: "fleet.assignment.get/v1", messageId: "assignment", assignmentId });
+    assert.equal(assigned.schema, "fleet.assignment.result/v1");
+    if (assigned.schema !== "fleet.assignment.result/v1") return;
+    const receipt = (messageId: string) =>
+        peer.request({ schema: "fleet.receipt.get/v1", messageId, assignmentId, opId: "op-unknown" }),
+      task = (opId: string, action: Record<string, unknown>) =>
+        peer.request({
+          schema: "fleet.task.command/v1",
+          messageId: opId,
+          assignmentId,
+          writerEpoch: assigned.writerEpoch,
+          opId,
+          repoId,
+          taskId,
+          action: { ...action, taskId },
+          waitMs: 1_000,
+          docChanges: null,
+          mirrorBaseCut: null,
+        } as FleetFrameV1),
+      progress = (opId: string) => task(opId, { kind: "task-progress-append", text: opId });
+    // While the node is registered the same three frames are answered.
+    assert.equal(answer(await receipt("receipt-while-registered")), "fleet.receipt.result/v1");
+    assert.equal(answer(await task("show-while-registered", { kind: "task-show" })), "applied");
+    assert.equal(answer(await progress("progress-while-registered")), "applied");
+    const before = fixture.eventCount();
+
+    signInAt(fixture.userRoot, "person-admin");
+    const admin = fixture.admin(center),
+      listed = (await admin.run({ operation: "node-list" })).nodes as { nodeId: string; version: string }[],
+      removed = await admin.run({
+        operation: "node-unregister",
+        operationId: "unregister-connected-node",
+        nodeId,
+        expectedVersion: listed.find((node) => node.nodeId === nodeId)!.version,
+      });
+    assert.equal(removed.ok, true, JSON.stringify(removed));
+
+    // The settled removal cut the existing session: no frame on it is processed or answered any more.
+    await peer.closed;
+    assert.equal(fixture.eventCount(), before, "nothing was written for the unregistered node");
+    // A session that authenticates afterwards still resolves no owner for the frames that act for somebody.
+    const next = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+      refused = await next.request({
+        schema: "fleet.receipt.get/v1",
+        messageId: "receipt-after-reconnect",
         assignmentId,
-        writerEpoch: assigned.writerEpoch,
-        opId,
-        repoId,
-        taskId,
-        action: { ...action, taskId },
-        waitMs: 1_000,
-        docChanges: null,
-        mirrorBaseCut: null,
-      } as FleetFrameV1),
-    progress = (opId: string) => task(opId, { kind: "task-progress-append", text: opId });
-  // While the node is registered the same three frames are answered.
-  assert.equal(answer(await receipt("receipt-while-registered")), "fleet.receipt.result/v1");
-  assert.equal(answer(await task("show-while-registered", { kind: "task-show" })), "applied");
-  assert.equal(answer(await progress("progress-while-registered")), "applied");
-  const before = fixture.eventCount();
-
-  signInAt(fixture.userRoot, "person-admin");
-  const admin = new AccessAdminService(new OidcSessionService(fixture.userRoot), fixture.userRoot),
-    listed = (await admin.run({ operation: "node-list" })).nodes as { nodeId: string; version: string }[],
-    removed = await admin.run({
-      operation: "node-unregister",
-      operationId: "unregister-connected-node",
-      nodeId,
-      expectedVersion: listed.find((node) => node.nodeId === nodeId)!.version,
-    });
-  assert.equal(removed.ok, true, JSON.stringify(removed));
-
-  // Same socket, no second hello: the frames that follow the unregistration are refused.
-  assert.equal(answer(await receipt("receipt-after-unregister")), "node_owner_unregistered");
-  assert.equal(answer(await task("show-after-unregister", { kind: "task-show" })), "node_owner_unregistered");
-  assert.equal(
-    answer(await peer.request({ schema: "fleet.replica.pull/v1", messageId: "pull-after-unregister", assignmentId })),
-    "node_owner_unregistered",
-  );
-  assert.equal(answer(await progress("progress-after-unregister")), "node_owner_unregistered");
-  assert.equal(fixture.eventCount(), before, "nothing was written for the unregistered node");
-});
+        opId: "op-unknown",
+      });
+    assert.equal(answer(refused), "node_owner_unregistered");
+    next.close();
+  },
+);
 // Consent is a person's own confirmation. The connection authenticated a machine, so the owner the center
 // resolves for it can hold every permission on the repository and still cannot consent through the node.
 test(
@@ -279,10 +261,14 @@ test(
       path.join(fixture.repo, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
     );
-    await applied(
-      { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" },
-      localAuthFixture(),
-    );
+    const review = { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" } as const;
+    const selfReview = await fixture.host.run(repoId, review, localAuthFixture());
+    assert.equal(selfReview.code, "actor_unauthorized", JSON.stringify(selfReview));
+    fixture.owners.keycloak.account("person-reviewer");
+    fixture.owners.keycloak.permit("person-reviewer", repoId, ["task-review-execution"]);
+    signInAt(fixture.userRoot, "person-reviewer");
+    await applied(review, localAuthFixture());
+    signInAt(fixture.userRoot, "person-owner");
     // The reviewer's report is accepted at the center, so completion finds no document left to carry.
     await applied({ kind: "doc-submit", taskId }, localAuthFixture());
 
@@ -725,17 +711,6 @@ test(
     assert.equal(bad.schema, "fleet.error/v1");
     if (bad.schema === "fleet.error/v1") assert.equal(bad.code, "content_claim_mismatch");
     peer.close();
-    fixture.setActive(false);
-    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret");
-    const revoked = await peer.request({
-      schema: "fleet.assignment.get/v1",
-      messageId: "revoked",
-      assignmentId: fixture.assignment.assignmentId,
-    });
-    assert.equal(revoked.schema, "fleet.error/v1");
-    if (revoked.schema === "fleet.error/v1") assert.equal(revoked.code, "credential_revoked");
-    peer.close();
-    fixture.setActive(true);
     fixture.setExpiry("2000-01-01T00:00:00.000Z");
     peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret");
     const expired = await peer.request({
@@ -904,305 +879,6 @@ test(
     );
   },
 );
-async function fleetFixture(
-  t: TestContext,
-  paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"],
-  closeoutProfile: "standard" | "strict" = "standard",
-) {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
-    repo = path.join(root, "repo"),
-    userRoot = path.join(root, "user"),
-    stateRoot = path.join(root, "state"),
-    keyFile = path.join(root, "tls.key"),
-    certFile = path.join(root, "tls.crt"),
-    emptyPath = path.join(root, "empty-path"),
-    owned = reclaimer();
-  let nodeActive = true,
-    expiresAt = "2099-01-01T00:00:00.000Z",
-    assignmentDelayMs = 0,
-    taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
-  const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
-  mkdirSync(path.join(repo, "harness"), { recursive: true });
-  mkdirSync(emptyPath);
-  initRepo(repo);
-  writeFileSync(
-    path.join(repo, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
-      `settings:\n  closeout:\n    profile: ${closeoutProfile}\n`,
-  );
-  writePeopleFixture(repo);
-  git(repo, "add", "harness");
-  git(repo, "commit", "-qm", "harness");
-  registerDaemonRepo({ canonicalRoot: repo, repoId: "fleet-repo", userRoot, createConvenienceLinks: false });
-  execFileSync(
-    "openssl",
-    [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-nodes",
-      "-keyout",
-      keyFile,
-      "-out",
-      certFile,
-      "-subj",
-      "/CN=localhost",
-      "-days",
-      "1",
-      "-addext",
-      "subjectAltName=DNS:localhost",
-    ],
-    { stdio: "ignore" },
-  );
-  const key = readFileSync(keyFile),
-    cert = readFileSync(certFile),
-    host = await openDaemonHost({ daemonId: "fleet-center", userRoot }),
-    owners = await fleetNodeOwners({ userRoot, owners: { "node-one": "person-owner" }, repoIds: ["fleet-repo"] });
-  t.after(async () => {
-    try {
-      await owned.reclaim();
-    } finally {
-      try {
-        await host.close();
-      } finally {
-        await owners.close();
-        rmSync(root, { recursive: true, force: true });
-      }
-    }
-  });
-  await host.attachmentsSettled();
-  const assignment: FleetAssignmentRecord = {
-      nodeId: "node-one",
-      assignmentId: "assignment-one",
-      repoId: "fleet-repo",
-      taskId: "task-fleet",
-      executionId: "execution-fleet",
-      paths,
-      viewId: "node-one_task-fleet",
-      expiresAt: "2099-01-01T00:00:00.000Z",
-    },
-    slowAssignment: FleetAssignmentRecord = {
-      ...assignment,
-      assignmentId: "assignment-slow",
-      viewId: "node-one_task-fleet-slow",
-    },
-    auth = owners.auth(assignment);
-  const created = await host.run(
-    assignment.repoId,
-    { kind: "task-create", taskId: assignment.taskId, title: "Fleet" },
-    auth,
-  );
-  assert.equal(created.outcome, "applied", JSON.stringify(created));
-  await waitForFleetPublication(host, assignment.repoId, created.opId, auth);
-  await realizeTaskPlanFixture(
-    repo,
-    String((created as Record<string, unknown>).packagePath),
-    (planPath) => host.run(assignment.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
-    "Fleet",
-  );
-  const started = await host.run(
-    assignment.repoId,
-    { kind: "task-start", taskId: assignment.taskId, executionId: assignment.executionId },
-    auth,
-  );
-  assert.equal(started.outcome, "applied", JSON.stringify(started));
-  await waitForReceiptCommit(host, assignment.repoId, started.opId, auth);
-  return {
-    root,
-    repo,
-    packagePath: String((created as Record<string, unknown>).packagePath),
-    stateRoot,
-    writerOptions: fleetHostWriterOptions(userRoot, ["fleet-repo"]),
-    path: assignment.paths[0]!,
-    assignment,
-    slowAssignment,
-    auth,
-    host,
-    key,
-    cert,
-    certFile,
-    emptyPath,
-    track: owned.track,
-    hold: owned.hold,
-    userRoot,
-    setActive: (value: boolean) => {
-      nodeActive = value;
-    },
-    setExpiry: (value: string) => {
-      expiresAt = value;
-    },
-    setAssignmentDelay: (value: number) => {
-      assignmentDelayMs = value;
-    },
-    blockTaskRelease: () => {
-      let started!: () => void, release!: () => void;
-      const startedPromise = new Promise<void>((resolve) => {
-          started = resolve;
-        }),
-        wait = new Promise<void>((resolve) => {
-          release = resolve;
-        });
-      taskReleaseBarrier = { started, wait };
-      return { started: startedPromise, release };
-    },
-    eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
-    runtimeArchiveReceipts,
-    center: (diskQuotaBytes = replicaQuota, staleReplica = false) =>
-      owned.hold(
-        listenFleetTls({
-          host: {
-            ...host,
-            replica: (repoId: string) => {
-              const replica = host.replica(repoId);
-              return staleReplica
-                ? {
-                    ...replica,
-                    waitForCut: async (revision: number) => {
-                      const cut = await replica.waitForCut(revision);
-                      return { ...cut, headDigest: `sha256:${"f".repeat(64)}` };
-                    },
-                  }
-                : replica;
-            },
-            runtimeIngress: async (...args: Parameters<typeof host.runtimeIngress>) => {
-              const receipt = await host.runtimeIngress(...args);
-              if (args[1].kind === "archive") runtimeArchiveReceipts.push(receipt);
-              return receipt;
-            },
-            run: async (...args: Parameters<typeof host.run>) => {
-              const barrier = taskReleaseBarrier;
-              if (args[1].kind === "task-release" && barrier) {
-                barrier.started();
-                await barrier.wait;
-                if (taskReleaseBarrier === barrier) taskReleaseBarrier = null;
-              }
-              return host.run(...args);
-            },
-          },
-          stateRoot,
-          ...fleetHostWriterOptions(userRoot, ["fleet-repo"]),
-          key,
-          cert,
-          replicaDiskQuotaBytes: diskQuotaBytes,
-          authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
-          nodeOwner: owners.nodeOwner,
-          isNodeActive: () => nodeActive,
-          resolveAssignment: async (assignmentId) => {
-            if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
-            return assignmentId === assignment.assignmentId
-              ? { ...assignment, expiresAt }
-              : assignmentId === slowAssignment.assignmentId
-                ? { ...slowAssignment, expiresAt }
-                : null;
-          },
-        }),
-      ),
-    close: async () => {
-      await owned.reclaim();
-      await host.close();
-      rmSync(root, { recursive: true, force: true });
-    },
-  };
-}
-function initRepo(rootDir: string): void {
-  git(rootDir, "init", "-q");
-  git(rootDir, "config", "user.name", "Fleet Test");
-  git(rootDir, "config", "user.email", "fleet@example.invalid");
-  git(rootDir, "commit", "--allow-empty", "-qm", "base");
-}
-function git(rootDir: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
-}
-function writePeopleFixture(rootDir: string): void {
-  const ownerUid = process.getuid?.() ?? 0;
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "fleet-fixture", displayName: "Fleet Fixture", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(ownerUid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
-  );
-}
-function localAuthFixture() {
-  return {
-    transportKind: "unix-socket" as const,
-    unixSocketOwnerBoundary: {
-      ownerUid: process.getuid?.() ?? 0,
-      source: "unix-socket-filesystem-owner-boundary" as const,
-    },
-  };
-}
-async function rawPeer(
-  track: (close: () => void) => void,
-  port: number,
-  ca: Buffer,
-  nodeId: string,
-  credential: string,
-) {
-  const socket = await new Promise<TLSSocket>((resolve, reject) => {
-      const candidate = connect({ host: "127.0.0.1", port, ca, servername: "localhost" }, () => resolve(candidate));
-      candidate.once("error", reject);
-    }),
-    frames: FleetFrameV1[] = [],
-    waiters: Array<(frame: FleetFrameV1) => void> = [];
-  track(() => socket.destroy());
-  let buffer = "";
-  socket.on("data", (chunk) => {
-    buffer += chunk.toString("utf8");
-    for (;;) {
-      const end = buffer.indexOf("\n");
-      if (end < 0) break;
-      const frame = parseFleetFrame(buffer.slice(0, end));
-      buffer = buffer.slice(end + 1);
-      const waiter = waiters.shift();
-      if (waiter) waiter(frame);
-      else frames.push(frame);
-    }
-  });
-  const next = () =>
-      frames.length ? Promise.resolve(frames.shift()!) : new Promise<FleetFrameV1>((resolve) => waiters.push(resolve)),
-    request = async (frame: FleetFrameV1) => {
-      socket.write(serializeFleetFrame(frame));
-      return next();
-    },
-    raw = async (frame: unknown) => {
-      socket.write(`${JSON.stringify(frame)}\n`);
-      return next();
-    },
-    split = async (frame: FleetFrameV1, marker: string) => {
-      splitWrite(socket, frame, marker);
-      return next();
-    };
-  const hello = await request({
-    schema: "fleet.session.hello/v1",
-    messageId: "hello",
-    protocolVersion: { major: 1, minor: 0 },
-    nodeId,
-    credential,
-  });
-  if (hello.schema === "fleet.error/v1") throw new Error(hello.code);
-  return { request, raw, split, close: () => socket.destroy() };
-}
-function splitWrite(socket: TLSSocket, frame: FleetFrameV1, marker: string): void {
-  const bytes = Buffer.from(serializeFleetFrame(frame)),
-    markerOffset = bytes.indexOf(Buffer.from(marker));
-  if (markerOffset < 0) throw new Error("split marker missing");
-  socket.setNoDelay(true);
-  socket.write(bytes.subarray(0, markerOffset + 1));
-  setTimeout(() => socket.write(bytes.subarray(markerOffset + 1)), 100);
-}
-async function waitForReceiptCommit(
-  host: Awaited<ReturnType<typeof openDaemonHost>>,
-  repoId: string,
-  opId: string,
-  binding: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
-): Promise<void> {
-  const deadline = performance.now() + 15_000;
-  do {
-    const receipt = await host.run(repoId, { kind: "receipt-show", opId }, binding);
-    if (typeof receipt.commitSha === "string") return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  } while (performance.now() < deadline);
-  throw new Error(`Git materialization did not publish ${opId} within the bounded wait`);
-}
 async function waitForCenterLedgerRevision(
   peer: Parameters<typeof readFleetAssignmentClient>[0],
   expected: number,

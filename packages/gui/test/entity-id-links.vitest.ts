@@ -654,6 +654,7 @@ const VIEW_RENDERERS = {
     }),
   graph: () =>
     createElement(EntityWorkspace, {
+      repoId: "repo-a",
       focusedEntityRef: `decision/${DECISION_ID}`,
       tasks: FIXTURE_TASKS,
       relations: FIXTURE_RELATIONS,

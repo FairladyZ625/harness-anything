@@ -175,7 +175,7 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     assert.ok(review, "review_recorded must be in the canonical ledger");
     assert.deepEqual(review.actor, {
       executor: { kind: "agent", id: "release-reviewer" },
-      principal: { personId: "owner" },
+      principal: { personId: "reviewer" },
     });
     context.diagnostic(JSON.stringify({ schema: "release-acceptance-chain/v1", taskId, executionId, commitSha }));
   } finally {

@@ -6,7 +6,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { prefersReducedMotion } from "motion/react";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
-import { attentionEntries, ATTENTION_META, workRows } from "../src/renderer/views/overview-model.ts";
+import {
+  attentionEntries,
+  ATTENTION_META,
+  workRows,
+  reviewRows,
+  reviewCounts,
+} from "../src/renderer/views/overview-model.ts";
 import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
@@ -318,29 +324,29 @@ describe("总览区域板(S3)", () => {
   it("点区域原位放大:左列表右详情,Esc 或点背景收回", () => {
     const container = mount();
     act(() => (container.querySelector('[data-testid="overview-region-mine"] section') as HTMLElement).click());
-    const dialog = container.querySelector('[role="dialog"]');
+    const dialog = document.body.querySelector('[role="dialog"]');
     expect(dialog).not.toBeNull();
     expect(textOf(dialog)).toContain("边缘 RBAC 设计裁决");
     expect(textOf(dialog)).toContain("为什么排在这里");
     expect(textOf(dialog)).toContain("注意力分");
     expect(textOf(dialog)).toContain("132");
-    expect(container.querySelector("[data-focus-list]")?.className).toContain("flex-col");
+    expect(document.body.querySelector("[data-focus-list]")?.className).toContain("flex-col");
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     act(() => root?.unmount());
   });
 
   it("放大层的答复按钮接真实动作:关闭放大层并打开 awaits 答复面板", () => {
     const container = mount();
     act(() => (container.querySelector('[data-testid="overview-region-mine"] section') as HTMLElement).click());
-    const answer = [...container.querySelectorAll("button")].find((button) => textOf(button) === "答复");
+    const answer = [...document.body.querySelectorAll("button")].find((button) => textOf(button) === "答复");
     expect(answer).toBeDefined();
     act(() => answer!.click());
     // 答复面板自己也带 role=dialog,聚焦层以其列表特征断言收回。
-    expect(container.querySelector("[data-focus-list]")).toBeNull();
-    expect(container.querySelector('[data-testid="awaits-answer-panel"]')).not.toBeNull();
+    expect(document.body.querySelector("[data-focus-list]")).toBeNull();
+    expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).not.toBeNull();
     act(() => root?.unmount());
   });
 
@@ -459,7 +465,7 @@ describe("总览区域板(S3)", () => {
     const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
     expect(textOf(mine)).toContain("清空");
     act(() => (mine.querySelector("section") as HTMLElement).click());
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     act(() => root?.unmount());
   });
 
@@ -608,5 +614,30 @@ describe("总览区域板(S3)", () => {
       undefined,
     );
     expect(rows.map((row) => row.taskId)).toEqual(["task_live", "task_done", "task_cancel"]);
+  });
+});
+
+describe("decision review queue visibility", () => {
+  it("keeps decisions needing dispatch visible without labeling them as already in review or ready for judgment", () => {
+    const rows = reviewRows(
+      agenda({
+        awaitingDecisionReview: [
+          {
+            decisionId: "dec_needs_review",
+            title: "Needs an independent review",
+            riskTier: "high",
+            urgency: "high",
+            proposedAt: AT,
+          },
+        ],
+        decisionReviewInProgress: [],
+        awaitingDecision: [],
+      }),
+    );
+    const decision = rows.find(({ decisionId }) => decisionId === "dec_needs_review");
+    expect(decision?.group).toBe("decisionNeedsReview");
+    expect(reviewCounts(rows).decisionNeedsReview).toBe(1);
+    expect(reviewCounts(rows).decisionReviewing).toBe(0);
+    expect(reviewCounts(rows).decisionPending).toBe(0);
   });
 });
