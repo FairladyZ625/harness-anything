@@ -89,7 +89,7 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.5",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "27.0.0-alpha.9",
     "happy-dom": "^20.11.6",
     "playwright-core": "1.62.1",
     "tailwindcss": "^4.3.2",
