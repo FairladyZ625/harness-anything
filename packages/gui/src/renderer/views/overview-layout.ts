@@ -10,7 +10,7 @@
 
 import { DENSE_ROW_PX, DENSE_ROW_RELAXED_PX } from "../components/primitives/DenseRow.tsx";
 
-export type RegionKey = "ci" | "mine" | "stuck" | "run" | "review" | "queue" | "recent" | "works";
+export type RegionKey = "ci" | "mine" | "stuck" | "run" | "review" | "queue" | "recent" | "works" | "wip";
 
 /** 行高取自 DenseRow 原语(单行与宽松两行同一档),其余尺寸只用于区域高度分配,不用于裁切或隐藏行。 */
 export const REGION_ROW_PX = DENSE_ROW_PX;
