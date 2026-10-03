@@ -347,10 +347,10 @@ export function WorkOverview({
     collapsible: false,
   });
   const splitBoard =
-    split.mode === "auto" || dayGroups.length === 0
+    dayGroups.length === 0
       ? undefined
       : {
-          orientation: split.mode,
+          orientation: split.effectiveOrientation,
           ratio: split.ratio,
           containerRef: split.containerRef,
           divider: (

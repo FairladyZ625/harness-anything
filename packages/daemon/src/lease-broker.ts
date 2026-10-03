@@ -153,6 +153,7 @@ export function openFleetLeaseBroker(options: {
   ) => FleetAssignmentRecord | null | Promise<FleetAssignmentRecord | null>;
   readonly now: () => string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly prepareTaskSubmit?: (assignment: FleetAssignmentRecord, action: FleetTaskAction) => Promise<FleetTaskAction>;
   /** Resolved for each center write: the node's current owner, never a value captured at admission. */
   readonly auth: (assignment: FleetAssignmentRecord, accessToken?: string) => Promise<DaemonAuthenticationContext>;
 }): FleetLeaseBroker {
@@ -448,10 +449,21 @@ export function openFleetLeaseBroker(options: {
   ): Promise<FleetTaskResultFields> {
     const digest = digestFor(assignment, action, docs, humanPersonId),
       coordination = lifecycleCoordination(action);
-    const effective: FleetTaskAction =
+    let effective: FleetTaskAction =
       coordination === "reserve" && !Number.isSafeInteger(action.ttlMs)
         ? { ...action, ttlMs: timers.orphanTimeoutMs }
         : action;
+    if (action.kind === "task-submit" && options.prepareTaskSubmit) {
+      effective = await options.prepareTaskSubmit(assignment, effective);
+      // Git transfer is outside the repository write queue. Never carry early authorization past it.
+      const current = normalizeTaskAssignment(await options.resolveAssignment(assignment.assignmentId));
+      if (
+        !current ||
+        stableStringify(current) !== stableStringify(assignment) ||
+        Date.parse(current.expiresAt) <= Date.parse(options.now())
+      )
+        return { ...failure("op_rejected", "assignment_rejected"), opId };
+    }
     const ttlMs = Number(effective.ttlMs ?? timers.orphanTimeoutMs),
       dryRun = action.dryRun === true;
     let reserved = preReserved;

@@ -8,7 +8,7 @@ import { assertUnscrolledLayout } from "./helpers.mjs";
  * task_fb3ba20d66…:原页面内容区域可调布局的 Electron 实测(isolated lane)。
  *
  * 覆盖两处真实消费:
- *   1) 任务详情「文件树|正文」——默认自适应(无分隔条/内联模板);左右排列后拖真实
+ *   1) 任务详情「文件树|正文」——默认自适应(保留可操作分隔条);左右排列后拖真实
  *      指针调比例(窗口缩放后有界)、键盘微调、刷新记忆、折叠/召回、上下排列、重置回
  *      自适应;树里塞 120 个种子文件,展开后树在自己窗内滚动、不挤死正文。
  *   2) 工作概况「主区|最近进展」——通过 daemon 真实建一个子任务让夹具根任务成为工作根
@@ -31,8 +31,8 @@ async function setSize(app, page, width, height) {
     },
     { width, height },
   );
-  // setSize returns before the renderer observes resize; minWidth also clamps
-  // narrow requests. Measure only after the actual content size has arrived.
+  // Hidden Electron may not resize its renderer; match the real, min-width-clamped content size.
+  await page.setViewportSize({ width: actual[0], height: actual[1] });
   await page.waitForFunction(([w, h]) => globalThis.innerWidth === w && globalThis.innerHeight === h, actual);
   return { requested: [width, height], actual };
 }
@@ -185,12 +185,12 @@ export default {
       // 等文件清单投影追平:树里出现种子目录。
       await page.getByTestId("task-document-tree").filter({ hasText: "split/" }).waitFor({ timeout: 30_000 });
 
-      // ---- 任务详情:默认自适应,无分隔条、无内联模板。 ----
+      // ---- 任务详情:默认自适应,分隔条直接可拖。 ----
       const grid = page.getByTestId("task-detail-content-grid");
-      assert.equal(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
-      assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 0);
+      assert.notEqual(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
+      assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 1);
       await shot("task-split-auto-wide");
-      // 自适应宽屏:树是固定 14rem 侧栏(rem 换算按应用根字号,不假定 16px)。
+      // 自适应宽屏:树与正文按比例分配,首次拖动不跳变。
       let ratios = await paneRatios(
         page,
         "task-detail-content-grid",
@@ -198,13 +198,20 @@ export default {
         "task-detail-panel-scroll",
         "row",
       );
-      const rootFontSize = await page.evaluate(() =>
-        Number.parseFloat(globalThis.getComputedStyle(globalThis.document.documentElement).fontSize),
+      assert.ok(Math.abs(ratios.firstRatio - 0.22) < 0.02, `auto proportional tree ${ratios.firstRatio}`);
+      await dragDivider(page, "task-doc-split-divider", 20, "row");
+      const firstDrag = await paneRatios(
+        page,
+        "task-detail-content-grid",
+        "task-document-tree",
+        "task-detail-panel-scroll",
+        "row",
       );
       assert.ok(
-        Math.abs(ratios.first - 14 * rootFontSize) < 4,
-        `auto wide tree should be 14rem (${14 * rootFontSize}px at ${rootFontSize}px root), got ${ratios.first}px`,
+        Math.abs(firstDrag.first - ratios.first - 20) < 4,
+        `first drag must move only its pointer delta: ${firstDrag.first - ratios.first}`,
       );
+      await page.getByTestId("task-doc-split-controls-reset").click();
 
       // ---- 左右排列:显式接管,默认 22%;展开 120 个文件,树在窗内滚、外部几何不变。 ----
       await page.getByTestId("task-doc-split-controls-row").click();
@@ -359,13 +366,19 @@ export default {
       await page.getByTestId("task-doc-split-expand").click();
       await page.getByTestId("task-document-tree").waitFor();
 
-      // ---- 重置:回自适应(无内联模板、无分隔条)。 ----
+      // ---- 重置:回自适应(分隔条仍可操作)。 ----
       await page.getByTestId("task-doc-split-controls-reset").click();
-      assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 0);
-      assert.equal(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
+      assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 1);
+      assert.notEqual(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
 
       // 窄窗自适应:单栏叠放,文件树横排在上(共享比例上限),正文仍有可用区域。
-      await resize(760, 800);
+      await resize(1120, 800);
+      await page.waitForFunction(
+        () =>
+          globalThis.document
+            .querySelector('[data-testid="task-doc-split-divider"]')
+            ?.getAttribute("aria-orientation") === "horizontal",
+      );
       const narrow = await paneRatios(
         page,
         "task-detail-content-grid",
@@ -378,6 +391,16 @@ export default {
         narrow.firstContained && narrow.secondContained,
         `auto panes stay inside their container: ${JSON.stringify(narrow)}`,
       );
+      await dragDivider(page, "task-doc-split-divider", 20, "column");
+      const narrowDragged = await paneRatios(
+        page,
+        "task-detail-content-grid",
+        "task-document-tree",
+        "task-detail-panel-scroll",
+        "column",
+      );
+      assert.ok(Math.abs(narrowDragged.first - narrow.first - 20) < 4, "narrow default drag follows its pointer delta");
+      await page.getByTestId("task-doc-split-controls-reset").click();
       await shot("task-split-auto-narrow");
       await resize(1440, 900);
 
@@ -386,9 +409,8 @@ export default {
       await page.getByTestId("workspace-view").waitFor();
       await page.getByTestId("work-overview-board").waitFor();
       const board = page.getByTestId("work-overview-board");
-      assert.equal(await board.evaluate((node) => node.style.gridTemplateColumns), "");
+      assert.notEqual(await board.evaluate((node) => node.style.gridTemplateColumns), "");
       await page.getByTestId("work-overview-split-bar").waitFor();
-      await page.getByTestId("work-overview-split-controls-row").click();
       await page.getByTestId("work-overview-split-divider").waitFor();
       let boardRatios = await paneRatios(page, "work-overview-board", "work-overview-main", "work-timeline", "row");
       assert.ok(Math.abs(boardRatios.firstRatio - 0.6) < 0.04, `board default ratio, got ${boardRatios.firstRatio}`);
@@ -420,8 +442,8 @@ export default {
       );
       await shot("work-split-dragged");
       await page.getByTestId("work-overview-split-controls-reset").click();
-      assert.equal(await board.evaluate((node) => node.style.gridTemplateColumns), "");
-      assert.equal(await page.locator('[data-testid="work-overview-split-divider"]').count(), 0);
+      assert.notEqual(await board.evaluate((node) => node.style.gridTemplateColumns), "");
+      assert.equal(await page.locator('[data-testid="work-overview-split-divider"]').count(), 1);
       await shot("work-split-reset-auto");
 
       // The work graph fills its own flex viewport; both narrow and wide

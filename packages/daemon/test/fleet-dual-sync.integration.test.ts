@@ -8,261 +8,15 @@
 // lands base/local/center with three explicit exits; pull-blocked is reported
 // on the dual axis instead of masquerading as synced.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { makeTaskEventReader, sha256Bytes } from "@harness-anything/kernel";
-import { openDaemonHost } from "../src/daemon-host.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
-import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { runFleetEdgeConflictExit, runFleetEdgeDocSync, settlePushRejection } from "../src/fleet-edge-doc-sync.ts";
-import { locateFleetMirrorView, readFleetUnresolvedConflicts } from "../src/fleet-edge-mirror.ts";
-import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { runFleetWriteClient } from "../src/fleet/edge.ts";
-import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { sha256Bytes } from "@harness-anything/kernel";
+import { settlePushRejection } from "../src/fleet-edge-doc-sync.ts";
+import { readFleetUnresolvedConflicts } from "../src/fleet-edge-mirror.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
-
-// Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
-// wait for materialized commits, so pin the test-local idle timer to a fast interval.
-process.env.HARNESS_WAL_FLUSH_MS = "250";
-
-// "The ledger must not move" is a statement about the merged WAL+Git event stream, not about
-// Git commit counts: a background idle flush may materialize earlier events between two
-// measurements without any new append. Read the flush-timing-invariant revision instead.
-function ledgerRevision(fixture: Fixture): number {
-  return makeTaskEventReader({ repoId: "dual-repo", rootDir: path.join(fixture.root, "repo") }).read().revision;
-}
-
-const replicaQuota = 64 * 1024 * 1024,
-  nodes = ["node-one", "node-two"] as const;
-type NodeId = (typeof nodes)[number];
-async function dualSyncFixture() {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-dual-")),
-    repo = path.join(root, "repo"),
-    userRoot = path.join(root, "user"),
-    stateRoot = path.join(root, "state"),
-    keyFile = path.join(root, "tls.key"),
-    certFile = path.join(root, "tls.crt");
-  mkdirSync(path.join(repo, "harness"), { recursive: true });
-  const git = (...args: readonly string[]): string =>
-    execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  git("init", "-q", "-b", "main");
-  git("config", "user.name", "Dual Sync Test");
-  git("config", "user.email", "dual@example.invalid");
-  git("commit", "--allow-empty", "-qm", "base");
-  writeFileSync(
-    path.join(repo, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: dual\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-  const ownerUid = process.getuid?.() ?? 0;
-  writeFileSync(
-    path.join(repo, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "person-fixture", displayName: "Fixture Owner", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(ownerUid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
-  );
-  git("add", "harness");
-  git("commit", "-qm", "harness");
-  registerDaemonRepo({ canonicalRoot: repo, repoId: "dual-repo", userRoot, createConvenienceLinks: false });
-  execFileSync(
-    "openssl",
-    [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-nodes",
-      "-keyout",
-      keyFile,
-      "-out",
-      certFile,
-      "-subj",
-      "/CN=localhost",
-      "-days",
-      "1",
-      "-addext",
-      "subjectAltName=DNS:localhost",
-    ],
-    { stdio: "ignore" },
-  );
-  const key = readFileSync(keyFile),
-    cert = readFileSync(certFile),
-    host = await openDaemonHost({ daemonId: "dual-center", userRoot }),
-    owners = await fleetNodeOwners({
-      userRoot,
-      owners: Object.fromEntries(nodes.map((nodeId) => [nodeId, `person-${nodeId}`])),
-      repoIds: ["dual-repo"],
-    });
-  await host.attachmentsSettled();
-  // Match daemon-fleet-center-start: local and edge ingress share the host lease.
-  const writerEpochStateRoot = path.join(userRoot, "fleet"),
-    writerAuthority = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot });
-  const hostLease = writerAuthority.current("dual-repo");
-  writerAuthority.close();
-  assert.ok(hostLease);
-  // Scope covers every task package plus one shared-surface document: tasks/
-  // paths are lease-arbitrated (class A), context/ is the class-B surface.
-  const assignment = (nodeId: NodeId): FleetAssignmentRecord => ({
-    nodeId,
-    assignmentId: `assignment-${nodeId}`,
-    repoId: "dual-repo",
-    taskId: "task-seeded",
-    executionId: "exe-seeded",
-    paths: ["tasks", "context/shared-notes.md", "context/other-notes.md"],
-    viewId: `${nodeId}-view`,
-    expiresAt: "2099-01-01T00:00:00.000Z",
-  });
-  const byId = new Map(nodes.map((nodeId) => [assignment(nodeId).assignmentId, assignment(nodeId)]));
-  const center: FleetTlsCenter = await listenFleetTls({
-    host,
-    stateRoot,
-    writerEpochStateRoot,
-    writerEpochLease: (repoId) => {
-      assert.equal(repoId, hostLease.repoId);
-      return hostLease;
-    },
-    key,
-    cert,
-    replicaDiskQuotaBytes: replicaQuota,
-    authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
-    nodeOwner: owners.nodeOwner,
-    resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
-  });
-  const edgeRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-edge`),
-    workspace = (nodeId: NodeId): string => path.join(root, `${nodeId}-workspace`);
-  for (const nodeId of nodes) mkdirSync(workspace(nodeId), { recursive: true });
-  const channel = (nodeId: NodeId) => ({
-    host: "127.0.0.1",
-    port: center.port,
-    caPath: certFile,
-    servername: "localhost",
-    nodeId,
-    credential: `secret-${nodeId}`,
-    assignmentId: `assignment-${nodeId}`,
-    repoId: "dual-repo",
-    viewRoot: edgeRoot(nodeId),
-    quotaBytes: replicaQuota,
-    workspaceRoot: workspace(nodeId),
-  });
-  const edgeTask = (nodeId: NodeId, action: Record<string, unknown>): Promise<Record<string, unknown>> =>
-    runFleetEdgeTask({ payload: { ...channel(nodeId), action: action as never } });
-  const edgeDocSync = (
-    nodeId: NodeId,
-    options: { readonly dryRun?: boolean; readonly paths?: readonly string[] } = {},
-  ): Promise<Record<string, unknown>> => runFleetEdgeDocSync({ payload: { ...channel(nodeId), ...options } as never });
-  const conflictExit = (
-    nodeId: NodeId,
-    action: "resolve" | "discard-local" | "overwrite-center",
-    conflictId: string,
-  ): Promise<Record<string, unknown>> =>
-    runFleetEdgeConflictExit({ payload: { ...channel(nodeId), action, conflictId } as never });
-  const rawWrite = (
-    nodeId: NodeId,
-    changes: readonly { readonly path: string; readonly body: string; readonly baseBlobSha256?: string | null }[],
-    executionId: string | null = null,
-  ) =>
-    runFleetWriteClient({
-      hostname: "127.0.0.1",
-      port: center.port,
-      ca: cert,
-      servername: "localhost",
-      nodeId,
-      credential: `secret-${nodeId}`,
-      assignmentId: `assignment-${nodeId}`,
-      timeoutMs: 30_000,
-      channel: "collaborator",
-      executionId,
-      changes,
-    });
-  const view = (nodeId: NodeId) => locateFleetMirrorView(edgeRoot(nodeId), "dual-repo");
-  const worktree = (nodeId: NodeId, logical: string): string =>
-    path.join(workspace(nodeId), "harness", ...logical.split("/"));
-  const writeWorktree = (nodeId: NodeId, logical: string, body: string): void => {
-    const target = worktree(nodeId, logical);
-    mkdirSync(path.dirname(target), { recursive: true });
-    writeFileSync(target, body);
-  };
-  const conflictsRoot = (nodeId: NodeId): string => path.join(workspace(nodeId), ".harness", "conflicts");
-  const localAuth = {
-    transportKind: "unix-socket" as const,
-    unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" as const },
-  };
-  const centerRun = (action: Record<string, unknown>): Promise<Record<string, unknown>> =>
-    host.run("dual-repo", action as never, localAuth) as Promise<Record<string, unknown>>;
-  const waitPublished = async (opId: string): Promise<void> => {
-    const deadline = performance.now() + 15_000;
-    for (;;) {
-      const shown = await centerRun({ kind: "receipt-show", opId });
-      if (typeof shown.commitSha === "string") return;
-      if (performance.now() >= deadline) throw new Error(`Git materialization did not publish ${opId}`);
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  };
-  const createTask = async (
-    nodeId: NodeId,
-    taskId: string,
-    title: string,
-    presetId?: string,
-  ): Promise<{ readonly taskId: string; readonly packagePath: string }> => {
-    const receipt = await edgeTask(nodeId, {
-      kind: "task-create",
-      taskId,
-      title,
-      ...(presetId ? { presetId } : {}),
-    });
-    assert.equal(receipt.ok, true, `task create failed: ${JSON.stringify(receipt).slice(0, 400)}`);
-    const publication = await host.run(
-      "dual-repo",
-      {
-        kind: "receipt-show",
-        opId: String(receipt.opId),
-        waitFor: ["git_verified", "worktree_visible"],
-        timeoutMs: 5000,
-      },
-      localAuth,
-    );
-    assert.equal(publication.wait?.state, "satisfied", JSON.stringify(publication));
-    const packagePath = String(receipt.packagePath),
-      planPath = `${packagePath}/task_plan.md`;
-    writeFileSync(path.join(repo, "harness", planPath), realizedTaskPlan(title));
-    const submitted = await host.run("dual-repo", { kind: "doc-submit", paths: [planPath] }, localAuth);
-    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    await waitPublished(String(submitted.opId));
-    for (const target of nodes) {
-      const synced = await edgeDocSync(target);
-      assert.equal(synced.ok, true, JSON.stringify(synced).slice(0, 500));
-    }
-    return { taskId: String(receipt.taskId), packagePath };
-  };
-  return {
-    root,
-    repo,
-    host,
-    center,
-    channel,
-    edgeTask,
-    edgeDocSync,
-    conflictExit,
-    rawWrite,
-    view,
-    worktree,
-    writeWorktree,
-    conflictsRoot,
-    createTask,
-    centerRun,
-    waitPublished,
-    git,
-    owners,
-    close: async () => {
-      await center.close();
-      await host.close();
-      await owners.close();
-      rmSync(root, { recursive: true, force: true });
-    },
-  };
-}
-type Fixture = Awaited<ReturnType<typeof dualSyncFixture>>;
+import { dualSyncFixture, ledgerRevision, type Fixture } from "./fleet-dual-sync.fixture.ts";
 
 test(
   "remote-edge task and document reads use the authoritative cut after materialization",
@@ -302,12 +56,47 @@ test(
       planPath,
       `${original}\n## Edge owner notes\n\nEdited on the edge before starting the task.\n`,
     );
+    const observed: unknown[] = [];
+    const originalRun = fixture.host.run.bind(fixture.host);
+    t.mock.method(fixture.host, "run", async (...args: Parameters<typeof fixture.host.run>) => {
+      if (args[1].kind === "task-start") observed.push(args[1]);
+      return originalRun(...args);
+    });
+    const base = fixture.view("node-one")!;
+    const installation = await fixture.host.runtimeIngress(
+      "dual-repo",
+      {
+        kind: "event",
+        type: "runtime_installation_observed",
+        opId: "unrelated-installation",
+        payload: {
+          installationId: "unrelated-installation",
+          kindId: "codex",
+          protocolFamily: "app-server",
+          hostRef: "host:edge",
+          version: "1",
+          discoverySource: "wrapper",
+          capabilities: [],
+        },
+      },
+      fixture.owners.auth(fixture.byId.get("assignment-node-one")!),
+    );
+    assert.equal(installation.outcome, "applied", JSON.stringify(installation));
+    const unrelated = await fixture.centerRun({ kind: "task-create", taskId: "task-unrelated", title: "Unrelated" });
+    assert.equal(unrelated.outcome, "applied", JSON.stringify(unrelated));
+    t.diagnostic(JSON.stringify({ mirrorBase: base.revision, centerRevision: ledgerRevision(fixture), planPath }));
     const started = await fixture.edgeTask("node-one", {
       kind: "task-start",
       taskId: created.taskId,
       executionId: "exe-a-carry",
     });
     assert.equal(started.ok, true, JSON.stringify(started).slice(0, 500));
+    assert.equal(observed.length, 1, "one TLS task command reaches the center without a sync retry");
+    assert.deepEqual((observed[0] as { mirrorBaseCut: unknown }).mirrorBaseCut, {
+      revision: base.revision,
+      headDigest: base.headDigest,
+    });
+    t.diagnostic(JSON.stringify({ centerReceived: observed[0] }));
     assert.equal(
       (started as { readonly docSync?: { readonly outcome?: string } }).docSync?.outcome,
       "applied",
@@ -412,10 +201,7 @@ test(
       executionId: "exe-a-conflict",
     });
     assert.equal(started.ok, false, "a base conflict must void the whole command");
-    assert.ok(
-      ["mirror_behind_center", "base_blob_changed"].includes(String((started as { readonly code?: string }).code)),
-      `a conflict code was expected, saw ${String((started as { readonly code?: string }).code)}`,
-    );
+    assert.equal(started.code, "base_blob_changed", "the authentic old cut reaches per-document conflict adjudication");
     // The transition did NOT happen: the task still has no lease at the center.
     const leases = fixture.center.status().leases.leases.filter((row) => row.taskId === created.taskId);
     assert.equal(leases.length, 0, "the center state must not transition on a conflicted bundle");
@@ -490,7 +276,7 @@ test(
 );
 
 test(
-  "class A: a stale mirror cut is refused, then the same command applies after a sync",
+  "class A: unrelated document events do not reject an authentic historical mirror cut",
   { timeout: 60_000 },
   async (t) => {
     const fixture: Fixture = await dualSyncFixture();
@@ -499,33 +285,18 @@ test(
     const planPath = `${created.packagePath}/task_plan.md`,
       original = readFileSync(fixture.worktree("node-one", planPath), "utf8");
     // The center advances on a path this edge does not touch, so only the mirror
-    // base cut is stale — the gate must still refuse to carry documents on it.
+    // base cut is old while every carried document base remains current.
     await fixture.rawWrite("node-two", [
       { path: "context/shared-notes.md", body: "# Shared\n\nFirst center version.\n" },
     ]);
     fixture.writeWorktree("node-one", planPath, `${original}\n## Local plan edit\n\nBased on the previous cut.\n`);
-    const refused = await fixture.edgeTask("node-one", {
+    const started = await fixture.edgeTask("node-one", {
       kind: "task-start",
       taskId: created.taskId,
       executionId: "exe-a-gate",
     });
-    assert.equal(refused.ok, false);
-    assert.equal((refused as { readonly code?: string }).code, "mirror_behind_center");
-    assert.equal(
-      fixture.center.status().leases.leases.filter((row) => row.taskId === created.taskId).length,
-      0,
-      "the transition must not apply behind the gate",
-    );
-    // The explicit sync round refreshes the mirror; the retried command applies.
-    const synced = await fixture.edgeDocSync("node-one");
-    assert.equal(synced.ok, true, JSON.stringify(synced).slice(0, 400));
-    const retried = await fixture.edgeTask("node-one", {
-      kind: "task-start",
-      taskId: created.taskId,
-      executionId: "exe-a-gate",
-    });
-    assert.equal(retried.ok, true, JSON.stringify(retried).slice(0, 500));
-    assert.equal((retried as { readonly docSync?: { readonly outcome?: string } }).docSync?.outcome, "applied");
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal((started as { readonly docSync?: { readonly outcome?: string } }).docSync?.outcome, "applied");
     assert.match(readFileSync(fixture.worktree("node-one", planPath), "utf8"), /Local plan edit/u);
   },
 );
@@ -1022,16 +793,11 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
       });
       const fixture: Fixture = await dualSyncFixture();
       t.after(() => fixture.close());
-      const created = await fixture.createTask(
-        "node-one",
-        "task_HHHH000000000000000000000H",
-        "Closing docs ride submit",
-        "docs-task",
-      );
+      const created = await fixture.createTask("node-one", "task-seeded", "Closing docs ride submit", "docs-task");
       const started = await fixture.edgeTask("node-one", {
         kind: "task-start",
         taskId: created.taskId,
-        executionId: "exe-a-submit",
+        executionId: "exe-seeded",
       });
       assert.equal(started.ok, true, JSON.stringify(started).slice(0, 400));
       writeFileSync(path.join(fixture.repo, "verification.md"), "Verified fleet documentation delivery.\n");
@@ -1061,7 +827,7 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
       const submitted = await fixture.edgeTask("node-one", {
         kind: commandKind,
         taskId: created.taskId,
-        ...(commandKind === "task-submit" ? { executionId: "exe-a-submit" } : {}),
+        ...(commandKind === "task-submit" ? { executionId: "exe-seeded" } : {}),
       });
       assert.equal(submitted.ok, true, JSON.stringify(submitted).slice(0, 500));
       assert.equal(
@@ -1153,7 +919,7 @@ test(
       // The source is gone before anything is compared: whatever the edge shows came over the wire.
       rmSync(path.join(fixture.repo, artifact.source), { force: true });
     }
-    for (const nodeId of nodes) {
+    for (const nodeId of ["node-one", "node-two"] as const) {
       const synced = await fixture.edgeDocSync(nodeId);
       assert.equal(synced.ok, true, `${nodeId}: ${JSON.stringify(synced).slice(0, 500)}`);
       const view = fixture.view(nodeId);

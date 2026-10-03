@@ -331,7 +331,7 @@ test(
           workspaceRoot: edgeRoot,
           method: "repo.agentRuntime.spawn",
           action: {
-            providerSessionId: "edge-provider-session",
+            dispatchId: receipt.dispatchId,
             cwd: { scope: "repo-root" },
             prompt: "Resume on the original runtime instance.",
             taskId: fixture.assignment.taskId,
@@ -477,7 +477,7 @@ test(
   },
 );
 test(
-  "an edge dispatches a center-installed worker into the task's own worktree and settlement publishes its branch",
+  "an edge dispatches into its task worktree without publishing unsubmitted commits at settlement",
   { timeout: 60_000 },
   async (t) => {
     const installation: RuntimeInstallationWitness = {
@@ -630,15 +630,19 @@ test(
     assert.equal(await settled(), "succeeded", JSON.stringify(fixture.runtimeArchiveReceipts));
     const delivered = git(worktree, "rev-parse", "HEAD");
     assert.notEqual(delivered, base);
-    assert.equal(git(remote, "rev-parse", `refs/heads/${taskId}`), delivered, "the commit reaches the shared remote");
+    assert.equal(
+      git(remote, "for-each-ref", "--format=%(refname)", `refs/heads/${taskId}`),
+      "",
+      "a successful worker exit cannot publish an unsubmitted delivery",
+    );
     assert.equal(git(edgeRoot, "rev-parse", "HEAD"), base, "the node's main checkout is untouched");
-    assert.match(
+    assert.doesNotMatch(
       readFileSync(
         path.join(fixture.repo, "harness/tasks/task-fleet-fleet/artifacts/reports", `${receipt.dispatchId}.md`),
         "utf8",
       ),
-      new RegExp(`Worker branch pushed at settlement: ${taskId} @ ${delivered}`, "u"),
-      "the center's dispatch report names the published commit",
+      /Worker branch pushed at settlement:/u,
+      "the center's dispatch report cannot claim an unperformed publication",
     );
   },
 );

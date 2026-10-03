@@ -554,6 +554,39 @@ test("import boundary check allows explicitly slice-activated package modules", 
   }
 });
 
+test("generated package manifests cannot replace source package import resolution", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFileSync(path.join(root, "packages/application/src/index.ts"), "export { feature } from './feature.ts';\n");
+    writeFileSync(path.join(root, "packages/application/src/feature.ts"), "export const feature = true;\n");
+    writeFileSync(
+      path.join(root, "packages/cli/src/index.ts"),
+      "import { feature } from '@harness-anything/application';\nexport const result = feature;\n",
+    );
+    assert.equal(runChecker(root).status, 0);
+    for (const name of ["application", "adapter-local"]) {
+      const staged = path.join(root, "packages/gui/build-resources/app-node_modules/@harness-anything", name);
+      mkdirSync(staged, { recursive: true });
+      writeFileSync(
+        path.join(staged, "package.json"),
+        JSON.stringify({ name: `@harness-anything/${name}`, exports: { ".": "./dist/index.js" } }),
+      );
+    }
+    const legal = runChecker(root);
+    assert.equal(legal.status, 0, legal.stderr);
+    writeLocalAdapter(root);
+    writeFileSync(
+      path.join(root, "packages/application/src/index.ts"),
+      "import { makeLocalLifecycleEngine } from '@harness-anything/adapter-local';\nexport const engine = makeLocalLifecycleEngine;\n",
+    );
+    const forbidden = runChecker(root);
+    assert.notEqual(forbidden.status, 0);
+    assert.match(forbidden.stderr, /application layer imports store\/adapter\/controller implementation/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-import-boundary-"));
   for (const [packageRoot, name] of [

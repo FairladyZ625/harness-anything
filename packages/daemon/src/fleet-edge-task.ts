@@ -41,6 +41,8 @@ import {
 } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 
+import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
+
 const BACKOFF_MIN_MS = 250,
   BACKOFF_MAX_MS = 30_000;
 export interface FleetEdgeTaskRequest {
@@ -116,8 +118,8 @@ export async function runFleetEdgeTask(
   readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
   const payload = input.payload,
-    action = payload.action,
     timers = fleetLeaseTimers();
+  let action = payload.action;
   const readOnly = action.kind === "task-show";
   const credential = payload.credential;
   const taskId = typeof action.taskId === "string" ? action.taskId : null;
@@ -171,6 +173,31 @@ export async function runFleetEdgeTask(
           },
         } as Record<string, unknown>;
     }
+    if (action.kind === "task-submit" && workspaceRoot !== null && taskId !== null)
+      action = await prepareEdgeTaskDelivery({
+        workspaceRoot,
+        nodeId: payload.nodeId,
+        assignmentId: payload.assignmentId,
+        action,
+        readTask: async () => {
+          const shown = await runFleetTaskCommandClient({
+            ...peer,
+            opId: randomUUID(),
+            repoId: payload.repoId,
+            taskId,
+            action: { kind: "task-show", taskId },
+            waitMs,
+            timeoutMs: 60_000,
+            accessToken: await readAccessToken?.(),
+          });
+          if (shown.outcome !== "applied" || typeof shown.receipt?.evidence !== "string")
+            throw new FleetEdgeTaskError(
+              shown.code ?? "task_read_failed",
+              "Cannot authorize delivery from the current center task.",
+            );
+          return JSON.parse(shown.receipt.evidence) as FleetDeliveryTask;
+        },
+      });
     const bundle = readOnly ? null : await attachTaskDocs();
     const deadline = Date.now() + waitMs + 30_000 + (bundle === null ? 0 : 60_000);
     let result: Awaited<ReturnType<typeof runFleetTaskCommandClient>> | null = null,

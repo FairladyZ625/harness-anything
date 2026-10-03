@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { promisify } from "node:util";
 import { scrubProviderValue } from "./dispatch-stream.ts";
@@ -90,7 +91,7 @@ export async function conventionalWorkerGitEnvironment(canonicalRoot: string): P
 }
 
 /**
- * Settlement publishes the branch Harness named after the dispatched task (dec_8B3FCCD256CAC5B0BF3CCEDE58 CH1):
+ * Publishes the branch Harness named after the dispatched task (dec_8B3FCCD256CAC5B0BF3CCEDE58 CH1):
  * a checkout on any other branch is somebody's own and stays local.
  */
 export async function pushWorkerBranch(input: {
@@ -98,6 +99,8 @@ export async function pushWorkerBranch(input: {
   readonly canonicalRoot: string;
   readonly taskId: string;
   readonly submittedCommitSha?: string;
+  /** Exact remote cut observed before the current assignment was checked; empty means absent. */
+  readonly expectedRemoteCommit?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly timeoutMs?: number;
 }): Promise<WorkerPushResult> {
@@ -121,7 +124,7 @@ export async function pushWorkerBranch(input: {
   }
   const pushedCommit = input.submittedCommitSha ?? head;
 
-  // Settlement is the publication boundary: the push runs only when the conventional identity
+  // Publication runs only when the conventional identity
   // is readable and every commit the worker added on top of the default branch carries it. Rewriting
   // authorship is a human decision, so a mismatch refuses the push instead of repairing it.
   const identity = await readWorkerGitIdentity({ cwd: input.canonicalRoot, env });
@@ -149,7 +152,14 @@ export async function pushWorkerBranch(input: {
   try {
     const invocation = gitInvocation(
       input.cwd,
-      ["push", "--force-with-lease", "origin", `${pushedCommit}:refs/heads/${branch}`],
+      [
+        "push",
+        input.expectedRemoteCommit === undefined
+          ? "--force-with-lease"
+          : `--force-with-lease=refs/heads/${branch}:${input.expectedRemoteCommit}`,
+        "origin",
+        `${pushedCommit}:refs/heads/${branch}`,
+      ],
       env,
     );
     await execFileAsync(invocation.command, invocation.args, {
@@ -226,6 +236,7 @@ async function readGitText(
     result = await execFileAsync(invocation.command, invocation.args, {
       env,
       maxBuffer,
+      timeout: workerPushTimeoutMs,
       windowsHide: true,
       ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
@@ -271,4 +282,43 @@ function errorDetail(error: unknown): string {
         : String(error);
   const scrubbed = String(scrubProviderValue(value)).trim().replace(/\s+/gu, " ");
   return scrubbed.slice(0, detailLimit) || "git push failed without diagnostics";
+}
+
+/** Observe without updating tracking refs: later background fetches cannot relax this CAS. */
+export async function readWorkerRemoteCommit(cwd: string, taskId: string): Promise<string> {
+  try {
+    const line = await readGitText(cwd, ["ls-remote", "--refs", "origin", `refs/heads/${taskId}`], gitEnvironment());
+    return line.trim().split(/\s/u)[0] ?? "";
+  } catch (error) {
+    throw Object.assign(new Error(errorDetail(error)), { code: "delivery_publish_failed" });
+  }
+}
+
+/** The center fetches only its configured origin and the task branch, into a request-private ref. */
+export async function fetchWorkerDelivery(rootDir: string, taskId: string, requestedCommit?: string): Promise<string> {
+  const ref = `refs/harness/delivery/${randomUUID()}`,
+    env = gitEnvironment();
+  try {
+    await readGitText(
+      rootDir,
+      ["fetch", "--no-tags", "--no-write-fetch-head", "origin", `refs/heads/${taskId}:${ref}`],
+      env,
+    );
+    const commit = (await readGitText(rootDir, ["rev-parse", `${ref}^{commit}`], env)).trim();
+    if (requestedCommit !== undefined && requestedCommit !== commit)
+      throw new Error(`Requested delivery commit ${requestedCommit} does not match published task branch ${commit}.`);
+    const identity = await readWorkerGitIdentity({ cwd: rootDir, env });
+    if (!identity) throw new Error("The center repository resolves no conventional Git identity.");
+    const mismatch = await firstCommitOutsideConventionalIdentity(
+      rootDir,
+      repositoryBaseRef(rootDir),
+      commit,
+      identity,
+      env,
+    );
+    if (mismatch) throw new Error(mismatch);
+    return commit;
+  } finally {
+    await readGitText(rootDir, ["update-ref", "-d", ref], env);
+  }
 }

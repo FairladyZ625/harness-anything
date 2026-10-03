@@ -61,6 +61,8 @@ export function daemonServiceUnitContent(
     readonly entry: string;
     /** PATH frozen at install time: the daemon finds git and the agent CLIs through it. */
     readonly searchPath: string;
+    /** Explicit NODE_EXTRA_CA_CERTS from the installer; relative paths use its current directory. */
+    readonly extraCaCerts?: string | undefined;
   },
 ): string {
   const program = [
@@ -73,15 +75,19 @@ export function daemonServiceUnitContent(
       input.daemonId,
       "--supervised",
     ],
-    output = daemonStdioLogPath(input.userRoot, input.daemonId);
+    output = daemonStdioLogPath(input.userRoot, input.daemonId),
+    environment = {
+      PATH: input.searchPath,
+      ...(input.extraCaCerts ? { NODE_EXTRA_CA_CERTS: path.resolve(input.extraCaCerts) } : {}),
+    };
   if (unit.manager === "systemd")
     return [
       "[Unit]",
       `Description=Harness Anything daemon (${input.daemonId}, ${input.userRoot})`,
       "",
       "[Service]",
-      `ExecStart=${program.map(systemdQuote).join(" ")}`,
-      `Environment=${systemdQuote(`PATH=${input.searchPath}`)}`,
+      `ExecStart=${program.map((argument) => systemdQuote(argument)).join(" ")}`,
+      ...Object.entries(environment).map(([key, value]) => `Environment=${systemdQuote(`${key}=${value}`, false)}`),
       `StandardOutput=append:${output}`,
       `StandardError=append:${output}`,
       "Restart=on-failure",
@@ -102,7 +108,9 @@ export function daemonServiceUnitContent(
     "  <array>",
     ...program.map((argument) => `    ${string(argument)}`),
     "  </array>",
-    `  <key>EnvironmentVariables</key><dict><key>PATH</key>${string(input.searchPath)}</dict>`,
+    `  <key>EnvironmentVariables</key><dict>${Object.entries(environment)
+      .map(([key, value]) => `<key>${key}</key>${string(value)}`)
+      .join("")}</dict>`,
     `  <key>StandardOutPath</key>${string(output)}`,
     `  <key>StandardErrorPath</key>${string(output)}`,
     "  <key>RunAtLoad</key><true/>",
@@ -171,10 +179,17 @@ export function startDaemonServiceUnit(unit: DaemonServiceUnit): Promise<void> {
   return runDaemonServiceCommand(daemonServiceCommands(unit).start);
 }
 
-function systemdQuote(value: string): string {
-  const escaped = value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%").replaceAll("$", "$$$$");
-  return `"${escaped}"`;
+function systemdQuote(value: string, expandDollar = true): string {
+  const escaped = value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+    .replaceAll("%", "%%")
+    .replaceAll("\n", "\\n")
+    .replaceAll("\r", "\\r")
+    .replaceAll("\t", "\\t");
+  // Environment= does not expand dollars; ExecStart= does.
+  return `"${expandDollar ? escaped.replaceAll("$", "$$$$") : escaped}"`;
 }
 function xmlText(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\r", "&#13;");
 }
