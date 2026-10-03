@@ -1,14 +1,16 @@
 import { existsSync, rmSync } from "node:fs";
+import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import path from "node:path";
 import {
+  applyLedgerBackupRetention,
   readVerifiedLedgerBackup,
   type LedgerBackupRetentionPolicyV1,
   type ScheduleBuiltinParamsV1,
   type ScheduleV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { backupRepo } from "./repo-all-purge.ts";
-import { finishLedgerBackup } from "./schedule-backup-worker.ts";
+import { finishLedgerBackup, type BackupVerification, type BackupWorkerMessage } from "./schedule-backup-worker.ts";
+import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 /** Root (relative to the repository root) holding scheduled backups, per the established convention. */
@@ -23,7 +25,7 @@ export const defaultLedgerBackupRetention: LedgerBackupRetentionPolicyV1 = { kee
 export interface BuiltinExecutorCell {
   readonly rootDir: string;
   readonly now: () => string;
-  readonly runSnapshot: <T>(work: () => T) => Promise<T>;
+  readonly runSnapshot: <T>(work: () => T | PromiseLike<T>) => Promise<T>;
 }
 
 type RunInternal<Receipt extends WriteReceipt> = (action: RepoTaskAction, binding: RepoCellBinding) => Promise<Receipt>;
@@ -46,8 +48,8 @@ const builtinExecutors: Readonly<Record<string, BuiltinExecutor>> = Object.freez
 
 /**
  * Execute a claimed builtin after its claim leaves the write queue. Only runSnapshot
- * enters the queue; drill/retention run on a temporary worker, and settlement re-enters
- * through the caller's normal command runner. No occurrence workspace or runtime is spawned.
+ * enters the queue for live-source capture. Validation, drill and retention run on a temporary
+ * worker; settlement re-enters through the normal runner. No workspace or runtime is spawned.
  */
 export async function executeBuiltinScheduleOccurrence<Receipt extends WriteReceipt>(input: {
   readonly cell: BuiltinExecutorCell;
@@ -116,27 +118,24 @@ async function executeLedgerBackup(input: {
     backupRoot = path.join(input.cell.rootDir, scheduledLedgerBackupRoot),
     backupDir = path.join(backupRoot, `ledger-backup-${input.occurrenceId}`),
     startedAt = performance.now();
-  const backupStartedAt = performance.now(),
-    snapshot = await input.cell.runSnapshot(() => {
-      const reusedSnapshot = existingSnapshotIsVerified(backupDir);
-      const manifest = reusedSnapshot ? null : backupRepo({ rootDir: input.cell.rootDir, backupDir });
-      return { reusedSnapshot, bytes: manifest?.files.reduce((total, file) => total + file.size, 0) ?? 0 };
-    }),
-    backupMs = Math.round(performance.now() - backupStartedAt),
-    { drillMs, cleanupMs, retention } = await finishLedgerBackup({
+  const { reusedSnapshot, bytes, backupMs, captureMs, drillMs, cleanupMs, retention } = await finishLedgerBackup(
+    {
       rootDir: input.cell.rootDir,
       backupDir,
       backupRoot,
       now: input.cell.now(),
       policy,
-    });
+    },
+    input.cell.runSnapshot,
+  );
   return {
     outcome: "succeeded",
     detail: JSON.stringify({
       builtin: target.builtinId,
       backupDir: path.relative(input.cell.rootDir, backupDir),
-      ...(snapshot.reusedSnapshot ? { reusedSnapshot: true } : { bytes: snapshot.bytes }),
+      ...(reusedSnapshot ? { reusedSnapshot: true } : { bytes }),
       backupMs,
+      captureMs,
       drillMs,
       cleanupMs,
       removed: retention.removed.length,
@@ -153,23 +152,6 @@ function retentionOf(params: ScheduleBuiltinParamsV1 | undefined): LedgerBackupR
     keepDays: params?.keepDays ?? defaultLedgerBackupRetention.keepDays,
     keepMonthly: params?.keepMonthly ?? defaultLedgerBackupRetention.keepMonthly,
   };
-}
-
-/**
- * A previous attempt of this occurrence may have died after the snapshot: a verifiable
- * backup is reused, so crash recovery resumes at the drill instead of failing forever.
- * Unverifiable output of this very occurrence (its name is occurrence-keyed) is partial
- * and owned by this run; it is removed so the snapshot is taken again.
- */
-function existingSnapshotIsVerified(backupDir: string): boolean {
-  if (!existsSync(backupDir)) return false;
-  try {
-    readVerifiedLedgerBackup(backupDir);
-  } catch {
-    rmSync(backupDir, { recursive: true, force: true });
-    return false;
-  }
-  return true;
 }
 
 /**
@@ -230,4 +212,70 @@ export async function seedBuiltinSchedules(input: {
         `${receipt.code ? ` (${String(receipt.code)})` : ""}; retrying on the next attach.`,
     );
   }
+}
+
+if (!isMainThread && workerData?.kind === "ledger-backup-verification" && parentPort) {
+  parentPort.once("message", async (input: BackupVerification) => {
+    let phase = "prepare";
+    try {
+      const backupStartedAt = performance.now(),
+        reusedSnapshot = existingSnapshotIsVerified(input.backupDir);
+      parentPort!.postMessage({ kind: "prepared" } satisfies BackupWorkerMessage);
+      // Even a reused snapshot must pass the current writer and occurrence claim fence.
+      await new Promise<void>((resolve) => parentPort!.once("message", () => resolve()));
+      let captureMs = 0;
+      phase = "snapshot";
+      const captureStartedAt = performance.now(),
+        snapshotCaptured = () => {
+          captureMs = reusedSnapshot ? 0 : Math.round(performance.now() - captureStartedAt);
+          parentPort!.postMessage({ kind: "captured" } satisfies BackupWorkerMessage);
+          phase = "validation";
+        };
+      if (reusedSnapshot) snapshotCaptured();
+      const manifest = reusedSnapshot ? null : backupRepo({ ...input, onSnapshotCaptured: snapshotCaptured }),
+        backupMs = Math.round(performance.now() - backupStartedAt);
+      phase = "drill";
+      const drillStartedAt = performance.now();
+      drillRepoBackup({ rootDir: input.rootDir, backupDir: input.backupDir });
+      const drillMs = Math.round(performance.now() - drillStartedAt);
+      phase = "cleanup";
+      const cleanupStartedAt = performance.now(),
+        retention = applyLedgerBackupRetention({
+          backupRoot: input.backupRoot,
+          now: input.now,
+          policy: input.policy,
+          protectedDirs: [input.backupDir],
+        }),
+        cleanupMs = Math.round(performance.now() - cleanupStartedAt);
+      parentPort!.postMessage({
+        kind: "result",
+        result: {
+          reusedSnapshot,
+          bytes: manifest?.files.reduce((total, file) => total + file.size, 0) ?? 0,
+          backupMs,
+          captureMs,
+          drillMs,
+          cleanupMs,
+          retention,
+        },
+      } satisfies BackupWorkerMessage);
+      parentPort!.close();
+    } catch (error) {
+      throw new Error(`ledger-backup ${phase} failed: ${error instanceof Error ? error.message : String(error)}`, {
+        cause: error,
+      });
+    }
+  });
+}
+
+/** Complete occurrence output is immutable; partial output belongs to this occurrence alone. */
+function existingSnapshotIsVerified(backupDir: string): boolean {
+  if (!existsSync(backupDir)) return false;
+  try {
+    readVerifiedLedgerBackup(backupDir);
+  } catch {
+    rmSync(backupDir, { recursive: true, force: true });
+    return false;
+  }
+  return true;
 }
