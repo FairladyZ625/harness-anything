@@ -168,7 +168,8 @@ test("Fact CLI exposes record, controlled types, and show while keeping local er
   assert.deepEqual(rationaleOnly, {
     ok: false,
     code: "invalid_field",
-    nextAction: "--rationale requires --supersedes.",
+    nextAction:
+      '--rationale requires --supersedes. Example: ha fact record --statement "Updated observation" --source test:observation --supersedes fact/F-12345678 --rationale "Replaces the earlier observation." (replace the example with the target Fact ref).',
     json: false,
   });
   const supersedesOnly = parseThinCommand([
@@ -186,7 +187,8 @@ test("Fact CLI exposes record, controlled types, and show while keeping local er
   assert.deepEqual(supersedesOnly, {
     ok: false,
     code: "invalid_field",
-    nextAction: "--supersedes requires --rationale.",
+    nextAction:
+      '--supersedes requires --rationale. Example: ha fact record --statement "Updated observation" --source test:observation --supersedes fact/F-12345678 --rationale "Replaces the earlier observation." (replace the example with the target Fact ref).',
     json: false,
   });
   const superseding = parseThinCommand([
@@ -253,7 +255,12 @@ test("fact record help declares the supersedes/rationale pairing the rejection e
       name === "--supersedes" ? "fact/F-ABCDEFGH" : "why",
     ]);
     assert.equal(parsed.ok, false, name);
-    if (!parsed.ok) assert.equal(parsed.nextAction, `${name} requires ${partner}.`, name);
+    if (!parsed.ok)
+      assert.equal(
+        parsed.nextAction,
+        `${name} requires ${partner}. Example: ha fact record --statement "Updated observation" --source test:observation --supersedes fact/F-12345678 --rationale "Replaces the earlier observation." (replace the example with the target Fact ref).`,
+        name,
+      );
   }
 });
 
