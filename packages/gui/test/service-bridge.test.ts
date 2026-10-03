@@ -231,6 +231,13 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         assert.equal(parsed.schema, "entity-kind-catalog/v1", contract.method);
       else if (contract.id === "vertical.declaration.read")
         assert.equal(parsed.schema, "repository-vertical-declaration-read/v1", contract.method);
+      else if (contract.method === "repo.tasks.assignmentDirectory")
+        assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.assignmentDirectory", result), {
+          schema: "task-assignment-directory/v1",
+          people: [{ personId: "person-gui", username: "person-gui" }],
+          nodes: [],
+          teams: [],
+        });
       else if (contract.method === "repo.tasks.claimable") {
         // This GUI fixture authenticates a person, not an execution node (S8 CH4).
         assert.equal(parsed.ok, false);
