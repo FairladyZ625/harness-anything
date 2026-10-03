@@ -294,6 +294,7 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
       env: NodeJS.ProcessEnv;
       outputPath?: string;
       cwd?: string;
+      windowsHide?: boolean;
     }> = [];
   try {
     process.env.ELECTRON_RENDERER_URL = "http://127.0.0.1:5173";
@@ -309,8 +310,8 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
             assert.equal(invokingRoot, process.cwd(), "daemon autostart must be rooted at the workspace being opened");
             return { ok: true, hint: "daemon is reachable", attempts: 0 };
           },
-          startDetached: (command, args, env, outputPath, cwd) => {
-            calls.push({ command, args, env, outputPath, cwd });
+          startDetached: (command, args, env, outputPath, cwd, windowsHide) => {
+            calls.push({ command, args, env, outputPath, cwd, windowsHide });
             return { pid: 42, on() {} } as unknown as ReturnType<NonNullable<GuiLaunchDependencies["startDetached"]>>;
           },
         },
@@ -333,6 +334,7 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
     assert.equal(receipt.ok, true);
     assert.equal(receipt.pid, 42);
     assert.equal(calls[0]?.command, "/electron");
+    assert.equal(calls[0]?.windowsHide, false, "the GUI launch must allow its native window to be shown");
     assert.deepEqual(calls[0]?.args, [path.join(fixture.root, "dist-electron/electron-main.js")]);
     const logPath = path.join(userRoot, "logs", "gui-default.log");
     assert.equal(

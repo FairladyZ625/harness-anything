@@ -90,6 +90,7 @@ export async function runGuiLaunch(
       guiLaunchEnvironment(launch.rootDir),
       logPath,
       guiPackageRoot,
+      false, // Electron owns a visible window; background daemon launches keep the hidden default.
     );
     child.on?.("error", consumeKnownError);
     if (child.pid === undefined)
