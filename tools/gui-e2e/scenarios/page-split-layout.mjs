@@ -141,6 +141,22 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   await page.mouse.up();
   const cancelled = await box(first);
   assert.ok(Math.abs(cancelled.x - reloaded.x) < 3 && Math.abs(cancelled.y - reloaded.y) < 3, `${label} cancel`);
+  // dnd-kit detaches its document click blocker asynchronously after Escape.
+  // Observe propagation recovery before another button activation (Enter also synthesizes click).
+  await page.waitForFunction(
+    () => {
+      let propagated = false;
+      const observed = () => {
+        propagated = true;
+      };
+      globalThis.addEventListener("click", observed, { once: true });
+      globalThis.document.dispatchEvent(new globalThis.MouseEvent("click", { bubbles: true }));
+      globalThis.removeEventListener("click", observed);
+      return propagated;
+    },
+    null,
+    { timeout: 1000 },
+  );
   await board.getByTestId(`${boardId}-controls-reset`).click();
   await board.getByTestId(`${boardId}-controls-row`).click();
   await page.waitForFunction(
