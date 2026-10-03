@@ -58,8 +58,6 @@ import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 
 const writerAttached = (cell: { readonly state: string }): boolean => cell.state === "attached";
-const writerServing = (cell: { readonly state: string }): boolean =>
-  cell.state === "attached" || cell.state === "unavailable";
 const projectionReady = (read: { readonly status: string }): boolean => read.status === "ready";
 const validTaskStatusFilter = (value: string | undefined): boolean => value === undefined || isDomainStatus(value);
 
@@ -164,10 +162,9 @@ export async function openRepoCellProxy(
   const query = <T>(read: (projection: TaskProjectionQueries) => T): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
     const status = supervisor.status();
-    if (!writerServing(status) || status.causeClass === "projection")
+    if (!writerAttached(status))
       throw cellCodedError("repo_unavailable", status.lastError ?? "RepoWriterCell is not ready.");
-    // An unavailable writer never causes a repair from a serving read. SQLite either
-    // returns the last completed transaction or an explicit read error.
+    // Serving reads use the attached writer's completed cut without advancing or repairing it.
     return reader.withSession(read);
   };
   const latched = (): string => {

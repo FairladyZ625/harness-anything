@@ -104,7 +104,7 @@ async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown
           : isDaemonGuiReadMethod(route.rpcMethod)
             ? parseDaemonGuiReadResponse(route.rpcMethod, result)
             : result) as unknown as JsonObject;
-      if (route.rpcMethod === "repo.tasks.list")
+      if (route.rpcMethod === "repo.tasks.list" && parsed.ok === true)
         reportInvalidTaskSnapshotRows(parsed as unknown as DaemonTaskSnapshotListResult);
       return parsed;
     };
