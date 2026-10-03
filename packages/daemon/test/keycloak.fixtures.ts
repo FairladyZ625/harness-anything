@@ -379,9 +379,10 @@ export function fakeKeycloak() {
       nodeClients.set(clientId, client);
       return client.secret;
     },
-    interactiveSession(personId: string, nodeId: string, issuer: string): void {
+    interactiveSession(personId: string, nodeId: string, issuer: string, token = `token-${personId}`): void {
       if (!tokens.has(`token-${personId}`)) throw new Error(`unknown fixture account ${personId}`);
-      interactiveSessions.set(`token-${personId}`, { personId, nodeId, issuer });
+      tokens.set(token, tokens.get(`token-${personId}`)!);
+      interactiveSessions.set(token, { personId, nodeId, issuer });
     },
     /** Registers an account the way an administrator would and returns its bearer token. */
     account(personId: string): string {

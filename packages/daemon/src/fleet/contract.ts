@@ -283,6 +283,8 @@ const uint: Check = (value) => Number.isSafeInteger(value) && Number(value) >= 0
 // Document bodies (task plans, schedule missions) cross the wire whole; their
 // upper bound is the body budget, with the frame cap as the outer limit.
 const bodyText: Check = (value) => typeof value === "string" && value.length > 0 && value.length <= 32 * 1024;
+const accessToken: Check = (value) =>
+  typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= 16 * 1024;
 const nullable =
     (check: Check): Check =>
     (value) =>
@@ -698,7 +700,7 @@ const schemas: Readonly<Record<string, Check>> = {
       action: taskAction,
       docChanges: nullable(array(docChange, 128)),
       mirrorBaseCut: nullable(mirrorBaseCutShape),
-      accessToken: (value) => typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= 16 * 1024,
+      accessToken,
     },
     ["schema", "messageId", "writerEpoch", "opId", "repoId", "taskId", "action", "docChanges", "mirrorBaseCut"],
   ),
@@ -743,7 +745,7 @@ const schemas: Readonly<Record<string, Check>> = {
     shape({
       ...common,
       repoId: id,
-      accessToken: nullable(text),
+      accessToken: nullable(accessToken),
       method: (method) =>
         typeof method === "string" && (method === "repo.task.read" || repositoryReadDescriptor(method) !== undefined),
       payload: record,
