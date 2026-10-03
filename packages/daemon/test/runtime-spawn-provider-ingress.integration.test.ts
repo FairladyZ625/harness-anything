@@ -155,21 +155,28 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
               /credentialRef|executablePath|apiToken|sk-provider-secret|\/provider\/private/u,
             );
           }
-          const outcome = makeTaskEventReader({ repoId, rootDir: root })
-            .read()
-            .events.find(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === receipt.runtimeSessionId,
-            );
+          // A readable local terminal result does not imply canonical publication has finished.
+          const outcome = await eventuallyValue(
+            () =>
+              makeTaskEventReader({ repoId, rootDir: root })
+                .read()
+                .events.find(
+                  (event) =>
+                    event.type === "runtime_session_outcome_observed" &&
+                    event.payload.runtimeSessionId === receipt.runtimeSessionId,
+                ) ?? null,
+          );
           assert.equal(outcome?.type, "runtime_session_outcome_observed");
-          if (outcome?.type === "runtime_session_outcome_observed")
+          if (outcome?.type === "runtime_session_outcome_observed") {
+            assert.equal(outcome.payload.outcome, "succeeded");
+            assert.equal(outcome.payload.exitCode, 0);
             assert.equal(
               Buffer.from(
                 makeTaskEventReader({ repoId, rootDir: root }).readContentBlob(outcome.payload.result!.sha256)!,
               ).toString("utf8"),
               `${kindId} final result`,
             );
+          }
         } finally {
           attached.close();
         }
