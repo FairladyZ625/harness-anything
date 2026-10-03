@@ -812,7 +812,10 @@ test("repository modes close local, center-assignment, and edge command families
         .outcome,
       "applied",
     );
-    assert.equal((await host.run("edge", { kind: "task-list" }, auth)).outcome, "applied");
+    // Relation declarations are local metadata; task browsing requires a configured center.
+    const edgeDeclarations = await host.run("edge", { kind: "relation-triples" }, auth);
+    assert.equal(edgeDeclarations.outcome, "applied", JSON.stringify(edgeDeclarations));
+    assert.equal((await host.run("edge", { kind: "task-list" }, auth)).code, "repo_mode_read_only");
     assert.equal(
       (await host.run("edge", { kind: "task-create", taskId: "task-edge", title: "Edge" }, auth)).code,
       "repo_mode_read_only",
