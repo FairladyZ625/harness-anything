@@ -109,7 +109,9 @@ test("packaged CLI run environment keeps only the smoke's own HARNESS_DAEMON_USE
     );
     assert.equal(childEnv.HARNESS_DAEMON_USER_ROOT, "/smoke/user-root");
     assert.equal(childEnv.HOME, "/smoke/home");
-    assert.equal(childEnv.GIT_CONFIG_GLOBAL, "/dev/null");
+    assert.equal(childEnv.GIT_CONFIG_GLOBAL, process.platform === "win32" ? "NUL" : "/dev/null");
+    assert.equal(childEnv.GIT_CONFIG_SYSTEM, childEnv.GIT_CONFIG_GLOBAL);
+    assert.equal(childEnv.USERPROFILE, "/smoke/home");
     assert.equal(childEnv.PATH, process.env.PATH);
     for (const [key, value] of Object.entries(sentinels))
       assert.equal(process.env[key], value, "the host environment object must stay unmodified");

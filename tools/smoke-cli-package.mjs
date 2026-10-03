@@ -13,9 +13,10 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { smokeIdentity, lastReceipt } from "./fixtures/smoke-identity.mjs";
 import { realizedTaskPlan } from "./fixtures/task-plan.mjs";
 
-export function runCliPackageSmoke(root = process.cwd()) {
+export async function runCliPackageSmoke(root = process.cwd()) {
   const workspaces = workspaceDependencyClosure(root, "@harness-anything/cli");
   buildCliPackageArtifact(root);
   execNpmFileSync(["run", "build", "--workspace", "@harness-anything/daemon"], { cwd: root, stdio: "inherit" });
@@ -27,6 +28,7 @@ export function runCliPackageSmoke(root = process.cwd()) {
   const projectDir = path.join(consumerDir, "workspace"),
     userRoot = path.join(consumerDir, "daemon-user"),
     home = path.join(consumerDir, "home");
+  let identity;
   let binPath,
     started = false;
   try {
@@ -139,6 +141,10 @@ export function runCliPackageSmoke(root = process.cwd()) {
     );
     started = daemonStart.status === 0 && daemonStart.receipt?.ok === true;
     expectOk(daemonStart, "daemon start");
+    identity = await smokeIdentity(tempRoot, "smoke");
+    identity.prepare((args, input) =>
+      runJson(binPath, ["--root", projectDir, "--json", ...args], projectDir, env(userRoot, home), input),
+    );
     const initialized = expectOk(
       runJson(
         binPath,
@@ -317,6 +323,7 @@ export function runCliPackageSmoke(root = process.cwd()) {
   } finally {
     if (started && binPath)
       run(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home));
+    await identity?.close();
     rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 }
@@ -407,18 +414,24 @@ export function assertUnstartableDaemonFailedClosed(result, harnessExists) {
     throw new Error(`unexpected unstartable-daemon code: ${String(code)}; ${detail}`);
   if (harnessExists) throw new Error(`unstartable-daemon created harness before failing: ${detail}`);
 }
-function runJson(command, args, cwd, environment) {
-  const result = run(command, args, cwd, environment);
+function runJson(command, args, cwd, environment, input) {
+  const result = run(command, args, cwd, environment, input);
   let receipt;
   try {
-    receipt = JSON.parse(result.stdout);
+    receipt = lastReceipt(result.stdout);
   } catch {
     throw new Error(`CLI did not emit JSON: ${result.stdout}${result.stderr}`);
   }
   return { ...result, receipt };
 }
-function run(command, args, cwd, environment) {
-  const result = spawnSync(command.file, [...command.argsPrefix, ...args], { cwd, encoding: "utf8", env: environment });
+function run(command, args, cwd, environment, input) {
+  const result = spawnSync(command.file, [...command.argsPrefix, ...args], {
+    cwd,
+    encoding: "utf8",
+    env: environment,
+    input,
+    windowsHide: true,
+  });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 function expectOk(result, label) {
@@ -437,7 +450,9 @@ function sanitizedChildEnvironment(overrides = {}) {
 export function env(userRoot, home) {
   return sanitizedChildEnvironment({
     HOME: home,
-    GIT_CONFIG_GLOBAL: "/dev/null",
+    USERPROFILE: home,
+    GIT_CONFIG_SYSTEM: process.platform === "win32" ? "NUL" : "/dev/null",
+    GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
     HARNESS_DAEMON_USER_ROOT: userRoot,
   });
 }
@@ -453,4 +468,4 @@ function resolveBinCommand(consumerDir, name) {
   }
   return { file: path.join(binRoot, name), argsPrefix: [] };
 }
-if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) runCliPackageSmoke();
+if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) await runCliPackageSmoke();
