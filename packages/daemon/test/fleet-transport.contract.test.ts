@@ -65,6 +65,19 @@ test("runtime dispatch frames carry typed center admission context without mirro
     FleetContractError,
   );
 });
+test("fleet runtime reads admit the parked wait but reject arbitrary RPC methods", () => {
+  const frame = {
+    schema: "fleet.runtime.read/v1",
+    messageId: "wait",
+    assignmentId: "assignment",
+    repoId: "repo",
+    method: "repo.agentRuntime.sessions.await",
+    payload: { runtimeSessionIds: ["runtime-one"] },
+  };
+  assert.deepEqual(parseFleetFrame(frame), frame);
+  assert.throws(() => parseFleetFrame({ ...frame, method: "repo.task.run" }), FleetContractError);
+  assert.throws(() => parseFleetFrame({ ...frame, method: "repo.agentRuntime.spawn" }), FleetContractError);
+});
 const frames = [
   {
     schema: "fleet.session.hello/v1",

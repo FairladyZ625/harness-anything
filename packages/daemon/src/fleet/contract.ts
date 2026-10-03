@@ -204,7 +204,11 @@ export type FleetFrameV1 =
       {
         assignmentId: string;
         repoId: string;
-        method: "repo.agentRuntime.overview" | "repo.agentRuntime.sessions.read" | "repo.tasks.runtimeContext.read";
+        method:
+          | "repo.agentRuntime.overview"
+          | "repo.agentRuntime.sessions.read"
+          | "repo.agentRuntime.sessions.await"
+          | "repo.tasks.runtimeContext.read";
         payload: Readonly<Record<string, unknown>>;
       }
     >
@@ -830,7 +834,12 @@ const schemas: Readonly<Record<string, Check>> = {
     ...common,
     assignmentId: id,
     repoId: id,
-    method: one("repo.agentRuntime.overview", "repo.agentRuntime.sessions.read", "repo.tasks.runtimeContext.read"),
+    method: one(
+      "repo.agentRuntime.overview",
+      "repo.agentRuntime.sessions.read",
+      "repo.agentRuntime.sessions.await",
+      "repo.tasks.runtimeContext.read",
+    ),
     payload: record,
   }),
   "fleet.runtime.read.result/v1": shape({ ...reply, result: record }),

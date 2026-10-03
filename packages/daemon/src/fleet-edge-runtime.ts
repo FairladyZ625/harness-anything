@@ -57,6 +57,7 @@ export interface FleetEdgeRuntimeRequest {
       | "repo.agentRuntime.spawn"
       | "repo.agentRuntime.cancel"
       | "repo.agentRuntime.overview"
+      | "repo.agentRuntime.sessions.await"
       | "repo.agentRuntime.sessions.read"
       | "repo.schedule.run";
     readonly action: JsonObject;
@@ -395,7 +396,11 @@ export function openFleetEdgeRuntime(input: {
     return ready;
   };
   return {
-    run: async (method: FleetEdgeRuntimeRequest["payload"]["method"], action: JsonObject): Promise<JsonObject> => {
+    run: async (
+      method: FleetEdgeRuntimeRequest["payload"]["method"],
+      action: JsonObject,
+      connectionSignal?: AbortSignal,
+    ): Promise<JsonObject> => {
       await ensureReady();
       if (method === "repo.schedule.run") return runSchedule(action);
       return method === "repo.agentRuntime.spawn"
@@ -407,6 +412,7 @@ export function openFleetEdgeRuntime(input: {
               repoId: request.repoId,
               method,
               payload: action,
+              connectionSignal,
             })) as JsonObject);
     },
     close: () => {

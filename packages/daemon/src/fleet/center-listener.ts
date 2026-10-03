@@ -1,3 +1,4 @@
+import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { isSquadControlResult } from "../squad-control-result.ts";
 import {
   appendFileSync,
@@ -48,6 +49,7 @@ import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-stor
 
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   mkdirSync(options.stateRoot, { recursive: true });
+  const closing = new AbortController();
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
     ackStore = openReplicaAckStore(options.stateRoot),
@@ -224,6 +226,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     frame: FleetFrameV1,
     window: SessionWindow,
     clientGone: () => boolean = () => false,
+    connectionSignal?: AbortSignal,
   ): Promise<Delivery> => {
     if (frame.schema === "fleet.assignment.get/v1") {
       const a = await assignment(nodeId, frame.assignmentId),
@@ -610,7 +613,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "assignment_scope_mismatch",
           "Runtime read repository must match the authenticated assignment.",
         );
-      const result = await options.host.read(a.repoId, frame.method, frame.payload, await auth(a));
+      const binding = {
+        ...(await auth(a)),
+        connectionSignal: connectionSignal ? AbortSignal.any([connectionSignal, closing.signal]) : closing.signal,
+      };
+      const result =
+        frame.method === "repo.agentRuntime.sessions.await"
+          ? await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding)
+          : await options.host.read(a.repoId, frame.method, frame.payload, binding);
       return immediate({
         schema: "fleet.runtime.read.result/v1",
         messageId: mid(frame.messageId, "runtime-read"),
@@ -668,6 +678,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     close: async () => {
       if (closed) return;
       closed = true;
+      closing.abort();
       leaseBroker.close();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       try {
