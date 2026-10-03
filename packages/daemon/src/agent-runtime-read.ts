@@ -30,7 +30,7 @@ import { runtimeKindForInstallation } from "./runtime-inventory.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
-import type { RuntimeSessionActivityEvidence } from "./dispatch-read.ts";
+import { readRuntimeSessionActivityEvidence, type RuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
@@ -387,6 +387,20 @@ export function makeAgentRuntimeReadModel(input: {
     }
     return { ref: session.resultRef, text };
   }
+}
+
+export function readObservedRuntimeSession(
+  projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch">,
+  rootDir: string,
+  runtimeSessionId: string,
+): RuntimeSession | null {
+  const session = projection.readRuntimeSession(runtimeSessionId);
+  if (!session) return null;
+  const dispatch = projection.readRuntimeDispatch(runtimeSessionId, session.definitionSnapshotRef);
+  return sessionWithActivityEvidence(
+    session,
+    dispatch ? readRuntimeSessionActivityEvidence(rootDir, dispatch.payload.dispatchId) : undefined,
+  );
 }
 
 export function sessionWithActivityEvidence(

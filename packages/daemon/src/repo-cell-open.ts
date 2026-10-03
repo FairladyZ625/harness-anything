@@ -1,4 +1,4 @@
-import { sessionWithActivityEvidence } from "./agent-runtime-read.ts";
+import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import {
   bindWriterGenerationToken,
   consumeKnownError,
@@ -179,18 +179,11 @@ export async function openRepoWriterCell(
     userRoot: presetUserRoot(rootDir),
     readSettings: () => readSettings(),
   });
-  const readObservedRuntimeSession = (runtimeSessionId: string) => {
-    const session = projection.readRuntimeSession(runtimeSessionId);
-    if (!session) return null;
-    const dispatch = projection.readRuntimeDispatch(runtimeSessionId, session.definitionSnapshotRef);
-    return sessionWithActivityEvidence(
-      session,
-      dispatch ? readRuntimeSessionActivityEvidence(rootDir, dispatch.payload.dispatchId) : undefined,
-    );
-  };
+  const readSession = (runtimeSessionId: string) => readObservedRuntimeSession(projection, rootDir, runtimeSessionId);
   const workerRuntimeStream = makeAgentRuntimeStreamHub({
-      readSession: readObservedRuntimeSession,
+      readSession,
       canAttach: (session) =>
+        session.liveness !== "exited" &&
         (session.attachable ||
           (() => {
             const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
@@ -211,7 +204,7 @@ export async function openRepoWriterCell(
       },
     };
   const outcomeWaiters = createRuntimeOutcomeWaiters({
-    readSession: readObservedRuntimeSession,
+    readSession,
     now,
   });
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by

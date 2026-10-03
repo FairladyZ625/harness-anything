@@ -9,7 +9,7 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { ledgerWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
-import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
+import { makeAgentRuntimeReadModel, readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { taskShowFromProjection } from "./repo-cell-completion.ts";
 import {
@@ -133,10 +133,12 @@ export async function openRepoCellProxy(
       readEvent: (opId) => readCurrentLedger((store) => store.readEvent(opId)),
       readApplied: (opId) => reader.withSession((projection) => projection.readOperation(opId)),
     }),
+    readSession = (runtimeSessionId: string) =>
+      reader.withSession((projection) => readObservedRuntimeSession(projection, input.rootDir, runtimeSessionId)),
     runtime = makeAgentRuntimeStreamHub({
-      readSession: (runtimeSessionId) =>
-        reader.withSession((projection) => projection.readRuntimeSession(runtimeSessionId)),
+      readSession,
       canAttach: (session) =>
+        session.liveness !== "exited" &&
         (session.attachable ||
           reader.withSession((projection) => {
             const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
@@ -493,12 +495,7 @@ export async function openRepoCellProxy(
     },
     awaitRuntimeOutcome: async (runtimeSessionId) => {
       const now = input.now ?? (() => new Date().toISOString());
-      while (
-        !runtimeOutcomeSettled(
-          reader.withSession((projection) => projection.readRuntimeSession(runtimeSessionId)),
-          now(),
-        )
-      ) {
+      while (!runtimeOutcomeSettled(readSession(runtimeSessionId), now())) {
         await new Promise<void>((resolve) => {
           const waiter = () => {
             waiters.delete(waiter);
