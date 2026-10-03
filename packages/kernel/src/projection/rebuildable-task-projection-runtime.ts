@@ -56,7 +56,7 @@ export function replayClaim(
   db: DatabaseSync,
   event: Extract<TaskEventV1, { readonly type: "execution_started" }>,
 ): void {
-  const lease = checkedLease(event.payload.lease);
+  const lease = checkedLease(event.payload.lease, true);
   const reserving = { ...lease, phase: "reserving" as const };
   prepareQuery(db, UPSERT_LEASE_SQL, (sql) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-017 */ db.prepare(sql),
@@ -79,7 +79,7 @@ export function replayClaim(
 
 export function replayRenew(db: DatabaseSync, event: Extract<TaskEventV1, { readonly type: "lease_renewed" }>): void {
   const current = storedLease(db, event.taskId),
-    renewed = checkedLease(event.payload.lease);
+    renewed = checkedLease(event.payload.lease, true);
   const matchesPrevious =
     current !== null &&
     current.phase === "held" &&
@@ -182,7 +182,7 @@ export function readSnapshots(
         db,
         "SELECT task_id, lease_json FROM lease_cas WHERE task_id IN (SELECT value FROM json_each(?))",
         requested,
-      ).map((row) => [row.task_id, checkedLease(JSON.parse(row.lease_json) as LeaseV1)]),
+      ).map((row) => [row.task_id, checkedLease(JSON.parse(row.lease_json) as LeaseV1, true)]),
     ),
     relationRows = readRelationProjectionRowsForTargets(
       db,
@@ -231,7 +231,7 @@ function lifecycleRelation({
 function effectiveLeaseValue(current: LeaseV1 | null, now: string): LeaseV1 | null {
   if (current === null || current.phase === "released") return current;
   if (current.expiresAt > now) return current;
-  return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" });
+  return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" }, true);
 }
 
 export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseInterval[] {
@@ -309,12 +309,12 @@ export function effectiveLease(db: DatabaseSync, taskId: string, now: string): L
   const current = storedLease(db, taskId);
   if (current === null || current.phase === "released") return current;
   if (current.expiresAt > now) return current;
-  return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" });
+  return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" }, true);
 }
 
 export function storedLease(db: DatabaseSync, taskId: string): LeaseV1 | null {
   const row = queryRows(db, "SELECT lease_json FROM lease_cas WHERE task_id = ?", taskId)[0];
-  return row === undefined ? null : checkedLease(JSON.parse(String(row.lease_json)) as LeaseV1);
+  return row === undefined ? null : checkedLease(JSON.parse(String(row.lease_json)) as LeaseV1, true);
 }
 export function readRuntimeInstallation(db: DatabaseSync, installationId: string): RuntimeInstallation | null {
   const row = queryRows(db, "SELECT value_json FROM runtime_installation WHERE installation_id = ?", installationId)[0];
@@ -447,8 +447,8 @@ function holder(lease: LeaseV1): LeaseHolder {
     source: lease.source,
   };
 }
-function checkedLease(lease: LeaseV1): LeaseV1 {
-  const issues = validateLeaseV1(lease);
+function checkedLease(lease: LeaseV1, historical = false): LeaseV1 {
+  const issues = validateLeaseV1(lease, historical);
   if (issues.length > 0) throw new Error(issues.map((issue) => issue.message).join("; "));
   return lease;
 }

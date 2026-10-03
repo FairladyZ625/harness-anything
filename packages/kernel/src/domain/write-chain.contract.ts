@@ -152,6 +152,16 @@ export function validateWriteSource(value: unknown, allowUnknownFields = false):
     isNonEmptyString(value.nodeId)
   )
     return [];
+  // Retired assignments identify immutable history only; current writes reject them.
+  if (
+    allowUnknownFields &&
+    isRecord(value) &&
+    hasRequiredFields(value, ["kind", "assignmentId", "nodeId"]) &&
+    value.kind === "assignment" &&
+    isNonEmptyString(value.assignmentId) &&
+    isNonEmptyString(value.nodeId)
+  )
+    return [];
   if (
     allowUnknownFields &&
     isRecord(value) &&
@@ -181,6 +191,7 @@ export function sameActorIdentity(left: unknown, right: unknown): boolean {
 function writeSourceShape(value: unknown): unknown {
   if (validateWriteSource(value, true).length) return null;
   if (!isRecord(value)) return value;
+  if (value.kind === "assignment") return [value.kind, value.assignmentId, value.nodeId];
   return value.kind === "node"
     ? [value.kind, value.nodeId]
     : [value.kind, value.sessionId, value.path, value.fingerprint];
