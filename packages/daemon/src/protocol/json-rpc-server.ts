@@ -124,7 +124,18 @@ export function createJsonRpcProtocolServer(options: {
     ): JsonRpcResponse | undefined => {
       const repliedAt = Date.now(),
         serviceMs = repliedAt - startedAt;
-      recordRequest(method, observed, result, dispatchDelayMs, serviceMs);
+      // Reading retained request history must not append itself to that history. Transport
+      // traffic still records this diagnostic, including failures, through the separate sink.
+      const payload = isJsonObject(request.params) ? request.params.payload : undefined;
+      if (
+        !(
+          method === "observe.tail" &&
+          isJsonObject(payload) &&
+          payload.kind === "repo-log" &&
+          payload.direction === "history"
+        )
+      )
+        recordRequest(method, observed, result, dispatchDelayMs, serviceMs);
       traffic(
         method,
         frameReceivedAt,

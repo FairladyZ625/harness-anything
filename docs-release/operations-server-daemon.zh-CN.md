@@ -38,6 +38,26 @@ ha bootstrap --mode external --url https://identity.example.com --realm fleet --
 
 ## 连接模式 / Connection modes
 
+在已登记工作区读取当前保留日志的性能窗口：
+
+```bash
+ha daemon metrics --window 1h
+ha daemon metrics --window 7d --json
+```
+
+默认窗口 24h，可选 15m、1h、24h、7d。命令复用 `observe.tail` 读取已有轮转日志，不新增存储或采样。
+request 日志仅排除 `observe.tail` 的 `kind: repo-log`、`direction: history` 诊断读（含失败读取），
+避免诊断扩大自身分母和留存。业务请求、其他观察种类及 repo-log follow 维持原有记录行为，
+连接日志仍记录诊断流量。此前已记录的诊断仍留在历史及统计中，不改写，也不从统计中滤除。
+输出已完成请求总数、观察首末时间，以及超过一小时的静默区间。读完保留历史不代表窗口连续覆盖：
+静默可能是无请求，也可能是留存丢失；7d 不会把较短的保留跨度外推成整周流量。
+
+P50/P95 对所有合格样本使用 nearest-rank。每个时间字段独立列出样本数与缺失数；不足 20 个样本
+标注 low sample，缺失值保持 unknown。主动 runtime await 单独计数，不进入延迟分母。
+这些是 daemon duration、service 与 dispatch 时间；未独立测量 CLI 端到端耗时或 handler 内部排队。
+日志混合多个客户端，不能称为 CLI 专用量。来源不可用或游标缺口会使命令失败，不输出局部统计。
+用 `--root` 和 `--repo` 选择已登记仓库。
+
 | Registry 模式                   | 适用场景                  | 本机运行内容                   | 数据与写入权威           |
 | ------------------------------- | ------------------------- | ------------------------------ | ------------------------ |
 | `local`                         | 普通本地开发              | daemon、runtime、GUI 与工作区  | 本机台账及其单写队列     |

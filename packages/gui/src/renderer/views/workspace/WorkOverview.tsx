@@ -2,10 +2,15 @@ import type { ReactNode } from "react";
 import { DayDigest, type DayPath } from "../../components/primitives/DayDigest";
 import { DenseRow } from "../../components/primitives/DenseRow";
 import { Region } from "../../components/primitives/Region";
-import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../../components/primitives/RegionBoard";
+import {
+  BoardColumn,
+  BoardMain,
+  BoardRegion,
+  BoardSide,
+  MovableRegionBoard,
+} from "../../components/primitives/RegionBoard";
 import { SegBar } from "../../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag";
-import { SplitDivider, SplitLayoutControls, useSplitLayout } from "../../components/primitives/split-layout";
 import { entryTitle, metaLine } from "./entry-lines.tsx";
 import type { WorkLeafRow } from "./WorkTasksTab.tsx";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
@@ -15,14 +20,8 @@ import type { SnapshotStatus, TaskRow } from "../../model/types.ts";
 import type { MessageKey } from "../../i18n/core.ts";
 import { t } from "../../i18n/index.tsx";
 
-/**
- * 概况页(标准 §2.1):与全局总览同一套区域板。左侧主区按固定顺序放「等你裁决 →
- * 阻塞与异常 → 进行中 → 接下来 → 结构与统计」,右侧一列是「最近进展」时间线;每块信息
- * 都在一个 Region 里,行用 DenseRow,内容超出在区域内滚动,没有内容的区域整块消失(§1.5)。
- *
- * 不走 overview-layout 的权重落列:那套算法把区域放进当前最矮的一列,保证不了时间线
- * 固定在右列,而且工作概况没有 daemon 权重。列容器是共享的 RegionBoard(固定顺序 +
- * 右侧时间线,断点与列内分配见该原语)。
+/** Work overview defaults to attention/structure beside the timeline. Every real region participates
+ * in the shared page layout; user order and ratios override these defaults without changing reads.
  */
 
 /** 步骤种类的呈现(标签/状态色);文案键单源在 WORK_STEP_LABEL_KEY,这里只补色调。 */
@@ -332,71 +331,34 @@ export function WorkOverview({
     </>
   );
 
-  // 主区|最近进展 分割(task_fb3ba20d66…):默认自适应(≥900px 主区 3 份|时间线 2 份,
-  // ≥1400px 主区自身展开成列);用户显式排列/比例后由固定两窗接管,重置回自适应。
-  // 比例按连接+仓记忆;没有时间线(没有进展数据)时板退回无右列形态,不给分割。
-  const split = useSplitLayout({
-    connectionId,
-    repoId,
-    slot: "work-overview",
-    minRatio: 0.3,
-    maxRatio: 0.8,
-    defaultRatioRow: 0.6,
-    defaultRatioColumn: 0.6,
-    autoBreakpoint: 900,
-    collapsible: false,
-  });
-  const splitBoard =
-    dayGroups.length === 0
-      ? undefined
-      : {
-          orientation: split.effectiveOrientation,
-          ratio: split.ratio,
-          containerRef: split.containerRef,
-          divider: (
-            <SplitDivider
-              {...split.dividerProps}
-              label={t("views.workspace.splitDividerLabel")}
-              testId="work-overview-split-divider"
-            />
-          ),
-        };
-
   return (
-    <>
-      {dayGroups.length > 0 ? (
-        <div className="flex shrink-0 justify-end" data-testid="work-overview-split-bar">
-          <SplitLayoutControls {...split.controlsProps} testId="work-overview-split-controls" />
-        </div>
-      ) : null}
-      <RegionBoard data-testid="work-overview-board" split={splitBoard}>
-        <BoardMain data-testid="work-overview-main">
-          {heroCount + blocked.length + noAgent.length + running.length > 0 ? (
-            <BoardColumn>{attention}</BoardColumn>
-          ) : null}
-          <BoardColumn>{outlook}</BoardColumn>
-        </BoardMain>
-        {dayGroups.length > 0 ? (
-          <BoardSide region="recent" data-testid="work-timeline">
-            <Region
-              title={t("views.workspace.progress.title")}
-              big={pathCount}
-              padded
-              footer={
-                <>
-                  <span className="min-w-0 truncate">{t("views.workspace.progress.note")}</span>
-                  <button type="button" className="ml-auto shrink-0 text-accent" onClick={onOpenProgress}>
-                    {t("views.workspace.progress.all")}
-                  </button>
-                </>
-              }
-            >
-              <WorkDayList dayGroups={dayGroups} dayLabelOf={dayLabelOf} timeOf={timeOf} onOpenTask={onOpenTask} />
-            </Region>
-          </BoardSide>
+    <MovableRegionBoard connectionId={connectionId} repoId={repoId} slot="work-overview" testId="work-overview-board">
+      <BoardMain data-testid="work-overview-main">
+        {heroCount + blocked.length + noAgent.length + running.length > 0 ? (
+          <BoardColumn>{attention}</BoardColumn>
         ) : null}
-      </RegionBoard>
-    </>
+        <BoardColumn>{outlook}</BoardColumn>
+      </BoardMain>
+      {dayGroups.length > 0 ? (
+        <BoardSide region="recent" data-testid="work-timeline">
+          <Region
+            title={t("views.workspace.progress.title")}
+            big={pathCount}
+            padded
+            footer={
+              <>
+                <span className="min-w-0 truncate">{t("views.workspace.progress.note")}</span>
+                <button type="button" className="ml-auto shrink-0 text-accent" onClick={onOpenProgress}>
+                  {t("views.workspace.progress.all")}
+                </button>
+              </>
+            }
+          >
+            <WorkDayList dayGroups={dayGroups} dayLabelOf={dayLabelOf} timeOf={timeOf} onOpenTask={onOpenTask} />
+          </Region>
+        </BoardSide>
+      ) : null}
+    </MovableRegionBoard>
   );
 }
 

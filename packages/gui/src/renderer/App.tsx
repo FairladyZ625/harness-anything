@@ -566,6 +566,7 @@ function AppShell() {
               ) : view === "overview" ? (
                 workspaceSummaryQuery.data ? (
                   <OverviewView
+                    connectionId={activeRepo?.connectionId ?? null}
                     repoId={projectId}
                     agenda={agendaQuery.data}
                     works={workIndexQuery.data}

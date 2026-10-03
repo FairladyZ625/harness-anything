@@ -13,14 +13,7 @@ import { TaskCloseoutTab } from "../components/taskDetail/TaskCloseoutTab.tsx";
 import { TaskRelationsTab, type TaskDecisionRef } from "../components/taskDetail/TaskRelationsTab.tsx";
 import { TaskDocumentSidebar, TaskFilesTab } from "../components/taskDetail/TaskFilesTab.tsx";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps.tsx";
-import {
-  SplitDivider,
-  SplitExpandStrip,
-  SplitLayoutControls,
-  collapsedGridTemplate,
-  splitGridTemplate,
-  useSplitLayout,
-} from "../components/primitives/split-layout.tsx";
+import { PageRegions, RegionDragHandle } from "../components/primitives/page-regions.tsx";
 import type { RelationEdge, TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
@@ -166,22 +159,6 @@ export function TaskDetailView({
   }, [tasks, task.taskId]);
   const childTotal = Object.values(childCounts).reduce((sum, count) => sum + count, 0);
   const gatesPassed = task.gates.filter((gate) => gate.ok === true).length;
-
-  // 默认按容器宽度自适应方向,文件树与正文始终可拖;重置清除用户比例与方向。
-  const split = useSplitLayout({
-    connectionId,
-    repoId: task.projectId,
-    slot: "task-detail-docs",
-    minRatio: 0.15,
-    maxRatio: 0.75,
-    defaultRatioRow: 0.22,
-    defaultRatioColumn: 0.4,
-    autoBreakpoint: 1100,
-    collapsible: true,
-  });
-  const splitStyle = split.collapsed
-    ? collapsedGridTemplate(split.effectiveOrientation)
-    : splitGridTemplate(split.effectiveOrientation, split.ratio);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg" data-testid="task-detail-view">
@@ -418,88 +395,103 @@ export function TaskDetailView({
       ) : null}
 
       {/* 自动按容器选择方向,默认即用可拖分区;首次调整记住当前方向与比例。 */}
-      <main className="@container min-h-0 flex-1 overflow-hidden px-3 py-2 sm:px-4">
-        <div
-          ref={split.containerRef}
-          data-testid="task-detail-content-grid"
-          style={splitStyle}
-          className={["h-full w-full overflow-hidden rounded-sm border border-border bg-bg", "grid"].join(" ")}
-        >
-          {split.collapsed ? (
-            <SplitExpandStrip
-              orientation={split.effectiveOrientation}
-              onExpand={split.controlsProps.onToggleCollapse}
-              label={t("views.taskDetailView.expandFileTree")}
-              testId="task-doc-split-expand"
-            />
-          ) : (
-            <TaskDocumentSidebar
-              task={task}
-              activeDoc={activeDoc}
-              onActiveDocChange={setActiveDoc}
-              onOpenDoc={openDocument}
-              headerExtra={<SplitLayoutControls {...split.controlsProps} testId="task-doc-split-controls" />}
-            />
-          )}
-          {!split.collapsed ? (
-            <SplitDivider
-              {...split.dividerProps}
-              label={t("views.taskDetailView.splitDividerLabel")}
-              testId="task-doc-split-divider"
-            />
-          ) : null}
-          {/* 概况是一屏的区域板:面板自己是板的容器量尺(量面板内容宽,不含文件树),
+      <main className="@container flex min-h-0 flex-1 overflow-hidden p-1">
+        <PageRegions
+          connectionId={connectionId}
+          repoId={task.projectId}
+          slot="task-detail-docs"
+          testId="task-detail-content-grid"
+          collapsible
+          defaultRatio={0.22}
+          columns={[["files"], ["content"]]}
+          regions={[
+            {
+              id: "files",
+              title: t("components.pageRegions.files"),
+              content: (
+                <TaskDocumentSidebar
+                  task={task}
+                  activeDoc={activeDoc}
+                  onActiveDocChange={setActiveDoc}
+                  onOpenDoc={openDocument}
+                />
+              ),
+            },
+            {
+              id: "content",
+              title: t("components.pageRegions.content"),
+              content: (
+                <div className="flex min-h-0 min-w-0 flex-col">
+                  <div className="flex shrink-0 items-center gap-1 ui-meta">
+                    <RegionDragHandle />
+                    {t("components.pageRegions.content")}
+                  </div>
+                  {/* 概况是一屏的区域板:面板自己是板的容器量尺(量面板内容宽,不含文件树),
               ≥900px 时板占满面板高度、区域在自己内部滚动;其余页签随内容往下排。 */}
-          <TabPanel
-            idPrefix="task"
-            value={activeTab}
-            className={`min-h-0 min-w-0 overflow-y-auto px-4 py-4 lg:px-6 ${
-              activeTab === "overview" ? "@container flex flex-col" : ""
-            }`}
-            data-testid="task-detail-panel-scroll"
-          >
-            {activeTab === "overview" ? (
-              <TaskOverviewTab
-                task={task}
-                onOpenCloseout={() => selectTab("closeout")}
-                onOpenRecord={openCloseoutRecord}
-              />
-            ) : activeTab === "dispatch" ? (
-              <TaskDispatchTab task={task} focusedSessionId={focusedSessionId} onNavigateEntity={onNavigateEntity} />
-            ) : activeTab === "evidence" ? (
-              <TaskEvidenceTab task={task} tasks={tasks} relations={relations} onNavigateEntity={onNavigateEntity} />
-            ) : activeTab === "relations" ? (
-              <TaskRelationsTab
-                task={task}
-                tasks={tasks}
-                decisions={decisions}
-                onSelect={onSelect}
-                onNavigateDecision={onNavigateDecision}
-                onNavigateEntity={onNavigateEntity}
-                onOpenSession={openSession}
-              />
-            ) : activeTab === "closeout" ? (
-              <TaskCloseoutTab
-                task={task}
-                focusedRecordRef={focusedRecordRef}
-                mutationFeedback={mutationFeedback}
-                onProgress={onProgress}
-                onSubmit={onSubmit}
-                onComplete={onComplete}
-                onAdjudicate={onAdjudicate}
-                onConsentReview={onConsentReview}
-                onAttest={onAttest}
-              />
-            ) : (
-              <TaskFilesTab
-                task={task}
-                activeDoc={activeDoc}
-                onOpenDoc={openDocument}
-                onNavigateEntity={onNavigateEntity}
-              />
-            )}
-          </TabPanel>
-        </div>
+                  <TabPanel
+                    idPrefix="task"
+                    value={activeTab}
+                    className={`min-h-0 min-w-0 flex-1 overflow-y-auto p-1 ${
+                      activeTab === "overview" ? "@container flex flex-col" : ""
+                    }`}
+                    data-testid="task-detail-panel-scroll"
+                  >
+                    {activeTab === "overview" ? (
+                      <TaskOverviewTab
+                        connectionId={connectionId}
+                        task={task}
+                        onOpenCloseout={() => selectTab("closeout")}
+                        onOpenRecord={openCloseoutRecord}
+                      />
+                    ) : activeTab === "dispatch" ? (
+                      <TaskDispatchTab
+                        task={task}
+                        focusedSessionId={focusedSessionId}
+                        onNavigateEntity={onNavigateEntity}
+                      />
+                    ) : activeTab === "evidence" ? (
+                      <TaskEvidenceTab
+                        task={task}
+                        tasks={tasks}
+                        relations={relations}
+                        onNavigateEntity={onNavigateEntity}
+                      />
+                    ) : activeTab === "relations" ? (
+                      <TaskRelationsTab
+                        task={task}
+                        tasks={tasks}
+                        decisions={decisions}
+                        onSelect={onSelect}
+                        onNavigateDecision={onNavigateDecision}
+                        onNavigateEntity={onNavigateEntity}
+                        onOpenSession={openSession}
+                      />
+                    ) : activeTab === "closeout" ? (
+                      <TaskCloseoutTab
+                        task={task}
+                        focusedRecordRef={focusedRecordRef}
+                        mutationFeedback={mutationFeedback}
+                        onProgress={onProgress}
+                        onSubmit={onSubmit}
+                        onComplete={onComplete}
+                        onAdjudicate={onAdjudicate}
+                        onConsentReview={onConsentReview}
+                        onAttest={onAttest}
+                      />
+                    ) : (
+                      <TaskFilesTab
+                        task={task}
+                        activeDoc={activeDoc}
+                        onOpenDoc={openDocument}
+                        onNavigateEntity={onNavigateEntity}
+                      />
+                    )}
+                  </TabPanel>
+                </div>
+              ),
+            },
+          ]}
+        />
       </main>
     </div>
   );

@@ -13,7 +13,7 @@ import type { EventEntry, RelationEdge, TaskRow } from "../../model/types.ts";
 import { DayDigest } from "../primitives/DayDigest";
 import { DenseRow } from "../primitives/DenseRow";
 import { Region } from "../primitives/Region";
-import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard";
+import { BoardColumn, BoardMain, BoardRegion, BoardSide, MovableRegionBoard } from "../primitives/RegionBoard";
 import { Section } from "../primitives/Section";
 import { StatusTag } from "../primitives/StatusTag";
 
@@ -58,10 +58,12 @@ const STUCK_COPY: StuckRowCopy = {
 
 export function TaskOverviewTab({
   task,
+  connectionId,
   onOpenCloseout,
   onOpenRecord,
 }: {
   readonly task: TaskRow;
+  readonly connectionId: string | null;
   /** 「等你裁决」区域只有一个去向:去收口页签处理,放在区域页脚;缺省不渲染按钮。 */
   readonly onOpenCloseout?: () => void;
   /** 时间线引用对象(execution/review/…)的打开出口:落收口页签对应记录行。 */
@@ -78,7 +80,12 @@ export function TaskOverviewTab({
   return (
     // 区域板(标准 §2.1,与工作概况同一个 RegionBoard):主区依次是等你裁决、卡在哪、任务计划,
     // 进展时间线固定在最右一列;每块都在 Region 里并区内滚动,没有内容的区域整块消失。
-    <RegionBoard data-testid="task-overview-tab">
+    <MovableRegionBoard
+      connectionId={connectionId}
+      repoId={task.projectId}
+      slot="task-overview"
+      testId="task-overview-tab"
+    >
       <BoardMain>
         {/* 主区只有一列:等你裁决与卡在哪通常各只有一两条,单独成列会在框里留大片空白;
             并在一列里,计划占满它们下面剩余的高度。 */}
@@ -129,7 +136,7 @@ export function TaskOverviewTab({
               ) : plan.data.blobSha256 === null ? (
                 <p className="ui-meta text-text-faint">该任务尚未物化 task_plan.md。物化后，这里会直接呈现计划正文。</p>
               ) : (
-                <DocReader content={plan.data.body} />
+                <DocReader content={plan.data.body} fill />
               )}
             </Region>
           </BoardRegion>
@@ -142,7 +149,7 @@ export function TaskOverviewTab({
           </Region>
         </BoardSide>
       ) : null}
-    </RegionBoard>
+    </MovableRegionBoard>
   );
 }
 

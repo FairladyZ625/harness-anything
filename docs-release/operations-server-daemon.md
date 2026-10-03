@@ -62,6 +62,35 @@ cannot configure the center credentials.
 
 ## Connection modes
 
+Read retained request-log statistics from a registered workspace:
+
+```bash
+ha daemon metrics --window 1h
+ha daemon metrics --window 7d --json
+```
+
+The default window is 24h; 15m, 1h, 24h and 7d are supported. The command reads
+existing rotated logs through `observe.tail`, with no new storage or sampling.
+Request logging excludes only `observe.tail` reads with `kind: repo-log` and
+`direction: history`, including failed reads, so diagnostics do not grow their
+own denominator or retained request history. Business requests, other observe
+kinds and repo-log follow reads keep their existing logging behavior; connection
+logs still record diagnostic traffic. Previously recorded diagnostics remain in
+retained history and statistics; they are neither rewritten nor filtered out.
+It reports completed request counts, observed first/last timestamps and silent
+intervals over one hour. Retained-history exhaustion does not establish continuous
+coverage: inactivity and retention loss cannot be distinguished. A 7d request
+never extrapolates a shorter retained span into a weekly traffic estimate.
+
+P50/P95 use nearest-rank over all eligible samples. Each timing field reports its
+own sample and missing counts; fewer than 20 samples is labeled low sample, and
+missing values remain unknown. Parked runtime awaits are counted separately and
+excluded from latency. These are daemon duration, service and dispatch timings;
+CLI end-to-end latency and handler-internal queue waiting are not independently
+measured. Request logs include multiple clients, so counts are not CLI-only.
+Unavailable sources or cursor gaps fail the command instead of returning partial
+statistics. `--root` and `--repo` select the registered repository.
+
 | Registry mode                   | Use it for                                | Local machine                                        | Data and write authority                      |
 | ------------------------------- | ----------------------------------------- | ---------------------------------------------------- | --------------------------------------------- |
 | `local`                         | Normal local development                  | daemon, runtime, GUI, and a workspace                | local ledger and its single-writer queue      |

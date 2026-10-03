@@ -2,6 +2,7 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { requestWindowMetrics } from "../../packages/cli/src/daemon/metrics-summary.ts";
 
 const REQUEST_SCHEMA = "daemon-request-log/v1";
 const DEFAULT_SLOW_MS = 5_000;
@@ -251,9 +252,7 @@ function buildWindow(days, records, nowMs) {
   const rows = records.filter((record) => record.atMs >= since && record.atMs <= nowMs);
   return {
     days,
-    since: new Date(since).toISOString(),
-    until: new Date(nowMs).toISOString(),
-    requestCount: rows.length,
+    ...requestWindowMetrics(records, since, nowMs),
     uniqueCommands: new Set(rows.map((row) => row.command ?? "<unknown>")).size,
     firstObservedAt: iso(rows[0]?.atMs ?? null),
     lastObservedAt: iso(rows.at(-1)?.atMs ?? null),

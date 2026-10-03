@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { CiObservatoryRead, WorkIndexRead, WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import type { AgendaSuccess } from "../api-client.ts";
 import { AwaitsAnswerPanel } from "../components/AwaitsAnswerPanel.tsx";
 import { FocusLayer } from "../components/primitives/FocusLayer";
+import { PageRegions } from "../components/primitives/page-regions.tsx";
 import { Region } from "../components/primitives/Region";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { useOverviewCi, useOverviewRecentEvents, useOverviewRuntime } from "../overview-data.ts";
@@ -11,7 +12,7 @@ import type { RuntimeHealth } from "../model/runtime-health.ts";
 import { t } from "../i18n/index.tsx";
 import { mainCiFailingJobs } from "./overview-model.ts";
 import { buildOverviewRegions, type OverviewRegionSpec } from "./overview-regions.tsx";
-import { layoutRegions, regionNeed, regionNeedRelaxed, type RegionBox, type RegionKey } from "./overview-layout.ts";
+import { layoutRegions, regionNeed, regionNeedRelaxed, type RegionKey } from "./overview-layout.ts";
 import { regionMinimumHeight } from "../components/primitives/region-minimum.ts";
 
 /**
@@ -26,6 +27,7 @@ import { regionMinimumHeight } from "../components/primitives/region-minimum.ts"
  */
 export function OverviewView({
   repoId,
+  connectionId,
   agenda,
   works,
   titles,
@@ -38,6 +40,7 @@ export function OverviewView({
   onUnpin,
 }: {
   readonly repoId: string;
+  readonly connectionId: string | null;
   /** `ha agenda` 同一条 repo.agenda.read 投影;undefined = 尚未读到。 */
   readonly agenda: AgendaSuccess | undefined;
   /** daemon 工作索引(repo.works.index):「工作」区域的行。 */
@@ -232,98 +235,65 @@ export function OverviewView({
         </button>
       </header>
 
-      <div
-        className={layout?.columns === 1 ? "min-h-0 flex-1 overflow-y-auto px-3 pb-3" : "min-h-0 flex-1 px-3 pb-3"}
-        data-testid="overview-scroll"
-      >
-        <div
-          ref={boardRef}
-          data-testid="overview-board"
-          className="relative w-full"
-          style={
-            layout?.boardHeight !== null && layout?.boardHeight !== undefined
-              ? { height: layout.boardHeight }
-              : { height: "100%" }
-          }
-        >
-          {layout === null
-            ? null
-            : [...new Set(layout.order.map((key) => layout.boxes[key]!.left))].map((left) => {
-                const keys = layout.order.filter((key) => layout.boxes[key]!.left === left);
-                return (
-                  <div
-                    key={left}
-                    data-overview-column
-                    className={layout.columns === 1 ? "absolute" : "absolute inset-y-0 overflow-y-auto"}
-                    style={{
-                      left,
-                      width: layout.boxes[keys[0]!]!.width,
-                      height: layout.columns === 1 ? layout.boardHeight! : undefined,
-                    }}
-                  >
-                    <div
-                      className="relative"
-                      style={{
-                        height: Math.max(...keys.map((key) => layout.boxes[key]!.top + layout.boxes[key]!.height)),
-                      }}
-                    >
-                      {keys.map((key) => {
-                        const spec = regions[key],
-                          box = layout.boxes[key];
-                        if (spec === undefined || box === undefined) return null;
-                        // slim(mine 清空):高度不足 60px 时只留标题行(标准 §1.5:空了就收成一行,
-                        // 标题行的「清空」状态标签保留——原型 v4 的 slim 样张)。
-                        const slim = layout.slim.has(key),
-                          zoomable = spec.rowIds.length > 0;
-                        return (
-                          <div
-                            key={key}
-                            data-region={key}
-                            data-testid={`overview-region-${key}`}
-                            // grid 单元格让 Region 原语被拉伸到精确盒子;visibility:hidden 时
-                            // motion 仍能测到它的盒子,FocusLayer 从原位长出(S6 放大层契约)。
-                            className={`absolute grid ${focus === key ? "invisible" : ""}`}
-                            style={regionStyle({ ...box, left: 0 })}
-                          >
-                            <Region
-                              focusId={key}
-                              focusOpen={focus === key}
-                              title={spec.title}
-                              tag={spec.tag}
-                              big={spec.big}
-                              bigTone={spec.bigTone}
-                              edge={spec.edge}
-                              footer={slim ? undefined : spec.footer}
-                              onOpen={zoomable ? () => openFocus(key) : undefined}
-                            >
-                              {slim ? null : spec.renderList !== undefined ? (
-                                spec.renderList({
-                                  selectedId: null,
-                                  onSelect: (id) => openFocus(key, id),
-                                  inFocus: false,
-                                })
-                              ) : (
-                                <>
-                                  {spec.top}
-                                  {spec.rowIds.map((id) =>
-                                    spec.renderRow(id, {
-                                      relaxed: layout.tall.has(key),
-                                      selected: false,
-                                      onSelect: () => openFocus(key, id),
-                                      inFocus: false,
-                                    }),
-                                  )}
-                                </>
-                              )}
-                            </Region>
-                          </div>
-                        );
-                      })}
+      <div ref={boardRef} className="flex min-h-0 flex-1 p-1" data-testid="overview-scroll">
+        {layout !== null && (
+          <PageRegions
+            connectionId={connectionId}
+            repoId={repoId}
+            slot="overview"
+            testId="overview-board"
+            defaultRatio={
+              layout.order.length === 0 ? 0.6 : layout.boxes[layout.order[0]!]!.width / Math.max(1, boardSize!.width)
+            }
+            columns={[...new Set(layout.order.map((key) => layout.boxes[key]!.left))].map((left) =>
+              layout.order.filter((key) => layout.boxes[key]!.left === left),
+            )}
+            regions={layout.order.flatMap((key) => {
+              const spec = regions[key];
+              if (spec === undefined) return [];
+              const slim = layout.slim.has(key);
+              return [
+                {
+                  id: key,
+                  title: spec.title,
+                  weight: layout.boxes[key]!.height,
+                  testId: `overview-region-${key}`,
+                  content: (
+                    <div className={`grid min-h-0 min-w-0 ${focus === key ? "invisible" : ""}`}>
+                      <Region
+                        focusId={key}
+                        focusOpen={focus === key}
+                        title={spec.title}
+                        tag={spec.tag}
+                        big={spec.big}
+                        bigTone={spec.bigTone}
+                        edge={spec.edge}
+                        footer={slim ? undefined : spec.footer}
+                        onOpen={spec.rowIds.length > 0 ? () => openFocus(key) : undefined}
+                      >
+                        {slim ? null : spec.renderList !== undefined ? (
+                          spec.renderList({ selectedId: null, onSelect: (id) => openFocus(key, id), inFocus: false })
+                        ) : (
+                          <>
+                            {spec.top}
+                            {spec.rowIds.map((id) =>
+                              spec.renderRow(id, {
+                                relaxed: layout.tall.has(key),
+                                selected: false,
+                                onSelect: () => openFocus(key, id),
+                                inFocus: false,
+                              }),
+                            )}
+                          </>
+                        )}
+                      </Region>
                     </div>
-                  </div>
-                );
-              })}
-        </div>
+                  ),
+                },
+              ];
+            })}
+          />
+        )}
       </div>
 
       {focusSpec !== undefined && focus !== null && (
@@ -405,10 +375,6 @@ function overviewWeightsOf(
 
 function liveAgents(runtime: AgentRuntimeOverviewResult | undefined): number {
   return (runtime?.sessions ?? []).filter((session) => session.liveness === "live").length;
-}
-
-function regionStyle(box: RegionBox): CSSProperties {
-  return { left: box.left, top: box.top, width: box.width, height: box.height };
 }
 
 /** 顶栏状态点(原型 .pill):状态点 + 文案;状态色只引 token 类,不写数值。 */

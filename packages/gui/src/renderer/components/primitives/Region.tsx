@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { RegionDragHandle, RegionLayoutControls } from "./page-regions.tsx";
 import { motion } from "motion/react";
 import { TONE_COLOR, type StatusTone } from "./StatusTag";
 
@@ -42,6 +43,7 @@ export function Region({
   readonly children: ReactNode;
 }) {
   // 没有 focusId 的区域不参与任何布局过渡;有的,内容层只跟随外框位置、不随它缩放。
+  const handle = RegionDragHandle();
   const content = focusId === undefined ? undefined : "position";
   return (
     <motion.section
@@ -49,7 +51,7 @@ export function Region({
       layoutId={focusId}
       layoutDependency={focusOpen}
       onClick={onOpen}
-      className={`glass status-edge relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-sm ${
+      className={`${handle === null ? "glass" : "border border-border bg-surface"} status-edge relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-sm ${
         onOpen === undefined ? "" : "cursor-zoom-in"
       }`}
       style={edge === undefined ? undefined : ({ "--status-edge": TONE_COLOR[edge] } as CSSProperties)}
@@ -59,6 +61,7 @@ export function Region({
         layoutDependency={focusOpen}
         className="flex flex-none items-center gap-2 px-3 pb-[7px] pt-[9px]"
       >
+        {handle}
         <h2 className="min-w-0 truncate font-semibold ui-meta">{title}</h2>
         {tag}
         {big !== undefined && (
@@ -69,10 +72,15 @@ export function Region({
             {big}
           </span>
         )}
+        <span className="ml-auto shrink-0">
+          <RegionLayoutControls />
+        </span>
       </motion.div>
       <motion.div layout={content} layoutDependency={focusOpen} className="relative min-h-0 flex-1">
         {/* padded 是长正文容器(标准 §4.1):滚动/裁切/边距由这里统一管,正文词内换行默认开。 */}
-        <div className={`h-full overflow-y-auto ${padded ? "break-words px-3.5 pb-3" : ""}`}>{children}</div>
+        <div data-region-scroll className={`h-full overflow-y-auto ${padded ? "break-words px-3.5 pb-3" : ""}`}>
+          {children}
+        </div>
       </motion.div>
       {footer !== undefined && (
         <motion.div

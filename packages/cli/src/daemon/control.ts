@@ -35,6 +35,7 @@ import { assessDaemonStatus, status } from "./control-status.ts";
 import { runDaemonRepoControl } from "./repo-control.ts";
 import { runDaemonServiceControl } from "./service-control.ts";
 import { assertCanonicalCliEntry } from "./cli-entry-guard.ts";
+import { renderDaemonMetrics, runDaemonMetrics } from "./metrics.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -50,6 +51,12 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
   try {
     if (!(command === "status" || command === undefined)) assertCanonicalCliEntry();
+    if (command === "metrics") {
+      const receipt = await runDaemonMetrics(argv, userRoot, daemonId);
+      if (json) return finish(receipt, 0);
+      console.log(renderDaemonMetrics(receipt));
+      return 0;
+    }
     if (command === "projection" && subcommand === "rebuild") {
       const suppliedRoot = daemonOption(argv, "--root");
       if (argv.includes("--root") && (!suppliedRoot || suppliedRoot.startsWith("-")))
@@ -122,7 +129,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         [
           "Use daemon projection rebuild, daemon repo register|update,",
           "daemon connection add|update|remove|probe, fleet center start, fleet edge sync,",
-          "service install|uninstall|status, start --service, status, or stop.",
+          "service install|uninstall|status, start --service, status, metrics, or stop.",
         ].join(" "),
       ),
       2,

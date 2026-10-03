@@ -351,9 +351,9 @@ export function WorkspaceView({
           value={tab}
           className={
             tab === "overview"
-              ? "flex flex-col gap-3 px-5 pb-3 pt-4 md:px-7 @[900px]:h-full"
+              ? "flex h-full min-h-0 flex-col gap-1 p-1"
               : tab === "graph" || tab === "root"
-                ? "flex h-full min-h-0 flex-col px-5 pb-4 pt-4 md:px-7"
+                ? "flex h-full min-h-0 flex-col p-1"
                 : "grid grid-cols-1 gap-9 px-5 pb-16 pt-4 md:px-7"
           }
         >
