@@ -7,6 +7,7 @@ import { AppMotionConfig, useMotionPreference, type MotionPreference } from "../
 import { I18nProvider } from "../../i18n/index.tsx";
 import { PageHeader } from "../primitives/PageHeader.tsx";
 import { PageRegions } from "../primitives/page-regions.tsx";
+import { FocusLayer } from "../primitives/FocusLayer.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { DenseRow, RowTime } from "../primitives/DenseRow.tsx";
 import { Toggle } from "../primitives/Toggle.tsx";
@@ -35,6 +36,9 @@ function ComponentCatalog() {
   const { mode, setMode } = useTheme();
   const { preference, setPreference } = useMotionPreference();
   const [narrow, setNarrow] = useState(false);
+  const [focusOpen, setFocusOpen] = useState(false);
+  const [focusSelected, setFocusSelected] = useState("0");
+  const focusIds = Array.from({ length: 30 }, (_, index) => String(index));
   const [modalOpen, setModalOpen] = useState(false);
   const [tab, setTab] = useState<"rows" | "empty">("rows");
   const [selected, setSelected] = useState<string | null>(null);
@@ -403,6 +407,24 @@ function ComponentCatalog() {
             />
           </div>
           <h2 className="font-semibold ui-title">列表与区域 / DenseRow · Region · Tabs</h2>
+          <Button onClick={() => setFocusOpen(true)}>键盘长名单：↑↓ 跟随选中行</Button>
+          <FocusLayer
+            open={focusOpen}
+            title="键盘长名单"
+            itemIds={focusIds}
+            selectedId={focusSelected}
+            onSelect={setFocusSelected}
+            onClose={() => setFocusOpen(false)}
+            list={focusIds.map((id) => (
+              <DenseRow
+                key={id}
+                title={`任务 ${Number(id) + 1}`}
+                selected={id === focusSelected}
+                onClick={() => setFocusSelected(id)}
+              />
+            ))}
+            detail={<p>选中任务 {Number(focusSelected) + 1}；手动滚动后，只有再次按方向键才跟滚。</p>}
+          />
           <Tabs
             idPrefix="catalog"
             ariaLabel="列表示例"

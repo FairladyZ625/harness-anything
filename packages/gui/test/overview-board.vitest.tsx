@@ -16,7 +16,7 @@ import {
 import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
-import type { AgendaAwaitsRow, WorkIndexRead, WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
+import type { AgendaAwaitsRow, TaskWipRead, WorkIndexRead, WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
 import type { RuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 
 /**
@@ -641,5 +641,251 @@ describe("decision review queue visibility", () => {
     expect(reviewCounts(rows).decisionNeedsReview).toBe(1);
     expect(reviewCounts(rows).decisionReviewing).toBe(0);
     expect(reviewCounts(rows).decisionPending).toBe(0);
+  });
+});
+
+describe("总览 WIP 区域接线(常驻观察面)", () => {
+  type WipEntry = TaskWipRead["counted"][number];
+
+  /** 30 条占位跨 4 状态(8/6/9/7),根容器两条(声明/派生各一)不进 counted;末条带可搜标题。 */
+  function wipSnapshot(counted: readonly WipEntry[] = defaultCounted(), limit = 30): TaskWipRead {
+    return {
+      ok: true,
+      limit,
+      limitLabel: "settings.tasks.wipLimit",
+      counted: [...counted],
+      roots: [
+        { taskId: "task_root_declared", reason: "declared", directChildCount: 5, threshold: 3 },
+        { taskId: "task_root_derived", reason: "derived", directChildCount: 4, threshold: 3 },
+      ],
+      threshold: 3,
+    };
+  }
+
+  function defaultCounted(): WipEntry[] {
+    const plan: ReadonlyArray<[WipEntry["status"], number]> = [
+      ["active", 8],
+      ["submitted", 6],
+      ["in_review", 9],
+      ["blocked", 7],
+    ];
+    const counted: WipEntry[] = [];
+    let index = 0;
+    for (const [status, count] of plan) {
+      for (let n = 0; n < count; n += 1) {
+        counted.push({ taskId: `task_wip${String(index).padStart(2, "0")}`, status, title: `占位任务 ${index}` });
+        index += 1;
+      }
+    }
+    counted[counted.length - 1] = { ...counted[counted.length - 1]!, title: "末尾的长标题占位任务" };
+    return counted;
+  }
+
+  /** 只给 repo.tasks.wip 注入 fixture,其余桥方法保持确定性失败;返回还原函数。 */
+  function stubWipBridge(snapshot: TaskWipRead | undefined): () => void {
+    const previous = (globalThis as { harness?: unknown }).harness;
+    vi.stubGlobal("harness", {
+      request: (method: string) =>
+        method === "getTaskWip"
+          ? snapshot === undefined
+            ? Promise.reject(new Error("wip bridge down"))
+            : Promise.resolve(snapshot)
+          : Promise.reject(new Error("no bridge in test")),
+    });
+    return () => vi.stubGlobal("harness", previous);
+  }
+
+  it("区域落位:占用/上限在标题行,满额显形,30 条全量名单,根容器只在页脚排除说明", async () => {
+    const restore = stubWipBridge(wipSnapshot());
+    const container = mount();
+    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
+    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
+    expect(region).not.toBeNull();
+    // 占用/上限来自同一条快照;根容器两条不进分母(30 不是 32)。
+    expect(textOf(region.querySelector("section"))).toContain("30/30");
+    expect(textOf(region)).toContain("满额");
+    expect(region.querySelectorAll("[data-testid='overview-task-wip-list'] [data-dense-row]")).toHaveLength(30);
+    const ids = [...region.querySelectorAll("[data-testid='overview-task-wip-list'] [data-dense-row]")].map((row) => {
+      const ref = row.querySelector("button[title*='task/']") as HTMLButtonElement | null;
+      const title = ref?.title ?? "";
+      return title.slice(title.lastIndexOf("task/") + "task/".length);
+    });
+    expect(ids).not.toContain("task_root_declared");
+    expect(ids).not.toContain("task_root_derived");
+    // 页脚给排除说明,悬停可达根容器清单与上限来源。
+    const footer = [...region.querySelectorAll("section > div")].at(-1)!;
+    expect(textOf(footer)).toContain("根容器 2");
+    const footerTip = footer.querySelector("span")!;
+    expect(footerTip.getAttribute("title")).toContain("settings.tasks.wipLimit");
+    expect(footerTip.getAttribute("title")).toContain("task_root_declared");
+    act(() => root?.unmount());
+    restore();
+  });
+
+  it("0 占位常驻:区域仍落位并如实显示 0/上限与空态,不写死 30,不可放大成空壳", async () => {
+    const restore = stubWipBridge(wipSnapshot([], 12));
+    const container = mount();
+    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-empty']") !== null);
+    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
+    expect(region).not.toBeNull();
+    expect(textOf(region.querySelector("section"))).toContain("0/12");
+    expect(textOf(region)).toContain("工作台空闲");
+    expect(textOf(region)).toContain("当前上限 12");
+    // 上限不是写死的 30:整个区域不出现 30,也不出现名单。
+    expect(textOf(region)).not.toContain("30");
+    expect(region.querySelector("[data-testid='overview-task-wip-list']")).toBeNull();
+    // 没有行的区域不可放大(与 slim 的 mine 同一守卫)。
+    act(() => (region.querySelector("section") as HTMLElement).click());
+    expect(document.body.querySelector("[data-focus-list]")).toBeNull();
+    act(() => root?.unmount());
+    restore();
+  });
+
+  it("读取失败是失败面不冒充 0;恢复供数后区域随同一条查询更新", async () => {
+    const restore = stubWipBridge(undefined);
+    const container = mount();
+    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-error']") !== null);
+    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
+    // 区域常驻落位:占用给破折号(快照未到时不是 0),失败面显形。
+    expect(region).not.toBeNull();
+    expect(textOf(region.querySelector("section"))).toContain("—");
+    expect(textOf(region.querySelector("[data-testid='overview-task-wip-error']"))).toContain("wip bridge down");
+    expect(textOf(region.querySelector("section"))).not.toContain("0/");
+    act(() => root?.unmount());
+    restore();
+
+    // 同一条查询在桥恢复供数后给出真实名单(不是组件自己造的第二份状态)。
+    const restore2 = stubWipBridge(wipSnapshot(defaultCounted().slice(0, 3), 30));
+    const container2 = mount();
+    await flushUntil(() => container2.querySelector("[data-testid='overview-task-wip-list']") !== null);
+    expect(container2.querySelectorAll("[data-testid='overview-task-wip-list'] [data-dense-row]")).toHaveLength(3);
+    expect(textOf(container2.querySelector('[data-testid="overview-region-wip"] section'))).toContain("3/30");
+    act(() => root?.unmount());
+    restore2();
+  });
+
+  it("行点击打开放大层,放大层给分组/搜索;详情与实体引用都接真实 onOpenTask 回调", async () => {
+    const onOpenTask = vi.fn();
+    const restore = stubWipBridge(wipSnapshot());
+    const container = mount({ onOpenTask });
+    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
+    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
+    const rows = [...region.querySelectorAll("[data-dense-row]")];
+    // 条面没有过滤控件;行主点击面打开放大层(行自己的落点,不冒泡成区域级首行默认)。
+    expect(region.querySelector("[data-testid='overview-task-wip-search']")).toBeNull();
+    act(() => (rows[29]!.querySelectorAll("button")[0] as HTMLButtonElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    // 放大层展面:分组按钮与搜索接管过滤,30 条名单全量可达。
+    expect(dialog!.querySelector("[data-testid='overview-task-wip-search']")).not.toBeNull();
+    expect(textOf(dialog!)).toContain("全部 30");
+    expect(dialog!.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(30);
+    // 放大层里点末尾第 30 条:选中该行,详情给占用上下文与真实导航动作。
+    const focusRows = [...dialog!.querySelectorAll("[data-focus-list] [data-dense-row]")];
+    expect(focusRows[29]!.querySelector("button[title*='task/task_wip29']")).not.toBeNull();
+    act(() => (focusRows[29]!.querySelectorAll("button")[0] as HTMLButtonElement).click());
+    const detail = dialog!.querySelector("[data-focus-detail]")!;
+    expect(textOf(detail)).toContain("末尾的长标题占位任务");
+    expect(textOf(detail)).toContain("task_wip29");
+    expect(textOf(detail)).toContain("占用 30/30");
+    const open = [...detail.querySelectorAll("button")].find((button) => textOf(button) === "打开任务");
+    expect(open).toBeDefined();
+    act(() => open!.click());
+    expect(onOpenTask).toHaveBeenCalledWith("task_wip29");
+    // 条面行右侧实体引用是第二条直接导航路(不经放大层)。
+    act(() => (rows[29]!.querySelector("button[title*='task/task_wip29']") as HTMLButtonElement).click());
+    expect(onOpenTask).toHaveBeenCalledTimes(2);
+    expect(onOpenTask).toHaveBeenLastCalledWith("task_wip29");
+    act(() => root?.unmount());
+    restore();
+  });
+
+  it("条面点第 N 行进放大层并保持该行选中:点击不再冒泡成首行(修复返工 2 第 1 点)", async () => {
+    const restore = stubWipBridge(wipSnapshot());
+    const container = mount();
+    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
+    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
+    const rows = [...region.querySelectorAll("[data-dense-row]")];
+    // 点第 6 行(既不是首行也不是末行):放大层打开时选中的就是它。
+    act(() => (rows[5]!.querySelectorAll("button")[0] as HTMLButtonElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const focusRows = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")];
+    expect(focusRows[5]!.hasAttribute("data-selected")).toBe(true);
+    expect(focusRows[0]!.hasAttribute("data-selected")).toBe(false);
+    // 详情与选中同源:第 6 行的标题,不是首行也不是末行。
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip05");
+    act(() => root?.unmount());
+    restore();
+  });
+
+  it("放大层过滤后键盘只在可见集合移动:搜索/分组隐藏的行不可被 ↑↓ 选中(修复返工 2 第 2 点)", async () => {
+    const restore = stubWipBridge(wipSnapshot());
+    const container = mount();
+    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
+    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
+    const firstTileRow = region.querySelectorAll("[data-dense-row]")[0]! as HTMLElement;
+    act(() => (firstTileRow.querySelectorAll("button")[0] as HTMLButtonElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const type = (value: string) => {
+      const input = dialog.querySelector("[data-testid='overview-task-wip-search']") as HTMLInputElement;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    const arrow = (key: "ArrowDown" | "ArrowUp") =>
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
+      });
+    // 搜索 "wip2" 只留 task_wip20..29(10 行):键盘从首个可见行出发只能在这 10 行里移动。
+    type("wip2");
+    expect(dialog.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
+    // 搜索前选中的 task_wip00 被隐藏:选中收敛到首个可见行 task_wip20。
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip20");
+    arrow("ArrowDown");
+    arrow("ArrowDown");
+    // 两次 ↓ 后是第三个可见行 task_wip22,绝不是被隐藏的 task_wip02。
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip22");
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).not.toContain("task_wip02");
+    const visibleSelected = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")].filter((row) =>
+      row.hasAttribute("data-selected"),
+    );
+    expect(visibleSelected).toHaveLength(1);
+    expect(visibleSelected[0]!.querySelector("button[title*='task/task_wip22']")).not.toBeNull();
+    // ↑ 回到上一个可见行;清空搜索恢复全量后,键盘在全量集合里继续。
+    arrow("ArrowUp");
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip21");
+    type("");
+    arrow("ArrowDown");
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip22");
+    act(() => root?.unmount());
+    restore();
+  });
+
+  it("共享修复回归(所有 DenseRow 区域):点区域行进放大层且保持该行选中,点区域其余部分仍开首行", () => {
+    // mine 用两条可区分的行:点第二条,放大层选中的就是第二条而非首行。
+    const input = agenda();
+    const second = { ...input.attentionItems[1]!, ref: "task/task_mine_second", region: "mine" as const };
+    const container = mount({
+      agenda: agenda({ attentionItems: [input.attentionItems[0]!, second] }),
+    });
+    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
+    const rows = [...mine.querySelectorAll("[data-dense-row]")];
+    expect(rows).toHaveLength(2);
+    // mine 的行没有右侧动作:整行就是主点击面(DenseRow 无 action 的 button 形态)。
+    act(() => (rows[1] as HTMLButtonElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const focusRows = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")];
+    expect(focusRows[1]!.hasAttribute("data-selected")).toBe(true);
+    expect(focusRows[0]!.hasAttribute("data-selected")).toBe(false);
+    // 区域其余部分(标题行/留白)仍是区域级入口:开放大层落选首行。
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    act(() => (container.querySelector('[data-testid="overview-region-mine"] section > div') as HTMLElement).click());
+    const reopened = document.body.querySelector('[role="dialog"]')!;
+    const reopenedRows = [...reopened.querySelectorAll("[data-focus-list] [data-dense-row]")];
+    expect(reopenedRows[0]!.hasAttribute("data-selected")).toBe(true);
+    act(() => root?.unmount());
   });
 });

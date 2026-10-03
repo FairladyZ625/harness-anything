@@ -1615,5 +1615,21 @@
   "views.settingsView.timePreviewLabel": "预览",
   "views.taskDetailView.splitDividerLabel": "调整任务文件与正文的分隔",
   "views.taskDetailView.expandFileTree": "展开文件树",
-  "views.workspace.splitDividerLabel": "调整主区与最近进展的分隔"
+  "views.workspace.splitDividerLabel": "调整主区与最近进展的分隔",
+  "views.overviewTaskWip.title": "进行中的任务(WIP)",
+  "views.overviewTaskWip.fullTag": "满额",
+  "views.overviewTaskWip.occupancyTitle": "占用 {count}/{limit} · 上限来源: {limitLabel} · 根判定阈值: {threshold}",
+  "views.overviewTaskWip.filterLabel": "按状态过滤占位任务",
+  "views.overviewTaskWip.filterAll": "全部",
+  "views.overviewTaskWip.searchLabel": "搜索占位任务",
+  "views.overviewTaskWip.searchPlaceholder": "标题或任务 ID",
+  "views.overviewTaskWip.loading": "正在读取工作台占用…",
+  "views.overviewTaskWip.errorRead": "工作台占用读取失败(不是 0):",
+  "views.overviewTaskWip.errorStale": "工作台占用读取失败,以下是上一次成功的快照:",
+  "views.overviewTaskWip.emptyIdle": "工作台空闲:没有 active/submitted/in_review/blocked 的叶子任务占位。",
+  "views.overviewTaskWip.emptyLimit": "当前上限 {limit}({limitLabel});根容器与 planned 不计入。",
+  "views.overviewTaskWip.emptyFilter": "该状态下没有占位任务。",
+  "views.overviewTaskWip.emptySearch": "没有匹配「{query}」的占位任务。",
+  "views.overviewTaskWip.footerRule": "分母只数叶子任务 · 根容器 {roots}(声明 {declared}/派生 {derived})与 planned 不占位",
+  "views.overviewTaskWip.footerRootsTitle": "declared: {declaredIds} · derived: {derivedIds} · 根判定阈值: {threshold}"
 }

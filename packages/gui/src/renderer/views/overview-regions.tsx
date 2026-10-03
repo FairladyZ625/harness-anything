@@ -3,6 +3,7 @@ import { PushPinSlash } from "@phosphor-icons/react";
 import type { AgendaSuccess } from "../api-client.ts";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { AWAITS_KIND_LABEL } from "../awaits-answer.ts";
+import { IdText } from "../components/IdText.tsx";
 import { DayDigest, type DayPath } from "../components/primitives/DayDigest";
 import { DenseRow } from "../components/primitives/DenseRow";
 import { SegBar } from "../components/primitives/SegBar";
@@ -14,9 +15,10 @@ import { dayKeyOf, formatDayKeyLabel, formatRelative, formatTime } from "../mode
 import type { CadenceFeedEvent } from "../model/cadence.ts";
 import type { WorkDayGroup } from "../model/workspace-narrative.ts";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
-import type { CiObservatoryRead, WorkIndexRead } from "../../api/renderer-dto.ts";
+import type { CiObservatoryRead, TaskWipRead, WorkIndexRead } from "../../api/renderer-dto.ts";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { RegionKey } from "./overview-layout.ts";
+import { OverviewTaskWipBody, type WipFilter } from "./OverviewTaskWip.tsx";
 import { DaySummary, STEP_META } from "./workspace/WorkOverview.tsx";
 import {
   ATTENTION_META,
@@ -88,6 +90,15 @@ export interface OverviewRegionDeps {
   readonly works: WorkIndexRead | undefined;
   readonly runtime: AgentRuntimeOverviewResult | undefined;
   readonly ci: CiObservatoryRead | undefined;
+  /** `repo.tasks.wip` 同一条快照(总览/看板共用 useTaskWipQuery);undefined = 尚未读到。 */
+  readonly wip: TaskWipRead | undefined;
+  /** WIP 首读进行中(react-query isPending);有旧快照时不闪 pending。 */
+  readonly wipLoading: boolean;
+  /** WIP 取数失败的可读信息;有旧快照时名单保留并显形失败,不冒充 0。 */
+  readonly wipError: string | null;
+  /** 放大层的分组+搜索过滤态(宿主持有):名单渲染与键盘导航的可见集合同源。 */
+  readonly wipFilter: WipFilter;
+  readonly onWipFilterChange: (filter: WipFilter) => void;
   /** observe.tail 一页事件(升序);最近变化区域与工作页共用 workDayGroups 收束。 */
   readonly events: readonly CadenceFeedEvent[];
   /** `task/<id>` → 标题(App 常驻任务列表投影);路径行显示任务标题而非裸 id。 */
@@ -575,6 +586,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
         );
       },
     },
+    wip: wipRegion(deps.wip, deps.wipLoading, deps.wipError, deps),
   };
 
   if (failingRows.length > 0) {
@@ -710,6 +722,95 @@ function reviewRegion(reviews: readonly ReviewRow[], deps: OverviewRegionDeps): 
                 {t("views.overviewView.actionOpenDecision")}
               </OverviewActionButton>
             )}
+          </div>
+        </div>
+      );
+    },
+  };
+}
+
+/**
+ * 进行中的任务 / WIP(常驻观察面,不与急事区域混排语义):占用/上限在区域标题行的 big,
+ * 四状态计数与可过滤全量名单在行体(OverviewTaskWipBody,条面计数带/放大层控制行两展面),
+ * 根容器(声明/派生)与 planned 只在页脚作排除说明、不混入分母。loading/error 是真实的
+ * pending 与失败面:big 给「…/—」而不是 0,counted 为空时才是空态并如实带上限。
+ */
+function wipRegion(
+  wip: TaskWipRead | undefined,
+  loading: boolean,
+  error: string | null,
+  deps: OverviewRegionDeps,
+): OverviewRegionSpec {
+  const counted = wip?.counted ?? [],
+    total = counted.length,
+    full = wip !== undefined && total >= wip.limit,
+    declared = wip?.roots.filter((root) => root.reason === "declared") ?? [],
+    derived = wip?.roots.filter((root) => root.reason === "derived") ?? [];
+  return {
+    title: t("views.overviewTaskWip.title"),
+    tag: full ? <StatusTag tone="bad" label={t("views.overviewTaskWip.fullTag")} /> : <></>,
+    // 快照未到时占用值不是 0:取数中给 pending 记号,失败给破折号,数字只在有快照时出现。
+    big: wip === undefined ? (error !== null ? "—" : "…") : `${total}/${wip.limit}`,
+    bigTone: full ? "bad" : undefined,
+    edge: full ? "bad" : undefined,
+    footer:
+      wip === undefined ? undefined : (
+        <span
+          title={`${t("views.overviewTaskWip.occupancyTitle", {
+            count: total,
+            limit: wip.limit,
+            limitLabel: wip.limitLabel,
+            threshold: wip.threshold,
+          })} · ${t("views.overviewTaskWip.footerRootsTitle", {
+            declaredIds: declared.map((root) => root.taskId).join(", ") || "none",
+            derivedIds: derived.map((root) => `${root.taskId}(${root.directChildCount})`).join(", ") || "none",
+            threshold: wip.threshold,
+          })}`}
+        >
+          {t("views.overviewTaskWip.footerRule", {
+            roots: wip.roots.length,
+            declared: declared.length,
+            derived: derived.length,
+          })}
+        </span>
+      ),
+    rowCount: total,
+    hasTop: true,
+    rowIds: counted.map(({ taskId }) => taskId),
+    renderList: ({ selectedId, onSelect, inFocus }) => (
+      <OverviewTaskWipBody
+        snapshot={wip}
+        loading={loading}
+        error={error}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        onOpenTask={deps.onOpenTask}
+        inFocus={inFocus}
+        filter={deps.wipFilter}
+        onFilterChange={deps.onWipFilterChange}
+      />
+    ),
+    renderRow: () => null,
+    renderDetail: (id) => {
+      const entry = counted.find((candidate) => candidate.taskId === id);
+      if (entry === undefined) return null;
+      return (
+        <div className="flex flex-col gap-3">
+          <StatusTag status={entry.status} />
+          <h3 className="text-text ui-title">{entry.title}</h3>
+          <IdText value={`task/${entry.taskId}`} title={entry.title === "" ? undefined : entry.title} />
+          <p className="ui-meta text-text-muted">
+            {t("views.overviewTaskWip.occupancyTitle", {
+              count: total,
+              limit: wip!.limit,
+              limitLabel: wip!.limitLabel,
+              threshold: wip!.threshold,
+            })}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            <OverviewActionButton primary onClick={() => deps.onOpenTask(entry.taskId)}>
+              {t("views.overviewView.actionOpenTask")}
+            </OverviewActionButton>
           </div>
         </div>
       );

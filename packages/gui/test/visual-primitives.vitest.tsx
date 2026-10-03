@@ -472,6 +472,41 @@ describe("FocusLayer", () => {
     act(() => root.unmount());
   });
 
+  it("only keyboard selection scrolls the committed row; refreshed data leaves user scroll alone", () => {
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(() => {});
+    let selectedId = "a";
+    const props = () => ({
+      ...base,
+      selectedId,
+      itemIds: [...base.itemIds],
+      onSelect: (id: string) => {
+        selectedId = id;
+      },
+      list: createElement(
+        "div",
+        null,
+        ...base.itemIds.map((id) =>
+          createElement("div", { key: id, "data-selected": id === selectedId || undefined }, id),
+        ),
+      ),
+    });
+    const { root } = mountOverlay(createElement(FocusLayer, props()));
+    const refresh = () =>
+      act(() => root.render(createElement(AppMotionConfig, null, createElement(FocusLayer, props()))));
+    expect(scroll).not.toHaveBeenCalled();
+    pressKey("ArrowDown");
+    refresh();
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.instances[0]?.textContent).toBe("b");
+    expect(scroll).toHaveBeenCalledWith({ block: "nearest", inline: "nearest", behavior: "instant" });
+    refresh();
+    selectedId = "c"; // Data reconciliation is not a keyboard navigation request.
+    refresh();
+    expect(scroll).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+    scroll.mockRestore();
+  });
+
   it("无选中时 ↓ 从第一项开始", () => {
     const onSelect = vi.fn();
     const { root } = mountOverlay(createElement(FocusLayer, { ...base, selectedId: null, onSelect }));

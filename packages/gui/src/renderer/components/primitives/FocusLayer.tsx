@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { X } from "@phosphor-icons/react";
@@ -44,6 +44,21 @@ export function FocusLayer({
   readonly list: ReactNode;
   readonly detail: ReactNode;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const keyboardSelection = useRef<string | null>(null);
+  // Only an explicit key move follows the selection. Query refreshes and user scrolling
+  // must not pull the list back to a previously selected row.
+  useLayoutEffect(() => {
+    if (open && keyboardSelection.current === selectedId) {
+      listRef.current?.querySelector<HTMLElement>("[data-selected]")?.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+        behavior: "instant",
+      });
+    }
+    keyboardSelection.current = null;
+  }, [open, selectedId]);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -59,7 +74,10 @@ export function FocusLayer({
           ? Math.min(itemIds.length - 1, current + 1)
           : Math.max(0, current === -1 ? 0 : current - 1);
       event.preventDefault();
-      if (itemIds[next] !== undefined && itemIds[next] !== selectedId) onSelect(itemIds[next]);
+      if (itemIds[next] !== undefined && itemIds[next] !== selectedId) {
+        keyboardSelection.current = itemIds[next];
+        onSelect(itemIds[next]);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -117,7 +135,11 @@ export function FocusLayer({
             <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1.5fr)_minmax(20rem,1fr)]">
               {/* flex 列的默认拉伸让每个直接子行占满列宽:调用方传入的行/包装层不再依赖
                 自身 display 参与块级流(行高亮曾止于内容宽度,S3 移交缺陷)。 */}
-              <div className="flex min-h-0 flex-col overflow-y-auto border-t border-border" data-focus-list>
+              <div
+                ref={listRef}
+                className="flex min-h-0 flex-col overflow-y-auto border-t border-border"
+                data-focus-list
+              >
                 {list}
               </div>
               <div
