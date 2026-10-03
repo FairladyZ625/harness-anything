@@ -1,7 +1,7 @@
 import { packageDispositions, type PackageDisposition } from "./package-disposition.ts";
 import { timestamp } from "./timestamp.ts";
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
-import { isRecord, type WriteSource } from "./write-chain.contract.ts";
+import { isRecord, validateWriteSource, type WriteSource } from "./write-chain.contract.ts";
 import { entityFreshnesses, type EntityFreshness } from "./entity-freshness.ts";
 import { compiledPattern } from "./entity-json-schema.ts";
 
@@ -306,7 +306,8 @@ export function validateBaseEntity<E extends BaseEntity>(
       issues.push("BaseEntity projection provenance actor is invalid");
     if (value.provenance.at !== value.updatedAt)
       issues.push("BaseEntity projection provenance must identify the current event cut");
-    if (!validWriteSource(value.provenance.source)) issues.push("BaseEntity projection provenance source is invalid");
+    if (validateWriteSource(value.provenance.source, true).length > 0)
+      issues.push("BaseEntity projection provenance source is invalid");
   }
   return issues;
 }
@@ -337,7 +338,7 @@ function parseEventCut<E extends BaseEntity>(
     throw new Error("BaseEntity event cut revision must be a positive safe integer");
   if (!timestamp(value.occurredAt)) throw new Error("BaseEntity event cut occurredAt must be an ISO-8601 UTC instant");
   if (validateActorIdentity(value.actor).length) throw new Error("BaseEntity event cut actor is invalid");
-  if (!validWriteSource(value.source)) throw new Error("BaseEntity event cut source is invalid");
+  if (validateWriteSource(value.source, true).length > 0) throw new Error("BaseEntity event cut source is invalid");
   if (typeof value.pinned !== "boolean") throw new Error("BaseEntity event cut pinned must be a boolean");
   if (!entityDispositions.includes(value.disposition as EntityDisposition))
     throw new Error("BaseEntity event cut disposition is invalid");
@@ -353,16 +354,4 @@ function entityRef<K extends string>(identity: EntityIdentityContract<K>, id: st
 
 function matchesIdentity(identity: EntityIdentityContract, id: string): boolean {
   return compiledPattern(identity.refPattern ?? identity.pattern).test(id);
-}
-
-function validWriteSource(value: unknown): value is WriteSource {
-  if (value === "local" || value === "remote_direct" || value === "migration-import/v1") return true;
-  if (!isRecord(value) || typeof value.kind !== "string") return false;
-  if (value.kind === "node") return typeof value.nodeId === "string";
-  return (
-    value.kind === "watch_session" &&
-    typeof value.sessionId === "string" &&
-    typeof value.path === "string" &&
-    typeof value.fingerprint === "string"
-  );
 }
