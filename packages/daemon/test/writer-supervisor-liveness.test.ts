@@ -73,6 +73,32 @@ test("a writer with no messages is terminated after 30 seconds of ready inactivi
   assert.equal(writer.terminateCalls, 1);
 });
 
+test("advancing watermark may continue beyond ten minutes; repeated watermark cannot renew it", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const writer = new FakeWriter();
+  const opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker });
+  const rejected = assert.rejects(opening, /30000ms without progress/);
+  for (let watermark = 1; watermark <= 31; watermark += 1) {
+    context.mock.timers.tick(20_000);
+    writer.publish(
+      writerStatus(
+        "attach-progress",
+        warmingStatus({ phase: "catching-up", applied: watermark, total: 100, watermark }),
+      ),
+    );
+    assert.equal(writer.terminateCalls, 0);
+  }
+  context.mock.timers.tick(20_000);
+  writer.publish(
+    writerStatus("attach-progress", warmingStatus({ phase: "catching-up", applied: 31, total: 100, watermark: 31 })),
+  );
+  context.mock.timers.tick(9_999);
+  assert.equal(writer.terminateCalls, 0);
+  context.mock.timers.tick(1);
+  await rejected;
+  assert.equal(writer.terminateCalls, 1);
+});
+
 class FakeWriter extends EventEmitter {
   terminateCalls = 0;
 

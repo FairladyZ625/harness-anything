@@ -44,6 +44,7 @@ export async function acquireDaemonAutostartFlight(input: {
   readonly daemonId: string;
   readonly pid?: number;
 }): Promise<{ readonly owner: boolean; readonly release: () => void }> {
+  const { processLockHolderDead } = await import("./process-port.ts");
   const pid = input.pid ?? process.pid,
     lockPath = daemonAutostartLockPath(input.userRoot, input.daemonId);
   mkdirSync(input.userRoot, { recursive: true });
@@ -54,8 +55,10 @@ export async function acquireDaemonAutostartFlight(input: {
     } catch (error) {
       if (!isCode(error, "EEXIST")) throw error;
       consumeKnownError(error);
-      const owner = await readHolderPid(lockPath);
-      if (owner !== null && processAlive(owner)) return { owner: false, release: () => undefined };
+      await readHolderPid(lockPath);
+      // The grace wait yields: a competing recovery may already have installed its claim.
+      const owner = readPidFile(lockPath);
+      if (owner !== null && !processLockHolderDead(lockPath, owner)) return { owner: false, release: () => undefined };
       try {
         unlinkSync(lockPath);
       } catch (cleanup) {
@@ -75,6 +78,7 @@ export async function acquireDaemonSingleton(input: {
   readonly pid?: number;
   readonly probe?: (socketPath: string) => Promise<boolean>;
 }): Promise<DaemonSingletonOutcome> {
+  const { processLockHolderDead } = await import("./process-port.ts");
   const pid = input.pid ?? process.pid,
     probe = input.probe ?? daemonSocketProbe,
     lockPath = daemonSingletonLockPath(input.userRoot, input.daemonId);
@@ -89,8 +93,9 @@ export async function acquireDaemonSingleton(input: {
     } catch (error) {
       if (!isCode(error, "EEXIST")) throw error;
       consumeKnownError(error);
-      const holder = await readHolderPid(lockPath);
-      if (holder !== null && holder !== pid && processAlive(holder))
+      await readHolderPid(lockPath);
+      const holder = readPidFile(lockPath);
+      if (holder !== null && !processLockHolderDead(lockPath, holder))
         return { claim: "incumbent", pid: holder, witness: "singleton-lock" };
       try {
         unlinkSync(lockPath);

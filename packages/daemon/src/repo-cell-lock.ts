@@ -1,3 +1,4 @@
+import { processLockHolderDead } from "./process-port.ts";
 import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { VcsCommandError, consumeKnownError } from "@harness-anything/kernel";
 import { type CanonicalRoot } from "./protocol/daemon-protocol.contract.ts";
@@ -82,10 +83,10 @@ export function staleWriterLock(target: string): boolean {
   let pid: number;
   try {
     pid = Number(readFileSync(target, "utf8").trim());
-    if (!Number.isSafeInteger(pid) || pid < 1) return false;
-    process.kill(pid, 0);
-    return false;
   } catch (error) {
-    return typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH";
+    if (cellErrorCode(error) !== "ENOENT") throw error;
+    return false;
   }
+  if (!Number.isSafeInteger(pid) || pid < 1) return false;
+  return processLockHolderDead(target, pid);
 }
