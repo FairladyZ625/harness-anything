@@ -6,7 +6,7 @@ import { DenseRow } from "../components/primitives/DenseRow";
 import { Empty } from "../components/primitives/Empty";
 import { Notice } from "../components/primitives/Notice";
 import { SegCtl } from "../components/primitives/SegCtl";
-import { StatusTag, TONE_COLOR } from "../components/primitives/StatusTag";
+import { StatusTag } from "../components/primitives/StatusTag";
 import { TextInput } from "../components/primitives/TextInput";
 import { t } from "../i18n/index.tsx";
 
@@ -28,25 +28,28 @@ function statusRank(status: TaskWipStatus): number {
 }
 
 /**
- * 总览「进行中的任务 / WIP」业务组件:显示真实占用数与当前上限、各占位状态的数量与
- * 可过滤的完整名单。数据只有一份——宿主把 `repo.tasks.wip` 的同一条快照连 loading/error
- * 状态一起喂进来(App 侧 `useTaskWipQuery`,台账切面前进时由既有失效扇出更新),组件
- * 不另发第二个查询、不在 GUI 侧重算准入:
+ * 总览「进行中的任务 / WIP」区域行体:占用数/上限在区域标题行(Region 的 big),根容器
+ * 排除说明在区域页脚,本组件只装行体并拥有状态分组/搜索的本地过滤态。数据只有一份——
+ * 宿主把 `repo.tasks.wip` 的同一条快照连 loading/error 状态一起喂进来(总览/看板共用
+ * `useTaskWipQuery`,台账切面前进时由既有失效扇出更新),组件不另发第二个查询、不在
+ * GUI 侧重算准入:
  *
- * - 占用 = `counted.length`,上限 = `snapshot.limit`(来源 `limitLabel`),不写死 30;
- * - 根容器(declared/derived)与 planned 不占位:它们只在页脚作排除说明,不混入分母;
- * - 每行状态 + 标题 + 可点导航,行右侧的实体引用走 EntityRefLink(G-10),两条路都接
- *   宿主的 `onOpenTask`;
- * - 列表在组件内部限高滚动(共享 `--long-content-cap`),搜索按标题或任务 ID 过滤,
- *   状态分组按钮切换名单,「全部」恢复全量;
- * - loading / error 是真实的 pending 与失败面,不冒充 0;空态只在该快照 counted 为
- *   空时出现,并如实带上当时的上限。
+ * - 条面(inFocus=false):四个占位状态各计数(与评审区的分组计数条同构)+ 全量名单,
+ *   行点击进放大层;根容器(declared/derived)与 planned 不占位,不进名单;
+ * - 放大层(inFocus=true):状态分组按钮(带计数)+ 搜索接管过滤,行点击选中,详情
+ *   侧给动作;行右侧实体引用两展面都直接导航(EntityRefLink,G-10);
+ * - 名单内部限高滚动(Region 行体滚动容器),不截断行数;
+ * - loading / error 是真实的 pending 与失败面,不冒充 0;空态只在 counted 为空时出现
+ *   并如实带上当时的上限。
  */
-export function OverviewTaskWip({
+export function OverviewTaskWipBody({
   snapshot,
   loading = false,
   error = null,
+  selectedId = null,
+  onSelect,
   onOpenTask,
+  inFocus = false,
 }: {
   /** `repo.tasks.wip` 的当前快照;数量与列表全部由它派生。 */
   readonly snapshot: TaskWipRead | undefined;
@@ -54,13 +57,18 @@ export function OverviewTaskWip({
   readonly loading?: boolean;
   /** 取数失败的可读信息(宿主传 `query.error?.message ?? null`)。 */
   readonly error?: string | null;
-  /** 行与实体引用共用的导航出口(App 的 openTaskDetail 同一落点)。 */
+  /** 放大层里的选中行(条面恒 null);由宿主持有,↑↓ 键移动。 */
+  readonly selectedId?: string | null;
+  /** 行主点击面:条面打开放大层并选中该行,放大层里更新选中。 */
+  readonly onSelect: (taskId: string) => void;
+  /** 行右侧实体引用的导航出口(App 的 openTaskDetail 同一落点)。 */
   readonly onOpenTask: (taskId: string) => void;
+  /** 放大层展面:控制行(分组/搜索)替换条面的计数带。 */
+  readonly inFocus?: boolean;
 }) {
   const [group, setGroup] = useState<WipGroup>("all");
   const [search, setSearch] = useState("");
   const counted = snapshot?.counted;
-  const roots = snapshot?.roots;
 
   const counts = useMemo(() => {
     const byStatus = new Map<TaskWipStatus, number>(WIP_STATUS_ORDER.map((status) => [status, 0]));
@@ -80,40 +88,9 @@ export function OverviewTaskWip({
   }, [counted, group, search]);
 
   const total = counted?.length ?? 0;
-  const full = snapshot !== undefined && total >= snapshot.limit;
-  // 快照未到时占用值不是 0:取数中给 pending 记号,失败给破折号,数字只在有快照时出现。
-  const occupancy = snapshot === undefined ? (error !== null ? "—" : "…") : `${total}/${snapshot.limit}`;
-  const declared = roots?.filter((root) => root.reason === "declared") ?? [];
-  const derived = roots?.filter((root) => root.reason === "derived") ?? [];
 
   return (
-    <section
-      data-testid="overview-task-wip"
-      aria-label={t("views.overviewTaskWip.title")}
-      className="flex h-full max-h-[var(--long-content-cap)] min-h-0 min-w-0 flex-col"
-    >
-      <header className="flex flex-none flex-wrap items-center gap-x-2 gap-y-1 px-3.5 pb-1.5 pt-2.5">
-        <h3 className="min-w-0 truncate font-semibold ui-meta">{t("views.overviewTaskWip.title")}</h3>
-        {full && <StatusTag tone="bad" label={t("views.overviewTaskWip.fullTag")} />}
-        <span
-          data-testid="overview-task-wip-occupancy"
-          data-full={full || undefined}
-          title={
-            snapshot === undefined
-              ? undefined
-              : t("views.overviewTaskWip.occupancyTitle", {
-                  count: total,
-                  limit: snapshot.limit,
-                  limitLabel: snapshot.limitLabel,
-                  threshold: snapshot.threshold,
-                })
-          }
-          className="ml-auto font-mono font-semibold leading-none tabular-nums ui-heading"
-          style={full ? { color: TONE_COLOR.bad } : undefined}
-        >
-          {occupancy}
-        </span>
-      </header>
+    <div data-testid="overview-task-wip" className="flex h-full min-h-0 min-w-0 flex-col">
       {error !== null && (
         <Notice tone="bad" variant="strip" testId="overview-task-wip-error">
           {snapshot === undefined
@@ -136,27 +113,41 @@ export function OverviewTaskWip({
         </div>
       ) : (
         <>
-          <div className="flex flex-none flex-wrap items-center gap-2 border-b border-border px-3.5 pb-2 pt-1">
-            <SegCtl
-              value={group}
-              onChange={setGroup}
-              label={t("views.overviewTaskWip.filterLabel")}
-              options={[
-                { value: "all" as const, label: `${t("views.overviewTaskWip.filterAll")} ${total}` },
-                ...WIP_STATUS_ORDER.map((status) => ({
-                  value: status,
-                  label: `${STATUS_META[status].label} ${counts.get(status) ?? 0}`,
-                })),
-              ]}
-            />
-            <TextInput
-              value={search}
-              onChange={setSearch}
-              label={t("views.overviewTaskWip.searchLabel")}
-              placeholder={t("views.overviewTaskWip.searchPlaceholder")}
-              testId="overview-task-wip-search"
-            />
-          </div>
+          {inFocus ? (
+            <div className="flex flex-none flex-wrap items-center gap-2 border-b border-border px-3.5 pb-2 pt-1">
+              <SegCtl
+                value={group}
+                onChange={setGroup}
+                label={t("views.overviewTaskWip.filterLabel")}
+                options={[
+                  { value: "all" as const, label: `${t("views.overviewTaskWip.filterAll")} ${total}` },
+                  ...WIP_STATUS_ORDER.map((status) => ({
+                    value: status,
+                    label: `${STATUS_META[status].label} ${counts.get(status) ?? 0}`,
+                  })),
+                ]}
+              />
+              <TextInput
+                value={search}
+                onChange={setSearch}
+                label={t("views.overviewTaskWip.searchLabel")}
+                placeholder={t("views.overviewTaskWip.searchPlaceholder")}
+                testId="overview-task-wip-search"
+              />
+            </div>
+          ) : (
+            // 四状态计数带与评审区的分组计数条同构(原型 .flow):数字 + 词表标签。
+            <div className="grid flex-none grid-cols-4 gap-1 border-b border-border px-3.5 pb-1.5 pt-2">
+              {WIP_STATUS_ORDER.map((status) => (
+                <div key={status} className="min-w-0 text-center">
+                  <span className="block font-mono font-semibold leading-none tabular-nums text-text ui-heading">
+                    {counts.get(status) ?? 0}
+                  </span>
+                  <span className="block truncate text-text-faint ui-micro">{STATUS_META[status].label}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div data-testid="overview-task-wip-list" className="min-h-0 flex-1 overflow-y-auto">
             {rows.length === 0 ? (
               <div className="px-3.5 py-2">
@@ -183,30 +174,14 @@ export function OverviewTaskWip({
                       <span className="max-w-[18ch] truncate">{entry.taskId}</span>
                     </EntityRefLink>
                   }
-                  onClick={() => onOpenTask(entry.taskId)}
+                  selected={selectedId === entry.taskId}
+                  onClick={() => onSelect(entry.taskId)}
                 />
               ))
             )}
           </div>
         </>
       )}
-      {snapshot !== undefined && (
-        <footer
-          data-testid="overview-task-wip-footer"
-          title={t("views.overviewTaskWip.footerRootsTitle", {
-            declaredIds: declared.map((root) => root.taskId).join(", ") || "none",
-            derivedIds: derived.map((root) => `${root.taskId}(${root.directChildCount})`).join(", ") || "none",
-            threshold: snapshot.threshold,
-          })}
-          className="flex-none truncate border-t border-border px-3.5 py-1.5 text-text-faint ui-micro"
-        >
-          {t("views.overviewTaskWip.footerRule", {
-            roots: roots?.length ?? 0,
-            declared: declared.length,
-            derived: derived.length,
-          })}
-        </footer>
-      )}
-    </section>
+    </div>
   );
 }

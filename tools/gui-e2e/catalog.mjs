@@ -24,6 +24,7 @@ import daemonStartupWait from "./scenarios/daemon-startup-wait.mjs";
 import cadenceView from "./scenarios/cadence-view.mjs";
 import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
 import pageSplitLayout from "./scenarios/page-split-layout.mjs";
+import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
 
 export const catalog = [
   shellNavigation,
@@ -52,6 +53,7 @@ export const catalog = [
   decisionSupersedeChain,
   taskCloseoutLongValues,
   pageSplitLayout,
+  overviewWipRegion,
 ];
 
 export function selectScenarios({ lane, ids }) {
