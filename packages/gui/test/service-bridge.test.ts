@@ -171,6 +171,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                   ? { ...scope, rootTaskId: "task-gui-smoke" }
                   : contract.id === "tasks.documents.list" ||
                       contract.id === "tasks.completion.read" ||
+                      contract.method === "repo.tasks.assignmentDirectory" ||
                       contract.id === "task.dispatches"
                     ? { ...scope, taskId: "task-gui-smoke" }
                     : contract.id === "agentRuntime.sessions.read"

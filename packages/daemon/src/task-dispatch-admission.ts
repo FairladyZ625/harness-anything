@@ -1,4 +1,10 @@
-import { dispatchPrerequisitesOf, type TaskProjection } from "@harness-anything/kernel";
+import {
+  dispatchPrerequisitesOf,
+  isSameExecution,
+  isSamePerson,
+  type ActorIdentity,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 
 /** Refuse task-bound dispatch while machine-readable prerequisites are unresolved. */
@@ -32,5 +38,28 @@ export function assertTaskDispatchPrerequisites(projection: TaskProjection, task
   throw runtimeSpawnError(
     "task_dispatch_prerequisite_unmet",
     `Task ${taskId} has unresolved dispatch prerequisites: ${guidance.join("; ")}.`,
+  );
+}
+
+/** The implementation dispatch may continue its holder or an explicitly trusted runtime handoff. */
+export function taskDispatchLeaseQualifies(
+  lease: ReturnType<TaskProjection["currentLease"]>,
+  actor: ActorIdentity,
+  runtimeSessionId: string,
+  trustedHandoffSource: string | null,
+  canHandoff: boolean,
+): boolean {
+  if (lease === null || lease.phase === "released" || lease.phase === "orphaned") return canHandoff;
+  const leaseExecutorId = lease.actor.executor?.id ?? null,
+    leaseHeldByRuntime = leaseExecutorId?.startsWith("runtime-session:") === true,
+    dispatchLeaseExecutor = `runtime-session:${runtimeSessionId}`,
+    trustedSourceExecutor = trustedHandoffSource ? `runtime-session:${trustedHandoffSource}` : null;
+  return (
+    lease.phase === "held" &&
+    isSamePerson(lease.actor, actor) &&
+    (isSameExecution(lease.actor, actor) ||
+      leaseExecutorId === dispatchLeaseExecutor ||
+      leaseExecutorId === trustedSourceExecutor ||
+      (actor.executor === null && !leaseHeldByRuntime))
   );
 }
