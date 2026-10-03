@@ -23,7 +23,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
   type WriteSource,
 } from "@harness-anything/kernel";
-import { assignmentIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
+import { nodeIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
 import { intentFromScan, resolveDocExecutionBinding } from "./doc-sync-candidate-scanner.ts";
 import type { AuthoredCandidateInventoryV1, DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import { claimBytes, directPaths } from "./doc-sync-details.ts";
@@ -48,7 +48,6 @@ import {
   scannerSettlement,
   scopeRequiredRejection,
 } from "./doc-sync-settlement.ts";
-import type { FleetAssignmentScope } from "./fleet/contract.ts";
 
 export const DOC_COMMAND_FRAME_MAX_BYTES = DOC_SYNC_INLINE_MAX_BYTES;
 
@@ -58,7 +57,6 @@ export interface Binding {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly authorizationDecision?: AuthorizationDecision;
-  readonly assignmentScope?: FleetAssignmentScope;
 }
 
 export type Input = {
@@ -146,7 +144,7 @@ export async function runDocAction(input: Input): Promise<DocSettlementReceipt> 
       : noOp(input, scan);
   }
   const prepared = scan ? intentFromScan(scan, input.workspaceId) : null,
-    intent = prepared?.intent ?? assignmentIntent(input);
+    intent = prepared?.intent ?? nodeIntent(input);
   const receipt = publishDocIntent(
     input,
     intent,

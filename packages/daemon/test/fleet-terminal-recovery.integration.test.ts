@@ -7,10 +7,10 @@ import test from "node:test";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
-import { fleetFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
+import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
 import { eventually, scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
 const replicaQuota = 64 * 1024 * 1024;
-test("edge terminal task settlement rejects a changed assignment holder", { timeout: 60_000 }, async (t) => {
+test("edge terminal task settlement rejects a changed node owner", { timeout: 60_000 }, async (t) => {
   const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
   t.after(() => fixture.close());
   const center = await fixture.center(),
@@ -24,23 +24,22 @@ test("edge terminal task settlement rejects a changed assignment holder", { time
   await runFleetReplicaPullClient({
     port: center.port,
     ca: fixture.cert,
-    nodeId: fixture.assignment.nodeId,
+    nodeId: fixture.subject.nodeId,
     credential: "machine-secret",
-    assignmentId: fixture.assignment.assignmentId,
+    repoId: fixture.subject.repoId,
     viewRoot,
     diskQuotaBytes: replicaQuota,
   });
-  applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, workspaceRoot, "pull");
+  applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
   let terminal: (() => void) | undefined;
   const runtime = openFleetEdgeRuntime({
     request: {
       host: "127.0.0.1",
       port: center.port,
       caPath: fixture.certFile,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
-      repoId: fixture.assignment.repoId,
+      repoId: fixture.subject.repoId,
       viewRoot,
       quotaBytes: replicaQuota,
       workspaceRoot,
@@ -74,7 +73,7 @@ test("edge terminal task settlement rejects a changed assignment holder", { time
   });
   fixture.track(() => runtime.close());
   const launched = await runtime.run("repo.agentRuntime.spawn", {
-    taskId: fixture.assignment.taskId,
+    taskId: fixture.subject.taskId,
     runtimeInstanceId: settlementDefinition.instanceId,
     cwd: { scope: "repo-root" },
     prompt: "Finish this task.",
@@ -82,7 +81,7 @@ test("edge terminal task settlement rejects a changed assignment holder", { time
   });
   assert.equal(launched.outcome, "applied", JSON.stringify(launched));
   assert.ok(terminal);
-  const events = () => makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo }).read().events;
+  const events = () => makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo }).read().events;
   assert.equal(
     await eventually(async () =>
       events().some(
@@ -99,13 +98,12 @@ test("edge terminal task settlement rejects a changed assignment holder", { time
       event.type === "runtime_session_liveness_changed" && event.payload.runtimeSessionId === launched.runtimeSessionId,
   );
   assert.equal(live?.payload.liveness, "live");
-  const peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret");
+  const peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret");
   const rejected = await peer.raw({
     schema: "fleet.runtime.event/v1",
     messageId: "unknown-runtime-event",
-    assignmentId: fixture.assignment.assignmentId,
     writerEpoch: 1,
-    repoId: fixture.assignment.repoId,
+    repoId: fixture.subject.repoId,
     opId: "unknown-runtime-event",
     eventType: "runtime_session_unknown_event",
     payload: { runtimeSessionId: launched.runtimeSessionId, liveness: "live" },
@@ -121,10 +119,17 @@ test("edge terminal task settlement rejects a changed assignment holder", { time
   );
   peer.close();
   // The node moves to another owner mid-run: the lease its previous owner holds is not the new owner's to release.
+  let denied!: (error: unknown) => void;
+  const denial = new Promise<unknown>((resolve) => {
+    denied = resolve;
+  });
+  t.mock.method(console, "error", (...args: unknown[]) => {
+    if (String(args[0]).includes("Pending runtime work failed")) denied(args[1]);
+  });
   fixture.setOwner("replacement-owner");
   terminal();
   const outcomes = () =>
-    makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+    makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
       .read()
       .events.filter(
         (event) =>
@@ -132,8 +137,20 @@ test("edge terminal task settlement rejects a changed assignment holder", { time
           event.payload.runtimeSessionId === launched.runtimeSessionId,
       )
       .map((event) => event.payload);
+  assert.equal(((await denial) as { code?: string }).code, "execution_scope_mismatch");
+  assert.deepEqual(outcomes(), [], "the replacement owner cannot publish the original owner's terminal outcome");
+  const shown = await fixture.host.run(
+    fixture.subject.repoId,
+    { kind: "task-show", taskId: fixture.subject.taskId },
+    localAuthFixture(),
+  );
+  const snapshot = JSON.parse(String(shown.evidence));
+  assert.equal(snapshot.lease.actor.principal.personId, "person-owner");
+  assert.deepEqual(snapshot.lease.source, { kind: "node", nodeId: fixture.subject.nodeId });
+  fixture.setOwner("person-owner");
+  await runtime.run("repo.agentRuntime.overview", { limit: 1 });
   assert.equal(await eventually(async () => outcomes().length > 0), true);
-  assert.equal(outcomes()[0]?.reasonCode, "runtime_lease_release_failed", JSON.stringify(outcomes()));
+  assert.equal(outcomes()[0]?.reasonCode, "runtime_archive_failed", JSON.stringify(outcomes()));
   assert.equal(outcomes()[0]?.outcome, "failed", JSON.stringify(outcomes()));
 });
 for (const restart of [false, true])
@@ -154,13 +171,13 @@ for (const restart of [false, true])
       await runFleetReplicaPullClient({
         port: center.port,
         ca: fixture.cert,
-        nodeId: fixture.assignment.nodeId,
+        nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
-        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.subject.repoId,
         viewRoot,
         diskQuotaBytes: replicaQuota,
       });
-      applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, workspaceRoot, "pull");
+      applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
       let terminal: (() => void) | undefined;
       const createRuntime = () =>
         openFleetEdgeRuntime({
@@ -168,10 +185,9 @@ for (const restart of [false, true])
             host: "127.0.0.1",
             port: center.port,
             caPath: fixture.certFile,
-            nodeId: fixture.assignment.nodeId,
+            nodeId: fixture.subject.nodeId,
             credential: "machine-secret",
-            assignmentId: fixture.assignment.assignmentId,
-            repoId: fixture.assignment.repoId,
+            repoId: fixture.subject.repoId,
             viewRoot,
             quotaBytes: replicaQuota,
             workspaceRoot,
@@ -206,7 +222,7 @@ for (const restart of [false, true])
       let runtime = createRuntime();
       fixture.track(() => runtime.close());
       const launched = await runtime.run("repo.agentRuntime.spawn", {
-        taskId: fixture.assignment.taskId,
+        taskId: fixture.subject.taskId,
         runtimeInstanceId: settlementDefinition.instanceId,
         cwd: { scope: "repo-root" },
         prompt: "Finish this task.",
@@ -232,7 +248,7 @@ for (const restart of [false, true])
       await fixture.center(center.port);
       await runtime.run("repo.agentRuntime.overview", { limit: 1 });
       const outcomes = () =>
-        makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+        makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
           .read()
           .events.filter(
             (event) =>
@@ -247,9 +263,9 @@ for (const restart of [false, true])
       runtime = createRuntime();
       await runtime.run("repo.agentRuntime.overview", { limit: 1 });
       assert.equal(outcomes().length, 1, "later reads and restart must not duplicate the terminal event");
-      const released = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+      const released = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
         .read()
-        .events.filter((event) => event.type === "lease_released" && event.taskId === fixture.assignment.taskId);
+        .events.filter((event) => event.type === "lease_released" && event.taskId === fixture.subject.taskId);
       assert.equal(released.length, 1, "the matching execution lease is released once");
     },
   );

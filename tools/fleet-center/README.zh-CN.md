@@ -4,8 +4,8 @@
 
 `centerctl.sh` 是面向 `tencent-lighthouse-prod` 的 W5-R 生产切换演练部署。它在登录用户的
 home 下安装固定版本的 Node 24 tar 包、克隆并构建 Harness Anything、把一份台账备份恢复到
-`~/harness-center/repo` 并以 `remote-center` 挂载、启动托管授权服务、生成私有 TLS 物料与
-任务分派名册（roster），最后启动 daemon 持有的 TLS 中心。它绝不使用 sudo、Docker、系统级
+`~/harness-center/repo` 并以 `remote-center` 挂载、启动托管授权服务、生成私有 TLS 物料，
+最后启动 daemon 持有的 TLS 中心。它绝不使用 sudo、Docker、系统级
 GitLab/nginx 配置，也不碰宿主机默认的 Harness daemon。
 
 ## 制作备份
@@ -45,18 +45,18 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh down'
 ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 ```
 
-`down` 只停止本部署的隔离 daemon，有意保留仓库、TLS 物料、名册与副本状态以备审计/恢复。
+`down` 只停止本部署的隔离 daemon，有意保留仓库、TLS 物料与副本状态以备审计/恢复。
 主机重启后登录并执行 `up`；daemon 与 Fleet 监听器都是进程持有的，需要重新建立。
 
 人的身份与仓库权限来自 Keycloak；恢复出的仓库中的 `people.yaml` 不授予访问权限。本部署不向 remote center 放行本地仓库写入：
 写入来自持有节点凭据的 Fleet 边缘，而人通过连接到该 daemon 的桌面应用登录。
 
-## 名册与节点
+## 节点与任务租约
 
-`up` 把 `~/harness-center/fleet/roster.json` 写成 `fleet-roster/v3`：每行一个 assignment，
-声明节点可以触达什么（`assignmentId`、`nodeId`、`repoId`、`viewId`、`expiresAt`、
-`scope`）。名册不回答「节点是谁」：节点的机器凭据与其属主登记在中心的 Keycloak 节点
-注册表里，`centerctl.sh` 不创建任何凭据、不注册任何节点。
+`up` 按 `repoId` 启动监听器，不再生成逐 execution 静态名册。节点机器凭据与当前属主
+来自中心 Keycloak 节点注册表；`centerctl.sh` 不创建凭据、不注册节点。有权者将任务
+指派给人、节点或原生 Keycloak 工作组，合格执行节点竞争同一份 canonical task lease，
+先获得租约者执行。
 
 启动 Fleet 监听器之前，`up` 会执行 `ha bootstrap`，在本部署的 user root 下安装并启动托管
 的 Keycloak 与 PostgreSQL。该步骤无需登录。它从 `repo1.maven.org`、`api.adoptium.net`、
@@ -89,8 +89,7 @@ ha bootstrap --operation node-list
 节点首次注册会一次性铸造机器凭据，写入 `--credential-file` 指定的新文件，仅属主可读
 （`0600`）。回执只点名文件、绝不携带凭据本身。不带 `--credential-file` 以
 `credential_file_required` 拒绝；文件已存在时以 `credential_file_unavailable` 拒绝——两种
-情况下都不会注册任何内容。每个节点用独立目录，绝不共享凭据。`<node-id>` 必须是名册
-assignment 的 `nodeId`。
+情况下都不会注册任何内容。每个节点用独立目录，绝不共享凭据。`<node-id>` 标识认证后的执行节点。
 
 把你信任的通道把文件送到边缘机器后，删除中心侧副本。在边缘，凭据写进工作区的
 `fleet-edge.json`（`credential`），或以 `ha daemon fleet edge sync --credential` 传入；

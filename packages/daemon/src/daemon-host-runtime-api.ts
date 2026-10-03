@@ -1,3 +1,4 @@
+import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import {
   ledgerWriteCommandTopology,
@@ -8,7 +9,6 @@ import {
   keycloakNodeRegistry,
   startFleetCenterAdmission,
   syncFleetEdgeMirror,
-  readFleetRosterFile,
   type FleetCenterAdmissionRequest,
   type FleetEdgeSyncRequest,
 } from "./fleet-center-admission.ts";
@@ -162,8 +162,17 @@ export function createDaemonHostRuntimeApi(
       if (method === "repo.terminal.terminate") return frame(cell.terminal.terminate(payload, authorizedBinding));
       throw context.hostCodedError("unsupported_command", `Unsupported terminal or catalog method: ${method}.`);
     },
-    authorize: async (repoId, kind, auth) => {
+    authorize: async (repoId, kind, auth, target) => {
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      if (target)
+        return evaluateRepoCellAction({
+          action: { kind, taskId: target.taskId },
+          binding: await context.binding(cell.status().rootDir, auth),
+          actionId: `${kind}:${repoId}:${target.taskId}`,
+          repoId,
+          revision: cell.status().ledgerRevision ?? 0,
+          now: new Date().toISOString(),
+        });
       return evaluateFleetAction({
         kind,
         binding: await context.binding(cell.status().rootDir, auth),
@@ -175,8 +184,7 @@ export function createDaemonHostRuntimeApi(
     fleet: {
       startCenter: async (payload, auth) => {
         const request = payload as unknown as FleetCenterAdmissionRequest["payload"],
-          roster = readFleetRosterFile(request.rosterPath),
-          authorityRepoId = [...new Set(roster.assignments.map(({ repoId }) => repoId))].sort()[0],
+          authorityRepoId = request.repoId,
           authorityRepo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
             (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
               repo.repoId === authorityRepoId &&
@@ -187,7 +195,7 @@ export function createDaemonHostRuntimeApi(
         if (!authorityRepo)
           throw context.hostCodedError(
             "repo_namespace_unknown",
-            "Fleet roster requires one enabled authority repository.",
+            "Fleet center requires one enabled authority repository.",
           );
         const authorizationDecision = await requireAuthorizedHostAction({
           kind: "daemon-fleet-center-start",
@@ -213,10 +221,6 @@ export function createDaemonHostRuntimeApi(
           },
         });
         context.fleetCenter = started.center;
-        // Retained for read-side joins (Schedule GUI availability): the roster is the
-        // assignment authority, so repository reads on this center can resolve which
-        // fleet edge owns execution instead of guessing.
-        context.fleetRoster = started.roster;
         return {
           schema: "command-receipt/v2",
           ok: true,
@@ -226,7 +230,6 @@ export function createDaemonHostRuntimeApi(
           bind: request.bind ?? "127.0.0.1",
           stateRoot: started.stateRoot,
           quotaBytes: request.quotaBytes,
-          assignments: started.roster.assignments.length,
           replicas: started.center.status().replicas,
           authorizationDecision: authorizationDecision as unknown as JsonObject,
         };

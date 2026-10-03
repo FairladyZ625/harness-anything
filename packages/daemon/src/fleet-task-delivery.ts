@@ -9,21 +9,21 @@ export type FleetDeliveryTask = Snapshot & { readonly workspace: TaskWorkspaceVi
 
 export function assertFleetDeliveryHolder(
   snapshot: FleetDeliveryTask,
-  input: { readonly nodeId: string; readonly assignmentId: string; readonly executionId?: string },
+  input: { readonly nodeId: string; readonly personId: string; readonly executionId?: string },
 ): string {
   const lease = snapshot.lease;
   if (
     !lease ||
     typeof lease.source !== "object" ||
-    lease.source.kind !== "assignment" ||
+    lease.source.kind !== "node" ||
     lease.source.nodeId !== input.nodeId ||
-    lease.source.assignmentId !== input.assignmentId ||
+    lease.actor.principal.personId !== input.personId ||
     (input.executionId !== undefined && lease.executionId !== input.executionId) ||
     lease.phase !== "held" ||
     Date.parse(lease.expiresAt) <= Date.now()
   )
-    throw Object.assign(new Error("Delivery requires the current assignment and execution lease."), {
-      code: "assignment_rejected",
+    throw Object.assign(new Error("Delivery requires the current node, owner and execution lease."), {
+      code: "lease_holder_mismatch",
     });
   return lease.executionId;
 }
@@ -32,8 +32,9 @@ export function assertFleetDeliveryHolder(
 export async function prepareEdgeTaskDelivery(input: {
   readonly workspaceRoot: string;
   readonly nodeId: string;
-  readonly assignmentId: string;
+
   readonly action: FleetTaskAction;
+  readonly authorize: () => Promise<string>;
   readonly readTask: () => Promise<FleetDeliveryTask>;
 }): Promise<FleetTaskAction> {
   const initial = await input.readTask();
@@ -52,8 +53,10 @@ export async function prepareEdgeTaskDelivery(input: {
   const taskId = String(input.action.taskId),
     expectedRemoteCommit = await readWorkerRemoteCommit(input.workspaceRoot, taskId),
     current = await input.readTask(),
+    personId = await input.authorize(),
     executionId = assertFleetDeliveryHolder(current, {
       ...input,
+      personId,
       executionId: typeof input.action.executionId === "string" ? input.action.executionId : undefined,
     }),
     cwd = path.join(input.workspaceRoot, initial.workspace.path),

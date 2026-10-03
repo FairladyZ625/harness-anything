@@ -1,4 +1,6 @@
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
+import { readClaimableTasks } from "./task-claimable-read.ts";
+import { readTaskAssignmentDirectory } from "./task-assignment-directory.ts";
 import { doctorBuildDrift, unavailableCenterDoctor, type DoctorCheck } from "./repo-cell-doctor.ts";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
@@ -48,6 +50,8 @@ import {
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
+    method !== "repo.tasks.claimable" &&
+    method !== "repo.tasks.assignmentDirectory" &&
     method !== "daemon.gui.system.read" &&
     method !== "daemon.gui.control.receipt" &&
     method !== "observe.tail" &&
@@ -468,22 +472,9 @@ export function createDaemonHostRepositoryApi(
           evaluatedAtCut: "daemon-registry:current",
         }),
         cell = context.cells.get(request.repoId),
-        blockingWork = [
-          ...(cell?.inFlightWork() ?? []),
-          ...(context.fleetRoster?.assignments ?? []).flatMap((assignment) =>
-            assignment.repoId !== request.repoId || cell
-              ? []
-              : [
-                  {
-                    kind: "fleet-assignment" as const,
-                    id: assignment.assignmentId,
-                    assignmentId: assignment.assignmentId,
-                    nodeId: assignment.nodeId,
-                    nextAction: `Release fleet assignment ${assignment.assignmentId} before retrying.`,
-                  },
-                ],
-          ),
-        ].sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id));
+        blockingWork = [...(cell?.inFlightWork() ?? [])].sort(
+          (left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id),
+        );
       const inFlightSummary = `Repository ${request.repoId} still has ${blockingWork.length} in-flight item${blockingWork.length === 1 ? "" : "s"}; settle them before retrying.`;
       if (blockingWork.length > 0)
         return {
@@ -701,7 +692,17 @@ export function createDaemonHostRepositoryApi(
         );
       const binding = await context.binding(cell.status().rootDir, auth);
       let result: unknown;
-      if (method === "observe.tail")
+      if (method === "repo.tasks.claimable")
+        result = await readClaimableTasks({
+          repoId,
+          binding,
+          now: new Date().toISOString(),
+          settings: (await cell.read("repo.settings.read", {}, binding)).settings,
+          page: (cursor) => cell.read("repo.tasks.list", { limit: 500, ...(cursor ? { cursor } : {}) }, binding),
+        });
+      else if (method === "repo.tasks.assignmentDirectory")
+        result = await readTaskAssignmentDirectory(repoId, String(payload.taskId), binding);
+      else if (method === "observe.tail")
         result = await cell.observeTail(payload, {
           userRoot: context.input.userRoot,
           daemonId: context.input.daemonId,

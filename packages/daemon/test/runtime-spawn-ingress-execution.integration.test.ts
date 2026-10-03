@@ -1,12 +1,12 @@
 // harness-test-tier: integration
-import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { signInPolicyTestUser, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection, sha256Bytes } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -636,124 +636,182 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         }
       },
     );
-    await t.test(
-      "a task-bound runtime syncs and dispatches its descendant task but not an unrelated task",
-      async () => {
-        const parentTaskId = "task-runtime-commander-parent",
-          parentExecutionId = "exec-runtime-commander-parent",
-          unrelatedTaskId = "task-runtime-commander-unrelated";
-        await createReadyTask(parentTaskId, "Runtime commander parent");
-        assert.equal(
-          (await host.run(repoId, { kind: "task-start", taskId: parentTaskId, executionId: parentExecutionId }, auth))
-            .outcome,
-          "applied",
-        );
-        const commander = await rpc(host, auth, "repo.agentRuntime.spawn", {
-          repo: { repoId },
-          payload: {
-            runtimeInstanceId: ingressDefinition.instanceId,
-            cwd: { scope: "repo-root" },
-            prompt: "Plan and dispatch the child task.",
-            taskId: parentTaskId,
-            idempotencyKey: "runtime-commander-parent",
-          },
-        });
-        assert.equal(commander.outcome, "applied", JSON.stringify(commander));
-        await eventuallyValue(
-          async () =>
-            makeTaskEventReader({ repoId, rootDir: root })
-              .read()
-              .events.find(
-                (event) =>
-                  event.type === "runtime_session_task_bound" &&
-                  event.payload.runtimeSessionId === commander.runtimeSessionId,
-              ) ?? null,
-        );
-        const commanderExecutor = {
-            kind: "agent",
-            id: `runtime-session:${commander.runtimeSessionId}`,
-          } as const,
-          child = await host.run(
-            repoId,
-            {
-              kind: "task-create",
-              title: "Runtime commander child",
-              parentTaskId,
-              executor: commanderExecutor,
-            },
-            auth,
+    for (const sourceNode of [false, true])
+      await t.test(
+        `a ${sourceNode ? "node" : "local"} task-bound runtime syncs and dispatches descendants but not an unrelated task`,
+        async () => {
+          const commandAuth = sourceNode
+            ? { transportKind: "fleet-tls" as const, nodePrincipal: { nodeId: "commander-node", personId: "owner" } }
+            : auth;
+          const parentTaskId = `task-runtime-commander-parent-${sourceNode}`,
+            parentExecutionId = `exec-runtime-commander-parent-${sourceNode}`,
+            unrelatedTaskId = `task-runtime-commander-unrelated-${sourceNode}`;
+          await createReadyTask(parentTaskId, "Runtime commander parent");
+          assert.equal(
+            (
+              await host.run(
+                repoId,
+                { kind: "task-start", taskId: parentTaskId, executionId: parentExecutionId },
+                commandAuth,
+              )
+            ).outcome,
+            "applied",
           );
-        assert.equal(child.outcome, "applied", JSON.stringify(child));
-        assert.equal(typeof child.taskId, "string", JSON.stringify(child));
-        assert.equal(typeof child.packagePath, "string", JSON.stringify(child));
-        const publication = await host.run(
-          repoId,
-          { kind: "receipt-show", opId: child.opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
-          auth,
-        );
-        assert.equal(publication.wait?.state, "satisfied", JSON.stringify(publication));
-        const childTaskId = String(child.taskId);
-        await realizeTaskPlanFixture(
-          root,
-          String(child.packagePath),
-          (_planPath) =>
-            host.run(repoId, { kind: "doc-submit", taskId: childTaskId, executor: commanderExecutor }, auth),
-          "Runtime commander child",
-        );
-
-        const childDispatch = await rpc(host, auth, "repo.agentRuntime.spawn", {
-          repo: { repoId },
-          payload: {
-            runtimeInstanceId: ingressDefinition.instanceId,
-            cwd: { scope: "repo-root" },
-            taskId: childTaskId,
-            idempotencyKey: "runtime-commander-child",
-            executor: commanderExecutor,
-          },
-        });
-        assert.equal(childDispatch.outcome, "applied", JSON.stringify(childDispatch));
-        await eventuallyValue(
-          async () =>
-            makeTaskEventReader({ repoId, rootDir: root })
-              .read()
-              .events.find(
-                (event) =>
-                  event.type === "runtime_session_task_bound" &&
-                  event.payload.runtimeSessionId === childDispatch.runtimeSessionId &&
-                  event.payload.taskId === childTaskId,
-              ) ?? null,
-        );
-
-        await createReadyTask(unrelatedTaskId, "Runtime commander unrelated");
-        const unrelatedDoc = await host.run(
-          repoId,
-          { kind: "doc-submit", taskId: unrelatedTaskId, executor: commanderExecutor },
-          auth,
-        );
-        assert.deepEqual(
-          { outcome: unrelatedDoc.outcome, code: unrelatedDoc.code },
-          { outcome: "op_rejected", code: "executor_binding_invalid" },
-          JSON.stringify(unrelatedDoc),
-        );
-        const launchesBeforeUnrelated = launchCount,
-          unrelatedDispatch = await rpc(host, auth, "repo.agentRuntime.spawn", {
+          const commander = await rpc(host, commandAuth, "repo.agentRuntime.spawn", {
             repo: { repoId },
             payload: {
               runtimeInstanceId: ingressDefinition.instanceId,
               cwd: { scope: "repo-root" },
-              taskId: unrelatedTaskId,
-              idempotencyKey: "runtime-commander-unrelated",
+              prompt: "Plan and dispatch the child task.",
+              taskId: parentTaskId,
+              idempotencyKey: `runtime-commander-parent-${sourceNode}`,
+            },
+          });
+          assert.equal(commander.outcome, "applied", JSON.stringify(commander));
+          await eventuallyValue(
+            async () =>
+              makeTaskEventReader({ repoId, rootDir: root })
+                .read()
+                .events.find(
+                  (event) =>
+                    event.type === "runtime_session_task_bound" &&
+                    event.payload.runtimeSessionId === commander.runtimeSessionId,
+                ) ?? null,
+          );
+          const commanderExecutor = {
+              kind: "agent",
+              id: `runtime-session:${commander.runtimeSessionId}`,
+            } as const,
+            child = await host.run(
+              repoId,
+              {
+                kind: "task-create",
+                title: "Runtime commander child",
+                parentTaskId,
+                executor: commanderExecutor,
+              },
+              commandAuth,
+            );
+          assert.equal(child.outcome, "applied", JSON.stringify(child));
+          assert.equal(typeof child.taskId, "string", JSON.stringify(child));
+          assert.equal(typeof child.packagePath, "string", JSON.stringify(child));
+          const publication = await host.run(
+            repoId,
+            { kind: "receipt-show", opId: child.opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
+            auth,
+          );
+          assert.equal(publication.wait?.state, "satisfied", JSON.stringify(publication));
+          const childTaskId = String(child.taskId);
+          await realizeTaskPlanFixture(
+            root,
+            String(child.packagePath),
+            async (planPath) => {
+              if (!sourceNode)
+                return host.run(
+                  repoId,
+                  { kind: "doc-submit", taskId: childTaskId, executor: commanderExecutor },
+                  commandAuth,
+                );
+              const projection = makeTaskProjection({
+                rootDir: root,
+                eventStore: makeTaskEventReader({ repoId, rootDir: root }),
+              });
+              const baseBlobSha256 = projection.readDocument(planPath).document!.blobSha256;
+              projection.close();
+              const status = await host.run(repoId, { kind: "doc-status", paths: [planPath] }, auth);
+              assert.equal(status.detail?.kind, "doc_sync", JSON.stringify(status));
+              const body = readFileSync(path.join(root, "harness", planPath), "utf8");
+              const claimRef = "doc-sync-claims/commander-child";
+              mkdirSync(path.join(root, ".harness", "doc-sync-claims"), { recursive: true });
+              writeFileSync(path.join(root, ".harness", claimRef), body);
+              const action = {
+                kind: "doc-submit",
+                taskId: childTaskId,
+                executor: commanderExecutor,
+                executionId: parentExecutionId,
+                baseLedgerSha: status.detail!.currentLedgerSha,
+                changes: [
+                  {
+                    path: planPath,
+                    baseBlobSha256,
+                    policyId: "markdown-body-replaceable/v1",
+                    candidate: {
+                      ref: claimRef,
+                      sha256: sha256Bytes(Buffer.from(body)),
+                      size: Buffer.byteLength(body),
+                      mediaType: "text/markdown",
+                    },
+                  },
+                ],
+              };
+              withPolicyGroup({ actor: { principal: { personId: "intruder" }, executor: null } }, "admin");
+              const before = makeTaskEventReader({ repoId, rootDir: root }).read().revision;
+              for (const nodePrincipal of [
+                { nodeId: "other-node", personId: "owner" },
+                { nodeId: "commander-node", personId: "intruder" },
+              ]) {
+                const denied = await host.run(repoId, action, { transportKind: "fleet-tls", nodePrincipal });
+                assert.equal(denied.code, "executor_binding_invalid", JSON.stringify(denied));
+                assert.equal(makeTaskEventReader({ repoId, rootDir: root }).read().revision, before);
+              }
+              return host.run(repoId, action, commandAuth);
+            },
+            "Runtime commander child",
+          );
+
+          const childDispatch = await rpc(host, commandAuth, "repo.agentRuntime.spawn", {
+            repo: { repoId },
+            payload: {
+              runtimeInstanceId: ingressDefinition.instanceId,
+              cwd: { scope: "repo-root" },
+              taskId: childTaskId,
+              idempotencyKey: `runtime-commander-child-${sourceNode}`,
               executor: commanderExecutor,
             },
           });
-        assert.deepEqual(
-          { outcome: unrelatedDispatch.outcome, code: unrelatedDispatch.code },
-          { outcome: "op_rejected", code: "executor_binding_invalid" },
-          JSON.stringify(unrelatedDispatch),
-        );
-        assert.equal(launchCount, launchesBeforeUnrelated);
-      },
-    );
+          assert.equal(childDispatch.outcome, "applied", JSON.stringify(childDispatch));
+          await eventuallyValue(
+            async () =>
+              makeTaskEventReader({ repoId, rootDir: root })
+                .read()
+                .events.find(
+                  (event) =>
+                    event.type === "runtime_session_task_bound" &&
+                    event.payload.runtimeSessionId === childDispatch.runtimeSessionId &&
+                    event.payload.taskId === childTaskId,
+                ) ?? null,
+          );
+
+          await createReadyTask(unrelatedTaskId, "Runtime commander unrelated");
+          const unrelatedDoc = await host.run(
+            repoId,
+            { kind: "doc-submit", taskId: unrelatedTaskId, executor: commanderExecutor },
+            commandAuth,
+          );
+          assert.deepEqual(
+            { outcome: unrelatedDoc.outcome, code: unrelatedDoc.code },
+            { outcome: "op_rejected", code: "executor_binding_invalid" },
+            JSON.stringify(unrelatedDoc),
+          );
+          const launchesBeforeUnrelated = launchCount,
+            unrelatedDispatch = await rpc(host, commandAuth, "repo.agentRuntime.spawn", {
+              repo: { repoId },
+              payload: {
+                runtimeInstanceId: ingressDefinition.instanceId,
+                cwd: { scope: "repo-root" },
+                taskId: unrelatedTaskId,
+                idempotencyKey: "runtime-commander-unrelated",
+                executor: commanderExecutor,
+              },
+            });
+          assert.deepEqual(
+            { outcome: unrelatedDispatch.outcome, code: unrelatedDispatch.code },
+            { outcome: "op_rejected", code: "executor_binding_invalid" },
+            JSON.stringify(unrelatedDispatch),
+          );
+          assert.equal(launchCount, launchesBeforeUnrelated);
+        },
+      );
     await t.test(
       "the task-bound runtime keeps writes scoped and submits only its own execution after projection reopen",
       async (runtimeTest) => {

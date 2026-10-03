@@ -1,11 +1,9 @@
 import type { TaskProjection } from "@harness-anything/kernel";
-import type { FleetRoster } from "./fleet-center-admission.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import type { RepoInFlightWork } from "./repo-cell-types.ts";
 
 export function readRepoInFlightWork(input: {
   readonly projection: Pick<TaskProjection, "list" | "listEntities" | "readRuntimeSessions">;
-  readonly fleetRoster: FleetRoster | null;
   readonly repoId: string;
   readonly queueDepth: number;
 }): readonly RepoInFlightWork[] {
@@ -54,19 +52,6 @@ export function readRepoInFlightWork(input: {
         },
       ];
     }),
-    fleet = (input.fleetRoster?.assignments ?? []).flatMap((assignment) =>
-      assignment.repoId !== input.repoId
-        ? []
-        : [
-            {
-              kind: "fleet-assignment" as const,
-              id: assignment.assignmentId,
-              assignmentId: assignment.assignmentId,
-              nodeId: assignment.nodeId,
-              nextAction: `Release fleet assignment ${assignment.assignmentId} before retrying.`,
-            },
-          ],
-    ),
     publication =
       input.queueDepth === 0
         ? []
@@ -78,7 +63,7 @@ export function readRepoInFlightWork(input: {
               nextAction: "Wait for the daemon publication queue to drain, then retry.",
             },
           ];
-  return [...runtime, ...leases, ...publication, ...schedules, ...fleet].sort(
+  return [...runtime, ...leases, ...publication, ...schedules].sort(
     (left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id),
   );
 }

@@ -6,6 +6,7 @@ import {
   effectivePolicyGroupScopes,
   encodeAuthorizationResource,
   stableStringify,
+  sha256Text,
 } from "@harness-anything/kernel";
 import {
   KeycloakPolicyAdapter,
@@ -27,6 +28,12 @@ export const accessAdminOperations = Object.freeze([
   "grant-list",
   "effective-permissions",
   "receipt-list",
+  "team-list",
+  "team-create",
+  "team-update",
+  "team-delete",
+  "team-member-add",
+  "team-member-remove",
   "node-list",
   "node-register",
   "node-unregister",
@@ -47,6 +54,8 @@ export interface AccessAdminRequest {
   readonly personId?: string;
   readonly resource?: string;
   readonly sessionLifetimeSeconds?: number;
+  readonly teamId?: string;
+  readonly teamName?: string;
   readonly nodeId?: string;
   /** Where a first node registration puts the machine credential instead of returning it. */
   readonly credentialFile?: string;
@@ -62,6 +71,8 @@ export interface AccessAdminPorts {
 
 /** What Keycloak must show once an operation took effect; reconciliation observes exactly this. */
 type Expectation =
+  | { readonly kind: "team"; readonly teamId: string; readonly version: string }
+  | { readonly kind: "team-created"; readonly name: string }
   | { readonly kind: "group"; readonly groupId: string; readonly version: string | null }
   | {
       readonly kind: "grant";
@@ -83,6 +94,7 @@ interface Plan {
 
 interface Conflict {
   readonly conflict: Readonly<Record<"expectedVersion" | "currentVersion", string>> & {
+    readonly teamId?: string;
     readonly groupId?: string;
     readonly nodeId?: string;
   };
@@ -128,6 +140,14 @@ export class AccessAdminService {
         return this.#effectivePermissions(request);
       case "receipt-list":
         return { ok: true, receipts: this.#receipts().slice(0, receiptListLimit) };
+      case "team-list":
+        return this.#listTeams();
+      case "team-create":
+      case "team-update":
+      case "team-delete":
+      case "team-member-add":
+      case "team-member-remove":
+        return this.#mutate(request, actor, (session) => this.#planTeam(session, request));
       case "node-list":
         return this.#listNodes();
       case "node-register":
@@ -193,6 +213,67 @@ export class AccessAdminService {
   async #sessionLifetime(): Promise<Record<string, unknown>> {
     const seconds = await readSessionLifetime((await this.#session()).realmAdmin, this.#ports.fetch);
     return { ok: true, seconds, version: String(seconds), ...sessionLifetimeBounds };
+  }
+
+  async #listTeams(): Promise<Record<string, unknown>> {
+    const session = await this.#session(),
+      people = await session.adapter.readPeople(session.token),
+      teams = await session.adapter.readTeams(session.token);
+    return {
+      ok: true,
+      people: people.map(({ personId, username }) => ({ personId, username })),
+      teams: await Promise.all(
+        teams.map(async (team) => {
+          const members = await session.adapter.readTeamMembers(session.token, team.id);
+          return {
+            ...team,
+            version: teamVersion(team.name, members),
+            personIds: people.filter((person) => members.includes(person.userId)).map((person) => person.personId),
+          };
+        }),
+      ),
+    };
+  }
+
+  async #planTeam(session: Session, request: AccessAdminRequest): Promise<Plan | Conflict> {
+    const teams = await session.adapter.readTeams(session.token);
+    if (request.operation === "team-create") {
+      const name = text(request.teamName, "teamName");
+      if (teams.some((team) => team.name === name)) throw coded("team_exists", `Work team ${name} already exists.`);
+      return { expect: { kind: "team-created", name }, apply: () => session.adapter.createTeam(session.token, name) };
+    }
+    const teamId = text(request.teamId, "teamId"),
+      current = teams.find((team) => team.id === teamId);
+    if (!current) throw coded("team_unknown", `Work team ${teamId} does not exist.`);
+    const members = await session.adapter.readTeamMembers(session.token, teamId),
+      currentVersion = teamVersion(current.name, members);
+    if (currentVersion !== request.expectedVersion)
+      return {
+        conflict: { teamId, expectedVersion: text(request.expectedVersion, "expectedVersion"), currentVersion },
+      };
+    if (request.operation === "team-delete")
+      return {
+        expect: { kind: "team", teamId, version: "" },
+        apply: () => session.adapter.deleteTeam(session.token, teamId),
+      };
+    if (request.operation === "team-update") {
+      const name = text(request.teamName, "teamName");
+      if (teams.some((team) => team.id !== teamId && team.name === name))
+        throw coded("team_exists", `Work team ${name} already exists.`);
+      return {
+        expect: { kind: "team", teamId, version: teamVersion(name, members) },
+        apply: () => session.adapter.updateTeam(session.token, teamId, name),
+      };
+    }
+    const personId = text(request.personId, "personId"),
+      userId = await session.adapter.findUserId(session.token, personId);
+    if (!userId) throw coded("access_person_unknown", `No Keycloak account carries Harness person ${personId}.`);
+    const held = request.operation === "team-member-add",
+      next = held ? uniqueSorted([...members, userId]) : members.filter((id) => id !== userId);
+    return {
+      expect: { kind: "team", teamId, version: teamVersion(current.name, next) },
+      apply: () => session.adapter.setTeamMember(session.token, teamId, userId, held),
+    };
   }
 
   async #listNodes(): Promise<Record<string, unknown>> {
@@ -318,6 +399,15 @@ export class AccessAdminService {
 
   async #observed(session: Session, expect: Expectation): Promise<boolean> {
     switch (expect.kind) {
+      case "team-created":
+        return (await session.adapter.readTeams(session.token)).some((team) => team.name === expect.name);
+      case "team": {
+        const team = (await session.adapter.readTeams(session.token)).find((team) => team.id === expect.teamId);
+        return (
+          (team ? teamVersion(team.name, await session.adapter.readTeamMembers(session.token, team.id)) : "") ===
+          expect.version
+        );
+      }
       case "group":
         return (
           ((await session.adapter.readPolicyGroups(session.token))
@@ -646,4 +736,8 @@ function unsettled(operationId: string): Error {
 
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
+}
+
+function teamVersion(name: string, members: readonly string[]): string {
+  return sha256Text(stableStringify({ name, members: [...members].sort() }));
 }

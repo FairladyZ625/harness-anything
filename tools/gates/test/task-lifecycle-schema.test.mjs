@@ -68,7 +68,7 @@ test("G09 exposes only Task, Execution, Lease, and Review v1 entity facets", () 
     taskId: "task-1",
     executionId: "execution-0",
     actor,
-    source: { kind: "assignment", nodeId: "node-1", assignmentId: "assignment-1" },
+    source: { kind: "node", nodeId: "node-1" },
     phase: "held",
     expiresAt: "2026-08-11T01:00:00.000Z",
     ttlMs: 1_800_000,

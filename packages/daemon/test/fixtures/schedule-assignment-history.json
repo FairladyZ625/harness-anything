@@ -1,0 +1,669 @@
+[
+  {
+    "source": "6218b346:packages/kernel/fixtures/canonical-events/schedule-event-v1/accepted-schedule-occurrence-claimed-60b009b64b53.json",
+    "event": {
+      "actor": {
+        "executor": null,
+        "principal": {
+          "personId": "person-fixture"
+        }
+      },
+      "entity": {
+        "id": "e2e-probe",
+        "kind": "schedule"
+      },
+      "eventId": "event-20166b7689fb0d64b57fc25337ecec38e9bb25eff65b403888d259b38c54951d",
+      "occurredAt": "2026-09-01T02:25:24.656Z",
+      "opId": "op_e0a8b65241880637a4c5c7bbeb0eadf20b32b7e27ff9491eae461a093afc04b9",
+      "payload": {
+        "schedule": {
+          "createdAt": "2026-08-26T16:25:24.645Z",
+          "createdBy": {
+            "executor": {
+              "id": "runtime-session:runtime_ee16b090b8d6b775c6b2eaa4",
+              "kind": "agent"
+            },
+            "principal": {
+              "personId": "person-fixture"
+            }
+          },
+          "mode": "detect",
+          "name": "Fixture name",
+          "scheduleId": "e2e-probe",
+          "schema": "schedule/v1",
+          "spec": {
+            "mission": "Fixture mission",
+            "target": {
+              "agentId": "e2e-probe",
+              "kind": "agent",
+              "model": "gpt-5.6-terra",
+              "reasoningEffort": "low",
+              "runtimeInstanceId": "test-codex-sol"
+            },
+            "trigger": {
+              "anchorAt": "2026-08-26T16:25:24.645Z",
+              "everyMs": 7200000,
+              "kind": "interval"
+            }
+          },
+          "state": "armed",
+          "status": {
+            "activeRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_8bad7ddf77657192266a784f",
+              "claimedAt": "2026-09-01T02:25:24.656Z",
+              "kind": "scheduled",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_c2b81796b4308ad7755fcaf2",
+              "scheduledFor": "2026-09-01T02:25:24.645Z"
+            },
+            "automaticEvaluatedThrough": "2026-09-01T02:25:24.645Z",
+            "lastMissedAt": "2026-08-31T22:25:24.645Z",
+            "lastMissedReason": "scheduler_unavailable",
+            "lastRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_5f3ff4297833679aef9d7b29",
+              "detail": "artifact:runtime-result/sha256/a67805710647fb13876f80ddd137b80585ac7115f06f58c45b02c60627c9a30f",
+              "dispatchId": "dispatch_dabf6a577500eb5f322de712",
+              "endedAt": "2026-09-01T00:25:59.796Z",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_17a27b0b726597a46065f11e",
+              "outcome": "succeeded",
+              "runtimeSessionId": "runtime_fd33f4a55d257edb0e5b64f5",
+              "scheduledFor": "2026-09-01T00:25:24.645Z"
+            },
+            "missedCount": 9
+          },
+          "updatedAt": "2026-08-30T07:35:43.648Z"
+        }
+      },
+      "schema": "schedule-event/v1",
+      "source": "local",
+      "type": "schedule_occurrence_claimed",
+      "workspaceRevision": 49254
+    }
+  },
+  {
+    "source": "6218b346:packages/kernel/fixtures/canonical-events/schedule-event-v1/accepted-schedule-occurrence-claimed-94fb60fb2fd8.json",
+    "event": {
+      "actor": {
+        "executor": null,
+        "principal": {
+          "personId": "person-fixture"
+        }
+      },
+      "entity": {
+        "id": "e2e-probe",
+        "kind": "schedule"
+      },
+      "eventId": "event-cb159efe75bf6a4c3a4a278000f4bea088f94ad619867c5064de266854030f6b",
+      "occurredAt": "2026-09-01T00:25:24.654Z",
+      "opId": "op_d14da47a3355d7a8d8cb6383d76a1f423956d1e1de3d995cce6e28d061e43a00",
+      "payload": {
+        "schedule": {
+          "createdAt": "2026-08-26T16:25:24.645Z",
+          "createdBy": {
+            "executor": {
+              "id": "runtime-session:runtime_ee16b090b8d6b775c6b2eaa4",
+              "kind": "agent"
+            },
+            "principal": {
+              "personId": "person-fixture"
+            }
+          },
+          "mode": "detect",
+          "name": "Fixture name",
+          "scheduleId": "e2e-probe",
+          "schema": "schedule/v1",
+          "spec": {
+            "mission": "Fixture mission",
+            "target": {
+              "agentId": "e2e-probe",
+              "kind": "agent",
+              "model": "gpt-5.6-terra",
+              "reasoningEffort": "low",
+              "runtimeInstanceId": "test-codex-sol"
+            },
+            "trigger": {
+              "anchorAt": "2026-08-26T16:25:24.645Z",
+              "everyMs": 7200000,
+              "kind": "interval"
+            }
+          },
+          "state": "armed",
+          "status": {
+            "activeRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_5f3ff4297833679aef9d7b29",
+              "claimedAt": "2026-09-01T00:25:24.654Z",
+              "kind": "scheduled",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_17a27b0b726597a46065f11e",
+              "scheduledFor": "2026-09-01T00:25:24.645Z"
+            },
+            "automaticEvaluatedThrough": "2026-09-01T00:25:24.645Z",
+            "lastMissedAt": "2026-08-31T22:25:24.645Z",
+            "lastMissedReason": "scheduler_unavailable",
+            "lastRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_8942da381d1d89dd1c1106ca",
+              "detail": "Runtime instance test-codex-sol does not exist.",
+              "endedAt": "2026-08-31T18:25:43.923Z",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_326b2feed5f46d68e2082943",
+              "outcome": "failed",
+              "scheduledFor": "2026-08-31T18:25:24.645Z"
+            },
+            "missedCount": 9
+          },
+          "updatedAt": "2026-08-30T07:35:43.648Z"
+        }
+      },
+      "schema": "schedule-event/v1",
+      "source": "local",
+      "type": "schedule_occurrence_claimed",
+      "workspaceRevision": 49101
+    }
+  },
+  {
+    "source": "6218b346:packages/kernel/fixtures/canonical-events/schedule-event-v1/accepted-schedule-occurrence-dispatched-0be49a8f118e.json",
+    "event": {
+      "actor": {
+        "executor": null,
+        "principal": {
+          "personId": "person-fixture"
+        }
+      },
+      "entity": {
+        "id": "e2e-probe",
+        "kind": "schedule"
+      },
+      "eventId": "event-55040852d4cfa10da9857ddfbaea985bd75989a11cead151f2363041fdbb2387",
+      "occurredAt": "2026-09-01T00:25:41.279Z",
+      "opId": "op_26f61b604f06648d1db0e2c138962cfb263dc324da49156196b044ad1b90e2e9",
+      "payload": {
+        "schedule": {
+          "createdAt": "2026-08-26T16:25:24.645Z",
+          "createdBy": {
+            "executor": {
+              "id": "runtime-session:runtime_ee16b090b8d6b775c6b2eaa4",
+              "kind": "agent"
+            },
+            "principal": {
+              "personId": "person-fixture"
+            }
+          },
+          "mode": "detect",
+          "name": "Fixture name",
+          "scheduleId": "e2e-probe",
+          "schema": "schedule/v1",
+          "spec": {
+            "mission": "Fixture mission",
+            "target": {
+              "agentId": "e2e-probe",
+              "kind": "agent",
+              "model": "gpt-5.6-terra",
+              "reasoningEffort": "low",
+              "runtimeInstanceId": "test-codex-sol"
+            },
+            "trigger": {
+              "anchorAt": "2026-08-26T16:25:24.645Z",
+              "everyMs": 7200000,
+              "kind": "interval"
+            }
+          },
+          "state": "armed",
+          "status": {
+            "activeRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_5f3ff4297833679aef9d7b29",
+              "claimedAt": "2026-09-01T00:25:24.654Z",
+              "dispatchId": "dispatch_dabf6a577500eb5f322de712",
+              "kind": "scheduled",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_17a27b0b726597a46065f11e",
+              "runtimeSessionId": "runtime_fd33f4a55d257edb0e5b64f5",
+              "scheduledFor": "2026-09-01T00:25:24.645Z"
+            },
+            "automaticEvaluatedThrough": "2026-09-01T00:25:24.645Z",
+            "lastMissedAt": "2026-08-31T22:25:24.645Z",
+            "lastMissedReason": "scheduler_unavailable",
+            "lastRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_8942da381d1d89dd1c1106ca",
+              "detail": "Runtime instance test-codex-sol does not exist.",
+              "endedAt": "2026-08-31T18:25:43.923Z",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_326b2feed5f46d68e2082943",
+              "outcome": "failed",
+              "scheduledFor": "2026-08-31T18:25:24.645Z"
+            },
+            "missedCount": 9
+          },
+          "updatedAt": "2026-08-30T07:35:43.648Z"
+        }
+      },
+      "schema": "schedule-event/v1",
+      "source": "local",
+      "type": "schedule_occurrence_dispatched",
+      "workspaceRevision": 49105
+    }
+  },
+  {
+    "source": "6218b346:packages/kernel/fixtures/canonical-events/schedule-event-v1/accepted-schedule-occurrence-dispatched-95f6eb1268a3.json",
+    "event": {
+      "actor": {
+        "executor": null,
+        "principal": {
+          "personId": "person-fixture"
+        }
+      },
+      "entity": {
+        "id": "e2e-probe",
+        "kind": "schedule"
+      },
+      "eventId": "event-15e06c1a7726f051a3d438761e715238dc23810c2ff69917bf09632d39d8dd60",
+      "occurredAt": "2026-09-01T22:25:36.625Z",
+      "opId": "op_78aa82203748d220dd9bd9c3346d67966eb82289ab592bfca46ce1624475b59e",
+      "payload": {
+        "schedule": {
+          "createdAt": "2026-08-26T16:25:24.645Z",
+          "createdBy": {
+            "executor": {
+              "id": "runtime-session:runtime_ee16b090b8d6b775c6b2eaa4",
+              "kind": "agent"
+            },
+            "principal": {
+              "personId": "person-fixture"
+            }
+          },
+          "mode": "detect",
+          "name": "Fixture name",
+          "scheduleId": "e2e-probe",
+          "schema": "schedule/v1",
+          "spec": {
+            "mission": "Fixture mission",
+            "target": {
+              "agentId": "e2e-probe",
+              "kind": "agent",
+              "model": "gpt-5.6-terra",
+              "reasoningEffort": "low",
+              "runtimeInstanceId": "test-codex-sol"
+            },
+            "trigger": {
+              "anchorAt": "2026-08-26T16:25:24.645Z",
+              "everyMs": 7200000,
+              "kind": "interval"
+            }
+          },
+          "state": "armed",
+          "status": {
+            "activeRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_ea6da3b1ad724a7c35910d59",
+              "claimedAt": "2026-09-01T22:25:24.716Z",
+              "dispatchId": "dispatch_7c0dd8ea8dc5b9c3fa5dd69a",
+              "kind": "scheduled",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_2d9ed1ba18176e287d18de81",
+              "runtimeSessionId": "runtime_07444e66bc409ad0b0f4aec1",
+              "scheduledFor": "2026-09-01T22:25:24.645Z"
+            },
+            "automaticEvaluatedThrough": "2026-09-01T22:25:24.645Z",
+            "lastMissedAt": "2026-08-31T22:25:24.645Z",
+            "lastMissedReason": "scheduler_unavailable",
+            "lastRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_8e16175dd7435a8e734d7041",
+              "detail": "artifact:runtime-result/sha256/82496478723ceb611d162cc8bccec16371eb7c1e9581dac9dc94f7a9e283f701",
+              "dispatchId": "dispatch_3e767f6a5fd094a9ed51aee5",
+              "endedAt": "2026-09-01T20:25:55.604Z",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_3678c5d9b779e452c924dfd3",
+              "outcome": "succeeded",
+              "runtimeSessionId": "runtime_b21c9f15a1984ae4d0ecaa3e",
+              "scheduledFor": "2026-09-01T20:25:24.645Z"
+            },
+            "missedCount": 9
+          },
+          "updatedAt": "2026-08-30T07:35:43.648Z"
+        }
+      },
+      "schema": "schedule-event/v1",
+      "source": "local",
+      "type": "schedule_occurrence_dispatched",
+      "workspaceRevision": 51055
+    }
+  },
+  {
+    "source": "6218b346:packages/kernel/fixtures/canonical-events/schedule-event-v1/accepted-schedule-occurrences-missed-810a249c78b3.json",
+    "event": {
+      "actor": {
+        "executor": null,
+        "principal": {
+          "personId": "person-fixture"
+        }
+      },
+      "entity": {
+        "id": "e2e-probe",
+        "kind": "schedule"
+      },
+      "eventId": "event-44966c88ad7cb658b5132e4b28af0f561a85256ca0791b7d51ab2214420ddc18",
+      "occurredAt": "2026-08-31T22:47:03.173Z",
+      "opId": "op_cb1507b310d025e346a6745ae24b7ee1d199fca5f14606b83708400247884382",
+      "payload": {
+        "missed": {
+          "count": 2,
+          "from": "2026-08-31T20:25:24.645Z",
+          "reason": "scheduler_unavailable",
+          "to": "2026-08-31T22:25:24.645Z"
+        },
+        "schedule": {
+          "createdAt": "2026-08-26T16:25:24.645Z",
+          "createdBy": {
+            "executor": {
+              "id": "runtime-session:runtime_ee16b090b8d6b775c6b2eaa4",
+              "kind": "agent"
+            },
+            "principal": {
+              "personId": "person-fixture"
+            }
+          },
+          "mode": "detect",
+          "name": "Fixture name",
+          "scheduleId": "e2e-probe",
+          "schema": "schedule/v1",
+          "spec": {
+            "mission": "Fixture mission",
+            "target": {
+              "agentId": "e2e-probe",
+              "kind": "agent",
+              "model": "gpt-5.6-terra",
+              "reasoningEffort": "low",
+              "runtimeInstanceId": "test-codex-sol"
+            },
+            "trigger": {
+              "anchorAt": "2026-08-26T16:25:24.645Z",
+              "everyMs": 7200000,
+              "kind": "interval"
+            }
+          },
+          "state": "armed",
+          "status": {
+            "activeRun": null,
+            "automaticEvaluatedThrough": "2026-08-31T22:25:24.645Z",
+            "lastMissedAt": "2026-08-31T22:25:24.645Z",
+            "lastMissedReason": "scheduler_unavailable",
+            "lastRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_8942da381d1d89dd1c1106ca",
+              "detail": "Runtime instance test-codex-sol does not exist.",
+              "endedAt": "2026-08-31T18:25:43.923Z",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_326b2feed5f46d68e2082943",
+              "outcome": "failed",
+              "scheduledFor": "2026-08-31T18:25:24.645Z"
+            },
+            "missedCount": 9
+          },
+          "updatedAt": "2026-08-30T07:35:43.648Z"
+        }
+      },
+      "schema": "schedule-event/v1",
+      "source": "local",
+      "type": "schedule_occurrences_missed",
+      "workspaceRevision": 49011
+    }
+  },
+  {
+    "source": "6218b346:packages/kernel/fixtures/canonical-events/schedule-event-v1/accepted-schedule-occurrences-missed-b89130f8e86e.json",
+    "event": {
+      "actor": {
+        "executor": null,
+        "principal": {
+          "personId": "person-fixture"
+        }
+      },
+      "entity": {
+        "id": "e2e-probe",
+        "kind": "schedule"
+      },
+      "eventId": "event-53983cbca48a829df2207c37ebdfab6249028c8dd1ea6b4fad1c919559aedd96",
+      "occurredAt": "2026-09-02T02:27:39.711Z",
+      "opId": "op_e13a2f965459b0cdfaf836add76d3aa2ae76875ba50fa79a50609d3cd2417d4e",
+      "payload": {
+        "missed": {
+          "count": 1,
+          "from": "2026-09-02T02:25:24.645Z",
+          "reason": "scheduler_unavailable",
+          "to": "2026-09-02T02:25:24.645Z"
+        },
+        "schedule": {
+          "createdAt": "2026-08-26T16:25:24.645Z",
+          "createdBy": {
+            "executor": {
+              "id": "runtime-session:runtime_ee16b090b8d6b775c6b2eaa4",
+              "kind": "agent"
+            },
+            "principal": {
+              "personId": "person-fixture"
+            }
+          },
+          "mode": "detect",
+          "name": "Fixture name",
+          "scheduleId": "e2e-probe",
+          "schema": "schedule/v1",
+          "spec": {
+            "mission": "Fixture mission",
+            "target": {
+              "agentId": "e2e-probe",
+              "kind": "agent",
+              "model": "gpt-5.6-terra",
+              "reasoningEffort": "low",
+              "runtimeInstanceId": "test-codex-sol"
+            },
+            "trigger": {
+              "anchorAt": "2026-08-26T16:25:24.645Z",
+              "everyMs": 7200000,
+              "kind": "interval"
+            }
+          },
+          "state": "armed",
+          "status": {
+            "activeRun": null,
+            "automaticEvaluatedThrough": "2026-09-02T02:25:24.645Z",
+            "lastMissedAt": "2026-09-02T02:25:24.645Z",
+            "lastMissedReason": "scheduler_unavailable",
+            "lastRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_3dfa3232235a2fcd2b53e61c",
+              "detail": "artifact:runtime-result/sha256/a2becaec6ba6e1c71cb7243f0e3102b599aa76e4815d33c2a8e9c2c208dfd666",
+              "dispatchId": "dispatch_c8ebc6930cfcbead0e860d4d",
+              "endedAt": "2026-09-02T00:25:57.327Z",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_cc76469588fe663d5a4a0688",
+              "outcome": "succeeded",
+              "runtimeSessionId": "runtime_5525caeea4da584c1d346eb0",
+              "scheduledFor": "2026-09-02T00:25:24.645Z"
+            },
+            "missedCount": 10
+          },
+          "updatedAt": "2026-08-30T07:35:43.648Z"
+        }
+      },
+      "schema": "schedule-event/v1",
+      "source": "local",
+      "type": "schedule_occurrences_missed",
+      "workspaceRevision": 51664
+    }
+  },
+  {
+    "source": "6218b346:packages/kernel/fixtures/canonical-events/schedule-event-v1/accepted-schedule-run-settled-56fff9685cdd.json",
+    "event": {
+      "actor": {
+        "executor": null,
+        "principal": {
+          "personId": "person-fixture"
+        }
+      },
+      "entity": {
+        "id": "e2e-probe",
+        "kind": "schedule"
+      },
+      "eventId": "event-1db1d91d7cbd1a25376eeaf3dcc35a6ce920e28cdc52903f026307ff097917f8",
+      "occurredAt": "2026-09-01T18:26:05.086Z",
+      "opId": "op_fc1464207e3d26ad44db95cf68767d04ed18cee73c56b57cd921a8c93b89cf16",
+      "payload": {
+        "schedule": {
+          "createdAt": "2026-08-26T16:25:24.645Z",
+          "createdBy": {
+            "executor": {
+              "id": "runtime-session:runtime_ee16b090b8d6b775c6b2eaa4",
+              "kind": "agent"
+            },
+            "principal": {
+              "personId": "person-fixture"
+            }
+          },
+          "mode": "detect",
+          "name": "Fixture name",
+          "scheduleId": "e2e-probe",
+          "schema": "schedule/v1",
+          "spec": {
+            "mission": "Fixture mission",
+            "target": {
+              "agentId": "e2e-probe",
+              "kind": "agent",
+              "model": "gpt-5.6-terra",
+              "reasoningEffort": "low",
+              "runtimeInstanceId": "test-codex-sol"
+            },
+            "trigger": {
+              "anchorAt": "2026-08-26T16:25:24.645Z",
+              "everyMs": 7200000,
+              "kind": "interval"
+            }
+          },
+          "state": "armed",
+          "status": {
+            "activeRun": null,
+            "automaticEvaluatedThrough": "2026-09-01T18:25:24.645Z",
+            "lastMissedAt": "2026-08-31T22:25:24.645Z",
+            "lastMissedReason": "scheduler_unavailable",
+            "lastRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_81d086d24ca9744d13481071",
+              "detail": "artifact:runtime-result/sha256/42b39ad995e432af0d74664be6001c5aa6ff333353885e300caf9f0ce8029cfa",
+              "dispatchId": "dispatch_84ab41d1728be294c5935f6c",
+              "endedAt": "2026-09-01T18:25:59.338Z",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_43d61e28649d8d37f444bbef",
+              "outcome": "succeeded",
+              "runtimeSessionId": "runtime_33b9f75d0b5bb0a98be8043c",
+              "scheduledFor": "2026-09-01T18:25:24.645Z"
+            },
+            "missedCount": 9
+          },
+          "updatedAt": "2026-08-30T07:35:43.648Z"
+        }
+      },
+      "schema": "schedule-event/v1",
+      "source": "local",
+      "type": "schedule_run_settled",
+      "workspaceRevision": 51040
+    }
+  },
+  {
+    "source": "6218b346:packages/kernel/fixtures/canonical-events/schedule-event-v1/accepted.json",
+    "event": {
+      "actor": {
+        "executor": null,
+        "principal": {
+          "personId": "person-fixture"
+        }
+      },
+      "entity": {
+        "id": "e2e-probe",
+        "kind": "schedule"
+      },
+      "eventId": "event-2b3a03650853ae4440022867f8bcf096b5ec14e2624da68bd3a6eee72d2dd48c",
+      "occurredAt": "2026-08-31T18:25:43.923Z",
+      "opId": "migration-636e67df0f9295a01d951e0276",
+      "payload": {
+        "declarationDocumentClaim": {
+          "mediaType": "application/json",
+          "path": "schedules/e2e-probe.json",
+          "policyId": "typed-entity/v1",
+          "sha256": "26983fe8a0a33e43144aa15dcfbe5dd6a5d02668264cabadfd3d0e6f29da5b94",
+          "size": 1018
+        },
+        "schedule": {
+          "createdAt": "2026-08-26T16:25:24.645Z",
+          "createdBy": {
+            "executor": {
+              "id": "runtime-session:runtime_ee16b090b8d6b775c6b2eaa4",
+              "kind": "agent"
+            },
+            "principal": {
+              "personId": "person-fixture"
+            }
+          },
+          "mode": "detect",
+          "name": "Fixture name",
+          "scheduleId": "e2e-probe",
+          "schema": "schedule/v1",
+          "spec": {
+            "mission": "Fixture mission",
+            "target": {
+              "agentId": "e2e-probe",
+              "kind": "agent",
+              "model": "gpt-5.6-terra",
+              "reasoningEffort": "low",
+              "runtimeInstanceId": "test-codex-sol"
+            },
+            "trigger": {
+              "anchorAt": "2026-08-26T16:25:24.645Z",
+              "everyMs": 7200000,
+              "kind": "interval"
+            }
+          },
+          "state": "armed",
+          "status": {
+            "activeRun": null,
+            "automaticEvaluatedThrough": "2026-08-31T18:25:24.645Z",
+            "lastMissedAt": "2026-08-31T00:25:24.645Z",
+            "lastMissedReason": "scheduler_unavailable",
+            "lastRun": {
+              "assignmentId": null,
+              "attemptIndex": 0,
+              "claimFence": "claim_8942da381d1d89dd1c1106ca",
+              "detail": "Runtime instance test-codex-sol does not exist.",
+              "endedAt": "2026-08-31T18:25:43.923Z",
+              "nodeId": "local",
+              "occurrenceId": "occurrence_326b2feed5f46d68e2082943",
+              "outcome": "failed",
+              "scheduledFor": "2026-08-31T18:25:24.645Z"
+            },
+            "missedCount": 7
+          },
+          "updatedAt": "2026-08-30T07:35:43.648Z"
+        }
+      },
+      "schema": "schedule-event/v1",
+      "source": "migration-import/v1",
+      "type": "schedule_created",
+      "workspaceRevision": 42615
+    }
+  }
+]

@@ -200,6 +200,19 @@ function candidates(snapshot: TaskLifecycleSnapshot): readonly { command: TaskLi
       },
       { taskIdUnique: true, actorBinding: owner },
     ),
+    make(
+      owner,
+      {
+        type: "AssignTask",
+        taskId,
+        assignment: {
+          assignee: { kind: "person", personId: owner.principal.personId },
+          expiresAt: "2026-09-30T00:00:00.000Z",
+        },
+      },
+      {},
+    ),
+    make(owner, { type: "UnassignTask", taskId }, {}),
     start,
     ...transitions,
     submit,
@@ -223,6 +236,7 @@ function coordinate(snapshot: TaskLifecycleSnapshot): string {
       .filter((value) => value.iteration === iteration)
       .map(({ state, submission }) => ({ state, submitted: submission !== null })),
     lease: snapshot.lease?.phase ?? null,
+    assigned: snapshot.task?.assignment != null,
     reviews: snapshot.reviews.filter((value) => value.iteration === iteration).map(({ verdict }) => verdict),
     consent: snapshot.consents.some(({ executionId }) =>
       snapshot.executions.some((value) => value.iteration === iteration && value.executionId === executionId),

@@ -251,12 +251,12 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
         },
       );
 
-      // An edge assignment can never claim a built-in occurrence.
+      // An authenticated edge can never claim a built-in occurrence.
       const edge = (await cell.run(
         { kind: "schedule-run-now", scheduleId: builtinLedgerBackupScheduleId, idempotencyKey: "builtin-edge-1" },
         {
           ...actor,
-          source: { kind: "assignment", nodeId: "edge-node", assignmentId: "assignment-edge" },
+          source: { kind: "node", nodeId: "edge-node" },
         },
       )) as { outcome: string; code?: string };
       assert.deepEqual(
@@ -345,7 +345,6 @@ test("a partially written backup of the same occurrence is retaken, a verified o
             scheduledFor: occurredAt,
             claimedAt: occurredAt,
             nodeId: "local",
-            assignmentId: null,
             claimFence: "claim_resumed",
             attemptIndex: 0,
           },

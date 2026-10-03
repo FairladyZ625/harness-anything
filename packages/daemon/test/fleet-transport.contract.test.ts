@@ -19,13 +19,11 @@ test("fleet authentication metadata admits a standard JWT and remains separate f
   const frame = {
     schema: "fleet.task.command/v1",
     messageId: "human",
-    assignmentId: "assignment",
     writerEpoch: 1,
     opId: "human-op",
     repoId: "repo",
     taskId: "task",
     action: { kind: "task-review-consent", taskId: "task", reviewId: "review" },
-    waitMs: 1_000,
     docChanges: null,
     mirrorBaseCut: null,
     accessToken: "a".repeat(2_048),
@@ -41,7 +39,6 @@ test("runtime dispatch frames carry typed center admission context without mirro
   const frame = {
     schema: "fleet.runtime.event/v1",
     messageId: "dispatch",
-    assignmentId: "assignment",
     writerEpoch: 1,
     repoId: "repo",
     opId: "dispatch-op",
@@ -69,7 +66,6 @@ test("fleet runtime reads admit the parked wait but reject arbitrary RPC methods
   const frame = {
     schema: "fleet.runtime.read/v1",
     messageId: "wait",
-    assignmentId: "assignment",
     repoId: "repo",
     method: "repo.agentRuntime.sessions.await",
     payload: { runtimeSessionIds: ["runtime-one"] },
@@ -94,19 +90,18 @@ const frames = [
     maxFrameBytes: FLEET_FRAME_BYTES,
     chunkBytes: FLEET_CHUNK_BYTES,
   },
-  { schema: "fleet.assignment.get/v1", messageId: "m3", assignmentId: "a1" },
+  { schema: "fleet.repo.metadata.get/v1", messageId: "m3", repoId: "a1" },
   {
-    schema: "fleet.assignment.result/v1",
+    schema: "fleet.repo.metadata.result/v1",
     messageId: "m4",
     inReplyTo: "m3",
-    assignmentId: "a1",
+    personId: "person-owner",
+    actionAllowed: null,
     repoId: "repo",
-    scope: { kind: "task", taskId: "task", executionId: "exec", paths: ["tasks/task/a.md"] },
     baseLedgerSha: ledgerCut,
-    expiresAt: "2099-01-01T00:00:00.000Z",
     writerEpoch: 1,
   },
-  { schema: "fleet.receipt.get/v1", messageId: "m4-receipt-get", assignmentId: "a1", opId: "op1" },
+  { schema: "fleet.receipt.get/v1", messageId: "m4-receipt-get", repoId: "a1", opId: "op1" },
   {
     schema: "fleet.receipt.result/v1",
     messageId: "m4-receipt-result",
@@ -114,7 +109,7 @@ const frames = [
     opId: "op1",
     receipt: { outcome: "op_rejected", code: "operation_not_published" },
   },
-  { schema: "fleet.upload.begin/v1", messageId: "m5", assignmentId: "a1", content: blob },
+  { schema: "fleet.upload.begin/v1", messageId: "m5", repoId: "a1", content: blob },
   {
     schema: "fleet.upload.ready/v1",
     messageId: "m6",
@@ -135,7 +130,7 @@ const frames = [
   {
     schema: "fleet.doc.submit/v1",
     messageId: "m10",
-    assignmentId: "a1",
+    repoId: "a1",
     executionId: null,
     writerEpoch: 1,
     baseLedgerSha: ledgerCut,
@@ -157,7 +152,7 @@ const frames = [
     revision: 7,
     code: null,
   },
-  { schema: "fleet.replica.pull/v1", messageId: "m11-pull", assignmentId: "a1" },
+  { schema: "fleet.replica.pull/v1", messageId: "m11-pull", repoId: "a1" },
   {
     schema: "fleet.replica.current/v1",
     messageId: "m11-current",
@@ -235,13 +230,11 @@ const frames = [
   {
     schema: "fleet.task.command/v1",
     messageId: "m22-task",
-    assignmentId: "a1",
     writerEpoch: 1,
     opId: "op-task-1",
     repoId: "repo",
     taskId: "task_abc",
     action: { kind: "task-start", taskId: "task_abc", ttlMs: 86_400_000 },
-    waitMs: 30_000,
     docChanges: null,
     mirrorBaseCut: null,
   },
@@ -254,13 +247,10 @@ const frames = [
     revision: 8,
     code: null,
     receipt: { outcome: "applied", taskId: "task_abc" },
-    lease: { taskId: "task_abc", executionId: "exe-1", assignmentId: "a1", expiresAt: "2099-01-01T00:00:00.000Z" },
-    queuePosition: null,
   },
   {
     schema: "fleet.schedule.command/v1",
     messageId: "m22-schedule",
-    assignmentId: "a1",
     writerEpoch: 1,
     opId: "op-schedule-1",
     repoId: "repo",
@@ -441,7 +431,7 @@ test("Fleet transport union round-trips every closed wire variant", () => {
 test("Fleet codec rejects unknown provenance, nested fields, malformed values, and limits", () => {
   const taskCommand = frames.find((frame) => frame.schema === "fleet.task.command/v1")!,
     scheduleCommand = frames.find((frame) => frame.schema === "fleet.schedule.command/v1")!,
-    assignment = frames.find((frame) => frame.schema === "fleet.assignment.result/v1")!,
+    subject = frames.find((frame) => frame.schema === "fleet.repo.metadata.result/v1")!,
     taskResult = frames.find((frame) => frame.schema === "fleet.task.result/v1")!,
     snapshotPage = frames.find((frame) => frame.schema === "fleet.snapshot.page/v1")!,
     snapshotChunk = frames.find((frame) => frame.schema === "fleet.snapshot.chunk/v1")!,
@@ -502,8 +492,8 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
         endedAt: "2099-01-01T00:00:00.000Z",
       },
     },
-    { ...assignment, expiresAt: "2099-01-01T08:00:00+08:00" },
-    { ...taskResult, lease: { ...taskResult.lease, expiresAt: "2099-01-01T08:00:00+08:00" } },
+    { ...subject, expiresAt: "2099-01-01T08:00:00+08:00" },
+    { ...taskResult, lease: {} },
     ...spoofFields.map((field) => ({
       ...taskCommand,
       action: {
@@ -523,4 +513,21 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     /frame exceeds/u,
   );
   assert.throws(() => new FleetUtf8LineDecoder().push(Buffer.from([0xc3, 0x28])), /encoded data/u);
+});
+
+// Retired authority is rejected at the wire boundary instead of ignored.
+test("fleet metadata and commands reject static assignment and broker fields", () => {
+  const metadata = frames.find((frame) => frame.schema === "fleet.repo.metadata.result/v1")!;
+  const command = frames.find((frame) => frame.schema === "fleet.task.command/v1")!;
+  const result = frames.find((frame) => frame.schema === "fleet.task.result/v1")!;
+  for (const frame of [
+    { schema: "fleet.assignment.get/v1", messageId: "old", assignmentId: "old" },
+    { ...metadata, scope: { kind: "task", taskId: "task", executionId: "exe", paths: [] } },
+    { ...metadata, expiresAt: "2099-01-01T00:00:00.000Z" },
+    { ...command, assignmentId: "old" },
+    { ...command, waitMs: 1_000 },
+    { ...result, queuePosition: 1 },
+    { ...result, lease: { executionId: "old" } },
+  ])
+    assert.throws(() => parseFleetFrame(frame), FleetContractError);
 });

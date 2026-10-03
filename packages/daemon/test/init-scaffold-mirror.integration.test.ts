@@ -22,7 +22,7 @@ import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
+import { listenFleetTls } from "../src/fleet/center.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 
@@ -87,17 +87,6 @@ async function initializedCenterWithEdge() {
     hostLease = writerAuthority.current(repoId);
   writerAuthority.close();
   assert.ok(hostLease);
-  // The edge may write task packages only: reading the standards must not depend on write scope.
-  const assignment: FleetAssignmentRecord = {
-    nodeId,
-    assignmentId: "assignment-node-one",
-    repoId,
-    taskId: "task-seeded",
-    executionId: "exe-seeded",
-    paths: ["tasks"],
-    viewId: "node-one-view",
-    expiresAt: "2099-01-01T00:00:00.000Z",
-  };
   const center = await listenFleetTls({
     host,
     stateRoot: path.join(root, "state"),
@@ -108,7 +97,6 @@ async function initializedCenterWithEdge() {
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (candidate, credential) => candidate === nodeId && credential === "secret-node-one",
     nodeOwner: owners.nodeOwner,
-    resolveAssignment: (assignmentId) => (assignmentId === assignment.assignmentId ? assignment : null),
   });
   const edgeSync = (): Promise<Record<string, unknown>> =>
     runFleetEdgeDocSync({
@@ -119,7 +107,6 @@ async function initializedCenterWithEdge() {
         servername: "localhost",
         nodeId,
         credential: "secret-node-one",
-        assignmentId: assignment.assignmentId,
         repoId,
         viewRoot,
         quotaBytes: replicaQuota,

@@ -245,27 +245,43 @@ export function scanRejectionSummary(code: string, scan: DocCandidateScan): stri
 export function admissionRejection(
   input: Pick<Input, "binding" | "workspaceId" | "store" | "projection" | "runtimeArchive"> & {
     readonly taskDocumentChannel?: DocIntentChannel;
+    readonly taskId?: string;
+    readonly unleasedTaskCommandId?: string;
   },
   intent: DocWriteIntent,
   lease: ReturnType<TaskProjection["currentLeaseForExecution"]>,
+  delegatedTaskId?: string,
 ): { readonly code: string; readonly detail: DocSyncReceiptDetail } | null {
-  // Task-context authority is the dynamically acquired execution lease
-  // (decideDocWrite re-checks the holder); the assignment scope gates only
-  // which paths a node may touch, so a W3-B lease on any task rides the same
-  // path-scoped admission as shared-surface prose. The one exception is the
-  // fleet doc-submit channel: task-package documents over fleet ingress must
-  // ride the lease-brokered task command (class A); an explicit submit that
-  // names the currently held execution keeps decideDocWrite's holder check as
-  // its authority, while a channel-less (null execution) submit is refused.
-  // A terminal runtime archive is not a doc-submit: its canonical occurrence,
-  // actor, and exact artifact set are validated by decideDocWrite below.
+  if (input.taskDocumentChannel === "task-command") {
+    const outside = intent.changes.filter(
+      (change) => input.projection.taskIdForDocumentPath(change.path) !== input.taskId,
+    );
+    if (outside.length)
+      return {
+        code: "execution_scope_mismatch",
+        detail: detail(
+          intent,
+          input.store.currentCut(),
+          "execution_scope_mismatch",
+          lease,
+          outside.map((change) =>
+            touch(change.path, "canonical-task-package", "Carried documents must belong to this task command"),
+          ),
+        ),
+      };
+  }
+  // Class-A reserve commands validate their one canonical task package before
+  // the lease exists; service.executeWithDocuments then commits docs and lease
+  // together only if the canonical reserve CAS succeeds. Explicit amendment
+  // proves the original canonical submission actor/source instead. Other writes
+  // require the current node + owner lease. Archives use their exact dispatch.
   if (
     (input.taskDocumentChannel ?? "doc-submit") === "doc-submit" &&
     typeof input.binding.source === "object" &&
-    input.binding.source.kind === "assignment" &&
+    input.binding.source.kind === "node" &&
     input.runtimeArchive === undefined
   ) {
-    // Fleet assignment ingress treats the whole authored `tasks/<package>/`
+    // Fleet node ingress treats the whole authored `tasks/<package>/`
     // namespace as class A, including a package that has not projected yet.
     // Relying only on taskIdForDocumentPath would leave a ghost package as an
     // unheld shared-surface write path.
@@ -285,7 +301,7 @@ export function admissionRejection(
             change.path,
             "task-command",
             [
-              "task-context documents ride the lease-brokered task command; the ",
+              "task-context documents ride the canonical lease-checked task command; the ",
               "doc-submit channel cannot write them without naming the held execution",
             ].join(""),
           ),
@@ -299,14 +315,17 @@ export function admissionRejection(
       };
     }
   }
-  const touches = scopeTouches(
-    input,
-    intent.changes.map((change) => change.path),
-  );
+  const touches = input.runtimeArchive
+    ? []
+    : scopeTouches(
+        input,
+        intent.changes.map((change) => change.path),
+        input.taskDocumentChannel === "task-command" ? input.unleasedTaskCommandId : delegatedTaskId,
+      );
   if (!touches.length) return null;
-  const rejected = detail(intent, input.store.currentCut(), "assignment_scope_mismatch", lease, touches);
+  const rejected = detail(intent, input.store.currentCut(), "execution_scope_mismatch", lease, touches);
   return {
-    code: "assignment_scope_mismatch",
+    code: "execution_scope_mismatch",
     detail: {
       ...rejected,
     },
@@ -314,22 +333,25 @@ export function admissionRejection(
 }
 
 export function scopeTouches(
-  input: Pick<Input, "binding" | "workspaceId">,
+  input: Pick<Input, "binding" | "workspaceId" | "projection">,
   paths: readonly string[],
+  unleasedTaskCommandId?: string,
 ): readonly ReturnType<typeof touch>[] {
   if (localProseSource(input.binding.source)) return [];
-  const scope = input.binding.assignmentScope,
-    assignmentId =
-      typeof input.binding.source === "object" && input.binding.source.kind === "assignment"
-        ? input.binding.source.assignmentId
-        : "remote-direct",
-    route = `assignment:${assignmentId}:${scope?.scope.paths.join(",") ?? "scope-missing"}`;
   return paths
-    .filter(
-      (candidate) =>
-        !scope ||
-        scope.repoId !== input.workspaceId ||
-        !scope.scope.paths.some((allowed) => candidate === allowed || candidate.startsWith(`${allowed}/`)),
-    )
-    .map((candidate) => touch(candidate, route, "path is outside the authenticated assignment scope"));
+    .filter((candidate) => {
+      const taskId = input.projection.taskIdForDocumentPath(candidate);
+      if (!taskId) return isTaskPackagePath(candidate);
+      if (taskId === unleasedTaskCommandId) return false;
+      const lease = input.projection.currentLease(taskId);
+      return (
+        !lease ||
+        lease.phase !== "held" ||
+        lease.actor.principal.personId !== input.binding.actor.principal.personId ||
+        JSON.stringify(lease.source) !== JSON.stringify(input.binding.source)
+      );
+    })
+    .map((candidate) =>
+      touch(candidate, "canonical-task-lease", "Task document requires the node's current task lease"),
+    );
 }

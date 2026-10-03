@@ -136,23 +136,29 @@ for (const explicit of [false, true])
           { kind: "task-submit", taskId: created.taskId, executionId: "exe-other", commitSha },
           { kind: "task-submit", taskId: "task-other", commitSha },
         ]) {
-          await assert.rejects(
-            runFleetTaskCommandClient({
-              hostname: config.host,
-              port: config.port,
-              ca: readFileSync(config.caPath),
-              servername: config.servername,
-              nodeId: config.nodeId,
-              credential: config.credential,
-              assignmentId: config.assignmentId,
-              repoId: config.repoId,
-              taskId: action.taskId,
-              action,
-              opId: `negative-${action.taskId}-${action.executionId ?? "sha"}`,
-              waitMs: 1000,
-              timeoutMs: 5000,
-            }),
-            /delivery_fetch_failed|assignment_scope_mismatch/u,
+          const denied = await runFleetTaskCommandClient({
+            hostname: config.host,
+            port: config.port,
+            ca: readFileSync(config.caPath),
+            servername: config.servername,
+            nodeId: config.nodeId,
+            credential: config.credential,
+            repoId: config.repoId,
+            taskId: action.taskId,
+            action,
+            opId: `negative-${action.taskId}-${action.executionId ?? "sha"}`,
+            waitMs: 1000,
+            timeoutMs: 5000,
+          }).catch((error: unknown) => {
+            assert.ok(error instanceof Error && "code" in error, String(error));
+            return { outcome: "op_rejected", code: error.code };
+          });
+          assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
+          assert.ok(
+            ["delivery_fetch_failed", "lease_holder_mismatch", "entity_not_found", "task_read_failed"].includes(
+              String(denied.code),
+            ),
+            JSON.stringify(denied),
           );
           assert.equal(ledgerRevision(fixture), before);
         }
@@ -170,11 +176,10 @@ for (const explicit of [false, true])
       assert.equal(readFileSync(fixture.worktree("node-one", closeout), "utf8"), body);
       const duplicate = await invoke(explicit ? ["--commit", commitSha] : []);
       assert.equal(duplicate.code, 0, JSON.stringify(duplicate));
-      const assignment = fixture.byId.get(config.assignmentId)!;
-      fixture.byId.set(config.assignmentId, { ...assignment, expiresAt: "2000-01-01T00:00:00.000Z" });
+      fixture.owners.keycloak.revoke("person-node-one", "dual-repo", ["task-submit"]);
       const stale = await invoke([]);
       assert.equal(stale.code, 1, JSON.stringify(stale));
-      assert.match(stale.stdout, /assignment_rejected/u);
+      assert.match(stale.stdout, /authorization_denied|access_denied/u);
       assert.equal(git(remote, "rev-parse", `refs/heads/${created.taskId}`), commitSha);
     },
   );

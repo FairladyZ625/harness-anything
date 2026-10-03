@@ -34,12 +34,9 @@ const TARGET_STATE_KEY: Readonly<Record<NonNullable<ScheduleGuiRowDto["targetSta
 /** 「本节点可执行」是正常状态,不占标签;只有执行不在本节点时才在卡上说明。 */
 const AVAILABILITY_NOTE: Record<
   Exclude<ScheduleGuiRowDto["executionAvailability"], "local">,
-  | "schedules.availability.claimedElsewhere"
-  | "schedules.availability.unassigned"
-  | "schedules.availability.notOnThisNode"
+  "schedules.availability.claimedElsewhere" | "schedules.availability.notOnThisNode"
 > = {
   "claimed-elsewhere": "schedules.availability.claimedElsewhere",
-  unassigned: "schedules.availability.unassigned",
   "not-on-this-node": "schedules.availability.notOnThisNode",
 };
 

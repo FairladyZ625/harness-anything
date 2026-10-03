@@ -131,7 +131,7 @@ test("center private delegation survives restart and narrows online Keycloak per
   assert.ok(delegated.authorizationDecision.bindingsUsed.some((proof) => proof.proof === "delegated-execution-token"));
   const forbidden = await cell.run({ ...amend, kind: "task-delete" }, binding);
   assert.equal(forbidden.code, "executor_binding_invalid");
-  const otherSource = { ...binding, source: { kind: "assignment" as const, nodeId: "other", assignmentId: "other" } };
+  const otherSource = { ...binding, source: { kind: "node" as const, nodeId: "other" } };
   assert.equal((await cell.run(amend, otherSource)).code, "executor_binding_invalid");
   assert.throws(() => readExecutionDelegations(file, "other-repo"));
   const otherToken = realm.keycloak.account("person_other");

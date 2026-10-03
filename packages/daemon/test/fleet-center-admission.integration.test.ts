@@ -8,7 +8,7 @@ import test, { type TestContext } from "node:test";
 import { connect, type TLSSocket } from "node:tls";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import {
   currentFleetProtocolVersion,
   parseFleetFrame,
@@ -17,6 +17,15 @@ import {
 } from "../src/fleet/contract.ts";
 import { fleetHostWriterOptions, fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+
+type FleetTestSubject = {
+  nodeId: string;
+  repoId: string;
+  taskId: string;
+  executionId: string;
+  paths: readonly string[];
+  viewId: string;
+};
 
 const replicaQuota = 64 * 1024 * 1024;
 
@@ -143,15 +152,13 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
     }
   });
   await opened.attachmentsSettled();
-  const assignment: FleetAssignmentRecord = {
+  const subject: FleetTestSubject = {
     nodeId: "node-one",
-    assignmentId: "assignment-one",
     repoId: "admission-repo",
     taskId: "task-admission",
     executionId: "execution-admission",
     paths: ["tasks/task-admission-admission/notes.md"],
     viewId: "node-one-view",
-    expiresAt: "2099-01-01T00:00:00.000Z",
   };
   const center = await listenFleetTls({
     host,
@@ -162,13 +169,12 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => nodeId === "node-one" && credential === "machine-secret",
     nodeOwner: owners.nodeOwner,
-    resolveAssignment: (assignmentId) => (assignmentId === assignment.assignmentId ? assignment : null),
   });
   centers.push(center);
   return {
     center,
     cert,
-    assignment,
+    subject,
     setRepoState: (state: "warming" | "unavailable" | null) => {
       repoState = state;
     },
@@ -211,7 +217,7 @@ async function uploadBegin(fixture: AdmissionFixture, probe: number): Promise<Fl
       schema: "fleet.session.hello/v1",
       messageId: `admission-hello-${probe}`,
       protocolVersion: currentFleetProtocolVersion,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
     });
     if (hello.schema === "fleet.error/v1") return hello;
@@ -219,7 +225,7 @@ async function uploadBegin(fixture: AdmissionFixture, probe: number): Promise<Fl
     return await request({
       schema: "fleet.upload.begin/v1",
       messageId: `admission-begin-${probe}`,
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       content: { sha256: sha256Bytes(body), size: body.byteLength, mediaType: "text/plain; charset=utf-8" },
     });
   } finally {

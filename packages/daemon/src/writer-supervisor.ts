@@ -325,8 +325,6 @@ export async function openWriterSupervisor(
         return input.runtimeInstances!();
       case "keycloakCenter":
         return input.keycloakCenter!();
-      case "fleetRoster":
-        return input.fleetRoster!();
       case "prepareRuntimeLaunch": {
         const payload = call.payload as {
           instanceId: string;
@@ -433,7 +431,6 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       // writer thread, so the daemon can reap them after a Cell restart.
       runtimeLaunch: true,
       runtimeSignal: input.onRuntimeSignal !== undefined,
-      fleetRoster: input.fleetRoster !== undefined,
     },
   };
 }

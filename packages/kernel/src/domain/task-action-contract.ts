@@ -1,3 +1,4 @@
+import { field, cli, objectField, input } from "./task-action-input.ts";
 import { SUBMISSION_V1_SCHEMA } from "./execution.ts";
 import { REVIEW_V1_SCHEMA } from "./review.ts";
 import { WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
@@ -11,79 +12,6 @@ import type {
 } from "./entity-kind-registry.ts";
 import { withDerivedActionReturns } from "./entity-action-descriptor.ts";
 import { all, equals, stateTransition } from "./task-action-state-transition.ts";
-
-type FieldType = NonNullable<EntityActionInputField["type"]>;
-type FieldValue = NonNullable<EntityActionInputField["value"]>;
-type Cli = NonNullable<EntityActionInputField["cli"]>;
-type CliExtra = Omit<Cli, "name" | "kind" | "error"> & Pick<EntityActionInputField, "enum" | "regex">;
-
-function value(type: FieldType, enumRef?: readonly string[], regex?: string): FieldValue {
-  if (type === "number" || type === "boolean") return { kind: type };
-  if (type === "json-object") return { kind: "object", fields: [] };
-  if (type.endsWith("-array"))
-    return type === "json-object-array"
-      ? { kind: "array", items: { kind: "object", fields: [] } }
-      : { kind: "array", items: { kind: "string" } };
-  return { kind: "string", ...(enumRef ? { enumRef } : {}), ...(regex ? { regex } : {}) };
-}
-
-function field(
-  name: string,
-  type: FieldType = "string",
-  required = false,
-  enumRef?: readonly string[],
-  regex?: string,
-): EntityActionInputField {
-  return Object.freeze({
-    field: name,
-    type,
-    required,
-    value: value(type, enumRef, regex),
-    ...(enumRef ? { enum: enumRef } : {}),
-    ...(regex ? { regex } : {}),
-  });
-}
-
-function cli(
-  name: string,
-  type: FieldType,
-  required: boolean,
-  flag: string,
-  kind: Cli["kind"] = "single",
-  extra: CliExtra = {},
-  errorCode = required ? "missing_field" : "invalid_field",
-): EntityActionInputField {
-  const { enum: enumRef, regex, ...binding } = extra;
-  return Object.freeze({
-    ...field(name, type, required, enumRef, regex),
-    cli: Object.freeze({ ...binding, name: flag, kind, error: Object.freeze({ code: errorCode }) }),
-  });
-}
-
-function objectField(
-  name: string,
-  fields: readonly EntityActionInputField[],
-  required = false,
-): EntityActionInputField {
-  return Object.freeze({
-    field: name,
-    type: "json-object",
-    required,
-    fields,
-    value: Object.freeze({ kind: "object", fields }),
-  });
-}
-
-function input(
-  fields: readonly EntityActionInputField[],
-  exactlyOneOf: readonly (readonly string[])[] = [],
-): EntityActionInputContract {
-  return Object.freeze({
-    schema: "entity-action-input/v2",
-    fields: Object.freeze(fields),
-    exactlyOneOf: Object.freeze(exactlyOneOf.map((group) => Object.freeze(group))),
-  });
-}
 
 const stringArrayValue = Object.freeze({ kind: "array" as const, items: Object.freeze({ kind: "string" as const }) });
 // The completion contract is resolved by the center at submit, never supplied by the caller.
@@ -230,6 +158,28 @@ const mutationConcurrency: EntityActionContract["concurrency"] = Object.freeze({
 const criterion = (ref: string, failureCode: string, explain: string) => Object.freeze({ ref, failureCode, explain });
 
 const lifecycleSpecs = Object.freeze({
+  assign: {
+    ingress: "task-assign",
+    commandType: "AssignTask",
+    transitionId: "assign_task",
+    implementation: "task-lifecycle",
+    topology: "center-forward-write",
+    remoteEdgeAdmission: "via-center-forward",
+    coordination: "execute",
+    eventType: "task_assigned",
+    proof: [],
+  },
+  unassign: {
+    ingress: "task-unassign",
+    commandType: "UnassignTask",
+    transitionId: "unassign_task",
+    implementation: "task-lifecycle",
+    topology: "center-forward-write",
+    remoteEdgeAdmission: "via-center-forward",
+    coordination: "execute",
+    eventType: "task_unassigned",
+    proof: [],
+  },
   create: {
     ingress: "task-create",
     commandType: "CreateReplayTask",
@@ -404,6 +354,55 @@ const mutation = (
   });
 
 export const declarations: readonly Declaration[] = Object.freeze([
+  lifecycle("assign", {
+    input: input(
+      [
+        taskId,
+        cli("expectedVersion", "number", true, "--expected-version", "single", {
+          regex: "^[0-9]+$",
+          projection: "number",
+        }),
+        cli("personId", "string", false, "--person"),
+        cli("nodeId", "string", false, "--node"),
+        cli("teamId", "string", false, "--team"),
+        cli("expiresAt", "string", false, "--expires-at"),
+      ],
+      [["personId", "nodeId", "teamId"]],
+    ),
+    criteria: Object.freeze([
+      criterion(
+        "task-assignment-transitions/assignTask.validate",
+        "invalid_transition",
+        "Assignment requires a valid target, future expiry and no held lease.",
+      ),
+    ]),
+    concurrency: taskConcurrency(
+      { authority: "task-lease/v1", mode: "must-be-released" },
+      { authority: "operation-id", retry: "canonical-event-replay" },
+    ),
+    explain: "Assign a task to a person, a specific node or a work team until the chosen expiry.",
+  }),
+  lifecycle("unassign", {
+    input: input([
+      taskId,
+      cli("expectedVersion", "number", true, "--expected-version", "single", {
+        regex: "^[0-9]+$",
+        projection: "number",
+      }),
+    ]),
+    criteria: Object.freeze([
+      criterion(
+        "task-assignment-transitions/unassignTask.validate",
+        "invalid_transition",
+        "Removing an assignment requires no held lease.",
+      ),
+    ]),
+    concurrency: taskConcurrency(
+      { authority: "task-lease/v1", mode: "must-be-released" },
+      { authority: "operation-id", retry: "canonical-event-replay" },
+    ),
+    explain: "Remove the task assignment while no execution holds its lease.",
+  }),
   lifecycle("create", {
     input: createInput,
     criteria: Object.freeze([

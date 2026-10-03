@@ -1,3 +1,4 @@
+import { TASK_CLAIMABLE_SCHEMA, TASK_ASSIGNMENT_DIRECTORY_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import { shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
 import { observeTailReadMethod } from "./daemon-protocol-observe-tail-read.ts";
 import {
@@ -53,6 +54,38 @@ import {
 } from "./daemon-protocol-schema-ids.ts";
 
 export const daemonGuiReadMethods = Object.freeze([
+  {
+    id: "tasks.claimable",
+    phase: "W2-GUI",
+    method: "repo.tasks.claimable",
+    requiresRepo: true,
+    params: shape({ repo: shape({ repoId: "string" }) }),
+    guiBridgeMethod: "getClaimableTasks",
+    httpMethod: "GET",
+    path: "/api/tasks/claimable",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: TASK_CLAIMABLE_SCHEMA.id,
+    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+    serviceMethod: "getClaimableTasks",
+    auth: "local-session-token",
+    commandClass: "repo-read",
+  },
+  {
+    id: "tasks.assignmentDirectory",
+    phase: "W2-GUI",
+    method: "repo.tasks.assignmentDirectory",
+    requiresRepo: true,
+    params: shape({ repo: shape({ repoId: "string" }), payload: shape({ taskId: "string" }) }),
+    guiBridgeMethod: "getTaskAssignmentDirectory",
+    httpMethod: "GET",
+    path: "/api/tasks/:taskId/assignment-directory",
+    inputSchemaId: "gui.task-id/v1",
+    outputSchemaId: TASK_ASSIGNMENT_DIRECTORY_SCHEMA.id,
+    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+    serviceMethod: "getTaskAssignmentDirectory",
+    auth: "local-session-token",
+    commandClass: "repo-read",
+  },
   {
     id: "gui.system.read",
     phase: "W5-GUI-S3",

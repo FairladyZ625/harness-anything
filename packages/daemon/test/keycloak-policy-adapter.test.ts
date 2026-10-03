@@ -208,11 +208,7 @@ test("retired roster bindings and machine authentication confer no repository pe
       action: { kind: "task-create" },
       binding: {
         ...common,
-        source: { kind: "assignment", nodeId: "node-a", assignmentId: "assignment-a" } as const,
-        assignmentScope: {
-          repoId: "repo-a",
-          scope: { kind: "repository", ref: "repo-a" },
-        },
+        source: { kind: "node", nodeId: "node-a" } as const,
       },
       actionId: "action-assignment",
       repoId: "repo-a",

@@ -21,7 +21,6 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       caPath: "/fleet/ca.pem",
       nodeId: "edge-one",
       credential: "machine-secret",
-      assignmentId: "assignment-edge-one",
       viewRoot: "/view",
       quotaBytes: 64 * 1024 * 1024,
     };

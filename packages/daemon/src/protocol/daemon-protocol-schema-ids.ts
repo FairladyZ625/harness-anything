@@ -1,3 +1,4 @@
+import type { TaskAssignment, TaskClaimScope } from "@harness-anything/kernel";
 import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.ts";
 import { useCaseProjectionNameWords } from "./daemon-protocol-vocabulary.ts";
 
@@ -429,3 +430,23 @@ export const guiS3Action = <
   auth: "local-session-token" as const,
   commandClass,
 });
+
+export const TASK_ASSIGNMENT_DIRECTORY_SCHEMA = Object.freeze({ id: "task-assignment-directory/v1" });
+export const TASK_CLAIMABLE_SCHEMA = Object.freeze({ id: "task-claimable/v1" });
+
+export interface TaskAssignmentDirectory {
+  readonly schema: "task-assignment-directory/v1";
+  readonly people: readonly { readonly personId: string; readonly username: string }[];
+  readonly nodes: readonly { readonly nodeId: string; readonly personId: string }[];
+  readonly teams: readonly { readonly id: string; readonly name: string }[];
+}
+
+export interface TaskClaimableResult {
+  readonly schema: "task-claimable/v1";
+  readonly scope: TaskClaimScope;
+  readonly tasks: readonly {
+    readonly taskId: string;
+    readonly title: string;
+    readonly assignment: TaskAssignment | null;
+  }[];
+}

@@ -41,7 +41,7 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
     },
     mission: "Keep the end-to-end mainline green.",
     executionAvailability: "claimed-elsewhere",
-    claim: { nodeId: "edge-two", assignmentId: "assignment-edge-two" },
+    claim: { nodeId: "edge-two", claimFence: "claim-edge-two" },
     health: {
       recent: ["succeeded", "failed"],
       bucket: "degraded",
@@ -66,7 +66,7 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
       scheduledFor: "2026-08-27T08:00:00.000Z",
       claimedAt: "2026-08-27T08:00:01.000Z",
       nodeId: "edge-two",
-      assignmentId: "assignment-edge-two",
+      claimFence: "claim-edge-two",
       attemptIndex: 1,
       dispatchId: "dispatch_000000000000000000000002",
       runtimeSessionId: "runtime-active",
@@ -77,7 +77,7 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
       endedAt: "2026-08-27T06:04:12.000Z",
       outcome: "failed",
       nodeId: "local",
-      assignmentId: null,
+      claimFence: "claim-prior",
       attemptIndex: 0,
       dispatchId: "dispatch_000000000000000000000001",
       runtimeSessionId: "runtime-prior",
@@ -148,6 +148,7 @@ const occurrence = (
   endedAt: "2026-08-27T08:31:03.000Z",
   durationMs: 362_000,
   nodeId: "edge-sf-2",
+  claimFence: "claim-86b0",
   attemptIndex: 1,
   dispatchId: "dispatch_000000000000000000000009",
   runtimeSessionId: "runtime-86b0",
@@ -229,6 +230,9 @@ describe("schedule detail hub (M2)", () => {
     expect(text).toContain("Detect");
     expect(text).toContain("Claimed elsewhere");
     expect(text).toContain("edge-two");
+    expect(text).toContain("Claim fence");
+    expect(text).toContain("claim-edge-two");
+    expect(text).not.toContain("assignment-edge-two");
     // 健康度 rollup 是 daemon 事实:spark + 失败计数 + 最近失败原因直接渲染,无占位。
     expect(container.querySelector('[data-testid="schedule-health-spark"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="schedule-health-spark"]')?.children).toHaveLength(2);

@@ -179,3 +179,113 @@ for (const mutation of [
     for (const kind of mutation.missing)
       assert.equal(result.rows.find((row) => row.action === kind)?.authorizationPort, false, kind);
   });
+
+function taskSnapshot(t) {
+  const root = hostSnapshot(t);
+  cpSync(path.join(repoRoot, "packages/kernel/src"), path.join(root, "packages/kernel/src"), { recursive: true });
+  return root;
+}
+
+test("G0-2 traces all 138 declared writes, including queued task catalog ingress", () => {
+  const result = auditDurableActionAuthorization(repoRoot);
+  assert.equal(result.rows.length, 138); // dec_CDDCFA8BB91A47BCE07B229E93 CH2: assign and unassign.
+  assert.deepEqual(result.findings, []);
+  assert.ok(result.rows.every((row) => row.receiptAuthorizationDecision));
+});
+
+for (const mutation of [
+  {
+    name: "durable membership",
+    file: "repo-cell-command-run",
+    before: "(durablePolicyActions as readonly string[]).includes(action.kind)",
+    after: "false",
+  },
+  {
+    name: "current cut evaluation",
+    file: "repo-cell-command-run",
+    before: "queuedDecision = await authorizeAtCurrentCut()!;",
+    after: "queuedDecision = undefined;",
+  },
+  {
+    name: "current revision",
+    file: "repo-cell-command-run",
+    before: "const revision = context.store.readHead()?.revision ?? 0,",
+    after: "const revision = 0,",
+  },
+  {
+    name: "denied return",
+    file: "repo-cell-command-run",
+    before: 'if (queuedDecision.outcome === "denied")\n            return withAuthorizationDecision(',
+    after: 'if (queuedDecision.outcome === "denied")\n            withAuthorizationDecision(',
+  },
+  {
+    name: "execution before authorization",
+    file: "repo-cell-command-run",
+    before: "const executed = context.withHumanSummary(await execute(queuedDecision)),",
+    after: "const executed = context.withHumanSummary(alreadyExecuted),",
+    extraBefore: "if (durable) {",
+    extraAfter: "const alreadyExecuted = await execute(queuedDecision);\n        if (durable) {",
+  },
+  {
+    name: "Keycloak person evaluation",
+    file: "repo-cell-authorization",
+    before: "const result = await evaluateKeycloakPerson({",
+    after: "const result = await uncheckedPerson({",
+  },
+  {
+    name: "catalog dispatch",
+    file: "repo-cell-action-dispatch",
+    before: "return cell.entityActionExecutor.run(",
+    after: "return uncheckedCatalog(",
+  },
+  {
+    name: "catalog task callback",
+    file: "entity-action-catalog-executor",
+    before: ".task(contract, action, binding, opId)",
+    after: ".uncheckedTask(contract, action, binding, opId)",
+  },
+  {
+    name: "lifecycle execution",
+    file: "repo-cell-action-dispatch",
+    before: "cell.lifecycleAction(catalogAction, catalogBinding)",
+    after: "uncheckedLifecycle(catalogAction, catalogBinding)",
+  },
+  {
+    name: "write entry binding",
+    file: "repo-cell-action-context",
+    before: "executeAction: bind(executeActionImpl)",
+    after: "executeAction: uncheckedExecution",
+  },
+]) {
+  test(`G0-2 rejects task writes when production ${mutation.name} is disconnected`, (t) => {
+    const root = taskSnapshot(t);
+    mutate(root, mutation.file, mutation.before, mutation.after);
+    if (mutation.extraBefore) mutate(root, mutation.file, mutation.extraBefore, mutation.extraAfter);
+    // The assignment-directory read handler remains intact; it cannot prove write authorization.
+    const result = auditDurableActionAuthorization(root, ["task-assign", "task-unassign"]);
+    assert.deepEqual(
+      result.rows.map((row) => row.authorizationPort),
+      [false, false],
+    );
+    assert.equal(result.findings.length, 2);
+    assert.ok(result.rows.every((row) => row.receiptAuthorizationDecision));
+  });
+}
+
+for (const kind of ["assign", "unassign"]) {
+  for (const registration of [false, true]) {
+    test(`G0-2 rejects task-${kind} after removing its ${registration ? "catalog registration" : "durable declaration"}`, (t) => {
+      const root = taskSnapshot(t),
+        file = `packages/kernel/src/domain/${registration ? "task-action-contract" : "action-declaration"}.ts`,
+        source = readFileSync(path.join(root, file), "utf8"),
+        before = registration ? `lifecycle("${kind}", {` : `closure("task-${kind}", "task/${kind}"),`,
+        after = registration ? `disconnected("${kind}", {` : "";
+      assert.ok(source.includes(before));
+      writeRepoFile(root, file, source.replace(before, after));
+      const result = auditDurableActionAuthorization(root, ["task-assign", "task-unassign"]);
+      assert.equal(result.rows.find((row) => row.action === `task-${kind}`).authorizationPort, false);
+      assert.equal(result.rows.find((row) => row.action !== `task-${kind}`).authorizationPort, true);
+      assert.equal(result.findings.length, 1);
+    });
+  }
+}

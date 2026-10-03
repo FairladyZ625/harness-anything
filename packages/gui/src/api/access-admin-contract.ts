@@ -53,6 +53,21 @@ export interface AccessRejection {
 
 type Reply<T> = Promise<({ readonly ok: true } & T) | AccessRejection>;
 
+export interface AccessTeam {
+  readonly id: string;
+  readonly name: string;
+  readonly personIds: readonly string[];
+  readonly version: string;
+}
+export interface AccessTeamsReply {
+  readonly teams: readonly AccessTeam[];
+  readonly people: readonly { readonly personId: string; readonly username: string }[];
+}
+export interface AccessTeamChange {
+  readonly teamId: string;
+  readonly expectedVersion: string;
+}
+
 export interface AccessGroupsReply {
   readonly groups: readonly AccessPolicyGroup[];
   readonly actions: readonly AccessAction[];
@@ -98,7 +113,13 @@ export interface AccessGroupWrite {
 
 /** What the renderer may ask of access administration; the main process adds the operation id of each write. */
 export type AccessAdminRequest = { readonly repoId?: string } & (
-  | { readonly operation: "group-list" | "grant-list" | "receipt-list" | "session-lifetime" }
+  | {
+      readonly operation: "node-list" | "team-list" | "group-list" | "grant-list" | "receipt-list" | "session-lifetime";
+    }
+  | { readonly operation: "team-create"; readonly teamName: string }
+  | ({ readonly operation: "team-update"; readonly teamName: string } & AccessTeamChange)
+  | ({ readonly operation: "team-delete" } & AccessTeamChange)
+  | ({ readonly operation: "team-member-add" | "team-member-remove"; readonly personId: string } & AccessTeamChange)
   | ({ readonly operation: "group-create" } & AccessGroupWrite)
   | ({ readonly operation: "group-update"; readonly expectedVersion: string } & AccessGroupWrite)
   | { readonly operation: "group-delete"; readonly groupId: string; readonly expectedVersion: string }
@@ -114,6 +135,15 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
 
 export interface AccessAdminApi {
   readonly forRepository: (repoId?: string) => AccessAdminApi;
+  readonly nodes: () => Reply<{
+    readonly nodes: readonly { readonly nodeId: string; readonly personId: string; readonly version: string }[];
+  }>;
+  readonly teams: () => Reply<AccessTeamsReply>;
+  readonly createTeam: (input: { readonly teamName: string }) => Reply<AccessReceipt>;
+  readonly updateTeam: (input: AccessTeamChange & { readonly teamName: string }) => Reply<AccessReceipt>;
+  readonly deleteTeam: (input: AccessTeamChange) => Reply<AccessReceipt>;
+  readonly addTeamMember: (input: AccessTeamChange & { readonly personId: string }) => Reply<AccessReceipt>;
+  readonly removeTeamMember: (input: AccessTeamChange & { readonly personId: string }) => Reply<AccessReceipt>;
   readonly groups: () => Reply<AccessGroupsReply>;
   readonly createGroup: (input: AccessGroupWrite) => Reply<AccessReceipt>;
   readonly updateGroup: (input: AccessGroupWrite & { readonly expectedVersion: string }) => Reply<AccessReceipt>;

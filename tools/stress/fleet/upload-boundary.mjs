@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { makeTaskEventReader, sha256Bytes } from "../../../packages/kernel/src/index.ts";
 import {
-  readFleetAssignmentClient,
+  readFleetRepositoryMetadataClient,
   runFleetTaskCommandClient,
   runFleetUploadClient,
   runFleetWriteClient,
@@ -23,47 +23,40 @@ const documentPaths = {
 export async function runFleetUploadBoundaryCampaign() {
   const fixture = await openFleetCampaignFixture({ repoNames: ["upload"] }),
     repo = fixture.repos[0],
-    assignments = Array.from({ length: 6 }, (_value, index) => fixture.assignment(repo.repoId, index));
-  for (const assignment of assignments)
-    assignment.scope = {
-      kind: "task",
-      taskId: "task-upload-boundary",
-      executionId: "execution-upload-boundary",
-      paths: Object.values(documentPaths),
-    };
+    subjects = Array.from({ length: 6 }, (_value, index) => fixture.subject(repo.repoId, index));
   try {
     let center = await fixture.startCenter("upload-center-1");
-    const prefix = await resumeDurablePrefix(fixture, center, assignments[0], documentPaths.prefix);
+    const prefix = await resumeDurablePrefix(fixture, center, subjects[0], documentPaths.prefix);
     await fixture.closeCenter();
     center = await fixture.startCenter("upload-center-2");
-    prefix.result = await write(fixture, center, assignments[0], documentPaths.prefix, prefix.body);
+    prefix.result = await write(fixture, center, subjects[0], documentPaths.prefix, prefix.body);
 
-    const committed = await commitBeforeAck(fixture, center, assignments[1], documentPaths.commit);
+    const committed = await commitBeforeAck(fixture, center, subjects[1], documentPaths.commit);
     await fixture.closeCenter();
     center = await fixture.startCenter("upload-center-3");
-    committed.result = await write(fixture, center, assignments[1], documentPaths.commit, committed.body);
+    committed.result = await write(fixture, center, subjects[1], documentPaths.commit, committed.body);
 
-    const aborted = await abandonPartialUpload(fixture, center, assignments[2], documentPaths.abort),
-      concurrent = await concurrentSameContent(fixture, center, assignments.slice(3, 5), documentPaths.concurrent),
-      oldAssignment = await assignment(fixture, center, assignments[5]),
+    const aborted = await abandonPartialUpload(fixture, center, subjects[2], documentPaths.abort),
+      concurrent = await concurrentSameContent(fixture, center, subjects.slice(3, 5), documentPaths.concurrent),
+      oldMetadata = await repositoryMetadata(fixture, center, subjects[5]),
       staleDescriptor = (
         await runFleetUploadClient({
-          ...peer(fixture, center, assignments[5]),
+          ...peer(fixture, center, subjects[5]),
           changes: [{ path: documentPaths.stale, body: "stale generation bytes\n" }],
         })
       )[0];
     assert.ok(staleDescriptor);
     await fixture.closeCenter();
     center = await fixture.startCenter("upload-center-4");
-    const currentAssignment = await assignment(fixture, center, assignments[5]),
+    const currentMetadata = await repositoryMetadata(fixture, center, subjects[5]),
       stale = await runFleetTaskCommandClient({
-        ...peer(fixture, center, assignments[5]),
+        ...peer(fixture, center, subjects[5]),
         opId: "upload-stale-generation",
         repoId: repo.repoId,
         taskId: "task-upload-boundary",
         action: { kind: "task-show", taskId: "task-upload-boundary" },
         waitMs: 1_000,
-        writerEpoch: oldAssignment.writerEpoch,
+        writerEpoch: oldMetadata.writerEpoch,
         docChanges: [
           {
             path: documentPaths.stale,
@@ -74,7 +67,7 @@ export async function runFleetUploadBoundaryCampaign() {
         ],
         mirrorBaseCut: null,
       });
-    assert.ok(currentAssignment.writerEpoch > oldAssignment.writerEpoch);
+    assert.ok(currentMetadata.writerEpoch > oldMetadata.writerEpoch);
     assert.equal(stale.outcome, "op_rejected");
     assert.equal(stale.code, "writer_epoch_stale");
     assert.equal(JSON.stringify(readState(fixture)).includes(staleDescriptor.ref), false);
@@ -113,7 +106,7 @@ export async function runFleetUploadBoundaryCampaign() {
             repoId: repo.repoId,
             opId: concurrent.winner.center.opId,
             holder: "upload-center-3",
-            epoch: oldAssignment.writerEpoch,
+            epoch: oldMetadata.writerEpoch,
             sequence: 1,
             status: "accepted_durable",
           },
@@ -122,7 +115,7 @@ export async function runFleetUploadBoundaryCampaign() {
           {
             repoId: repo.repoId,
             holder: "upload-center-3",
-            epoch: oldAssignment.writerEpoch,
+            epoch: oldMetadata.writerEpoch,
             sequence: 0,
           },
         ],
@@ -205,8 +198,8 @@ export async function runFleetUploadBoundaryCampaign() {
           id: "fleet-upload/stale-generation-after-takeover",
           boundaryHits: ["staged-under-old-writer-epoch", "center-takeover", "stale-claim-discard"],
           observations: {
-            oldWriterEpoch: oldAssignment.writerEpoch,
-            currentWriterEpoch: currentAssignment.writerEpoch,
+            oldWriterEpoch: oldMetadata.writerEpoch,
+            currentWriterEpoch: currentMetadata.writerEpoch,
             outcome: stale.outcome,
             code: stale.code,
           },
@@ -233,10 +226,10 @@ export async function runFleetUploadBoundaryCampaign() {
   }
 }
 
-async function resumeDurablePrefix(fixture, center, assignmentRecord, target) {
+async function resumeDurablePrefix(fixture, center, subject, target) {
   const body = `# Prefix resume\n\n${"p".repeat(160 * 1024)}\n`,
-    baseLedgerSha = (await assignment(fixture, center, assignmentRecord)).baseLedgerSha,
-    run = spawnUploadProcess(fixture, center, assignmentRecord, {
+    baseLedgerSha = (await repositoryMetadata(fixture, center, subject)).baseLedgerSha,
+    run = spawnUploadProcess(fixture, center, subject, {
       label: "prefix-resume",
       path: target,
       body,
@@ -248,10 +241,10 @@ async function resumeDurablePrefix(fixture, center, assignmentRecord, target) {
   return { body, boundary, result: null };
 }
 
-async function commitBeforeAck(fixture, center, assignmentRecord, target) {
+async function commitBeforeAck(fixture, center, subject, target) {
   const body = "# Committed before acknowledgement\n",
-    baseLedgerSha = (await assignment(fixture, center, assignmentRecord)).baseLedgerSha,
-    run = spawnUploadProcess(fixture, center, assignmentRecord, {
+    baseLedgerSha = (await repositoryMetadata(fixture, center, subject)).baseLedgerSha,
+    run = spawnUploadProcess(fixture, center, subject, {
       label: "commit-before-ack",
       path: target,
       body,
@@ -267,11 +260,11 @@ async function commitBeforeAck(fixture, center, assignmentRecord, target) {
   return { body, boundary, result: null };
 }
 
-async function abandonPartialUpload(fixture, center, assignmentRecord, target) {
+async function abandonPartialUpload(fixture, center, subject, target) {
   const body = `# Aborted upload\n\n${"a".repeat(160 * 1024)}\n`,
-    baseLedgerSha = (await assignment(fixture, center, assignmentRecord)).baseLedgerSha,
+    baseLedgerSha = (await repositoryMetadata(fixture, center, subject)).baseLedgerSha,
     opId = "upload-aborted-before-submit",
-    run = spawnUploadProcess(fixture, center, assignmentRecord, {
+    run = spawnUploadProcess(fixture, center, subject, {
       label: "abort-partial",
       path: target,
       body,
@@ -281,8 +274,7 @@ async function abandonPartialUpload(fixture, center, assignmentRecord, target) {
   const boundary = JSON.parse(await waitForMarker(run.boundaryFile, run.child, run.output));
   await killPausedUpload(run);
   const stagedEntry = Object.entries(readState(fixture).uploads).find(
-    ([, upload]) =>
-      upload.nodeId === assignmentRecord.nodeId && upload.content.sha256 === sha256Bytes(Buffer.from(body)),
+    ([, upload]) => upload.nodeId === subject.nodeId && upload.content.sha256 === sha256Bytes(Buffer.from(body)),
   );
   assert.ok(stagedEntry);
   const [uploadId, staged] = stagedEntry;
@@ -291,11 +283,11 @@ async function abandonPartialUpload(fixture, center, assignmentRecord, target) {
   return { body, boundary, opId };
 }
 
-async function concurrentSameContent(fixture, center, assignmentRecords, target) {
+async function concurrentSameContent(fixture, center, subjects, target) {
   const body = "# Same content from two edges\n",
-    baseLedgerSha = (await assignment(fixture, center, assignmentRecords[0])).baseLedgerSha,
-    runs = assignmentRecords.map((assignmentRecord, index) =>
-      spawnUploadProcess(fixture, center, assignmentRecord, {
+    baseLedgerSha = (await repositoryMetadata(fixture, center, subjects[0])).baseLedgerSha,
+    runs = subjects.map((subject, index) =>
+      spawnUploadProcess(fixture, center, subject, {
         label: `concurrent-${index + 1}`,
         path: target,
         body,
@@ -306,7 +298,7 @@ async function concurrentSameContent(fixture, center, assignmentRecords, target)
   await Promise.all(runs.map((run) => waitForMarker(run.readyFile, run.child, run.output)));
   for (const run of runs) run.release();
   const results = await Promise.all(runs.map(completedUpload)),
-    accepted = results.map((result, index) => ({ ...result, nodeId: assignmentRecords[index].nodeId })),
+    accepted = results.map((result, index) => ({ ...result, nodeId: subjects[index].nodeId })),
     winners = accepted.filter(({ center: result }) => result.outcome === "applied"),
     losers = accepted.filter(({ center: result }) => result.outcome === "op_rejected");
   assert.equal(winners.length, 1, JSON.stringify(results));
@@ -316,10 +308,10 @@ async function concurrentSameContent(fixture, center, assignmentRecords, target)
   return { body, results, winner: winners[0], loser: losers[0] };
 }
 
-async function write(fixture, center, assignmentRecord, target, body) {
-  const assigned = await assignment(fixture, center, assignmentRecord),
+async function write(fixture, center, subject, target, body) {
+  const assigned = await repositoryMetadata(fixture, center, subject),
     result = await runFleetWriteClient({
-      ...peer(fixture, center, assignmentRecord),
+      ...peer(fixture, center, subject),
       channel: "collaborator",
       executionId: null,
       baseLedgerSha: assigned.baseLedgerSha,
@@ -329,18 +321,18 @@ async function write(fixture, center, assignmentRecord, target, body) {
   return result;
 }
 
-function assignment(fixture, center, assignmentRecord) {
-  return readFleetAssignmentClient(peer(fixture, center, assignmentRecord));
+function repositoryMetadata(fixture, center, subject) {
+  return readFleetRepositoryMetadataClient(peer(fixture, center, subject));
 }
 
-function peer(fixture, center, assignmentRecord) {
+function peer(fixture, center, subject) {
   return {
     port: center.port,
     ca: readFileSync(fixture.certFile),
     servername: "localhost",
-    nodeId: assignmentRecord.nodeId,
-    credential: `credential-${assignmentRecord.nodeId}`,
-    assignmentId: assignmentRecord.assignmentId,
+    nodeId: subject.nodeId,
+    credential: `credential-${subject.nodeId}`,
+    repoId: subject.repoId,
   };
 }
 

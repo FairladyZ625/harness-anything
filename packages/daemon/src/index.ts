@@ -12,12 +12,7 @@ export {
   type LocalDaemonTarget,
 } from "./client/local-json-rpc-client.ts";
 export { openDaemonHost, type DaemonHost } from "./daemon-host.ts";
-export {
-  listenFleetTls,
-  type FleetAssignmentRecord,
-  type FleetCenterOptions,
-  type FleetTlsCenter,
-} from "./fleet/center.ts";
+export { listenFleetTls, type FleetCenterOptions, type FleetTlsCenter } from "./fleet/center.ts";
 export {
   FleetRemoteError,
   openFleetEdgeView,

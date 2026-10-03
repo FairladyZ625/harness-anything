@@ -449,7 +449,7 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
         },
         mission: "Probe the runtime surface.",
         executionAvailability: "local",
-        claim: { nodeId: null, assignmentId: null },
+        claim: { nodeId: null, claimFence: null },
         health: { recent: ["succeeded"], bucket: "clean", failedCount: 0, lastFailureDetail: null },
         nextRunAt: AT,
         actions: {
@@ -465,7 +465,7 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
           scheduledFor: AT,
           claimedAt: AT,
           nodeId: "local",
-          assignmentId: null,
+          claimFence: "claim-prior",
           attemptIndex: 0,
           dispatchId: "dispatch_0000000000000000000000ff",
           runtimeSessionId: SESSION_ID,

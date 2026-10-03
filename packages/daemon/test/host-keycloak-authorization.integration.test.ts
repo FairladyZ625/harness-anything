@@ -41,8 +41,7 @@ test("center start uses the signed-in person's authority repository permission w
   realm.keycloak.permit("person-admin", "authority", ["daemon-fleet-center-start"]);
   realm.keycloak.permit("person-other", "other", ["daemon-fleet-center-start"]);
   const keyPath = path.join(root, "key.pem"),
-    certPath = path.join(root, "cert.pem"),
-    rosterPath = path.join(root, "fleet.json");
+    certPath = path.join(root, "cert.pem");
   execFileSync(
     "openssl",
     [
@@ -62,24 +61,8 @@ test("center start uses the signed-in person's authority repository permission w
     ],
     { stdio: "ignore" },
   );
-  writeFileSync(
-    rosterPath,
-    JSON.stringify({
-      schema: "fleet-roster/v3",
-      assignments: [
-        {
-          assignmentId: "assignment-one",
-          nodeId: "node-one",
-          repoId: "authority",
-          viewId: "view-one",
-          expiresAt: "2099-01-01T00:00:00.000Z",
-          scope: { kind: "task", taskId: "task-one", executionId: "exec-one", paths: ["tasks/task-one/notes.md"] },
-        },
-      ],
-    }),
-  );
   const host = await openDaemonHost({ daemonId: "s6-host-auth", userRoot }),
-    request = { port: 0, bind: "127.0.0.1", keyPath, certPath, rosterPath, quotaBytes: 64 * 1024 * 1024 };
+    request = { port: 0, bind: "127.0.0.1", keyPath, certPath, repoId: "authority", quotaBytes: 64 * 1024 * 1024 };
   t.after(() => host.close());
   signInAt(userRoot, "person-other");
   await assert.rejects(host.fleet.startCenter(request, auth), { code: "authorization_denied" });

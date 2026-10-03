@@ -1,4 +1,5 @@
 import { dropRetiredSettingsWalFlush, normalizeHistoricalSettingsRoles } from "./settings-history.ts";
+import { projectScheduleHistory } from "./schedule.ts";
 import { deriveRelationId } from "./entity-relation.ts";
 import { parseEntityJsonSchema } from "./entity-json-schema.ts";
 import type { EntityKindContract } from "./entity-kind-registry.ts";
@@ -130,7 +131,9 @@ export function interpretEmbeddedEntityProjections(
       const value =
         contract.kind === "settings"
           ? dropRetiredSettingsWalFlush(normalizeHistoricalSettingsRoles(payload[source.payloadField]))
-          : payload[source.payloadField];
+          : contract.kind === "schedule"
+            ? projectScheduleHistory(payload[source.payloadField])
+            : payload[source.payloadField];
       const projected = interpretEntityProjection(contract, value, event.workspaceRevision, `event:${event.opId}`);
       if (projected === null) throw new Error(`${contract.kind} embedded projection declaration is unavailable`);
       return projected;

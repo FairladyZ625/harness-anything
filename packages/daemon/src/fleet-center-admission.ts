@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { timestamp } from "@harness-anything/kernel";
-import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "./fleet/center.ts";
+import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { FleetCenterOptions } from "./fleet/center-types.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
@@ -9,119 +8,6 @@ import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/edge.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
-/**
- * The assignments a center serves. It names what each node may reach, never who a node is: machine
- * credentials and node owners live in the center's Keycloak node registry.
- */
-export interface FleetRoster {
-  readonly assignments: readonly FleetAssignmentRecord[];
-}
-export class FleetRosterError extends Error {
-  readonly code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.name = "FleetRosterError";
-    this.code = code;
-  }
-}
-const id = /^[A-Za-z0-9_-]{1,96}$/u,
-  row = (value: unknown): Record<string, unknown> | null =>
-    value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null,
-  shapeText =
-    '{ "schema": "fleet-roster/v3", "assignments": [{ "assignmentId": string, "nodeId": string,' +
-    ' "repoId": string, "viewId": string, "expiresAt": ISO-8601-Z,' +
-    ' "scope": { "kind": "task", "taskId": string, "executionId": string, "paths": string[] }' +
-    ' | { "kind": "schedule", "scheduleId": string, "paths": string[] } }] }';
-export function readFleetRosterFile(file: string): FleetRoster {
-  try {
-    return parseFleetRoster(JSON.parse(readFileSync(file, "utf8")));
-  } catch (error) {
-    if (error instanceof FleetRosterError) throw error;
-    throw new FleetRosterError(
-      "roster_unreadable",
-      `Fleet roster at ${file} could not be read or parsed: ${error instanceof Error ? error.message : String(error)}. Provide ${shapeText}.`,
-    );
-  }
-}
-export function parseFleetRoster(input: unknown): FleetRoster {
-  const record = row(input),
-    fail = (detail: string) =>
-      new FleetRosterError("roster_invalid", `Fleet roster is invalid: ${detail}. Provide ${shapeText}.`);
-  if (record === null || record.schema !== "fleet-roster/v3")
-    throw fail("the top-level schema must be fleet-roster/v3");
-  if (Object.keys(record).length !== 2 || !Object.hasOwn(record, "assignments"))
-    throw fail("fleet-roster/v3 has unknown or missing top-level fields");
-  if (
-    !Array.isArray(record.assignments) ||
-    record.assignments.length === 0 ||
-    record.assignments.some((value) => parseFleetRosterAssignment(value) === null)
-  )
-    throw fail("assignments must be a non-empty array of complete assignment rows");
-  return { assignments: record.assignments.map((value) => parseFleetRosterAssignment(value)!) };
-}
-
-function parseFleetRosterAssignment(value: unknown): FleetAssignmentRecord | null {
-  const entry = row(value),
-    scope = row(entry?.scope),
-    assignmentFields = ["assignmentId", "nodeId", "repoId", "viewId", "expiresAt", "scope"],
-    scopeFields =
-      scope?.kind === "task"
-        ? ["kind", "taskId", "executionId", "paths"]
-        : scope?.kind === "schedule"
-          ? ["kind", "scheduleId", "paths"]
-          : [],
-    paths = scope?.paths;
-  if (
-    !entry ||
-    Object.keys(entry).length !== assignmentFields.length ||
-    !assignmentFields.every((field) => Object.hasOwn(entry, field)) ||
-    !["assignmentId", "nodeId", "repoId", "viewId"].every(
-      (field) => typeof entry[field] === "string" && id.test(entry[field] as string),
-    ) ||
-    !timestamp(entry.expiresAt) ||
-    !scope ||
-    scopeFields.length === 0 ||
-    Object.keys(scope).length !== scopeFields.length ||
-    !scopeFields.every((field) => Object.hasOwn(scope, field)) ||
-    !scopeFields
-      .filter((field) => field !== "kind" && field !== "paths")
-      .every((field) => typeof scope[field] === "string" && id.test(scope[field] as string)) ||
-    !Array.isArray(paths) ||
-    paths.length === 0 ||
-    paths.length > 128 ||
-    !paths.every(validRosterPath)
-  )
-    return null;
-  return {
-    assignmentId: entry.assignmentId as string,
-    nodeId: entry.nodeId as string,
-    repoId: entry.repoId as string,
-    viewId: entry.viewId as string,
-    scope:
-      scope.kind === "task"
-        ? {
-            kind: "task",
-            taskId: scope.taskId as string,
-            executionId: scope.executionId as string,
-            paths: paths as string[],
-          }
-        : { kind: "schedule", scheduleId: scope.scheduleId as string, paths: paths as string[] },
-    expiresAt: entry.expiresAt as string,
-  };
-}
-
-function validRosterPath(value: unknown): boolean {
-  return (
-    typeof value === "string" &&
-    value.length > 0 &&
-    value.length <= 512 &&
-    value === value.normalize("NFC") &&
-    !value.startsWith("/") &&
-    !value.includes("\\") &&
-    value.split("/").every((part) => part.length > 0 && part !== "." && part !== "..")
-  );
-}
-
 /** The center's node registry: Keycloak verifies the machine credential and names the node's owner. */
 export function keycloakNodeRegistry(
   center: KeycloakCenterAuthority,
@@ -155,7 +41,7 @@ export interface FleetCenterAdmissionRequest {
     readonly bind?: string;
     readonly keyPath: string;
     readonly certPath: string;
-    readonly rosterPath: string;
+    readonly repoId: string;
     readonly stateRoot?: string;
     readonly quotaBytes: number;
   };
@@ -164,18 +50,15 @@ const material = (file: string, flag: string): Buffer => {
   try {
     return readFileSync(file);
   } catch (error) {
-    throw new FleetRosterError(
-      "fleet_material_unreadable",
+    throw new Error(
       `Fleet TLS ${flag} at ${file} could not be read: ${error instanceof Error ? error.message : String(error)}.`,
     );
   }
 };
 export async function startFleetCenterAdmission(
   input: FleetCenterAdmissionRequest,
-): Promise<{ readonly center: FleetTlsCenter; readonly roster: FleetRoster; readonly stateRoot: string }> {
-  const roster = readFleetRosterFile(input.payload.rosterPath),
-    assignmentOf = new Map(roster.assignments.map((entry) => [entry.assignmentId, entry])),
-    stateRoot = input.payload.stateRoot ?? path.join(input.userRoot, "fleet");
+): Promise<{ readonly center: FleetTlsCenter; readonly stateRoot: string }> {
+  const stateRoot = input.payload.stateRoot ?? path.join(input.userRoot, "fleet");
   return {
     center: await listenFleetTls({
       host: input.host,
@@ -188,9 +71,7 @@ export async function startFleetCenterAdmission(
       port: input.payload.port,
       replicaDiskQuotaBytes: input.payload.quotaBytes,
       ...input.nodes,
-      resolveAssignment: (assignmentId) => assignmentOf.get(assignmentId) ?? null,
     }),
-    roster,
     stateRoot,
   };
 }
@@ -202,7 +83,6 @@ export interface FleetEdgeSyncRequest {
     readonly servername?: string;
     readonly nodeId: string;
     readonly credential: string;
-    readonly assignmentId: string;
     readonly repoId: string;
     readonly viewRoot: string;
     readonly quotaBytes: number;
@@ -219,7 +99,7 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
       servername: input.payload.servername,
       nodeId: input.payload.nodeId,
       credential: input.payload.credential,
-      assignmentId: input.payload.assignmentId,
+      repoId: input.payload.repoId,
       viewRoot: input.payload.viewRoot,
       diskQuotaBytes: input.payload.quotaBytes,
       timeoutMs: input.payload.timeoutMs ?? 60_000,
@@ -232,7 +112,7 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
               ? `${error.message} Ask a center administrator to grant the node's owner daemon-fleet-edge-sync` +
                 " on this repository, then retry the edge sync."
               : `${error.message} Register the node at the center and use the credential it issued,` +
-                " or correct --node-id / --credential / --assignment, then retry the edge sync.",
+                " or correct --node-id / --credential, then retry the edge sync.",
           ),
           { code: error.code },
         );

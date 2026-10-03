@@ -14,8 +14,6 @@ const valid = {
   caPath: "/data/shared/fleet/fleet.crt",
   nodeId: "edge-1",
   credential: "issued-at-registration",
-  rosterPath: "/data/shared/fleet/roster.json",
-  assignmentId: "assignment-edge-1",
   viewRoot: "/data/view",
   quotaBytes: 268_435_456,
 };
@@ -37,6 +35,8 @@ test("a fleet-edge config marks the workspace and carries the machine credential
       ["zero quota", { quotaBytes: 0 }],
       ["no credential", { credential: undefined }],
       ["bad wait", { waitTimeoutMs: -1 }],
+      ["retired assignment", { assignmentId: "old" }],
+      ["retired roster", { rosterPath: "/old.json" }],
     ] as const) {
       writeFileSync(path.join(root, "fleet-edge.json"), JSON.stringify({ ...valid, ...patch }));
       assert.throws(() => readFleetEdgeConfig(root), /fleet_edge_config_invalid|is invalid/u, detail);

@@ -181,7 +181,7 @@ export function daemonStopRefusal(
   authContext: DaemonAuthenticationContext,
   requestShutdown?: () => void,
 ): DaemonProtocolErrorResult | null {
-  if (authContext.transportKind !== "unix-socket" || authContext.assignmentBinding)
+  if (authContext.transportKind !== "unix-socket" || authContext.nodePrincipal)
     return daemonProtocolError(
       "daemon-stop",
       "local_transport_required",

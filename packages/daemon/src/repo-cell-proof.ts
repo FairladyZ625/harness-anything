@@ -134,6 +134,7 @@ export async function proofFor(
     const rejoined = snapshot.executions.find((execution) => execution.executionId === executionId);
     return {
       actorBinding: command.actor,
+      claimant: binding.taskClaimant,
       deliveryBaseline:
         rejoined !== undefined && isNativeExecution(rejoined) && rejoined.deliveryBaseline !== undefined
           ? rejoined.deliveryBaseline
@@ -150,7 +151,7 @@ export async function proofFor(
       authorizationDecision,
     };
   }
-  if (command.type === "TransitionTask") return {};
+  if (command.type === "TransitionTask" || command.type === "AssignTask" || command.type === "UnassignTask") return {};
   if (command.type === "SubmitExecution") {
     if (command.amend === true)
       return {
@@ -336,7 +337,7 @@ export async function proofFor(
     // center resolves for it decides what the node may do, and confirmed nothing.
     if (
       typeof command.source === "object" &&
-      command.source.kind === "assignment" &&
+      command.source.kind === "node" &&
       binding.keycloakAuthorization?.session?.personId !== command.actor.principal.personId
     )
       throw cellCodedError(

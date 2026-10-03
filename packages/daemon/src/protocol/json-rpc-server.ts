@@ -409,7 +409,7 @@ export function createJsonRpcProtocolServer(options: {
     if (method === "daemon.fleet.task.run") {
       // Loaded lazily: schema-closure imports this module in a zero-dependency checkout, and the fleet edge stack reaches the kernel barrel.
       try {
-        if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding)
+        if (options.authContext.transportKind !== "unix-socket" || options.authContext.nodePrincipal)
           throw Object.assign(new Error("This control is available only through the local session token."), {
             code: "local_transport_required",
           });
@@ -470,7 +470,7 @@ export function createJsonRpcProtocolServer(options: {
     }
     if (method === "daemon.fleet.doc.sync" || method === "daemon.fleet.conflict.exit") {
       try {
-        if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding)
+        if (options.authContext.transportKind !== "unix-socket" || options.authContext.nodePrincipal)
           throw Object.assign(new Error("This control is available only through the local session token."), {
             code: "local_transport_required",
           }); // Lazy for the same schema-closure reason as the task channel.

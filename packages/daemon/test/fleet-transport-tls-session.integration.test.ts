@@ -10,7 +10,7 @@ import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { digestId } from "../src/fleet/center-transport.ts";
 import {
-  readFleetAssignmentClient,
+  readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
   runFleetWriteClient,
   type FleetReplicaPullClientOptions,
@@ -42,13 +42,13 @@ async function runFleetRoundTrip(options: RoundTripOptions) {
     servername: options.servername,
     nodeId: options.nodeId,
     credential: options.credential,
-    assignmentId: options.assignmentId,
+    repoId: options.repoId,
     timeoutMs: options.timeoutMs,
   };
   await runFleetReplicaPullClient({ ...peer, viewRoot: options.viewRoot, diskQuotaBytes: replicaQuota });
   const write = await runFleetWriteClient({ ...options, channel: "replica" });
   // The applied receipt can precede host-side ledger visibility. Anchor the pull to the
-  // same assignment read that the edge can observe, or it may legally return the prior current cut.
+  // same repository metadata read that the edge can observe, or it may legally return the prior current cut.
   if (write.center.outcome === "applied" && write.center.revision !== null)
     await waitForCenterLedgerRevision(peer, write.center.revision, options.timeoutMs ?? 5_000);
   const pulled = await runFleetReplicaPullClient({
@@ -72,9 +72,10 @@ test(
     const first = await runFleetRoundTrip({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
+      executionId: fixture.subject.executionId,
       viewRoot: edgeRoot,
       changes: [{ path: fixture.path, body: firstBody }],
     });
@@ -86,7 +87,7 @@ test(
     assert.equal("actor" in first.descriptors[0]!, false);
     const currentOne = JSON.parse(
         readFileSync(
-          path.join(edgeRoot, "repos", fixture.assignment.repoId, "views", fixture.assignment.viewId, "current.json"),
+          path.join(edgeRoot, "repos", fixture.subject.repoId, "views", fixture.subject.viewId, "current.json"),
           "utf8",
         ),
       ) as { manifestDigest: string; cut: FleetCut },
@@ -102,9 +103,10 @@ test(
       second = await runFleetRoundTrip({
         port: center.port,
         ca: fixture.cert,
-        nodeId: fixture.assignment.nodeId,
+        nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
-        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.subject.repoId,
+        executionId: fixture.subject.executionId,
         viewRoot: edgeRoot,
         changes: [{ path: fixture.path, body: secondBody, baseBlobSha256: sha256Bytes(Buffer.from(firstBody)) }],
       });
@@ -113,13 +115,13 @@ test(
     assert.ok(second.replica.ackCut > first.replica.ackCut);
     const replica = center.replicaReceipt(
       second.center.opId,
-      fixture.assignment.nodeId,
-      fixture.assignment.viewId,
-      fixture.assignment.repoId,
+      fixture.subject.nodeId,
+      fixture.subject.viewId,
+      fixture.subject.repoId,
     );
-    assert.deepEqual(replica.visibility, { kind: "replica", viewId: fixture.assignment.viewId });
+    assert.deepEqual(replica.visibility, { kind: "replica", viewId: fixture.subject.viewId });
     assert.equal(replica.proof?.worktreeVisible, true);
-    const peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret"),
+    const peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
       forged = await peer.request({
         schema: "fleet.ack/v1",
         messageId: "forged",
@@ -134,14 +136,14 @@ test(
     center = await fixture.center();
     const recovered = center.replicaReceipt(
       second.center.opId,
-      fixture.assignment.nodeId,
-      fixture.assignment.viewId,
-      fixture.assignment.repoId,
+      fixture.subject.nodeId,
+      fixture.subject.viewId,
+      fixture.subject.repoId,
     );
     assert.equal(recovered.opId, replica.opId);
     assert.equal(recovered.proof?.ackCut, replica.proof?.ackCut);
     const shown = await fixture.host.run(
-      fixture.assignment.repoId,
+      fixture.subject.repoId,
       { kind: "doc-show", path: fixture.path },
       fixture.auth,
     );
@@ -157,7 +159,7 @@ test(
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
     const center = await fixture.center(),
-      { nodeId, assignmentId, repoId, taskId } = fixture.assignment,
+      { nodeId, repoId, taskId } = fixture.subject,
       peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
       answer = (frame: FleetFrameV1) =>
         frame.schema === "fleet.error/v1"
@@ -165,22 +167,20 @@ test(
           : frame.schema === "fleet.task.result/v1"
             ? frame.outcome
             : frame.schema,
-      assigned = await peer.request({ schema: "fleet.assignment.get/v1", messageId: "assignment", assignmentId });
-    assert.equal(assigned.schema, "fleet.assignment.result/v1");
-    if (assigned.schema !== "fleet.assignment.result/v1") return;
+      assigned = await peer.request({ schema: "fleet.repo.metadata.get/v1", messageId: "subject", repoId });
+    assert.equal(assigned.schema, "fleet.repo.metadata.result/v1");
+    if (assigned.schema !== "fleet.repo.metadata.result/v1") return;
     const receipt = (messageId: string) =>
-        peer.request({ schema: "fleet.receipt.get/v1", messageId, assignmentId, opId: "op-unknown" }),
+        peer.request({ schema: "fleet.receipt.get/v1", messageId, repoId, opId: "op-unknown" }),
       task = (opId: string, action: Record<string, unknown>) =>
         peer.request({
           schema: "fleet.task.command/v1",
           messageId: opId,
-          assignmentId,
           writerEpoch: assigned.writerEpoch,
           opId,
           repoId,
           taskId,
           action: { ...action, taskId },
-          waitMs: 1_000,
           docChanges: null,
           mirrorBaseCut: null,
         } as FleetFrameV1),
@@ -210,7 +210,7 @@ test(
       refused = await next.request({
         schema: "fleet.receipt.get/v1",
         messageId: "receipt-after-reconnect",
-        assignmentId,
+        repoId,
         opId: "op-unknown",
       });
     assert.equal(answer(refused), "node_owner_unregistered");
@@ -225,7 +225,7 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t, undefined, "strict");
     t.after(() => fixture.close());
-    const { nodeId, assignmentId, repoId, taskId, executionId } = fixture.assignment,
+    const { nodeId, repoId, taskId, executionId } = fixture.subject,
       reviewId = "review-fleet",
       packageDir = path.join(fixture.repo, "harness", fixture.packagePath),
       delivery = git(fixture.repo, "rev-parse", "HEAD"),
@@ -274,23 +274,22 @@ test(
 
     const center = await fixture.center(),
       peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
-      assigned = await peer.request({ schema: "fleet.assignment.get/v1", messageId: "assignment", assignmentId });
-    assert.equal(assigned.schema, "fleet.assignment.result/v1");
-    if (assigned.schema !== "fleet.assignment.result/v1") return;
+      assigned = await peer.request({ schema: "fleet.repo.metadata.get/v1", messageId: "subject", repoId });
+    assert.equal(assigned.schema, "fleet.repo.metadata.result/v1");
+    if (assigned.schema !== "fleet.repo.metadata.result/v1") return;
     const fromNode = async (opId: string, action: Record<string, unknown>) => {
         const result = await peer.request({
           schema: "fleet.task.command/v1",
           messageId: opId,
-          assignmentId,
           writerEpoch: assigned.writerEpoch,
           opId,
           repoId,
           taskId,
           action: { ...action, taskId, executionId },
-          waitMs: 1_000,
           docChanges: null,
           mirrorBaseCut: null,
         } as FleetFrameV1);
+        t.diagnostic(JSON.stringify({ opId, result }));
         return result.schema === "fleet.task.result/v1"
           ? { outcome: result.outcome, code: result.code }
           : { outcome: result.schema, code: result.schema === "fleet.error/v1" ? result.code : null };
@@ -323,11 +322,11 @@ test("replica pull rejects a snapshot that has not caught up to the ledger cut",
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
   const center = await fixture.center(replicaQuota, true),
-    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret"),
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
     response = await peer.request({
       schema: "fleet.replica.pull/v1",
       messageId: "replica-behind-ledger",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
     });
   assert.equal(response.schema, "fleet.error/v1");
   if (response.schema === "fleet.error/v1") assert.equal(response.code, "replica_pending");
@@ -357,7 +356,7 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
   const probe = serializeFleetFrame({
       schema: "fleet.upload.begin/v1",
       messageId: "unicode-probe",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       content: { sha256: sha256Bytes(Buffer.from("unicode")), size: 7, mediaType: "text/雪" },
     }),
     probeBytes = Buffer.from(probe),
@@ -371,12 +370,12 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
     );
   }
   const center = await fixture.center();
-  const peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret"),
+  const peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
     inbound = await peer.split(
       {
         schema: "fleet.upload.begin/v1",
         messageId: "unicode-in",
-        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.subject.repoId,
         content: { sha256: sha256Bytes(Buffer.from("unicode")), size: 7, mediaType: "text/雪" },
       },
       "雪",
@@ -396,36 +395,31 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
         const frame = parseFleetFrame(buffer.slice(0, end));
         buffer = buffer.slice(end + 1);
         if (frame.schema === "fleet.session.hello/v1")
-          socket.write(
-            serializeFleetFrame({
+          splitWrite(
+            socket,
+            {
               schema: "fleet.session.ready/v1",
               messageId: "split_session",
               inReplyTo: frame.messageId,
               sessionId: "split-session",
               maxFrameBytes: 96 * 1024,
               chunkBytes: 64 * 1024,
-            }),
-          );
-        else if (frame.schema === "fleet.assignment.get/v1")
-          splitWrite(
-            socket,
-            {
-              schema: "fleet.assignment.result/v1",
-              messageId: "split_assignment",
-              inReplyTo: frame.messageId,
-              assignmentId: frame.assignmentId,
-              repoId: fixture.assignment.repoId,
-              scope: {
-                kind: "task",
-                taskId: fixture.assignment.taskId,
-                executionId: fixture.assignment.executionId,
-                paths: ["tasks/task-fleet-fleet/雪.md"],
-              },
-              baseLedgerSha: { repoId: fixture.assignment.repoId, revision: 0, headDigest: `sha256:${"0".repeat(64)}` },
-              expiresAt: fixture.assignment.expiresAt,
-              writerEpoch: 1,
+              loginAuthority: { url: "https://example.invalid", realm: "雪", clientId: "test" },
             },
             "雪",
+          );
+        else if (frame.schema === "fleet.repo.metadata.get/v1")
+          socket.write(
+            serializeFleetFrame({
+              schema: "fleet.repo.metadata.result/v1",
+              messageId: "split_metadata",
+              inReplyTo: frame.messageId,
+              personId: "person-owner",
+              actionAllowed: null,
+              repoId: fixture.subject.repoId,
+              baseLedgerSha: { repoId: fixture.subject.repoId, revision: 0, headDigest: `sha256:${"0".repeat(64)}` },
+              writerEpoch: 1,
+            }),
           );
         else if (frame.schema === "fleet.upload.begin/v1") {
           sawUpload = true;
@@ -454,9 +448,10 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
     runFleetWriteClient({
       port: address.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
+      executionId: fixture.subject.executionId,
       channel: "replica",
       changes: [{ path: fixture.path, body: "unicode" }],
     }),
@@ -506,12 +501,12 @@ test("failed Fleet hello closes the socket before session ownership transfers", 
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("hello test server did not bind");
     await assert.rejects(
-      readFleetAssignmentClient({
+      readFleetRepositoryMetadataClient({
         port: address.port,
         ca: fixture.cert,
-        nodeId: fixture.assignment.nodeId,
+        nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
-        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.subject.repoId,
         timeoutMs: mode === "timeout" ? 5 : 5_000,
       }),
       mode === "timeout"
@@ -526,15 +521,15 @@ test("failed Fleet hello closes the socket before session ownership transfers", 
   }
 });
 test(
-  "production Fleet session rejects provenance, revocation, expiry, content mismatch, and ninth active upload before L1",
+  "production Fleet session rejects provenance, revocation, owner removal, content mismatch, and ninth active upload before L1",
   { timeout: 30_000 },
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
     const conflictingContent = { sha256: "d".repeat(64), size: 1, mediaType: "text/plain" },
       conflictingUploadId = digestId(
-        fixture.assignment.nodeId,
-        fixture.assignment.assignmentId,
+        fixture.subject.nodeId,
+        fixture.subject.repoId,
         conflictingContent.sha256,
         String(conflictingContent.size),
         conflictingContent.mediaType,
@@ -546,15 +541,13 @@ test(
         uploads: {
           "foreign-upload": {
             nodeId: "node-two",
-            assignmentId: fixture.assignment.assignmentId,
-            repoId: fixture.assignment.repoId,
+            repoId: fixture.subject.repoId,
             content: { sha256: "e".repeat(64), size: 1, mediaType: "text/plain" },
             descriptor: null,
           },
           [conflictingUploadId]: {
-            nodeId: fixture.assignment.nodeId,
-            assignmentId: fixture.assignment.assignmentId,
-            repoId: fixture.assignment.repoId,
+            nodeId: fixture.subject.nodeId,
+            repoId: fixture.subject.repoId,
             content: { ...conflictingContent, size: 2 },
             descriptor: null,
           },
@@ -564,15 +557,15 @@ test(
     const center = await fixture.center(1),
       before = fixture.eventCount();
     await assert.rejects(
-      rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "wrong-machine-secret"),
+      rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "wrong-machine-secret"),
       /authentication_failed/u,
     );
-    let peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret");
+    let peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret");
     const replayedHello = await peer.request({
       schema: "fleet.session.hello/v1",
       messageId: "replayed-hello",
       protocolVersion: { major: 1, minor: 0 },
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
     });
     assert.equal(replayedHello.schema, "fleet.error/v1");
@@ -580,7 +573,7 @@ test(
     const insufficientQuota = await peer.request({
       schema: "fleet.replica.pull/v1",
       messageId: "insufficient-quota",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
     });
     assert.equal(insufficientQuota.schema, "fleet.error/v1");
     if (insufficientQuota.schema === "fleet.error/v1")
@@ -592,7 +585,7 @@ test(
     const unsafeStaging = await peer.request({
       schema: "fleet.upload.begin/v1",
       messageId: "unsafe-staging",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       content: { sha256: "c".repeat(64), size: 1, mediaType: "text/plain" },
     });
     assert.equal(unsafeStaging.schema, "fleet.error/v1");
@@ -601,30 +594,31 @@ test(
     const uploadConflict = await peer.request({
       schema: "fleet.upload.begin/v1",
       messageId: "upload-conflict",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       content: conflictingContent,
     });
     assert.equal(uploadConflict.schema, "fleet.error/v1");
     if (uploadConflict.schema === "fleet.error/v1") assert.equal(uploadConflict.code, "upload_conflict");
-    fixture.setAssignmentDelay(50);
+    fixture.setOwnerLookupDelay(50);
     await assert.rejects(
       runFleetRoundTrip({
         port: center.port,
         ca: fixture.cert,
-        nodeId: fixture.assignment.nodeId,
+        nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
-        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.subject.repoId,
+        executionId: fixture.subject.executionId,
         viewRoot: path.join(fixture.root, "timeout-edge"),
         changes: [{ path: fixture.path, body: "timeout" }],
         timeoutMs: 5,
       }),
       /Fleet response timeout/u,
     );
-    fixture.setAssignmentDelay(0);
+    fixture.setOwnerLookupDelay(0);
     const spoofed = await peer.raw({
       schema: "fleet.upload.begin/v1",
       messageId: "spoof",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       content: { sha256: "a".repeat(64), size: 1, mediaType: "text/plain", actor: { personId: "forged" } },
     });
     assert.equal(spoofed.schema, "fleet.error/v1");
@@ -642,7 +636,7 @@ test(
       const response = await peer.request({
         schema: "fleet.upload.begin/v1",
         messageId: `busy-${index}`,
-        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.subject.repoId,
         content: { sha256: sha256Bytes(Buffer.from(`partial-${index}`)), size: 9, mediaType: "text/plain" },
       });
       if (index < 8) assert.equal(response.schema, "fleet.upload.ready/v1");
@@ -655,12 +649,12 @@ test(
       }
     }
     peer.close();
-    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret");
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret");
     const declared = Buffer.from("abc"),
       ready = await peer.request({
         schema: "fleet.upload.begin/v1",
         messageId: "bad-begin",
-        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.subject.repoId,
         content: { sha256: sha256Bytes(declared), size: declared.byteLength, mediaType: "text/plain" },
       });
     assert.equal(ready.schema, "fleet.upload.ready/v1");
@@ -711,15 +705,15 @@ test(
     assert.equal(bad.schema, "fleet.error/v1");
     if (bad.schema === "fleet.error/v1") assert.equal(bad.code, "content_claim_mismatch");
     peer.close();
-    fixture.setExpiry("2000-01-01T00:00:00.000Z");
-    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret");
+    fixture.owners.keycloak.nodeClients.delete(`harness-node-${fixture.subject.nodeId}`);
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret");
     const expired = await peer.request({
-      schema: "fleet.assignment.get/v1",
+      schema: "fleet.repo.metadata.get/v1",
       messageId: "expired",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
     });
     assert.equal(expired.schema, "fleet.error/v1");
-    if (expired.schema === "fleet.error/v1") assert.equal(expired.code, "assignment_rejected");
+    if (expired.schema === "fleet.error/v1") assert.equal(expired.code, "node_owner_unregistered");
     peer.close();
     assert.equal(fixture.eventCount(), before);
   },
@@ -740,10 +734,10 @@ test(
       port: center.port,
       caFile: fixture.certFile,
       servername: "localhost",
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
-      repoId: fixture.assignment.repoId,
+      repoId: fixture.subject.repoId,
+      executionId: fixture.subject.executionId,
       viewRoot: edgeRoot,
       path: fixture.path,
       bodyFile,
@@ -764,7 +758,7 @@ test(
     const first = await runFaultChild(fixture, base);
     assert.equal(first.code, 0);
     await waitForEventCount(fixture, initial + 1);
-    const firstCut = center.status().replicas.find((row) => row.viewId === fixture.assignment.viewId)?.ackRevision,
+    const firstCut = center.status().replicas.find((row) => row.viewId === fixture.subject.viewId)?.ackRevision,
       secondBody = `${firstBody}second\n`,
       secondBase = await ledgerBase(fixture);
     writeFileSync(bodyFile, secondBody);
@@ -781,27 +775,21 @@ test(
       73,
     );
     await waitForEventCount(fixture, beforeSecond + 1);
-    assert.equal(
-      center.status().replicas.find((row) => row.viewId === fixture.assignment.viewId)?.ackRevision,
-      firstCut,
-    );
+    assert.equal(center.status().replicas.find((row) => row.viewId === fixture.subject.viewId)?.ackRevision, firstCut);
     const status = fixture.host.run(
-      fixture.assignment.repoId,
+      fixture.subject.repoId,
       { kind: "doc-status", paths: [fixture.path] },
       fixture.auth,
     );
     const probe = await fixture.host.run(
-      fixture.assignment.repoId,
+      fixture.subject.repoId,
       { kind: "task-create", taskId: "task-hol-probe", title: "HOL probe" },
       fixture.auth,
     );
     assert.equal(probe.outcome, "applied");
-    await waitForReceiptCommit(fixture.host, fixture.assignment.repoId, probe.opId, fixture.auth);
+    await waitForReceiptCommit(fixture.host, fixture.subject.repoId, probe.opId, fixture.auth);
     assert.equal((await status).outcome, "applied");
-    assert.equal(
-      center.status().replicas.find((row) => row.viewId === fixture.assignment.viewId)?.ackRevision,
-      firstCut,
-    );
+    assert.equal(center.status().replicas.find((row) => row.viewId === fixture.subject.viewId)?.ackRevision, firstCut);
     const afterProbe = fixture.eventCount();
     assert.equal(
       (
@@ -858,9 +846,7 @@ test(
       73,
     );
     await waitForEventCount(fixture, beforeFourth + 1);
-    const ackedBeforeRetry = center
-      .status()
-      .replicas.find((row) => row.viewId === fixture.assignment.viewId)?.ackRevision;
+    const ackedBeforeRetry = center.status().replicas.find((row) => row.viewId === fixture.subject.viewId)?.ackRevision;
     rmSync(markerFile, { force: true });
     assert.equal(
       (
@@ -874,26 +860,26 @@ test(
     );
     assert.equal(fixture.eventCount(), beforeFourth + 1);
     assert.equal(
-      center.status().replicas.find((row) => row.viewId === fixture.assignment.viewId)?.ackRevision,
+      center.status().replicas.find((row) => row.viewId === fixture.subject.viewId)?.ackRevision,
       ackedBeforeRetry,
     );
   },
 );
 async function waitForCenterLedgerRevision(
-  peer: Parameters<typeof readFleetAssignmentClient>[0],
+  peer: Parameters<typeof readFleetRepositoryMetadataClient>[0],
   expected: number,
   timeoutMs: number,
 ): Promise<void> {
   const deadline = performance.now() + timeoutMs;
   let observed: number;
   do {
-    observed = (await readFleetAssignmentClient(peer)).baseLedgerSha.revision;
+    observed = (await readFleetRepositoryMetadataClient(peer)).baseLedgerSha.revision;
     if (observed >= expected) return;
     await delay(10);
   } while (performance.now() < deadline);
   assert.ok(
     observed >= expected,
-    `center assignment read did not expose ledger revision ${expected} within the bounded wait`,
+    `center repository metadata read did not expose ledger revision ${expected} within the bounded wait`,
   );
 }
 async function waitForEventCount(fixture: Awaited<ReturnType<typeof fleetFixture>>, expected: number): Promise<void> {
@@ -906,7 +892,7 @@ async function waitForEventCount(fixture: Awaited<ReturnType<typeof fleetFixture
 }
 async function ledgerBase(fixture: Awaited<ReturnType<typeof fleetFixture>>): Promise<{ ledger: LedgerCutIdentity }> {
   const status = await fixture.host.run(
-    fixture.assignment.repoId,
+    fixture.subject.repoId,
     { kind: "doc-status", paths: [fixture.path] },
     fixture.auth,
   );

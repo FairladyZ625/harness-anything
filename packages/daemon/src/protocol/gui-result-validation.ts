@@ -1,3 +1,4 @@
+import { validateTaskClaimableResult, validateTaskAssignmentDirectory } from "./daemon-protocol-validate-entities.ts";
 import {
   validateAgentRuntimeAttach,
   validateAgentRuntimeAttachEvent,
@@ -139,6 +140,8 @@ const resultValidators = {
   "daemon.gui.system.read": validateSystemStatus,
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
+  "repo.tasks.assignmentDirectory": validateTaskAssignmentDirectory,
+  "repo.tasks.claimable": validateTaskClaimableResult,
   "repo.tasks.list": validateDaemonTaskSnapshotListServed,
   "repo.tasks.completion.read": validateDaemonTaskCompletion,
   "repo.tasks.runtimeContext.read": validateTaskRuntimeContextRead,

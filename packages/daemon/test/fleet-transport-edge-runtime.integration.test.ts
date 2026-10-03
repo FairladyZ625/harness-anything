@@ -41,10 +41,10 @@ test("fixture teardown reclaims a still-running edge child and its TLS center", 
     port: center.port,
     caFile: fixture.certFile,
     servername: "localhost",
-    nodeId: fixture.assignment.nodeId,
+    nodeId: fixture.subject.nodeId,
     credential: "machine-secret",
-    assignmentId: fixture.assignment.assignmentId,
-    repoId: fixture.assignment.repoId,
+    repoId: fixture.subject.repoId,
+    executionId: fixture.subject.executionId,
     viewRoot: path.join(fixture.root, "reclaim-edge"),
     path: fixture.path,
     bodyFile,
@@ -55,7 +55,7 @@ test("fixture teardown reclaims a still-running edge child and its TLS center", 
   await fixture.close();
   await rejected;
   await assert.rejects(
-    rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret"),
+    rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
     /ECONNREFUSED/u,
   );
 });
@@ -71,7 +71,6 @@ test(
       edgeRoot = path.join(fixture.root, "runtime-edge"),
       edgeUserRoot = path.join(fixture.root, "runtime-edge-user"),
       viewRoot = path.join(fixture.root, "runtime-edge-view"),
-      rosterPath = path.join(fixture.root, "runtime-roster.json"),
       uid = process.getuid?.() ?? 0,
       localAuth = {
         transportKind: "unix-socket",
@@ -88,21 +87,16 @@ test(
     await runFleetReplicaPullClient({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
-    applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, edgeRoot, "pull");
-    writeFileSync(
-      rosterPath,
-      `${JSON.stringify({ schema: "fleet-roster/v3", assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId: fixture.assignment.repoId, viewId: fixture.assignment.viewId, expiresAt: fixture.assignment.expiresAt, scope: { kind: "task", taskId: fixture.assignment.taskId, executionId: fixture.assignment.executionId, paths: fixture.assignment.paths } }] })}
-`,
-    );
+    applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull");
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
-      repoId: fixture.assignment.repoId,
+      repoId: fixture.subject.repoId,
       mode: "remote-edge",
       userRoot: edgeUserRoot,
       createConvenienceLinks: false,
@@ -128,7 +122,7 @@ test(
         observedAt: "2026-08-23T00:00:00.000Z",
       },
       unique = `edge-worker-${Date.now()}`,
-      before = await fixture.host.read(fixture.assignment.repoId, "repo.tasks.list", {}, fixture.auth),
+      before = await fixture.host.read(fixture.subject.repoId, "repo.tasks.list", {}, fixture.auth),
       launchedInstances: string[] = [];
     let launchedEnv: NodeJS.ProcessEnv | null = null;
     const edgeHost = await openDaemonHost({
@@ -155,18 +149,16 @@ test(
                     host: "127.0.0.1",
                     port: center.port,
                     caPath: fixture.certFile,
-                    nodeId: fixture.assignment.nodeId,
+                    nodeId: fixture.subject.nodeId,
                     credential: "machine-secret",
-                    rosterPath,
-                    assignmentId: fixture.assignment.assignmentId,
-                    repoId: fixture.assignment.repoId,
+                    repoId: fixture.subject.repoId,
                     viewRoot,
                     quotaBytes: replicaQuota,
                     workspaceRoot: edgeRoot,
                     action: {
                       kind: "task-progress-append",
-                      taskId: fixture.assignment.taskId,
-                      executionId: fixture.assignment.executionId,
+                      taskId: fixture.subject.taskId,
+                      executionId: fixture.subject.executionId,
                       text: unique,
                       evidence: [],
                     },
@@ -207,11 +199,9 @@ test(
         host: "127.0.0.1",
         port: center.port,
         caPath: fixture.certFile,
-        nodeId: fixture.assignment.nodeId,
+        nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
-        rosterPath,
-        assignmentId: fixture.assignment.assignmentId,
-        repoId: fixture.assignment.repoId,
+        repoId: fixture.subject.repoId,
         viewRoot,
         quotaBytes: replicaQuota,
         workspaceRoot: edgeRoot,
@@ -220,7 +210,7 @@ test(
           runtimeInstanceId: runtimeDefinition.instanceId,
           cwd: { scope: "repo-root" },
           prompt: "Append one progress checkpoint.",
-          taskId: fixture.assignment.taskId,
+          taskId: fixture.subject.taskId,
           idempotencyKey: "remote-edge-runtime",
         },
       },
@@ -229,15 +219,14 @@ test(
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, edgeUserRoot);
     assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "fleet-runtime-edge");
-    assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, fixture.assignment.repoId);
+    assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, fixture.subject.repoId);
     assert.deepEqual(readDispatchStream(edgeRoot, String(receipt.dispatchId))?.header.binding?.source, {
-      kind: "assignment",
-      nodeId: fixture.assignment.nodeId,
-      assignmentId: fixture.assignment.assignmentId,
+      kind: "node",
+      nodeId: fixture.subject.nodeId,
     });
     await taskReleaseBarrier.started;
     await delay(5_100);
-    const settlingEvents = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+    const settlingEvents = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
       .read()
       .events.filter(
         (event) =>
@@ -252,7 +241,7 @@ test(
       do {
         try {
           const candidate = await fixture.host.read(
-            fixture.assignment.repoId,
+            fixture.subject.repoId,
             "repo.agentRuntime.sessions.read",
             { runtimeSessionId },
             fixture.auth,
@@ -271,10 +260,9 @@ test(
       JSON.stringify(fixture.runtimeArchiveReceipts),
     );
     assert.equal(fixture.runtimeArchiveReceipts[0]?.outcome, "applied", JSON.stringify(fixture.runtimeArchiveReceipts));
-    const settledEvents = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo }).read()
-        .events,
+    const settledEvents = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo }).read().events,
       leaseReleaseIndex = settledEvents.findIndex(
-        (event) => event.type === "lease_released" && event.taskId === fixture.assignment.taskId,
+        (event) => event.type === "lease_released" && event.taskId === fixture.subject.taskId,
       ),
       runtimeExitIndex = settledEvents.findIndex(
         (event) =>
@@ -303,9 +291,17 @@ test(
       ],
       "the center must bind terminal edge writes to their node-owned RuntimeSession",
     );
-    const after = await fixture.host.read(fixture.assignment.repoId, "repo.tasks.list", {}, fixture.auth);
+    const after = await fixture.host.read(fixture.subject.repoId, "repo.tasks.list", {}, fixture.auth);
     assert.ok(after.sourceRevision > before.sourceRevision);
     await t.test("provider resume recovers when the center loses the outcome publication", async () => {
+      // A retained provider session does not retain the terminal attempt's released task lease.
+      const rejoined = await fixture.host.run(
+        fixture.subject.repoId,
+        { kind: "task-start", taskId: fixture.subject.taskId, executionId: fixture.subject.executionId },
+        fixture.auth,
+      );
+      assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
+      await waitForFleetPublication(fixture.host, fixture.subject.repoId, rejoined.opId, fixture.auth);
       const outcomeFailure = fixture.failNextRuntimeOutcome();
       let reportQueueFailure!: () => void;
       const queueFailure = new Promise<void>((resolve) => {
@@ -321,11 +317,9 @@ test(
           host: "127.0.0.1",
           port: center.port,
           caPath: fixture.certFile,
-          nodeId: fixture.assignment.nodeId,
+          nodeId: fixture.subject.nodeId,
           credential: "machine-secret",
-          rosterPath,
-          assignmentId: fixture.assignment.assignmentId,
-          repoId: fixture.assignment.repoId,
+          repoId: fixture.subject.repoId,
           viewRoot,
           quotaBytes: replicaQuota,
           workspaceRoot: edgeRoot,
@@ -334,7 +328,7 @@ test(
             dispatchId: receipt.dispatchId,
             cwd: { scope: "repo-root" },
             prompt: "Resume on the original runtime instance.",
-            taskId: fixture.assignment.taskId,
+            taskId: fixture.subject.taskId,
             idempotencyKey: "remote-edge-runtime-resume",
           },
         },
@@ -345,7 +339,7 @@ test(
       await outcomeFailure;
       await queueFailure;
       errorProbe.mock.restore();
-      const partial = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+      const partial = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
         .read()
         .events.filter(
           (event) =>
@@ -357,7 +351,7 @@ test(
         ["runtime_session_exited"],
       );
       const partialSession = await fixture.host.read(
-        fixture.assignment.repoId,
+        fixture.subject.repoId,
         "repo.agentRuntime.sessions.read",
         { runtimeSessionId: resumed.runtimeSessionId },
         fixture.auth,
@@ -366,7 +360,7 @@ test(
         {
           liveness: partialSession.session.liveness,
           outcome: partialSession.session.activity.outcome,
-          lease: partialSession.session.associations.find((item) => item.taskId === fixture.assignment.taskId)?.lease
+          lease: partialSession.session.associations.find((item) => item.taskId === fixture.subject.taskId)?.lease
             ?.phase,
         },
         { liveness: "exited", outcome: null, lease: "released" },
@@ -378,11 +372,9 @@ test(
           host: "127.0.0.1",
           port: center.port,
           caPath: fixture.certFile,
-          nodeId: fixture.assignment.nodeId,
+          nodeId: fixture.subject.nodeId,
           credential: "machine-secret",
-          rosterPath,
-          assignmentId: fixture.assignment.assignmentId,
-          repoId: fixture.assignment.repoId,
+          repoId: fixture.subject.repoId,
           viewRoot,
           quotaBytes: replicaQuota,
           workspaceRoot: edgeRoot,
@@ -402,10 +394,10 @@ test(
       );
       assert.match(String(recoveredSession?.session.activity.resultRef), /^artifact:runtime-result\/sha256\//u);
       assert.equal(
-        recoveredSession?.session.associations.find((item) => item.taskId === fixture.assignment.taskId)?.lease?.phase,
+        recoveredSession?.session.associations.find((item) => item.taskId === fixture.subject.taskId)?.lease?.phase,
         "released",
       );
-      const settled = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+      const settled = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
         .read()
         .events.filter(
           (event) =>
@@ -419,14 +411,13 @@ test(
       );
       assert.equal(launchedInstances.at(-1), runtimeDefinition.instanceId);
     });
-    await t.test("another assignment cannot replay terminal events for this runtime session", async () => {
-      const foreignAssignment = {
-          ...fixture.assignment,
+    await t.test("another node cannot replay terminal events for this runtime session", async () => {
+      const foreignSubject = {
+          ...fixture.subject,
           nodeId: "node-two",
-          assignmentId: "assignment-two",
           viewId: "node-two_task-fleet",
         },
-        events = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+        events = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
           .read()
           .events.filter(
             (event) =>
@@ -436,25 +427,25 @@ test(
       assert.equal(events.length, 2);
       for (const event of events) {
         const rejected = await fixture.host.runtimeIngress(
-          fixture.assignment.repoId,
+          fixture.subject.repoId,
           { kind: "event", type: event.type, payload: event.payload, opId: event.opId },
-          fixture.owners.auth(foreignAssignment),
+          fixture.owners.auth(foreignSubject),
         );
         assert.equal(rejected.outcome, "op_rejected");
-        assert.equal(rejected.code, "assignment_scope_mismatch");
+        assert.equal(rejected.code, "execution_scope_mismatch");
       }
     });
     await runFleetReplicaPullClient({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
-    applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, edgeRoot, "pull");
-    const mirrored = locateFleetMirrorView(viewRoot, fixture.assignment.repoId);
+    applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull");
+    const mirrored = locateFleetMirrorView(viewRoot, fixture.subject.repoId);
     assert.ok(mirrored);
     assert.equal(
       (
@@ -500,7 +491,7 @@ test(
       fixture = await fleetFixture(t, ["tasks/task-fleet-fleet", "agents"], [installation]);
     t.after(() => fixture.close());
     await fixture.host.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuthFixture());
-    const { repoId, taskId } = fixture.assignment,
+    const { repoId, taskId } = fixture.subject,
       // The Agent is installed at the center only; the edge has no ledger and reads it from its mirrored view.
       packageSource = path.join(fixture.repo, "source", "edge-worker");
     mkdirSync(packageSource, { recursive: true });
@@ -526,7 +517,6 @@ test(
       edgeRoot = path.join(fixture.root, "worker-edge"),
       edgeUserRoot = path.join(fixture.root, "worker-edge-user"),
       viewRoot = path.join(fixture.root, "worker-edge-view"),
-      rosterPath = path.join(fixture.root, "worker-roster.json"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
@@ -544,18 +534,14 @@ test(
     await runFleetReplicaPullClient({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);
-    writeFileSync(
-      rosterPath,
-      `${JSON.stringify({ schema: "fleet-roster/v3", assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId, viewId: fixture.assignment.viewId, expiresAt: fixture.assignment.expiresAt, scope: { kind: "task", taskId, executionId: fixture.assignment.executionId, paths: fixture.assignment.paths } }] })}\n`,
-    );
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId,
@@ -601,10 +587,8 @@ test(
         host: "127.0.0.1",
         port: center.port,
         caPath: fixture.certFile,
-        nodeId: fixture.assignment.nodeId,
+        nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
-        rosterPath,
-        assignmentId: fixture.assignment.assignmentId,
         repoId,
         viewRoot,
         quotaBytes: replicaQuota,
@@ -664,10 +648,9 @@ test("remote-edge runtime retries startup adoption after the center recovers", {
       host: "127.0.0.1",
       port: unavailablePort,
       caPath: fixture.certFile,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
-      repoId: fixture.assignment.repoId,
+      repoId: fixture.subject.repoId,
       viewRoot: path.join(fixture.root, "startup-recovery-view"),
       quotaBytes: replicaQuota,
       workspaceRoot,
@@ -789,10 +772,8 @@ test("fleet runtime waits over five seconds for every configured overview page",
       key: fixture.key,
       cert: fixture.cert,
       replicaDiskQuotaBytes: replicaQuota,
-      authenticate: (nodeId, credential) => nodeId === fixture.assignment.nodeId && credential === "machine-secret",
+      authenticate: (nodeId, credential) => nodeId === fixture.subject.nodeId && credential === "machine-secret",
       nodeOwner: fixture.owners.nodeOwner,
-      resolveAssignment: (assignmentId) =>
-        assignmentId === fixture.assignment.assignmentId ? fixture.assignment : null,
     }),
   );
   const workspaceRoot = path.join(fixture.root, "slow-runtime-edge"),
@@ -807,13 +788,12 @@ test("fleet runtime waits over five seconds for every configured overview page",
     path.join(workspaceRoot, "fleet-edge.json"),
     `${JSON.stringify({
       schema: "fleet-edge-config/v1",
-      repoId: fixture.assignment.repoId,
       host: "127.0.0.1",
       port: center.port,
       caPath: fixture.certFile,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       viewRoot,
       quotaBytes: replicaQuota,
       waitTimeoutMs: 6_200,
@@ -824,10 +804,9 @@ test("fleet runtime waits over five seconds for every configured overview page",
       host: "127.0.0.1",
       port: center.port,
       caPath: fixture.certFile,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
-      repoId: fixture.assignment.repoId,
+      repoId: fixture.subject.repoId,
       viewRoot,
       quotaBytes: replicaQuota,
       workspaceRoot,

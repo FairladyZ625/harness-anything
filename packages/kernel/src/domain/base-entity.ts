@@ -358,7 +358,7 @@ function matchesIdentity(identity: EntityIdentityContract, id: string): boolean 
 function validWriteSource(value: unknown): value is WriteSource {
   if (value === "local" || value === "remote_direct" || value === "migration-import/v1") return true;
   if (!isRecord(value) || typeof value.kind !== "string") return false;
-  if (value.kind === "assignment") return typeof value.nodeId === "string" && typeof value.assignmentId === "string";
+  if (value.kind === "node") return typeof value.nodeId === "string";
   return (
     value.kind === "watch_session" &&
     typeof value.sessionId === "string" &&

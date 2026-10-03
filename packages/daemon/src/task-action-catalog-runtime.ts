@@ -1,3 +1,4 @@
+import { assertTaskAssignment, resolveTaskAssignment } from "./task-assignment-runtime.ts";
 import {
   canStartExecution,
   evaluateTaskActionCapability,
@@ -69,6 +70,11 @@ export async function runTaskActionCatalogRuntime(
           })
         : [],
     activeLease = cell.projection.currentLease(taskId, cell.now());
+  if (lifecycle?.coordination === "reserve")
+    binding = {
+      ...binding,
+      taskClaimant: await assertTaskAssignment(current.snapshot.task?.assignment, binding, cell.now()),
+    };
   if (!current.snapshot.task) throw cell.cellCodedError("entity_not_found", `Task ${taskId} does not exist.`);
   if (
     lifecycle?.coordination === "reserve" &&
@@ -76,7 +82,10 @@ export async function runTaskActionCatalogRuntime(
     activeLease &&
     ["held", "reserving"].includes(activeLease.phase)
   ) {
-    if (heldLeaseForExecutionActor(current.snapshot, activeLease.executionId, binding.actor)) {
+    if (
+      heldLeaseForExecutionActor(current.snapshot, activeLease.executionId, binding.actor) &&
+      JSON.stringify(activeLease.source) === JSON.stringify(binding.source)
+    ) {
       const revision = current.snapshot.revision;
       return {
         outcome: "no_changes",
@@ -140,7 +149,11 @@ export async function runTaskActionCatalogRuntime(
   let normalized: ReturnType<RepoCellOperationalContext["buildCommand"]>;
   try {
     normalized = cell.buildCommand(
-      preview ? cell.withoutDryRun(action) : action,
+      action.kind === "task-assign"
+        ? { ...action, assignment: await resolveTaskAssignment(action, binding, cell.settings.read(), cell.now()) }
+        : preview
+          ? cell.withoutDryRun(action)
+          : action,
       taskId,
       binding,
       cell.input.repoId,

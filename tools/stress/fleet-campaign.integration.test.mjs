@@ -45,17 +45,17 @@ test(
       beta = fixture.repos[1];
     try {
       await fixture.startCenter("old-center");
-      const alphaAssignments = Array.from({ length: 8 }, (_value, index) => fixture.assignment(alpha.repoId, index)),
-        betaAssignment = fixture.assignment(beta.repoId, 0);
-      await createSchedule(fixture, alphaAssignments[0], "alpha-create");
-      await createSchedule(fixture, betaAssignment, "beta-create");
+      const alphaSubjects = Array.from({ length: 8 }, (_value, index) => fixture.subject(alpha.repoId, index)),
+        betaSubject = fixture.subject(beta.repoId, 0);
+      await createSchedule(fixture, alphaSubjects[0], "alpha-create");
+      await createSchedule(fixture, betaSubject, "beta-create");
 
-      const f12 = await occurrenceArm(fixture, alpha, alphaAssignments),
-        f13 = await replicaArm(fixture, alpha, alphaAssignments, f12.secondClaim),
-        takeover = await centerTakeoverArm(fixture, alpha, alphaAssignments, f13.latestRevision),
+      const f12 = await occurrenceArm(fixture, alpha, alphaSubjects),
+        f13 = await replicaArm(fixture, alpha, alphaSubjects, f12.secondClaim),
+        takeover = await centerTakeoverArm(fixture, alpha, alphaSubjects, f13.latestRevision),
         f14 = await clockInjectionArm(
           fixture,
-          alphaAssignments[0],
+          alphaSubjects[0],
           takeover.case.revisions.new,
           takeover.case.writerEpochs,
         ),
@@ -150,9 +150,9 @@ test(
   },
 );
 
-async function occurrenceArm(fixture, repo, assignments) {
+async function occurrenceArm(fixture, repo, subjects) {
   const scheduledFor = "2026-09-06T01:00:00.000Z",
-    raced = await fixture.raceClaims(assignments, {
+    raced = await fixture.raceClaims(subjects, {
       kind: "schedule-run-now",
       scheduleId: "campaign",
       scheduledFor,
@@ -169,7 +169,20 @@ async function occurrenceArm(fixture, repo, assignments) {
     firstWorkspace = await prepareScheduleOccurrenceWorkspace(repo.rootDir, winners[0].receipt.schedule, () => []),
     artifactName = "result.txt";
   writeFileSync(path.join(firstWorkspace.cwd, artifactName), "first occurrence\n");
-  const settled = await fixture.schedule(assignments[0], "settle-first", {
+  const winner = subjects.find((subject) => subject.nodeId === firstClaim.nodeId),
+    otherNode = subjects.find((subject) => subject.nodeId !== firstClaim.nodeId);
+  assert.ok(winner);
+  assert.ok(otherNode);
+  const crossNode = await fixture.schedule(otherNode, "settle-wrong-node", {
+    kind: "schedule-settle",
+    scheduleId: "campaign",
+    claimFence: firstClaim.claimFence,
+    outcome: "succeeded",
+    endedAt: "2026-09-06T01:01:00.000Z",
+  });
+  assert.equal(crossNode.outcome, "op_rejected");
+  assert.equal(crossNode.code, "schedule_claim_stale");
+  const settled = await fixture.schedule(winner, "settle-first", {
     kind: "schedule-settle",
     scheduleId: "campaign",
     claimFence: firstClaim.claimFence,
@@ -177,7 +190,7 @@ async function occurrenceArm(fixture, repo, assignments) {
     endedAt: "2026-09-06T01:01:00.000Z",
   });
   assert.equal(settled.outcome, "applied");
-  const second = await fixture.schedule(assignments[1], "claim-second", {
+  const second = await fixture.schedule(subjects[1], "claim-second", {
       kind: "schedule-run-now",
       scheduleId: "campaign",
       scheduledFor: "2026-09-06T02:00:00.000Z",
@@ -189,7 +202,7 @@ async function occurrenceArm(fixture, repo, assignments) {
   writeFileSync(path.join(secondWorkspace.cwd, artifactName), "second occurrence\n");
   assert.equal(readFileSync(path.join(firstWorkspace.cwd, artifactName), "utf8"), "first occurrence\n");
   assert.equal(readFileSync(path.join(secondWorkspace.cwd, artifactName), "utf8"), "second occurrence\n");
-  const replayedOld = await fixture.schedule(assignments[0], "stale-first-result", {
+  const replayedOld = await fixture.schedule(subjects[0], "stale-first-result", {
     kind: "schedule-settle",
     scheduleId: "campaign",
     claimFence: firstClaim.claimFence,
@@ -222,7 +235,7 @@ async function occurrenceArm(fixture, repo, assignments) {
     negativeControl: { id: "F12/duplicate-occurrence-owner", oracleId: "O6", passed: red.verdict === "FAIL" },
     case: {
       id: "F12/eight-edge-occurrence-claim",
-      nodeIds: assignments.map(({ nodeId }) => nodeId),
+      nodeIds: subjects.map(({ nodeId }) => nodeId),
       claim: { first: firstClaim, second: secondClaim },
       boundaryHits: ["eight-process-claim-barrier", "claim-fence-stale-result", "occurrence-workspace-path"],
       oracles: { O6: oracle },
@@ -231,13 +244,13 @@ async function occurrenceArm(fixture, repo, assignments) {
   };
 }
 
-async function replicaArm(fixture, repo, assignments, secondClaim) {
-  const warm = assignments[2],
-    fresh = assignments[3],
+async function replicaArm(fixture, repo, subjects, secondClaim) {
+  const warm = subjects[2],
+    fresh = subjects[3],
     warmRoot = path.join(fixture.root, "warm-edge"),
     freshRoot = path.join(fixture.root, "fresh-edge");
   await fixture.pull(warm, warmRoot);
-  const settled = await fixture.schedule(assignments[1], "settle-second", {
+  const settled = await fixture.schedule(subjects[1], "settle-second", {
     kind: "schedule-settle",
     scheduleId: "campaign",
     claimFence: secondClaim.claimFence,
@@ -245,7 +258,7 @@ async function replicaArm(fixture, repo, assignments, secondClaim) {
     endedAt: "2026-09-06T02:01:00.000Z",
   });
   assert.equal(settled.outcome, "applied");
-  const changed = await fixture.schedule(assignments[0], "replica-change", {
+  const changed = await fixture.schedule(subjects[0], "replica-change", {
     kind: "schedule-update",
     scheduleId: "campaign",
     name: "Campaign replica change",
@@ -338,11 +351,11 @@ async function replicaArm(fixture, repo, assignments, secondClaim) {
   };
 }
 
-async function clockInjectionArm(fixture, alphaAssignment, priorRevision, writerEpochs) {
+async function clockInjectionArm(fixture, alphaSubject, priorRevision, writerEpochs) {
   assert.ok(writerEpochs.new > writerEpochs.old);
   fixture.setClock("2026-09-07T00:00:00.000Z");
   const future = await fixture.schedule(
-    alphaAssignment,
+    alphaSubject,
     "clock-future",
     {
       kind: "schedule-update",
@@ -353,7 +366,7 @@ async function clockInjectionArm(fixture, alphaAssignment, priorRevision, writer
   );
   fixture.setClock("2026-09-05T00:00:00.000Z");
   const past = await fixture.schedule(
-    alphaAssignment,
+    alphaSubject,
     "clock-past",
     {
       kind: "schedule-update",
@@ -366,7 +379,7 @@ async function clockInjectionArm(fixture, alphaAssignment, priorRevision, writer
   assert.equal(past.outcome, "applied");
   assert.ok(future.revision > priorRevision);
   assert.ok(past.revision > future.revision);
-  const replica = fixture.host.replica(alphaAssignment.repoId);
+  const replica = fixture.host.replica(alphaSubject.repoId);
   replica.kick();
   await replica.waitForCut(future.revision);
   await replica.waitForCut(past.revision);
@@ -375,7 +388,7 @@ async function clockInjectionArm(fixture, alphaAssignment, priorRevision, writer
     identity = {
       writes: [
         {
-          repoId: alphaAssignment.repoId,
+          repoId: alphaSubject.repoId,
           opId: future.opId,
           holder: "new-center",
           epoch: writerEpochs.new,
@@ -383,7 +396,7 @@ async function clockInjectionArm(fixture, alphaAssignment, priorRevision, writer
           status: "accepted_durable",
         },
         {
-          repoId: alphaAssignment.repoId,
+          repoId: alphaSubject.repoId,
           opId: past.opId,
           holder: "new-center",
           epoch: writerEpochs.new,
@@ -391,7 +404,7 @@ async function clockInjectionArm(fixture, alphaAssignment, priorRevision, writer
           status: "accepted_durable",
         },
       ],
-      writerClaims: [{ repoId: alphaAssignment.repoId, holder: "new-center", epoch: writerEpochs.new, sequence: 0 }],
+      writerClaims: [{ repoId: alphaSubject.repoId, holder: "new-center", epoch: writerEpochs.new, sequence: 0 }],
       scheduleClaims: [],
       replicas: [],
     },
@@ -424,10 +437,10 @@ async function clockInjectionArm(fixture, alphaAssignment, priorRevision, writer
   };
 }
 
-async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
-  const warm = assignments[4],
-    fresh = assignments[5],
-    disconnected = assignments[6],
+async function centerTakeoverArm(fixture, repo, subjects, priorRevision) {
+  const warm = subjects[4],
+    fresh = subjects[5],
+    disconnected = subjects[6],
     warmRoot = path.join(fixture.root, "takeover-warm"),
     freshRoot = path.join(fixture.root, "takeover-fresh"),
     disconnectedRoot = path.join(fixture.root, "takeover-disconnected"),
@@ -436,7 +449,7 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
   assert.ok(Number.isSafeInteger(oldEpoch));
   await fixture.pull(warm, warmRoot);
   const oldWrite = await fixture.schedule(
-    assignments[0],
+    subjects[0],
     "takeover-old-write",
     {
       kind: "schedule-update",
@@ -461,7 +474,7 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
   assert.ok(Number.isSafeInteger(newEpoch));
   assert.ok(newEpoch > oldEpoch);
   const stale = await fixture.schedule(
-    assignments[0],
+    subjects[0],
     "takeover-stale-old-epoch",
     {
       kind: "schedule-update",
@@ -473,7 +486,7 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
   assert.equal(stale.outcome, "op_rejected");
   assert.equal(stale.code, "writer_epoch_stale");
   const newWrite = await fixture.schedule(
-    assignments[1],
+    subjects[1],
     "takeover-new-write",
     {
       kind: "schedule-update",
@@ -568,8 +581,8 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
   };
 }
 
-async function createSchedule(fixture, assignment, opId) {
-  const created = await fixture.schedule(assignment, opId, {
+async function createSchedule(fixture, subject, opId) {
+  const created = await fixture.schedule(subject, opId, {
     kind: "schedule-create",
     scheduleId: "campaign",
     name: "Campaign",

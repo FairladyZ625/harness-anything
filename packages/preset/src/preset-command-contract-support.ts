@@ -8,7 +8,7 @@ export interface CliInputGroup {
   readonly id: string;
   readonly title: string;
 }
-export type CommandAdmissionRoute = "direct" | "via-assignment" | "via-center-forward" | "rejected";
+export type CommandAdmissionRoute = "direct" | "via-node" | "via-center-forward" | "rejected";
 export type CommandAdmission = Readonly<
   Record<"local" | "remote-proxy" | "remote-center" | "remote-edge", CommandAdmissionRoute>
 >;

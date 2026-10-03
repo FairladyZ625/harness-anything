@@ -5,7 +5,6 @@ import type { RuntimeInstanceSummary, openRuntimeInstanceStore } from "./agent-r
 import type { DaemonBuildObserver } from "./build-identity.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
-import type { FleetRoster } from "./fleet-center-admission.ts";
 import type { FleetEdgeRuntimeRequest, openFleetEdgeRuntime } from "./fleet-edge-runtime.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
@@ -104,7 +103,6 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly now: () => string;
   readonly warmingSettlements: Map<string, ReturnType<typeof makeWarmingSettlement>>;
   readonly startInitialAttachments: () => Promise<void>;
-  fleetRoster: FleetRoster | null;
   initialAttachments: Promise<void> | null;
   readonly attachInitial: () => Promise<void>;
   readonly repos: readonly (RegisteredRepoInput & { readonly registeredAt: string })[];
@@ -146,7 +144,6 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly recoverableRunId: typeof import("./daemon-host-errors.ts").recoverableRunId;
   readonly requireHostMode: (repoId: string, command: CommandTopology, auth: DaemonAuthenticationContext) => void;
   fleetCenter: FleetTlsCenter | null;
-  fleetRoster: FleetRoster | null;
   readonly fleetEdgeRuntimes: Map<string, ReturnType<typeof openFleetEdgeRuntime>>;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;

@@ -6,8 +6,7 @@
 `tencent-lighthouse-prod`. It installs the pinned Node 24 tarball under the
 login user's home, clones/builds Harness Anything, restores a ledger backup
 into `~/harness-center/repo` and attaches it as `remote-center`, starts the
-managed authorization service, generates private TLS material and the
-assignment roster, and starts the daemon-owned TLS center. It never uses sudo,
+managed authorization service, generates private TLS material, and starts the daemon-owned TLS center. It never uses sudo,
 Docker, system GitLab/nginx configuration, or the host's default Harness
 daemon.
 
@@ -45,7 +44,7 @@ ssh tencent-lighthouse-prod \
 `up` restores the backup into `~/harness-center/repo` (it must not already
 exist), registers that root as `remote-center`, waits for the repository to
 attach, rebuilds the projection to the exact restored cut, and continues with
-the authorization service, TLS material, roster, and Fleet listener.
+the authorization service, TLS material and Fleet listener.
 
 Subsequent lifecycle operations do not need the backup directory:
 
@@ -56,7 +55,7 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 ```
 
 `down` only stops this deployment's isolated daemon. It intentionally retains
-the repository, TLS material, roster, and replica state for audit/recovery.
+the repository, TLS material and replica state for audit/recovery.
 After a host reboot, log in and run `up`; the daemon and Fleet listener are
 both process-owned and must be re-established.
 
@@ -65,13 +64,13 @@ repository's `people.yaml` does not grant access. The deployment does not admit 
 center: writes arrive from Fleet edges with node credentials, and a person
 signs in through the desktop app connected to this daemon.
 
-## Roster and nodes
+## Nodes and task leases
 
-`up` writes `~/harness-center/fleet/roster.json` as `fleet-roster/v3`: one
-assignment row naming what the node may reach (`assignmentId`, `nodeId`,
-`repoId`, `viewId`, `expiresAt`, `scope`). The roster does not say who a node
-is. A node's machine credential and its owner live in the center's Keycloak
-node registry, and `centerctl.sh` creates no credential and registers no node.
+`up` starts the listener for `repoId`; it creates no static execution roster.
+Keycloak's node registry provides each node's machine credential and current owner.
+`centerctl.sh` creates no credential and registers no node. An authorized person
+assigns tasks to a person, node or native Keycloak team. Execution nodes then
+compete for the single canonical task lease; the first eligible claimant wins.
 
 Before it starts the Fleet listener, `up` runs `ha bootstrap`, which installs
 and starts the managed Keycloak and PostgreSQL under this deployment's user
@@ -112,7 +111,7 @@ receipt names the file and never carries the credential. The registration is
 refused with `credential_file_required` without `--credential-file`, and with
 `credential_file_unavailable` when the file already exists; in both cases
 nothing is registered. Use one directory per node and never share a credential
-between nodes. `<node-id>` must be the `nodeId` of the roster assignment.
+between nodes. `<node-id>` identifies the authenticated execution node.
 
 Move the file to the edge machine over a channel you trust and delete the
 center's copy. On the edge the credential goes in the workspace's

@@ -16,7 +16,7 @@ import { registerDaemonRepo } from "@harness-anything/kernel";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
+import { listenFleetTls } from "../src/fleet/center.ts";
 import { initHarnessRepo, pullScheduleView, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
 const actor = withPolicyGroup(
@@ -550,13 +550,9 @@ test(
       certFile = path.join(root, "tls.crt"),
       repoId = "schedule-fleet",
       scheduleId = "e2e-probe",
-      assignments: FleetAssignmentRecord[] = ["one", "two"].map((suffix) => ({
+      subjects = ["one", "two"].map((suffix) => ({
         nodeId: `edge-${suffix}`,
-        assignmentId: `schedule-assignment-${suffix}`,
         repoId,
-        viewId: `schedule-view-${suffix}`,
-        scope: { kind: "schedule", scheduleId, paths: ["agents", "schedules"] },
-        expiresAt: "2099-01-01T00:00:00.000Z",
       }));
     let center: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
       host: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
@@ -621,7 +617,7 @@ test(
         repoIds: [repoId],
       });
       const nodeOwner = owners.nodeOwner,
-        assignmentAuth = owners.auth(assignments[0]!);
+        nodeAuth = owners.auth(subjects[0]!);
       assert.equal(
         (
           await host.run(
@@ -637,13 +633,12 @@ test(
                 instance: definition.instanceId,
               },
             },
-            assignmentAuth,
+            nodeAuth,
           )
         ).outcome,
         "applied",
       );
-      const certificate = readFileSync(certFile),
-        byId = new Map(assignments.map((assignment) => [assignment.assignmentId, assignment]));
+      const certificate = readFileSync(certFile);
       center = await listenFleetTls({
         host,
         stateRoot,
@@ -652,12 +647,11 @@ test(
         replicaDiskQuotaBytes: 64 * 1024 * 1024,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
         nodeOwner,
-        resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
       });
       const terminalCallbacks: Array<(() => void) | undefined> = [],
         settlementErrors = t.mock.method(Object, "assign"),
         launches = [0, 0],
-        workspaces = assignments.map((assignment, index) => {
+        workspaces = subjects.map((subject, index) => {
           const workspaceRoot = path.join(root, `edge-${index + 1}`),
             viewRoot = path.join(root, `view-${index + 1}`);
           initHarnessRepo(workspaceRoot, `schedule-edge-${index + 1}`);
@@ -667,9 +661,8 @@ test(
               port: center!.port,
               caPath: certFile,
               servername: "localhost",
-              nodeId: assignment.nodeId,
-              credential: `credential-${assignment.nodeId}`,
-              assignmentId: assignment.assignmentId,
+              nodeId: subject.nodeId,
+              credential: `credential-${subject.nodeId}`,
               repoId,
               viewRoot,
               quotaBytes: 64 * 1024 * 1024,
@@ -704,7 +697,7 @@ test(
             },
           });
           edgeRuntimes.push(runtime);
-          return { assignment, runtime, workspaceRoot, viewRoot };
+          return { subject, runtime, workspaceRoot, viewRoot };
         });
       await t.test("edge schedule requires action kind", async () => {
         await assert.rejects(workspaces[0]!.runtime.run("repo.schedule.run", {}), {
@@ -712,11 +705,12 @@ test(
           message: "kind is required.",
         });
       });
-      await t.test("edge schedule rejects another assignment scope", async () => {
-        await assert.rejects(
-          workspaces[0]!.runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId: "other-schedule" }),
-          { code: "assignment_scope_mismatch", message: /outside assignment/u },
-        );
+      await t.test("edge schedule missing definitions are rejected by the canonical lookup", async () => {
+        const missing = await workspaces[0]!.runtime.run("repo.schedule.run", {
+          kind: "schedule-show",
+          scheduleId: "other-schedule",
+        });
+        assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
       });
       const created = await workspaces[0]!.runtime.run("repo.schedule.run", {
         kind: "schedule-create",
@@ -811,10 +805,20 @@ test(
       const claimed = JSON.stringify(
         await workspaces[winner]!.runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId }),
       );
-      assert.match(claimed, new RegExp(`"nodeId":"${workspaces[winner]!.assignment.nodeId}"`, "u"), claimed);
+      assert.match(claimed, new RegExp(`"nodeId":"${workspaces[winner]!.subject.nodeId}"`, "u"), claimed);
       assert.doesNotMatch(claimed, /self-reported/u);
       const winnerEdge = workspaces[winner]!,
         claim = raced[winner]!;
+      const wrongNodeSettlement = await workspaces[loser]!.runtime.run("repo.schedule.run", {
+        kind: "schedule-settle",
+        scheduleId,
+        claimFence: claim.claimFence,
+        outcome: "succeeded",
+        endedAt: "2026-09-30T00:00:00.000Z",
+        idempotencyKey: "other-node-observed-fence",
+      });
+      assert.equal(wrongNodeSettlement.outcome, "op_rejected", JSON.stringify(wrongNodeSettlement));
+      assert.equal((wrongNodeSettlement.error as { code?: string } | undefined)?.code, "schedule_claim_stale");
       const settled = await winnerEdge.runtime.run("repo.schedule.run", {
         kind: "schedule-settle",
         scheduleId,

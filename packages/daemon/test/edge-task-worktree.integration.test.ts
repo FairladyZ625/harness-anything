@@ -21,7 +21,7 @@ const taskId = "task_e0000000000000000000beef",
   packagePath = path.join("harness", "tasks", taskId),
   edgeBinding = {
     actor: { principal: { personId: "fleet-edge" }, executor: null },
-    source: { kind: "assignment" as const, nodeId: "node-a", assignmentId: "assignment-a" },
+    source: { kind: "node" as const, nodeId: "node-a" },
   };
 
 test("an edge dispatch without a cwd launches in the worktree the center's binding names", async (t) => {
@@ -209,7 +209,7 @@ function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null) {
       repoId: "edge-repo",
       rootDir,
       daemonGeneration: 1,
-      runtimeAssignment: { nodeId: "node-a", assignmentId: "assignment-a" },
+      runtimeNode: { nodeId: "node-a" },
       runtimeDaemonRoute: { userRoot: path.join(rootDir, ".user"), daemonId: "edge", endpoint: "/tmp/edge.sock" },
       remote: {
         existing: async () => null,

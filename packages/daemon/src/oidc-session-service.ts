@@ -569,7 +569,6 @@ export class OidcSessionService {
         servername: edge.servername,
         nodeId: edge.nodeId,
         credential: edge.credential,
-        assignmentId: edge.assignmentId,
       });
       return { ...authority, clientSecret: edge.credential };
     }

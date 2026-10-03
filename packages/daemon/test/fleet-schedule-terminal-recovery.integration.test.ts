@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
+import { listenFleetTls } from "../src/fleet/center.ts";
 import { fleetFixture, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { definition, eventually, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
@@ -50,20 +50,13 @@ for (const restart of [false, true])
       }),
     );
     const installed = await fixture.host.run(
-      fixture.assignment.repoId,
+      fixture.subject.repoId,
       { kind: "agent-install", packageSource, expectedVersion: 0, idempotencyKey: "recovery-agent" },
       localAuthFixture(),
     );
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
     const scheduleId = "recovery-schedule";
-    const assignment: FleetAssignmentRecord = {
-      nodeId: fixture.assignment.nodeId,
-      assignmentId: "schedule-recovery",
-      repoId: fixture.assignment.repoId,
-      viewId: "schedule-recovery-view",
-      scope: { kind: "schedule", scheduleId, paths: ["agents", "schedules"] },
-      expiresAt: "2099-01-01T00:00:00.000Z",
-    };
+    const subject = { nodeId: fixture.subject.nodeId, repoId: fixture.subject.repoId };
     const startCenter = (port?: number) =>
       fixture.hold(
         listenFleetTls({
@@ -74,9 +67,8 @@ for (const restart of [false, true])
           cert: fixture.cert,
           port,
           replicaDiskQuotaBytes: 64 * 1024 * 1024,
-          authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
+          authenticate: (nodeId, credential) => nodeId === subject.nodeId && credential === "machine-secret",
           nodeOwner: fixture.owners.nodeOwner,
-          resolveAssignment: (id) => (id === assignment.assignmentId ? assignment : null),
         }),
       );
     const center = await startCenter();
@@ -90,10 +82,9 @@ for (const restart of [false, true])
           port: center.port,
           caPath: fixture.certFile,
           servername: "localhost",
-          nodeId: assignment.nodeId,
+          nodeId: subject.nodeId,
           credential: "machine-secret",
-          assignmentId: assignment.assignmentId,
-          repoId: assignment.repoId,
+          repoId: subject.repoId,
           viewRoot: path.join(fixture.root, "schedule-view"),
           quotaBytes: 64 * 1024 * 1024,
           workspaceRoot,
@@ -165,7 +156,7 @@ for (const restart of [false, true])
       .catch(async (error: unknown) => {
         t.diagnostic(
           JSON.stringify(
-            await fixture.host.run(assignment.repoId, { kind: "schedule-show", scheduleId }, localAuthFixture()),
+            await fixture.host.run(subject.repoId, { kind: "schedule-show", scheduleId }, localAuthFixture()),
           ),
         );
         throw error;
@@ -220,7 +211,7 @@ for (const restart of [false, true])
       JSON.stringify(shown),
     );
     const outcomes = () =>
-      makeTaskEventReader({ repoId: assignment.repoId, rootDir: fixture.repo })
+      makeTaskEventReader({ repoId: subject.repoId, rootDir: fixture.repo })
         .read()
         .events.filter(
           (event) =>

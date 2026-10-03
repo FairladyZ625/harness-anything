@@ -1,5 +1,6 @@
 import { TextDecoder } from "node:util";
 import {
+  actionDeclarations,
   CONTRACT_VERSION_1_0,
   getExecutableEntityAction,
   isContractVersion,
@@ -36,27 +37,6 @@ export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kin
 // declared for its kind. The daemon re-binds principal authority server-side,
 // so identity/origin fields are simply absent from every allowlist (the same
 // posture as the mode enum in the daemon protocol contract).
-export interface FleetTaskAssignmentScope {
-  readonly kind: "task";
-  readonly taskId: string;
-  readonly executionId: string;
-  readonly paths: readonly string[];
-}
-export interface FleetScheduleAssignmentScope {
-  readonly kind: "schedule";
-  readonly scheduleId: string;
-  readonly paths: readonly string[];
-}
-export type FleetAssignmentKindScope = FleetTaskAssignmentScope | FleetScheduleAssignmentScope;
-export interface FleetAssignmentScope {
-  readonly repoId: string;
-  readonly scope: FleetAssignmentKindScope;
-}
-/** What a node may reach. Who acts is the node's registered owner, resolved by the center per request. */
-export interface FleetAssignmentBinding extends FleetAssignmentScope {
-  readonly nodeId: string;
-  readonly assignmentId: string;
-}
 /** Transient center admission context; it is validated but never copied into the canonical event. */
 export interface FleetRuntimeDispatchContext {
   readonly role: string | null;
@@ -76,22 +56,21 @@ export type FleetFrameV1 =
         loginAuthority?: FleetLoginAuthority | null;
       }
     >
-  | Msg<"fleet.assignment.get/v1", { assignmentId: string }>
+  | Msg<"fleet.repo.metadata.get/v1", { repoId: string; actionKind?: string; taskId?: string }>
   | Msg<
-      "fleet.assignment.result/v1",
+      "fleet.repo.metadata.result/v1",
       {
         inReplyTo: string;
-        assignmentId: string;
         repoId: string;
-        scope: FleetAssignmentKindScope;
         baseLedgerSha: LedgerCutIdentity;
-        expiresAt: string;
         writerEpoch: number;
+        personId: string;
+        actionAllowed: boolean | null;
       }
     >
-  | Msg<"fleet.receipt.get/v1", { assignmentId: string; opId: string }>
+  | Msg<"fleet.receipt.get/v1", { repoId: string; opId: string }>
   | Msg<"fleet.receipt.result/v1", { inReplyTo: string; opId: string; receipt: Readonly<Record<string, unknown>> }>
-  | Msg<"fleet.upload.begin/v1", { assignmentId: string; content: FleetBlob }>
+  | Msg<"fleet.upload.begin/v1", { repoId: string; content: FleetBlob }>
   | Msg<
       "fleet.upload.ready/v1",
       { inReplyTo: string; uploadId: string; resumeOffset: number; status: "receiving" | "already_staged" }
@@ -105,7 +84,7 @@ export type FleetFrameV1 =
   | Msg<
       "fleet.doc.submit/v1",
       {
-        assignmentId: string;
+        repoId: string;
         executionId: string | null;
         writerEpoch: number;
         baseLedgerSha: LedgerCutIdentity;
@@ -125,13 +104,11 @@ export type FleetFrameV1 =
   | Msg<
       "fleet.task.command/v1",
       {
-        assignmentId: string;
         writerEpoch: number;
         opId: string;
         repoId: string;
         taskId: string | null;
         action: FleetTaskAction;
-        waitMs: number;
         docChanges: readonly FleetDocChange[] | null;
         mirrorBaseCut: FleetMirrorBaseCut | null;
         accessToken?: string;
@@ -141,24 +118,16 @@ export type FleetFrameV1 =
       "fleet.task.result/v1",
       {
         inReplyTo: string;
-        outcome: "applied" | "op_rejected" | "wait_expired";
+        outcome: "applied" | "op_rejected";
         opId: string;
         revision: number | null;
         code: string | null;
         receipt: Readonly<Record<string, unknown>> | null;
-        lease: {
-          readonly taskId: string;
-          readonly executionId: string | null;
-          readonly assignmentId: string;
-          readonly expiresAt: string;
-        } | null;
-        queuePosition: number | null;
       }
     >
   | Msg<
       "fleet.schedule.command/v1",
       {
-        assignmentId: string;
         writerEpoch: number;
         opId: string;
         repoId: string;
@@ -180,7 +149,6 @@ export type FleetFrameV1 =
   | Msg<
       "fleet.runtime.event/v1",
       {
-        assignmentId: string;
         writerEpoch: number;
         repoId: string;
         opId: string;
@@ -194,26 +162,23 @@ export type FleetFrameV1 =
       "fleet.runtime.event.result/v1",
       { inReplyTo: string; event: Readonly<Record<string, unknown>>; receipt: Readonly<Record<string, unknown>> }
     >
-  | Msg<
-      "fleet.runtime.archive/v1",
-      { assignmentId: string; writerEpoch: number; repoId: string; archive: Readonly<Record<string, unknown>> }
-    >
+  | Msg<"fleet.runtime.archive/v1", { writerEpoch: number; repoId: string; archive: Readonly<Record<string, unknown>> }>
   | Msg<"fleet.runtime.archive.result/v1", { inReplyTo: string; receipt: Readonly<Record<string, unknown>> }>
   | Msg<
       "fleet.runtime.read/v1",
       {
-        assignmentId: string;
         repoId: string;
         method:
           | "repo.agentRuntime.overview"
           | "repo.agentRuntime.sessions.read"
           | "repo.agentRuntime.sessions.await"
-          | "repo.tasks.runtimeContext.read";
+          | "repo.tasks.runtimeContext.read"
+          | "repo.tasks.claimable";
         payload: Readonly<Record<string, unknown>>;
       }
     >
   | Msg<"fleet.runtime.read.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
-  | Msg<"fleet.replica.pull/v1", { assignmentId: string }>
+  | Msg<"fleet.replica.pull/v1", { repoId: string }>
   | Msg<
       "fleet.replica.current/v1",
       { inReplyTo: string; repoId: string; viewId: string; cut: FleetCut; manifestDigest: string }
@@ -541,15 +506,6 @@ const fleetActionChecks: Readonly<Record<FleetTaskCommandKind, Check>> = {
   ]),
   "task-show": optionalShape({ kind: one("task-show"), taskId: id }, ["kind", "taskId"]),
 };
-const taskLease = shape({
-  taskId: id,
-  executionId: nullable(id),
-  assignmentId: id,
-  expiresAt: isUtcTimestamp,
-});
-const taskAssignmentScope = shape({ kind: one("task"), taskId: id, executionId: id, paths: array(logicalPath) }),
-  scheduleAssignmentScope = shape({ kind: one("schedule"), scheduleId: id, paths: array(logicalPath) }),
-  assignmentScope: Check = (value) => taskAssignmentScope(value) || scheduleAssignmentScope(value);
 const scheduleActionShapes: Readonly<Record<string, Check>> = {
     "schedule-create": (value) =>
       optionalShape(
@@ -724,19 +680,26 @@ const schemas: Readonly<Record<string, Check>> = {
     },
     ["schema", "messageId", "inReplyTo", "sessionId", "maxFrameBytes", "chunkBytes"],
   ),
-  "fleet.assignment.get/v1": shape({ ...common, assignmentId: id }),
-  "fleet.assignment.result/v1": shape({
+  "fleet.repo.metadata.get/v1": optionalShape(
+    {
+      ...common,
+      repoId: id,
+      actionKind: (value) => typeof value === "string" && actionDeclarations.some((action) => action.kind === value),
+      taskId: id,
+    },
+    ["schema", "messageId", "repoId"],
+  ),
+  "fleet.repo.metadata.result/v1": shape({
     ...reply,
-    assignmentId: id,
+    personId: id,
+    actionAllowed: nullable(boolean),
     repoId: id,
-    scope: assignmentScope,
     baseLedgerSha: ledgerCut,
-    expiresAt: isUtcTimestamp,
     writerEpoch: uint,
   }),
-  "fleet.receipt.get/v1": shape({ ...common, assignmentId: id, opId: id }),
+  "fleet.receipt.get/v1": shape({ ...common, repoId: id, opId: id }),
   "fleet.receipt.result/v1": shape({ ...reply, opId: id, receipt: record }),
-  "fleet.upload.begin/v1": shape({ ...common, assignmentId: id, content: blob }),
+  "fleet.upload.begin/v1": shape({ ...common, repoId: id, content: blob }),
   "fleet.upload.ready/v1": shape({
     ...reply,
     uploadId: id,
@@ -748,7 +711,7 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.upload.result/v1": shape({ ...reply, status: one("staged", "already_staged"), descriptor }),
   "fleet.doc.submit/v1": shape({
     ...common,
-    assignmentId: id,
+    repoId: id,
     executionId: nullable(id),
     writerEpoch: uint,
     baseLedgerSha: ledgerCut,
@@ -764,44 +727,27 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.task.command/v1": optionalShape(
     {
       ...common,
-      assignmentId: id,
       writerEpoch: uint,
       opId: id,
       repoId: id,
       taskId: nullable(id),
       action: taskAction,
-      waitMs: uint,
       docChanges: nullable(array(docChange, 128)),
       mirrorBaseCut: nullable(mirrorBaseCutShape),
       accessToken: (value) => typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= 16 * 1024,
     },
-    [
-      "schema",
-      "messageId",
-      "assignmentId",
-      "writerEpoch",
-      "opId",
-      "repoId",
-      "taskId",
-      "action",
-      "waitMs",
-      "docChanges",
-      "mirrorBaseCut",
-    ],
+    ["schema", "messageId", "writerEpoch", "opId", "repoId", "taskId", "action", "docChanges", "mirrorBaseCut"],
   ),
   "fleet.task.result/v1": shape({
     ...reply,
-    outcome: one("applied", "op_rejected", "wait_expired"),
+    outcome: one("applied", "op_rejected"),
     opId: id,
     revision: nullable(uint),
     code: nullable(text),
     receipt: nullable(record),
-    lease: nullable(taskLease),
-    queuePosition: nullable(uint),
   }),
   "fleet.schedule.command/v1": shape({
     ...common,
-    assignmentId: id,
     writerEpoch: uint,
     opId: id,
     repoId: id,
@@ -818,7 +764,6 @@ const schemas: Readonly<Record<string, Check>> = {
   }),
   "fleet.runtime.event/v1": shape({
     ...common,
-    assignmentId: id,
     writerEpoch: uint,
     repoId: id,
     opId: id,
@@ -828,22 +773,22 @@ const schemas: Readonly<Record<string, Check>> = {
     dispatchContext: nullable(runtimeDispatchContext),
   }),
   "fleet.runtime.event.result/v1": shape({ ...reply, event: record, receipt: record }),
-  "fleet.runtime.archive/v1": shape({ ...common, assignmentId: id, writerEpoch: uint, repoId: id, archive: record }),
+  "fleet.runtime.archive/v1": shape({ ...common, writerEpoch: uint, repoId: id, archive: record }),
   "fleet.runtime.archive.result/v1": shape({ ...reply, receipt: record }),
   "fleet.runtime.read/v1": shape({
     ...common,
-    assignmentId: id,
     repoId: id,
     method: one(
       "repo.agentRuntime.overview",
       "repo.agentRuntime.sessions.read",
       "repo.agentRuntime.sessions.await",
       "repo.tasks.runtimeContext.read",
+      "repo.tasks.claimable",
     ),
     payload: record,
   }),
   "fleet.runtime.read.result/v1": shape({ ...reply, result: record }),
-  "fleet.replica.pull/v1": shape({ ...common, assignmentId: id }),
+  "fleet.replica.pull/v1": shape({ ...common, repoId: id }),
   "fleet.replica.current/v1": shape({ ...reply, repoId: id, viewId: id, cut, manifestDigest: sha64 }),
   "fleet.snapshot.begin/v1": shape({ ...common, transferId: id, repoId: id, viewId: id, cut, manifest }),
   "fleet.snapshot.page/v1": shape({ ...common, transferId: id, pageIndex: uint, entries: array(entry) }),

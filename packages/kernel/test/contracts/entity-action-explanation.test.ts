@@ -139,7 +139,7 @@ test("catalog and object modes share one strict schema with four honest criterio
   );
   assert.equal(
     actions.reduce((count, action) => count + action.criteria.length, 0),
-    33,
+    37, // S8 CH2: revision and idle-lease criteria for assign and unassign.
   );
 
   const dishonestAvailability = structuredClone(object) as unknown as {

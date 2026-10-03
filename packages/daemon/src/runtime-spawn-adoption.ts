@@ -29,7 +29,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
   for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
     if (context.processes.has(header.runtimeSessionId) || context.exiting.has(header.runtimeSessionId)) continue;
     const metadata = adoptableMetadata(header);
-    if (!metadata || !ownedByRuntimeSpawner(metadata.binding, context.input.runtimeAssignment)) continue;
+    if (!metadata || !ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode)) continue;
     const fallbackSummary = header.fallbackAttempt
       ? readDispatchStreamSummary(context.input.rootDir, header.dispatchId)
       : null;
@@ -152,17 +152,13 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
 
 export function ownedByRuntimeSpawner(
   binding: RuntimeBinding,
-  runtimeAssignment: RuntimeSpawnerInput["runtimeAssignment"],
+  runtimeNode: RuntimeSpawnerInput["runtimeNode"],
 ): boolean {
-  if (runtimeAssignment === undefined) return true;
+  if (runtimeNode === undefined) return true;
   const source: unknown = binding.source;
   if (source === null || typeof source !== "object" || Array.isArray(source)) return false;
-  const assignment = source as Record<string, unknown>;
-  return (
-    assignment.kind === "assignment" &&
-    assignment.nodeId === runtimeAssignment.nodeId &&
-    assignment.assignmentId === runtimeAssignment.assignmentId
-  );
+  const node = source as Record<string, unknown>;
+  return node.kind === "node" && node.nodeId === runtimeNode.nodeId;
 }
 
 function adoptableMetadata(header: DispatchStreamHeader): {

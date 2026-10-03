@@ -105,7 +105,6 @@ export interface ScheduleActiveRunV1 {
   readonly scheduledFor: string;
   readonly claimedAt: string;
   readonly nodeId: string;
-  readonly assignmentId: string | null;
   readonly claimFence: string;
   readonly attemptIndex: number;
   readonly dispatchId?: string;
@@ -118,7 +117,6 @@ export interface ScheduleLastRunV1 {
   readonly endedAt: string;
   readonly outcome: ScheduleRunOutcome;
   readonly nodeId: string;
-  readonly assignmentId: string | null;
   readonly claimFence: string;
   readonly attemptIndex: number;
   readonly dispatchId?: string;
@@ -286,6 +284,20 @@ export function createScheduleV1(input: {
   const errors = validateScheduleV1(schedule);
   if (errors.length) throw new Error(errors.join("; "));
   return schedule;
+}
+
+/** Project accepted historical evidence into the current run view; never used for new wire input. */
+export function projectScheduleHistory(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.status)) return value;
+  const run = (entry: unknown): unknown => {
+    if (!isRecord(entry) || !Object.hasOwn(entry, "assignmentId")) return entry;
+    const { assignmentId: _retired, ...current } = entry;
+    return current;
+  };
+  return {
+    ...value,
+    status: { ...value.status, activeRun: run(value.status.activeRun), lastRun: run(value.status.lastRun) },
+  };
 }
 
 export function scheduleDefinition(schedule: ScheduleV1): ScheduleDefinitionV1 {
@@ -504,16 +516,7 @@ function validRunView(value: unknown, allowUnknownFields: boolean): value is Sch
 
 function validActiveRun(value: unknown, allowUnknownFields: boolean): value is ScheduleActiveRunV1 {
   if (!isRecord(value)) return false;
-  const required = [
-      "occurrenceId",
-      "kind",
-      "scheduledFor",
-      "claimedAt",
-      "nodeId",
-      "assignmentId",
-      "claimFence",
-      "attemptIndex",
-    ],
+  const required = ["occurrenceId", "kind", "scheduledFor", "claimedAt", "nodeId", "claimFence", "attemptIndex"],
     optional = ["dispatchId", "runtimeSessionId"];
   return (
     required.every((field) => Object.hasOwn(value, field)) &&
@@ -523,7 +526,6 @@ function validActiveRun(value: unknown, allowUnknownFields: boolean): value is S
     timestamp(value.scheduledFor) &&
     timestamp(value.claimedAt) &&
     isNonEmptyString(value.nodeId) &&
-    (value.assignmentId === null || isNonEmptyString(value.assignmentId)) &&
     isNonEmptyString(value.claimFence) &&
     Number.isSafeInteger(value.attemptIndex) &&
     Number(value.attemptIndex) >= 0 &&
@@ -533,16 +535,7 @@ function validActiveRun(value: unknown, allowUnknownFields: boolean): value is S
 
 function validLastRun(value: unknown, allowUnknownFields: boolean): value is ScheduleLastRunV1 {
   if (!isRecord(value)) return false;
-  const required = [
-      "occurrenceId",
-      "scheduledFor",
-      "endedAt",
-      "outcome",
-      "nodeId",
-      "assignmentId",
-      "claimFence",
-      "attemptIndex",
-    ],
+  const required = ["occurrenceId", "scheduledFor", "endedAt", "outcome", "nodeId", "claimFence", "attemptIndex"],
     optional = ["dispatchId", "runtimeSessionId", "detail"];
   return (
     required.every((field) => Object.hasOwn(value, field)) &&
@@ -552,7 +545,6 @@ function validLastRun(value: unknown, allowUnknownFields: boolean): value is Sch
     timestamp(value.endedAt) &&
     scheduleRunOutcomes.includes(value.outcome as ScheduleRunOutcome) &&
     isNonEmptyString(value.nodeId) &&
-    (value.assignmentId === null || isNonEmptyString(value.assignmentId)) &&
     isNonEmptyString(value.claimFence) &&
     Number.isSafeInteger(value.attemptIndex) &&
     Number(value.attemptIndex) >= 0 &&

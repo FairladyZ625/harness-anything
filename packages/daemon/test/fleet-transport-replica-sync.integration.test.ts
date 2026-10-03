@@ -15,9 +15,9 @@ import { setTimeout as delay } from "node:timers/promises";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import {
-  readFleetAssignmentClient,
+  readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
   runFleetWriteClient,
   type FleetReplicaPullClientOptions,
@@ -27,6 +27,15 @@ import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { type FleetCut } from "../src/fleet/contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+type FleetTestSubject = {
+  nodeId: string;
+  repoId: string;
+  taskId: string;
+  executionId: string;
+  paths: readonly string[];
+  viewId: string;
+};
+
 const replicaQuota = 64 * 1024 * 1024;
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
 // teardown does not run on the timeout path. Every fixture therefore owns its OS resources and every test hands
@@ -59,13 +68,13 @@ async function runFleetRoundTrip(options: RoundTripOptions) {
     servername: options.servername,
     nodeId: options.nodeId,
     credential: options.credential,
-    assignmentId: options.assignmentId,
+    repoId: options.repoId,
     timeoutMs: options.timeoutMs,
   };
   await runFleetReplicaPullClient({ ...peer, viewRoot: options.viewRoot, diskQuotaBytes: replicaQuota });
   const write = await runFleetWriteClient({ ...options, channel: "replica" });
   // The applied receipt can precede host-side ledger visibility. Anchor the pull to the
-  // same assignment read that the edge can observe, or it may legally return the prior current cut.
+  // same repository metadata read that the edge can observe, or it may legally return the prior current cut.
   if (write.center.outcome === "applied" && write.center.revision !== null)
     await waitForCenterLedgerRevision(peer, write.center.revision, options.timeoutMs ?? 5_000);
   const pulled = await runFleetReplicaPullClient({
@@ -86,38 +95,37 @@ test("cross-repo transfer identity keeps equal node/view/cut/digest isolated", {
     first = await runFleetRoundTrip({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignments[0]!.nodeId,
+      nodeId: fixture.subjects[0]!.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignments[0]!.assignmentId,
+      repoId: fixture.subjects[0]!.repoId,
+      executionId: fixture.subjects[0]!.executionId,
       viewRoot: edgeRoot,
       changes: [{ path: fixture.path, body }],
     });
   const second = await runFleetRoundTrip({
     port: center.port,
     ca: fixture.cert,
-    nodeId: fixture.assignments[1]!.nodeId,
+    nodeId: fixture.subjects[1]!.nodeId,
     credential: "machine-secret",
-    assignmentId: fixture.assignments[1]!.assignmentId,
+    repoId: fixture.subjects[1]!.repoId,
+    executionId: fixture.subjects[1]!.executionId,
     viewRoot: edgeRoot,
     changes: [{ path: fixture.path, body }],
   });
   assert.equal(first.center.revision, second.center.revision);
   assert.notEqual(first.center.opId, second.center.opId);
-  for (const [index, assignment] of fixture.assignments.entries()) {
+  for (const [index, subject] of fixture.subjects.entries()) {
     const expected = index === 0 ? first : second,
-      receipt = center.replicaReceipt(expected.center.opId, assignment.nodeId, assignment.viewId, assignment.repoId),
+      receipt = center.replicaReceipt(expected.center.opId, subject.nodeId, subject.viewId, subject.repoId),
       current = JSON.parse(
-        readFileSync(
-          path.join(edgeRoot, "repos", assignment.repoId, "views", assignment.viewId, "current.json"),
-          "utf8",
-        ),
+        readFileSync(path.join(edgeRoot, "repos", subject.repoId, "views", subject.viewId, "current.json"), "utf8"),
       ) as { cut: FleetCut };
     assert.equal(receipt.opId, expected.center.opId);
     assert.equal(receipt.outcome, "applied");
     assert.equal(current.cut.revision, expected.center.revision);
   }
 });
-test("multi-path assignment produces a complete first snapshot and a scoped delta", { timeout: 30_000 }, async (t) => {
+test("multi-path subject produces a complete first snapshot and a scoped delta", { timeout: 30_000 }, async (t) => {
   const paths = ["tasks/task-fleet-fleet/a.md", "tasks/task-fleet-fleet/b.md"],
     fixture = await fleetFixture(t, paths);
   t.after(() => fixture.close());
@@ -128,9 +136,10 @@ test("multi-path assignment produces a complete first snapshot and a scoped delt
     first = await runFleetRoundTrip({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
+      executionId: fixture.subject.executionId,
       viewRoot: edgeRoot,
       changes: paths.map((itemPath, index) => ({ path: itemPath, body: firstBodies[index]! })),
       onFrame: (frame) => firstSchemas.push(frame.schema),
@@ -143,9 +152,9 @@ test("multi-path assignment produces a complete first snapshot and a scoped delt
         path.join(
           edgeRoot,
           "repos",
-          fixture.assignment.repoId,
+          fixture.subject.repoId,
           "views",
-          fixture.assignment.viewId,
+          fixture.subject.viewId,
           "cuts",
           String(first.center.revision),
           "files",
@@ -161,9 +170,10 @@ test("multi-path assignment produces a complete first snapshot and a scoped delt
     second = await runFleetRoundTrip({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
+      executionId: fixture.subject.executionId,
       viewRoot: edgeRoot,
       changes: [{ path: paths[1]!, body: nextBody, baseBlobSha256: sha256Bytes(Buffer.from(firstBodies[1]!)) }],
       baseLedgerSha: base.ledger,
@@ -172,7 +182,7 @@ test("multi-path assignment produces a complete first snapshot and a scoped delt
   assert.equal(second.replica.schema, "fleet.ack.result/v1");
   assert.ok(secondSchemas.includes("fleet.delta.begin/v1"));
   const workspaceRoot = path.join(fixture.root, "multi-workspace");
-  assert.equal(applyFleetMirrorCut(edgeRoot, fixture.assignment.repoId, workspaceRoot, "pull").outcome, "applied");
+  assert.equal(applyFleetMirrorCut(edgeRoot, fixture.subject.repoId, workspaceRoot, "pull").outcome, "applied");
   assert.equal(readFileSync(path.join(workspaceRoot, "harness", paths[0]!), "utf8"), firstBodies[0]);
   assert.equal(readFileSync(path.join(workspaceRoot, "harness", paths[1]!), "utf8"), nextBody);
 });
@@ -186,9 +196,9 @@ test("more than 64 completed uploads remain bounded across center restart", { ti
   await runFleetReplicaPullClient({
     port: center.port,
     ca: fixture.cert,
-    nodeId: fixture.slowAssignment.nodeId,
+    nodeId: fixture.slowSubject.nodeId,
     credential: "machine-secret",
-    assignmentId: fixture.slowAssignment.assignmentId,
+    repoId: fixture.slowSubject.repoId,
     viewRoot: path.join(fixture.root, "slow-edge"),
     diskQuotaBytes: replicaQuota,
   });
@@ -197,9 +207,10 @@ test("more than 64 completed uploads remain bounded across center restart", { ti
     const result = await runFleetRoundTrip({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
+      executionId: fixture.subject.executionId,
       viewRoot: edgeRoot,
       changes: [{ path: fixture.path, body, baseBlobSha256 }],
     });
@@ -210,9 +221,9 @@ test("more than 64 completed uploads remain bounded across center restart", { ti
         runFleetReplicaPullClient({
           port: center.port,
           ca: fixture.cert,
-          nodeId: fixture.slowAssignment.nodeId,
+          nodeId: fixture.slowSubject.nodeId,
           credential: "machine-secret",
-          assignmentId: fixture.slowAssignment.assignmentId,
+          repoId: fixture.slowSubject.repoId,
           viewRoot: path.join(fixture.root, "slow-edge"),
           diskQuotaBytes: replicaQuota,
           beforeAck: () => {
@@ -226,25 +237,24 @@ test("more than 64 completed uploads remain bounded across center restart", { ti
       center = await fixture.center();
     }
   }
-  const stale = center.status().replicas.find((row) => row.viewId === fixture.slowAssignment.viewId)!;
+  const stale = center.status().replicas.find((row) => row.viewId === fixture.slowSubject.viewId)!;
   assert.equal(stale.delivery, "snapshot_required");
   assert.notEqual(stale.lagMs, null);
   const schemas: string[] = [];
   await runFleetReplicaPullClient({
     port: center.port,
     ca: fixture.cert,
-    nodeId: fixture.slowAssignment.nodeId,
+    nodeId: fixture.slowSubject.nodeId,
     credential: "machine-secret",
-    assignmentId: fixture.slowAssignment.assignmentId,
+    repoId: fixture.slowSubject.repoId,
     viewRoot: path.join(fixture.root, "slow-edge"),
     diskQuotaBytes: replicaQuota,
     onFrame: (frame) => schemas.push(frame.schema),
   });
   assert.equal(schemas.includes("fleet.snapshot.begin/v1"), true);
-  assert.equal(center.status().replicas.find((row) => row.viewId === fixture.assignment.viewId)?.delivery, "current");
+  assert.equal(center.status().replicas.find((row) => row.viewId === fixture.subject.viewId)?.delivery, "current");
   assert.equal(
-    (await fixture.host.run(fixture.assignment.repoId, { kind: "doc-show", path: fixture.path }, fixture.auth))
-      .evidence,
+    (await fixture.host.run(fixture.subject.repoId, { kind: "doc-show", path: fixture.path }, fixture.auth)).evidence,
     body,
   );
 });
@@ -257,8 +267,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     certFile = path.join(root, "tls.crt"),
     emptyPath = path.join(root, "empty-path"),
     owned = reclaimer();
-  let expiresAt = "2099-01-01T00:00:00.000Z",
-    assignmentDelayMs = 0,
+  let ownerLookupDelayMs = 0,
     taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
   mkdirSync(path.join(repo, "harness"), { recursive: true });
@@ -295,7 +304,11 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
     host = await openDaemonHost({ daemonId: "fleet-center", userRoot }),
-    owners = await fleetNodeOwners({ userRoot, owners: { "node-one": "person-owner" }, repoIds: ["fleet-repo"] });
+    owners = await fleetNodeOwners({
+      userRoot,
+      owners: { "node-one": "person-owner", "node-slow": "person-owner" },
+      repoIds: ["fleet-repo"],
+    });
   t.after(async () => {
     try {
       await owned.reclaim();
@@ -310,50 +323,44 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   });
   signInAt(userRoot, "person-owner");
   await host.attachmentsSettled();
-  const assignment: FleetAssignmentRecord = {
+  const subject: FleetTestSubject = {
       nodeId: "node-one",
-      assignmentId: "assignment-one",
       repoId: "fleet-repo",
       taskId: "task-fleet",
       executionId: "execution-fleet",
       paths,
-      viewId: "node-one_task-fleet",
-      expiresAt: "2099-01-01T00:00:00.000Z",
+      viewId: "node-one",
     },
-    slowAssignment: FleetAssignmentRecord = {
-      ...assignment,
-      assignmentId: "assignment-slow",
-      viewId: "node-one_task-fleet-slow",
+    slowSubject: FleetTestSubject = {
+      ...subject,
+      nodeId: "node-slow",
+      viewId: "node-slow",
     },
-    auth = owners.auth(assignment);
-  const created = await host.run(
-    assignment.repoId,
-    { kind: "task-create", taskId: assignment.taskId, title: "Fleet" },
-    auth,
-  );
+    auth = owners.auth(subject);
+  const created = await host.run(subject.repoId, { kind: "task-create", taskId: subject.taskId, title: "Fleet" }, auth);
   assert.equal(created.outcome, "applied");
-  await waitForFleetPublication(host, assignment.repoId, created.opId, auth);
+  await waitForFleetPublication(host, subject.repoId, created.opId, auth);
   await realizeTaskPlanFixture(
     repo,
     String((created as Record<string, unknown>).packagePath),
-    (planPath) => host.run(assignment.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+    (planPath) => host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
     "Fleet",
   );
   const started = await host.run(
-    assignment.repoId,
-    { kind: "task-start", taskId: assignment.taskId, executionId: assignment.executionId },
+    subject.repoId,
+    { kind: "task-start", taskId: subject.taskId, executionId: subject.executionId },
     auth,
   );
   assert.equal(started.outcome, "applied", JSON.stringify(started));
-  await waitForReceiptCommit(host, assignment.repoId, started.opId, auth);
+  await waitForReceiptCommit(host, subject.repoId, started.opId, auth);
   return {
     root,
     repo,
     stateRoot,
     writerOptions: fleetHostWriterOptions(userRoot, ["fleet-repo"]),
-    path: assignment.paths[0]!,
-    assignment,
-    slowAssignment,
+    path: subject.paths[0]!,
+    subject,
+    slowSubject,
     auth,
     host,
     key,
@@ -362,11 +369,8 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     emptyPath,
     track: owned.track,
     hold: owned.hold,
-    setExpiry: (value: string) => {
-      expiresAt = value;
-    },
-    setAssignmentDelay: (value: number) => {
-      assignmentDelayMs = value;
+    setOwnerLookupDelay: (value: number) => {
+      ownerLookupDelayMs = value;
     },
     blockTaskRelease: () => {
       let started!: () => void, release!: () => void;
@@ -406,15 +410,11 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
           key,
           cert,
           replicaDiskQuotaBytes: replicaQuota,
-          authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
-          nodeOwner: owners.nodeOwner,
-          resolveAssignment: async (assignmentId) => {
-            if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
-            return assignmentId === assignment.assignmentId
-              ? { ...assignment, expiresAt }
-              : assignmentId === slowAssignment.assignmentId
-                ? { ...slowAssignment, expiresAt }
-                : null;
+          authenticate: (nodeId, credential) =>
+            [subject.nodeId, slowSubject.nodeId].includes(nodeId) && credential === "machine-secret",
+          nodeOwner: async (nodeId) => {
+            if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
+            return owners.nodeOwner(nodeId);
           },
         }),
       ),
@@ -490,15 +490,13 @@ async function crossRepoFixture(t: TestContext) {
       owners: { "node-shared": "person-owner" },
       repoIds: repos.map(({ repoId }) => repoId),
     }),
-    assignments: FleetAssignmentRecord[] = repos.map((repo, index) => ({
+    subjects: FleetTestSubject[] = repos.map((repo) => ({
       nodeId: "node-shared",
-      assignmentId: `assignment-${index}`,
       repoId: repo.repoId,
       taskId: "task-cross",
       executionId: "execution-cross",
       paths: [pathValue],
-      viewId: "view-shared",
-      expiresAt: "2099-01-01T00:00:00.000Z",
+      viewId: "node-shared",
     }));
   t.after(async () => {
     try {
@@ -514,27 +512,27 @@ async function crossRepoFixture(t: TestContext) {
   });
   signInAt(userRoot, "person-owner");
   await host.attachmentsSettled();
-  for (const assignment of assignments) {
-    const auth = owners.auth(assignment),
-      taskRepo = repos.find((repo) => repo.repoId === assignment.repoId)!;
+  for (const subject of subjects) {
+    const auth = owners.auth(subject),
+      taskRepo = repos.find((repo) => repo.repoId === subject.repoId)!;
     const created = await host.run(
-      assignment.repoId,
-      { kind: "task-create", taskId: assignment.taskId, title: "Cross" },
+      subject.repoId,
+      { kind: "task-create", taskId: subject.taskId, title: "Cross" },
       auth,
     );
     assert.equal(created.outcome, "applied");
-    await waitForFleetPublication(host, assignment.repoId, created.opId, auth);
+    await waitForFleetPublication(host, subject.repoId, created.opId, auth);
     await realizeTaskPlanFixture(
       taskRepo.rootDir,
       String((created as Record<string, unknown>).packagePath),
-      (planPath) => host.run(assignment.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+      (planPath) => host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
       "Cross",
     );
     assert.equal(
       (
         await host.run(
-          assignment.repoId,
-          { kind: "task-start", taskId: assignment.taskId, executionId: assignment.executionId },
+          subject.repoId,
+          { kind: "task-start", taskId: subject.taskId, executionId: subject.executionId },
           auth,
         )
       ).outcome,
@@ -542,12 +540,11 @@ async function crossRepoFixture(t: TestContext) {
     );
   }
   const key = readFileSync(keyFile),
-    cert = readFileSync(certFile),
-    byId = new Map(assignments.map((assignment) => [assignment.assignmentId, assignment]));
+    cert = readFileSync(certFile);
   return {
     root,
     cert,
-    assignments,
+    subjects,
     path: pathValue,
     track: owned.track,
     hold: owned.hold,
@@ -565,7 +562,6 @@ async function crossRepoFixture(t: TestContext) {
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => nodeId === "node-shared" && credential === "machine-secret",
           nodeOwner: owners.nodeOwner,
-          resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
         }),
       ),
     close: async () => {
@@ -590,25 +586,25 @@ async function waitForReceiptCommit(
   throw new Error(`Git materialization did not publish ${opId} within the bounded wait`);
 }
 async function waitForCenterLedgerRevision(
-  peer: Parameters<typeof readFleetAssignmentClient>[0],
+  peer: Parameters<typeof readFleetRepositoryMetadataClient>[0],
   expected: number,
   timeoutMs: number,
 ): Promise<void> {
   const deadline = performance.now() + timeoutMs;
   let observed: number;
   do {
-    observed = (await readFleetAssignmentClient(peer)).baseLedgerSha.revision;
+    observed = (await readFleetRepositoryMetadataClient(peer)).baseLedgerSha.revision;
     if (observed >= expected) return;
     await delay(10);
   } while (performance.now() < deadline);
   assert.ok(
     observed >= expected,
-    `center assignment read did not expose ledger revision ${expected} within the bounded wait`,
+    `center repository metadata read did not expose ledger revision ${expected} within the bounded wait`,
   );
 }
 async function ledgerBase(fixture: Awaited<ReturnType<typeof fleetFixture>>): Promise<{ ledger: LedgerCutIdentity }> {
   const status = await fixture.host.run(
-    fixture.assignment.repoId,
+    fixture.subject.repoId,
     { kind: "doc-status", paths: [fixture.path] },
     fixture.auth,
   );

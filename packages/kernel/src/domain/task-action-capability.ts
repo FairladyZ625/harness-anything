@@ -70,6 +70,10 @@ const taskCapabilityEvaluators = Object.freeze(
           ? "met"
           : "unmet",
     ],
+    [key("assign", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
+    [key("assign", "task-assignment-transitions/assignTask.validate"), mutationInvocation],
+    [key("unassign", "task-assignment-transitions/unassignTask.validate"), mutationInvocation],
+    [key("unassign", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("transition", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("transition", "lifecycle-status/explainStatusTransition"), mutationInvocation],
     [key("submit", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
@@ -344,7 +348,10 @@ export function taskLifecycleNextActions(input: {
 }): readonly string[] {
   if (!input.snapshot.task || ["done", "cancelled"].includes(input.snapshot.task.status)) return [];
   const lifecycleActionIds = new Set(
-    TASK_LIFECYCLE_TRANSITIONS.filter(({ actionId }) => actionId !== "create").map(({ actionId }) => actionId),
+    // Assignment changes who may start; it cannot advance an execution after a lifecycle refusal.
+    TASK_LIFECYCLE_TRANSITIONS.filter(({ actionId }) => !["create", "assign", "unassign"].includes(actionId)).map(
+      ({ actionId }) => actionId,
+    ),
   );
   return input.actions.flatMap((action) => {
     if (!lifecycleActionIds.has(action.id) || action.id === input.rejectedActionId) return [];

@@ -21,7 +21,7 @@
         "executor": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["kind", "id"], "properties": { "kind": { "const": "agent" }, "id": { "type": "string", "minLength": 1 } } }] }
       }
     },
-    "source": { "oneOf": [{ "enum": ["local", "remote_direct"] }, { "type": "object", "additionalProperties": false, "required": ["kind", "nodeId", "assignmentId"], "properties": { "kind": { "const": "assignment" }, "nodeId": { "type": "string", "minLength": 1 }, "assignmentId": { "type": "string", "minLength": 1 } } }] },
+    "source": { "oneOf": [{ "enum": ["local", "remote_direct"] }, { "type": "object", "additionalProperties": false, "required": ["kind", "nodeId"], "properties": { "kind": { "const": "node" }, "nodeId": { "type": "string", "minLength": 1 } } }] },
     "occurredAt": { "type": "string", "minLength": 1, "format": "date-time" },
     "payload": {
       "type": "object",

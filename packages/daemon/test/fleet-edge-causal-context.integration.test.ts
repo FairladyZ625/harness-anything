@@ -12,7 +12,6 @@ import { openDaemonHost } from "../src/daemon-host.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 
-import { type FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
@@ -30,7 +29,6 @@ test(
       edgeRoot = path.join(fixture.root, "causal-edge"),
       edgeUserRoot = path.join(fixture.root, "causal-edge-user"),
       viewRoot = path.join(fixture.root, "causal-edge-view"),
-      rosterPath = path.join(fixture.root, "causal-roster.json"),
       uid = process.getuid?.() ?? 0,
       localAuth = {
         transportKind: "unix-socket",
@@ -51,26 +49,26 @@ test(
     await runFleetReplicaPullClient({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
-    applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, edgeRoot, "pull");
+    applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull");
     // Relation writes are admitted against the canonical vertical's relation
     // direction registry, which reads the materialized declaration document —
     // migrate publishes it through the real write path.
     const vertical = await fixture.host.run(
-      fixture.assignment.repoId,
+      fixture.subject.repoId,
       { kind: "vertical-declaration-migrate" },
       localAuthFixture(),
     );
     assert.ok(vertical.outcome === "applied" || vertical.outcome === "no_changes", JSON.stringify(vertical));
     if (vertical.outcome === "applied")
-      await waitForFleetPublication(fixture.host, fixture.assignment.repoId, vertical.opId, localAuthFixture());
+      await waitForFleetPublication(fixture.host, fixture.subject.repoId, vertical.opId, localAuthFixture());
     const proposed = await fixture.host.run(
-        fixture.assignment.repoId,
+        fixture.subject.repoId,
         {
           kind: "decision-propose",
           jsonInput: JSON.stringify({
@@ -93,9 +91,9 @@ test(
       ),
       decisionId = String(evidence(proposed).decisionId);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
-    await waitForFleetPublication(fixture.host, fixture.assignment.repoId, proposed.opId, localAuthFixture());
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, proposed.opId, localAuthFixture());
     const fact = await fixture.host.run(
-      fixture.assignment.repoId,
+      fixture.subject.repoId,
       {
         kind: "fact-record",
         factId: "F-C1EDFACE",
@@ -107,27 +105,22 @@ test(
       localAuthFixture(),
     );
     assert.equal(fact.outcome, "applied", JSON.stringify(fact));
-    await waitForFleetPublication(fixture.host, fixture.assignment.repoId, fact.opId, localAuthFixture());
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, fact.opId, localAuthFixture());
     for (const [sourceRef, targetRef, relationType] of [
-      [`decision/${decisionId}/CH1`, `task/${fixture.assignment.taskId}`, "derives"],
+      [`decision/${decisionId}/CH1`, `task/${fixture.subject.taskId}`, "derives"],
       [`decision/${decisionId}/C1`, "fact/F-C1EDFACE", "evidenced-by"],
     ] as const) {
       const related = await fixture.host.run(
-        fixture.assignment.repoId,
+        fixture.subject.repoId,
         { kind: "relation-relate", sourceRef, targetRef, relationType, rationale: "Fixture edge.", expectedVersion: 0 },
         localAuthFixture(),
       );
       assert.equal(related.outcome, "applied", JSON.stringify(related));
-      await waitForFleetPublication(fixture.host, fixture.assignment.repoId, related.opId, localAuthFixture());
+      await waitForFleetPublication(fixture.host, fixture.subject.repoId, related.opId, localAuthFixture());
     }
-    writeFileSync(
-      rosterPath,
-      `${JSON.stringify({ schema: "fleet-roster/v3", assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId: fixture.assignment.repoId, viewId: fixture.assignment.viewId, expiresAt: fixture.assignment.expiresAt, scope: { kind: "task", taskId: fixture.assignment.taskId, executionId: fixture.assignment.executionId, paths: fixture.assignment.paths } }] })}
-`,
-    );
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
-      repoId: fixture.assignment.repoId,
+      repoId: fixture.subject.repoId,
       mode: "remote-edge",
       userRoot: edgeUserRoot,
       createConvenienceLinks: false,
@@ -203,11 +196,9 @@ test(
         host: "127.0.0.1",
         port: center.port,
         caPath: fixture.certFile,
-        nodeId: fixture.assignment.nodeId,
+        nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
-        rosterPath,
-        assignmentId: fixture.assignment.assignmentId,
-        repoId: fixture.assignment.repoId,
+        repoId: fixture.subject.repoId,
         viewRoot,
         quotaBytes: replicaQuota,
         workspaceRoot: edgeRoot,
@@ -216,7 +207,7 @@ test(
           runtimeInstanceId: runtimeDefinition.instanceId,
           cwd: { scope: "repo-root" },
           prompt: "Explicit edge mission.",
-          taskId: fixture.assignment.taskId,
+          taskId: fixture.subject.taskId,
           idempotencyKey: "causal-edge-explicit",
         },
       },
@@ -240,7 +231,7 @@ test(
     const outcomeOf = async (runtimeSessionId: unknown) =>
       (
         await fixture.host.read(
-          fixture.assignment.repoId,
+          fixture.subject.repoId,
           "repo.agentRuntime.sessions.read",
           { runtimeSessionId },
           fixture.auth,
@@ -252,16 +243,20 @@ test(
       "succeeded",
       JSON.stringify(fixture.runtimeArchiveReceipts),
     );
+    const reclaimed = await fixture.host.run(
+      fixture.subject.repoId,
+      { kind: "task-start", taskId: fixture.subject.taskId, executionId: fixture.subject.executionId },
+      fixture.auth,
+    );
+    assert.equal(reclaimed.outcome, "applied", JSON.stringify(reclaimed));
     const taskBound = await edgeHost.fleet.edgeRuntime(
       {
         host: "127.0.0.1",
         port: center.port,
         caPath: fixture.certFile,
-        nodeId: fixture.assignment.nodeId,
+        nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
-        rosterPath,
-        assignmentId: fixture.assignment.assignmentId,
-        repoId: fixture.assignment.repoId,
+        repoId: fixture.subject.repoId,
         viewRoot,
         quotaBytes: replicaQuota,
         workspaceRoot: edgeRoot,
@@ -269,7 +264,7 @@ test(
         action: {
           runtimeInstanceId: runtimeDefinition.instanceId,
           cwd: { scope: "repo-root" },
-          taskId: fixture.assignment.taskId,
+          taskId: fixture.subject.taskId,
           idempotencyKey: "causal-edge-task-bound",
         },
       },
@@ -286,7 +281,7 @@ test(
 // Each damaged local mirror retains the preceding admission conditions. These are
 // edge task-context assertions, independent of the center ingress scope checks.
 for (const probe of [
-  { name: "task scope", code: "assignment_scope_mismatch", message: /outside assignment/u },
+  { name: "task absent", code: "task_read_failed", message: /Task context is unavailable/u },
   { name: "package absent", code: "runtime_task_package_unavailable", message: /exactly one/u },
   { name: "plan unreadable", code: "runtime_task_package_unavailable", message: /readable mirrored task plan/u },
   { name: "mission absent", code: "runtime_mission_unavailable", message: /no current mirrored mission/u },
@@ -306,12 +301,12 @@ for (const probe of [
     mkdirSync(path.join(fixture.repo, "harness/tasks/task-fleet-fleet/artifacts/missions"), { recursive: true });
     writeFileSync(path.join(fixture.repo, "harness", missionLogical), "Run the probe.\n");
     const published = await fixture.host.run(
-      fixture.assignment.repoId,
+      fixture.subject.repoId,
       { kind: "doc-submit", paths: [missionLogical] },
       localAuthFixture(),
     );
     assert.equal(published.outcome, "applied", JSON.stringify(published));
-    await waitForFleetPublication(fixture.host, fixture.assignment.repoId, published.opId, localAuthFixture());
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, published.opId, localAuthFixture());
     const center = await fixture.center(),
       workspaceRoot = path.join(fixture.root, "counterexample-edge"),
       viewRoot = path.join(fixture.root, "counterexample-view");
@@ -323,13 +318,13 @@ for (const probe of [
     await runFleetReplicaPullClient({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
-    applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, workspaceRoot, "pull");
+    applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
     const packageRoot = path.join(workspaceRoot, "harness/tasks/task-fleet-fleet"),
       missionPath = path.join(packageRoot, "artifacts/missions/probe.md"),
       contractPath = path.join(packageRoot, "task-contract.json");
@@ -348,10 +343,9 @@ for (const probe of [
         host: "127.0.0.1",
         port: center.port,
         caPath: fixture.certFile,
-        nodeId: fixture.assignment.nodeId,
+        nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
-        assignmentId: fixture.assignment.assignmentId,
-        repoId: fixture.assignment.repoId,
+        repoId: fixture.subject.repoId,
         viewRoot,
         quotaBytes: replicaQuota,
         workspaceRoot,
@@ -375,14 +369,14 @@ for (const probe of [
     fixture.track(() => runtime.close());
     await assert.rejects(
       runtime.run("repo.agentRuntime.spawn", {
-        taskId: probe.name === "task scope" ? "task-other" : fixture.assignment.taskId,
+        taskId: probe.name === "task absent" ? "task-other" : fixture.subject.taskId,
         missionName: probe.name === "mission absent" ? "missing" : "probe",
         runtimeInstanceId: "unavailable-instance",
         cwd: { scope: "repo-root" },
         idempotencyKey: "mirror-probe",
       }),
       (error: unknown) => {
-        assert.equal((error as { code?: string }).code, probe.code);
+        assert.equal((error as { code?: string }).code, probe.code, (error as Error).stack);
         assert.match((error as Error).message, probe.message);
         return true;
       },
@@ -395,7 +389,7 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
-    const { repoId, taskId } = fixture.assignment;
+    const { repoId, taskId } = fixture.subject;
     // dec_57370FF2021DADF04E3B21724D CH1: one read carries what the launching node needs from the center.
     const context = await fixture.host.read(repoId, "repo.tasks.runtimeContext.read", { taskId }, fixture.auth);
     assert.deepEqual(
@@ -410,19 +404,18 @@ test(
       fixture.host.read(repoId, "repo.tasks.causalContext.read" as never, { taskId }, fixture.auth),
       "the superseded read name is gone, not aliased",
     );
-    // CH5: the fixture's assignment started the task and holds its lease; another node's assignment for the same
+    // CH5: the fixture's node started the task and holds its lease; another node for the same
     // task, with its own execution, dispatches late.
     const late = {
-        ...fixture.assignment,
+        ...fixture.subject,
         nodeId: "node-two",
-        assignmentId: "assignment-two",
         viewId: "node-two_task-fleet",
         executionId: "execution-late",
       },
       idempotencyKey = "late-node-dispatch",
       hash = createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex"),
       // The verdict's code, whichever way the ingress hands it back.
-      dispatch = (assignment: FleetAssignmentRecord, role: string | null) =>
+      dispatch = (assignment: typeof fixture.subject, role: string | null) =>
         fixture.host
           .runtimeIngress(
             repoId,
@@ -434,6 +427,8 @@ test(
                 idempotencyKey,
                 dispatchId: `dispatch_${hash.slice(0, 24)}`,
                 runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
+                taskId: assignment.taskId,
+                executionId: assignment.executionId,
               },
               dispatchContext: { role, taskId: assignment.taskId, executionId: assignment.executionId },
             },
@@ -444,8 +439,8 @@ test(
             (error: unknown) => String((error as { readonly code?: unknown }).code),
           );
     assert.equal(await dispatch(late, null), "runtime_task_lease_required");
-    // The fence is the lease, not the node: the holder's own dispatch and a reviewer's pass it and are judged on.
-    assert.notEqual(await dispatch(fixture.assignment, null), "runtime_task_lease_required");
+    // The lease binds both person and node; submitted reviewer admission is a separate path.
+    assert.notEqual(await dispatch(fixture.subject, null), "runtime_task_lease_required");
     assert.equal(await dispatch(late, "reviewer"), "task_not_submitted");
   },
 );

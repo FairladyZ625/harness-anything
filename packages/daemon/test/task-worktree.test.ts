@@ -411,7 +411,7 @@ test("a node without a default branch has no worktree to give, and forwarded wri
     assert.equal(taskWorkspaceView(gitless, boundTask("planned"), "tasks/x", repositoryDiff, null)?.kind, "worktree");
     const receipt = applied(),
       task = boundTask("active");
-    for (const source of ["remote_direct", { kind: "assignment", nodeId: "edge", assignmentId: "a" }])
+    for (const source of ["remote_direct", { kind: "node", nodeId: "edge" }])
       assert.equal(
         await lifecycle(fixture.root, () => task, { kind: "task-start", taskId }, { source, write: () => receipt }),
         receipt,

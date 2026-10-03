@@ -97,31 +97,17 @@ function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthentica
  * owner, and that person answers to the same Keycloak grants as when signed in locally.
  */
 async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<RepoCellBinding> {
-  const assignment = auth.assignmentBinding!,
-    owner = auth.nodePrincipal,
-    legacy = assignment as typeof assignment & {
-      readonly taskId?: string;
-      readonly executionId?: string;
-      readonly paths?: readonly string[];
-    },
-    scope =
-      assignment.scope ??
-      (legacy.taskId && legacy.executionId && legacy.paths
-        ? { kind: "task" as const, taskId: legacy.taskId, executionId: legacy.executionId, paths: legacy.paths }
-        : undefined);
-  if (!scope)
-    throw hostCodedError("assignment_scope_mismatch", "Assignment ingress requires a valid task or Schedule scope.");
-  if (!owner || owner.nodeId !== assignment.nodeId || !auth.keycloakCenter)
+  const owner = auth.nodePrincipal;
+  if (!owner || !owner.nodeId || !auth.keycloakCenter)
     throw hostCodedError(
       "authentication_required",
-      `Fleet ingress requires node ${assignment.nodeId} to have an owner registered at the center.`,
+      "Fleet ingress requires a registered node owner and center authority.",
     );
   if (auth.oidcPrincipal && auth.oidcPrincipal.personId !== owner.personId)
     throw hostCodedError("human_confirmation_required", "The interactive session belongs to a different node owner.");
   return {
     actor: { principal: { personId: owner.personId }, executor: null },
-    source: { kind: "assignment", nodeId: owner.nodeId, assignmentId: assignment.assignmentId },
-    assignmentScope: { repoId: assignment.repoId, scope },
+    source: { kind: "node", nodeId: owner.nodeId },
     keycloakAuthorization:
       auth.oidcPrincipal?.personId === owner.personId
         ? {
@@ -144,7 +130,7 @@ export async function binding(
   auth: DaemonAuthenticationContext,
   executor: RepoCellBinding["actor"]["executor"] = null,
 ): Promise<RepoCellBinding> {
-  if (auth.assignmentBinding) return nodeOwnerBinding(auth);
+  if (auth.transportKind === "fleet-tls") return nodeOwnerBinding(auth);
   if (auth.oidcPrincipal && auth.oidcPrincipal.expiresAt > Date.now()) return localDefaultBinding(auth, executor);
   return localDefaultBinding(auth, executor);
 }

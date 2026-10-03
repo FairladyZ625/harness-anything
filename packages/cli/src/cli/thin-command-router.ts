@@ -88,6 +88,8 @@ function parseRbacBootstrap(
       ...(f.one.get("--port") ? { port: Number(f.one.get("--port")) } : {}),
       ...(f.one.get("--certificate-file") ? { certificateFile: f.one.get("--certificate-file") } : {}),
       ...(f.one.get("--certificate-key-file") ? { certificateKeyFile: f.one.get("--certificate-key-file") } : {}),
+      ...(f.one.get("--team-id") ? { teamId: f.one.get("--team-id") } : {}),
+      ...(f.one.get("--team-name") ? { teamName: f.one.get("--team-name") } : {}),
       ...(f.one.get("--node-id") ? { nodeId: f.one.get("--node-id") } : {}),
       ...(f.one.get("--person-id") ? { personId: f.one.get("--person-id") } : {}),
       ...(f.one.get("--username") ? { username: f.one.get("--username") } : {}),

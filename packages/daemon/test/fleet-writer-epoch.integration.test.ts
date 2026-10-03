@@ -54,7 +54,7 @@ const probeBinding = (writerEpochFence: {
   withPolicyGroup(
     {
       actor: { principal: { personId: "writer" }, executor: { kind: "agent" as const, id: "probe" } },
-      source: { kind: "assignment" as const, nodeId: "node", assignmentId: "assignment" },
+      source: { kind: "node" as const, nodeId: "node" },
       writerEpochFence,
     },
     "contributor",

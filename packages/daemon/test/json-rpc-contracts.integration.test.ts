@@ -46,7 +46,7 @@ test("local Fleet runtime envelope admits the paged overview read", async () => 
     server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: { transportKind: "unix-socket" }, emit: async () => undefined });
   try {
     await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
-    const payload = { host: "center", port: 7443, caPath: "/fleet/ca.pem", nodeId: "edge-one", credential: "secret", assignmentId: "assignment-one", repoId: "repo", viewRoot: "/view", quotaBytes: 1_048_576, workspaceRoot: "/workspace", action: { kind: "fleet-runtime", method: "repo.agentRuntime.overview", payload: { limit: 16 } } },
+    const payload = { host: "center", port: 7443, caPath: "/fleet/ca.pem", nodeId: "edge-one", credential: "secret", repoId: "repo", viewRoot: "/view", quotaBytes: 1_048_576, workspaceRoot: "/workspace", action: { kind: "fleet-runtime", method: "repo.agentRuntime.overview", payload: { limit: 16 } } },
       response = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.fleet.task.run", params: { payload } });
     assert.ok(response && !Array.isArray(response) && "result" in response); assert.equal(response && !Array.isArray(response) && "result" in response && (response.result as Record<string, unknown>).ok, true);
     assert.deepEqual(observed, { ...payload, method: "repo.agentRuntime.overview", action: { limit: 16 } });
@@ -150,7 +150,10 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["daemon.gui.control.request", { kind: "refresh", authorityRepoId: "alpha", reason: "Refresh catalog" }],
     ["repo.task.start", { taskId: "task-a", executionId: "execution-a" }],
     ["repo.task.progress.append", { taskId: "task-a", executionId: "execution-a", text: "Progress", evidence: [{ type: "test", path: "report.txt", summary: "Passed" }] }],
-    ["repo.task.submit", { taskId: "task-a", executionId: "execution-a" }], ["repo.task.complete", { taskId: "task-a", executionId: "execution-a" }],
+    ["repo.task.submit", { taskId: "task-a", executionId: "execution-a" }],
+    ["repo.task.assign", { taskId: "task-a", expectedVersion: 1, personId: "person-a" }],
+    ["repo.task.unassign", { taskId: "task-a", expectedVersion: 2 }],
+    ["repo.task.complete", { taskId: "task-a", executionId: "execution-a" }],
     ["repo.task.adjudicate", { taskId: "task-a", executionId: "execution-a", forward: true, reason: "Forward the cut" }],
     ["repo.task.consent", { taskId: "task-a", reviewId: "review-a" }],
     ["repo.task.attest", { taskId: "task-a", gateId: "ci", result: "pass", mode: "override", rationale: "Upstream runner outage" }],

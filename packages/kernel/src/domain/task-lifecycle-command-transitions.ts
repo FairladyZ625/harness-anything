@@ -1,3 +1,4 @@
+import { taskAssignmentMatches } from "./task-assignment.ts";
 import { isNativeExecution, submissionId, validExecutionDeliveryBaseline, validateSubmissionV1 } from "./execution.ts";
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { taskClasses } from "./task.ts";
@@ -133,6 +134,13 @@ export const start: Transition = {
       proof = rawProof as Partial<StartExecutionProof>,
       issues = revisionIssues(snapshot, command),
       reservation = proof.reservation;
+    if (
+      snapshot.task?.assignment &&
+      (!proof.claimant ||
+        proof.claimant.personId !== command.actor.principal.personId ||
+        !taskAssignmentMatches(snapshot.task.assignment, proof.claimant, command.occurredAt))
+    )
+      issues.push(lifecycleContractIssue("invalid_proof", "A matching authenticated assignment claimant is required."));
     if (!canStartExecution(snapshot, command.executionId))
       issues.push(
         lifecycleContractIssue(

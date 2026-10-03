@@ -85,23 +85,12 @@ test(
       const missing = maybeRun(fixture, "center", ["daemon", "fleet", "center", "start"]);
       assert.equal(missing.status, 2);
       assert.equal(missing.receipt.code, "missing_field");
-      const rejected = maybeRun(fixture, "center", [
-        "daemon",
-        "fleet",
-        "center",
-        "start",
-        "--port",
-        "0",
-        "--key",
-        fixture.key,
-        "--cert",
-        fixture.cert,
-        "--roster",
-        fixture.badRoster,
-        "--quota-bytes",
-        String(quotaBytes),
-      ]);
-      assert.equal(rejected.receipt.code, "roster_invalid");
+      const help = spawnSync(process.execPath, [cli, "daemon", "fleet", "center", "start", "--help"], {
+        encoding: "utf8",
+      });
+      assert.equal(help.status, 0, help.stderr);
+      assert.match(help.stdout, /--repo/u);
+      assert.doesNotMatch(help.stdout, /--roster/u);
       const center = run(fixture, "center", [
         "daemon",
         "fleet",
@@ -113,15 +102,15 @@ test(
         fixture.key,
         "--cert",
         fixture.cert,
-        "--roster",
-        fixture.roster,
+        "--repo",
+        "fleet-demo",
         "--quota-bytes",
         String(quotaBytes),
       ]);
       assert.equal(center.ok, true);
       assert.equal(center.bind, "127.0.0.1");
       assert.equal(center.stateRoot, path.join(fixture.centerUser, "fleet"));
-      assert.equal(center.assignments, 1);
+      assert.equal("assignments" in center, false);
       const port = center.port as number;
       writeFileSync(
         path.join(fixture.edgeRepo, "fleet-edge.json"),
@@ -133,7 +122,6 @@ test(
           caPath: fixture.ca,
           nodeId: "edge-one",
           credential: machineCredential,
-          assignmentId: "assignment-edge-one",
           viewRoot: fixture.viewRoot,
           quotaBytes,
         }),
@@ -174,8 +162,6 @@ test(
         fixture.ca,
         "--node-id",
         "edge-one",
-        "--assignment",
-        "assignment-edge-one",
         "--view-root",
         fixture.viewRoot,
         "--quota-bytes",
@@ -190,7 +176,7 @@ test(
         sync = (extra: readonly string[] = []) => run(fixture, "edge", [...syncArgs, ...extra]);
       const pulled = first.ok === false && first.code === "replica_pending" ? retryReplicaPending(sync) : first;
       assert.equal(pulled.status, "fleet.ack.result/v1");
-      assert.equal(pulled.viewId, "edge-one-view");
+      assert.equal(pulled.viewId, "edge-one");
       const syncedStatus = run(fixture, "edge", ["daemon", "status"]);
       assert.equal(
         syncedStatus.ok,
@@ -204,7 +190,7 @@ test(
         null,
       );
       assert.equal((pulled.cut as { revision: number }).revision, pulled.ackCut);
-      const viewRoot = path.join(fixture.viewRoot, "repos", "fleet-demo", "views", "edge-one-view");
+      const viewRoot = path.join(fixture.viewRoot, "repos", "fleet-demo", "views", "edge-one");
       assert.equal(readCutFile(viewRoot, pulled.ackCut as number, docPath), docBody);
       assert.equal(
         readFileSync(path.join(fixture.edgeRepo, "harness", docPath), "utf8"),
@@ -259,8 +245,6 @@ test(
         "edge-one",
         "--credential",
         "wrong-secret",
-        "--assignment",
-        "assignment-edge-one",
         "--view-root",
         fixture.viewRoot,
         "--quota-bytes",
@@ -361,8 +345,8 @@ test(
           fixture.key,
           "--cert",
           fixture.cert,
-          "--roster",
-          fixture.roster,
+          "--repo",
+          "fleet-demo",
           "--quota-bytes",
           String(quotaBytes),
         ]),
@@ -398,8 +382,6 @@ test(
             "edge-one",
             "--credential",
             credential,
-            "--assignment",
-            "assignment-edge-one",
             "--view-root",
             fixture.viewRoot,
             "--quota-bytes",
@@ -471,7 +453,7 @@ test(
       for (let attempt = 0; attempt < 40 && first.receipt.code === "replica_pending"; attempt += 1)
         first = sync(credential);
       assert.equal(first.status, 0, JSON.stringify(first.receipt));
-      assert.equal(first.receipt.viewId, "edge-one-view");
+      assert.equal(first.receipt.viewId, "edge-one");
       assert.equal(
         readFileSync(path.join(fixture.edgeRepo, "harness", planPath), "utf8"),
         readFileSync(path.join(fixture.repo, "harness", planPath), "utf8"),
@@ -531,8 +513,6 @@ function setup(): {
   key: string;
   cert: string;
   ca: string;
-  roster: string;
-  badRoster: string;
 } {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-cli-")),
     repo = path.join(root, "repo"),
@@ -615,31 +595,6 @@ function setup(): {
     ],
     { stdio: "ignore" },
   );
-  const roster = path.join(root, "roster.json");
-  writeFileSync(
-    roster,
-    JSON.stringify({
-      schema: "fleet-roster/v3",
-      assignments: [
-        {
-          assignmentId: "assignment-edge-one",
-          nodeId: "edge-one",
-          repoId: "fleet-demo",
-          viewId: "edge-one-view",
-          expiresAt: "2099-01-01T00:00:00.000Z",
-          scope: {
-            kind: "task",
-            taskId: "task-fleet",
-            executionId: "exec-fleet",
-            paths: ["tasks/task-fleet-fleet/notes.md"],
-          },
-        },
-      ],
-    }),
-    "utf8",
-  );
-  const badRoster = path.join(root, "bad-roster.json");
-  writeFileSync(badRoster, JSON.stringify({ schema: "fleet-roster/v3", assignments: [] }), "utf8");
   return {
     root,
     repo,
@@ -650,8 +605,6 @@ function setup(): {
     key: path.join(tls, "server.key"),
     cert: path.join(tls, "server.pem"),
     ca: path.join(tls, "ca.pem"),
-    roster,
-    badRoster,
   };
 }
 function register(fixture: ReturnType<typeof setup>): void {

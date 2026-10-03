@@ -1,16 +1,10 @@
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { DaemonHost } from "../daemon-host.ts";
-import { type FleetLeaseBroker } from "../lease-broker.ts";
 import type { WriterEpochLease } from "../writer-epoch.ts";
-import { type FleetAssignmentBinding, type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./contract.ts";
+import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./contract.ts";
 import { type ReplicaDeliveryKey } from "./replica-ack-store.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { FleetLoginAuthority } from "./contract.ts";
-
-export interface FleetAssignmentRecord extends FleetAssignmentBinding {
-  readonly viewId: string;
-  readonly expiresAt: string;
-}
 
 export interface FleetCenterOptions {
   readonly host: Pick<
@@ -39,9 +33,6 @@ export interface FleetCenterOptions {
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;
   readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
-  readonly resolveAssignment: (
-    assignmentId: string,
-  ) => FleetAssignmentRecord | null | Promise<FleetAssignmentRecord | null>;
 }
 
 export interface FleetReplicaStatus extends ReplicaDeliveryKey {
@@ -69,13 +60,11 @@ export interface FleetTlsCenter {
   readonly replicaReceipt: (opId: string, nodeId: string, viewId: string, repoId: string) => WriteReceipt;
   readonly status: () => {
     readonly replicas: readonly FleetReplicaStatus[];
-    readonly leases: ReturnType<FleetLeaseBroker["status"]>;
   };
 }
 
 export type Upload = {
   nodeId: string;
-  assignmentId: string;
   repoId: string;
   content: FleetBlob;
   descriptor: FleetDescriptor | null;

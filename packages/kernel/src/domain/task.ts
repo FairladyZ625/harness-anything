@@ -1,3 +1,4 @@
+import { validTaskAssignment, type TaskAssignment } from "./task-assignment.ts";
 import type { LifecycleBinding } from "./lifecycle-binding.js";
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
@@ -72,6 +73,7 @@ export interface TaskMetadataV1 {
   readonly fromLegacyId: string | null;
 }
 export interface TaskV2 extends BaseEntityPinState {
+  readonly assignment?: TaskAssignment | null;
   readonly schema: "task/v2";
   readonly taskId: string;
   readonly title: string;
@@ -131,6 +133,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       "reviewReturnBudget",
       "closeoutOverrides",
       "archiveOnComplete",
+      "assignment",
     ];
   if (
     !isRecord(value) ||
@@ -139,6 +142,8 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
   )
     return [{ code: "invalid_task", message: "Task/v2 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
+  if (value.assignment != null && !validTaskAssignment(value.assignment))
+    issues.push({ code: "invalid_task", message: "invalid task assignment" });
   if (value.schema !== "task/v2") issues.push({ code: "invalid_schema", message: "Task must use task/v2" });
   if (!isNonEmptyString(value.taskId) || !isNonEmptyString(value.title))
     issues.push({ code: "invalid_task", message: "taskId and title are required" });

@@ -1,7 +1,6 @@
 import type { DaemonRepoMode, EventPublicationKillpoint, ReceiptDiagnostic } from "@harness-anything/kernel";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
-import type { FleetRoster } from "./fleet-center-admission.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { diagnosticForError } from "./receipt-guidance.ts";
 import type { RepoBootstrapInput } from "./repo-bootstrap.ts";
@@ -34,7 +33,6 @@ export interface RepoWriterBootstrapV1 {
     readonly prepareWorkerGitEnvironment: boolean;
     readonly runtimeLaunch: boolean;
     readonly runtimeSignal: boolean;
-    readonly fleetRoster: boolean;
   };
 }
 
@@ -126,8 +124,7 @@ export type RepoWriterCapabilityName =
   | "runtimeOutcome"
   | "runtimeSignal"
   | "attemptTerminal"
-  | "lifecycle"
-  | "fleetRoster";
+  | "lifecycle";
 
 export interface RepoWriterCapabilityCallV1 {
   readonly schema: "harness-repo-writer-capability-call/v1";
@@ -180,7 +177,6 @@ export interface RepoWriterInputPorts {
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
-  readonly fleetRoster?: () => FleetRoster | null;
   readonly onRuntimeOutcome?: (event: unknown) => void;
   readonly onRuntimeSignal?: (runtimeSessionId: string, signal: AgentRuntimeNativeSignal) => void;
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;

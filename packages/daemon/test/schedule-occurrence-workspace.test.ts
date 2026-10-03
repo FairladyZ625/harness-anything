@@ -64,7 +64,6 @@ test("scheduled dispatch spawns from the occurrence workspace without extra writ
           scheduledFor: "2026-09-15T00:00:00.000Z",
           claimedAt: "2026-09-15T00:00:00.000Z",
           nodeId: "local",
-          assignmentId: null,
           claimFence: "claim-backup",
           attemptIndex: 0,
         },

@@ -171,7 +171,6 @@ export async function performOpenRegistered(
       },
       // Live getter: cells attach at daemon boot, before the fleet center may be
       // admitted, so the schedule read resolves the roster at read time.
-      fleetRoster: () => context.fleetRoster,
       ...context.runtimePorts,
       ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
     });

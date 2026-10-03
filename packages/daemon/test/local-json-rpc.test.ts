@@ -402,7 +402,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // 136 → 138: daemon-service-install and daemon-service-uninstall, the host-local half of the resident
   // service (dec_089F1AE27C5DC0A3969062FE0D CH5); daemon-service-status is a read and declares no action.
   // RBAC v2 CH1 retires people-add and people-remove.
-  assert.equal(actionDeclarations.length, 136);
+  // dec_CDDCFA8BB91A47BCE07B229E93 CH2 adds task-assign and task-unassign.
+  assert.equal(actionDeclarations.length, 138);
   assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
   for (const [kind, descriptor] of protocol) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);

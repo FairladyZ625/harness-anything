@@ -10,10 +10,19 @@ import test, { type TestContext } from "node:test";
 import { fleetHostWriterOptions, fleetLedgerRevision, fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { openSqliteEventStore } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+
+type FleetTestSubject = {
+  nodeId: string;
+  repoId: string;
+  taskId: string;
+  executionId: string;
+  paths: readonly string[];
+  viewId: string;
+};
 
 const replicaQuota = 64 * 1024 * 1024;
 function reclaimer() {
@@ -76,7 +85,7 @@ test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across
     try {
       results = await Promise.all(children.map((child) => child.result));
     } finally {
-      await fixture.settleFollowers(clients.map((client) => client.assignment.repoId));
+      await fixture.settleFollowers(clients.map((client) => client.subject.repoId));
     }
     assert.equal(results.length, count);
     assert.equal(
@@ -90,7 +99,7 @@ test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across
           fixture.host,
           result.repoId,
           result.center.opId,
-          fixture.owners.auth(clients[index]!.assignment),
+          fixture.owners.auth(clients[index]!.subject),
         ),
       ),
     );
@@ -126,9 +135,9 @@ test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across
     for (const client of clients) {
       const started = performance.now(),
         shown = await fixture.host.run(
-          client.assignment.repoId,
+          client.subject.repoId,
           { kind: "doc-show", path: client.path },
-          fixture.owners.auth(client.assignment),
+          fixture.owners.auth(client.subject),
         );
       readMs.push(performance.now() - started);
       assert.equal(shown.evidence, client.body);
@@ -159,7 +168,7 @@ function localAuthFixture() {
 }
 
 type ScaleClient = {
-  assignment: FleetAssignmentRecord;
+  subject: FleetTestSubject;
   path: string;
   body: string;
   label: string;
@@ -238,7 +247,6 @@ async function scaleFixture(t: TestContext) {
   );
   const host = await openDaemonHost({ daemonId: "fleet-scale", userRoot, openCell: openRepoCell }),
     clients: ScaleClient[] = [],
-    assignments = new Map<string, FleetAssignmentRecord>(),
     owners = await fleetNodeOwners({
       userRoot,
       owners: Object.fromEntries(Array.from({ length: 45 }, (_, index) => [`node-${index}`, "fleet-owner"])),
@@ -261,24 +269,22 @@ async function scaleFixture(t: TestContext) {
   const drafts = Array.from({ length: 45 }, (_, index) => {
       const repo = repos[index % repos.length]!,
         taskId = `task-f${index}`,
-        assignment: FleetAssignmentRecord = {
+        subject: FleetTestSubject = {
           nodeId: `node-${index}`,
-          assignmentId: `assignment-${index}`,
           repoId: repo.repoId,
           taskId,
           executionId: `execution-${index}`,
           paths: [`tasks/${taskId}-${taskId}/notes.md`],
-          viewId: `view-${index}`,
-          expiresAt: "2099-01-01T00:00:00.000Z",
+          viewId: `node-${index}`,
         };
-      return { index, repo, taskId, assignment };
+      return { index, repo, taskId, subject };
     }),
     repoIds = repos.map((repo) => repo.repoId);
   let created: Array<(typeof drafts)[number] & { packagePath: string }>;
   try {
     created = await Promise.all(
       drafts.map(async (draft) => {
-        const auth = owners.auth(draft.assignment),
+        const auth = owners.auth(draft.subject),
           receipt = await host.run(
             draft.repo.repoId,
             { kind: "task-create", taskId: draft.taskId, title: draft.taskId },
@@ -290,10 +296,9 @@ async function scaleFixture(t: TestContext) {
           `task-create rejected: ${JSON.stringify({
             receipt,
             draftIndex: draft.index,
-            repoId: draft.repo.repoId,
             taskId: draft.taskId,
-            nodeId: draft.assignment.nodeId,
-            assignmentId: draft.assignment.assignmentId,
+            nodeId: draft.subject.nodeId,
+            repoId: draft.subject.repoId,
           })}`,
         );
         return { ...draft, packagePath: String((receipt as Record<string, unknown>).packagePath) };
@@ -302,40 +307,35 @@ async function scaleFixture(t: TestContext) {
   } finally {
     await settleFollowers(host, repoIds);
   }
-  let prepared: Array<{ assignment: FleetAssignmentRecord; opId: string; client: ScaleClient }>;
+  let prepared: Array<{ subject: FleetTestSubject; opId: string; client: ScaleClient }>;
   try {
     prepared = await Promise.all(
-      created.map(async ({ assignment, index, packagePath, repo, taskId }) => {
+      created.map(async ({ subject, index, packagePath, repo, taskId }) => {
         await realizeTaskPlanFixture(
           repo.rootDir,
           packagePath,
           (planPath) => host.run(repo.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
           taskId,
         );
-        const auth = owners.auth(assignment),
-          started = await host.run(
-            repo.repoId,
-            { kind: "task-start", taskId, executionId: assignment.executionId },
-            auth,
-          );
+        const auth = owners.auth(subject),
+          started = await host.run(repo.repoId, { kind: "task-start", taskId, executionId: subject.executionId }, auth);
         assert.equal(
           started.outcome,
           "applied",
           `task-start rejected: ${JSON.stringify({
             receipt: started,
             draftIndex: index,
-            repoId: repo.repoId,
             taskId,
-            nodeId: assignment.nodeId,
-            assignmentId: assignment.assignmentId,
+            nodeId: subject.nodeId,
+            repoId: subject.repoId,
           })}`,
         );
         return {
-          assignment,
+          subject,
           opId: started.opId,
           client: {
-            assignment,
-            path: assignment.paths[0]!,
+            subject,
+            path: subject.paths[0]!,
             body: `# ${taskId}\n\nbody-${index}\n`,
             label: `client-${index}`,
           },
@@ -346,13 +346,10 @@ async function scaleFixture(t: TestContext) {
     await settleFollowers(host, repoIds);
   }
   for (const value of prepared) {
-    assignments.set(value.assignment.assignmentId, value.assignment);
     clients.push(value.client);
   }
   await Promise.all(
-    prepared.map((value) =>
-      waitForReceiptCommit(host, value.assignment.repoId, value.opId, owners.auth(value.assignment)),
-    ),
+    prepared.map((value) => waitForReceiptCommit(host, value.subject.repoId, value.opId, owners.auth(value.subject))),
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile);
@@ -375,7 +372,6 @@ async function scaleFixture(t: TestContext) {
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
           nodeOwner: owners.nodeOwner,
-          resolveAssignment: (assignmentId) => assignments.get(assignmentId) ?? null,
         }),
       ),
     ledgerRevisions: () => new Map(repos.map((repo) => [repo.repoId, fleetLedgerRevision(repo.rootDir, repo.repoId)])),
@@ -424,10 +420,10 @@ function runChild(fixture: Awaited<ReturnType<typeof scaleFixture>>, port: numbe
       port,
       caFile: fixture.certFile,
       servername: "localhost",
-      nodeId: client.assignment.nodeId,
-      credential: `secret-${client.assignment.nodeId}`,
-      assignmentId: client.assignment.assignmentId,
-      repoId: client.assignment.repoId,
+      nodeId: client.subject.nodeId,
+      credential: `secret-${client.subject.nodeId}`,
+      repoId: client.subject.repoId,
+      executionId: client.subject.executionId,
       viewRoot: path.join(directory, "view"),
       path: client.path,
       bodyFile,

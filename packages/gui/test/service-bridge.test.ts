@@ -171,6 +171,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                   ? { ...scope, rootTaskId: "task-gui-smoke" }
                   : contract.id === "tasks.documents.list" ||
                       contract.id === "tasks.completion.read" ||
+                      contract.method === "repo.tasks.assignmentDirectory" ||
                       contract.id === "task.dispatches"
                     ? { ...scope, taskId: "task-gui-smoke" }
                     : contract.id === "agentRuntime.sessions.read"
@@ -230,7 +231,19 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         assert.equal(parsed.schema, "entity-kind-catalog/v1", contract.method);
       else if (contract.id === "vertical.declaration.read")
         assert.equal(parsed.schema, "repository-vertical-declaration-read/v1", contract.method);
-      else assert.equal(parsed.ok, true, `${contract.method}: ${JSON.stringify(parsed)}`);
+      else if (contract.method === "repo.tasks.assignmentDirectory")
+        assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.assignmentDirectory", result), {
+          schema: "task-assignment-directory/v1",
+          people: [{ personId: "person-gui", username: "person-gui" }],
+          nodes: [],
+          teams: [],
+        });
+      else if (contract.method === "repo.tasks.claimable") {
+        // This GUI fixture authenticates a person, not an execution node (S8 CH4).
+        assert.equal(parsed.ok, false);
+        assert.equal(parsed.code, "authentication_required");
+        assert.equal(parsed.outcome, "op_rejected");
+      } else assert.equal(parsed.ok, true, `${contract.method}: ${JSON.stringify(parsed)}`);
       results.set(contract.method, result);
     }
     assert.deepEqual(
@@ -314,7 +327,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       gates: [],
       closeout: { profile: "standard" },
       agenda: { pinLimit: 30 },
-      tasks: { wipLimit: 30, rootThreshold: 3 },
+      // S8 CH4 and dec_199D1CA39C6AD06504D66A95E9 CH1 freeze these defaults.
+      tasks: { wipLimit: 30, rootThreshold: 3, assignmentTtlMs: 86_400_000 },
+      fleet: { claim: { scope: "node" } },
       worktree: { setup: [] },
       schedule: { admissionWindowMs: 60_000 },
     });

@@ -9,12 +9,12 @@ import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { definition } from "./schedule-actions.fixtures.ts";
 
 test(
-  "center resume admission retains source identity and consumes it once across two TLS edges",
+  "center resume admission retains source identity and consumes it once across two TLS sessions of the lease-holding node",
   { timeout: 60_000 },
   async (t) => {
     const fixture = await fleetFixture(t),
-      first = fixture.assignment,
-      second = { ...first, nodeId: "node-two", assignmentId: "assignment-two", viewId: "view-two" },
+      first = fixture.subject,
+      second = { ...first, nodeId: "node-two", viewId: "node-two" },
       center = await fixture.hold(
         listenFleetTls({
           host: fixture.host,
@@ -26,7 +26,6 @@ test(
           authenticate: (nodeId, credential) =>
             [first.nodeId, second.nodeId].includes(nodeId) && credential === "machine-secret",
           nodeOwner: fixture.owners.nodeOwner,
-          resolveAssignment: (id) => [first, second].find((item) => item.assignmentId === id) ?? null,
         }),
       ),
       peer = (assignment = first) => ({
@@ -34,7 +33,6 @@ test(
         ca: fixture.cert,
         nodeId: assignment.nodeId,
         credential: "machine-secret",
-        assignmentId: assignment.assignmentId,
         repoId: first.repoId,
       }),
       context = { role: null, taskId: first.taskId, executionId: first.executionId },
@@ -98,11 +96,10 @@ test(
       },
     });
     await reject("wrong-agent", "runtime_resume_agent_mismatch", { agentId: "another-agent" });
-    await reject("wrong-execution", "runtime_resume_binding_mismatch", { executionId: "another-execution" });
+    await reject("wrong-execution", "runtime_scope_mismatch", { executionId: "another-execution" });
     fixture.setOwner("other-owner");
-    await reject("wrong-owner", "runtime_resume_binding_mismatch");
+    await reject("wrong-owner", "runtime_task_lease_required");
     fixture.setOwner("person-owner");
-    const wrongAssignment = { ...second, executionId: "another-execution" };
     const before = fixture.eventCount();
     await assert.rejects(
       fixture.host.runtimeIngress(
@@ -110,16 +107,16 @@ test(
         {
           kind: "event",
           type: "runtime_dispatch_requested",
-          ...dispatch("wrong-assignment", source.payload.dispatchId),
+          ...dispatch("wrong-node", source.payload.dispatchId),
         },
-        fixture.owners.auth(wrongAssignment),
+        fixture.owners.auth(second),
       ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "assignment_scope_mismatch",
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_task_lease_required",
     );
     assert.equal(fixture.eventCount(), before);
     const attempts = await Promise.allSettled(
-      [first, second].map((assignment) =>
-        runFleetRuntimeEventClient({ ...peer(assignment), ...dispatch(assignment.nodeId, source.payload.dispatchId) }),
+      ["resume-one", "resume-two"].map((key) =>
+        runFleetRuntimeEventClient({ ...peer(), ...dispatch(key, source.payload.dispatchId) }),
       ),
     );
     assert.equal(attempts.filter((result) => result.status === "fulfilled").length, 1);

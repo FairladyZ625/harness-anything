@@ -65,7 +65,7 @@ const scheduleRow = (scheduleId: string, agentId: string | null): ScheduleGuiRow
         : { kind: "agent", agentId, runtimeInstanceId: "inst", model: null, reasoningEffort: null, cwd: null },
     mission: "m",
     executionAvailability: "local",
-    claim: { nodeId: "local", assignmentId: null },
+    claim: { nodeId: "local", claimFence: null },
     nextRunAt: null,
     actions: {},
     activeRun: null,

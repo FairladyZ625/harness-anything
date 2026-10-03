@@ -102,9 +102,9 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
 
 const criteria = Object.freeze([
   Object.freeze({
-    ref: "runtime-session/assignment-fence",
-    failureCode: "assignment_scope_mismatch",
-    explain: "The authenticated assignment owns the dispatch that created this RuntimeSession.",
+    ref: "runtime-session/node-fence",
+    failureCode: "execution_scope_mismatch",
+    explain: "The authenticated node and owner own the canonical dispatch that created this RuntimeSession.",
   }),
   Object.freeze({
     ref: "runtime-session/adoption-fence",
@@ -113,8 +113,8 @@ const criteria = Object.freeze([
   }),
   Object.freeze({
     ref: "runtime-session/task-binding",
-    failureCode: "assignment_scope_mismatch",
-    explain: "Task and execution binding must match the authenticated assignment scope.",
+    failureCode: "execution_scope_mismatch",
+    explain: "Task and execution binding must match the canonical dispatch.",
   }),
   Object.freeze({
     ref: "runtime-session/current-state",

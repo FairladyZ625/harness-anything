@@ -8,25 +8,13 @@ const controlRoot = path.resolve(process.argv[2] ?? "/tmp/harness-s4-operator-ce
     bind: "0.0.0.0",
     port: 7443,
   }),
-  center = await fixture.startCenter("operator-center"),
-  roster = {
-    schema: "fleet-roster/v3",
-    assignments: fixture.assignments.map((assignment) => ({
-      assignmentId: assignment.assignmentId,
-      nodeId: assignment.nodeId,
-      repoId: assignment.repoId,
-      viewId: assignment.viewId,
-      expiresAt: assignment.expiresAt,
-      scope: assignment.scope,
-    })),
-  };
+  center = await fixture.startCenter("operator-center");
 
 mkdirSync(controlRoot, { recursive: true });
 copyFileSync(fixture.certFile, path.join(controlRoot, "server.crt"));
-writeJson(path.join(controlRoot, "fleet-roster.json"), roster);
 
 for (const repo of fixture.repos) {
-  const created = await fixture.schedule(fixture.assignment(repo.repoId, 0), `operator-create-${repo.repoId}`, {
+  const created = await fixture.schedule(fixture.subject(repo.repoId, 0), `operator-create-${repo.repoId}`, {
     kind: "schedule-create",
     scheduleId: "campaign",
     name: "S4 operator campaign",
@@ -49,7 +37,6 @@ const statusPath = path.join(controlRoot, "status.json"),
       port: center.port,
       servername: "localhost",
       certificate: path.join(controlRoot, "server.crt"),
-      roster: path.join(controlRoot, "fleet-roster.json"),
       repoIds: fixture.repos.map(({ repoId }) => repoId),
       revisions: Object.fromEntries(
         fixture.repos.map(({ repoId }) => [repoId, fixture.host.replica(repoId).ledgerCut()?.revision ?? 0]),
@@ -64,7 +51,7 @@ const timer = setInterval(async () => {
   try {
     const receipts = await Promise.all(
       fixture.repos.map((repo) =>
-        fixture.schedule(fixture.assignment(repo.repoId, 0), `operator-tick-${repo.repoId}-${tick}`, {
+        fixture.schedule(fixture.subject(repo.repoId, 0), `operator-tick-${repo.repoId}-${tick}`, {
           kind: "schedule-update",
           scheduleId: "campaign",
           name: `S4 operator campaign tick ${tick}`,

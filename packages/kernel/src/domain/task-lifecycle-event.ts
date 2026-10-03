@@ -40,6 +40,8 @@ import { isValidCloseoutGateRecord, type CloseoutGate } from "./settings-closeou
 import { isSamePerson } from "./actor-domain-services.ts";
 export const taskEventTypes = [
   "task_created",
+  "task_assigned",
+  "task_unassigned",
   "execution_started",
   "lease_renewed",
   "execution_submitted",
@@ -232,6 +234,8 @@ export type TaskCompletedEvent = TaskEventEnvelope<
 >;
 export interface TaskMutationV1 {
   readonly command:
+    | "assign"
+    | "unassign"
     | "release"
     | "transition"
     | "amend"
@@ -608,6 +612,8 @@ function validMutation(value: unknown, allowUnknownFields: boolean): value is Ta
     (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["command", "reason", "fields"]) &&
     [
       "release",
+      "assign",
+      "unassign",
       "transition",
       "amend",
       "archive",

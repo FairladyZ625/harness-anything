@@ -9,7 +9,7 @@ const childScript = path.resolve(
   "../../../packages/daemon/test/stress/fleet/upload-client.fixture.mjs",
 );
 
-export function spawnUploadProcess(fixture, center, assignment, options) {
+export function spawnUploadProcess(fixture, center, subject, options) {
   const childRoot = path.join(fixture.root, "upload-children", options.label),
     configFile = path.join(childRoot, "config.json"),
     bodyFile = path.join(childRoot, "body"),
@@ -24,9 +24,9 @@ export function spawnUploadProcess(fixture, center, assignment, options) {
     JSON.stringify({
       port: center.port,
       caFile: fixture.certFile,
-      nodeId: assignment.nodeId,
-      credential: `credential-${assignment.nodeId}`,
-      assignmentId: assignment.assignmentId,
+      nodeId: subject.nodeId,
+      credential: `credential-${subject.nodeId}`,
+      repoId: subject.repoId,
       path: options.path,
       bodyFile,
       boundaryFile,

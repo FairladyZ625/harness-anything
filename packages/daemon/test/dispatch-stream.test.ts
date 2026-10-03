@@ -596,7 +596,7 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
       permissionMode: null,
       binding: {
         actor: { principal: { personId: "edge-worker" }, executor: null },
-        source: { kind: "assignment", nodeId: "node-a", assignmentId: "assignment-a" },
+        source: { kind: "node", nodeId: "node-a" },
       },
       cwd: rootDir,
       prompt: "node-owned adoption",
@@ -610,7 +610,7 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
         input: {
           rootDir,
           repoId: "node-owner",
-          runtimeAssignment: { nodeId: "node-b", assignmentId: "assignment-b" },
+          runtimeNode: { nodeId: "node-b" },
           remote: {
             readRuntimeSessions: async () => [
               { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
@@ -935,22 +935,24 @@ test("runtime metrics persist in the dispatch stream and read back without chang
   }
 });
 
-test("portable runtime binding retains the assignment scope required by the existing action preparer", () => {
-  const source = { kind: "assignment" as const, nodeId: "edge-1", assignmentId: "assignment-1" },
+test("portable node binding is checked against the canonical dispatch task and execution", () => {
+  const source = { kind: "node" as const, nodeId: "edge-1" },
     binding = {
       actor: { principal: { personId: "owner" }, executor: null },
       source,
-      assignmentScope: {
-        repoId: "repo",
-        scope: { kind: "task" as const, taskId: "task-1", executionId: "execution-1", paths: [] },
-      },
     },
     prepare = runtimeSessionActionPreparer(
       () =>
         ({
           readRuntimeDispatch: () => ({
             source,
-            payload: { runtimeSessionId: "runtime-1", dispatchId: "dispatch-1" },
+            actor: binding.actor,
+            payload: {
+              runtimeSessionId: "runtime-1",
+              dispatchId: "dispatch-1",
+              taskId: "task-1",
+              executionId: "execution-1",
+            },
           }),
         }) as never,
     ),
@@ -966,7 +968,7 @@ test("portable runtime binding retains the assignment scope required by the exis
   assert.deepEqual(prepare(contract, action, portable), { ...action, dispatchId: "dispatch-1" });
   assert.throws(
     () => prepare(contract, { ...action, taskId: "other-task" }, portable),
-    (error: unknown) => (error as { code?: string }).code === "assignment_scope_mismatch",
+    (error: unknown) => (error as { code?: string }).code === "execution_scope_mismatch",
   );
 });
 

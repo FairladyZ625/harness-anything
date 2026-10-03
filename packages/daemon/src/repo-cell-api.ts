@@ -83,7 +83,6 @@ import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 import { workIndexFromProjection } from "./work-read.ts";
 import { readCiObservatory } from "./ci-observatory-read.ts";
 import type { RepoCellOperationalContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
-import type { FleetRoster } from "./fleet-center-admission.ts";
 import type { makeRecoveryProbe } from "./recovery-state.ts";
 import type { makeRuntimeSpawner } from "./runtime-spawn.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
@@ -98,7 +97,6 @@ import { agendaQueryFromPayload, taskDispatchesPayloadFromCell } from "./repo-ce
 export interface RepoCellApiContext {
   readonly extracted: RepoCellOperationalContext;
   readonly mode: DaemonRepoMode;
-  readonly fleetRoster: FleetRoster | null;
   readonly input: {
     readonly repoId: string;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
@@ -859,7 +857,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     inFlightWork: () =>
       readRepoInFlightWork({
         projection: context.projection,
-        fleetRoster: context.fleetRoster,
         repoId: context.input.repoId,
         queueDepth: context.queueDepth,
       }),

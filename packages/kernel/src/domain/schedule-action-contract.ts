@@ -488,7 +488,7 @@ function compileScheduleAction(
   }
   if (id === "run-now" || id === "claim") return claimOccurrence(id, schedule, revision, input, common);
   if (id === "link") {
-    const active = matchingClaim("link", schedule, action.claimFence);
+    const active = matchingClaim("link", schedule, action.claimFence, input.source);
     return event(
       compileScheduleRunEvent({
         ...common,
@@ -508,7 +508,7 @@ function compileScheduleAction(
     );
   }
   if (id === "record-missed") return missedOccurrences(schedule, revision, input, common);
-  const active = matchingClaim("settle", schedule, action.claimFence),
+  const active = matchingClaim("settle", schedule, action.claimFence, input.source),
     outcome = action.outcome as ScheduleRunOutcome;
   if (!scheduleRunOutcomes.includes(outcome) || !timestamp(action.endedAt))
     reject("invalid_command", "Schedule settlement requires one canonical outcome and UTC end time.");
@@ -523,7 +523,6 @@ function compileScheduleAction(
         endedAt: action.endedAt,
         outcome,
         nodeId: active.nodeId,
-        assignmentId: active.assignmentId,
         claimFence: active.claimFence,
         attemptIndex: active.attemptIndex,
         ...(active.dispatchId ? { dispatchId: active.dispatchId } : {}),
@@ -561,7 +560,7 @@ function claimOccurrence(
       "schedule_single_flight_active",
       `Schedule ${schedule.scheduleId} already has active occurrence ${schedule.status.activeRun.occurrenceId}.`,
     );
-  const assignment = typeof input.source === "object" && input.source.kind === "assignment" ? input.source : null;
+  const assignment = typeof input.source === "object" && input.source.kind === "node" ? input.source : null;
   if (schedule.spec.target.kind === "squad")
     reject(
       "schedule_target_unavailable",
@@ -592,7 +591,6 @@ function claimOccurrence(
           scheduledFor,
           claimedAt: input.occurredAt,
           nodeId: assignment?.nodeId ?? "local",
-          assignmentId: assignment?.assignmentId ?? null,
           claimFence,
           attemptIndex: 0,
         },
@@ -661,10 +659,15 @@ function matchingClaim(
   actionId: "link" | "settle",
   schedule: ScheduleV1,
   fence: unknown,
+  source: EntityActionCompileInput["source"],
 ): NonNullable<ScheduleV1["status"]["activeRun"]> {
   const claimFence = text(fence, "claimFence"),
     active = schedule.status.activeRun;
-  if (!active || active.claimFence !== claimFence)
+  if (
+    !active ||
+    active.claimFence !== claimFence ||
+    active.nodeId !== (typeof source === "object" && source.kind === "node" ? source.nodeId : "local")
+  )
     rejectCriterion(
       actionId,
       "schedule/active-claim-fence",

@@ -206,7 +206,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--cert", "single", true, {
         code: "missing_field",
       }),
-      cliInput("--roster", "single", true, {
+      cliInput("--repo", "single", true, {
         code: "missing_field",
       }),
       cliInput(
@@ -260,15 +260,6 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--credential", "single", false, {
         code: "invalid_field",
       }),
-      cliInput(
-        "--assignment",
-        "single",
-        true,
-        {
-          code: "invalid_field",
-        },
-        { regex: "^[A-Za-z0-9_-]{1,96}$" },
-      ),
       cliInput("--view-root", "single", true, {
         code: "missing_field",
       }),

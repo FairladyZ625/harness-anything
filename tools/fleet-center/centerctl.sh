@@ -27,13 +27,7 @@ backup_dir=${HARNESS_CENTER_BACKUP_DIR:-}
 fleet_port=${HARNESS_CENTER_PORT:-7443}
 fleet_bind=${HARNESS_CENTER_BIND:-0.0.0.0}
 fleet_quota_bytes=${HARNESS_CENTER_QUOTA_BYTES:-4294967296}
-node_id=${HARNESS_CENTER_NODE_ID:-w5r-mac-edge}
-assignment_id=${HARNESS_CENTER_ASSIGNMENT_ID:-assignment-w5r-mac-edge}
-view_id=${HARNESS_CENTER_VIEW_ID:-w5r-mac-view}
-assignment_task_id=${HARNESS_CENTER_ASSIGNMENT_TASK_ID:-task_w5r_rehearsal_anchor}
-assignment_execution_id=${HARNESS_CENTER_ASSIGNMENT_EXECUTION_ID:-exe_w5r_rehearsal_anchor}
-assignment_executor_id=${HARNESS_CENTER_ASSIGNMENT_EXECUTOR_ID:-codex-sol-w5r}
-assignment_paths=${HARNESS_CENTER_ASSIGNMENT_PATHS:-tasks}
+executor_id=${HARNESS_CENTER_EXECUTOR_ID:-codex-sol-w5r}
 node_version=24.18.0
 node_dist="node-v${node_version}-linux-x64"
 node_sha256=55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742
@@ -93,7 +87,7 @@ ha() {
   env \
     HARNESS_DAEMON_USER_ROOT="$user_root" \
     HARNESS_DAEMON_ID="$daemon_id" \
-    HARNESS_ACTOR="agent:$assignment_executor_id" \
+    HARNESS_ACTOR="agent:$executor_id" \
     HARNESS_GIT_AUTHOR_NAME="PLT Center Rehearsal" \
     HARNESS_GIT_AUTHOR_EMAIL="plt-center-rehearsal@invalid" \
     GIT_AUTHOR_NAME="PLT Center Rehearsal" \
@@ -210,7 +204,7 @@ start_authorization_service() {
   note "authorization service ready"
 }
 
-ensure_tls_and_roster() {
+ensure_tls() {
   mkdir -p "$fleet_root" "$state_root"
   chmod 700 "$fleet_root" "$state_root"
   if [[ ! -f $fleet_root/server.key || ! -f $fleet_root/server.crt ]]; then
@@ -223,23 +217,7 @@ ensure_tls_and_roster() {
     mv "$fleet_root/server.key.staging" "$fleet_root/server.key"
     mv "$fleet_root/server.crt.staging" "$fleet_root/server.crt"
   fi
-  local expires_at
-  expires_at=$($node_bin -e 'console.log(new Date(Date.now()+30*24*60*60*1000).toISOString())')
-  "$node_bin" - "$fleet_root/roster.json.staging" \
-    "$node_id" "$assignment_id" "$repo_id" "$assignment_task_id" "$assignment_execution_id" \
-    "$view_id" "$expires_at" "$assignment_paths" <<'NODE'
-const fs = require("fs");
-const [output, nodeId, assignmentId, repoId, taskId, executionId, viewId, expiresAt, pathsCsv] = process.argv.slice(2);
-const paths = [...new Set(pathsCsv.split(",").map((value) => value.trim()).filter(Boolean))];
-if (paths.length === 0 || paths.some((value) => value.startsWith("/") || value.split("/").some((part) => part === "" || part === "." || part === ".."))) throw new Error("HARNESS_CENTER_ASSIGNMENT_PATHS must be a comma-separated list of canonical relative path prefixes");
-const roster = { schema: "fleet-roster/v3", assignments: [{ assignmentId, nodeId, repoId, viewId, expiresAt, scope: { kind: "task", taskId, executionId, paths } }] };
-fs.writeFileSync(output, `${JSON.stringify(roster, null, 2)}\n`, { mode: 0o600 });
-NODE
-  chmod 600 "$fleet_root/roster.json.staging"
-  mv "$fleet_root/roster.json.staging" "$fleet_root/roster.json"
-  local anchor
-  anchor=$(find "$repo_root/harness/tasks" -type f -name INDEX.md -exec grep -l -F "task_id: $assignment_task_id" {} + 2>/dev/null | head -n 1 || true)
-  [[ -n $anchor ]] || fail "assignment anchor task $assignment_task_id is missing from the restored ledger"
+
 }
 
 tls_healthy() {
@@ -254,7 +232,7 @@ start_center() {
   fi
   ha daemon fleet center start --port "$fleet_port" --bind "$fleet_bind" \
     --key "$fleet_root/server.key" --cert "$fleet_root/server.crt" \
-    --roster "$fleet_root/roster.json" --quota-bytes "$fleet_quota_bytes" \
+    --repo "$repo_id" --quota-bytes "$fleet_quota_bytes" \
     --state-root "$state_root" >"$center_root/fleet-start.json"
   local deadline=$((SECONDS + 30))
   until tls_healthy; do
@@ -288,7 +266,7 @@ require_server_shape
 if [[ $action == down ]]; then
   [[ -x $node_bin && -f $cli_entry ]] || fail "deployment is not prepared"
   stop_daemon_if_running
-  note "isolated daemon stopped; repository, TLS, roster, and Fleet state retained"
+  note "isolated daemon stopped; repository, TLS and Fleet state retained"
   print_status
   exit 0
 fi
@@ -306,6 +284,6 @@ register_restored_repo
 wait_for_center_repo
 rebuild_projection
 start_authorization_service
-ensure_tls_and_roster
+ensure_tls
 start_center
 print_status

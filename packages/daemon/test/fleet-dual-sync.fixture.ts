@@ -18,7 +18,7 @@ import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { runFleetEdgeConflictExit, runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetWriteClient } from "../src/fleet/edge.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
@@ -96,19 +96,6 @@ export async function dualSyncFixture() {
   const hostLease = writerAuthority.current("dual-repo");
   writerAuthority.close();
   assert.ok(hostLease);
-  // Scope covers every task package plus one shared-surface document: tasks/
-  // paths are lease-arbitrated (class A), context/ is the class-B surface.
-  const assignment = (nodeId: NodeId): FleetAssignmentRecord => ({
-    nodeId,
-    assignmentId: `assignment-${nodeId}`,
-    repoId: "dual-repo",
-    taskId: "task-seeded",
-    executionId: "exe-seeded",
-    paths: ["tasks", "context/shared-notes.md", "context/other-notes.md"],
-    viewId: `${nodeId}-view`,
-    expiresAt: "2099-01-01T00:00:00.000Z",
-  });
-  const byId = new Map(nodes.map((nodeId) => [assignment(nodeId).assignmentId, assignment(nodeId)]));
   const center: FleetTlsCenter = await listenFleetTls({
     host,
     stateRoot,
@@ -122,7 +109,6 @@ export async function dualSyncFixture() {
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
     nodeOwner: owners.nodeOwner,
-    resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
   });
   const edgeRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-edge`),
     workspace = (nodeId: NodeId): string => path.join(root, `${nodeId}-workspace`);
@@ -134,7 +120,6 @@ export async function dualSyncFixture() {
     servername: "localhost",
     nodeId,
     credential: `secret-${nodeId}`,
-    assignmentId: `assignment-${nodeId}`,
     repoId: "dual-repo",
     viewRoot: edgeRoot(nodeId),
     quotaBytes: replicaQuota,
@@ -164,7 +149,7 @@ export async function dualSyncFixture() {
       servername: "localhost",
       nodeId,
       credential: `secret-${nodeId}`,
-      assignmentId: `assignment-${nodeId}`,
+      repoId: "dual-repo",
       timeoutMs: 30_000,
       channel: "collaborator",
       executionId,
@@ -232,7 +217,6 @@ export async function dualSyncFixture() {
   };
   return {
     root,
-    byId,
     repo,
     host,
     center,

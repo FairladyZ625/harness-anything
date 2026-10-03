@@ -271,7 +271,6 @@ test("an active Schedule records the next tick as single-flight missed", async (
     scheduledFor: "2026-08-27T10:20:00.000Z",
     claimedAt: "2026-08-27T10:20:00.000Z",
     nodeId: "local",
-    assignmentId: null,
     claimFence: "claim-active",
     attemptIndex: 0,
   };
@@ -588,7 +587,6 @@ test("manual runs do not move automatic cadence and enabling skips the paused wi
     endedAt: "2026-08-27T10:11:00.000Z",
     outcome: "succeeded",
     nodeId: "local",
-    assignmentId: null,
     claimFence: "manual-claim",
     attemptIndex: 0,
   };

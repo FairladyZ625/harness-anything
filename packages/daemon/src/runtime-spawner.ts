@@ -3,8 +3,6 @@ import path from "node:path";
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
 import {
   consumeKnownError,
-  isSameExecution,
-  isSamePerson,
   runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
   submissionDigest,
@@ -102,7 +100,7 @@ import {
   resolveDispatchCwd,
 } from "./runtime-resume-admission.ts";
 import { taskWorktreeCheckoutNote, type TaskWorktreeCheckout } from "./task-worktree.ts";
-import { assertTaskDispatchPrerequisites } from "./task-dispatch-admission.ts";
+import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
@@ -234,7 +232,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw runtimeSpawnError("squad_leader_required", "Squad attribution requires --agent <leader-id>.");
     // An edge learns the task's worktree binding from the center in the read that also assembles its mission,
     // so its checkout follows that read; a local dispatch arrives with the checkout already prepared.
-    const remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null,
+    const remoteTask =
+        taskId && input.remote
+          ? await input.remote.taskContext(
+              taskId,
+              missionName,
+              role === "reviewer" ? { executionId: requestedExecutionId } : undefined,
+            )
+          : null,
       { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
         input.rootDir,
         payload,
@@ -271,19 +276,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       trustedHandoffSource = handoffFromRuntimeSessionId ?? resumed?.header.runtimeSessionId ?? null;
     const authorizationDecision: AuthorizationDecision | null = binding.authorizationDecision ?? null;
     if (taskId && !input.remote && !reviewerBinding) {
-      const leaseExecutorId = leaseAtAdmission?.actor.executor?.id ?? null,
-        leaseHeldByRuntime = leaseExecutorId?.startsWith("runtime-session:") === true,
-        dispatchLeaseExecutor = `runtime-session:${runtimeSessionId}`,
-        trustedSourceExecutor = trustedHandoffSource ? `runtime-session:${trustedHandoffSource}` : null;
-      const leaseQualifies =
-        leaseAtAdmission === null || leaseAtAdmission.phase === "released" || leaseAtAdmission.phase === "orphaned"
-          ? input.handoffTaskLease !== undefined
-          : leaseAtAdmission.phase === "held" &&
-            isSamePerson(leaseAtAdmission.actor, binding.actor) &&
-            (isSameExecution(leaseAtAdmission.actor, binding.actor) ||
-              leaseExecutorId === dispatchLeaseExecutor ||
-              leaseExecutorId === trustedSourceExecutor ||
-              (binding.actor.executor === null && !leaseHeldByRuntime));
+      const leaseQualifies = taskDispatchLeaseQualifies(
+        leaseAtAdmission,
+        binding.actor,
+        runtimeSessionId,
+        trustedHandoffSource,
+        input.handoffTaskLease !== undefined,
+      );
       // A dry-run preview assembles the injected prompt without lease or
       // authorization admission — it must answer before either exists.
       if (!dryRun && (!authorizationDecision || authorizationDecision.outcome !== "allowed"))

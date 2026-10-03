@@ -670,7 +670,6 @@ function seedEdgeView(rootDir, repoId, revision) {
       caPath: path.join(rootDir, "unused-ca.pem"),
       nodeId: "observe-node",
       credential: "unused-test-credential",
-      assignmentId: "observe-assignment",
       viewRoot,
       quotaBytes: 1024,
     })}\n`,

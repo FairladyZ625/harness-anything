@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import {
   exitCodeFor,
+  findVariable,
+  unwrapExpression,
   lineNumber,
   loadDurableActionKinds,
   parseCommonArgs,
@@ -21,10 +24,15 @@ export function auditDurableActionAuthorization(rootDir = process.cwd(), durable
   const analysis = buildCallGraph(rootDir);
   const authority = authorizationAuthority(rootDir, analysis);
   const receipt = receiptAuthorizationContract(rootDir);
+  const taskWrites = taskCatalogAuthorization(rootDir, analysis, authority);
   const rows = kinds.map((kind) => ({
     action: kind,
     authorizationPort:
-      kind === "rbac-bootstrap" ? bootstrapAuthority(analysis) : actionReachesAuthorization(kind, analysis, authority),
+      kind === "rbac-bootstrap"
+        ? bootstrapAuthority(analysis)
+        : taskWrites.has(kind)
+          ? taskWrites.get(kind)
+          : actionReachesAuthorization(kind, analysis, authority),
     receiptAuthorizationDecision: receipt.nonNullable,
   }));
   const findings = [
@@ -287,6 +295,198 @@ function typeContainsNullish(node) {
     if (typeContainsNullish(child)) found = true;
   });
   return found;
+}
+
+// Catalog ingress is declared in the kernel; a read handler mentioning a policy action
+// is not evidence for this write. Fail closed when any part of the queued write route breaks.
+function taskCatalogAuthorization(rootDir, analysis, authority) {
+  const contractPath = "packages/kernel/src/domain/task-action-contract.ts",
+    declarationPath = "packages/kernel/src/domain/action-declaration.ts",
+    rows = new Map();
+  if (!existsSync(path.join(rootDir, contractPath))) return rows;
+  const contract = parseTypeScript(rootDir, contractPath),
+    specs = unwrapExpression(findVariable(contract, "lifecycleSpecs")?.initializer),
+    registrations = unwrapExpression(findVariable(contract, "declarations")?.initializer),
+    declarations = existsSync(path.join(rootDir, declarationPath)) ? parseTypeScript(rootDir, declarationPath) : null,
+    inventory = declarations && unwrapExpression(findVariable(declarations, "actionDeclarations")?.initializer),
+    wired = authority.ok && authority.keycloak && queuedTaskWrite(analysis) && taskCatalogWiring(analysis);
+  if (!specs || !ts.isObjectLiteralExpression(specs)) return rows;
+  for (const spec of specs.properties) {
+    if (!ts.isPropertyAssignment(spec) || !ts.isObjectLiteralExpression(spec.initializer)) continue;
+    const fields = new Map(
+      spec.initializer.properties
+        .filter(ts.isPropertyAssignment)
+        .map((property) => [property.name.getText(), property.initializer]),
+    );
+    const ingress = fields.get("ingress");
+    if (!ingress || !ts.isStringLiteral(ingress)) continue;
+    const id = spec.name.getText(),
+      kind = ingress.text;
+    const registered =
+      registrations &&
+      ts.isArrayLiteralExpression(registrations) &&
+      registrations.elements.some(
+        (node) =>
+          ts.isCallExpression(node) &&
+          node.expression.getText() === "lifecycle" &&
+          node.arguments[0] &&
+          ts.isStringLiteral(node.arguments[0]) &&
+          node.arguments[0].text === id,
+      );
+    const declared =
+      inventory &&
+      ts.isArrayLiteralExpression(inventory) &&
+      inventory.elements.some(
+        (node) =>
+          ts.isCallExpression(node) &&
+          ["canonical", "closure"].includes(node.expression.getText()) &&
+          node.arguments[0] &&
+          ts.isStringLiteral(node.arguments[0]) &&
+          node.arguments[0].text === kind &&
+          node.arguments[1] &&
+          ts.isStringLiteral(node.arguments[1]) &&
+          node.arguments[1].text === `task/${id}` &&
+          (node.expression.getText() === "closure" ||
+            ['"repo-write"', '"arbiter"'].includes(node.arguments[2]?.getText())),
+      );
+    rows.set(kind, Boolean(wired && registered && declared));
+  }
+  return rows;
+}
+
+function source(analysis, name) {
+  return analysis.sources.find(({ file }) => file === `packages/daemon/src/${name}.ts`)?.sourceFile;
+}
+
+function definition(analysis, file, name) {
+  return analysis.functions.get(name)?.find((entry) => entry.file === `packages/daemon/src/${file}.ts`)?.body;
+}
+
+// Compare syntax rather than comments/formatting. These are deliberately conservative
+// wiring contracts, not a general-purpose proof of arbitrary JavaScript control flow.
+function syntax(node) {
+  if (!node) return "";
+  const tokens = [];
+  function visit(current) {
+    const children = current.getChildren();
+    if (children.length === 0) tokens.push(current.getText());
+    else children.forEach(visit);
+  }
+  visit(node);
+  return tokens.join("");
+}
+
+function queuedTaskWrite(analysis) {
+  const runner = source(analysis, "repo-cell-command-run"),
+    current = definition(analysis, "repo-cell-command-run", "authorizeAtCurrentCut"),
+    enqueue = definition(analysis, "repo-cell-command-run", "enqueuePublication"),
+    evaluate = definition(analysis, "repo-cell-authorization", "evaluateRepoCellAction");
+  if (!runner || !current || !enqueue || !evaluate) return false;
+  const durable = findVariable(runner, "durable")?.initializer;
+  if (syntax(durable) !== "(durablePolicyActionsasreadonlystring[]).includes(action.kind)") return false;
+  if (
+    !syntax(current).includes("revision=context.store.readHead()?.revision??0") ||
+    !syntax(current).includes(
+      "returnevaluateRepoCellAction({action,binding,actionId,repoId:context.input.repoId,revision,now:context.now(),})",
+    ) ||
+    !calls(evaluate, "evaluateKeycloakPerson")
+  )
+    return false;
+  let publication;
+  someNode(enqueue, (node) => {
+    if (
+      !ts.isCallExpression(node) ||
+      node.expression.getText() !== "chainRepoCellWrite" ||
+      node.arguments[0]?.getText() !== "context.tail"
+    )
+      return false;
+    const callback = node.arguments[1];
+    if (callback && ts.isArrowFunction(callback) && ts.isBlock(callback.body)) publication = callback.body;
+    return Boolean(publication);
+  });
+  if (!publication) return false;
+  const guard = publication.statements.find(
+    (node) => ts.isIfStatement(node) && node.expression.getText() === "durable",
+  );
+  if (!guard || !ts.isBlock(guard.thenStatement)) return false;
+  const [evaluation, denial] = guard.thenStatement.statements;
+  if (
+    syntax(evaluation) !== "queuedDecision=awaitauthorizeAtCurrentCut()!;" ||
+    !denial ||
+    !ts.isIfStatement(denial) ||
+    syntax(denial.expression) !== 'queuedDecision.outcome==="denied"' ||
+    !ts.isReturnStatement(denial.thenStatement) ||
+    !calls(denial.thenStatement, "withAuthorizationDecision") ||
+    !calls(denial.thenStatement, "rejected")
+  )
+    return false;
+  const executes = [];
+  someNode(publication, (node) => {
+    if (ts.isCallExpression(node) && node.expression.getText() === "execute") executes.push(node);
+    return false;
+  });
+  if (executes.length !== 1 || executes[0].pos < guard.end || syntax(executes[0]) !== "execute(queuedDecision)")
+    return false;
+  const run = definition(analysis, "repo-cell-command-run", "run");
+  return Boolean(
+    run &&
+      ts.isBlock(run) &&
+      syntax(run.statements.at(-1)) ===
+        "returnenqueuePublication((authorizationDecision)=>context.executeAction(action,authorizationDecision?{...binding,authorizationDecision}:binding),);",
+  );
+}
+
+function importsBinding(node, module, exported, local) {
+  return node.statements.some(
+    (statement) =>
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      statement.moduleSpecifier.text === module &&
+      statement.importClause?.namedBindings &&
+      ts.isNamedImports(statement.importClause.namedBindings) &&
+      statement.importClause.namedBindings.elements.some(
+        (entry) => entry.name.text === local && (entry.propertyName?.text ?? entry.name.text) === exported,
+      ),
+  );
+}
+
+function taskCatalogWiring(analysis) {
+  const dispatch = definition(analysis, "repo-cell-action-dispatch", "executeRepoAction"),
+    execute = definition(analysis, "repo-cell-action-dispatch", "executeAction"),
+    catalog = definition(analysis, "entity-action-catalog-executor", "run"),
+    context = source(analysis, "repo-cell-action-context"),
+    open = source(analysis, "repo-cell-open"),
+    api = source(analysis, "repo-cell-api");
+  if (!dispatch || !execute || !catalog || !context || !open || !api) return false;
+  return (
+    calls(execute, "executeRepoAction") &&
+    syntax(dispatch).includes("actionContract=getExecutableEntityAction(action.kind)") &&
+    someNode(
+      dispatch,
+      (node) =>
+        ts.isIfStatement(node) &&
+        syntax(node.expression) === 'actionContract?.target.kind==="task"&&actionContract.execution' &&
+        someNode(
+          node.thenStatement,
+          (child) =>
+            ts.isReturnStatement(child) &&
+            child.expression &&
+            ts.isCallExpression(child.expression) &&
+            child.expression.expression.getText() === "cell.entityActionExecutor.run" &&
+            syntax(child.expression.arguments[0]) === "action" &&
+            syntax(child.expression.arguments[1]) === "binding" &&
+            calls(child.expression.arguments[3], "lifecycleAction"),
+        ),
+    ) &&
+    syntax(catalog).includes("contract=executableAction(action.kind)") &&
+    syntax(catalog).includes("returnruntimes.task(contract,action,binding,opId)") &&
+    importsBinding(context, "./repo-cell-action-dispatch.ts", "executeAction", "executeActionImpl") &&
+    importsBinding(context, "./task-action-catalog-runtime.ts", "runTaskActionCatalogRuntime", "lifecycleActionImpl") &&
+    syntax(context).includes("executeAction:bind(executeActionImpl)") &&
+    syntax(context).includes("lifecycleAction:bind(lifecycleActionImpl)") &&
+    syntax(open).includes("executeAction:extracted.executeAction") &&
+    syntax(api).includes("run=makeRepoCellCommandRunner(context)")
+  );
 }
 
 function actionReachesAuthorization(kind, analysis, authority) {

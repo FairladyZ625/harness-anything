@@ -17,7 +17,7 @@ export interface ScheduleRunRowDto {
   readonly claimedAt: string | null;
   readonly endedAt: string | null;
   readonly nodeId: string | null;
-  readonly assignmentId: string | null;
+  readonly claimFence: string | null;
   readonly outcome: ScheduleOccurrenceOutcome;
   readonly durationMs: number | null;
   readonly reportRef: string | null;
@@ -75,7 +75,7 @@ function validRunRow(value: unknown): boolean {
       "claimedAt",
       "endedAt",
       "nodeId",
-      "assignmentId",
+      "claimFence",
       "outcome",
       "durationMs",
       "reportRef",
@@ -93,7 +93,7 @@ function validRunRow(value: unknown): boolean {
     nullableUtc(value.claimedAt) &&
     nullableUtc(value.endedAt) &&
     nullableText(value.nodeId) &&
-    nullableText(value.assignmentId) &&
+    nullableText(value.claimFence) &&
     ["running", "missed", "succeeded", "failed", "unknown", "cancelled"].includes(String(value.outcome)) &&
     (value.durationMs === null || nonNegInt(value.durationMs)) &&
     (value.reportRef === null ||

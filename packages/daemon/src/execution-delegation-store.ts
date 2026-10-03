@@ -45,10 +45,7 @@ export function readExecutionDelegations(file: string, repoId: string): Delegati
       typeof record.issuedByOperationId !== "string" ||
       !record.issuedByOperationId ||
       (record.source !== "local" &&
-        (typeof record.source !== "object" ||
-          record.source.kind !== "assignment" ||
-          !record.source.nodeId ||
-          !record.source.assignmentId))
+        (typeof record.source !== "object" || record.source.kind !== "node" || !record.source.nodeId))
     )
       throw new Error("Invalid execution delegation source");
     parseDelegatedExecutionToken(record.token);

@@ -36,6 +36,8 @@ function adaptProjectionRow(
   const coordinationStatus = row.coordinationStatus;
   return {
     taskId: row.taskId,
+    revision: row.snapshot.revision,
+    assignment: task.assignment,
     title: task.title,
     projectId,
     coordinationStatus,

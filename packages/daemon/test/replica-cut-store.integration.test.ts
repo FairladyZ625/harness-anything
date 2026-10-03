@@ -20,7 +20,6 @@ import {
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import type { FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
@@ -531,17 +530,7 @@ test("RepoCell wakes a pending replica cut when its projection catches up", { ti
         }),
     }),
     owners = await fleetNodeOwners({ userRoot, owners: { "node-one": "person-one" }, repoIds: ["replica-repo"] }),
-    assignment: FleetAssignmentRecord = {
-      nodeId: "node-one",
-      assignmentId: "assignment-one",
-      repoId: "replica-repo",
-      taskId: "task-one",
-      executionId: "execution-one",
-      paths: ["tasks/task-one-one/notes.md"],
-      viewId: "view-one",
-      expiresAt: "2099-01-01T00:00:00.000Z",
-    },
-    auth = owners.auth(assignment);
+    auth = owners.auth({ nodeId: "node-one" });
   await host.attachmentsSettled();
   try {
     const first = await host.run("replica-repo", { kind: "task-create", taskId: "task-one", title: "One" }, auth);
