@@ -9,6 +9,17 @@ import {
 import { parseDaemonRpcParams } from "@harness-anything/daemon/internal/protocol/daemon-protocol-rpc-validation";
 import { firstCliCommand, firstCliCommandIndex, parseThinCommand } from "../src/cli/thin-command.ts";
 
+test("binding health carries the same workspace target as login", () => {
+  const login = parseThinCommand(["bootstrap", "--operation", "login"]);
+  const health = parseThinCommand(["bootstrap", "--operation", "health"]);
+  assert.equal(login.ok, true);
+  assert.equal(health.ok, true);
+  if (login.ok && health.ok) {
+    assert.equal(typeof login.command.action.rootDir, "string");
+    assert.equal(health.command.action.rootDir, login.command.action.rootDir);
+  }
+});
+
 test("settings CLI and RPC accept role deltas and reject the retired root reviewer input", () => {
   const roles = { defaultWorker: "dev-worker", defaultReviewer: null };
   const command = parseThinCommand(["settings", "update", "--roles", JSON.stringify(roles)]);

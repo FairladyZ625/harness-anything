@@ -176,24 +176,26 @@ export function AccessServiceTab({
           ) : null}
         </BoardColumn>
       </BoardMain>
-      <BoardSide region="binding">
-        <Region
-          title={t("identityAccess.externalTitle")}
-          padded
-          footer={
-            <span className="ml-auto">
-              <Button
-                disabled={busy || binding?.mode === "managed"}
-                onClick={() => void run(() => auth.configure({ mode: "managed" }, repoId))}
-              >
-                {t("identityAccess.useManaged")}
-              </Button>
-            </span>
-          }
-        >
-          <ExternalBindingForm busy={busy} submit={(input) => run(() => auth.configure(input, repoId))} />
-        </Region>
-      </BoardSide>
+      {binding !== undefined && binding?.source !== "fleet-center" ? (
+        <BoardSide region="binding">
+          <Region
+            title={t("identityAccess.externalTitle")}
+            padded
+            footer={
+              <span className="ml-auto">
+                <Button
+                  disabled={busy || binding?.mode === "managed"}
+                  onClick={() => void run(() => auth.configure({ mode: "managed" }, repoId))}
+                >
+                  {t("identityAccess.useManaged")}
+                </Button>
+              </span>
+            }
+          >
+            <ExternalBindingForm busy={busy} submit={(input) => run(() => auth.configure(input, repoId))} />
+          </Region>
+        </BoardSide>
+      ) : null}
     </RegionBoard>
   );
 }

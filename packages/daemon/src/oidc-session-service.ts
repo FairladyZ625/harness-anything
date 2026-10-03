@@ -247,6 +247,21 @@ export class OidcSessionService {
     return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
   }
 
+  /** Read the selected edge's public authority, independently of this daemon's signed-in session. */
+  async bindingHealth(loginTarget: string): Promise<Record<string, unknown>> {
+    const authority = await this.#loginAuthority(loginTarget),
+      response = await this.#ports.fetch(`${authority.url}/realms/${encodeURIComponent(authority.realm)}`);
+    return {
+      source: "fleet-center",
+      mode: "external",
+      ready: response.ok,
+      url: authority.url,
+      realm: authority.realm,
+      clientId: authority.clientId,
+      status: response.status,
+    };
+  }
+
   /** Queued behind a renewal in flight, so a session that is being renewed stays signed out. */
   logout(): Promise<Record<string, unknown>> {
     this.#pending = undefined;
