@@ -9,6 +9,7 @@ import {
   closeoutReadiness,
   createImmutableLegacyGenerationSnapshot,
   convertLegacyGeneration,
+  deriveRelationId,
   makeTaskProjection,
   parseCanonicalEvent,
   type EntityUpsertEventV1,
@@ -112,6 +113,76 @@ test("inactive generation preserves upsert content and materializes task disposi
     }
     assert.equal(readFileSync(snapshotPath, "utf8"), original);
     assert.equal(JSON.stringify(events), before);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy relation carriers are isolated before missing pinned fields are normalized", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-history-relation-cut-"));
+  try {
+    const fixture = lifecycleFixture();
+    const identity = {
+      source: "task/task-1",
+      target: "task/task-1",
+      type: "depends-on",
+      direction: "directed",
+    } as const;
+    const relationId = deriveRelationId(identity);
+    const relation = {
+      relation_id: relationId,
+      ...identity,
+      strength: "strong",
+      origin: "declared",
+      state: "active",
+      rationale: "Historical hosted relation.",
+    };
+    const { pinned: _pinned, ...legacyTask } = fixture.events.at(-1)!.payload.task;
+    const added = {
+      ...fixture.events.at(-1),
+      eventId: "event-history-relation",
+      workspaceRevision: 8,
+      opId: "op_history_relation",
+      type: "task_relation_added",
+      payload: {
+        task: { ...legacyTask, relations: [relation] },
+        mutation: { command: "relate", reason: "Historical relation creation.", fields: [relationId] },
+        documentClaims: [],
+      },
+    } as unknown as CanonicalEventV1;
+    const snapshot = {
+      ...added,
+      eventId: "event-history-relation-snapshot",
+      workspaceRevision: 9,
+      opId: "op_history_relation_snapshot",
+      type: "task_amended",
+      payload: {
+        task: { ...legacyTask, relations: [relation] },
+        mutation: { command: "amend", reason: "Historical redundant snapshot.", fields: [] },
+        documentClaims: [],
+      },
+    } as unknown as CanonicalEventV1;
+    const events = [...fixture.events, added, snapshot];
+    const before = JSON.stringify(events);
+    const plan = planLegacyGenerationConversion({ rootDir: root, store: sourceStore(events, new Map()) });
+    assert.equal(plan.events[7]!.type, "relation_created");
+    assert.equal(plan.events[7]!.payload.relation.targetObservedVersion, 7);
+    assert.equal(Object.hasOwn(plan.events[8]!.payload.task, "relations"), false);
+    assert.ok(plan.events.every((event) => validateCurrentCanonicalEvent(event).length === 0));
+    assert.equal(JSON.stringify(events), before);
+    assert.equal(
+      planLegacyGenerationConversion({ rootDir: root, store: sourceStore(plan.events, new Map()) }).rewrites.length,
+      0,
+    );
+    // Missing declarations still fail; changing batch boundaries must not waive relation integrity.
+    assert.throws(
+      () =>
+        planLegacyGenerationConversion({
+          rootDir: root,
+          store: sourceStore([...fixture.events, { ...snapshot, workspaceRevision: 8 }], new Map()),
+        }),
+      /relations not present at its historical cut/,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

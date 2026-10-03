@@ -133,8 +133,13 @@ const taskV2SnapshotsMigration: EventShapeMigrationSpec = {
   name: "task-v2-snapshots",
   // A non-empty carrier reads the relation aggregate at the pre-event cut. In particular,
   // task_relation_added becomes the canonical relation event before later snapshots drop the
-  // retired hosted field.
-  matches: (event) => (taskWithRetiredRelations(event)?.relations.length ?? 0) > 0,
+  // retired hosted field. Match the raw carrier: another migration may normalize its task
+  // into validity within this batch, but cannot retroactively publish its required cut.
+  matches: (event) => {
+    const carrier = isTaskEvent(event) ? event : asTaskBootstrapEvent(event);
+    const relations = (carrier?.payload.task as (TaskV2 & { readonly relations?: unknown }) | undefined)?.relations;
+    return Array.isArray(relations) && relations.length > 0;
+  },
   rewrite: (event, cut) => {
     const legacy = taskWithRetiredRelations(event);
     if (legacy === null) return null;
