@@ -331,7 +331,7 @@ test(
           workspaceRoot: edgeRoot,
           method: "repo.agentRuntime.spawn",
           action: {
-            providerSessionId: "edge-provider-session",
+            dispatchId: receipt.dispatchId,
             cwd: { scope: "repo-root" },
             prompt: "Resume on the original runtime instance.",
             taskId: fixture.assignment.taskId,
