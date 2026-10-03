@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { localErrorHint } from "../src/renderer/result-validation.ts";
 import { invoke } from "../src/renderer/api-client-invoke.ts";
 import { resetGuiTransportForTest } from "../src/renderer/gui-transport.ts";
 
@@ -55,5 +56,31 @@ describe("renderer invoke assembles wire params per protocol declaration", () =>
     expect(settings.params).toEqual({ repo: { repoId: "canonical" } });
     const system = await browserInvoke("daemon.gui.system.read", {}, "getSystemStatus");
     expect(system.params).toEqual({});
+  });
+});
+
+describe("renderer rejection explanation", () => {
+  it("preserves the actual edge credential rejection instead of reporting malformed data", () => {
+    expect(
+      localErrorHint(
+        {
+          schema: "command-receipt/v2",
+          ok: false,
+          code: "credential_unknown",
+          rejectionExplanation: "Credential is not bound to a person.",
+          error: { code: "credential_unknown" },
+        },
+        "Workspace summary bridge returned an invalid result.",
+      ),
+    ).toBe("Credential is not bound to a person.");
+  });
+  it("retains hint support and ignores errors on successful responses", () => {
+    expect(localErrorHint({ ok: false, error: { hint: "Reconnect" } }, "Invalid result")).toBe("Reconnect");
+    expect(
+      localErrorHint({ ok: true, rejectionExplanation: "Denied", error: { hint: "Denied" } }, "Invalid result"),
+    ).toBe("Invalid result");
+    expect(
+      localErrorHint({ ok: false, rejectionExplanation: "  ", error: { code: "unknown" } }, "Invalid result"),
+    ).toBe("Invalid result");
   });
 });
