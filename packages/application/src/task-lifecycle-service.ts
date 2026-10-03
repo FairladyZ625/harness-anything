@@ -74,6 +74,7 @@ type RequestedReservation = Pick<Lease, "taskId" | "executionId" | "expiresAt" |
 export type TaskLifecycleServiceProof<C extends TaskLifecycleCommand> = C extends StartCommand
   ? {
       readonly actorBinding: C["actor"];
+      readonly claimant?: ProofFor<StartCommand>["claimant"];
       readonly deliveryBaseline: ExecutionDeliveryBaseline;
       readonly reservation: RequestedReservation;
     }
@@ -338,6 +339,7 @@ function planClaim(
     active,
     proof: {
       actorBinding: proof.actorBinding,
+      claimant: proof.claimant,
       deliveryBaseline: proof.deliveryBaseline,
       reservation: {
         taskId: active.taskId,
@@ -501,6 +503,8 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
       completionGateIds: command.completionGateIds,
       presetSnapshotDigest: command.presetSnapshotDigest,
     };
+  if (command.type === "AssignTask") return { ...common, assignment: command.assignment };
+  if (command.type === "UnassignTask") return common;
   if (command.type === "StartExecution") return { ...common, executionId: command.executionId };
   if (command.type === "CompleteTask")
     return {
@@ -584,27 +588,31 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
 }
 function operationIdentityFromEvent(event: TaskEventV1): unknown {
   const type =
-    event.type === "task_created"
-      ? "CreateReplayTask"
-      : event.type === "execution_started"
-        ? "StartExecution"
-        : event.type === "lease_renewed"
-          ? "RenewLease"
-          : event.type === "task_transitioned"
-            ? "TransitionTask"
-            : event.type === "execution_submitted"
-              ? "SubmitExecution"
-              : event.type === "submission_forwarded" || event.type === "submission_returned"
-                ? "AdjudicateSubmission"
-                : event.type === "review_recorded"
-                  ? "RecordReview"
-                  : event.type === "review_consent_recorded" || event.type === "review_consent_overridden"
-                    ? "RecordReviewConsent"
-                    : event.type === "code_doc_reconciled"
-                      ? "ReconcileCodeDoc"
-                      : event.type === "code_doc_repointed"
-                        ? "RepointCodeDoc"
-                        : "CompleteTask";
+    event.type === "task_assigned"
+      ? "AssignTask"
+      : event.type === "task_unassigned"
+        ? "UnassignTask"
+        : event.type === "task_created"
+          ? "CreateReplayTask"
+          : event.type === "execution_started"
+            ? "StartExecution"
+            : event.type === "lease_renewed"
+              ? "RenewLease"
+              : event.type === "task_transitioned"
+                ? "TransitionTask"
+                : event.type === "execution_submitted"
+                  ? "SubmitExecution"
+                  : event.type === "submission_forwarded" || event.type === "submission_returned"
+                    ? "AdjudicateSubmission"
+                    : event.type === "review_recorded"
+                      ? "RecordReview"
+                      : event.type === "review_consent_recorded" || event.type === "review_consent_overridden"
+                        ? "RecordReviewConsent"
+                        : event.type === "code_doc_reconciled"
+                          ? "ReconcileCodeDoc"
+                          : event.type === "code_doc_repointed"
+                            ? "RepointCodeDoc"
+                            : "CompleteTask";
   const common = {
     type,
     taskId: event.taskId,
@@ -614,6 +622,8 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
     source: event.source,
     occurredAt: event.occurredAt,
   };
+  if (event.type === "task_assigned") return { ...common, assignment: event.payload.task.assignment };
+  if (event.type === "task_unassigned") return common;
   if (event.type === "task_created")
     return {
       ...common,

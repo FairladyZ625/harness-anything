@@ -11,6 +11,7 @@ import {
   type WriteReceipt,
   type WriteReceiptDraft,
   type WriteSource,
+  type TaskClaimant,
 } from "@harness-anything/kernel";
 import { type PresetRunReceiptV1 } from "@harness-anything/preset";
 import { type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
@@ -37,6 +38,8 @@ export type RepoTaskAction = Readonly<Record<string, unknown>> & {
 };
 
 export interface RepoCellBinding {
+  /** Online directory facts resolved inside the center writer, never accepted from transport. */
+  readonly taskClaimant?: TaskClaimant;
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   /** Established exclusively by the daemon local socket boundary for host-resident actions. */

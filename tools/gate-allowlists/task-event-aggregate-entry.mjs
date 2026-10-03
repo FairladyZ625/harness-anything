@@ -4,6 +4,9 @@
  * while adding one requires an explicit governance change.
  */
 export const TASK_EVENT_CONSTRUCTION_ALLOWLIST = Object.freeze({
+  // dec_CDDCFA8BB91A47BCE07B229E93 CH2; exact registration authorized by task_979e2b2f67da905e550059992a.
+  "packages/kernel/src/domain/task-assignment-transitions.ts|envelope-call|task_assigned": 1,
+  "packages/kernel/src/domain/task-assignment-transitions.ts|envelope-call|task_unassigned": 1,
   "packages/daemon/src/repo-cell-task-command-docs.ts|dynamic-task-event|<dynamic>": 1,
   "packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_amended": 1,
   "packages/daemon/src/repo-cell-task-mutation.ts|literal-type|task_archived": 1,
@@ -17,5 +20,5 @@ export const TASK_EVENT_CONSTRUCTION_ALLOWLIST = Object.freeze({
   "packages/kernel/src/domain/task-lifecycle-contract-support.ts|dynamic-task-event|<dynamic>": 1,
   "packages/kernel/src/domain/task-lifecycle-review-transitions.ts|envelope-call|task_completed": 1,
   "packages/kernel/src/domain/task-progress-event.ts|literal-type|task_progress_appended": 1,
-  "packages/preset/src/preset-bootstrap.ts|literal-type|task_bootstrapped": 1
+  "packages/preset/src/preset-bootstrap.ts|literal-type|task_bootstrapped": 1,
 });

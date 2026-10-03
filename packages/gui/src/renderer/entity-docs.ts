@@ -289,6 +289,8 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       },
     ],
     actions: [
+      "assign",
+      "unassign",
       "create",
       "start",
       "transition",

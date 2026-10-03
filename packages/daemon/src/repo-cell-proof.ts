@@ -134,6 +134,7 @@ export async function proofFor(
     const rejoined = snapshot.executions.find((execution) => execution.executionId === executionId);
     return {
       actorBinding: command.actor,
+      claimant: binding.taskClaimant,
       deliveryBaseline:
         rejoined !== undefined && isNativeExecution(rejoined) && rejoined.deliveryBaseline !== undefined
           ? rejoined.deliveryBaseline
@@ -150,7 +151,7 @@ export async function proofFor(
       authorizationDecision,
     };
   }
-  if (command.type === "TransitionTask") return {};
+  if (command.type === "TransitionTask" || command.type === "AssignTask" || command.type === "UnassignTask") return {};
   if (command.type === "SubmitExecution") {
     if (command.amend === true)
       return {

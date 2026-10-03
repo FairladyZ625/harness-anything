@@ -69,8 +69,9 @@ export function projectTaskActions() {
         },
       },
     }));
-  if (actions.length !== 10 || actions.some(({ execution }) => !execution.topology))
-    throw new Error("Task Action protocol projection requires create and nine lifecycle descriptors.");
+  // dec_CDDCFA8BB91A47BCE07B229E93 CH2 adds assign/unassign to the declared lifecycle inventory.
+  if (actions.length !== 12 || actions.some(({ execution }) => !execution.topology))
+    throw new Error("Task Action protocol projection requires create and eleven lifecycle descriptors.");
   const create = descriptors.find(({ id }) => id === "create"),
     start = descriptors.find(({ id }) => id === "start");
   if (!create || !start) throw new Error("Task create/start descriptors are missing.");

@@ -70,6 +70,10 @@ const taskCapabilityEvaluators = Object.freeze(
           ? "met"
           : "unmet",
     ],
+    [key("assign", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
+    [key("assign", "task-assignment-transitions/assignTask.validate"), mutationInvocation],
+    [key("unassign", "task-assignment-transitions/unassignTask.validate"), mutationInvocation],
+    [key("unassign", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("transition", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("transition", "lifecycle-status/explainStatusTransition"), mutationInvocation],
     [key("submit", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],

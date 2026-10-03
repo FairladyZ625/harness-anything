@@ -357,3 +357,10 @@ export {
   readAcceptedCommandOutcome,
   waitForReceiptAcceptance,
 } from "./composition/receipt-acceptance.ts";
+
+export {
+  validTaskAssignment,
+  taskAssignmentMatches,
+  type TaskAssignment,
+  type TaskClaimant,
+} from "./domain/task-assignment.ts";

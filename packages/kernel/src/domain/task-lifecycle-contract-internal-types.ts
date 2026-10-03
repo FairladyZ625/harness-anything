@@ -1,3 +1,4 @@
+import type { TaskAssignment, TaskClaimant } from "./task-assignment.ts";
 import { EXECUTION_V1_SCHEMA, LEASE_V1_SCHEMA } from "./execution.ts";
 import type { ExecutionDeliveryBaseline, LeaseHolder, LeaseV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA } from "./review.ts";
@@ -50,6 +51,10 @@ export interface CreateReplayTaskIntent extends Intent<"CreateReplayTask"> {
   readonly completionGateIds: readonly string[];
   readonly presetSnapshotDigest: `sha256:${string}` | null;
 }
+export interface AssignTaskIntent extends Intent<"AssignTask"> {
+  readonly assignment: TaskAssignment;
+}
+export type UnassignTaskIntent = Intent<"UnassignTask">;
 export interface StartExecutionIntent extends Intent<"StartExecution"> {
   readonly executionId: string;
   readonly ttlMs?: number;
@@ -116,6 +121,8 @@ export interface CompleteTaskIntent extends Intent<"CompleteTask"> {
 }
 export type TaskLifecycleCommandIntent =
   | CreateReplayTaskIntent
+  | AssignTaskIntent
+  | UnassignTaskIntent
   | StartExecutionIntent
   | TransitionTaskIntent
   | SubmitExecutionIntent
@@ -133,6 +140,8 @@ type Meta = {
   readonly occurredAt: string;
 };
 export type CreateReplayTaskCommand = NormalizedTaskLifecycleCommand<CreateReplayTaskIntent> & Meta;
+export type AssignTaskCommand = NormalizedTaskLifecycleCommand<AssignTaskIntent> & Meta;
+export type UnassignTaskCommand = NormalizedTaskLifecycleCommand<UnassignTaskIntent> & Meta;
 export type StartExecutionCommand = NormalizedTaskLifecycleCommand<StartExecutionIntent> & Meta;
 export type TransitionTaskCommand = NormalizedTaskLifecycleCommand<TransitionTaskIntent> & Meta;
 export type SubmitExecutionCommand = NormalizedTaskLifecycleCommand<SubmitExecutionIntent> & Meta;
@@ -144,6 +153,8 @@ export type RepointCodeDocCommand = NormalizedTaskLifecycleCommand<RepointCodeDo
 export type CompleteTaskCommand = NormalizedTaskLifecycleCommand<CompleteTaskIntent> & Meta;
 export type TaskLifecycleCommand =
   | CreateReplayTaskCommand
+  | AssignTaskCommand
+  | UnassignTaskCommand
   | StartExecutionCommand
   | TransitionTaskCommand
   | SubmitExecutionCommand
@@ -158,6 +169,7 @@ export interface CreateReplayTaskProof {
   readonly actorBinding: ActorAxes;
 }
 export interface StartExecutionProof {
+  readonly claimant?: TaskClaimant;
   readonly actorBinding: ActorAxes;
   readonly deliveryBaseline: ExecutionDeliveryBaseline;
   readonly reservation: {
@@ -220,25 +232,27 @@ export interface CompleteTaskProof {
 }
 export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTaskCommand
   ? CreateReplayTaskProof
-  : C extends StartExecutionCommand
-    ? StartExecutionProof
-    : C extends TransitionTaskCommand
-      ? TransitionTaskProof
-      : C extends SubmitExecutionCommand
-        ? SubmitExecutionProof
-        : C extends AdjudicateSubmissionCommand
-          ? AdjudicationProof
-          : C extends RecordReviewCommand
-            ? ReviewProof
-            : C extends RecordReviewConsentCommand
-              ? ReviewConsentProof
-              : C extends ReconcileCodeDocCommand
-                ? CodeDocProof
-                : C extends RepointCodeDocCommand
-                  ? RepointCodeDocProof
-                  : C extends CompleteTaskCommand
-                    ? CompleteTaskProof
-                    : never;
+  : C extends AssignTaskCommand | UnassignTaskCommand
+    ? TransitionTaskProof
+    : C extends StartExecutionCommand
+      ? StartExecutionProof
+      : C extends TransitionTaskCommand
+        ? TransitionTaskProof
+        : C extends SubmitExecutionCommand
+          ? SubmitExecutionProof
+          : C extends AdjudicateSubmissionCommand
+            ? AdjudicationProof
+            : C extends RecordReviewCommand
+              ? ReviewProof
+              : C extends RecordReviewConsentCommand
+                ? ReviewConsentProof
+                : C extends ReconcileCodeDocCommand
+                  ? CodeDocProof
+                  : C extends RepointCodeDocCommand
+                    ? RepointCodeDocProof
+                    : C extends CompleteTaskCommand
+                      ? CompleteTaskProof
+                      : never;
 export interface TransitionResult {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly event: TaskEventV1;

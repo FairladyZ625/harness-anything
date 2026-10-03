@@ -36,6 +36,90 @@ export const taskActionDescriptorProjection = {
   ],
   actions: [
     {
+      id: "assign",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", type: "string", required: true },
+          {
+            field: "expectedVersion",
+            type: "number",
+            required: true,
+            regex: "^[0-9]+$",
+            cli: { projection: "number", name: "--expected-version", kind: "single", error: "missing_field" },
+          },
+          {
+            field: "personId",
+            type: "string",
+            required: false,
+            cli: { name: "--person", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "nodeId",
+            type: "string",
+            required: false,
+            cli: { name: "--node", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "teamId",
+            type: "string",
+            required: false,
+            cli: { name: "--team", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "expiresAt",
+            type: "string",
+            required: false,
+            cli: { name: "--expires-at", kind: "single", error: "invalid_field" },
+          },
+          { field: "commandType", type: "string", required: false, enum: ["AssignTask"] },
+        ],
+        exactlyOneOf: [["personId", "nodeId", "teamId"]],
+      },
+      explain: "Assign a task to a person, a specific node or a work team until the chosen expiry.",
+      execution: {
+        ingress: "task-assign",
+        topology: "center-forward-write",
+        remoteEdgeAdmission: "via-center-forward",
+        lifecycle: {
+          transitionId: "assign_task",
+          commandType: "AssignTask",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
+      id: "unassign",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", type: "string", required: true },
+          {
+            field: "expectedVersion",
+            type: "number",
+            required: true,
+            regex: "^[0-9]+$",
+            cli: { projection: "number", name: "--expected-version", kind: "single", error: "missing_field" },
+          },
+          { field: "commandType", type: "string", required: false, enum: ["UnassignTask"] },
+        ],
+        exactlyOneOf: [],
+      },
+      explain: "Remove the task assignment while no execution holds its lease.",
+      execution: {
+        ingress: "task-unassign",
+        topology: "center-forward-write",
+        remoteEdgeAdmission: "via-center-forward",
+        lifecycle: {
+          transitionId: "unassign_task",
+          commandType: "UnassignTask",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
       id: "start",
       input: {
         schema: "entity-action-input/v1",
@@ -641,6 +725,19 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "taskAssignmentTtlMs",
+      description: "Default task assignment duration in milliseconds.",
+      type: "number",
+      required: false,
+    },
+    {
+      field: "fleetClaimScope",
+      description: "Which eligible tasks nodes may claim automatically.",
+      type: "string",
+      required: false,
+      enum: ["node", "reserved", "startable"],
+    },
+    {
       field: "scheduleAdmissionWindowMs",
       description: "How late a scheduled run may still start when nothing was awake at its due time, in milliseconds.",
       type: "number",
@@ -848,6 +945,25 @@ export const settingsFieldProtocolProjection = {
       kind: "repeated",
       regex: "^(?:none|(?:node-modules|run: \\S.*))$",
       format: "built-in adapter (node-modules), run: <command>, or none to clear",
+    },
+    {
+      field: "taskAssignmentTtlMs",
+      description: "Default task assignment duration in milliseconds.",
+      group: "new-task-defaults",
+      effect: "Applies to new assignments only; existing expiry and execution leases stay unchanged.",
+      name: "--task-assignment-ttl-ms",
+      kind: "single",
+      regex: "^[1-9][0-9]*$",
+      projection: "number",
+    },
+    {
+      field: "fleetClaimScope",
+      description: "Which eligible tasks nodes may claim automatically.",
+      group: "schedules-nodes",
+      effect: "Node selects named nodes; reserved includes people and teams; startable also includes unassigned tasks.",
+      name: "--fleet-claim-scope",
+      kind: "single",
+      enum: ["node", "reserved", "startable"],
     },
     {
       field: "scheduleAdmissionWindowMs",

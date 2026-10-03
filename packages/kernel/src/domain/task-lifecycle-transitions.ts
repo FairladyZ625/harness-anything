@@ -1,3 +1,4 @@
+import { assignTask, unassignTask } from "./task-assignment-transitions.ts";
 import type { Transition } from "./task-lifecycle-contract-internal-types.ts";
 import {
   block,
@@ -16,6 +17,8 @@ import { repoint } from "./task-lifecycle-code-doc-repoint.ts";
 // Ordered lifecycle transition registry.
 export const TASK_LIFECYCLE_TRANSITIONS: readonly Transition[] = Object.freeze([
   create,
+  assignTask,
+  unassignTask,
   start,
   block,
   reinstate,

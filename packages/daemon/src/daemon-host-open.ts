@@ -221,7 +221,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     keycloakCenter: KeycloakCenterAuthority = async () => ({ ...(await oidc.center()), clientId: "harness-center" }),
     hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
-      const base = await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor);
+      const principal = await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor),
+        base = {
+          ...principal,
+          keycloakAuthorization: { ...principal.keycloakAuthorization, center: await keycloakCenter() },
+        };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     },
     closeDaemonWriterEpoch = () => {

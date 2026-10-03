@@ -345,6 +345,22 @@ export class KeycloakPolicyAdapter {
     return users.length === 1 && typeof users[0]!.id === "string" ? users[0]!.id : undefined;
   }
 
+  async readPersonTeams(adminAccessToken: string, personId: string): Promise<readonly string[]> {
+    const userId = await this.findUserId(adminAccessToken, personId);
+    if (!userId) throw new Error(`Keycloak has no unique user for ${personId}.`);
+    const groups = await this.#pages<NamedRepresentation>(
+      adminAccessToken,
+      `/users/${encodeURIComponent(userId)}/groups`,
+    );
+    return groups.map((group) => requiredId(group, "work team"));
+  }
+
+  async readTeam(adminAccessToken: string, teamId: string): Promise<{ readonly id: string; readonly name: string }> {
+    const group = await this.#json<NamedRepresentation>(adminAccessToken, `/groups/${encodeURIComponent(teamId)}`);
+    if (typeof group.name !== "string") throw new Error("Keycloak work team name is missing.");
+    return { id: requiredId(group, "work team"), name: group.name };
+  }
+
   async readNodes(adminAccessToken: string): Promise<readonly KeycloakNode[]> {
     const clients = await this.#pages<NodeClient>(
       adminAccessToken,
