@@ -47,7 +47,7 @@ import {
   preflightConvertedGenerationActivation,
 } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { sqliteContentObjectPath } from "../../kernel/test/store/canonical-generation.fixtures.ts";
-import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
+import { lifecycleFixture, twoRoundLifecycleEvents } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
 
 test("stopped legacy Git plus accepted WAL suffix converts with a certified cold-start follower", async () => {
@@ -353,6 +353,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
         lastRevision,
       })),
       [
+        { name: "submission-completion-contract", count: 0, firstRevision: null, lastRevision: null },
         { name: "task-v2-snapshots", count: 0, firstRevision: null, lastRevision: null },
         { name: "legacy-import-normalization", count: 0, firstRevision: null, lastRevision: null },
         { name: "relation-events", count: 0, firstRevision: null, lastRevision: null },
@@ -1113,6 +1114,315 @@ test("offline conversion retains old CI labels as unverified measurements", () =
     const repeated = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(plan.events, () => null) });
     assert.deepEqual(repeated.events, plan.events);
     assert.equal(repeated.rewrites.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// Construct source pins from the historical content, independently of the converter.
+function preFreezeEvents(events: readonly TaskEventV1[], unpinned = false): readonly CanonicalEventV1[] {
+  return events.map((event) => {
+    const payload = event.payload as CanonicalEventV1["payload"];
+    if (!payload.execution?.submission) return event;
+    const { completionContract: _contract, ...submission } = payload.execution.submission,
+      pin = submissionDigest(submission),
+      result = { ...payload, execution: { ...payload.execution, submission } };
+    if (payload.review) {
+      const { submissionDigest: _pin, ...review } = payload.review;
+      result.review = unpinned ? review : { ...review, submissionDigest: pin };
+    }
+    if (payload.consent) {
+      const { submissionDigest: _pin, ...consent } = payload.consent;
+      result.consent = {
+        ...consent,
+        reviewDigest: reviewDigest(result.review),
+        ...(unpinned ? {} : { submissionDigest: pin }),
+      };
+    }
+    if (payload.disposition) result.disposition = { ...payload.disposition, submissionDigest: pin };
+    return { ...event, payload: result } as CanonicalEventV1;
+  });
+}
+
+for (const unpinned of [false, true]) {
+  test(`pre-freeze ${unpinned ? "unpinned" : "pinned"} lifecycle converts through an inactive generation`, () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-generation-pre-freeze-"));
+    try {
+      initRepo(root);
+      const legacy = preFreezeEvents(lifecycleFixture().events, unpinned),
+        before = stableStringify(legacy),
+        source = arrayStore(legacy, () => null),
+        snapshotPath = path.join(root, ".harness/store/imports/source.json"),
+        databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite");
+      createImmutableLegacyGenerationSnapshot({ repoId: "pre-freeze", source, snapshotPath });
+      const sourceBytes = readFileSync(snapshotPath, "utf8"),
+        converted = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
+      assert.equal(converted.active, false);
+      const store = openSqliteEventStore({ repoId: "pre-freeze", databasePath });
+      try {
+        const events = store.events(),
+          submitted = events.find((event) => event.type === "execution_submitted")!,
+          consent = events.find((event) => event.type === "review_consent_recorded")!,
+          submission = submitted.payload.execution.submission,
+          pin = submissionDigest(submission);
+        assert.deepEqual(submission.completionContract, { gates: [] });
+        for (const event of events) {
+          if (event.payload.execution?.submission) assert.deepEqual(event.payload.execution.submission, submission);
+          if (event.payload.review) assert.equal(event.payload.review.submissionDigest, pin);
+          assert.deepEqual(validateCurrentCanonicalEvent(event), []);
+        }
+        assert.equal(consent.payload.consent.submissionDigest, pin);
+        assert.equal(consent.payload.consent.reviewDigest, reviewDigest(consent.payload.review));
+        assert.equal(
+          planLegacyGenerationConversion({
+            rootDir: root,
+            store: arrayStore(events, (digest) => store.readContentObject(digest)),
+          }).rewrites.length,
+          0,
+        );
+      } finally {
+        store.close();
+      }
+      assert.equal(readFileSync(snapshotPath, "utf8"), sourceBytes);
+      assert.equal(stableStringify(legacy), before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("pre-freeze conversion refuses incorrect source review and consent bindings", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-generation-bad-pins-"));
+  try {
+    const legacy = preFreezeEvents(lifecycleFixture().events),
+      badPin = `sha256:${"f".repeat(64)}`;
+    for (const [field, digestField] of [
+      ["review", "submissionDigest"],
+      ["consent", "submissionDigest"],
+      ["consent", "reviewDigest"],
+      ["consent", "contentDigest"],
+    ]) {
+      const broken = legacy.map((event) =>
+        event.type !== "review_consent_recorded"
+          ? event
+          : ({
+              ...event,
+              payload: { ...event.payload, [field!]: { ...event.payload[field!], [digestField!]: badPin } },
+            } as CanonicalEventV1),
+      );
+      assert.throws(
+        () => planLegacyGenerationConversion({ rootDir: root, store: arrayStore(broken, () => null) }),
+        /invalid source/u,
+      );
+    }
+    const frozen = lifecycleFixture().events;
+    const unchanged = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(frozen, () => null) });
+    assert.equal(unchanged.rewrites.length, 0);
+    assert.deepEqual(unchanged.events, frozen);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pre-freeze override converts disposition and preserves multiple execution cuts", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-generation-override-"));
+  try {
+    const fixture = lifecycleFixture(),
+      approved = fixture.events.find((event) => event.type === "review_recorded")!,
+      negative = {
+        ...approved,
+        opId: "op-negative",
+        eventId: "event-negative",
+        payload: {
+          ...approved.payload,
+          review: { ...approved.payload.review, reviewId: "negative-review", verdict: "changes_requested" },
+        },
+      } as TaskEventV1,
+      events = fixture.events
+        .flatMap((event) => {
+          if (event.type === "review_recorded") return [negative, event];
+          if (event.type !== "review_consent_recorded") return [event];
+          return [
+            {
+              ...event,
+              type: "review_consent_overridden",
+              payload: {
+                ...event.payload,
+                disposition: {
+                  schema: "review-disposition/v1",
+                  dispositionId: "override-1",
+                  taskId: event.taskId,
+                  executionId: event.payload.execution.executionId,
+                  iteration: event.payload.execution.iteration,
+                  submissionDigest: event.payload.review.submissionDigest,
+                  disposedReviewIds: ["negative-review"],
+                  rationale: "Owner resolved the disagreement",
+                  actor: event.actor,
+                  source: event.source,
+                  disposedAt: event.occurredAt,
+                },
+              },
+            } as TaskEventV1,
+          ];
+        })
+        .map((event, index) => ({ ...event, workspaceRevision: index + 1 })),
+      source = preFreezeEvents(events),
+      plan = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(source, () => null) }),
+      override = plan.events.find((event) => event.type === "review_consent_overridden")!;
+    assert.equal(
+      override.payload.disposition.submissionDigest,
+      submissionDigest(override.payload.execution.submission),
+    );
+    assert.equal(override.payload.consent.reviewDigest, reviewDigest(override.payload.review));
+    const invalid = source.map((event) =>
+      event.type !== "review_consent_overridden"
+        ? event
+        : ({
+            ...event,
+            payload: {
+              ...event.payload,
+              disposition: { ...event.payload.disposition, submissionDigest: `sha256:${"f".repeat(64)}` },
+            },
+          } as CanonicalEventV1),
+    );
+    assert.throws(
+      () => planLegacyGenerationConversion({ rootDir: root, store: arrayStore(invalid, () => null) }),
+      /invalid source submission digest/u,
+    );
+    const rounds = preFreezeEvents(twoRoundLifecycleEvents().events),
+      converted = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(rounds, () => null) });
+    assert.ok(converted.events.every((event) => validateCurrentCanonicalEvent(event).length === 0));
+    assert.equal(
+      planLegacyGenerationConversion({ rootDir: root, store: arrayStore(converted.events, () => null) }).rewrites
+        .length,
+      0,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("submission amendments translate the previous content id, including a frozen successor", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-generation-amendment-"));
+  try {
+    const events = preFreezeEvents(lifecycleFixture({ complete: false }).events),
+      last = events.at(-1)!,
+      original = last.payload.execution.submission;
+    for (const frozen of [false, true]) {
+      const submission = {
+          ...original,
+          completionClaim: "amended delivery",
+          ...(frozen ? { completionContract: { gates: [] } } : {}),
+        },
+        amendment = {
+          ...last,
+          type: "execution_submitted",
+          eventId: "event-amendment",
+          opId: "op-amendment",
+          workspaceRevision: events.length + 1,
+          occurredAt: "2026-08-11T00:08:00.000Z",
+          payload: {
+            task: last.payload.task,
+            documentClaims: [],
+            execution: { ...last.payload.execution, submittedAt: "2026-08-11T00:08:00.000Z", submission },
+            supersedesSubmissionId: `submission:${submissionDigest(original)}`,
+          },
+        } as CanonicalEventV1,
+        plan = planLegacyGenerationConversion({ rootDir: root, store: arrayStore([...events, amendment], () => null) }),
+        first = plan.events.find((event) => event.type === "execution_submitted")!,
+        amended = plan.events.at(-1)!;
+      assert.equal(
+        amended.payload.supersedesSubmissionId,
+        `submission:${submissionDigest(first.payload.execution.submission)}`,
+      );
+      if (frozen) assert.deepEqual(amended.payload.execution.submission, submission);
+      assert.equal(
+        planLegacyGenerationConversion({ rootDir: root, store: arrayStore(plan.events, () => null) }).rewrites.length,
+        0,
+      );
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pre-freeze gate evidence keeps its observed provenance and updates only a valid basis pin", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-generation-gate-basis-"));
+  try {
+    initRepo(root);
+    const events = preFreezeEvents(
+        lifecycleFixture({
+          complete: false,
+          gates: [
+            {
+              gateId: "ci",
+              appliesTo: "code",
+              witness: {
+                adapterId: "github-actions",
+                adapterOptions: {
+                  workflows: ["rewrite-ci"],
+                  branch: "main",
+                  event: "push",
+                  coverage: "descendant",
+                  selection: "newest",
+                },
+              },
+            },
+          ],
+        }).events,
+      ),
+      last = events.at(-1)!,
+      execution = last.payload.execution,
+      witness = {
+        schema: "completion-gate-witness/v1",
+        witnessId: "witness-1",
+        receiptId: "op-witness",
+        checkerId: "github-actions",
+        gateId: "ci",
+        result: "pass",
+        observed: true,
+        taskId: last.taskId,
+        executionId: execution.executionId,
+        commitSha: execution.submission.commitSha,
+        iteration: execution.iteration,
+        actor: last.actor,
+        source: last.source,
+        verifiedAt: last.occurredAt,
+        basis: {
+          executionId: execution.executionId,
+          iteration: execution.iteration,
+          submissionDigest: submissionDigest(execution.submission),
+          codeCommit: execution.submission.commitSha,
+        },
+        provenance: { source: "runner", adapterId: "github-actions", runId: "run-1", rawResult: "success" },
+      },
+      event = {
+        ...last,
+        type: "completion_gate_verified",
+        eventId: "event-witness",
+        opId: "op-witness",
+        workspaceRevision: events.length + 1,
+        payload: { task: last.payload.task, execution, witness, documentClaims: [] },
+      } as CanonicalEventV1,
+      plan = planLegacyGenerationConversion({ rootDir: root, store: arrayStore([...events, event], () => null) }),
+      rewritten = plan.events.at(-1)!;
+    assert.equal(
+      rewritten.payload.witness.basis.submissionDigest,
+      submissionDigest(rewritten.payload.execution.submission),
+    );
+    assert.deepEqual(rewritten.payload.witness.provenance, witness.provenance);
+    assert.equal(rewritten.payload.witness.observed, true);
+    const broken = {
+      ...event,
+      payload: {
+        ...event.payload,
+        witness: { ...witness, basis: { ...witness.basis, submissionDigest: `sha256:${"f".repeat(64)}` } },
+      },
+    } as CanonicalEventV1;
+    assert.throws(
+      () => planLegacyGenerationConversion({ rootDir: root, store: arrayStore([...events, broken], () => null) }),
+      /invalid source submission digest/u,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

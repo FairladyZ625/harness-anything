@@ -23,6 +23,13 @@ export interface EventStreamPort {
 export type EventContentPrefetch = (
   events: readonly PersistedCanonicalEventV1[],
 ) => ReadonlyMap<string, Uint8Array | null>;
+/** Per-round catch-up/rebuild progress: shared by incremental catch-up and full rebuilds so the
+ * daemon watchdog can tell working-but-slow workers apart from wedged ones. */
+export interface TaskProjectionCatchUpProgress {
+  readonly applied: number;
+  readonly total?: number;
+  readonly watermark: number;
+}
 export interface ProjectionContext {
   readonly projectionPath: string;
   readonly readHead: EventStreamPort["readHead"];

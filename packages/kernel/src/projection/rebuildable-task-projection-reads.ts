@@ -10,7 +10,7 @@ import {
   taskCreatedAtSql,
   type TaskProjectionListQuery,
 } from "./task-query-projection.ts";
-import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
+import type { EventStreamPort, TaskProjectionCatchUpProgress } from "./rebuildable-task-projection-types.ts";
 import type {
   DocumentProjectionRead,
   PresetSnapshotProjectionRead,
@@ -214,19 +214,34 @@ export function rebuildProjection(
   readHead: EventStreamPort["readHead"],
   eventStore: EventStreamPort,
   limit: number,
+  onProgress: (progress: TaskProjectionCatchUpProgress) => void = () => undefined,
 ): ProjectionRebuildReceipt {
   // Rebuild is a schema repair boundary as well as a data replay. Deleting the disposable
   // database ensures CREATE TABLE materializes current DDL instead of retaining any table
   // whose shape changed while its version metadata was stale or incorrect.
   discardDatabase(projectionPath, eventStore, "explicit_rebuild");
+  // Read the watermark after the discard: opening the pre-discard database first would run the
+  // ledger-identity assertion against a cache this rebuild is about to throw away. A discarded
+  // cache replays from zero, so rebuild progress is measured from an empty projection.
+  const initialWatermark = withDatabase(projectionPath, readHead, (db) => watermark(db));
   let transactions = 0,
     reducedItems = 0,
-    maxBatchItems = 0;
+    maxBatchItems = 0,
+    reportedWatermark = initialWatermark;
   for (;;) {
     const round = withDatabase(projectionPath, readHead, (db) => catchUpRound(db, eventStore, limit));
     transactions += round.sqliteTransactions;
     reducedItems += round.reducedItems;
     maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
+    if (round.watermark > reportedWatermark) {
+      const total = Math.max(0, round.sourceRevision - initialWatermark);
+      onProgress({
+        applied: Math.min(total, Math.max(0, round.watermark - initialWatermark)),
+        total,
+        watermark: round.watermark,
+      });
+      reportedWatermark = round.watermark;
+    }
     if (round.watermark === round.sourceRevision) break;
   }
   const result = withDatabase(projectionPath, readHead, (db) =>

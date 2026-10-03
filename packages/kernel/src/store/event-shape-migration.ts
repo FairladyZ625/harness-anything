@@ -3,6 +3,9 @@ import {
   validateCurrentCiRunObservationEvent,
   type CiRunObservationEventV2,
 } from "../domain/ci-run-observation-event.ts";
+import { inferLegacyGateRequirements } from "../domain/completion-contract.ts";
+import { readSettingsFacet } from "../domain/settings.ts";
+import { resolveHarnessLayout } from "../layout/index.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -12,8 +15,8 @@ import {
 } from "../domain/decision-event-document.ts";
 import type { DecisionEventV1 } from "../domain/decision-event-types.ts";
 import type { CanonicalEventV1, PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
-import { submissionDigest, type SubmissionV1 } from "../domain/execution.ts";
-import { reviewDigest, type ReviewConsentV1, type ReviewV1 } from "../domain/review.ts";
+import { submissionDigest, submissionId, type ExecutionV1, type SubmissionV1 } from "../domain/execution.ts";
+import { reviewDigest, type ReviewV1 } from "../domain/review.ts";
 import { dropRetiredSettingsWalFlush, normalizeHistoricalSettingsRoles } from "../domain/settings-history.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { canonicalMigrationProvenance, isMigrationImportEvent } from "../domain/migration-import-event.ts";
@@ -32,7 +35,7 @@ import { validateTaskV2, type TaskV2 } from "../domain/task.ts";
 import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { localEventFileSystem, localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { TaskProjection } from "../projection/task-projection-port.ts";
@@ -48,6 +51,7 @@ export type EventShapeMigrationName =
   | "task-v2-snapshots"
   | "legacy-import-normalization"
   | "relation-events"
+  | "submission-completion-contract"
   | "review-submission-pins"
   | "decision-digests"
   | "schedule-definitions"
@@ -351,42 +355,145 @@ function assertRelationsExistAtCut(
     throw new Error(`task snapshot ${opId} carries relations not present at its historical cut: ${missing.join(", ")}`);
 }
 
+function submittedExecution(event: CanonicalEventV1): ExecutionV1 | null {
+  const payload = event.payload as unknown;
+  return isRecord(payload) && isRecord(payload.execution) && isRecord(payload.execution.submission)
+    ? (payload.execution as unknown as ExecutionV1)
+    : null;
+}
+
+// Validate the original binding before adding fields covered by either digest. Only a
+// confirmed submission conversion may replace an existing pin; frozen cuts remain untouched.
+function pinSubmissionReferences(
+  event: CanonicalEventV1,
+  submission: SubmissionV1,
+  converted: SubmissionV1,
+): CanonicalEventV1 {
+  if (
+    !isTaskEvent(event) ||
+    (event.type !== "review_recorded" &&
+      event.type !== "review_consent_recorded" &&
+      event.type !== "review_consent_overridden")
+  )
+    return event;
+  const review = event.payload.review as ReviewV1,
+    oldPin = submissionDigest(submission),
+    pin = submissionDigest(converted),
+    changed = oldPin !== pin;
+  if (!changed && Object.hasOwn(review, "submissionDigest")) return event;
+  if (Object.hasOwn(review, "submissionDigest") && review.submissionDigest !== oldPin)
+    throw new Error(`review event ${event.opId} has an invalid source submission digest`);
+  const pinnedReview = { ...review, submissionDigest: pin };
+  if (event.type === "review_recorded")
+    return { ...event, payload: { ...event.payload, review: pinnedReview } } as CanonicalEventV1;
+  const consent = event.payload.consent;
+  if (
+    consent.reviewDigest !== reviewDigest(review) ||
+    consent.contentDigest !== review.contentDigest ||
+    (Object.hasOwn(consent, "submissionDigest") && consent.submissionDigest !== oldPin)
+  )
+    throw new Error(`consent event ${event.opId} has an invalid source digest binding`);
+  if (event.type === "review_consent_overridden" && event.payload.disposition.submissionDigest !== oldPin)
+    throw new Error(`disposition event ${event.opId} has an invalid source submission digest`);
+  return {
+    ...event,
+    payload: {
+      ...event.payload,
+      review: pinnedReview,
+      consent: { ...consent, reviewDigest: reviewDigest(pinnedReview), submissionDigest: pin },
+      ...(event.type === "review_consent_overridden"
+        ? { disposition: { ...event.payload.disposition, submissionDigest: pin } }
+        : {}),
+    },
+  } as CanonicalEventV1;
+}
+
 const reviewSubmissionPinsMigration: EventShapeMigrationSpec = {
   name: "review-submission-pins",
   matches: () => false,
   rewrite: (event) => {
-    if (!isTaskEvent(event) || (event.type !== "review_recorded" && event.type !== "review_consent_recorded"))
-      return null;
-    const review = event.payload.review as ReviewV1;
-    if (Object.hasOwn(review, "submissionDigest")) return null;
-    const submission = event.payload.execution.submission as SubmissionV1 | null;
-    if (submission === null) throw new Error(`review event ${event.opId} has no submitted execution to pin`);
-    const pin = submissionDigest(submission),
-      pinnedReview = { ...review, submissionDigest: pin };
-    if (event.type === "review_recorded")
-      return {
-        event: { ...event, payload: { ...event.payload, review: pinnedReview } } as CanonicalEventV1,
-        category: "review submission digest pinned",
-        before: review,
-        after: pinnedReview,
-      };
-    const consent = event.payload.consent as ReviewConsentV1,
-      pinnedConsent = {
-        ...consent,
-        reviewDigest: reviewDigest(pinnedReview),
-        ...(Object.hasOwn(consent, "submissionDigest") ? {} : { submissionDigest: pin }),
-      };
-    return {
-      event: {
-        ...event,
-        payload: { ...event.payload, review: pinnedReview, consent: pinnedConsent },
-      } as CanonicalEventV1,
-      category: "review and consent submission digests pinned",
-      before: { review, consent },
-      after: { review: pinnedReview, consent: pinnedConsent },
-    };
+    const execution = submittedExecution(event);
+    if (execution === null) return null;
+    const submission = execution.submission!,
+      pinned = pinSubmissionReferences(event, submission, submission);
+    return pinned === event
+      ? null
+      : {
+          event: pinned,
+          category: "review and consent submission digests pinned",
+          before: event.payload,
+          after: pinned.payload,
+        };
   },
 };
+
+// State belongs to this one offline planner. The first historical carrier fixes the
+// contract for its execution/iteration/content cut; later task settings cannot redefine it.
+function submissionCompletionContractMigration(rootDir: string): EventShapeMigrationSpec {
+  const cuts = new Map<string, SubmissionV1>(),
+    configPath = resolveHarnessLayout(rootDir).configPath,
+    workflows =
+      configPath !== undefined && localEventFileSystem.exists(configPath)
+        ? (readSettingsFacet(localEventFileSystem.readText(configPath)).ci.workflows ?? [])
+        : [];
+  return {
+    name: "submission-completion-contract",
+    matches: () => false,
+    rewrite: (event) => {
+      const execution = submittedExecution(event);
+      if (!isTaskEvent(event) || execution === null) return null;
+      const original = execution.submission!;
+      const frozen = Object.hasOwn(original, "completionContract");
+      const identity = [event.taskId, execution.executionId, execution.iteration],
+        key = canonicalJson([...identity, submissionDigest(original)]);
+      let cut = cuts.get(key);
+      if (cut === undefined && frozen) {
+        cut = original;
+        cuts.set(key, cut);
+      }
+      if (cut === undefined) {
+        const declared = [...new Set(event.payload.task.completionGateIds)],
+          gates = inferLegacyGateRequirements(declared, workflows);
+        if (gates.length !== declared.length)
+          throw new Error(`legacy submission ${event.opId} has gates without historical witness mappings`);
+        cut = { ...original, completionContract: { gates } };
+        cuts.set(key, cut);
+      }
+      let pinned = frozen ? event : pinSubmissionReferences(event, original, cut);
+      if (event.type === "execution_submitted" && event.payload.supersedesSubmissionId !== undefined) {
+        const oldDigest = event.payload.supersedesSubmissionId.slice("submission:".length),
+          previous = cuts.get(canonicalJson([...identity, oldDigest]));
+        if (previous !== undefined && submissionId(previous) !== event.payload.supersedesSubmissionId)
+          pinned = {
+            ...pinned,
+            payload: { ...pinned.payload, supersedesSubmissionId: submissionId(previous) },
+          } as CanonicalEventV1;
+      }
+      if (!frozen && event.type === "completion_gate_verified" && event.payload.witness.basis !== undefined) {
+        const witness = event.payload.witness;
+        if (witness.basis!.submissionDigest !== submissionDigest(original))
+          throw new Error(`gate witness ${event.opId} has an invalid source submission digest`);
+        pinned = {
+          ...pinned,
+          payload: {
+            ...pinned.payload,
+            witness: { ...witness, basis: { ...witness.basis!, submissionDigest: submissionDigest(cut) } },
+          },
+        } as CanonicalEventV1;
+      }
+      if (frozen && pinned === event) return null;
+      return {
+        event: {
+          ...pinned,
+          payload: { ...pinned.payload, execution: { ...execution, submission: cut } },
+        } as CanonicalEventV1,
+        category: "pre-freeze submission and its evidence bindings converted",
+        before: event.payload,
+        after: { ...pinned.payload, execution: { ...execution, submission: cut } },
+      };
+    },
+  };
+}
 
 const relationEventsMigration: EventShapeMigrationSpec = {
   name: "relation-events",
@@ -718,7 +825,7 @@ function replayRewrites(
       if (batch.prefetchContent) prefetchContent = batch.prefetchContent;
     }
   };
-  const migrations = generationShapeMigrations;
+  const migrations = [submissionCompletionContractMigration(input.rootDir), ...generationShapeMigrations];
   // Each cut-dependent candidate is the first and only event in its batch. TaskProjection applies
   // the previous batch before requesting the next one, so rewrite sees the exact pre-event cut.
   // The stream head remains the real final head, which makes one catchUp settle one state digest.
@@ -811,7 +918,7 @@ function rewriteToFixedPoint(
 function summarizeMigrationFamilies(
   rewrites: LegacyGenerationConversionPlan["rewrites"],
 ): readonly EventShapeMigrationFamilyReport[] {
-  return generationShapeMigrations.map(({ name }) => {
+  return [{ name: "submission-completion-contract" as const }, ...generationShapeMigrations].map(({ name }) => {
     const revisions = rewrites.filter((rewrite) => rewrite.migration === name).map((rewrite) => rewrite.revision);
     return {
       name,
