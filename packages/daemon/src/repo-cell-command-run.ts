@@ -58,7 +58,7 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
     const requested = { action, binding },
       durable = (durablePolicyActions as readonly string[]).includes(action.kind),
       // A durable executor claim is verified in the publication turn that authorizes and executes it.
-      claimAtPublication = durable && action.executor != null,
+      claimAtPublication = durable && (action.executor != null || binding.executionPrincipal !== undefined),
       bindExecutorClaim = async (): Promise<WriteReceipt | null> => {
         try {
           ({ action, binding } = bindVerifiedExecutorClaim({
@@ -103,7 +103,7 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
     if (claimAtPublication) {
       const { executor: _claim, ...unclaimed } = action;
       action = unclaimed as RepoTaskAction;
-    } else if (action.executor != null) {
+    } else if (action.executor != null || binding.executionPrincipal !== undefined) {
       const claimRejected = await bindExecutorClaim();
       if (claimRejected) return claimRejected;
     }

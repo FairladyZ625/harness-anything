@@ -422,11 +422,7 @@ export async function openRepoWriterCell(
   };
   const onlineBinding = async (binding: RepoCellBinding): Promise<RepoCellBinding> => ({
     ...binding,
-    ...(binding.keycloakAuthorization
-      ? {}
-      : input.keycloakCenter
-        ? { keycloakAuthorization: { center: await input.keycloakCenter() } }
-        : {}),
+    ...(input.keycloakCenter ? { keycloakAuthorization: { center: await input.keycloakCenter() } } : {}),
   });
   const authorizeRuntimeAction = async (
     action: RepoTaskAction,
@@ -463,6 +459,7 @@ export async function openRepoWriterCell(
     now,
     schedule,
     runtimeInstances: input.runtimeInstances,
+    keycloakCenter: input.keycloakCenter,
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
     ...(input.prepareWorkerGitEnvironment ? { prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment } : {}),
     resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId, entityStore: createEntityStore(store) }),

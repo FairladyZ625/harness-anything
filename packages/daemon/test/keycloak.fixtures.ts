@@ -18,7 +18,13 @@ type Role = Named & {
   composites: Set<string>;
 };
 type Permission = Named & { resources: string[]; scopes: string[]; policies: string[] };
-type NodeClient = { id: string; clientId: string; attributes: Record<string, string>; secret: string };
+type NodeClient = {
+  id: string;
+  clientId: string;
+  attributes: Record<string, string>;
+  secret: string;
+  enabled?: boolean;
+};
 
 /**
  * In-memory Keycloak that answers the Admin REST and UMA calls the daemon makes. Decisions follow the
@@ -86,6 +92,7 @@ export function fakeKeycloak() {
       method = init?.method ?? "GET",
       body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : undefined,
       bearer = new Headers(init?.headers).get("authorization")?.replace("Bearer ", "");
+    if (url.pathname.endsWith("/protocol/openid-connect/revoke")) return new Response(null, { status: 204 });
     if (url.pathname.endsWith("/protocol/openid-connect/token/introspect")) {
       const token = (init?.body as URLSearchParams).get("token") ?? "",
         session = interactiveSessions.get(token);
@@ -107,9 +114,10 @@ export function fakeKeycloak() {
       const form = init?.body as URLSearchParams;
       if (form.get("grant_type") === "client_credentials") {
         const clientId = form.get("client_id") ?? "";
-        if (!clientId.startsWith("harness-node-")) return json({ access_token: "center-token" });
+        if (!clientId.startsWith("harness-node-") && !clientId.startsWith("harness-execution-"))
+          return json({ access_token: "center-token" });
         const client = nodeClients.get(clientId),
-          ok = client?.secret === form.get("client_secret");
+          ok = client?.secret === form.get("client_secret") && client?.enabled !== false;
         nodeLogins.push({ clientId, ok });
         if (ok) return json({ access_token: `node-token-${clientId}` });
         // Keycloak 26.7.3 names the two refusals differently; both are HTTP 401.
@@ -169,6 +177,7 @@ export function fakeKeycloak() {
       const clientId = String(body!.clientId),
         client = {
           id: id("node-client"),
+          enabled: body!.enabled !== false,
           clientId,
           attributes: { ...serverClientAttributes(), ...(body!.attributes as Record<string, string>) },
           // Keycloak 26 stores the secret a caller supplies with a new client (F-2CBA6A96).
@@ -180,7 +189,8 @@ export function fakeKeycloak() {
     }
     if (route === "/clients") {
       const clientId = url.searchParams.get("clientId") ?? "";
-      if (!clientId.startsWith("harness-node-")) return json([{ id: "client-1", clientId: "harness-center" }]);
+      if (!clientId.startsWith("harness-node-") && !clientId.startsWith("harness-execution-"))
+        return json([{ id: "client-1", clientId: "harness-center" }]);
       const found = [...nodeClients.values()].filter((client) =>
         url.searchParams.get("search") === "true" ? client.clientId.startsWith(clientId) : client.clientId === clientId,
       );
@@ -195,6 +205,8 @@ export function fakeKeycloak() {
         nodeClients.delete(nodeClient.clientId);
         return new Response(null, { status: 204 });
       }
+      if (method === "GET") return json({ ...nodeClient, secret: undefined });
+      if (typeof body!.enabled === "boolean") nodeClient.enabled = body!.enabled;
       nodeClient.attributes = { ...nodeClient.attributes, ...(body!.attributes as Record<string, string>) };
       return new Response(null, { status: 204 });
     }

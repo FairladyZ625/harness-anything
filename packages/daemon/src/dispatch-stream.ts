@@ -634,6 +634,7 @@ export function scrubProviderValue(value: unknown): unknown {
   return value
     .replace(bearer, "Bearer [REDACTED]")
     .replace(knownToken, "[REDACTED]")
+    .replace(/harness-execution-[A-Za-z0-9._-]+:[A-Za-z0-9_-]{43}/gu, "[REDACTED]")
     .replace(sensitiveAssignment, "[REDACTED]");
 }
 

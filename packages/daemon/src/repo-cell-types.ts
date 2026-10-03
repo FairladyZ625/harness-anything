@@ -38,6 +38,7 @@ export type RepoTaskAction = Readonly<Record<string, unknown>> & {
 };
 
 export interface RepoCellBinding {
+  readonly executionPrincipal?: import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal;
   /** Online directory facts resolved inside the center writer, never accepted from transport. */
   readonly taskClaimant?: TaskClaimant;
   readonly actor: ActorIdentity;

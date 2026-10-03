@@ -13,6 +13,7 @@ import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 export const taskSurfaceProtocolCommands = Object.freeze([
   defineRepoReadCommand({
     id: "task-dispatches",
+    repositoryRead: true,
     phase: "Runtime-B",
     path: ["task", "dispatches", "<task-id>"],
     summary: "List current and historical runtime dispatches associated with a Task.",
@@ -578,6 +579,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineRepoReadCommand({
     id: "task-read-set",
+    repositoryRead: true,
     phase: "Governed-Entity-W2-B",
     path: ["task", "read-set", "<task-id>"],
     summary: "Derive what a Task must read from its declared relations at one projection cut.",

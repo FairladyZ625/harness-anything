@@ -806,6 +806,7 @@ test("dispatch scrubbing keeps token usage telemetry and drops credential-shaped
     tokenUsage: { input: 7 },
     token_count: { total_tokens: 15 },
     bearerText: "header Bearer sk-abcdefgh1234",
+    executionText: `HARNESS_EXECUTION_CREDENTIAL=harness-execution-dispatch_test:${"a".repeat(43)}`,
   }) as Record<string, unknown>;
   // Usage telemetry survives at every nesting level: the durable replay path re-feeds
   // persisted provider events after daemon restart, so dropping these keys would erase
@@ -814,6 +815,7 @@ test("dispatch scrubbing keeps token usage telemetry and drops credential-shaped
   assert.deepEqual(scrubbed.tokenUsage, { input: 7 });
   assert.deepEqual(scrubbed.token_count, { total_tokens: 15 });
   assert.equal(scrubbed.bearerText, "header Bearer [REDACTED]");
+  assert.equal(scrubbed.executionText, "HARNESS_EXECUTION_CREDENTIAL=[REDACTED]");
   // Inside one object the numeric counter survives and the string under a token-named key does not.
   assert.deepEqual(scrubbed.usageWithStringToken, { input_tokens: 3 });
   // Credential-shaped keys are still dropped, and bearer material inside kept string

@@ -601,7 +601,11 @@ export function createDaemonHostRepositoryApi(
           undefined,
           command.commandClass === "repo-read" ? undefined : repoId,
         );
-        if ("repositoryRead" in command && command.repositoryRead === true)
+        if (
+          ("repositoryRead" in command && command.repositoryRead === true) ||
+          action.kind === "doc-status" ||
+          action.kind === "doc-dry-run"
+        )
           await requireAuthorizedHostAction({
             kind: "repository-read",
             repoId,

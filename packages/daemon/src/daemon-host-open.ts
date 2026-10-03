@@ -220,6 +220,30 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     keycloakCenter: KeycloakCenterAuthority = async () => ({ ...(await oidc.center()), clientId: "harness-center" }),
     hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
+      if (auth.executionPrincipal) {
+        const execution = auth.executionPrincipal,
+          cell = cells.get(execution.repoId);
+        if (!cell || path.resolve(cell.status().rootDir) !== path.resolve(rootDir))
+          throw hostCodedError(
+            "execution_credential_rejected",
+            "Execution credential belongs to a different repository.",
+          );
+        const observed = await cell.read("repo.agentRuntime.sessions.read", {
+          runtimeSessionId: execution.runtimeSessionId,
+        });
+        if (!observed.ok || observed.session.liveness === "exited")
+          throw hostCodedError("execution_credential_rejected", "Execution has stopped.");
+        const base = {
+          actor: {
+            principal: { personId: execution.personId },
+            executor: { kind: "agent" as const, id: `runtime-session:${execution.runtimeSessionId}` },
+          },
+          source: execution.source,
+          executionPrincipal: execution,
+          keycloakAuthorization: { center: await keycloakCenter() },
+        };
+        return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
+      }
       const principal = await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor),
         base = {
           ...principal,

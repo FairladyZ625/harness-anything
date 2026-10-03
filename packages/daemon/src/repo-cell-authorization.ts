@@ -1,3 +1,5 @@
+import { verifyRuntimeExecutionPrincipal, executionCredentialRejected } from "./runtime-execution-credential.ts";
+import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
 import path from "node:path";
 import {
@@ -49,6 +51,10 @@ export async function evaluateRepoCellAction(input: {
       ...input,
       binding: { ...input.binding, authorizationDecision: undefined },
     });
+  if (input.binding.executionPrincipal) {
+    if (!credential.center) throw executionCredentialRejected();
+    await verifyRuntimeExecutionPrincipal(credential.center, input.binding.executionPrincipal, input.fetchPort);
+  }
   const result = await evaluateKeycloakPerson({
     credential,
     personId: envelope.actor.principal.personId,
@@ -430,6 +436,7 @@ export function bindVerifiedExecutorClaim(input: {
   readonly now: string;
   readonly executionDelegations?: readonly ExecutionDelegationRecord[];
 }): { readonly action: RepoTaskAction; readonly binding: RepoCellBinding } {
+  requireCurrentExecutionScope(input);
   if (!Object.hasOwn(input.action, "executor")) return { action: input.action, binding: input.binding };
   const { executor: raw, ...action } = input.action;
   if (raw === undefined || raw === null) return { action, binding: input.binding };

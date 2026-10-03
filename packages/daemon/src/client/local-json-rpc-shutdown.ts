@@ -1,7 +1,7 @@
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { JsonRpcRequest, JsonRpcResponse } from "../protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
-import { connectSocket, jsonRpcRecord } from "./local-json-rpc-client.ts";
+import { connectSocket, jsonRpcRecord, executionCredentialParams } from "./local-json-rpc-client.ts";
 
 export interface DaemonStopReply {
   readonly ok: boolean;
@@ -31,7 +31,7 @@ export async function requestDaemonShutdownAt(
         jsonrpc: "2.0",
         id: 1,
         method: "protocol.hello",
-        params: { protocolVersion: currentDaemonProtocolVersion },
+        params: { protocolVersion: currentDaemonProtocolVersion, ...executionCredentialParams() },
       } satisfies JsonRpcRequest,
       { jsonrpc: "2.0", id: 2, method: "daemon.stop", params: {} } satisfies JsonRpcRequest,
     ]

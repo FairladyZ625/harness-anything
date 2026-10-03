@@ -20,6 +20,8 @@ export interface UnixSocketOwnerBoundary {
 
 export interface DaemonAuthenticationContext {
   readonly transportKind: DaemonTransportKind;
+  /** Keycloak-verified execution identity; never populated from a client claim. */
+  readonly executionPrincipal?: import("../runtime-execution-credential.ts").RuntimeExecutionPrincipal;
   /** Transport-owned connection lifetime; never accepted from a client payload. */
   readonly connectionSignal?: AbortSignal;
   /** Validated client context for provenance only; never principal or authorization evidence. */
