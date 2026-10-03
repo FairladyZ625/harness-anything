@@ -10,6 +10,8 @@ test("kernel public source index is importable by the explicit TS test runner", 
     TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) => entry.commandType),
     [
       "CreateReplayTask",
+      "AssignTask",
+      "UnassignTask",
       "StartExecution",
       "TransitionTask",
       "SubmitExecution",

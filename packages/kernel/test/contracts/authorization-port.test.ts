@@ -31,7 +31,8 @@ function decision(kind: string): AuthorizationDecision {
   };
 }
 test("retired People mutations are absent from the durable authorization inventory", () => {
-  assert.equal(durablePolicyActions.length, 136);
+  // dec_CDDCFA8BB91A47BCE07B229E93 CH2.
+  assert.equal(durablePolicyActions.length, 138);
   assert.equal(durablePolicyActions.includes("people-add"), false);
   assert.equal(durablePolicyActions.includes("people-remove"), false);
 });

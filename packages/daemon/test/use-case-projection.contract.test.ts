@@ -83,11 +83,11 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // groups graph territory, board lanes and work lists by the daemon's work rule (dec_5F7E74F1).
   assert.equal(
     daemonGuiReadMethods.length,
-    40,
+    42,
     "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
       "declaration read plus 1 artifact read plus 1 task WIP read plus 1 single-task completion read " +
       "plus 1 token usage aggregate read plus 1 token usage member detail read plus 1 workspace scope read " +
-      "plus 1 work index read",
+      "plus 1 work index read plus 1 claimable read plus 1 assignment directory read (S8 CH4)",
   );
 });
 

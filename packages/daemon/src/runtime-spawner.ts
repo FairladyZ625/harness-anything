@@ -234,7 +234,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw runtimeSpawnError("squad_leader_required", "Squad attribution requires --agent <leader-id>.");
     // An edge learns the task's worktree binding from the center in the read that also assembles its mission,
     // so its checkout follows that read; a local dispatch arrives with the checkout already prepared.
-    const remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null,
+    const remoteTask =
+        taskId && input.remote
+          ? await input.remote.taskContext(
+              taskId,
+              missionName,
+              role === "reviewer" ? { executionId: requestedExecutionId } : undefined,
+            )
+          : null,
       { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
         input.rootDir,
         payload,

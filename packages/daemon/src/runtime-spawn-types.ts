@@ -244,6 +244,7 @@ export interface RemoteRuntimePersistence {
   readonly taskContext: (
     taskId: string,
     missionName?: string,
+    review?: { readonly executionId: string | undefined },
   ) => Promise<{
     readonly executionId: string;
     /** The mirrored task package on this node, and the mission that names it as the worker reaches it. */

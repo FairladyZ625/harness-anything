@@ -71,6 +71,17 @@ test("GUI assignment carries the read version and preserves assignment through a
     const after = await read();
     assert.deepEqual(after.task!.assignment?.assignee, { kind: "person", personId });
     assert.ok(Date.parse(after.task!.assignment!.expiresAt) > Date.now() + 23 * 3600000);
+    fixture.keycloak.revoke("person-gui", fixture.repoId, ["task-unassign"]);
+    const deniedRemoval = parseDaemonGuiActionResponse(
+      "repo.task.unassign",
+      await bridge.invoke("unassignTask", { ...scope, expectedVersion: after.revision }),
+    );
+    assert.equal(deniedRemoval.outcome, "op_rejected");
+    assert.equal(deniedRemoval.code, "authorization_denied");
+    assert.equal(deniedRemoval.authorizationDecision?.outcome, "denied");
+    assert.equal((await read()).revision, after.revision);
+    assert.deepEqual((await read()).task!.assignment, after.task!.assignment);
+    fixture.keycloak.permit("person-gui", fixture.repoId, ["task-unassign"]);
     const stale = parseDaemonGuiActionResponse(
       "repo.task.unassign",
       await bridge.invoke("unassignTask", { ...scope, expectedVersion: before.revision }),

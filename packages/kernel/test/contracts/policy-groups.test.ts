@@ -17,7 +17,8 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // 138 → 136: people-set-role and people-bind were deleted by RBAC v2 S4 (dec_D60FAA451F24160E970323B6F3).
   // 136 → 138: daemon-service-install and daemon-service-uninstall (dec_089F1AE27C5DC0A3969062FE0D CH5).
   // RBAC v2 CH1 retires people-add and people-remove.
-  assert.equal(actionDeclarations.length, 136);
+  // dec_CDDCFA8BB91A47BCE07B229E93 CH2 adds two maintainer actions.
+  assert.equal(actionDeclarations.length, 138);
   assert.equal(new Set(actionDeclarations.map((item) => item.policyAction)).size, actionDeclarations.length);
   for (const declaration of actionDeclarations) {
     assert.equal(declaration.policyAction, declaration.kind);

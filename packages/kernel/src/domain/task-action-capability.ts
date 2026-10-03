@@ -348,7 +348,10 @@ export function taskLifecycleNextActions(input: {
 }): readonly string[] {
   if (!input.snapshot.task || ["done", "cancelled"].includes(input.snapshot.task.status)) return [];
   const lifecycleActionIds = new Set(
-    TASK_LIFECYCLE_TRANSITIONS.filter(({ actionId }) => actionId !== "create").map(({ actionId }) => actionId),
+    // Assignment changes who may start; it cannot advance an execution after a lifecycle refusal.
+    TASK_LIFECYCLE_TRANSITIONS.filter(({ actionId }) => !["create", "assign", "unassign"].includes(actionId)).map(
+      ({ actionId }) => actionId,
+    ),
   );
   return input.actions.flatMap((action) => {
     if (!lifecycleActionIds.has(action.id) || action.id === input.rejectedActionId) return [];

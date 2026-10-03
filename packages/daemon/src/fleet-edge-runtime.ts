@@ -13,7 +13,9 @@ import {
   type EntityStore,
   type ScheduleV1,
   type TaskWorktreeBindingV1,
+  type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel";
+import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { resolveSquadDispatch } from "./agent-entities.ts";
 import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
@@ -181,7 +183,7 @@ export function openFleetEdgeRuntime(input: {
           ? (receipt as JsonObject)
           : null;
       },
-      taskContext: async (taskId, missionName) => {
+      taskContext: async (taskId, missionName, review) => {
         const shown = await runFleetTaskCommandClient({
           ...peer,
           opId: `context_${Date.now()}`,
@@ -192,12 +194,12 @@ export function openFleetEdgeRuntime(input: {
         });
         if (shown.outcome !== "applied" || typeof shown.receipt?.evidence !== "string")
           throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
-        const current = JSON.parse(shown.receipt.evidence) as {
-          lease?: { executionId: string } | null;
-          executions: { executionId: string; submission: unknown }[];
-        };
-        const executionId =
-          current.lease?.executionId ?? current.executions.find((execution) => execution.submission)?.executionId;
+        const current = JSON.parse(shown.receipt.evidence) as TaskLifecycleSnapshot;
+        const executionId = review
+          ? selectReviewTarget(taskId, review.executionId, current, false)?.executionId
+          : current.lease?.phase === "held"
+            ? current.lease.executionId
+            : undefined;
         if (!executionId) throw edgeRuntimeError("execution_missing", "The task has no current execution.");
         const view = locateFleetMirrorView(request.viewRoot, request.repoId);
         const materializedRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot;

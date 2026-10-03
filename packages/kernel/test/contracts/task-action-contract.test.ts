@@ -22,6 +22,8 @@ test("all public Task writes are complete executable Action contracts", () => {
   assert.deepEqual(
     actions.map(({ id }) => id),
     [
+      "assign",
+      "unassign",
       "create",
       "start",
       "transition",
@@ -59,6 +61,8 @@ test("all public Task writes are complete executable Action contracts", () => {
     assert.ok(action.explain.length > 0);
   }
   assert.deepEqual(explainEntityKind("task").transitions.available, [
+    "assign",
+    "unassign",
     "create",
     "start",
     "transition",
@@ -109,6 +113,28 @@ test("named lifecycle specifications preserve every execution metadata field", (
         : [];
     }),
     [
+      {
+        id: "assign",
+        ingress: "task-assign",
+        commandType: "AssignTask",
+        transitionId: "assign_task",
+        implementation: "task-lifecycle",
+        topology: "center-forward-write",
+        coordination: "execute",
+        eventType: "task_assigned",
+        proof: [],
+      },
+      {
+        id: "unassign",
+        ingress: "task-unassign",
+        commandType: "UnassignTask",
+        transitionId: "unassign_task",
+        implementation: "task-lifecycle",
+        topology: "center-forward-write",
+        coordination: "execute",
+        eventType: "task_unassigned",
+        proof: [],
+      },
       {
         id: "create",
         ingress: "task-create",
