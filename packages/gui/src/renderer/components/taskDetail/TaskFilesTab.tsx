@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { CaretRight, FileText } from "@phosphor-icons/react";
 import { EntityRefLink, entityRefOf } from "../EntityRefLink.tsx";
 import { DocReader } from "../DocReader.tsx";
@@ -15,6 +15,8 @@ interface TaskDocumentSidebarProps {
   readonly activeDoc: string;
   readonly onActiveDocChange: (path: string) => void;
   readonly onOpenDoc: (path: string) => void;
+  /** 头部右侧的控件位(task_fb3ba20d66…:文件树|正文分割的排列/折叠/重置)。 */
+  readonly headerExtra?: ReactNode;
 }
 
 export function TaskDocumentSidebar(props: TaskDocumentSidebarProps) {
@@ -46,26 +48,32 @@ export function TaskDocumentSidebar(props: TaskDocumentSidebarProps) {
     if (!documents.some((document) => document.path === activeDoc)) onActiveDocChange(documents[0]!.path);
   }, [activeDoc, documentList.data?.status, documents, onActiveDocChange]);
 
+  // 头部行不随树滚动(控件要一直在);树体在窗内自己滚,展开大树不扩大外层区域。
   return (
     <nav
       aria-label="任务包文件"
-      className="min-h-0 overflow-y-auto border-b border-border bg-surface p-3 @max-[1100px]:max-h-[var(--long-content-cap)] @min-[1100px]:border-r @min-[1100px]:border-b-0"
+      className="flex min-h-0 flex-col border-b border-border bg-surface @max-[1100px]:max-h-[var(--long-content-cap)] @min-[1100px]:border-r @min-[1100px]:border-b-0"
       data-testid="task-document-tree"
     >
-      <p className="mb-2 px-1 font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">
-        Task 文件
-      </p>
-      {tree.length === 0 ? (
-        <p className="border border-dashed border-border px-2 py-3 ui-meta leading-5 text-text-faint">
-          {documentList.isPending
-            ? "正在读取任务包文件清单…"
-            : documentList.isError
-              ? `文件清单读取失败：${documentList.error.message}`
-              : "投影没有返回任务包文件。"}
+      <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-3">
+        <p className="min-w-0 truncate font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">
+          Task 文件
         </p>
-      ) : (
-        <DocTree nodes={tree} activeDoc={activeDoc} onSelectDoc={onOpenDoc} />
-      )}
+        {props.headerExtra ? <span className="ml-auto flex shrink-0 items-center">{props.headerExtra}</span> : null}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3" data-testid="task-document-tree-scroll">
+        {tree.length === 0 ? (
+          <p className="border border-dashed border-border px-2 py-3 ui-meta leading-5 text-text-faint">
+            {documentList.isPending
+              ? "正在读取任务包文件清单…"
+              : documentList.isError
+                ? `文件清单读取失败：${documentList.error.message}`
+                : "投影没有返回任务包文件。"}
+          </p>
+        ) : (
+          <DocTree nodes={tree} activeDoc={activeDoc} onSelectDoc={onOpenDoc} />
+        )}
+      </div>
     </nav>
   );
 }

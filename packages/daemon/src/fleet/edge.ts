@@ -512,24 +512,35 @@ export async function runFleetRuntimeReadClient(
     readonly repoId: string;
     readonly method:
       | "repo.agentRuntime.overview"
+      | "repo.agentRuntime.sessions.await"
       | "repo.agentRuntime.sessions.read"
       | "repo.tasks.runtimeContext.read";
+    readonly connectionSignal?: AbortSignal;
     readonly payload: Readonly<Record<string, unknown>>;
   },
 ): Promise<Readonly<Record<string, unknown>>> {
   const session = await openPeer(options);
+  const close = () => session.close();
+  options.connectionSignal?.addEventListener("abort", close, { once: true });
   try {
-    const response = await session.request({
-      schema: "fleet.runtime.read/v1",
-      messageId: session.messageId(),
-      assignmentId: options.assignmentId,
-      repoId: options.repoId,
-      method: options.method,
-      payload: options.payload,
-    });
+    options.connectionSignal?.throwIfAborted();
+    // Only the parked await has no response deadline. Authentication and ordinary reads
+    // keep their existing bounds; disconnecting its caller closes the peer.
+    const response = await session.request(
+      {
+        schema: "fleet.runtime.read/v1",
+        messageId: session.messageId(),
+        assignmentId: options.assignmentId,
+        repoId: options.repoId,
+        method: options.method,
+        payload: options.payload,
+      },
+      options.method === "repo.agentRuntime.sessions.await" ? null : options.timeoutMs,
+    );
     if (response.schema !== "fleet.runtime.read.result/v1") throw new Error("runtime read result expected");
     return response.result;
   } finally {
+    options.connectionSignal?.removeEventListener("abort", close);
     session.close();
   }
 }
@@ -761,16 +772,16 @@ async function openPeer(options: FleetPeerOptions) {
     prefix = `${options.nodeId}_${Date.now().toString(36)}`;
   let sequence = 0;
   const messageId = () => `${prefix}_${sequence++}`,
-    next = async () => {
-      const frame = await peer.next();
+    next = async (responseTimeoutMs?: number | null) => {
+      const frame = await peer.next(responseTimeoutMs);
       options.onFrame?.(frame);
       if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame);
       return frame;
     },
     send = (frame: FleetFrameV1) => socket.write(serializeFleetFrame(frame)),
-    request = async (frame: FleetFrameV1) => {
+    request = async (frame: FleetFrameV1, responseTimeoutMs?: number | null) => {
       send(frame);
-      return next();
+      return next(responseTimeoutMs);
     };
   try {
     const ready = await request({
@@ -825,7 +836,7 @@ function peerFor(socket: TLSSocket, timeoutMs: number) {
     waiting: Array<{
       readonly resolve: (value: FleetFrameV1) => void;
       readonly reject: (error: Error) => void;
-      readonly timer: NodeJS.Timeout;
+      readonly timer: NodeJS.Timeout | undefined;
     }> = [],
     settleWaiters = (error: Error): void => {
       for (const waiter of waiting.splice(0)) {
@@ -871,15 +882,18 @@ function peerFor(socket: TLSSocket, timeoutMs: number) {
     settleWaiters(error);
   });
   return {
-    next: () => {
+    next: (responseTimeoutMs: number | null = timeoutMs) => {
       if (queue.length) return Promise.resolve(queue.shift()!);
       if (closed) return Promise.reject(closed);
       return new Promise<FleetFrameV1>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          const at = waiting.findIndex((waiter) => waiter.timer === timer);
-          if (at >= 0) waiting.splice(at, 1);
-          reject(new Error("Fleet response timeout"));
-        }, timeoutMs);
+        const timer =
+          responseTimeoutMs === null
+            ? undefined
+            : setTimeout(() => {
+                const at = waiting.findIndex((waiter) => waiter.timer === timer);
+                if (at >= 0) waiting.splice(at, 1);
+                reject(new Error("Fleet response timeout"));
+              }, responseTimeoutMs);
         waiting.push({ resolve, reject, timer });
       });
     },

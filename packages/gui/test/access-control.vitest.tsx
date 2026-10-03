@@ -217,7 +217,12 @@ describe("账号与访问控制页", () => {
     // The page explains the same answer: each allowed action with its source group, the rest as denied.
     const effective = byTestId("access-effective").textContent ?? "";
     expect(effective).toContain("持有 发布组，授于仓库 repo-a");
-    expect(effective).toContain("继承展开 release → contributor → viewer");
+    // 继承组链不再整串截断:链进 ChainStrip 单行横滚(全文可滚到),aria-label 带完整链。
+    const inheritChain = byTestId("inherit-chain");
+    expect(inheritChain.getAttribute("aria-label")).toBe("继承展开 release → contributor → viewer");
+    expect(inheritChain.textContent).toBe("release → contributor → viewer");
+    expect(inheritChain.className).toContain("overflow-x-auto");
+    expect(inheritChain.querySelector("span")!.className).toContain("whitespace-nowrap");
     expect(byTestId("access-source-release").textContent).toMatch(/允许 1 个动作来自 发布组.*decision-reject$/u);
     const inheritedSource = byTestId("access-source-contributor").textContent ?? "";
     expect(inheritedSource).toContain("来自 contributor（经 发布组 授于仓库 repo-a）");

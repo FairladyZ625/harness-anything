@@ -411,6 +411,7 @@ export function createJsonRpcProtocolServer(options: {
               "repo.agentRuntime.cancel",
               "repo.agentRuntime.overview",
               "repo.agentRuntime.sessions.read",
+              "repo.agentRuntime.sessions.await",
             ].includes(String(fleetAction.method)) ||
             !isJsonObject(fleetAction.payload)
           )
@@ -665,7 +666,15 @@ export function createJsonRpcProtocolServer(options: {
     // Parked waits and stream observers are observation, not work: counting one would pin a
     // superseded daemon resident for as long as any --wait or polling client cares to watch,
     // which is exactly what the drain exists to end.
-    if (isDaemonParkedWaitMethod(method) || method === "observe.tail") return run(request, frameReceivedAt);
+    const fleetAction =
+      isJsonObject(request.params) && isJsonObject(request.params.payload) ? request.params.payload.action : undefined;
+    const fleetAwait =
+      method === "daemon.fleet.task.run" &&
+      isJsonObject(fleetAction) &&
+      fleetAction.kind === "fleet-runtime" &&
+      fleetAction.method === "repo.agentRuntime.sessions.await";
+    if (isDaemonParkedWaitMethod(method) || fleetAwait || method === "observe.tail")
+      return run(request, frameReceivedAt);
     options.onRequestStarted?.(method);
     try {
       return await run(request, frameReceivedAt);

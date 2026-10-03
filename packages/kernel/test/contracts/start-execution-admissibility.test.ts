@@ -171,6 +171,69 @@ test("a submitted execution preserves review integrity and blocks StartExecution
   assert.equal(canStartExecution(review, "execution-fresh"), false);
 });
 
+test("a submitted task in a new contract iteration starts without reusing historical execution", () => {
+  const cut = submitted();
+  const previous: TaskLifecycleSnapshot = {
+    ...cut,
+    reviews: [
+      {
+        schema: "review/v1",
+        reviewId: "historical-review",
+        taskId: "task-1",
+        executionId: "execution-1",
+        verdict: "approved",
+        actor: { principal: { personId: "person-owner" }, executor: null },
+        capabilityRef: "reviewer",
+        reason: "Reviewed the previous contract cut",
+        evidenceChecked: ["previous cut"],
+        commitSha: "a".repeat(40),
+        iteration: 0,
+        contentDigest: `sha256:${"a".repeat(64)}`,
+        submissionDigest: submissionDigest(cut.executions[0]!.submission!),
+        reviewedAt: "2026-08-17T00:03:00.000Z",
+      },
+    ],
+  };
+  for (const currentNode of ["implementation", "review"] as const) {
+    const migrated = {
+      ...previous,
+      task: { ...previous.task!, iteration: previous.task!.iteration + 1, currentNode },
+    };
+    assert.equal(canStartExecution(migrated, "execution-new-contract"), true);
+    assert.equal(canStartExecution(migrated, "execution-1"), false);
+    assert.equal(canStartExecution({ ...migrated, lease: started().lease }, "execution-new-contract"), false);
+    assert.equal(
+      canStartExecution({ ...migrated, task: { ...migrated.task, iteration: 0 } }, "execution-new-contract"),
+      false,
+    );
+    const recovered = apply(
+      migrated,
+      command(4, {
+        type: "StartExecution",
+        taskId: "task-1",
+        executionId: "execution-new-contract",
+      }) as TaskLifecycleCommand,
+      {
+        actorBinding: implementer,
+        deliveryBaseline: { kind: "commit", commitSha: "b".repeat(40) },
+        reservation: {
+          taskId: "task-1",
+          executionId: "execution-new-contract",
+          expiresAt: "2026-08-17T01:00:00.000Z",
+          ttlMs: 1_800_000,
+          previousHolder: null,
+          reason: "initial_claim",
+          version: 0,
+        },
+      },
+    );
+    assert.deepEqual(recovered.executions[0], previous.executions[0]);
+    assert.deepEqual(recovered.reviews, previous.reviews);
+    assert.equal(recovered.task?.status, "active");
+    assert.equal(recovered.executions[1]?.iteration, migrated.task.iteration);
+  }
+});
+
 test("a review node with no submitted execution recovers exclusively through StartExecution", () => {
   for (const status of ["planned", "active", "in_review"] as const) {
     const stranded = strandedInReview(status),

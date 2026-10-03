@@ -1,8 +1,9 @@
-import { Fragment, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { IdText } from "../IdText.tsx";
-import { StatusTag, type StatusTone } from "./StatusTag";
+import type { StatusTone } from "./StatusTag";
+import { StepChain } from "./StepChain";
 
 export interface DayPathStep {
   readonly label: string;
@@ -35,7 +36,7 @@ export interface DayPath {
 
 /** 选中行的高亮与 DenseRow.selected 同一语汇(左侧 2px 强调竖线 + 轻底)。 */
 function pathRowCls(selected: boolean | undefined): string {
-  return `flex items-baseline gap-2 py-[3px] ${
+  return `flex items-baseline gap-2 py-[3px] @max-[32rem]:flex-col @max-[32rem]:items-stretch @max-[32rem]:gap-0.5 ${
     selected === true ? "bg-accent/10 shadow-[inset_2px_0_0_var(--color-accent)]" : ""
   }`;
 }
@@ -52,7 +53,9 @@ export function DayDigest({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border-t border-border py-2 first:border-t-0" data-day={day}>
+    // @container:路径行的窄容器断点(<32rem 标题/状态链转上下两行)量的是本块宽度,
+    // 不随外层页面宽度误判——工作概况右列这种窄面板里链占满整行自身横滚。
+    <div className="@container border-t border-border py-2 first:border-t-0" data-day={day}>
       <button
         type="button"
         aria-expanded={open}
@@ -72,31 +75,39 @@ export function DayDigest({
           {paths.map((path, index) => {
             const openRecord =
               path.recordRef !== undefined && path.onOpenRecord !== undefined ? path.onOpenRecord : undefined;
+            const titleContent = (
+              <>
+                {/* 宽容器一行:时间(不拆行)、名字、状态链基线并排,长链在链内横滚;
+                    窄容器(<32rem)标题与状态链转上下两行——链占满整行,标题保留可读
+                    宽度,不挤成几像素侧列。contents 让宽容器下标题组子项直接落在行
+                    flex 里,与既有单行布局逐像素一致。 */}
+                <span className="contents @max-[32rem]:flex @max-[32rem]:min-w-0 @max-[32rem]:items-baseline @max-[32rem]:gap-2">
+                  {path.time !== undefined && (
+                    <span className="w-9 flex-none whitespace-nowrap font-mono text-text-faint ui-micro">
+                      {path.time}
+                    </span>
+                  )}
+                  {/* 没有步骤的路径(如任务的生命周期记录)名字占满整行,不给空的步骤列留一半宽度;带行尾编号时名字不收缩,由编号截断。 */}
+                  <span
+                    className={`min-w-0 truncate ui-body group-hover:text-accent ${
+                      path.steps.length > 0 && path.onClick !== undefined
+                        ? "flex-1"
+                        : path.ref !== undefined
+                          ? "max-w-[60%] flex-none"
+                          : path.steps.length === 0
+                            ? "flex-1"
+                            : "max-w-[48%] flex-none"
+                    } @max-[32rem]:max-w-none @max-[32rem]:flex-1`}
+                  >
+                    {path.name}
+                  </span>
+                </span>
+              </>
+            );
             const main = (
               <>
-                {path.time !== undefined && (
-                  <span className="w-9 flex-none font-mono text-text-faint ui-micro">{path.time}</span>
-                )}
-                {/* 没有步骤的路径(如任务的生命周期记录)名字占满整行,不给空的步骤列留一半宽度;带行尾编号时名字不收缩,由编号截断。 */}
-                <span
-                  className={`min-w-0 truncate ui-body group-hover:text-accent ${
-                    path.ref !== undefined
-                      ? "max-w-[60%] flex-none"
-                      : path.steps.length === 0
-                        ? "flex-1"
-                        : "max-w-[48%] flex-none"
-                  }`}
-                >
-                  {path.name}
-                </span>
-                <span className="flex min-w-0 flex-wrap items-center gap-1">
-                  {path.steps.map((step, stepIndex) => (
-                    <Fragment key={stepIndex}>
-                      {stepIndex > 0 && <span className="text-text-faint ui-micro">→</span>}
-                      <StatusTag tone={step.tone} label={step.label} />
-                    </Fragment>
-                  ))}
-                </span>
+                {titleContent}
+                <StepChain steps={path.steps} />
               </>
             );
             const refTail =
@@ -112,6 +123,28 @@ export function DayDigest({
               ) : (
                 <IdText value={path.ref} title={path.title ?? path.ref} className="flex-1 text-right" />
               );
+            // A focusable scroll region is a sibling of the title action, never inside a button.
+            if (path.steps.length > 0 && path.onClick !== undefined) {
+              return (
+                <div
+                  key={index}
+                  data-day-path=""
+                  data-selected={path.selected || undefined}
+                  className={`group w-full ${pathRowCls(path.selected)}`}
+                >
+                  <button
+                    type="button"
+                    onClick={path.onClick}
+                    title={path.title}
+                    className="flex min-w-0 w-[48%] shrink-0 items-baseline gap-2 text-left @max-[32rem]:w-full"
+                  >
+                    {titleContent}
+                  </button>
+                  <StepChain steps={path.steps} className="flex-1" />
+                  {refTail}
+                </div>
+              );
+            }
             // 行链与行尾实体链接并存时,行退化为纯行,两个动作各是原生 button——
             // button 里嵌 button 是非法 HTML,会破坏两个动作的可达性。
             if (openRecord !== undefined && path.onClick !== undefined) {
@@ -125,7 +158,7 @@ export function DayDigest({
                     type="button"
                     onClick={path.onClick}
                     title={path.title}
-                    className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-2 text-left"
+                    className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-2 text-left @max-[32rem]:flex-col @max-[32rem]:items-stretch @max-[32rem]:gap-0.5"
                   >
                     {main}
                   </button>

@@ -15,6 +15,7 @@ import { DecisionStateBadge, RiskTierBadge, UrgencyBadge, decisionStateLabel } f
 import { triadicQueryKeys } from "../triadic-data.ts";
 import { groupDecisions, type PoolGroupBy } from "../model/decision-pool-grouping.ts";
 import { Drawer } from "../components/primitives/Drawer.tsx";
+import { ChainStrip } from "../components/primitives/ChainStrip.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
@@ -91,18 +92,20 @@ function ChainView({
     return (
       <span className="font-mono ui-micro text-text-faint">{t("views.decisionPoolView.noSupersedeAmendChain")}</span>
     );
+  // 取代/被取代是随关系数无界增长的链接链:进 ChainStrip 组件内单行横滚(链接仍可点,
+  // 滚动是滚动手势、不触发链接),行外只剩有界段(图标、修订章)——卡片行高不随关系数增长。
   return (
-    <div className="flex flex-wrap items-center gap-1.5 ui-micro">
-      <GitBranch weight="bold" className="text-text-faint" aria-hidden />
+    <div className="flex items-center gap-1.5 ui-micro">
+      <GitBranch weight="bold" className="flex-none text-text-faint" aria-hidden />
       {chain.supersedes.length > 0 && (
-        <span className="inline-flex items-center gap-1 font-mono text-danger">
+        <ChainStrip testId="supersede-chain" label={t("views.decisionPoolView.supersedesChain")} className="min-w-0">
           <EntityRefLink
             entityRef={`decision/${decision.decisionId}`}
             onNavigate={() => onNavigateDecision(decision.decisionId)}
             title={decision.decisionId}
-            className="text-danger hover:underline"
+            className="flex-none font-mono text-danger hover:underline"
           />
-          <ArrowRight weight="bold" aria-hidden />
+          <ArrowRight weight="bold" aria-hidden className="flex-none" />
           {chain.supersedes
             .map((id) => (
               <EntityRefLink
@@ -110,14 +113,18 @@ function ChainView({
                 entityRef={`decision/${id}`}
                 onNavigate={() => onNavigateDecision(id)}
                 title={id}
-                className="text-danger hover:underline"
+                className="flex-none font-mono text-danger hover:underline"
               />
             ))
             .reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
-        </span>
+        </ChainStrip>
       )}
       {chain.supersededBy.length > 0 && (
-        <span className="font-mono text-stale">
+        <ChainStrip
+          testId="superseded-by-chain"
+          label={t("views.decisionPoolView.supersededByChain")}
+          className="min-w-0"
+        >
           {chain.supersededBy
             .map((id) => (
               <EntityRefLink
@@ -125,14 +132,14 @@ function ChainView({
                 entityRef={`decision/${id}`}
                 onNavigate={() => onNavigateDecision(id)}
                 title={id}
-                className="text-stale hover:underline"
+                className="flex-none font-mono text-stale hover:underline"
               />
             ))
             .reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
-        </span>
+        </ChainStrip>
       )}
       {amended && (
-        <span className="rounded-xs bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted">
+        <span className="flex-none rounded-xs bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted">
           {t("views.decisionPoolView.amendedAtValue", {
             value: formatTime(decision.lastChangedAt!, { style: "month-day-time" }) ?? "—",
           })}

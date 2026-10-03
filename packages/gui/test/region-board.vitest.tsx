@@ -153,4 +153,58 @@ describe("RegionBoard", () => {
     act(() => root.unmount());
     host.remove();
   });
+
+  // task_fb3ba20d66…:显式分割接管板级几何(工作概况主区|最近进展)。不带 split 时
+  // 上面的自适应断言已经锁住;带 split 时板变「主区|分隔条|右列」固定两窗。
+  const splitBoard = (orientation: "row" | "column", ratio: number) =>
+    createElement(
+      RegionBoard,
+      {
+        "data-testid": "board",
+        split: {
+          orientation,
+          ratio,
+          divider: createElement("div", { "data-testid": "divider" }, "分隔条"),
+        },
+      },
+      createElement(
+        BoardMain,
+        { "data-testid": "main" },
+        createElement(BoardColumn, { key: 1 }, region("mine", 1)),
+        createElement(BoardColumn, { key: 2 }, region("plan", 0, true)),
+      ),
+      createElement(
+        BoardSide,
+        { region: "recent", "data-testid": "side" },
+        createElement(Region, { title: "最近进展" }, createElement("p", null, "时间线")),
+      ),
+    );
+
+  it("hands the board geometry to the explicit split and drops the ≥1400px column escape", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    act(() => root.render(splitBoard("row", 0.6)));
+    const board = host.querySelector<HTMLElement>('[data-testid="board"]')!;
+    // 显式比例直接落在板上:主区 60 份 | 6px 分隔条 | 右列 40 份,单行铺满。
+    expect(board.style.gridTemplateColumns).toBe("minmax(0,60.00fr) 0.375rem minmax(0,40.00fr)");
+    expect(board.style.gridTemplateRows).toBe("minmax(0,1fr)");
+    // 分隔条插在主区与右列之间,是板的直接子元素。
+    const main = host.querySelector<HTMLElement>('[data-testid="main"]')!;
+    const divider = host.querySelector<HTMLElement>('[data-testid="divider"]')!;
+    expect(divider.previousElementSibling).toBe(main);
+    expect(divider.nextElementSibling).toBe(host.querySelector('[data-testid="side"]'));
+    // 主区恒为一列内滚(≥1400px 不再展开),列并入主区。
+    expect(main.className).toContain("overflow-y-auto");
+    expect(main.className).not.toContain("@[1400px]:contents");
+    expect(main.children[0]!.className).toBe("contents");
+    expect(board.className).not.toContain("@[1400px]");
+
+    act(() => root.render(splitBoard("column", 0.55)));
+    expect(host.querySelector<HTMLElement>('[data-testid="board"]')!.style.gridTemplateRows).toBe(
+      "minmax(0,55.00fr) 0.375rem minmax(0,45.00fr)",
+    );
+    act(() => root.unmount());
+    host.remove();
+  });
 });

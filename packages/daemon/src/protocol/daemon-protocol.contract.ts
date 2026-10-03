@@ -483,6 +483,7 @@ type DaemonFleetTaskPayload = DaemonFleetChannelPayload & {
           | "repo.agentRuntime.spawn"
           | "repo.agentRuntime.cancel"
           | "repo.agentRuntime.overview"
+          | "repo.agentRuntime.sessions.await"
           | "repo.agentRuntime.sessions.read";
         readonly payload: JsonObject;
       }
