@@ -169,7 +169,7 @@ describe("view navigation history (HISTORY-002)", () => {
         history: {
           entries: [
             {
-              view: "schedulesLegacy",
+              view: "workbench",
               selectedId: null,
               previewId: null,
               focusedEntityRef: null,
