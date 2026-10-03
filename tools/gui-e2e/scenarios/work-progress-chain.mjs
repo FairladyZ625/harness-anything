@@ -296,7 +296,17 @@ export default {
     await region.evaluate((node) => {
       node.style.width = "260px";
     });
-    await page.waitForTimeout(300);
+    await page.waitForFunction(
+      (node) => {
+        const row = node.parentElement.parentElement;
+        return (
+          node.closest("[data-day]").clientWidth < 512 &&
+          Math.abs(node.parentElement.getBoundingClientRect().width - row.getBoundingClientRect().width) <= 1 &&
+          node.parentElement.querySelector(":scope > [data-chain-hint]") !== null
+        );
+      },
+      await narrowChain.elementHandle(),
+    );
     const narrow = await narrowChain.evaluate((node) => {
       const row = node.parentElement.parentElement;
       return {
