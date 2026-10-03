@@ -349,7 +349,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { requires: ["--supersedes"], regex: "^[\\s\\S]{1,199}$" },
+        { requires: ["--supersedes"], regex: "^[\\s\\S]{1,199}$", format: "1-199 characters" },
       ),
     ],
   }),

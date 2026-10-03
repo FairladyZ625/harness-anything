@@ -658,7 +658,8 @@ describe("runtime entry split (W6 IA)", () => {
     // 工具条不再用自身横向滚动容纳控件(标准 §1.9②):允许换行,状态词表窄容器收进下拉。
     const toolbar = byTestId("sessions-toolbar");
     expect(toolbar.className).toContain("flex-wrap");
-    expect(toolbar.className).not.toContain("overflow-x-auto");
+    // Real wrapping and control containment: sessions-grouping Electron scenario.
+    expect(toolbar.className).not.toMatch(/overflow-x-(?:auto|scroll|overlay)/u);
     expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(8);
 
     await click("sessions-status-filter-menu");

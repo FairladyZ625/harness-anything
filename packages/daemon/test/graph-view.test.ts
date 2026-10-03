@@ -95,3 +95,42 @@ test("graph applies the same seed budget to initial root anchors and reports tru
   const payload = read(budgetFixture(200, 0)) as unknown as { stats: { truncated: number } };
   assert.ok(payload.stats.truncated > 0);
 });
+
+test("graph budget rejection names a bounded CLI query and preserves the limit", () => {
+  const cell = fixture();
+  Object.assign(cell, {
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    queryRead: () => ({
+      relationGraphNeighborhood: (query: { maxNodes: number; maxDepth: number }) => {
+        assert.equal(query.maxNodes, 500);
+        assert.equal(query.maxDepth, 5);
+        throw new Error("relation neighborhood node budget 500 exceeded");
+      },
+    }),
+  });
+  assert.throws(
+    () => read(cell),
+    (error: unknown) => {
+      assert.equal((error as { readonly code?: string }).code, "service_rejected");
+      assert.match(String(error), /ha graph decision\/dec_1 --depth 1/u);
+      assert.match(String(error), /narrower/u);
+      return true;
+    },
+  );
+});
+
+test("graph does not replace unrelated neighborhood failures", () => {
+  const cell = fixture(),
+    failure = new Error("projection unavailable");
+  Object.assign(cell, {
+    queryRead: () => ({
+      relationGraphNeighborhood: () => {
+        throw failure;
+      },
+    }),
+  });
+  assert.throws(
+    () => read(cell),
+    (error: unknown) => error === failure,
+  );
+});

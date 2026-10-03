@@ -1,7 +1,12 @@
 import net from "node:net";
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
+
+// CLI commands load this module to observe the daemon PID before each request. Keep the
+// lint marker local, as in the line client, so observation does not load the kernel runtime.
+function consumeKnownError(error: unknown): void {
+  void error;
+}
 
 // The daemon singleton is one process per (userRoot, daemonId). The claim is a
 // pidfile created with O_EXCL (atomic test-and-set): the second serve reads the

@@ -16,7 +16,7 @@ export default {
     assert.notEqual(after, before);
     await page.getByRole("button", { name: /亮色|Light/u }).click();
     assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
-    await page.getByRole("button", { name: /深色|Dark/u }).click();
+    await page.getByRole("button", { name: /暗色|Dark/u }).click();
     assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
   },
 };

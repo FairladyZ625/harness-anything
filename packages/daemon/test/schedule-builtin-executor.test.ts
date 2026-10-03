@@ -178,6 +178,7 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
         backupDir: string;
         bytes: number;
         backupMs: number;
+        captureMs: number;
         drillMs: number;
         cleanupMs: number;
         removed: number;
@@ -187,7 +188,7 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
       assert.equal(detail.builtin, "ledger-backup", `settle detail was: ${run.detail}`);
       assert.equal(detail.bytes > 0, true, `settle detail was: ${run.detail}`);
       assert.ok(
-        detail.backupMs >= 0 && detail.drillMs >= 0 && detail.cleanupMs >= 0,
+        detail.backupMs >= detail.captureMs && detail.captureMs >= 0 && detail.drillMs >= 0 && detail.cleanupMs >= 0,
         `settle detail was: ${run.detail}`,
       );
       assert.equal(detail.removed >= 1, true);
@@ -355,10 +356,14 @@ test("a partially written backup of the same occurrence is retaken, a verified o
         settledActions.push(action);
         return { outcome: "applied", opId: `op-${settledActions.length}`, revision: settledActions.length };
       };
+      let captures = 0;
       const executorCell = {
         rootDir: canonicalRoot(root),
         now: () => new Date().toISOString(),
-        runSnapshot: async <T>(work: () => T) => work(),
+        runSnapshot: async <T>(work: () => T | PromiseLike<T>) => {
+          captures++;
+          return work();
+        },
       };
       // A previous attempt died mid-copy: the partial directory is owned by this very
       // occurrence and must be removed and retaken, not drilled against.
@@ -395,8 +400,24 @@ test("a partially written backup of the same occurrence is retaken, a verified o
       assert.equal(reused.code, undefined);
       const reusedDetail = JSON.parse(String(settledActions.at(-1)?.detail)) as { reusedSnapshot?: boolean };
       assert.equal(reusedDetail.reusedSnapshot, true);
+      assert.equal(captures, 2, "both retaken and reused snapshots must pass admission");
       assert.equal(settledActions.length, 2);
       for (const action of settledActions) assert.equal(action.kind, "schedule-settle");
+      const stale = await executeBuiltinScheduleOccurrence({
+        cell: {
+          ...executorCell,
+          runSnapshot: async () => {
+            throw new Error("Backup claim is no longer current.");
+          },
+        },
+        schedule: claimed,
+        idempotencyKey: "builtin-stale",
+        binding: actor,
+        runInternal: settleThrough,
+      });
+      assert.equal(stale.code, "schedule_builtin_failed");
+      assert.equal(settledActions.at(-1)?.outcome, "failed");
+      assert.match(String(settledActions.at(-1)?.detail), /Backup claim is no longer current/u);
     } finally {
       await cell.close();
     }

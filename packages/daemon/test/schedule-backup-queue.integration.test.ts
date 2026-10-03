@@ -1,12 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import workerThreads, { Worker } from "node:worker_threads";
 import { syncBuiltinESMExports } from "node:module";
-import { readOfflineLedgerEvents, readVerifiedLedgerBackup } from "@harness-anything/kernel";
+import { readOfflineLedgerEvents, readVerifiedLedgerBackup, type ScheduleV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoWriterCell } from "../src/repo-cell-open.ts";
 import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
@@ -59,7 +59,7 @@ async function openFixture(root: string) {
   );
 }
 
-for (const mode of ["drill", "failure", "cleanup"]) {
+for (const mode of ["manifest", "drill", "failure", "cleanup"]) {
   const corrupt = mode === "failure";
   test(
     `normal writes and duplicate claims complete while backup verification is held (${mode})`,
@@ -70,54 +70,40 @@ for (const mode of ["drill", "failure", "cleanup"]) {
         entered = Promise.withResolvers<void>();
       let release: (() => void) | undefined,
         launches = 0;
-      const original = Worker.prototype.postMessage;
-      const messageMock = t.mock.method(
-        Worker.prototype,
-        "postMessage",
-        function (this: Worker, message: unknown, ...args: []) {
-          if (mode !== "cleanup" && message && typeof message === "object" && "backupRoot" in message) {
-            launches++;
-            release = () => original.call(this, message, ...args);
-            entered.resolve();
-            return;
-          }
-          return original.call(this, message, ...args);
-        },
-      );
       const control = new Int32Array(new SharedArrayBuffer(4)),
         NativeWorker = Worker;
-      const cleanupMock =
-        mode === "cleanup"
-          ? t.mock.method(workerThreads, "Worker", function (url: URL, options: workerThreads.WorkerOptions) {
-              const worker = new NativeWorker(
-                new URL("./schedule-backup-cleanup-barrier.fixture.ts", import.meta.url),
-                {
-                  ...options,
-                  workerData: {
-                    ...options.workerData,
-                    moduleUrl: url.href,
-                    control,
-                    holdAt: path.join(root, scheduledLedgerBackupRoot, "ledger-backup-manual_000000000000000000000001"),
-                  },
-                },
-              );
-              const emit = worker.emit;
-              worker.emit = (event: string | symbol, ...args: unknown[]): boolean => {
-                if (event === "message" && args[0] && typeof args[0] === "object" && "cleanupHeld" in args[0]) {
-                  entered.resolve();
-                  return true;
-                }
-                return emit.call(worker, event, ...args);
-              };
-              launches++;
-              release = () => {
-                Atomics.store(control, 0, 2);
-                Atomics.notify(control, 0);
-              };
-              return worker;
-            })
-          : undefined;
-      if (cleanupMock) syncBuiltinESMExports();
+      const workerMock = t.mock.method(
+        workerThreads,
+        "Worker",
+        function (url: URL, options: workerThreads.WorkerOptions) {
+          const worker = new NativeWorker(new URL("./schedule-backup-cleanup-barrier.fixture.ts", import.meta.url), {
+            ...options,
+            workerData: {
+              ...options.workerData,
+              moduleUrl: url.href,
+              control,
+              phase: mode === "failure" ? "drill" : mode,
+              root,
+              holdAt: path.join(root, scheduledLedgerBackupRoot, "ledger-backup-manual_000000000000000000000001"),
+            },
+          });
+          const emit = worker.emit;
+          worker.emit = (event: string | symbol, ...args: unknown[]): boolean => {
+            if (event === "message" && args[0] && typeof args[0] === "object" && "backupHeld" in args[0]) {
+              entered.resolve();
+              return true;
+            }
+            return emit.call(worker, event, ...args);
+          };
+          launches++;
+          release = () => {
+            Atomics.store(control, 0, 2);
+            Atomics.notify(control, 0);
+          };
+          return worker;
+        },
+      );
+      syncBuiltinESMExports();
       let backup: ReturnType<typeof cell.run> | undefined;
       const abort = () => release?.();
       t.signal.addEventListener("abort", abort, { once: true });
@@ -159,7 +145,37 @@ for (const mode of ["drill", "failure", "cleanup"]) {
             (entry) => entry !== path.basename(older),
           ),
           backupDir = path.join(root, scheduledLedgerBackupRoot, name!),
-          cut = readVerifiedLedgerBackup(backupDir);
+          cut =
+            mode === "manifest"
+              ? {
+                  accepted: {
+                    revision: readOfflineLedgerEvents({ rootInput: path.join(backupDir, "payload") }).length,
+                  },
+                  files: [],
+                }
+              : readVerifiedLedgerBackup(backupDir);
+        if (mode === "manifest") assert.equal(existsSync(path.join(backupDir, "manifest.json")), false);
+        const schedulePath = path.join(backupDir, "payload/harness/schedules", `${builtinLedgerBackupScheduleId}.json`),
+          frozenSchedule = JSON.parse(readFileSync(schedulePath, "utf8")) as {
+            spec: { target: { params: { keepDays: number } } };
+          };
+        const frozenEvents = readOfflineLedgerEvents({ rootInput: path.join(backupDir, "payload") }) as readonly {
+            type: string;
+            payload: { schedule: ScheduleV1 };
+          }[],
+          frozenClaim = frozenEvents.findLast((event) => event.type === "schedule_occurrence_claimed");
+        assert.ok(frozenClaim);
+        assert.equal(
+          path.basename(backupDir),
+          `ledger-backup-${frozenClaim.payload.schedule.status.activeRun!.occurrenceId}`,
+        );
+        assert.deepEqual(
+          frozenSchedule.spec.target.params,
+          frozenClaim.payload.schedule.spec.target.kind === "builtin"
+            ? frozenClaim.payload.schedule.spec.target.params
+            : undefined,
+        );
+        assert.equal(frozenSchedule.spec.target.params.keepDays, 3);
         assert.equal(cell.status().queueDepth, 0);
         const write = await cell.run(
           {
@@ -172,7 +188,11 @@ for (const mode of ["drill", "failure", "cleanup"]) {
         );
         assert.equal(write.outcome, "applied");
         assert.ok((write.revision ?? 0) > cut.accepted.revision);
-        assert.equal(readVerifiedLedgerBackup(backupDir).accepted.revision, cut.accepted.revision);
+        assert.deepEqual(JSON.parse(readFileSync(schedulePath, "utf8")), frozenSchedule);
+        if (mode !== "manifest")
+          assert.equal(readVerifiedLedgerBackup(backupDir).accepted.revision, cut.accepted.revision);
+        const read = await cell.run({ kind: "schedule-show", scheduleId: builtinLedgerBackupScheduleId }, binding);
+        assert.equal(read.outcome, "applied");
         const replay = cell.run(action, binding);
         const duplicate = await cell.run({ ...action, idempotencyKey: "other-claim" }, binding);
         assert.equal(duplicate.outcome, "op_rejected");
@@ -192,7 +212,8 @@ for (const mode of ["drill", "failure", "cleanup"]) {
         if (!corrupt) {
           const shadows = path.join(root, ".harness/restore-drills"),
             restored = readOfflineLedgerEvents({ rootInput: path.join(shadows, readdirSync(shadows)[0]!) });
-          assert.equal(restored.length, cut.accepted.opIds);
+          assert.equal(restored.length, cut.accepted.revision);
+          assert.equal(readVerifiedLedgerBackup(backupDir).accepted.revision, cut.accepted.revision);
           assert.equal(JSON.stringify(restored).includes("during-drill"), false);
         }
         const shown = (await cell.run(
@@ -205,8 +226,7 @@ for (const mode of ["drill", "failure", "cleanup"]) {
         release?.();
         await backup;
         await cell.close();
-        messageMock.mock.restore();
-        cleanupMock?.mock.restore();
+        workerMock.mock.restore();
         syncBuiltinESMExports();
         rmSync(root, { recursive: true, force: true });
       }

@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { assertUnscrolledLayout } from "./helpers.mjs";
 
 /**
  * task_fb3ba20d66…:原页面内容区域可调布局的 Electron 实测(isolated lane)。
  *
  * 覆盖两处真实消费:
- *   1) 任务详情「文件树|正文」——默认自适应(无分隔条/内联模板);左右排列后拖真实
+ *   1) 任务详情「文件树|正文」——默认自适应(保留可操作分隔条);左右排列后拖真实
  *      指针调比例(窗口缩放后有界)、键盘微调、刷新记忆、折叠/召回、上下排列、重置回
  *      自适应;树里塞 120 个种子文件,展开后树在自己窗内滚动、不挤死正文。
  *   2) 工作概况「主区|最近进展」——通过 daemon 真实建一个子任务让夹具根任务成为工作根
@@ -22,11 +23,18 @@ const CHILD_TASK_ID = "task-split-child",
   SEED_FILES = 120;
 
 async function setSize(app, page, width, height) {
-  // Electron evaluate 不收额外参数(capture.mjs 同因),尺寸用字面量注入。
-  await app.evaluate(`({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setSize(${width}, ${height}); }`);
-  // Hidden Electron does not reliably resize its renderer with the native window.
-  await page.setViewportSize({ width, height });
-  await page.waitForFunction((expected) => globalThis.innerWidth === expected, width);
+  const actual = await app.evaluate(
+    ({ BrowserWindow }, size) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window.setSize(size.width, size.height);
+      return window.getContentSize();
+    },
+    { width, height },
+  );
+  // Hidden Electron may not resize its renderer; match the real, min-width-clamped content size.
+  await page.setViewportSize({ width: actual[0], height: actual[1] });
+  await page.waitForFunction(([w, h]) => globalThis.innerWidth === w && globalThis.innerHeight === h, actual);
+  return { requested: [width, height], actual };
 }
 
 /** 真实几何:两个 testid 盒子的宽/高与容器(去掉 6px 分隔条)的占比。 */
@@ -49,6 +57,16 @@ async function paneRatios(page, containerId, firstId, secondId, axis) {
         second: span(second),
         firstRatio: span(first) / total,
         secondRatio: span(second) / total,
+        firstContained:
+          first.left >= box.left - 1 &&
+          first.right <= box.right + 1 &&
+          first.top >= box.top - 1 &&
+          first.bottom <= box.bottom + 1,
+        secondContained:
+          second.left >= box.left - 1 &&
+          second.right <= box.right + 1 &&
+          second.top >= box.top - 1 &&
+          second.bottom <= box.bottom + 1,
       };
     },
     [`[data-testid="${containerId}"]`, `[data-testid="${firstId}"]`, `[data-testid="${secondId}"]`, axis],
@@ -115,9 +133,14 @@ export default {
   lane: "isolated",
   description:
     "Task detail and work overview panes resize by real drag with clamped ratios, keyboard steps, reload persistence, collapse and reset.",
-  async run({ page, app, shot, fixture }) {
+  async run({ page, app, shot, fixture, runRoot }) {
     const { endpoint, repoId, rootDir } = fixture;
     let cleanupError;
+    const sizes = [];
+    const resize = async (width, height) => {
+      sizes.push(await setSize(app, page, width, height));
+      writeFileSync(path.join(runRoot, "page-split-window-sizes.json"), `${JSON.stringify(sizes, null, 2)}\n`);
+    };
 
     // ---- 种子:子任务(让夹具根任务成为工作根)+ 120 个任务包文件喂文件树。 ----
     const created = await requestDaemonJsonRpcAt(
@@ -156,7 +179,7 @@ export default {
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
     try {
-      await setSize(app, page, 1440, 900);
+      await resize(1440, 900);
       await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
       await openChildDetail(page);
       // 等文件清单投影追平:树里出现种子目录。
@@ -244,7 +267,7 @@ export default {
         "row",
       );
       assert.ok(Math.abs(after.firstRatio - 0.45) < 0.04, `dragged ratio, got ${after.firstRatio}`);
-      await setSize(app, page, 1000, 800);
+      await resize(1000, 800);
       after = await paneRatios(
         page,
         "task-detail-content-grid",
@@ -253,7 +276,11 @@ export default {
         "row",
       );
       assert.ok(Math.abs(after.firstRatio - 0.45) < 0.04, `resized ratio stays bounded, got ${after.firstRatio}`);
-      await setSize(app, page, 1440, 900);
+      assert.ok(
+        after.firstContained && after.secondContained,
+        `resized panes stay inside their container: ${JSON.stringify(after)}`,
+      );
+      await resize(1440, 900);
       await shot("task-split-row-dragged");
 
       // ---- 键盘微调:分隔条聚焦后 → 加 16px。 ----
@@ -344,8 +371,8 @@ export default {
       assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 1);
       assert.notEqual(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
 
-      // 最小受支持 Electron 窗宽1120:内容区不足1100,自动上下排列且正文保持可用。
-      await setSize(app, page, 1120, 800);
+      // 窄窗自适应:单栏叠放,文件树横排在上(共享比例上限),正文仍有可用区域。
+      await resize(1120, 800);
       await page.waitForFunction(
         () =>
           globalThis.document
@@ -360,6 +387,10 @@ export default {
         "column",
       );
       assert.ok(narrow.second > 160, `narrow auto keeps the reader usable, body ${narrow.second}px`);
+      assert.ok(
+        narrow.firstContained && narrow.secondContained,
+        `auto panes stay inside their container: ${JSON.stringify(narrow)}`,
+      );
       await dragDivider(page, "task-doc-split-divider", 20, "column");
       const narrowDragged = await paneRatios(
         page,
@@ -371,7 +402,7 @@ export default {
       assert.ok(Math.abs(narrowDragged.first - narrow.first - 20) < 4, "narrow default drag follows its pointer delta");
       await page.getByTestId("task-doc-split-controls-reset").click();
       await shot("task-split-auto-narrow");
-      await setSize(app, page, 1440, 900);
+      await resize(1440, 900);
 
       // ---- 工作概况:根任务因有子任务成为工作根;概况板可调主区|最近进展。 ----
       await page.getByTestId("task-detail-work").click();
@@ -414,6 +445,24 @@ export default {
       assert.notEqual(await board.evaluate((node) => node.style.gridTemplateColumns), "");
       assert.equal(await page.locator('[data-testid="work-overview-split-divider"]').count(), 1);
       await shot("work-split-reset-auto");
+
+      // The work graph fills its own flex viewport; both narrow and wide
+      // containers must fit the canvas without a horizontal scrollbar.
+      await page.locator("#workspace-tab-graph").click();
+      const graph = page.getByTestId("workspace-graph-scroll");
+      await graph.waitFor();
+      const graphLayouts = [];
+      for (const width of [360, 900]) {
+        await graph.evaluate((node, value) => {
+          node.style.width = `${value}px`;
+        }, width);
+        graphLayouts.push(await assertUnscrolledLayout(graph));
+        await shot(`work-graph-${width}`);
+      }
+      await graph.evaluate((node) => {
+        node.style.width = "";
+      });
+      writeFileSync(path.join(runRoot, "work-graph-layout.json"), `${JSON.stringify(graphLayouts, null, 2)}\n`);
 
       // ---- 英文界面:语言偏好只写本会话的临时 profile(每次运行全新 user-data-dir)。 ----
       await page.evaluate(() => globalThis.localStorage.setItem("harness-locale", "en-US"));

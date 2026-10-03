@@ -148,15 +148,25 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
     invalid(input, "Fact classification is invalid.");
   if (!timestamp(input.occurredAt) || !timestamp(observedAt))
     invalid(input, "Fact timestamps must be ISO-8601 UTC values ending in Z.");
-  if (
-    action.supersedes !== undefined &&
-    (!plainRecordValue(action.supersedes) ||
-      !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(String(action.supersedes.factRef)) ||
+  if (action.supersedes !== undefined) {
+    if (
+      !plainRecordValue(action.supersedes) ||
+      !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(String(action.supersedes.factRef))
+    )
+      invalid(
+        input,
+        'Fact --supersedes requires a canonical ref. Use --supersedes fact/F-12345678 --rationale "Replaces the earlier observation." (replace the example with the target Fact ref).',
+      );
+    if (
       typeof action.supersedes.rationale !== "string" ||
       [...action.supersedes.rationale].length < 1 ||
-      [...action.supersedes.rationale].length > 199)
-  )
-    invalid(input, "Fact supersedes requires a canonical ref and rationale of at most 199 characters.");
+      [...action.supersedes.rationale].length > 199
+    )
+      invalid(
+        input,
+        'Fact --rationale must contain 1-199 characters. Use --rationale "Replaces the earlier observation.".',
+      );
+  }
   return {
     kind: "fact",
     event: {
