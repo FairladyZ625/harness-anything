@@ -293,20 +293,6 @@ export default {
       ],
       { stdio: "pipe" },
     );
-    for (const taskId of [CHILD_TASK_ID, "task-gui-smoke"]) {
-      const started = await requestDaemonJsonRpcAt(
-        endpoint,
-        "repo.task.run",
-        {
-          repo: { repoId },
-          payload: { action: { kind: "task-start", taskId, executionId: `execution-layout-${taskId}` } },
-        },
-        1000,
-        30000,
-      );
-      assert.equal(started.ok, true, JSON.stringify(started));
-    }
-
     writeFileSync(path.join(rootDir, "layout-fixture.txt"), "Isolated page layout delivery with history.\n");
     execFileSync("git", ["-C", rootDir, "add", "layout-fixture.txt"], { stdio: "pipe" });
     execFileSync(
@@ -325,10 +311,24 @@ export default {
       { stdio: "pipe" },
     );
     const commitSha = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    for (const taskId of [CHILD_TASK_ID, "task-gui-smoke"]) {
+      const started = await requestDaemonJsonRpcAt(
+        endpoint,
+        "repo.task.run",
+        {
+          repo: { repoId },
+          payload: { action: { kind: "task-start", taskId, executionId: `execution-layout-${taskId}` } },
+        },
+        1000,
+        30000,
+      );
+      assert.equal(started.ok, true, JSON.stringify(started));
+    }
+
     // Submit/return creates real lifecycle history; releasing a lease does not end an execution.
     for (const [taskId, taskPackage] of [
       [CHILD_TASK_ID, packagePath],
-      ["task-gui-smoke", "tasks/task-gui-smoke"],
+      ["task-gui-smoke", fixture.packagePath],
     ]) {
       const closeoutPath = `${taskPackage}/closeout.md`;
       writeFileSync(
