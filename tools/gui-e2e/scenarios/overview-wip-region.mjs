@@ -3,6 +3,57 @@ import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/loca
 import { createRealizedTaskPlanFixture } from "../../fixtures/task-plan.mjs";
 import { nav } from "./helpers.mjs";
 
+// Dialog detachment precedes the source region's shared-layout return animation.
+// Wait for actual projection transforms to settle before measuring or capturing it.
+export async function settledWipGeometry(page) {
+  await page.waitForFunction(() => {
+    const region = globalThis.document.querySelector('[data-testid="overview-region-wip"]');
+    return (
+      region !== null &&
+      [...region.querySelectorAll("section, section > div")].every(
+        (node) => globalThis.getComputedStyle(node).transform === "none",
+      )
+    );
+  });
+  const geometry = await page.getByTestId("overview-region-wip").evaluate((region) => {
+    const box = (node) => {
+      const rect = node.getBoundingClientRect();
+      return { x: rect.x, right: rect.right, width: rect.width, scrollLeft: node.scrollLeft };
+    };
+    const section = region.querySelector("section");
+    const title = section.querySelector("h2");
+    return {
+      viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight },
+      region: box(region),
+      section: box(section),
+      title: box(title),
+      titleFits: title.scrollWidth <= title.clientWidth,
+      rows: [...region.querySelectorAll("[data-dense-row]")].map(box),
+      scrollLefts: [
+        ...region.querySelectorAll(
+          "section, section > div, [data-region-scroll], [data-testid=overview-task-wip-list]",
+        ),
+      ].map((node) => node.scrollLeft),
+    };
+  });
+  assertWipGeometry(geometry);
+  return geometry;
+}
+
+export function assertWipGeometry(geometry) {
+  for (const box of [geometry.section, geometry.title, ...geometry.rows]) {
+    assert.ok(
+      box.x >= geometry.region.x - 1 && box.right <= geometry.region.right + 1,
+      `WIP content must stay inside its region: ${JSON.stringify(geometry)}`,
+    );
+  }
+  assert.ok(geometry.titleFits, "WIP title must be fully readable");
+  assert.ok(
+    geometry.scrollLefts.every((left) => left === 0),
+    "WIP must not scroll horizontally",
+  );
+}
+
 /**
  * #task_fa84b041ed175ce8e81160eea1 总览常驻 WIP 占用区:占用/上限、名单与 daemon 的
  * repo.tasks.wip 快照逐 ID 一致(顺序按状态重排,不比顺序),行点击进放大层并保持该行
@@ -145,6 +196,9 @@ export default {
     assert.notEqual(keyed[0], "task-gui-smoke", "a row hidden by the filter must not be selectable via keyboard");
     await page.keyboard.press("Escape");
     await dialog.waitFor({ state: "detached" });
+
+    await settledWipGeometry(page);
+    await shot("overview-wip-settled");
 
     // 行点击 → 放大层(分组/搜索接管过滤)→ 详情「打开任务」→ 真实任务详情。
     await list.locator("[data-dense-row]").last().click();
