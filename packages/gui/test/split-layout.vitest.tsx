@@ -205,6 +205,27 @@ describe("useSplitLayout", () => {
     }
   });
 
+  it("allows first adjustment from auto and freezes its measured direction without a prior mode click", async () => {
+    const restore = injectElementSize(1206, 800);
+    try {
+      const { latest } = await mountProbe();
+      expect(latest().mode).toBe("auto");
+      await act(async () => latest().dividerProps.onPanePxChange(360));
+      expect(latest().mode).toBe("row");
+      expect(latest().ratio).toBeCloseTo(0.3);
+      expect(readSplitPreferences(localStorage, "local", "repo-a")["test-split"]).toEqual({
+        orientation: "row",
+        ratio: 0.3,
+      });
+      await act(async () => latest().controlsProps.onReset());
+      expect(latest().mode).toBe("auto");
+      await act(async () => latest().dividerProps.onPanePxChange(480));
+      expect(latest().ratio).toBeCloseTo(0.4);
+    } finally {
+      restore();
+    }
+  });
+
   it("ignores drag intent while the container has no measurable size instead of writing a ratio", async () => {
     // happy-dom 不做布局:clientWidth/Height 恒 0,splittable=0。
     const { latest } = await mountProbe();

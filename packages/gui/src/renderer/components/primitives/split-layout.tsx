@@ -164,9 +164,10 @@ export function useSplitLayout(options: UseSplitLayoutOptions): SplitLayout {
     (px: number) => {
       if (splittable <= 0) return;
       const next = clampRatio(px / splittable);
-      if (pref.ratio !== next) commit({ ...pref, ratio: next });
+      if (pref.ratio !== next || pref.orientation === undefined)
+        commit({ ...pref, orientation: effectiveOrientation, ratio: next });
     },
-    [clampRatio, commit, pref, splittable],
+    [clampRatio, commit, effectiveOrientation, pref, splittable],
   );
   const setOrientation = useCallback(
     (orientation: SplitOrientation) => {
@@ -232,6 +233,10 @@ export function SplitDivider({
       className={`relative ${vertical ? "w-[0.375rem]" : "h-[0.375rem]"}`}
       data-testid={testId === undefined ? undefined : `${testId}-track`}
     >
+      <span
+        aria-hidden="true"
+        className={`pointer-events-none absolute rounded-full bg-border-strong ${vertical ? "left-1/2 top-1/2 h-8 w-0.5 -translate-x-1/2 -translate-y-1/2" : "left-1/2 top-1/2 h-0.5 w-8 -translate-x-1/2 -translate-y-1/2"}`}
+      />
       <ColumnResizeHandle
         label={label}
         orientation={vertical ? "vertical" : "horizontal"}
