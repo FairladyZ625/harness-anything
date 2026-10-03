@@ -125,6 +125,15 @@ describe("触发规则写法", () => {
 });
 
 describe("结论与时间写法", () => {
+  it("远日格式使用调用方时钟，不被系统今天覆盖", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-03T12:00:00.000Z"));
+    try {
+      expect(dayClock("2026-10-03T02:00:00.000Z", Date.parse("2026-10-01T10:00:00.000Z"))).toBe("10-03 02:00");
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("结论:上次失败 > 健康降级 > 从未运行 > 正常", () => {
     const last = (outcome: string) => ({ outcome }) as ScheduleGuiRowDto["lastRun"];
     expect(scheduleVerdict(row("a", { lastRun: last("failed"), health: degraded }))).toBe("failed");
