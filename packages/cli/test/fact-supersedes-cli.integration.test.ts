@@ -123,6 +123,21 @@ test("fact supersession CLI identifies the invalid field and preserves canonical
       assert.match(result.stderr, /--supersedes fact\/F-12345678/u);
       assert.match(result.stderr, /--rationale "Replaces the earlier observation\."/u);
     });
+    await context.test("ordinary record parameter errors do not suggest supersession", () => {
+      const result = spawnSync(process.execPath, [cli, "--root", fixture.root, ...record, "--confidence", "wrong"], {
+        encoding: "utf8",
+        env: cliEnv(fixture.root, fixture.userRoot),
+      });
+      assert.notEqual(result.status, 0, `${result.stderr}\n${result.stdout}`);
+      console.log(`ordinary record stderr: ${result.stderr.trim()}`);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /--confidence/u);
+      assert.match(result.stderr, /one of low, medium, high/u);
+      assert.doesNotMatch(
+        result.stderr,
+        /--supersedes|--rationale|Updated observation|Replaces the earlier observation/u,
+      );
+    });
     await context.test("canonical ref remains successful at the rationale length boundary", () => {
       const before = run(fixture.root, fixture.userRoot, ["fact", "show", String(first.factId)]);
       assert.equal((JSON.parse(String(before.evidence)) as { fact: { state: string } }).fact.state, "standing");

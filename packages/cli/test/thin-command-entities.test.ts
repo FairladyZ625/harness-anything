@@ -235,6 +235,25 @@ test("Fact CLI exposes record, controlled types, and show while keeping local er
   assert.equal(parseThinCommand(["fact", "record", "--statement", "x", "--text", "y", "--source", "s"]).ok, false);
 });
 
+test("fact record errors on other fields retain their original guidance", () => {
+  const record = ["fact", "record", "--statement", "Observed", "--source", "test"];
+  for (const args of [
+    [...record, "--confidence", "wrong"],
+    [...record, "--confidence", "wrong", "--supersedes", "fact/F-ABCDEFGH", "--rationale", "why"],
+    [...record, "--source", "duplicate"],
+    [...record, "--unknown", "value"],
+    ["fact", "record", "--statement", "Observed"],
+  ]) {
+    const parsed = parseThinCommand(args);
+    assert.equal(parsed.ok, false);
+    if (!parsed.ok)
+      assert.doesNotMatch(
+        parsed.nextAction,
+        /--supersedes|--rationale|Updated observation|Replaces the earlier observation/u,
+      );
+  }
+});
+
 test("fact record help declares the supersedes/rationale pairing the rejection enforces", () => {
   const command = daemonProtocolCommands.find(({ id }) => id === "fact-record");
   assert.ok(command);

@@ -113,7 +113,9 @@ export function parseFactRecord(
   if (!f.ok)
     return rejected(
       f.code,
-      `${f.nextAction} Example: ha fact record --statement "Updated observation" --source test:observation --supersedes fact/F-12345678 --rationale "Replaces the earlier observation." (replace the example with the target Fact ref).`,
+      /--(?:supersedes|rationale)\b/u.test(f.nextAction)
+        ? `${f.nextAction} Example: ha fact record --statement "Updated observation" --source test:observation --supersedes fact/F-12345678 --rationale "Replaces the earlier observation." (replace the example with the target Fact ref).`
+        : f.nextAction,
       json,
     );
   const flaggedTaskId = f.one.get("--task"),
