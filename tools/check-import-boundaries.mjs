@@ -66,7 +66,8 @@ async function loadWorkspacePackages(packagesRoot) {
     }
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory() && !["node_modules", "dist", "out"].includes(entry.name)) await discover(full);
+      if (entry.isDirectory() && !["node_modules", "dist", "out", "build-resources"].includes(entry.name))
+        await discover(full);
       else if (entry.name === "package.json") packageFiles.push(full);
     }
   }
