@@ -1,4 +1,5 @@
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
+import { ChainStrip } from "../components/primitives/ChainStrip.tsx";
 import { ArrowSquareOut, WarningCircle, TreeStructure, PaperPlaneTilt, BugBeetle, Robot } from "@phosphor-icons/react";
 import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
 import type { DecisionRow, DecisionClaim, TaskRow, RelationEdge, FactRef } from "../model/types";
@@ -405,9 +406,10 @@ export function VerdictCard({
             </div>
           )}
           {chain.supersedes.length > 0 && (
-            <div className="mt-0.5 ui-micro">
-              <span className="text-text-faint">推翻(supersedes)→ </span>
-              <span className="font-mono text-danger">
+            <div className="mt-0.5 flex min-w-0 items-center gap-1 ui-micro">
+              <span className="flex-none text-text-faint">推翻(supersedes)→ </span>
+              {/* 链接链随关系数无界增长:进 ChainStrip 单行横滚,链接仍可点,滚动不触发导航。 */}
+              <ChainStrip testId="supersede-chain" label="推翻(supersedes)">
                 {chain.supersedes
                   .map((id) => (
                     <EntityRefLink
@@ -415,17 +417,17 @@ export function VerdictCard({
                       entityRef={`decision/${id}`}
                       onNavigate={() => onNavigateDecision(id)}
                       title={id}
-                      className="text-danger hover:underline"
+                      className="flex-none font-mono text-danger hover:underline"
                     />
                   ))
                   .reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
-              </span>
+              </ChainStrip>
             </div>
           )}
           {chain.supersededBy.length > 0 && (
-            <div className="mt-0.5 ui-micro">
-              <span className="text-text-faint">被推翻(superseded by)→ </span>
-              <span className="font-mono text-danger">
+            <div className="mt-0.5 flex min-w-0 items-center gap-1 ui-micro">
+              <span className="flex-none text-text-faint">被推翻(superseded by)→ </span>
+              <ChainStrip testId="superseded-by-chain" label="被推翻(superseded by)">
                 {chain.supersededBy
                   .map((id) => (
                     <EntityRefLink
@@ -433,11 +435,11 @@ export function VerdictCard({
                       entityRef={`decision/${id}`}
                       onNavigate={() => onNavigateDecision(id)}
                       title={id}
-                      className="text-danger hover:underline"
+                      className="flex-none font-mono text-danger hover:underline"
                     />
                   ))
                   .reduce<React.ReactNode[]>((acc, link, index) => (index === 0 ? [link] : [...acc, ", ", link]), [])}
-              </span>
+              </ChainStrip>
             </div>
           )}
         </div>

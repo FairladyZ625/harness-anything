@@ -42,6 +42,8 @@
   "views.decisionPoolView.riskAll": "risk: all",
   "views.decisionPoolView.searchTitleIdQuestion": "Search title / id / question / claims…",
   "views.decisionPoolView.stateAll": "state: all",
+  "views.decisionPoolView.supersedesChain": "supersedes chain",
+  "views.decisionPoolView.supersededByChain": "superseded by chain",
   "views.decisionPoolView.poolGroup.proposed": "Proposed",
   "views.decisionPoolView.poolGroup.in_effect": "In effect",
   "views.decisionPoolView.poolGroup.rejected": "Rejected",

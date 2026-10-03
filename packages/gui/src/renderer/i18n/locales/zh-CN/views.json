@@ -42,6 +42,8 @@
   "views.decisionPoolView.riskAll": "风险：全部",
   "views.decisionPoolView.searchTitleIdQuestion": "搜索标题 / id / 问题 / claims…",
   "views.decisionPoolView.stateAll": "状态：全部",
+  "views.decisionPoolView.supersedesChain": "取代链",
+  "views.decisionPoolView.supersededByChain": "被取代链",
   "views.decisionPoolView.poolGroup.proposed": "待裁决",
   "views.decisionPoolView.poolGroup.in_effect": "生效中",
   "views.decisionPoolView.poolGroup.rejected": "已否决",
