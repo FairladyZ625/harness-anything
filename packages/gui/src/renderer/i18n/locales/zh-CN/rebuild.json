@@ -168,5 +168,16 @@
   "accessControl.error.daemonUnavailable": "连不上本机 daemon。",
   "accessControl.effective.allowedCount": "允许 {count} 个动作",
   "accessControl.effective.emptyTitle": "有效权限",
-  "accessControl.effective.emptyHint": "选好人员和作用域后点「查看有效权限」，或点右侧的一条授权：这里会列出此人在该作用域上能做的动作、每个动作来自哪个组，以及会被拒绝的动作。"
+  "accessControl.effective.emptyHint": "选好人员和作用域后点「查看有效权限」，或点右侧的一条授权：这里会列出此人在该作用域上能做的动作、每个动作来自哪个组，以及会被拒绝的动作。",
+  "accessControl.teams.title": "工作组",
+  "accessControl.teams.loading": "正在加载工作组…",
+  "accessControl.teams.members": "成员",
+  "accessControl.teams.rule": "成员关系决定组指派资格，业务权限需单独管理。",
+  "accessControl.teams.name": "工作组名称",
+  "accessControl.teams.save": "保存工作组",
+  "accessControl.teams.delete": "删除工作组",
+  "accessControl.teams.refresh": "加载最新",
+  "accessControl.teams.choose": "创建或选择工作组以管理成员。",
+  "accessControl.teams.new": "新建工作组",
+  "accessControl.teams.empty": "尚无工作组。创建后可将任务指派给组内成员。"
 }

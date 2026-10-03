@@ -15,6 +15,12 @@ type Field = "text" | "names" | "seconds";
 
 /** The fields each operation carries to the daemon. Anything else the renderer sends is refused. */
 const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>> = {
+  "team-list": {},
+  "team-create": { teamName: "text" },
+  "team-update": { teamId: "text", teamName: "text", expectedVersion: "text" },
+  "team-delete": { teamId: "text", expectedVersion: "text" },
+  "team-member-add": { teamId: "text", personId: "text", expectedVersion: "text" },
+  "team-member-remove": { teamId: "text", personId: "text", expectedVersion: "text" },
   "group-list": {},
   "grant-list": {},
   "receipt-list": {},
@@ -37,6 +43,11 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
 
 /** Operations that change Keycloak; the main process names each one so a lost receipt can be reconciled. */
 const writes: ReadonlySet<string> = new Set([
+  "team-create",
+  "team-update",
+  "team-delete",
+  "team-member-add",
+  "team-member-remove",
   "group-create",
   "group-update",
   "group-delete",

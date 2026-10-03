@@ -12,6 +12,12 @@ export function accessAdminPreloadApi(
     invoke(ACCESS_ADMIN_CHANNEL, { ...request, ...(repoId ? { repoId } : {}) }) as Promise<never>;
   return {
     forRepository: (repoId) => accessAdminPreloadApi(invoke, repoId),
+    teams: () => ask({ operation: "team-list" }),
+    createTeam: (input) => ask({ operation: "team-create", ...input }),
+    updateTeam: (input) => ask({ operation: "team-update", ...input }),
+    deleteTeam: (input) => ask({ operation: "team-delete", ...input }),
+    addTeamMember: (input) => ask({ operation: "team-member-add", ...input }),
+    removeTeamMember: (input) => ask({ operation: "team-member-remove", ...input }),
     groups: () => ask({ operation: "group-list" }),
     createGroup: (input) => ask({ operation: "group-create", ...input }),
     updateGroup: (input) => ask({ operation: "group-update", ...input }),

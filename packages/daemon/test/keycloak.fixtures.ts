@@ -30,6 +30,7 @@ export function fakeKeycloak() {
   const id = (prefix: string) => `${prefix}-${++sequence}`,
     scopes = new Map<string, Named>(),
     roles = new Map<string, Role>(),
+    teams = new Map<string, Named & { members: Set<string> }>(),
     realmRoles = new Map<string, Named & { members: Set<string> }>(),
     resources = new Map<string, { _id: string; name: string; type?: string; scopes: { name: string }[] }>(),
     userPolicies = new Map<string, Named & { users: string[] }>(),
@@ -102,6 +103,46 @@ export function fakeKeycloak() {
       server = "/clients/client-1/authz/resource-server",
       tail = decodeURIComponent(route.split("/").at(-1)!);
     if (method !== "GET") writes.push(`${method} ${route}`);
+    if (route === "/groups") {
+      if (method === "GET")
+        return page(
+          [...teams.values()].map(({ id, name }) => ({ id, name })),
+          url,
+        );
+      const name = String(body!.name);
+      if ([...teams.values()].some((team) => team.name === name)) return json({}, 409);
+      const team = { id: id("team"), name, members: new Set<string>() };
+      teams.set(team.id, team);
+      return new Response(null, { status: 201, headers: { location: `${url.origin}${url.pathname}/${team.id}` } });
+    }
+    if (/^\/groups\/[^/]+(?:\/members)?$/u.test(route)) {
+      const teamId = decodeURIComponent(route.split("/")[2]!),
+        team = teams.get(teamId);
+      if (!team) return json({}, 404);
+      if (method === "DELETE") teams.delete(teamId);
+      if (method === "PUT") team.name = String(body!.name);
+      if (method !== "GET") return new Response(null, { status: 204 });
+      return route.endsWith("/members")
+        ? page(
+            [...team.members].map((id) => ({ id })),
+            url,
+          )
+        : json({ id: team.id, name: team.name });
+    }
+    if (/^\/users\/[^/]+\/groups(?:\/[^/]+)?$/u.test(route)) {
+      const userId = decodeURIComponent(route.split("/")[2]!),
+        teamId = route.split("/")[4];
+      if (method === "GET")
+        return page(
+          [...teams.values()].filter((team) => team.members.has(userId)).map(({ id, name }) => ({ id, name })),
+          url,
+        );
+      const team = teams.get(decodeURIComponent(teamId!));
+      if (!team || !users.has(userId)) return json({}, 404);
+      if (method === "PUT") team.members.add(userId);
+      else if (method === "DELETE") team.members.delete(userId);
+      return new Response(null, { status: 204 });
+    }
     if (route === "") {
       if (method === "PUT") Object.assign(realm, body);
       return method === "GET" ? json({ realm: keycloakRealm, ...realm }) : new Response(null, { status: 204 });

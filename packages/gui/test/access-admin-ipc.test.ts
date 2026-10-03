@@ -56,6 +56,12 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.sessionLifetime();
   await api.setSessionLifetime({ sessionLifetimeSeconds: 3_600, expectedVersion: "21600" });
   await api.forRepository("server-b").groups();
+  await api.teams();
+  await api.createTeam({ teamName: "Builders" });
+  await api.updateTeam({ teamId: "team-1", teamName: "Reviewers", expectedVersion: "v1" });
+  await api.deleteTeam({ teamId: "team-1", expectedVersion: "v1" });
+  await api.addTeamMember({ teamId: "team-1", personId: "alice", expectedVersion: "v1" });
+  await api.removeTeamMember({ teamId: "team-1", personId: "alice", expectedVersion: "v1" });
   assert.deepEqual(sent, [
     { operation: "group-list" },
     { operation: "group-create", ...group, operationId: "operation-1" },
@@ -75,6 +81,30 @@ test("every preload method reaches the daemon as one operation the protocol cont
       operationId: "operation-6",
     },
     { operation: "group-list", repoId: "server-b" },
+    { operation: "team-list" },
+    { operation: "team-create", teamName: "Builders", operationId: "operation-7" },
+    {
+      operation: "team-update",
+      teamId: "team-1",
+      teamName: "Reviewers",
+      expectedVersion: "v1",
+      operationId: "operation-8",
+    },
+    { operation: "team-delete", teamId: "team-1", expectedVersion: "v1", operationId: "operation-9" },
+    {
+      operation: "team-member-add",
+      teamId: "team-1",
+      personId: "alice",
+      expectedVersion: "v1",
+      operationId: "operation-10",
+    },
+    {
+      operation: "team-member-remove",
+      teamId: "team-1",
+      personId: "alice",
+      expectedVersion: "v1",
+      operationId: "operation-11",
+    },
   ]);
   assert.equal(Object.keys(api).length, sent.length, "the test covers every method the page can call");
 
@@ -163,4 +193,24 @@ test("the access control page reaches Keycloak only through its preload surface"
   ])
     assert.match(sample, beyondThePreload);
   assert.doesNotMatch('import type { X } from "@harness-anything/daemon/protocol";', beyondThePreload);
+});
+
+test("work team operations preserve versions and reject renderer authority fields", async () => {
+  const { sent, invoke } = fixture(),
+    api = accessAdminPreloadApi((_channel, request) => invoke(request)),
+    change = { teamId: "team-1", expectedVersion: "v1" };
+  await api.teams();
+  await api.createTeam({ teamName: "Builders" });
+  await api.updateTeam({ ...change, teamName: "Reviewers" });
+  await api.addTeamMember({ ...change, personId: "alice" });
+  await api.removeTeamMember({ ...change, personId: "alice" });
+  await api.deleteTeam(change);
+  for (const params of sent) assert.deepEqual(validateDaemonRpcCall({ method: "daemon.rbac.manage", params }), []);
+  assert.deepEqual(
+    sent.map((params) => params.expectedVersion),
+    [undefined, undefined, "v1", "v1", "v1", "v1"],
+  );
+  assert.throws(() =>
+    accessAdminParams({ operation: "team-member-add", ...change, personId: "alice", actor: "admin" }, () => "id"),
+  );
 });

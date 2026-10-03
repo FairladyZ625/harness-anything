@@ -263,3 +263,38 @@ test("first administrator CLI takes a password file and rejects password argv", 
   assert.equal(parseThinCommand([...argv, "--password", "secret"], "/repo").ok, false);
   assert.equal(parseThinCommand(["bootstrap", "--operation", "bootstrap-status"], "/repo").ok, true);
 });
+
+test("work team commands carry the native team id and observed version", () => {
+  for (const operation of ["team-update", "team-delete", "team-member-add", "team-member-remove"]) {
+    const parsed = parseThinCommand(
+      [
+        "bootstrap",
+        "--operation",
+        operation,
+        "--team-id",
+        "team-1",
+        "--team-name",
+        "Builders",
+        "--person-id",
+        "alice",
+        "--expected-version",
+        "v1",
+        "--operation-id",
+        "edit-1",
+      ],
+      "/repo",
+    );
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) continue;
+    assert.equal(parsed.command.method, "daemon.rbac.manage");
+    assert.deepEqual(parsed.command.action, {
+      kind: "rbac-bootstrap",
+      operation,
+      teamId: "team-1",
+      teamName: "Builders",
+      personId: "alice",
+      expectedVersion: "v1",
+      operationId: "edit-1",
+    });
+  }
+});

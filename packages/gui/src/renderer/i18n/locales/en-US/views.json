@@ -1631,5 +1631,14 @@
   "views.overviewTaskWip.emptyFilter": "No occupying tasks in this status.",
   "views.overviewTaskWip.emptySearch": "No occupying tasks match “{query}”.",
   "views.overviewTaskWip.footerRule": "Denominator counts leaf tasks only · root containers {roots} (declared {declared}/derived {derived}) and planned tasks do not occupy",
-  "views.overviewTaskWip.footerRootsTitle": "declared: {declaredIds} · derived: {derivedIds} · root threshold: {threshold}"
+  "views.overviewTaskWip.footerRootsTitle": "declared: {declaredIds} · derived: {derivedIds} · root threshold: {threshold}",
+  "views.settingsView.taskAssignmentTtlMsLabel": "Default assignment duration (ms)",
+  "views.settingsView.taskAssignmentTtlMsDescription": "Default task assignment duration in milliseconds.",
+  "views.settingsView.taskAssignmentTtlMsEffect": "Applies to new assignments only; existing expiry and execution leases stay unchanged.",
+  "views.settingsView.fleetClaimScopeLabel": "Automatic task claim scope",
+  "views.settingsView.fleetClaimScopeDescription": "Which eligible tasks nodes may claim automatically.",
+  "views.settingsView.fleetClaimScopeEffect": "Node selects named nodes; reserved includes people and teams; startable also includes unassigned tasks.",
+  "views.settingsView.enum.fleetClaimScope.node": "Only tasks assigned to this node",
+  "views.settingsView.enum.fleetClaimScope.reserved": "Also tasks assigned to the owner or their teams",
+  "views.settingsView.enum.fleetClaimScope.startable": "Also eligible unassigned tasks"
 }

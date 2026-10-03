@@ -377,3 +377,27 @@ describe("账号与访问控制页", () => {
     expect(container.textContent).toContain("Grant group: viewer · alice · repository repo-a");
   });
 });
+
+it("manages native work team membership through the identity page and daemon contract", async () => {
+  const { keycloak, access, evaluate } = await stack();
+  keycloak.account("alice");
+  await openTab(access, "工作组");
+  await type(byTestId<HTMLInputElement>("access-team-name"), "Builders");
+  await click(byTestId("access-team-save"));
+  const listed = await access.teams();
+  if (!listed.ok) throw new Error(listed.code);
+  expect(listed.teams).toHaveLength(1);
+  await click(
+    [...container.querySelectorAll<HTMLElement>("[data-dense-row]")].find((row) =>
+      row.textContent?.includes("Builders"),
+    )!,
+  );
+  const member = find<HTMLInputElement>('fieldset input[type="checkbox"]');
+  await click(member);
+  expect(await access.teams()).toMatchObject({ teams: [{ personIds: ["alice"] }] });
+  expect(await evaluate("alice", "repo-a", { kind: "task-start", taskId: "task_1" })).toBe("denied");
+  await click(find<HTMLInputElement>('fieldset input[type="checkbox"]'));
+  expect(await access.teams()).toMatchObject({ teams: [{ personIds: [] }] });
+  await click(byTestId("access-team-delete"));
+  expect(await access.teams()).toMatchObject({ teams: [] });
+});

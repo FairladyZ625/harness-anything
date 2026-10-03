@@ -361,6 +361,43 @@ export class KeycloakPolicyAdapter {
     return { id: requiredId(group, "work team"), name: group.name };
   }
 
+  async readTeams(adminAccessToken: string): Promise<readonly { readonly id: string; readonly name: string }[]> {
+    const groups = await this.#pages<NamedRepresentation>(adminAccessToken, "/groups", "briefRepresentation=true");
+    return groups.map((group) => {
+      if (typeof group.name !== "string") throw new Error("Keycloak work team name is missing.");
+      return { id: requiredId(group, "work team"), name: group.name };
+    });
+  }
+
+  async readTeamMembers(adminAccessToken: string, teamId: string): Promise<readonly string[]> {
+    const members = await this.#pages<{ readonly id: string }>(
+      adminAccessToken,
+      `/groups/${encodeURIComponent(teamId)}/members`,
+    );
+    return members.map((member) => member.id).sort();
+  }
+
+  async createTeam(adminAccessToken: string, name: string): Promise<void> {
+    await this.#request(adminAccessToken, "/groups", { method: "POST", body: JSON.stringify({ name }) });
+  }
+
+  async updateTeam(adminAccessToken: string, teamId: string, name: string): Promise<void> {
+    await this.#request(adminAccessToken, `/groups/${encodeURIComponent(teamId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async deleteTeam(adminAccessToken: string, teamId: string): Promise<void> {
+    await this.#request(adminAccessToken, `/groups/${encodeURIComponent(teamId)}`, { method: "DELETE" });
+  }
+
+  async setTeamMember(adminAccessToken: string, teamId: string, userId: string, held: boolean): Promise<void> {
+    await this.#request(adminAccessToken, `/users/${encodeURIComponent(userId)}/groups/${encodeURIComponent(teamId)}`, {
+      method: held ? "PUT" : "DELETE",
+    });
+  }
+
   async readNodes(adminAccessToken: string): Promise<readonly KeycloakNode[]> {
     const clients = await this.#pages<NodeClient>(
       adminAccessToken,

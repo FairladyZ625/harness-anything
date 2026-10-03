@@ -1,4 +1,5 @@
 import accountLogin from "./scenarios/account-login.mjs";
+import workTeams from "./scenarios/work-teams.mjs";
 import externalKeycloak from "./scenarios/external-keycloak.mjs";
 import shellNavigation from "./scenarios/shell-navigation.mjs";
 import overview from "./scenarios/overview-first-usable.mjs";
@@ -30,6 +31,7 @@ import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
 
 export const catalog = [
   accountLogin,
+  workTeams,
   externalKeycloak,
   shellNavigation,
   overview,

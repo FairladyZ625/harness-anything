@@ -1631,5 +1631,14 @@
   "views.overviewTaskWip.emptyFilter": "该状态下没有占位任务。",
   "views.overviewTaskWip.emptySearch": "没有匹配「{query}」的占位任务。",
   "views.overviewTaskWip.footerRule": "分母只数叶子任务 · 根容器 {roots}(声明 {declared}/派生 {derived})与 planned 不占位",
-  "views.overviewTaskWip.footerRootsTitle": "declared: {declaredIds} · derived: {derivedIds} · 根判定阈值: {threshold}"
+  "views.overviewTaskWip.footerRootsTitle": "declared: {declaredIds} · derived: {derivedIds} · 根判定阈值: {threshold}",
+  "views.settingsView.taskAssignmentTtlMsLabel": "默认指派时长（毫秒）",
+  "views.settingsView.taskAssignmentTtlMsDescription": "未指定期限时的任务指派时长，单位为毫秒。",
+  "views.settingsView.taskAssignmentTtlMsEffect": "仅影响新指派；已有期限与执行租约保持不变。",
+  "views.settingsView.fleetClaimScopeLabel": "自动领取任务范围",
+  "views.settingsView.fleetClaimScopeDescription": "节点可以自动领取哪些符合资格的任务。",
+  "views.settingsView.fleetClaimScopeEffect": "仅节点：点名本节点；已指派：包含本人和所在组；可开工：还包含未指派任务。",
+  "views.settingsView.enum.fleetClaimScope.node": "仅领取点名本节点的任务",
+  "views.settingsView.enum.fleetClaimScope.reserved": "还可领取指派给本人或所在工作组的任务",
+  "views.settingsView.enum.fleetClaimScope.startable": "还可领取符合开工资格的未指派任务"
 }
