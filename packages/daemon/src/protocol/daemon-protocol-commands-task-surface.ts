@@ -1,6 +1,8 @@
 import { relationFreshnessWords, relationStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import {
   defineCenterForwardWriteCommand,
+  defineCenterForwardReadCommand,
+  defineCenterForwardQueryOnlyReadCommand,
   cliInput,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
@@ -315,8 +317,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRepoReadCommand({
+  defineCenterForwardReadCommand({
     id: "work-list",
+    repositoryRead: true,
     phase: "W3",
     path: ["work", "list"],
     summary:
@@ -330,20 +333,22 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         "single",
         false,
         { code: "invalid_field" },
-        { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
+        { projection: "number", regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$", wire: { minimum: 1 } },
       ),
     ],
   }),
-  defineRepoReadCommand({
+  defineCenterForwardReadCommand({
     id: "work-show",
+    repositoryRead: true,
     phase: "W3",
     path: ["work", "show", "<task-id>"],
     summary: "Show one work: its goal, leaf status counts, groups, and the tasks still open.",
     method: "repo.task.read",
     inputs: [],
   }),
-  defineQueryOnlyRepoReadCommand({
+  defineCenterForwardQueryOnlyReadCommand({
     id: "task-list",
+    repositoryRead: true,
     phase: "W3",
     path: ["task", "list"],
     summary:
@@ -372,13 +377,19 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["feat", "fix", "refactor", "docs", "test", "chore"] },
+        { field: "workKind", enum: ["feat", "fix", "refactor", "docs", "test", "chore"] },
       ),
       cliInput("--risk-tier", "single", false, { code: "invalid_field" }, { enum: ["low", "medium", "high"] }),
       cliInput("--urgency", "single", false, { code: "invalid_field" }, { enum: ["low", "medium", "high"] }),
-      cliInput("--parent", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--parent",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "parentTaskId" },
+      ),
       cliInput(
         "--depth",
         "single",
@@ -417,7 +428,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
+        { projection: "number", regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$", wire: { minimum: 1 } },
       ),
       cliInput("--cursor", "single", false, {
         code: "invalid_field",

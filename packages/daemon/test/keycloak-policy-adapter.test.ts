@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { actionDeclarations, deriveBasePolicyGroups } from "@harness-anything/kernel";
+import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { authorizeRepoCellAction, evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
@@ -45,7 +45,7 @@ test("sync reads complete paginated collections and does not recreate existing e
 test("sync re-expands stored grants to the currently declared actions of their group", async () => {
   const keycloak = fakeKeycloak(),
     adapter = new KeycloakPolicyAdapter(config, keycloak.fetch),
-    contributor = deriveBasePolicyGroups().find((group) => group.id === "contributor")!;
+    contributorScopes = effectivePolicyGroupScopes(deriveBasePolicyGroups(), "contributor");
   await adapter.syncBasePolicy("admin-token");
   await adapter.writeGrant("admin-token", { groupId: "contributor", resource: "repo-a", userIds: ["user-a"] }, [
     "task-create",
@@ -54,7 +54,7 @@ test("sync re-expands stored grants to the currently declared actions of their g
     [resource] = [...keycloak.resources.values()];
   resource!.scopes = [{ name: "task-create" }];
   await adapter.syncBasePolicy("admin-token");
-  assert.deepEqual(permission!.scopes, contributor.scopes);
+  assert.deepEqual(permission!.scopes, contributorScopes);
   assert.equal(resource!.scopes.length, actionDeclarations.length);
   assert.deepEqual(await adapter.readGrants("admin-token"), [
     { groupId: "contributor", resource: "repo-a", userIds: ["user-a"] },

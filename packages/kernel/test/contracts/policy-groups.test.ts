@@ -18,11 +18,12 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // 136 → 138: daemon-service-install and daemon-service-uninstall (dec_089F1AE27C5DC0A3969062FE0D CH5).
   // RBAC v2 CH1 retires people-add and people-remove.
   // dec_CDDCFA8BB91A47BCE07B229E93 CH2 adds two maintainer actions.
-  assert.equal(actionDeclarations.length, 138);
+  // F-8E80EE50: independently revocable repository reads belong to viewer.
+  assert.equal(actionDeclarations.length, 139);
   assert.equal(new Set(actionDeclarations.map((item) => item.policyAction)).size, actionDeclarations.length);
   for (const declaration of actionDeclarations) {
     assert.equal(declaration.policyAction, declaration.kind);
-    assert.ok(["contributor", "maintainer", "admin"].includes(minimumBasePolicyGroup(declaration)));
+    assert.ok(["viewer", "contributor", "maintainer", "admin"].includes(minimumBasePolicyGroup(declaration)));
   }
   const groups = deriveBasePolicyGroups();
   for (const declaration of actionDeclarations) {
@@ -37,7 +38,7 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
 test("Base composite inheritance expands monotonically without a handwritten action mirror", () => {
   const groups = deriveBasePolicyGroups(),
     effective = (id: string) => effectivePolicyGroupScopes(groups, id);
-  assert.deepEqual(effective("viewer"), []);
+  assert.deepEqual(effective("viewer"), ["repository-read"]);
   assert.equal(effective("contributor").length < effective("maintainer").length, true);
   assert.equal(effective("maintainer").length < effective("admin").length, true);
   assert.deepEqual(effective("admin"), actionDeclarations.map((item) => item.kind).sort());

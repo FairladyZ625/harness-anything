@@ -50,9 +50,9 @@ test(
         op: "permit",
         personId: "edge-operator",
         resource: "fleet-demo",
-        // task-create backs the edge-authored plan regression below; the sync action
-        // keeps the mirror flowing.
-        actions: ["daemon-fleet-edge-sync", "task-create"],
+        // Browsing has its own grant; sync keeps the mirror flowing and task-create
+        // backs the edge-authored plan regression below.
+        actions: ["daemon-fleet-edge-sync", "repository-read", "task-create"],
       });
       const machineCredential = await realm.control<string>({
         op: "node",
@@ -459,6 +459,23 @@ test(
         readFileSync(path.join(fixture.repo, "harness", planPath), "utf8"),
         "the first sync materializes the center ledger in the clean workspace",
       );
+      writeFileSync(
+        path.join(fixture.edgeRepo, "fleet-edge.json"),
+        JSON.stringify({
+          schema: "fleet-edge-config/v1",
+          repoId: "fleet-demo",
+          host: "127.0.0.1",
+          port,
+          caPath: fixture.ca,
+          nodeId: "edge-one",
+          credential,
+          viewRoot: fixture.viewRoot,
+          quotaBytes,
+        }),
+      );
+      const unreadable = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
+      assert.equal(unreadable.status, 1);
+      assert.equal(unreadable.receipt.code, "authorization_denied", "sync permission does not grant repository reads");
 
       // 5. A wrong credential for the now-registered node is refused by the center with the credential code.
       const wrong = sync(`${credential}-wrong`);

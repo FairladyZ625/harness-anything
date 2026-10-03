@@ -259,6 +259,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
   }),
   defineCenterForwardReadCommand({
     id: "task-show",
+    repositoryRead: true,
     payloadFields: [{ field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" }],
     phase: "W3",
     path: ["task", "show", "<task-id>"],

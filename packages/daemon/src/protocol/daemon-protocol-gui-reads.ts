@@ -153,6 +153,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "tasks.list",
+    repositoryRead: true,
     phase: "W2-GUI",
     method: "repo.tasks.list",
     requiresRepo: true,
@@ -172,6 +173,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "tasks.wip",
+    repositoryRead: true,
     phase: "W2-GUI",
     method: "repo.tasks.wip",
     requiresRepo: true,
@@ -190,6 +192,7 @@ export const daemonGuiReadMethods = Object.freeze([
     // dec_5F7E74F1: every work and the tasks that belong to it at one cut, so the GUI groups by the daemon's
     // work rule instead of re-deriving roots from the incremental task list.
     id: "works.index",
+    repositoryRead: true,
     phase: "W2-GUI",
     method: "repo.works.index",
     requiresRepo: true,
@@ -228,6 +231,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "entity.actions.explain",
+    repositoryRead: true,
     phase: "Ontology-Explain-A",
     method: "repo.entity.actions.explain",
     requiresRepo: true,
@@ -253,6 +257,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "vertical.declaration.read",
+    repositoryRead: true,
     phase: "Governed-Entity-W2-0",
     method: "repo.vertical.declaration.read",
     requiresRepo: true,
@@ -269,6 +274,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "entity.kinds.read",
+    repositoryRead: true,
     phase: "Governed-Entity-W2-0",
     method: "repo.entity.kinds.read",
     requiresRepo: true,
@@ -285,6 +291,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "entity.rows.read",
+    repositoryRead: true,
     phase: "Governed-Entity-W2-0",
     method: "repo.entity.rows.read",
     requiresRepo: true,
@@ -301,6 +308,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "entity.locator.read",
+    repositoryRead: true,
     phase: "Governed-Entity-W2-0",
     method: "repo.entity.locator.read",
     requiresRepo: true,
@@ -323,6 +331,7 @@ export const daemonGuiReadMethods = Object.freeze([
     // accepted with are authored-root relative, and the authored root is configurable, so no caller can be
     // asked to assemble that path itself.
     id: "entity.content.read",
+    repositoryRead: true,
     phase: "Governed-Entity-W2-0",
     method: "repo.entity.content.read",
     requiresRepo: true,
@@ -342,6 +351,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "workspace.summary.read",
+    repositoryRead: true,
     phase: "W2-GUI",
     method: "repo.workspace.summary.read",
     requiresRepo: true,
@@ -358,6 +368,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "workspace.scope.read",
+    repositoryRead: true,
     phase: "W2-GUI",
     method: "repo.workspace.scope.read",
     requiresRepo: true,
@@ -377,6 +388,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "agenda.read",
+    repositoryRead: true,
     phase: "W3",
     method: "repo.agenda.read",
     requiresRepo: true,
@@ -431,6 +443,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "tasks.document.read",
+    repositoryRead: true,
     phase: "DocSync-B",
     method: "repo.tasks.document.read",
     requiresRepo: true,
@@ -450,6 +463,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "tasks.completion.read",
+    repositoryRead: true,
     phase: "W3",
     method: "repo.tasks.completion.read",
     requiresRepo: true,
@@ -469,6 +483,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "tasks.documents.list",
+    repositoryRead: true,
     phase: "DocSync-B",
     method: "repo.tasks.documents.list",
     requiresRepo: true,

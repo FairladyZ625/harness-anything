@@ -1,5 +1,5 @@
-export type ActionExecutionClass = "repo-write" | "arbiter" | "admin";
-export type ActionPolicyTier = "contributor" | "maintainer" | "admin";
+export type ActionExecutionClass = "repo-read" | "repo-write" | "arbiter" | "admin";
+export type ActionPolicyTier = "viewer" | "contributor" | "maintainer" | "admin";
 export type ActionResidency =
   | { readonly scope: "canonical"; readonly writer: "center-repo-cell" }
   | { readonly scope: "runtime-local"; readonly writer: "runtime-host" }
@@ -23,7 +23,13 @@ const canonicalResidency = Object.freeze({ scope: "canonical" as const, writer: 
   hostResidency = Object.freeze({ scope: "host-local" as const, writer: "daemon-host" as const });
 
 const policyTierFor = (executionClass: ActionExecutionClass): ActionPolicyTier =>
-  executionClass === "repo-write" ? "contributor" : executionClass === "arbiter" ? "maintainer" : "admin";
+  executionClass === "repo-read"
+    ? "viewer"
+    : executionClass === "repo-write"
+      ? "contributor"
+      : executionClass === "arbiter"
+        ? "maintainer"
+        : "admin";
 
 const canonical = (
   kind: string,
@@ -87,10 +93,11 @@ const runtimeAdmin = (kind: string): ActionDeclaration =>
   });
 
 /**
- * The built-in non-read action inventory. Protocol descriptors are checked against these rows;
+ * The built-in permission action inventory. Protocol descriptors are checked against these rows;
  * policy, entity-catalog bindings, and receipt settlement are projections of the declarations.
  */
 export const actionDeclarations = Object.freeze([
+  canonical("repository-read", null, "repo-read", "none"),
   canonical("agent-delete", "agent/delete", "repo-write"),
   canonical("agent-install", "agent/install", "repo-write"),
   local("agent-run", "repo-write", runtimeResidency),
@@ -248,5 +255,7 @@ export function getActionDeclarationByCatalogId(catalogId: string): ActionDeclar
 
 /** Non-read policy scopes derive solely from ActionDeclaration. */
 export const durablePolicyActions = Object.freeze(
-  actionDeclarations.flatMap(({ policyAction }) => (policyAction === null ? [] : [policyAction])),
+  actionDeclarations.flatMap(({ policyAction, executionClass }) =>
+    executionClass === "repo-read" ? [] : [policyAction],
+  ),
 );

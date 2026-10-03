@@ -1,8 +1,11 @@
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
+import { repositoryReadDescriptor } from "./repository-read-contract.ts";
+import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { runFleetRepositoryReadClient } from "./fleet/edge.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readTaskAssignmentDirectory } from "./task-assignment-directory.ts";
 import { doctorBuildDrift, unavailableCenterDoctor, type DoctorCheck } from "./repo-cell-doctor.ts";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   readDaemonRegistry,
@@ -598,6 +601,14 @@ export function createDaemonHostRepositoryApi(
           undefined,
           command.commandClass === "repo-read" ? undefined : repoId,
         );
+        if ("repositoryRead" in command && command.repositoryRead === true)
+          await requireAuthorizedHostAction({
+            kind: "repository-read",
+            repoId,
+            binding: serverBinding,
+            actionId: `repository-read:${repoId}`,
+            evaluatedAtCut: `repository:${repoId}:current`,
+          });
         const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction),
           receipt = await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
         if (getExecutableEntityAction(action.kind)?.target.kind === "schedule")
@@ -676,6 +687,37 @@ export function createDaemonHostRepositoryApi(
       }
     },
     read: async (repoId, method, payload, auth) => {
+      const repositoryRead = repositoryReadDescriptor(method);
+      const edge =
+        repositoryRead &&
+        readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+          (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
+        );
+      if (edge?.canonicalRoot) {
+        const principal = await context.binding(edge.canonicalRoot, auth);
+        const config = readFleetEdgeConfig(edge.canonicalRoot);
+        if (!config || config.repoId !== repoId)
+          throw context.hostCodedError(
+            "fleet_edge_config_invalid",
+            `Repository ${repoId} has no matching Fleet center configuration.`,
+          );
+        return parseDaemonGuiReadResult(
+          method,
+          await runFleetRepositoryReadClient({
+            hostname: config.host,
+            port: config.port,
+            ca: readFileSync(config.caPath),
+            servername: config.servername,
+            nodeId: config.nodeId,
+            credential: config.credential,
+            repoId,
+            timeoutMs: config.waitTimeoutMs,
+            method,
+            payload,
+            accessToken: principal.keycloakAuthorization?.session?.accessToken,
+          }),
+        );
+      }
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
@@ -691,6 +733,14 @@ export function createDaemonHostRepositoryApi(
             : (context.unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
         );
       const binding = await context.binding(cell.status().rootDir, auth);
+      if (repositoryRead)
+        await requireAuthorizedHostAction({
+          kind: "repository-read",
+          repoId,
+          binding,
+          actionId: `repository-read:${repoId}`,
+          evaluatedAtCut: `repository:${repoId}:current`,
+        });
       let result: unknown;
       if (method === "repo.tasks.claimable")
         result = await readClaimableTasks({
