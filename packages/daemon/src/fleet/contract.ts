@@ -688,15 +688,13 @@ const scheduleActionShapes: Readonly<Record<string, Check>> = {
   },
   scheduleAction: Check = (value) =>
     record(value) && typeof value.kind === "string" && !!scheduleActionShapes[value.kind]?.(value);
-// Liveness is deliberately absent: the edge daemon derives exit/outcome from
-// its local process, and no parallel heartbeat or client-reported liveness is
-// admitted on the Fleet wire.
 const runtimeEventType = one(
   "runtime_installation_observed",
   "runtime_dispatch_requested",
   "runtime_session_started",
   "runtime_session_provider_bound",
   "runtime_session_task_bound",
+  "runtime_session_liveness_changed",
   "runtime_session_cancelled",
   "runtime_session_exited",
   "runtime_session_outcome_observed",
