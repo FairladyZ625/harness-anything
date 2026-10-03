@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { contentClaims, objectPath } from "./task-event-store-claims-layout.ts";
 import { parseCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import { DEFAULT_RESTORE_DRILL_RETENTION, readSettingsFacet } from "../domain/settings.ts";
 import { consumeKnownError } from "../error-consumption.ts";
@@ -79,6 +80,9 @@ export function createLedgerBackup(input: {
         method: vacuumed ? "vacuum-into" : backup.symlink ? "symlink" : "copy",
       } satisfies LedgerBackupFileV1;
     });
+  for (const database of files.filter(({ method }) => method === "vacuum-into"))
+    if (database.path !== portable(path.relative(layout.rootDir, sqlitePath)))
+      inspectSqlite(path.join(payloadRoot, database.path));
   const manifest: LedgerBackupManifestV1 = {
     schema: "ledger-backup/v1",
     tag: `backup-${(input.now ?? new Date()).toISOString().replace(/[:.]/gu, "-")}-${randomUUID()}`,
@@ -163,8 +167,6 @@ function materializeVerifiedBackup(
   if (!alreadyVerified) verifyManifest(payloadRoot, manifest);
   fileSystem.copy(payloadRoot, destinationRoot, { recursive: true, errorOnExist: true, verbatimSymlinks: true });
   verifyManifest(destinationRoot, manifest);
-  for (const database of manifest.files.filter(({ method }) => method === "vacuum-into"))
-    inspectSqlite(path.join(destinationRoot, database.path));
 }
 
 /** The drill runs offline, so the retention setting is read from the authored harness.yaml facet. */
@@ -356,9 +358,17 @@ function inspectSqlite(databasePath: string): {
       throw new Error("SQLite generation metadata differs from accepted events");
     if (Number(counts.events) !== Number(counts.revision) || Number(counts.events) !== Number(counts.op_ids))
       throw new Error("SQLite accepted revision/opId counts differ");
-    for (const row of db.prepare("SELECT event_json FROM event ORDER BY revision").all()) {
+    const objectRoot = path.join(path.dirname(databasePath), "objects", "sha256");
+    for (const row of db.prepare("SELECT event_json FROM event ORDER BY revision").iterate()) {
       if (Number(metadata.generation) === 1) decodeLegacyEventBytes(String(row.event_json), "generation 1 backup");
-      else parseCanonicalEvent(String(row.event_json));
+      else {
+        const event = parseCanonicalEvent(String(row.event_json));
+        for (const claim of contentClaims(event)) {
+          const stat = fileSystem.stat(objectPath(objectRoot, claim.sha256), { throwIfNoEntry: false });
+          if (stat === undefined) throw new Error(`event content object ${claim.sha256} is missing`);
+          if (stat.size !== claim.size) throw new Error(`event content object ${claim.sha256} size differs`);
+        }
+      }
     }
     return { revision: Number(counts.revision), opIds: Number(counts.op_ids), integrity };
   } finally {
@@ -428,6 +438,8 @@ function verifyManifest(root: string, manifest: LedgerBackupManifestV1): void {
     if (actual.size !== entry.size || actual.sha256 !== entry.backupSha256)
       throw new Error(`backup file digest differs: ${entry.path}`);
   }
+  for (const database of manifest.files.filter(({ method }) => method === "vacuum-into"))
+    inspectSqlite(path.join(root, database.path));
 }
 
 // Symbolic links are backed up as links: the manifest records the link target, never the
