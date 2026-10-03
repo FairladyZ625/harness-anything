@@ -417,7 +417,7 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
     assert.equal(rolled.code, "mirror_behind_center");
     const unrelated = await cell.run(
       { kind: "task-create", taskId: "task-unrelated-fence", title: "Unrelated" },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     );
     assert.equal(unrelated.outcome, "applied");
     for (const invalidBase of [

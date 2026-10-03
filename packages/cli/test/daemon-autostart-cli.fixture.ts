@@ -86,6 +86,7 @@ for (const resource of [
   "reinstate",
   "contract-receipt",
   "contract-lifecycle",
+  "fact-supersedes-cli",
   "autostart-fail",
 ])
   await realm.control({
