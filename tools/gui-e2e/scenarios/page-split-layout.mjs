@@ -21,9 +21,12 @@ const CHILD_TASK_ID = "task-split-child",
   CHILD_TITLE = "分割布局子任务",
   SEED_FILES = 120;
 
-async function setSize(app, width, height) {
+async function setSize(app, page, width, height) {
   // Electron evaluate 不收额外参数(capture.mjs 同因),尺寸用字面量注入。
   await app.evaluate(`({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setSize(${width}, ${height}); }`);
+  // Hidden Electron does not reliably resize its renderer with the native window.
+  await page.setViewportSize({ width, height });
+  await page.waitForFunction((expected) => globalThis.innerWidth === expected, width);
 }
 
 /** 真实几何:两个 testid 盒子的宽/高与容器(去掉 6px 分隔条)的占比。 */
@@ -153,18 +156,18 @@ export default {
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
     try {
-      await setSize(app, 1440, 900);
+      await setSize(app, page, 1440, 900);
       await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
       await openChildDetail(page);
       // 等文件清单投影追平:树里出现种子目录。
       await page.getByTestId("task-document-tree").filter({ hasText: "split/" }).waitFor({ timeout: 30_000 });
 
-      // ---- 任务详情:默认自适应,无分隔条、无内联模板。 ----
+      // ---- 任务详情:默认自适应,分隔条直接可拖。 ----
       const grid = page.getByTestId("task-detail-content-grid");
-      assert.equal(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
-      assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 0);
+      assert.notEqual(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
+      assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 1);
       await shot("task-split-auto-wide");
-      // 自适应宽屏:树是固定 14rem 侧栏(rem 换算按应用根字号,不假定 16px)。
+      // 自适应宽屏:树与正文按比例分配,首次拖动不跳变。
       let ratios = await paneRatios(
         page,
         "task-detail-content-grid",
@@ -172,13 +175,20 @@ export default {
         "task-detail-panel-scroll",
         "row",
       );
-      const rootFontSize = await page.evaluate(() =>
-        Number.parseFloat(globalThis.getComputedStyle(globalThis.document.documentElement).fontSize),
+      assert.ok(Math.abs(ratios.firstRatio - 0.22) < 0.02, `auto proportional tree ${ratios.firstRatio}`);
+      await dragDivider(page, "task-doc-split-divider", 20, "row");
+      const firstDrag = await paneRatios(
+        page,
+        "task-detail-content-grid",
+        "task-document-tree",
+        "task-detail-panel-scroll",
+        "row",
       );
       assert.ok(
-        Math.abs(ratios.first - 14 * rootFontSize) < 4,
-        `auto wide tree should be 14rem (${14 * rootFontSize}px at ${rootFontSize}px root), got ${ratios.first}px`,
+        Math.abs(firstDrag.first - ratios.first - 20) < 4,
+        `first drag must move only its pointer delta: ${firstDrag.first - ratios.first}`,
       );
+      await page.getByTestId("task-doc-split-controls-reset").click();
 
       // ---- 左右排列:显式接管,默认 22%;展开 120 个文件,树在窗内滚、外部几何不变。 ----
       await page.getByTestId("task-doc-split-controls-row").click();
@@ -234,7 +244,7 @@ export default {
         "row",
       );
       assert.ok(Math.abs(after.firstRatio - 0.45) < 0.04, `dragged ratio, got ${after.firstRatio}`);
-      await setSize(app, 1000, 800);
+      await setSize(app, page, 1000, 800);
       after = await paneRatios(
         page,
         "task-detail-content-grid",
@@ -243,7 +253,7 @@ export default {
         "row",
       );
       assert.ok(Math.abs(after.firstRatio - 0.45) < 0.04, `resized ratio stays bounded, got ${after.firstRatio}`);
-      await setSize(app, 1440, 900);
+      await setSize(app, page, 1440, 900);
       await shot("task-split-row-dragged");
 
       // ---- 键盘微调:分隔条聚焦后 → 加 16px。 ----
@@ -329,13 +339,19 @@ export default {
       await page.getByTestId("task-doc-split-expand").click();
       await page.getByTestId("task-document-tree").waitFor();
 
-      // ---- 重置:回自适应(无内联模板、无分隔条)。 ----
+      // ---- 重置:回自适应(分隔条仍可操作)。 ----
       await page.getByTestId("task-doc-split-controls-reset").click();
-      assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 0);
-      assert.equal(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
+      assert.equal(await page.locator('[data-testid="task-doc-split-divider"]').count(), 1);
+      assert.notEqual(await grid.evaluate((node) => node.style.gridTemplateColumns), "");
 
-      // 窄窗自适应:单栏叠放,文件树横排在上(共享比例上限),正文仍有可用区域。
-      await setSize(app, 760, 800);
+      // 最小受支持 Electron 窗宽1120:内容区不足1100,自动上下排列且正文保持可用。
+      await setSize(app, page, 1120, 800);
+      await page.waitForFunction(
+        () =>
+          globalThis.document
+            .querySelector('[data-testid="task-doc-split-divider"]')
+            ?.getAttribute("aria-orientation") === "horizontal",
+      );
       const narrow = await paneRatios(
         page,
         "task-detail-content-grid",
@@ -344,17 +360,26 @@ export default {
         "column",
       );
       assert.ok(narrow.second > 160, `narrow auto keeps the reader usable, body ${narrow.second}px`);
+      await dragDivider(page, "task-doc-split-divider", 20, "column");
+      const narrowDragged = await paneRatios(
+        page,
+        "task-detail-content-grid",
+        "task-document-tree",
+        "task-detail-panel-scroll",
+        "column",
+      );
+      assert.ok(Math.abs(narrowDragged.first - narrow.first - 20) < 4, "narrow default drag follows its pointer delta");
+      await page.getByTestId("task-doc-split-controls-reset").click();
       await shot("task-split-auto-narrow");
-      await setSize(app, 1440, 900);
+      await setSize(app, page, 1440, 900);
 
       // ---- 工作概况:根任务因有子任务成为工作根;概况板可调主区|最近进展。 ----
       await page.getByTestId("task-detail-work").click();
       await page.getByTestId("workspace-view").waitFor();
       await page.getByTestId("work-overview-board").waitFor();
       const board = page.getByTestId("work-overview-board");
-      assert.equal(await board.evaluate((node) => node.style.gridTemplateColumns), "");
+      assert.notEqual(await board.evaluate((node) => node.style.gridTemplateColumns), "");
       await page.getByTestId("work-overview-split-bar").waitFor();
-      await page.getByTestId("work-overview-split-controls-row").click();
       await page.getByTestId("work-overview-split-divider").waitFor();
       let boardRatios = await paneRatios(page, "work-overview-board", "work-overview-main", "work-timeline", "row");
       assert.ok(Math.abs(boardRatios.firstRatio - 0.6) < 0.04, `board default ratio, got ${boardRatios.firstRatio}`);
@@ -386,8 +411,8 @@ export default {
       );
       await shot("work-split-dragged");
       await page.getByTestId("work-overview-split-controls-reset").click();
-      assert.equal(await board.evaluate((node) => node.style.gridTemplateColumns), "");
-      assert.equal(await page.locator('[data-testid="work-overview-split-divider"]').count(), 0);
+      assert.notEqual(await board.evaluate((node) => node.style.gridTemplateColumns), "");
+      assert.equal(await page.locator('[data-testid="work-overview-split-divider"]').count(), 1);
       await shot("work-split-reset-auto");
 
       // ---- 英文界面:语言偏好只写本会话的临时 profile(每次运行全新 user-data-dir)。 ----
