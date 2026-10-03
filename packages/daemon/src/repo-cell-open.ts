@@ -69,6 +69,7 @@ import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
   RepoCell,
+  RepoCellAttachProgress,
   RepoCellBinding,
   RepoCellStatus,
   RepoCellTerminal,
@@ -134,6 +135,7 @@ export interface RepoCellOpenInput {
   /** Internal writer status bridge for asynchronous materialization health changes. */
   readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
   readonly onQueueDepthChange?: (queueDepth: number) => void;
+  readonly onOpenProgress?: (progress: RepoCellAttachProgress) => void;
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
@@ -934,7 +936,9 @@ export async function openRepoWriterCell(
       terminal.binding,
     );
   };
-  await runtimeSpawner.adopt();
+  await runtimeSpawner.adopt((completed) =>
+    input.onOpenProgress?.({ phase: "restoring-runtimes", applied: completed, total: null, watermark: null }),
+  );
   schedule(() => squadCoordinator.reconcile());
   // The close-run reconciliation, once more at attach: failed reclaims and rejected Squad children get another chance.
   schedule(() =>

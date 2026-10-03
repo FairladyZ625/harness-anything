@@ -491,7 +491,7 @@ function isStatus(value: unknown): value is RepoWriterStatusV1 {
 function attachProgressAdvanced(previous: RepoCellAttachProgress | null, next: RepoCellAttachProgress): boolean {
   if (previous === null) return true;
   if (previous.phase !== next.phase) return attachPhaseOrder(next.phase) > attachPhaseOrder(previous.phase);
-  if (next.phase === "recovering")
+  if (next.phase === "recovering" || next.phase === "restoring-runtimes")
     return next.applied !== null && (previous.applied === null || next.applied > previous.applied);
   if (next.phase === "catching-up")
     return next.watermark !== null && (previous.watermark === null || next.watermark > previous.watermark);
@@ -499,7 +499,7 @@ function attachProgressAdvanced(previous: RepoCellAttachProgress | null, next: R
 }
 
 function attachPhaseOrder(phase: RepoCellAttachProgress["phase"]): number {
-  return phase === "opening" ? 0 : phase === "recovering" ? 1 : 2;
+  return phase === "opening" ? 0 : phase === "recovering" ? 1 : phase === "catching-up" ? 2 : 3;
 }
 function isCapabilityCall(value: unknown): value is RepoWriterCapabilityCallV1 {
   return isWriterSupervisorMessageRecord(value) && value.schema === "harness-repo-writer-capability-call/v1";

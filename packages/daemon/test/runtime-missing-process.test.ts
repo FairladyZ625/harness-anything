@@ -110,6 +110,58 @@ for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
   });
 }
 
+test("adoption reports only completed session restorations, never in-flight or failed settlement", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-progress-"));
+  try {
+    const sessions = ["a", "b", "c"].map((id) => liveSession(`runtime_${id.repeat(24)}`)),
+      progress: number[] = [],
+      settlements: string[] = [];
+    for (const [index, session] of sessions.entries())
+      openMissingProcessStream(
+        rootDir,
+        `dispatch_${String(index).repeat(24)}`,
+        session.runtimeSessionId,
+        `op-${index}`,
+      );
+    let release!: () => void, announceSecond!: () => void;
+    const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+      secondStarted = new Promise<void>((resolve) => {
+        announceSecond = resolve;
+      });
+    const context = {
+      input: { rootDir, repoId: "adoption-progress", now: () => "2026-09-13T00:01:00.000Z" },
+      requiredRuntimeProjection: () => ({ readRuntimeSessions: () => sessions }),
+      processes: new Map(),
+      exiting: new Set<string>(),
+      consumeLine: async () => undefined,
+      publishExit: async (active: { runtimeSessionId: string }) => {
+        if (settlements.length === 1) {
+          announceSecond();
+          await pending;
+        }
+        assert.equal(progress.length, settlements.length, "starting settlement is not completed progress");
+        if (settlements.length === 2) throw new Error("settlement stalled");
+        settlements.push(active.runtimeSessionId);
+        context.processes.delete(active.runtimeSessionId);
+      },
+    };
+    const adopting = adoptRuntimes(context as never, (completed) => progress.push(completed));
+    await secondStarted;
+    try {
+      assert.deepEqual(progress, [1]);
+    } finally {
+      release();
+    }
+    await assert.rejects(adopting, /settlement stalled/);
+    assert.deepEqual(progress, [1, 2]);
+    assert.equal(settlements.length, 2);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("runtime cancel settles a live projection whose dispatch never recorded a process", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-missing-process-"));
   try {

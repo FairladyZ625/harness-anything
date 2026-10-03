@@ -1,7 +1,7 @@
 import { materializationStateWords } from "./daemon-protocol-vocabulary.ts";
 
 export interface DaemonRepoAttachProgress {
-  readonly phase: "opening" | "recovering" | "catching-up";
+  readonly phase: "opening" | "recovering" | "catching-up" | "restoring-runtimes";
   readonly applied: number | null;
   readonly total: number | null;
   readonly watermark: number | null;

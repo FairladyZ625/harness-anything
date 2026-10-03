@@ -99,6 +99,65 @@ test("advancing watermark may continue beyond ten minutes; repeated watermark ca
   assert.equal(writer.terminateCalls, 1);
 });
 
+test("a writer becomes ready after multiple completed runtime restorations beyond 30 seconds", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const writer = new FakeWriter(),
+    opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker });
+  writer.publish(
+    writerStatus("attach-progress", warmingStatus({ phase: "catching-up", applied: 100, total: 100, watermark: 100 })),
+  );
+  for (const applied of [1, 2, 3]) {
+    context.mock.timers.tick(20_000);
+    writer.publish(
+      writerStatus(
+        "attach-progress",
+        warmingStatus({ phase: "restoring-runtimes", applied, total: null, watermark: null }),
+      ),
+    );
+    assert.equal(writer.terminateCalls, 0);
+  }
+  writer.publish(writerStatus("ready", attachedStatus()));
+  const supervisor = await opening;
+  assert.equal(supervisor.status().state, "attached");
+  await supervisor.close();
+});
+
+test("completed runtime restorations extend startup, but duplicate, older and stale phase progress cannot", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const writer = new FakeWriter(),
+    opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker }),
+    rejected = assert.rejects(opening, /30000ms without progress/);
+  writer.publish(
+    writerStatus("attach-progress", warmingStatus({ phase: "catching-up", applied: 100, total: 100, watermark: 100 })),
+  );
+  for (const applied of [1, 2, 3]) {
+    context.mock.timers.tick(20_000);
+    writer.publish(
+      writerStatus(
+        "attach-progress",
+        warmingStatus({ phase: "restoring-runtimes", applied, total: null, watermark: null }),
+      ),
+    );
+    assert.equal(writer.terminateCalls, 0);
+  }
+  context.mock.timers.tick(20_000);
+  for (const applied of [3, 2])
+    writer.publish(
+      writerStatus(
+        "attach-progress",
+        warmingStatus({ phase: "restoring-runtimes", applied, total: null, watermark: null }),
+      ),
+    );
+  writer.publish(
+    writerStatus("attach-progress", warmingStatus({ phase: "catching-up", applied: 101, total: 101, watermark: 101 })),
+  );
+  context.mock.timers.tick(9_999);
+  assert.equal(writer.terminateCalls, 0);
+  context.mock.timers.tick(1);
+  await rejected;
+  assert.equal(writer.terminateCalls, 1);
+});
+
 class FakeWriter extends EventEmitter {
   terminateCalls = 0;
 

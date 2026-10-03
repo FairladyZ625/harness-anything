@@ -87,9 +87,7 @@ async function startRepoWriterWorker(): Promise<void> {
 
   try {
     const config = bootstrap.config,
-      input: RepoCellOpenInput & {
-        readonly onOpenProgress: (progress: RepoCellAttachProgress) => void;
-      } = {
+      input: RepoCellOpenInput = {
         ...config,
         repoId: config.repoId as RepoCellOpenInput["repoId"],
         rootDir: config.rootDir as RepoCellOpenInput["rootDir"],

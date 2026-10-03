@@ -877,7 +877,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         scheduled,
         undefined,
       ),
-    adopt: () => adoptRuntimes(extracted),
+    adopt: (onProgress?: (completed: number) => void) => adoptRuntimes(extracted, onProgress),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     close: () => {
       fallbackClosed = true;
