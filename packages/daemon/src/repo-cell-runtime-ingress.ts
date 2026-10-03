@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   canonicalEventWritePlan,
   currentSubmittedExecutions,
+  isSamePerson,
   runtimeEventContentClaims,
   stableStringify,
   type AgentRuntimeEventV1,
@@ -116,6 +117,36 @@ export function appendAuxiliaryRuntimeIngress(
               "submit the implementation at the center, refresh the assignment, then retry reviewer dispatch.",
           );
       }
+    }
+    const sourceId = action.payload.resumedFromDispatchId;
+    if (typeof sourceId === "string") {
+      const source = cell.projection.readRuntimeDispatchById(sourceId)?.event,
+        session = source ? cell.projection.readRuntimeSession(source.payload.runtimeSessionId) : null;
+      if (!source || !session?.providerSessionId)
+        throw cell.cellCodedError(
+          "runtime_dispatch_not_resumable",
+          `Dispatch ${sourceId} has no provider session to resume.`,
+        );
+      if (
+        !isSamePerson(source.actor, binding.actor) ||
+        source.payload.taskId !== action.payload.taskId ||
+        source.payload.executionId !== action.payload.executionId ||
+        (scope &&
+          ((source.payload.taskId ?? null) !== dispatch?.taskId ||
+            (source.payload.executionId ?? null) !== dispatch?.executionId))
+      )
+        throw cell.cellCodedError(
+          "runtime_resume_binding_mismatch",
+          "Resume must retain the source owner, task and execution.",
+        );
+      if (source.payload.agentId !== action.payload.agentId)
+        throw cell.cellCodedError("runtime_resume_agent_mismatch", "Resume must retain the source agent.");
+      const successor = cell.projection.readRuntimeDispatchByResumeSource(sourceId);
+      if (successor)
+        throw cell.cellCodedError(
+          "runtime_dispatch_already_resumed",
+          `Dispatch ${sourceId} was already resumed as ${successor.event.payload.dispatchId}.`,
+        );
     }
     const key = cell.requiredCellText(action.payload.idempotencyKey, "idempotencyKey"),
       hash = createHash("sha256").update(`${cell.input.repoId}\0${key}`).digest("hex");
