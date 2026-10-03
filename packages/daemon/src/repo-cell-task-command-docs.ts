@@ -229,7 +229,14 @@ export async function runTaskCommandWithDocs(
   let submittedAction = taskAction,
     anchorDriftWarnings: readonly string[] = [];
   if (submittedExecutionId) {
-    const derived = readCloseoutSubmission(cell, taskId, submittedExecutionId, current.snapshot, bodyOverrides);
+    const derived = readCloseoutSubmission(
+      cell,
+      taskId,
+      submittedExecutionId,
+      current.snapshot,
+      bodyOverrides,
+      typeof taskAction.commitSha === "string" ? taskAction.commitSha : undefined,
+    );
     if (!derived.ok) {
       recycleClaims(cell.rootDir, intent);
       return submissionStopped(

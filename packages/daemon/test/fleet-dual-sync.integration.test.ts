@@ -1112,6 +1112,72 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
     },
   );
 
+for (const commitLocation of ["center", "edge"] as const)
+  test(
+    `class A repository submit resolves an explicit ${commitLocation} commit at the center`,
+    { timeout: 60_000 },
+    async (t) => {
+      const fixture = await dualSyncFixture();
+      t.after(() => fixture.close());
+      const created = await fixture.createTask("node-one", "task-seeded", "Repository delivery");
+      const started = await fixture.edgeTask("node-one", {
+        kind: "task-start",
+        taskId: created.taskId,
+        executionId: "exe-seeded",
+      });
+      assert.equal(started.ok, true, JSON.stringify(started));
+      await fixture.waitPublished(String(started.opId));
+      const deliveryRoot = commitLocation === "center" ? fixture.repo : path.join(fixture.root, "edge-delivery");
+      if (commitLocation === "edge") {
+        execFileSync("git", ["clone", "--no-local", fixture.repo, deliveryRoot], { stdio: "pipe" });
+        execFileSync("git", ["-C", deliveryRoot, "config", "user.name", "Dual Sync Test"]);
+        execFileSync("git", ["-C", deliveryRoot, "config", "user.email", "dual@example.invalid"]);
+      }
+      const deliveryGit = (...args: string[]) =>
+        execFileSync("git", ["-C", deliveryRoot, ...args], { encoding: "utf8", stdio: "pipe" }).trim();
+      writeFileSync(path.join(deliveryRoot, "delivery.ts"), "export const delivered = true;\n");
+      deliveryGit("add", "delivery.ts");
+      deliveryGit("commit", "-qm", "test: repository delivery");
+      const commitSha = deliveryGit("rev-parse", "HEAD"),
+        closeoutPath = `${created.packagePath}/closeout.md`,
+        before = readFileSync(path.join(fixture.repo, "harness", closeoutPath), "utf8"),
+        body =
+          "## Summary\nRepository delivery.\n## Verification\nIsolated Fleet command exercised.\n" +
+          "## Residual Risk\nReal provider acceptance remains unverified.\n" +
+          "## Same Mechanism Elsewhere\nOnly center-visible objects can be verified.\n";
+      fixture.writeWorktree("node-one", closeoutPath, body);
+      const defaultSubmit = await fixture.edgeTask("node-one", { kind: "task-submit", taskId: created.taskId });
+      assert.equal(defaultSubmit.ok, false, JSON.stringify(defaultSubmit));
+      assert.match(JSON.stringify(defaultSubmit), /No readable bound worktree HEAD/u);
+      const revision = ledgerRevision(fixture);
+      const submitted = await fixture.edgeTask("node-one", {
+        kind: "task-submit",
+        taskId: created.taskId,
+        executionId: "exe-seeded",
+        commitSha,
+      });
+      if (commitLocation === "edge") {
+        assert.equal(submitted.ok, false, JSON.stringify(submitted));
+        assert.match(JSON.stringify(submitted), /not in any local clone/u);
+        assert.equal(ledgerRevision(fixture), revision, "rejection must not append documents or submission");
+        assert.equal(readFileSync(path.join(fixture.repo, "harness", closeoutPath), "utf8"), before);
+        const shown = await fixture.edgeTask("node-one", { kind: "task-show", taskId: created.taskId });
+        const snapshot = JSON.parse(String(shown.evidence));
+        assert.equal(snapshot.executions[0].submission, null);
+        assert.equal(snapshot.lease.phase, "held");
+        return;
+      }
+      assert.equal(submitted.ok, true, JSON.stringify(submitted));
+      assert.equal((submitted.docSync as { outcome: string }).outcome, "applied");
+      const shown = await fixture.edgeTask("node-one", { kind: "task-show", taskId: created.taskId });
+      const snapshot = JSON.parse(String(shown.evidence));
+      assert.equal(snapshot.executions[0].submission.commitSha, commitSha);
+      assert.deepEqual(snapshot.executions[0].submission.deliverables, ["delivery.ts"]);
+      assert.deepEqual(snapshot.executions[0].submission.outputs, []);
+      assert.equal(readFileSync(fixture.worktree("node-one", closeoutPath), "utf8"), body);
+    },
+  );
+
 // Raw Task artifact bytes across the fleet. The publication and local read sides were proved in
 // doc-sync-artifact-raw-bytes / task-raw-artifact-consumer-read; what is unproven until here is the
 // transfer: a PDF and a PNG accepted at the center have to arrive on an edge as the same bytes, and
