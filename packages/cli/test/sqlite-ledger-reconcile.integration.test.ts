@@ -12,6 +12,8 @@ import { daemonStdioLogPath } from "@harness-anything/daemon/internal/lifecycle-
 import { openPersistentWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
+import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
+
 const cli = path.resolve("packages/cli/src/index.ts");
 
 test("local CLI initializes and accepts the native generation-2 SQLite ledger", async (context) => {
@@ -26,6 +28,7 @@ test("local CLI initializes and accepts the native generation-2 SQLite ledger", 
   git(root, "config", "user.name", "SQLite Reconcile Test");
   git(root, "config", "user.email", "sqlite-reconcile@example.invalid");
   git(root, "commit", "--allow-empty", "-qm", "project root");
+  await signInProcessPolicyTestUser(userRoot, "person_zeyu", [repoId], "admin");
   try {
     assert.equal(run(root, userRoot, ["daemon", "start", "--service"]).ok, true);
     const initialized = run(root, userRoot, [

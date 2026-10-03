@@ -10,6 +10,7 @@ import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 
 test("a repository whose open never settles is bounded by an attach budget while the rest attach and serve", async () => {
@@ -22,6 +23,7 @@ test("a repository whose open never settles is bounded by an attach budget while
   rosterRepo(live, "zzz-live");
   registerDaemonRepo({ canonicalRoot: hung, repoId: "aaa-hung", userRoot, createConvenienceLinks: false });
   registerDaemonRepo({ canonicalRoot: live, repoId: "zzz-live", userRoot, createConvenienceLinks: false });
+  signInPolicyTestUser(userRoot, "writer", ["aaa-hung", "zzz-live"], "admin");
   const hungOpens: Array<(cell: Awaited<ReturnType<typeof openRepoCell>>) => void> = [];
   const liveCell = await openRepoCell({
     repoId: workspaceId("zzz-live"),
@@ -115,6 +117,7 @@ test("a disabled repository is not resurrected by its in-flight attach landing l
     records: Record<string, unknown>[] = [];
   rosterRepo(rootDir, "disable-attach");
   registerDaemonRepo({ canonicalRoot: rootDir, repoId: "disable-attach", userRoot, createConvenienceLinks: false });
+  signInPolicyTestUser(userRoot, "writer", ["disable-attach"], "admin");
   const root = canonicalRoot(rootDir),
     lockPath = `${root}.harness-anything-writer.lock`,
     gate = gateFirstOpen("disable-attach"),
@@ -195,6 +198,7 @@ test("an attach that lands after its registration changed mode is discarded and 
     userRoot,
     createConvenienceLinks: false,
   });
+  signInPolicyTestUser(userRoot, "writer", ["mode-attach"], "admin");
   const root = canonicalRoot(rootDir),
     lockPath = `${root}.harness-anything-writer.lock`,
     gate = gateFirstOpen("mode-attach"),

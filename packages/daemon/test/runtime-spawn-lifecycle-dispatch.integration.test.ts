@@ -697,7 +697,6 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
     });
     try {
       const taskId = "task-runtime-orphan-lease",
-        executionId = "execution-runtime-orphan-lease",
         binding = withPolicyGroup(
           {
             actor: { principal: { personId: "person-orphan-lease" }, executor: null },
@@ -714,27 +713,38 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
         (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
         "Orphan lease dispatch",
       );
-      assert.equal(
-        (
-          await cell.run(
-            {
-              kind: "task-start",
-              taskId,
-              executionId,
-              executor: { kind: "agent", id: "orphan-lease-worker" },
-              ttlMs: 60_000,
-            },
-            binding,
-          )
-        ).outcome,
-        "applied",
+      const initial = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Hold the task before the lease expires.",
+          taskId,
+          idempotencyKey: "orphan-lease-initial",
+        },
+        binding,
       );
+      assert.equal(initial.outcome, "applied", JSON.stringify(initial));
+      const initialProjection = makeTaskProjection({
+        rootDir: root,
+        eventStore: makeTaskEventReader({ repoId: "runtime-orphan-lease", rootDir: root }),
+        now: () => clock,
+      });
+      let expiresAt: string;
+      try {
+        const lease = initialProjection.read(taskId).snapshot.lease;
+        assert.equal(lease?.phase, "held");
+        assert.equal(lease?.actor.executor?.id, `runtime-session:${initial.runtimeSessionId}`);
+        assert.ok(lease?.expiresAt);
+        expiresAt = lease.expiresAt;
+      } finally {
+        initialProjection.close();
+      }
       const held = String(
         ((await cell.run({ kind: "task-show", taskId }, binding)) as Record<string, unknown>).summary,
       );
       assert.match(held, /\nlease: [^\n]*phase=held/u, held);
-      // Past the 60s TTL the lease projects as orphaned with no manual `ha task release`.
-      clock = "2026-09-11T00:01:01.000Z";
+      // Expire the real dispatch lease without a manual `ha task release`.
+      clock = new Date(Date.parse(expiresAt) + 1_000).toISOString();
       const lapsed = String(
         ((await cell.run({ kind: "task-show", taskId }, binding)) as Record<string, unknown>).summary,
       );

@@ -43,6 +43,11 @@ test("a delegated RuntimeSession runs lifecycle Actions on a task it is not boun
       rootDir: canonicalRoot(rootDir),
       ownerId: "delegated-executor",
       now: () => now,
+      runtimeDaemonRoute: {
+        userRoot: path.join(rootDir, ".daemon-user"),
+        daemonId: "delegated-executor",
+        endpoint: path.join(rootDir, ".daemon-user", "daemon.sock"),
+      },
     });
     assert.equal(
       (await cell.run({ kind: "task-create", taskId, title: "Batch closeout target" }, principalBinding)).outcome,

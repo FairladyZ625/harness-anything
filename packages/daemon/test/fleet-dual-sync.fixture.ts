@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/kernel";
@@ -56,10 +56,6 @@ export async function dualSyncFixture() {
     "schema: harness-anything/v1\nname: dual\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
   const ownerUid = process.getuid?.() ?? 0;
-  writeFileSync(
-    path.join(repo, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "person-fixture", displayName: "Fixture Owner", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(ownerUid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
-  );
   git("add", "harness");
   git("commit", "-qm", "harness");
   registerDaemonRepo({ canonicalRoot: repo, repoId: "dual-repo", userRoot, createConvenienceLinks: false });
@@ -91,6 +87,7 @@ export async function dualSyncFixture() {
       userRoot,
       owners: Object.fromEntries(nodes.map((nodeId) => [nodeId, `person-${nodeId}`])),
       repoIds: ["dual-repo"],
+      localPersonId: "person-fixture",
     });
   await host.attachmentsSettled();
   // Match daemon-fleet-center-start: local and edge ingress share the host lease.

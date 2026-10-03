@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import {
@@ -48,31 +48,6 @@ async function leaseFixture(
     path.join(repo, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: lease\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
-  writeFileSync(
-    path.join(repo, "harness/people.yaml"),
-    `${JSON.stringify(
-      {
-        schema: "harness-people/v1",
-        people: [
-          {
-            personId: "lease-owner",
-            displayName: "Lease Owner",
-            roles: ["owner"],
-            credentials: [
-              {
-                kind: "unix-socket-owner-boundary",
-                issuer: `host:${hostname()}`,
-                subject: String(process.getuid?.() ?? 0),
-              },
-            ],
-          },
-        ],
-        roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }],
-      },
-      null,
-      2,
-    )}\n`,
-  );
   git("add", "harness");
   git("commit", "-qm", "harness");
   registerDaemonRepo({ canonicalRoot: repo, repoId: "lease-repo", userRoot, createConvenienceLinks: false });
@@ -103,6 +78,7 @@ async function leaseFixture(
     userRoot,
     owners: { "node-one": "person-one", "node-two": "person-two" },
     repoIds: ["lease-repo"],
+    localPersonId: "lease-owner",
   });
   const assignment = (nodeId: string): FleetAssignmentRecord => ({
     nodeId,
