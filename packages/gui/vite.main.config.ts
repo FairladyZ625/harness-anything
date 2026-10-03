@@ -1,10 +1,7 @@
 import { defineConfig } from "vite";
 
-// Bundles the Electron main process into a single ESM file shipped in the npm
-// package (`ha gui` spawns dist-electron/electron-main.js; the .app path keeps
-// running src/main/electron-main.ts unchanged). Workspace packages stay
-// external: they are declared runtime dependencies of @harness-anything/gui and
-// are resolved from the installed node_modules tree at launch.
+// Both npm and desktop distributions run this compiled main entry. Workspace
+// dependencies remain external and are staged through their npm pack lifecycle.
 export default defineConfig({
   build: {
     lib: {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createWriteStream, existsSync, mkdirSync, rmSync } from "node:fs";
-import { chmod, cp, mkdir, rename, rm } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import https from "node:https";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -116,6 +116,26 @@ async function prepareDaemonNodeModules() {
     if (!packageName || packageName === "@harness-anything/cli") continue;
     const target = join(appNodeModulesDir, packageName);
     await mkdir(dirname(target), { recursive: true });
+    if (packageName.startsWith("@harness-anything/")) {
+      const packDir = await mkdtemp(join(cacheDir, "workspace-pack-"));
+      try {
+        // Use the same compiled files and export mapping as the npm distribution.
+        const [{ filename }] = JSON.parse(
+          execFileSync(npmExecutableName, ["pack", "--json", "--pack-destination", packDir], {
+            cwd: dependencyPath,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "inherit"],
+          }),
+        );
+        await mkdir(target, { recursive: true });
+        execFileSync("tar", ["-xzf", join(packDir, filename), "--strip-components=1", "-C", target], {
+          stdio: "inherit",
+        });
+      } finally {
+        await rm(packDir, { recursive: true, force: true });
+      }
+      continue;
+    }
     await cp(dependencyPath, target, {
       recursive: true,
       dereference: true,
