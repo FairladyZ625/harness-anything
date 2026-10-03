@@ -325,17 +325,24 @@ function responseTimeoutHint(method: string, responseTimeoutMs: number): string 
 
 export function connectSocket(socketPath: string, timeoutMs: number): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
+    let deadline: NodeJS.Immediate | undefined;
     const socket = createDaemonEndpointSocket(socketPath),
       timer = setTimeout(() => {
-        socket.destroy();
-        reject(new Error("daemon_unavailable"));
+        // A stalled caller can reach timers before polling an already-completed connect.
+        // Decide in check after that poll, without reconnecting or extending the timer budget.
+        deadline = setImmediate(() => {
+          socket.destroy();
+          reject(new Error("daemon_unavailable"));
+        });
       }, timeoutMs);
     socket.once("connect", () => {
       clearTimeout(timer);
+      clearImmediate(deadline);
       resolve(socket);
     });
     socket.once("error", (error) => {
       clearTimeout(timer);
+      clearImmediate(deadline);
       reject(error);
     });
   });
