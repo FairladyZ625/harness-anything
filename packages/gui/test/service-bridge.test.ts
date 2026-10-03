@@ -327,7 +327,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       gates: [],
       closeout: { profile: "standard" },
       agenda: { pinLimit: 30 },
-      tasks: { wipLimit: 30, rootThreshold: 3 },
+      // S8 CH4 and dec_199D1CA39C6AD06504D66A95E9 CH1 freeze these defaults.
+      tasks: { wipLimit: 30, rootThreshold: 3, assignmentTtlMs: 86_400_000 },
+      fleet: { claim: { scope: "node" } },
       worktree: { setup: [] },
       schedule: { admissionWindowMs: 60_000 },
     });
