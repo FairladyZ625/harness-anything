@@ -118,7 +118,7 @@ export function dayClock(iso: string, now: number, today: "bare" | "named" = "ba
   if (day === nowDay) return today === "named" ? t("schedules.clock.today", { time }) : time;
   if (day === nowDay + 1) return t("schedules.clock.tomorrow", { time });
   if (day === nowDay - 1) return t("schedules.clock.yesterday", { time });
-  return formatTime(iso, { style: "month-day-time" }) ?? iso;
+  return formatTime(iso, { style: "month-day-time", now }) ?? iso;
 }
 
 /** 距下次运行还有多久(「3 小时后」);时间已到或已过返回 null,不编一个未来。 */
