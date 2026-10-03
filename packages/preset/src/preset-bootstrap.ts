@@ -139,15 +139,8 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         ? null
         : (resolved.documents.find(({ slot }) => slot === "task.plan")?.body.replaceAll("{{title}}", input.title) ??
           null);
-  if (planBody !== null && planScaffoldBody !== null) {
-    try {
-      assertTransitionDocumentReady("task.plan", planBody, transitionDocumentContract(planScaffoldBody));
-    } catch (error) {
-      if (error && typeof error === "object" && "missingSections" in error)
-        Object.assign(error, { documentPath: `${packagePath}/task_plan.md`, diskDiffers: false });
-      throw error;
-    }
-  }
+  if (planBody !== null && planScaffoldBody !== null)
+    assertTransitionDocumentReady("task.plan", planBody, transitionDocumentContract(planScaffoldBody));
   const prose = resolved.documents.map((document): CompiledTaskDocument => {
       const scaffoldBody = document.body.replaceAll("{{title}}", input.title),
         body = document.slot === "task.plan" && planBody !== null ? planBody : scaffoldBody;

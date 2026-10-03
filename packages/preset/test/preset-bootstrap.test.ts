@@ -458,6 +458,22 @@ test("an authored plan rides the bootstrap write while readiness keeps deriving 
       incomplete.missingSections.map(({ section }) => section),
       ["Verification"],
     );
+    assert.throws(
+      () =>
+        compileTaskPackage({
+          ...common,
+          taskId: "task-rejected-plan",
+          title: "Rejected plan",
+          presetId: "standard-task",
+          plan: authoredPlan.replace("## Verification\n\nAuthored content for Verification.", ""),
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error && "code" in error && error.code === "plan_placeholder");
+        assert.match(error.message, /Verification/u);
+        assert.equal(Object.hasOwn(error, "documentPath"), false, "a rejected create has no task document to edit");
+        return true;
+      },
+    );
     const bootstrapClaim = compiled.event.payload.initialDocumentClaims.find(({ path }) =>
       path.endsWith("/task_plan.md"),
     )!;

@@ -39,6 +39,7 @@ test("task creation resolves the plan file into the plan body on the same action
         kind: "task-create",
         title: "Planned",
         plan,
+        planFile: "plans/authored.md",
       },
     );
     assert.deepEqual(
@@ -48,7 +49,7 @@ test("task creation resolves the plan file into the plan body on the same action
         jsonInput: JSON.stringify({ title: "Packet" }),
         planFile: "plans/authored.md",
       }),
-      { kind: "task-create", title: "Structured", plan },
+      { kind: "task-create", title: "Structured", plan, planFile: "plans/authored.md" },
     );
     assert.throws(
       () => taskCreateAction(rootDir, { kind: "task-create", title: "Both", planFile: "plans/authored.md", plan: "x" }),

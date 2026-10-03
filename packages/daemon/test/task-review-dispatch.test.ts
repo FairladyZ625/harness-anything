@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import type { ExecutionV1 } from "@harness-anything/kernel";
+import { reviewPacket } from "../src/repo-cell-packets.ts";
 import { reviewDispatchPrompt } from "../src/task-review-dispatch.ts";
 
 const sha256 = (body: string) => createHash("sha256").update(body, "utf8").digest("hex");
@@ -54,6 +55,8 @@ test("review prompts truncate oversized artifact bodies and keep the frozen anch
     gates: [],
   });
   assert.match(prompt, /Independently review task task_review_bounds/u);
+  assert.match(prompt, /JSON required fields: verdict, reason, evidenceChecked/u);
+  assert.match(prompt, /verdict: approved\|changes_requested\|dismissed/u);
   assert.doesNotMatch(prompt, /Owner adjudication context/u);
   assert.match(prompt, /execution-frozen delivery baseline.*b{40}/u);
   assert.match(prompt, /Read the G33 production-delta result/u);
@@ -62,4 +65,21 @@ test("review prompts truncate oversized artifact bodies and keep the frozen anch
   assert.match(prompt, /bodyTruncatedFromChars/u);
   assert.match(prompt, /REVIEW-SMALL-ARTIFACT-FULL-BODY/u);
   assert.match(prompt, new RegExp(sha256(bigBody), "u"));
+});
+
+test("review input accepts the dispatched field contract and rejects persisted-record metadata", () => {
+  const value = { verdict: "approved", reason: "Checked the frozen delivery.", evidenceChecked: ["closeout.md"] };
+  assert.deepEqual(
+    reviewPacket("/unused", { kind: "task-review-execution", jsonInput: JSON.stringify(value) }).value,
+    value,
+  );
+  for (const metadata of [{ schema: "review/v1" }, { taskId: "task_1" }, { executionId: "exe_1" }, { findings: [] }])
+    assert.throws(
+      () =>
+        reviewPacket("/unused", {
+          kind: "task-review-execution",
+          jsonInput: JSON.stringify({ ...value, ...metadata }),
+        }),
+      /Review JSON requires exactly/u,
+    );
 });
