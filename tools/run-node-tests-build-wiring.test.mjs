@@ -29,6 +29,7 @@ function runnerFixture(linked = true) {
     "integration-test-shards.mjs",
     "integration-test-weights.json",
     "test-quarantine.mjs",
+    "test-quarantine.json",
     "node-test-file-activity-reporter.mjs",
     "node-test-observation-reporter.mjs",
     "node-test-stall-report.mjs",
@@ -74,7 +75,7 @@ test("CLI entry sees the build before any test executes", () => {
   assert.equal(readFileSync("packages/daemon/dist/build-id.txt", "utf8"), "current", cli);
 });`,
   );
-  const env = { ...process.env };
+  const env = { ...process.env, HARNESS_TEST_QUARANTINE: "skip" };
   delete env.NODE_TEST_CONTEXT;
   const run = (...extra) =>
     spawnSync(process.execPath, ["tools/run-node-tests.mjs", "--file", "packages/cli/test/entry.test.mjs", ...extra], {
