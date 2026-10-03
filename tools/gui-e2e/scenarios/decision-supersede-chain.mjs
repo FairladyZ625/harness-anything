@@ -26,10 +26,10 @@ export default {
     await chain.waitFor();
     // 等抽屉实际到达终点再量坐标，避免动画中的滚轮命中位置漂移。
     await page.waitForFunction(() => {
-      const drawer = document.querySelector('[role="dialog"]');
+      const drawer = globalThis.document.querySelector('[role="dialog"]');
       if (!drawer) return false;
-      const transform = getComputedStyle(drawer).transform;
-      return transform === "none" || Math.abs(new DOMMatrixReadOnly(transform).m41) < 0.01;
+      const transform = globalThis.getComputedStyle(drawer).transform;
+      return transform === "none" || Math.abs(new globalThis.DOMMatrixReadOnly(transform).m41) < 0.01;
     });
     const geometry = await chain.evaluate((node) => ({
       scrollWidth: node.scrollWidth,
