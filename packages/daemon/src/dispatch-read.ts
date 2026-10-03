@@ -16,6 +16,8 @@ import {
   removeDispatchLiveIndexEntries,
   type DispatchStreamHeader,
   type RuntimeMetrics,
+  type DispatchProcessState,
+  type DispatchTerminalOutcome,
 } from "./dispatch-stream.ts";
 import type {
   DaemonTaskDispatchesPayload,
@@ -38,6 +40,8 @@ type DispatchCandidate = {
 export interface RuntimeSessionActivityEvidence {
   readonly lastObservedAt: string;
   readonly workerHostAlive: boolean;
+  readonly process: DispatchProcessState | null;
+  readonly terminalOutcome: DispatchTerminalOutcome | null;
   /** Latest dispatch-stream metrics for the session's dispatch; null until the worker emits them. */
   readonly runtimeMetrics: RuntimeMetrics | null;
 }
@@ -53,6 +57,8 @@ export function readRuntimeSessionActivityEvidence(
     lastObservedAt: stream.lastObservedAt,
     workerHostAlive: stream.process?.exited === false && runtimePidIsAlive(stream.process.pid),
     runtimeMetrics: stream.runtimeMetrics,
+    process: stream.process,
+    terminalOutcome: stream.terminalOutcome,
   };
 }
 

@@ -377,6 +377,8 @@ test("ZCode provider writes and its live worker host form current session activi
     assert.deepEqual(evidence, {
       lastObservedAt: "2026-09-06T00:00:05.000Z",
       workerHostAlive: true,
+      process: { pid: process.pid, exitCode: null, signal: null, exited: false },
+      terminalOutcome: null,
       runtimeMetrics: null,
     });
   } finally {

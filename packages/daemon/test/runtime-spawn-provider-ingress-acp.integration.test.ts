@@ -109,7 +109,25 @@ async function spawnSettled(
       const lines = readDispatchStream(root, String(receipt.dispatchId))?.records ?? [];
       return lines.some((record) => record.kind === "attempt_outcome") ? lines : null;
     });
-  return { receipt, read, records };
+  // Local terminal evidence is readable before canonical publication finishes.
+  // Settlement assertions must wait for the canonical event itself.
+  const reader = makeTaskEventReader({ repoId, rootDir: root }),
+    readOutcome = () =>
+      reader
+        .read()
+        .events.find(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === receipt.runtimeSessionId,
+        ) ?? null,
+    outcome = await eventuallyValue(readOutcome);
+  assert.equal(outcome.type, "runtime_session_outcome_observed");
+  if (outcome.type === "runtime_session_outcome_observed") {
+    assert.equal(outcome.payload.outcome, (read.session as { activity: { outcome: unknown } }).activity.outcome);
+    assert.equal(outcome.payload.exitCode, (read.session as { activity: { exitCode: unknown } }).activity.exitCode);
+    assert.equal(outcome.payload.resultRef, (read.session as { activity: { resultRef: unknown } }).activity.resultRef);
+  }
+  return { receipt, read, records, outcome };
 }
 
 function streamOrder(records: readonly Record<string, unknown>[]): string[] {
@@ -124,7 +142,7 @@ function streamOrder(records: readonly Record<string, unknown>[]): string[] {
 
 test("daemon ingress drives an ACP provider through the worker host", async () => {
   await withAcpDaemon(process.env, async ({ host, root, capture }) => {
-    const { receipt, read } = await spawnSettled(host, root, {
+    const { receipt, read, outcome } = await spawnSettled(host, root, {
       prompt: "do work",
       idempotencyKey: "devin-acp-ingress",
     });
@@ -141,14 +159,7 @@ test("daemon ingress drives an ACP provider through the worker host", async () =
     assert.match(stream, /"currentModelId":"swe-2-medium"/u);
     assert.match(stream, /"sessionUpdate":"tool_call"/u);
     assert.match(stream, /"stopReason":"end_turn"/u);
-    const outcome = makeTaskEventReader({ repoId, rootDir: root })
-      .read()
-      .events.find(
-        (event) =>
-          event.type === "runtime_session_outcome_observed" &&
-          event.payload.runtimeSessionId === receipt.runtimeSessionId,
-      );
-    assert.equal(outcome?.type, "runtime_session_outcome_observed");
+    assert.equal(outcome.type, "runtime_session_outcome_observed");
     const captured = readFileSync(capture, "utf8")
       .split("\n")
       .filter(Boolean)
