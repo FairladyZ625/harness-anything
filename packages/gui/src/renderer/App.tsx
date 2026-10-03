@@ -15,7 +15,6 @@ import { decisionDetailLocation } from "./navigation/decisionReviewRoutes.ts";
 import { FreshnessView } from "./views/FreshnessView.tsx";
 import { CadenceView } from "./views/CadenceView.tsx";
 import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
-import { PanelWorkbenchView } from "./views/PanelWorkbenchView.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { EntitiesView } from "./views/EntitiesView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
@@ -94,7 +93,6 @@ import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.ts
  */
 const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
   "workspace",
-  "workbench",
   "graph",
   "decisionPool",
   "decisionDetail",
@@ -226,8 +224,6 @@ function AppShell() {
     });
   }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data, works]);
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
-  // 面板工作台的布局分槽键:连接目标 + 仓,都取 daemon 投影的标识,不从显示名猜。
-  const workbenchWorkspaceKey = activeRepo ? `${activeRepo.connectionId}/${activeRepo.repoId}` : "unselected";
   const project = adaptRepoProject(
     projectId,
     activeRepo,
@@ -274,10 +270,10 @@ function AppShell() {
     enabled: fullProjectionMounted,
     graphEnabled: fullGraphProjectionMounted,
   });
-  // 运行时平面(agent/schedule 行 + agent→task 派发边):只有关系图页与面板工作台的
-  // 关系图面板读;三条既有读(agent 目录/Schedule 列表/关系图切面)与各自入口共享
+  // 运行时平面(agent/schedule 行 + agent→task 派发边):只有关系图页读取;
+  // 三条既有读(agent 目录/Schedule 列表/关系图切面)与各自入口共享
   // 缓存,不另立读方法。
-  const graphRuntimeMounted = view === "graph" || view === "workbench";
+  const graphRuntimeMounted = view === "graph";
   const runtimePlane = useRuntimePlaneQuery(activeRepoId, { enabled: graphRuntimeMounted });
   // 任务预览抽屉、任务详情与会话页渲染的是关系边本身;完整图已在缓存里(刚从图/
   // 决策视图过来)就直接用它,不把同一批边读两遍。
@@ -682,45 +678,6 @@ function AppShell() {
                   relationState={triadicQuery.relationState}
                   onOpenPalette={() => setPaletteOpen(true)}
                   onSearchActiveChange={onSearchActiveChange}
-                />
-              ) : view === "workbench" ? (
-                <PanelWorkbenchView
-                  repoId={projectId}
-                  workspaceKey={workbenchWorkspaceKey}
-                  tasks={projectTasks}
-                  relations={relations}
-                  decisions={decisions}
-                  facts={facts}
-                  coverageRows={coverageRows}
-                  factAnchors={factAnchors}
-                  agents={runtimePlane.agents}
-                  schedules={runtimePlane.schedules}
-                  runtimeRelations={runtimePlane.relations}
-                  entityKinds={entityKinds}
-                  governedEntities={governedEntities}
-                  relationState={triadicQuery.relationState}
-                  onNavigateEntity={navigateToEntity}
-                  onSetTaskPin={(task, pinned) => {
-                    void taskActions.setTaskPin(task, pinned);
-                  }}
-                  onOpenDecisionPool={openDecisionInPool}
-                  onFocusGraph={focusEntityInGraph}
-                  recentRefs={recentRefs}
-                  entries={paletteEntries}
-                  onOpenPalette={() => setPaletteOpen(true)}
-                  onSearchActiveChange={onSearchActiveChange}
-                  // 总览面板的数据与回调:全部来自 App 常驻读面与既有出口,不新增请求。
-                  agenda={agendaQuery.data}
-                  works={workIndexQuery.data}
-                  titles={taskTitles}
-                  workspaceSummary={workspaceSummaryQuery.data ?? null}
-                  workspaceSummaryError={
-                    workspaceSummaryQuery.error instanceof Error ? workspaceSummaryQuery.error : null
-                  }
-                  health={runtimeHealth}
-                  onOpenTask={openTaskDetail}
-                  onOpenSessions={() => goto("sessions")}
-                  onUnpinTask={(taskId) => handleSetPin({ taskId }, false)}
                 />
               ) : view === "decisionDetail" ? (
                 <DecisionDetailView
