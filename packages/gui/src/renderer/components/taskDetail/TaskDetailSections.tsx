@@ -13,9 +13,10 @@ import type { EventEntry, RelationEdge, TaskRow } from "../../model/types.ts";
 import { DayDigest } from "../primitives/DayDigest";
 import { DenseRow } from "../primitives/DenseRow";
 import { Region } from "../primitives/Region";
-import { BoardColumn, BoardMain, BoardRegion, BoardSide, MovableRegionBoard } from "../primitives/RegionBoard";
+import { BoardColumn, BoardMain, BoardRegion, MovableRegionBoard } from "../primitives/RegionBoard";
 import { Section } from "../primitives/Section";
 import { StatusTag } from "../primitives/StatusTag";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * 关系页签实际读取的决策字段:身份 + 标题 + 状态。刻意窄于 `DecisionRow`,
@@ -60,17 +61,13 @@ export function TaskOverviewTab({
   task,
   connectionId,
   onOpenCloseout,
-  onOpenRecord,
 }: {
   readonly task: TaskRow;
   readonly connectionId: string | null;
   /** 「等你裁决」区域只有一个去向:去收口页签处理,放在区域页脚;缺省不渲染按钮。 */
   readonly onOpenCloseout?: () => void;
-  /** 时间线引用对象(execution/review/…)的打开出口:落收口页签对应记录行。 */
-  readonly onOpenRecord?: (recordRef: string) => void;
 }) {
   const plan = useTaskDocumentQuery(task.projectId, task.taskId, "task_plan.md");
-  const events = task.events ?? [];
   // 卡在哪(异常区域):只收真正的阻塞——blocked 及其原因、待返工、已 submit 后
   // 仍未通过的门/缺失文档;判定见 model/task-stuck.ts,空了整块消失。
   const stuck = taskStuckItems(task);
@@ -78,8 +75,8 @@ export function TaskOverviewTab({
   const awaitingOwner = task.coordinationStatus === "submitted" || task.coordinationStatus === "in_review";
 
   return (
-    // 区域板(标准 §2.1,与工作概况同一个 RegionBoard):主区依次是等你裁决、卡在哪、任务计划,
-    // 进展时间线固定在最右一列;每块都在 Region 里并区内滚动,没有内容的区域整块消失。
+    // 区域板(标准 §2.1,与工作概况同一个 RegionBoard):主区依次是等你裁决、卡在哪、任务计划;
+    // 进展时间线已升为任务详情的页级停靠区域(TaskTimelineRegion),不再固定在概况页签里。
     <MovableRegionBoard
       connectionId={connectionId}
       repoId={task.projectId}
@@ -142,14 +139,24 @@ export function TaskOverviewTab({
           </BoardRegion>
         </BoardColumn>
       </BoardMain>
-      {events.length > 0 ? (
-        <BoardSide region="progress" data-testid="task-progress-timeline">
-          <Region title="进展时间线" big={events.length} padded footer="生命周期记录，按天归并">
-            <TaskEventDigest events={events} onOpenRecord={onOpenRecord} />
-          </Region>
-        </BoardSide>
-      ) : null}
     </MovableRegionBoard>
+  );
+}
+
+/** 页级停靠区域:任务详情第三块(文件|正文|时间线),内容与概况页签同一份 TaskEventDigest。 */
+export function TaskTimelineRegion({
+  task,
+  onOpenRecord,
+}: {
+  readonly task: TaskRow;
+  /** 时间线引用对象(execution/review/…)的打开出口:落收口页签对应记录行。 */
+  readonly onOpenRecord?: (recordRef: string) => void;
+}) {
+  const events = task.events ?? [];
+  return (
+    <Region title={t("components.pageRegions.timeline")} big={events.length} padded footer="生命周期记录，按天归并">
+      <TaskEventDigest events={events} onOpenRecord={onOpenRecord} />
+    </Region>
   );
 }
 

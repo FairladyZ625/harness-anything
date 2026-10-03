@@ -433,7 +433,16 @@ export function installBridge({
       sourceRevision: 7,
     })),
   };
-  vi.stubGlobal("window", { harness: bridge, addEventListener: () => undefined, removeEventListener: () => undefined });
+  // 桩只替换监听面与 bridge;document 与 localStorage 留给真实 happy-dom——任务详情的
+  // 区域布局(dockview)构造时要经 window.document 建 DOM,布局偏好走 window.localStorage。
+  const realWindow = window;
+  vi.stubGlobal("window", {
+    harness: bridge,
+    document,
+    localStorage: realWindow.localStorage,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  });
   return bridge;
 }
 
@@ -453,6 +462,8 @@ export async function mount(
     readonly onOpenWork?: (taskId: string) => void;
     /** 在 StrictMode 下挂载:复现真实 renderer 入口(main.tsx)的 effect 重放。 */
     readonly strict?: boolean;
+    /** 布局偏好归属的连接(App 传 system status 仓行);缺省 null = 仅会话内布局。 */
+    readonly connectionId?: string | null;
   } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -474,6 +485,7 @@ export async function mount(
       onNavigateDecision: () => undefined,
       onNavigateEntity: () => undefined,
       onOpenTerminal,
+      connectionId: overrides.connectionId,
       onComplete: overrides.onComplete,
       onAdjudicate: overrides.onAdjudicate,
       onConsentReview: overrides.onConsentReview,

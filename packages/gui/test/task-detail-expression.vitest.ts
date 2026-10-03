@@ -4,6 +4,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { readSplitPreferences } from "../src/renderer/split-layout-preferences.ts";
 import { TaskControlPanel } from "../src/renderer/components/TaskControlPanel.tsx";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
@@ -71,14 +72,10 @@ describe("Task detail expression", () => {
     expect(byTestId("task-identity-strip").textContent).toContain("person-owner · standard");
     expect(byTestId("task-identity-strip").textContent).toContain("plt-gui · software-coding");
     expect(byTestId("task-detail-view").textContent).toContain("Task 表达重做");
-    expect([...document.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent?.trim())).toEqual([
-      "概况",
-      "派工",
-      "证据",
-      "关系",
-      "收口",
-      "文件",
-    ]);
+    // 页签断言限定在页签栏里:区域布局(dockview)的隐藏组头也有 role=tab 的残留节点。
+    expect(
+      [...byTestId("task-detail-tabs").querySelectorAll('[role="tab"]')].map((tab) => tab.textContent?.trim()),
+    ).toEqual(["概况", "派工", "证据", "关系", "收口", "文件"]);
     // 密度(task_9f39e256):顶部元数据压成两行——tab 并入头部,不再独占整行;
     // 标题与徽标同行且徽标不换行,长标题只截断(overflow)不撑高。
     const header = byTestId("task-detail-header");
@@ -238,9 +235,12 @@ describe("Task detail expression", () => {
   });
 
   it("overview answers 要做什么/进展到哪/卡在哪: hero for awaiting owner, warn rows for stuck causes, both vanish when empty", async () => {
-    installBridge();
+    const bridge = installBridge();
     // in_review ⇒ 需要人动手的 hero 块;无真正的阻塞 ⇒ 卡在哪整块不渲染(空了就消失)。
     await mount();
+    // 任务计划正文走 daemon 文档投影:按 repo+task+path 取,渲染成阅读器而非空白。
+    expect(bridge.getTaskDocument).toHaveBeenCalledWith({ repoId: "repo-a", taskId: "task-w3", path: "task_plan.md" });
+    expect(byTestId("task-overview-plan").querySelector(".prose-harness")).not.toBeNull();
     const hero = byTestId("task-overview-hero");
     expect(hero.textContent).toContain("等你裁决");
     expect(document.querySelector('[data-testid="task-overview-stuck"]')).toBeNull();
@@ -384,24 +384,28 @@ describe("Task detail expression", () => {
     installBridge();
     await mount();
 
-    // 详情卡铺满可用宽度:不再有 max-w 居中收口;main 是容器量尺,断带挂在卡片网格上。
+    // 详情卡铺满可用宽度:不再有 max-w 居中收口;main 是容器量尺,断带挂在停靠网格上。
     const scrollPanel = byTestId("task-detail-panel-scroll");
-    const card = byTestId("task-detail-content-grid").lastElementChild as HTMLElement;
-    expect(card.className).not.toMatch(/max-w-|mx-auto/u);
-    expect(card.style.gridTemplateColumns).toBe("minmax(0,1fr)");
-    expect(card.style.gridTemplateRows).toContain("22.00fr");
+    const card = byTestId("task-detail-content-grid").querySelector(":scope > div") as HTMLElement;
+    // 停靠宿主铺满可用宽度:不再有 max-w 居中收口(dockview 的根在 100% 容器里)。
+    expect(card.style.height).toBe("100%");
+    // 三块页级区域(文件|正文|时间线)都由停靠树承载,各带可拖把手;概况板自己的
+    // 区域(mine/plan)嵌在正文区域里,不是页级。
+    for (const id of ["files", "content", "timeline"])
+      expect(card.querySelector(`[data-region="${id}"] [data-testid="region-handle-${id}"]`)).not.toBeNull();
+    expect(card.querySelector('[data-region="timeline"]')!.closest('[data-testid="task-overview-tab"]')).toBeNull();
     expect(scrollPanel.closest("main")?.className).toContain("@container");
     // 叠放文件树使用共享比例上限并内部滚动，不能用固定18rem或无限撑高挤走正文。
     // 头部行不随树滚动(分割控件常驻),树体在自己的滚动区里滚。
     expect(byTestId("task-document-tree").className).toContain("min-h-0");
-    expect(card.className).toContain("flex-1");
     expect(byTestId("task-document-tree-scroll").className).toContain("overflow-y-auto");
 
-    // 概况是区域板(标准 §2.1):面板自己是板的容器量尺,板上每块都是 Region。
+    // 概况是区域板(标准 §2.1):面板自己是板的容器量尺,板上每块都是 Region;
+    // 时间线已升为页级区域,概况板只剩主区。
     expect(scrollPanel.className).toContain("@container");
     const overview = byTestId("task-overview-tab");
     const regions = [...overview.querySelectorAll<HTMLElement>("[data-region]")];
-    expect(regions.map((region) => region.dataset.region)).toEqual(["mine", "plan", "progress"]);
+    expect(regions.map((region) => region.dataset.region)).toEqual(["mine", "plan"]);
     for (const region of regions) {
       const section = region.querySelector(":scope > section[data-entry-region]")!;
       expect(section.querySelector("h2")).not.toBeNull();
@@ -411,15 +415,13 @@ describe("Task detail expression", () => {
     for (const element of overview.querySelectorAll("h2, [data-dense-row], [data-day], .prose-harness"))
       expect(element.closest("section[data-entry-region]")).not.toBeNull();
     expect(overview.querySelector("aside")).toBeNull();
-    // 时间线是板上独立的最后一列,不混在主区里。
+    // 时间线是页级停靠区域(任务详情第三块),带自己的把手,可拖到任意半区。
     const timeline = byTestId("task-progress-timeline");
-    expect(timeline.parentElement).toBe(overview.firstElementChild);
-    expect(timeline.parentElement!.lastElementChild).toBe(timeline);
-    expect(timeline.querySelector('[data-testid="region-handle-progress"]')).not.toBeNull();
-    // 任务计划是整篇文档:占满主区剩余高度(不按「三条」量下限),正文带边距并在区内滚动。
+    expect(card.contains(timeline)).toBe(true);
+    expect(timeline.querySelector('[data-testid="region-handle-timeline"]')).not.toBeNull();
+    // 任务计划是整篇文档:占满主区剩余高度(fill 区域),正文带边距并在区内滚动。
     const plan = byTestId("task-overview-plan");
     expect(plan.className).toContain("min-h-0");
-    expect(plan.parentElement!.style.gridTemplateRows).toBe("minmax(0,20.00fr) 4px minmax(0,80.00fr)");
     expect(plan.style.minHeight).toBe("");
     expect(plan.querySelector("h2")?.textContent).toBe("任务计划");
     expect(plan.textContent).toContain("目标、验收与边界的完整原文");
@@ -493,77 +495,83 @@ describe("Task detail expression", () => {
     expect(webview.classList.contains("html-artifact-webview")).toBe(true);
   });
 
-  it("keeps a draggable divider in automatic and explicitly selected document layouts", async () => {
-    // happy-dom has no layout engine; supply the measured split container size.
-    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
-    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(804);
-    const eventWindow = window;
+  it("docks the document regions by handle drag, undoes and resets through the tree controls", async () => {
     installBridge();
-    // This fixture normally stubs window listeners; resizing needs the real event target.
-    vi.stubGlobal("window", {
-      ...window,
-      addEventListener: eventWindow.addEventListener.bind(eventWindow),
-      removeEventListener: eventWindow.removeEventListener.bind(eventWindow),
-      dispatchEvent: eventWindow.dispatchEvent.bind(eventWindow),
-    });
-    await mount();
-    const card = () => byTestId("task-detail-content-grid").lastElementChild as HTMLElement;
-    // 自适应默认:按容器方向使用比例模板、分隔条常驻;控件组在树头部,常驻可读。
-    expect(card().style.gridTemplateRows).toBe("minmax(0,22.00fr) 4px minmax(0,78.00fr)");
-    expect(document.querySelector('[data-testid="task-detail-content-grid-divider"]')).not.toBeNull();
-    const controls = byTestId("task-detail-content-grid-controls");
-    expect(controls.closest('[data-testid="task-document-tree"]')).not.toBeNull();
-    // 每次现查:折叠后控件随树卸载,召回时是新节点,旧引用点不动。
+    await mount({ connectionId: "local" });
+    const region = (id: string) => document.querySelector<HTMLElement>(`[data-region="${id}"]`)!;
+    const handle = (id: string) => document.querySelector<HTMLElement>(`[data-testid="region-handle-${id}"]`)!;
     const controlButton = (suffix: string) =>
       document.querySelector<HTMLButtonElement>(`[data-testid="task-detail-content-grid-controls-${suffix}"]`)!;
+    // 控件组(撤销/重置/收起)挂在文件树头部,常驻可读。
+    expect(byTestId("task-detail-content-grid-controls").closest('[data-testid="task-document-tree"]')).not.toBeNull();
 
-    // Auto is operable before choosing a direction: 800px remainder, 176 + 80 = 256px.
-    const automaticDivider = byTestId("task-detail-content-grid-divider");
-    expect(automaticDivider.getAttribute("aria-orientation")).toBe("horizontal");
+    // 把文件树拖到正文右半区(零几何环境默认右半区):两块并排,放下后遮罩消失。
     await act(async () => {
-      automaticDivider.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientY: 100 }));
-      window.dispatchEvent(new PointerEvent("pointermove", { clientY: 180 }));
-      window.dispatchEvent(new PointerEvent("pointerup"));
+      handle("files").dispatchEvent(new Event("dragstart", { bubbles: true }));
+      region("content").dispatchEvent(
+        new MouseEvent("dragover", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }),
+      );
     });
-    expect(card().style.gridTemplateRows).toBe("minmax(0,32.00fr) 4px minmax(0,68.00fr)");
-    await act(async () => controlButton("reset").click());
-
-    // 左右排列:显式模板与可访问分隔方向一起换轴。
+    expect(region("content").dataset.zone).toBe("right");
     await act(async () => {
-      controlButton("row").click();
+      region("content").dispatchEvent(
+        new MouseEvent("drop", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(card().style.gridTemplateColumns).toBe("minmax(0,22.00fr) 4px minmax(0,78.00fr)");
-    const divider = document.querySelector<HTMLElement>('[data-testid="task-detail-content-grid-divider"]')!;
-    expect(divider.getAttribute("role")).toBe("separator");
-    expect(divider.getAttribute("aria-orientation")).toBe("vertical");
+    expect(region("content").dataset.zone).toBeUndefined();
+    // 布局快照按连接+仓+页面槽落盘(真实键 task-detail-docs,与终端布局同库不同槽)。
+    const stored = readSplitPreferences(localStorage, "local", "repo-a")["task-detail-docs"];
+    expect(stored).toBeDefined();
+    const leafOrder = (node: unknown): string[] => {
+      const record = node as { type?: string; data?: unknown };
+      if (record?.type === "branch") return (record.data as unknown[]).flatMap(leafOrder);
+      return [(record?.data as { views?: string[] })?.views?.[0] ?? ""];
+    };
+    expect([...new Set(leafOrder((stored!.snapshot as { grid?: { root?: unknown } }).grid?.root))].sort()).toEqual([
+      "content",
+      "files",
+      "timeline",
+    ]);
 
-    // 上下排列:模板换轴,分隔条随之横置。
+    // 撤销上一步停靠:文件树回原位(回到正文左侧),区域集合不变。
     await act(async () => {
-      controlButton("column").click();
+      controlButton("undo").click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(card().style.gridTemplateRows).toBe("minmax(0,22.00fr) 4px minmax(0,78.00fr)");
-    expect(card().style.gridTemplateColumns).toBe("minmax(0,1fr)");
-    expect(
-      document.querySelector<HTMLElement>('[data-testid="task-detail-content-grid-divider-track"]')!.className,
-    ).toContain("h-1");
+    const undone = leafOrder(
+      (
+        readSplitPreferences(localStorage, "local", "repo-a")["task-detail-docs"]!.snapshot as {
+          grid?: { root?: unknown };
+        }
+      ).grid?.root,
+    );
+    expect([...new Set(undone)].sort()).toEqual(["content", "files", "timeline"]);
+    expect(undone.indexOf("files")).toBeLessThan(undone.indexOf("content"));
 
-    // 折叠文件树:树整块换成恢复条,正文占满;召回后树与分隔条回来。
+    // 收起其他区域(文件树视角):正文最大化,控件组提升到网格上方,恢复有路。
     await act(async () => {
       controlButton("collapse").click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(document.querySelector('[data-testid="task-document-tree"]')).toBeNull();
-    expect(card().style.gridTemplateRows).toBe("1.5rem minmax(0,1fr)");
+    const raisedControls = byTestId("task-detail-content-grid-controls");
+    expect(raisedControls.closest('[data-testid="task-document-tree"]')).toBeNull();
+    expect(raisedControls.closest('[data-testid="task-detail-content-grid"]')).not.toBeNull();
     await act(async () => {
-      byTestId("task-detail-content-grid-expand").click();
+      raisedControls
+        .querySelector<HTMLButtonElement>('[data-testid="task-detail-content-grid-controls-collapse"]')!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(document.querySelector('[data-testid="task-document-tree"]')).not.toBeNull();
+    expect(byTestId("task-detail-content-grid-controls").closest('[data-testid="task-document-tree"]')).not.toBeNull();
 
-    // 重置:回自适应,分隔条仍可操作。
+    // 重置:回默认布局,本页槽位清空。
     await act(async () => {
       controlButton("reset").click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(card().style.gridTemplateColumns).toBe("minmax(0,1fr)");
-    expect(card().style.gridTemplateRows).toBe("minmax(0,22.00fr) 4px minmax(0,78.00fr)");
-    expect(document.querySelector('[data-testid="task-detail-content-grid-divider"]')).not.toBeNull();
+    expect(readSplitPreferences(localStorage, "local", "repo-a")["task-detail-docs"]).toBeUndefined();
+    expect(document.querySelector('[data-region="files"]')).not.toBeNull();
+    expect(document.querySelector('[data-region="timeline"]')).not.toBeNull();
   });
 });

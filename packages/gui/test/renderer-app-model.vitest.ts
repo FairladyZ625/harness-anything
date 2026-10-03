@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -9,11 +9,9 @@ import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import { PhaseSteps } from "../src/renderer/components/taskDetail/PhaseSteps.tsx";
 import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
-import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import { TaskCloseoutTab } from "../src/renderer/components/taskDetail/TaskCloseoutTab.tsx";
 import { DecisionJudgmentPanel } from "../src/renderer/components/DecisionJudgmentPanel.tsx";
 import { DecisionProposalForm } from "../src/renderer/components/DecisionProposalForm.tsx";
-import { taskDocumentQuery } from "../src/renderer/task-data.ts";
 import { settleTaskReceipt } from "../src/renderer/task-actions.ts";
 import { decisionHasReachableEvidence, settleDecisionReceipt } from "../src/renderer/decision-actions.ts";
 import { buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
@@ -256,65 +254,6 @@ describe("renderer app model", () => {
     expect(markup).toContain("triadic-graph-empty-state");
     expect(markup).toContain("当前 ledger 没有可投影的 task、decision 或 fact");
     expect(markup).toContain("⌘K 搜索实体");
-  });
-
-  it("renders the task plan body from the daemon document projection", async () => {
-    const getTaskDocument = vi.fn(async ({ path }: { path: string }) => ({
-      ok: true,
-      status: "ready",
-      taskId: "task-1",
-      path,
-      body: "# Canonical task plan",
-      blobSha256: "sha256:canonical",
-      contentKind: "text",
-      mediaType: "text/markdown",
-      size: 21,
-      bytes: null,
-      repositoryPath: `harness/tasks/task-1/${path}`,
-      worktreeBody: null,
-      uncommitted: false,
-      watermark: 7,
-      sourceRevision: 7,
-    }));
-    // 概况的 Region 是 motion 布局节点,挂载时在 window 上听 resize(与 task-detail.fixtures 同样的桩)。
-    vi.stubGlobal("window", {
-      harness: { getTaskDocument },
-      addEventListener: () => undefined,
-      removeEventListener: () => undefined,
-    });
-    const queryClient = new QueryClient();
-    try {
-      await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-1", "task_plan.md"));
-      const task: TaskRow = {
-        taskId: "task-1",
-        title: "One",
-        projectId: "project-1",
-        coordinationStatus: "active",
-        rawStatus: "active",
-        freshness: "fresh",
-        packageDisposition: "active",
-        closeoutReadiness: "not_required",
-        engine: "local",
-        source: "snapshot-cache",
-        packagePath: "tasks/task-1-one",
-        lastKnownAt: "2026-08-13T00:00:00.000Z",
-        gates: [],
-        docs: [],
-        ...projectedTaskFields("active", { can: ["progress", "submit"] }),
-      };
-      const markup = renderToStaticMarkup(
-        createElement(
-          QueryClientProvider,
-          { client: queryClient },
-          createElement(TaskDetailView, { task, onBack: () => undefined, projectName: "Harness" }),
-        ),
-      );
-      expect(getTaskDocument).toHaveBeenCalledWith({ repoId: "project-1", taskId: "task-1", path: "task_plan.md" });
-      expect(markup).toContain("Canonical task plan");
-      expect(markup).toContain("task-identity-strip");
-    } finally {
-      vi.unstubAllGlobals();
-    }
   });
 
   it("renders explicit active lease forms and read-only blocking explanations", () => {

@@ -50,7 +50,10 @@ async function selectedTab(initialTab?: "closeout") {
       getTaskDocument: vi.fn(),
       getTaskCompletion: vi.fn(async () => ({ ok: true, status: "ready", completionBlocker: null })),
     },
-    // 概况的 Region 是 motion 布局节点,挂载时在 window 上听 resize(与 task-detail.fixtures 同样的桩)。
+    // 概况的 Region 是 motion 布局节点,挂载时在 window 上听 resize;document/localStorage
+    // 留给真实 happy-dom(区域停靠树构造与偏好落盘要用)。
+    document,
+    localStorage: window.localStorage,
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
   });

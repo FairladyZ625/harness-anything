@@ -180,7 +180,8 @@ describe("RegionBoard", () => {
       "recent",
     ]);
     expect(host.querySelectorAll('[data-testid^="region-handle-"]')).toHaveLength(3);
-    expect(host.querySelector('[data-testid="movable-divider"]')?.getAttribute("role")).toBe("separator");
+    // 停靠分割条由 dockview 渲染(dv-sash,4px 命中区 + 1px 可见缝),不再有本地 divider 节点。
+    expect(host.querySelectorAll(".dv-sash").length).toBeGreaterThan(0);
     act(() => root.unmount());
     host.remove();
   });
