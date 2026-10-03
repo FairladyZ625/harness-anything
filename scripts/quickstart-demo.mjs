@@ -30,6 +30,14 @@ try {
   runCli(["daemon", "start", "--service"]);
   daemonStarted = true;
 
+  step = "Keycloak sign-in";
+  const session = runCli(["bootstrap", "--operation", "session"]);
+  if (session.authenticated !== true) {
+    throw new Error(
+      `Sign in to Keycloak before running the demo. Use HARNESS_DAEMON_USER_ROOT=${path.join(workspace, ".daemon-user")} with ha bootstrap to configure the authority and ha bootstrap --operation login to sign in; request an admin policy group on repository quickstart for initialization, then rerun with --root ${workspace}.`,
+    );
+  }
+
   step = "init";
   const init = runCli([
     "init",

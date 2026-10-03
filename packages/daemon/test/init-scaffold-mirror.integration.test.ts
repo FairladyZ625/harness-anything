@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInAt } from "./keycloak.fixtures.ts";
 // The scaffold documents `init` writes under the authored root are ledger documents: they are
 // in the document projection, so the replica cut carries them and an edge node can read every
 // ledger path the generated agent entry names. Driven through the real product entry points —
@@ -75,6 +76,8 @@ async function initializedCenterWithEdge() {
     ],
     { stdio: "ignore" },
   );
+  const owners = await fleetNodeOwners({ userRoot, owners: { [nodeId]: "person-node-one" }, repoIds: [repoId] });
+  signInAt(userRoot, "person-node-one");
   const host = await openDaemonHost({ daemonId: "scaffold-mirror-center", userRoot });
   // The full `ha init` shape: nothing but the bootstrap command touches the ledger.
   const initialized = await host.bootstrap({ rootDir: repo, repoId, personId: "owner", displayName: "Owner" }, auth);
@@ -95,7 +98,6 @@ async function initializedCenterWithEdge() {
     viewId: "node-one-view",
     expiresAt: "2099-01-01T00:00:00.000Z",
   };
-  const owners = await fleetNodeOwners({ userRoot, owners: { [nodeId]: "person-node-one" }, repoIds: [repoId] });
   const center = await listenFleetTls({
     host,
     stateRoot: path.join(root, "state"),

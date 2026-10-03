@@ -149,7 +149,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "person/v1",
     refTemplate: "person/{id}",
     statuses: [],
-    actions: ["add", "delegate", "revoke-delegation", "remove"],
+    actions: ["delegate", "revoke-delegation"],
   },
   relation: {
     schemaId: "Relation/v1",
@@ -731,14 +731,13 @@ const settingsDoc: EntityKindDoc = {
 const personDoc: EntityKindDoc = {
   kind: "person",
   ...kernelContract("person"),
-  storage: "people 花名册事件流",
-  definition: "人:身份、角色与凭据。principal 引用(personId)由此登记;决策与执行 actor 都指向人。",
+  storage: "Keycloak 当前人员映射",
+  definition:
+    "人:由 Keycloak 账号映射到稳定 personId 的当前身份。决策与执行 actor 引用此 ID；权限由 Keycloak 策略组求值。",
   fields: [
     field("personId", true, "string", "人的稳定 ID。"),
     field("displayName", true, "string", "显示名。"),
-    field("roles", true, "array", "角色清单。"),
-    field("credentials", true, "array", "凭据:kind / issuer / subject。"),
-    field("disabled", false, "boolean", "是否停用。"),
+    field("primaryEmail", false, "string", "主要邮箱。"),
   ],
   nestedFields: noNested,
   edges: [

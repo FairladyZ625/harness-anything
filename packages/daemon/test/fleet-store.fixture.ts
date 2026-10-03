@@ -4,8 +4,8 @@ import { openSqliteEventStore } from "@harness-anything/kernel";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import type { FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
-import { serveKeycloak } from "./keycloak.fixtures.ts";
-import { actionDeclarations } from "@harness-anything/kernel";
+import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
+import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 
 export function fleetHostWriterOptions(userRoot: string, repoIds: readonly string[]) {
   const writerEpochStateRoot = path.join(userRoot, "fleet"),
@@ -64,6 +64,7 @@ export async function fleetNodeOwners(input: {
   readonly owners: Readonly<Record<string, string>>;
   readonly repoIds: readonly string[];
   readonly grantAll?: boolean;
+  readonly localPersonId?: string;
 }) {
   const served = await serveKeycloak(),
     everyAction = actionDeclarations.map((declaration) => declaration.kind),
@@ -81,6 +82,16 @@ export async function fleetNodeOwners(input: {
       served.keycloak.node(nodeId, personId);
     };
   for (const [nodeId, personId] of Object.entries(input.owners)) register(nodeId, personId);
+  if (input.localPersonId !== undefined) {
+    if (!known.has(input.localPersonId)) served.keycloak.account(input.localPersonId);
+    for (const repoId of input.repoIds)
+      served.keycloak.permit(
+        input.localPersonId,
+        repoId,
+        effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+      );
+    signInAt(input.userRoot, input.localPersonId);
+  }
   return {
     keycloak: served.keycloak,
     url: served.url,

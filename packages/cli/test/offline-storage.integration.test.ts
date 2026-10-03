@@ -5,7 +5,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { fileURLToPath } from "node:url";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { event } from "../../kernel/test/store/task-event-store.fixtures.ts";
@@ -17,6 +18,17 @@ import {
   taskLifecycleWritePlan,
 } from "@harness-anything/kernel";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
+
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "backup-owner" });
+for (const resource of ["offline-spawn", "restore-fence", "retention"])
+  await realm.control({
+    op: "permit",
+    personId: "backup-owner",
+    resource,
+    actions: ["ledger-backup", "ledger-restore-drill"],
+  });
 
 const cli = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
@@ -39,6 +51,8 @@ function register(userRoot: string, root: string, repoId: string): void {
   execFileSync("git", ["config", "user.email", "offline-storage@example.test"], { cwd: root });
   execFileSync("git", ["add", "harness/harness.yaml"], { cwd: root });
   execFileSync("git", ["commit", "-qm", "initialize harness"], { cwd: root });
+  realm.bind(userRoot);
+  signInAt(userRoot, "backup-owner");
   registerDaemonRepo({
     userRoot,
     canonicalRoot: root,
@@ -155,11 +169,12 @@ test("CLI delegates backup and restore drill to the daemon while event tail stay
     assert.equal(epochCheck.highWatermark("offline-spawn"), 2);
     epochCheck.close();
     assert.equal(events.schema, "offline-ledger-events/v1");
-    // The seeded ledger event, then the two system preset schedules the daemon seeds on attach.
-    assert.deepEqual((events.events as readonly { type: string }[]).map((event) => event.type).slice(1), [
-      "schedule_created",
-      "schedule_created",
-    ]);
+    // Attaching an existing repository does not seed schedules without an explicit init.
+    // Backup and offline tail preserve exactly the pre-existing event.
+    assert.deepEqual(
+      (events.events as readonly { type: string }[]).map((item) => item.type),
+      [event.type],
+    );
     const repeated = invokeCliResult(["restore", backupDir, "--to", restoredRoot], userRoot);
     assert.equal(repeated.status, 1);
     assert.match(String((JSON.parse(repeated.stdout) as { hint: string }).hint), /already exists/u);

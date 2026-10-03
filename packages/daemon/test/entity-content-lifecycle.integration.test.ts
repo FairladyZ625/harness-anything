@@ -7,12 +7,12 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
 const researchKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
-  binding = withRoleBinding(
+  binding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-entity-content" },
@@ -20,7 +20,7 @@ const researchKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
   // A remote edge with no role binding: neither a declared repo-write role nor the local default binding holds
   // for it, so the policy is the only thing standing between this caller and a durable entity write.
@@ -30,9 +30,9 @@ const researchKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
       executor: { kind: "agent" as const, id: "entity-content-reader-edge" },
     },
     source: "remote_direct" as const,
-    roleBindings: [],
+    keycloakAuthorization: undefined,
   },
-  secondaryNodeBinding = withRoleBinding(
+  secondaryNodeBinding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-entity-content-secondary" },
@@ -40,7 +40,7 @@ const researchKind = "entity-kind/KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   );
 
 interface OwnedContent {
@@ -543,7 +543,7 @@ test("Deleting an entity is refused for a caller with no repository write role",
     assert.equal(refused.authorizationDecision?.outcome, "denied", JSON.stringify(refused.authorizationDecision));
     assert.equal(
       refused.authorizationDecision?.policyRef,
-      "default@5",
+      "keycloak-policy@1",
       "the refusal must come from the declared policy, not from an ad hoc check",
     );
     assert.equal(

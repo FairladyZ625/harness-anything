@@ -225,17 +225,6 @@ export function scanDocCandidates(input: {
       base = projected.document?.blobSha256 ?? null,
       candidate = bytes === null ? null : sha256Bytes(bytes);
     if (!route.allowed) {
-      if (route.requiredRoute === "people-registry" && safe && candidate !== null && base === null)
-        return scannedCandidateRow(
-          "inapplicable",
-          "path is owned by people-registry and is outside doc sync",
-          bytes,
-          base,
-          candidate,
-          null,
-          null,
-          route.requiredRoute,
-        );
       return safe && candidate !== null && candidate === base
         ? scannedCandidateRow("clean", null, bytes, base, candidate, classification?.mediaType ?? null)
         : scannedCandidateRow(

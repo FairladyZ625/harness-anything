@@ -374,7 +374,24 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
 }
 /** A first administrator's password is transient RPC input, read only at the original socket boundary. */
 function bootstrapParams(action: ThinCommand["action"], socketPath: string): JsonObject {
-  const { kind: _kind, passwordFile, ...params } = action;
+  const { kind: _kind, passwordFile, clientSecretStdin, ...params } = action;
+  if (params.mode === "external") {
+    if (socketPath.startsWith("tcp://"))
+      throw Object.assign(new Error("External configuration requires the center's original local socket."), {
+        code: "invalid_field",
+      });
+    if (!clientSecretStdin || process.stdin.isTTY)
+      throw Object.assign(new Error("--client-secret-stdin requires redirected input."), { code: "invalid_field" });
+    let clientSecret: string;
+    try {
+      clientSecret = readFileSync(0, "utf8").trim();
+    } catch {
+      throw Object.assign(new Error("The center client secret could not be read from stdin."), {
+        code: "invalid_field",
+      });
+    }
+    return { ...params, clientSecret } as JsonObject;
+  }
   if (params.operation !== "bootstrap-admin") return params as JsonObject;
   if (socketPath.startsWith("tcp://"))
     throw Object.assign(new Error("First administrator creation requires the center's original local socket."), {

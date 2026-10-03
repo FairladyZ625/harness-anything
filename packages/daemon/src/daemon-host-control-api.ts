@@ -26,8 +26,9 @@ export function createDaemonHostControlApi(
           "A remote-proxy repository cannot authorize local daemon controls.",
         );
       const controlBinding = await context.binding(repo.canonicalRoot, auth),
-        authorizationDecision = requireAuthorizedHostAction({
+        authorizationDecision = await requireAuthorizedHostAction({
           kind: "daemon-control-request",
+          repoId: authorityRepoId,
           binding: controlBinding,
           actionId: `daemon-control-request:${String(payload.kind)}`,
           evaluatedAtCut: "daemon-control:current",

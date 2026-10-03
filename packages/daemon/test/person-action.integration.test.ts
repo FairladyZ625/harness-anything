@@ -1,161 +1,58 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { initRepo } from "./migration-import.fixtures.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { serveKeycloak } from "./keycloak.fixtures.ts";
+import { actor, initRepo } from "./task-surface.fixtures.ts";
 
-const explainMethod = "repo.entity.actions.explain" as const,
-  explainSchema = "entity-action-explain-request/v1" as const,
-  ownerActor = { principal: { personId: "person_zeyu" }, executor: null } as const;
-
-test("Person Actions share catalog execution, exact refusal attribution, and explain parity", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-person-action-"));
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  let holdMirror = false;
-  try {
-    initRepo(root);
-    let now = "2026-09-01T01:00:00.000Z";
-    cell = await openRepoCell({
-      repoId: workspaceId("person-action"),
-      rootDir: canonicalRoot(root),
-      ownerId: "person-action-test",
-      now: () => now,
-      killpoint: (point) => {
-        if (holdMirror && point === "before_worktree_rename")
-          throw new Error("fixture holds the authored mirror behind acceptance");
-      },
-    });
-    const ownerBinding = withRoleBinding({ actor: ownerActor, source: "local" as const }, "owner"),
-      added = await cell.run(
-        {
-          kind: "people-add",
-          personId: "person_alice",
-          displayName: "Alice",
-          role: "administrator",
-          commandClass: ["admin"],
-          idempotencyKey: "person-action-add-alice",
+test("Person explanations resolve Keycloak identity and evaluate online permission", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-person-action-keycloak-")),
+    repoId = workspaceId("person-action-keycloak"),
+    realm = await serveKeycloak(),
+    binding = {
+      actor,
+      source: "local" as const,
+      keycloakAuthorization: {
+        session: {
+          personId: actor.principal.personId,
+          accessToken: realm.keycloak.account(actor.principal.personId),
+          url: realm.url,
+          realm: "harness",
+          clientId: "harness-center",
         },
-        ownerBinding,
-      );
-    assert.equal(added.outcome, "applied", JSON.stringify(added));
-    assert.deepEqual(added.effects, ["people-event/people_changed"]);
-    assert.deepEqual(added.updatedProjection, {
-      kind: "person",
-      ref: "person/person_alice",
-      revision: added.revision,
-    });
-
-    const catalog = await cell.read(
-        explainMethod,
-        { schema: explainSchema, mode: "catalog", entityKind: "person", refs: [] },
-        ownerBinding,
-      ),
-      object = await cell.read(
-        explainMethod,
-        { schema: explainSchema, mode: "object", entityKind: null, refs: ["person/person_zeyu"] },
-        ownerBinding,
-      );
-    assert.deepEqual(
-      catalog.subjects[0]?.actions.map(({ action }) => action.id),
-      ["add", "delegate", "revoke-delegation", "remove"],
-    );
-    assert.equal(
-      catalog.subjects[0]?.actions.every(({ available }) => available === null),
-      true,
-    );
-    const explained = new Map(object.subjects[0]?.actions.map((row) => [row.action.id, row]));
-    assert.equal(explained.get("add")?.available, false);
-    assert.deepEqual(explained.get("add")?.unmetCriteria, [
-      {
-        ref: "people-roster/add.invariants",
-        failureCode: "invalid_people_action",
-        explain: "The Person identity is new and the resulting roster preserves owner and administrator authority.",
       },
-    ]);
-    assert.equal(explained.get("delegate")?.available, true);
-    assert.equal(explained.get("remove")?.available, false);
-    assert.match(explained.get("remove")?.nextActions[0] ?? "", /bootstrap creator/u);
-    assert.doesNotThrow(() => parseDaemonGuiReadResult(explainMethod, object));
-
-    const beforeOwnerRefusal = peopleEventCount(root),
-      ownerRemoval = await cell.run(
-        { kind: "people-remove", personId: "person_zeyu", idempotencyKey: "reject-owner-removal" },
-        ownerBinding,
-      );
-    assert.equal(ownerRemoval.outcome, "op_rejected");
-    assert.equal(ownerRemoval.code, "invalid_people_action");
-    assert.deepEqual(ownerRemoval.unmetCriteria, [
-      {
-        ref: "people-roster/remove.invariants",
-        failureCode: "invalid_people_action",
-        explain: "The Person exists, is not the bootstrap owner, and removal retains an enabled administrator.",
-      },
-    ]);
-    assert.match(ownerRemoval.nextActions?.[0] ?? "", /bootstrap creator person_zeyu cannot be removed/u);
-    assert.equal(peopleEventCount(root), beforeOwnerRefusal);
-
-    await waitForFixturePublication(cell, added.opId, ownerBinding);
-    const peoplePath = path.join(root, "harness", "people.yaml");
-    const beforeDelegationBody = readFileSync(peoplePath, "utf8");
-    holdMirror = true;
-    const delegated = await cell.run(
-      {
-        kind: "people-delegate",
-        tokenId: "det_person_action_1",
-        runtimeSessionId: "runtime_person_action",
-        action: ["execution.start"],
-        expiresAt: "2026-09-01T03:00:00.000Z",
-        idempotencyKey: "person-action-delegate",
-      },
-      ownerBinding,
-    );
-    assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
-    // A lagging physical mirror must not erase an already accepted delegation from command validation.
-    writeFileSync(peoplePath, beforeDelegationBody);
-    now = "2026-09-01T01:30:00.000Z";
-    const beforeRevokeRefusal = peopleEventCount(root),
-      aliceBinding = withRoleBinding(
-        {
-          actor: { principal: { personId: "person_alice" }, executor: null },
-          source: "local" as const,
-        },
-        "owner",
-      ),
-      foreignRevoke = await cell.run(
-        {
-          kind: "people-revoke-delegation",
-          tokenId: "det_person_action_1",
-          idempotencyKey: "person-action-foreign-revoke",
-        },
-        aliceBinding,
-      );
-    assert.equal(foreignRevoke.outcome, "op_rejected", JSON.stringify(foreignRevoke));
-    assert.equal(foreignRevoke.code, "invalid_people_action");
-    assert.deepEqual(foreignRevoke.unmetCriteria, [
-      {
-        ref: "people-roster/revoke-delegation.invariants",
-        failureCode: "invalid_people_action",
-        explain: "The DelegatedExecutionToken exists and is owned by the authenticated issuing Person.",
-      },
-    ]);
-    assert.match(foreignRevoke.nextActions?.[0] ?? "", /Only DelegatedExecutionToken issuer person_zeyu/u);
-    assert.equal(peopleEventCount(root), beforeRevokeRefusal);
-  } finally {
-    holdMirror = false;
-    await cell?.close();
-    rmSync(root, { recursive: true, force: true });
-  }
+    };
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId,
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "person-action-keycloak",
+    now: () => "2026-10-02T00:00:00.000Z",
+  });
+  t.after(async () => {
+    await cell.close();
+    await realm.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  });
+  const personRef = `person/${actor.principal.personId}`;
+  realm.keycloak.permit(actor.principal.personId, `person-action-keycloak:${personRef}`, ["people-delegate"]);
+  const object = await cell.read(
+      "repo.entity.actions.explain",
+      { schema: "entity-action-explain-request/v1", mode: "object", entityKind: null, refs: [personRef] },
+      binding,
+    ),
+    delegate = object.subjects[0]?.actions.find(({ action }) => action.id === "delegate");
+  assert.equal(object.mode, "object");
+  assert.equal(delegate?.authorizationDecision?.policyRef, "keycloak-policy@1");
+  assert.equal(delegate?.authorizationDecision?.outcome, "allowed");
+  const missing = await cell.read(
+    "repo.entity.actions.explain",
+    { schema: "entity-action-explain-request/v1", mode: "object", entityKind: null, refs: ["person/person_missing"] },
+    binding,
+  );
+  assert.equal(missing.subjects[0]?.failure?.code, "entity_not_found");
 });
-
-function peopleEventCount(root: string): number {
-  return makeTaskEventReader({ repoId: "person-action", rootDir: root })
-    .read()
-    .events.filter(({ schema }) => schema === "people-event/v1").length;
-}

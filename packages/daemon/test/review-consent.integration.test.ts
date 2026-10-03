@@ -7,7 +7,7 @@ import path from "node:path";
 import test, { after, before } from "node:test";
 import { makeTaskEventReader, reviewDigest } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { revokeTestPolicyGroup, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -77,10 +77,10 @@ test("review-consent derives the recorded Review digests without a packet and re
   const repoId = workspaceId("consent-derived"),
     taskId = "task-derived",
     executionId = "execution-derived",
-    binding = withRoleBinding({ actor, source: "local" as const }, "repo-write"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "contributor"),
     // Closing a cut is the maintainer tier's: the same person holds it through a second role, not by having created the task.
-    closer = withRoleBinding(binding, "arbiter");
-  const reviewBinding = withRoleBinding(
+    closer = withPolicyGroup(binding, "maintainer");
+  const reviewBinding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-reviewer" },
@@ -88,7 +88,7 @@ test("review-consent derives the recorded Review digests without a packet and re
       },
       source: "local" as const,
     },
-    "arbiter",
+    "maintainer",
   );
   try {
     initRepo(rootDir);
@@ -133,10 +133,11 @@ test("review-consent derives the recorded Review digests without a packet and re
 
     // Who may consent is a permission, not authorship: the task's creator without the maintainer tier is
     // denied, and a principal who never touched the task consents once it holds that tier.
+    revokeTestPolicyGroup(actor.principal.personId, "maintainer");
     const beforeCreatorConsent = store().readHead()?.revision,
       creatorConsent = (await cell.run(
         { kind: "task-review-consent", taskId },
-        withRoleBinding({ actor: ownerFromAnotherAgent, source: "local" }, "repo-write"),
+        withPolicyGroup({ actor: ownerFromAnotherAgent, source: "local" }, "contributor"),
       )) as unknown as Record<string, unknown>;
     assert.deepEqual(
       { outcome: creatorConsent.outcome, code: creatorConsent.code },
@@ -144,9 +145,10 @@ test("review-consent derives the recorded Review digests without a packet and re
     );
     assert.equal(store().readHead()?.revision, beforeCreatorConsent);
 
+    withPolicyGroup(binding, "maintainer");
     const consented = (await cell.run(
       { kind: "task-review-consent", taskId },
-      withRoleBinding({ actor: outsider, source: "local" }, "arbiter"),
+      withPolicyGroup({ actor: outsider, source: "local" }, "maintainer"),
     )) as unknown as Record<string, unknown>;
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
     const consentEvent = store().readEvent(String(consented.opId));
@@ -166,20 +168,7 @@ test("review-consent derives the recorded Review digests without a packet and re
           readonly bindingsUsed: readonly Readonly<Record<string, unknown>>[];
         }
       ).bindingsUsed,
-      [
-        {
-          predicate: "hasRoleBinding",
-          satisfied: true,
-          role: "arbiter",
-          matched: {
-            actor: { kind: "person", id: outsider.principal.personId },
-            role: "arbiter",
-            target: "settings/repository",
-            source: "declared",
-            expiresAt: null,
-          },
-        },
-      ],
+      [{ authority: "keycloak", scope: "task-review-consent" }],
     );
 
     // Negative control: the retired operator-supplied packet is rejected at the input boundary.
@@ -350,7 +339,7 @@ test("review-execution without --execution-id derives the sole current submitted
     firstExecutionId = "exec-selection-r1",
     secondExecutionId = "exec-selection-r2",
     owner = binding("selection-owner"),
-    reviewer = withRoleBinding(binding("selection-reviewer"), "arbiter");
+    reviewer = withPolicyGroup(binding("selection-reviewer"), "maintainer");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     cell = await openRepoCell({
@@ -495,7 +484,7 @@ test("review-execution without --execution-id names the resubmission command whi
     taskId = "task-selection-empty",
     firstExecutionId = "exec-selection-empty",
     owner = binding("selection-empty-owner"),
-    reviewer = withRoleBinding(binding("selection-empty-reviewer"), "arbiter");
+    reviewer = withPolicyGroup(binding("selection-empty-reviewer"), "maintainer");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     cell = await openRepoCell({
@@ -592,7 +581,7 @@ test("review-execution and review-consent require a substantive physical report 
     taskId = "task-physical-report",
     executionId = "exec-physical-report",
     owner = binding("physical-owner"),
-    reviewer = withRoleBinding(binding("physical-reviewer"), "arbiter");
+    reviewer = withPolicyGroup(binding("physical-reviewer"), "maintainer");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     cell = await openRepoCell({
@@ -695,12 +684,12 @@ test("review-execution and review-consent require a substantive physical report 
 });
 
 function binding(executorId: string) {
-  return withRoleBinding(
+  return withPolicyGroup(
     {
       actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: executorId } },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   );
 }
 function workspace(name: string): string {

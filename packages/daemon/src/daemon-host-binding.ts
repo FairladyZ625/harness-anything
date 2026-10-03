@@ -1,49 +1,19 @@
 /** @daemon-transport-authority Transport-derived actor binding for local sessions and fleet nodes. */
-import os from "node:os";
-import { actionDeclarations, projectDeclaredRoleBindings } from "@harness-anything/kernel";
+import { actionDeclarations } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
-import { loadPeopleRosterIfPresent } from "./identity/people-roster.ts";
-import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
 import { type RepoCellBinding } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
 import { withWriterEpochFenceDescriptor, type WriterEpochFenceDescriptor } from "./writer-epoch.ts";
 
 export function localSystemBinding(
-  rootDir: string,
+  _rootDir: string,
   executor: RepoCellBinding["actor"]["executor"] = null,
 ): RepoCellBinding {
   const ownerUid = process.getuid?.();
   // Named pipes do not expose a POSIX UID on Windows; use a stable Windows owner value there only.
   if (typeof ownerUid !== "number" && process.platform !== "win32")
     throw hostCodedError("credential_unavailable", "Local system binding requires a Unix socket owner boundary.");
-  const stableOwnerUid = ownerUid ?? 0;
-  const roster = loadPeopleRosterIfPresent({ rootDir });
-  if (roster === null) return defaultLocalBinding(stableOwnerUid, executor);
-  const resolved = roster.resolveCredential(
-    {
-      kind: "unix-socket-owner-boundary",
-      issuer: `host:${os.hostname()}`,
-      subject: String(stableOwnerUid),
-    },
-    "local-system/v1",
-  );
-  if (!resolved.ok) {
-    if (resolved.code === "credential_unknown") return defaultLocalBinding(stableOwnerUid, executor);
-    throw hostCodedError(resolved.code, resolved.message);
-  }
-  const actor = { principal: { personId: resolved.actor.personId }, executor };
-  return deriveLocalBinding(rootDir, actor, roster);
-}
-
-/** Internal Schedule writes run as the daemon, independently of the socket owner's roster. */
-export function localScheduleBinding(): RepoCellBinding {
-  const actor = { principal: { personId: "system:daemon-scheduler" }, executor: null };
-  return {
-    actor,
-    source: "local",
-    roleBindings: projectDeclaredRoleBindings({ actor, roleIds: ["repo-write"], target: "settings/repository" }),
-  };
+  return defaultLocalBinding(ownerUid ?? 0, executor);
 }
 
 /** Daemon socket-owner authority for actions whose declaration keeps all writes outside a repository cell. */
@@ -78,23 +48,10 @@ export function withDaemonWriterEpochFence(
   };
 }
 
-function deriveLocalBinding(
-  rootDir: string,
-  actor: RepoCellBinding["actor"],
-  roster?: Parameters<typeof declaredRoleBindingsForActor>[2],
-): RepoCellBinding {
-  return {
-    actor,
-    roleBindings: declaredRoleBindingsForActor(rootDir, actor, roster) ?? [],
-    authorizationBindingMode: "declared",
-    source: "local",
-  };
-}
-
 function defaultLocalBinding(ownerUid: number, executor: RepoCellBinding["actor"]["executor"]): RepoCellBinding {
   return {
     actor: { principal: { personId: `local-user-${ownerUid}` }, executor },
-    authorizationBindingMode: "default",
+    daemonSocketOwner: true,
     source: "local",
   };
 }
@@ -109,8 +66,6 @@ export function localDefaultBinding(
   return withSessionEnvironment(
     {
       actor: { principal: { personId: auth.oidcPrincipal.personId }, executor },
-      roleBindings: [],
-      authorizationBindingMode: "declared",
       source: "local",
     },
     auth,
@@ -185,19 +140,11 @@ async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<Repo
 }
 
 export async function binding(
-  rootDir: string,
+  _rootDir: string,
   auth: DaemonAuthenticationContext,
   executor: RepoCellBinding["actor"]["executor"] = null,
 ): Promise<RepoCellBinding> {
   if (auth.assignmentBinding) return nodeOwnerBinding(auth);
   if (auth.oidcPrincipal && auth.oidcPrincipal.expiresAt > Date.now()) return localDefaultBinding(auth, executor);
-  const roster = loadPeopleRosterIfPresent({ rootDir });
-  if (roster === null) return localDefaultBinding(auth, executor);
-  const resolved = await makeTransportDerivedIdentityProvider(roster).resolveActor({
-    authContext: auth,
-    command: { method: "repo.task.run", namespace: "repo", requiresRepo: true },
-  });
-  if (!resolved.ok) throw hostCodedError(resolved.code, resolved.message);
-  const actor = { principal: { personId: resolved.actor.personId }, executor };
-  return withSessionEnvironment(deriveLocalBinding(rootDir, actor, roster), auth);
+  return localDefaultBinding(auth, executor);
 }

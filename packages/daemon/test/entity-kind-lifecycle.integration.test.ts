@@ -8,11 +8,11 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
   {
     actor: {
       principal: { personId: "person-kind-lifecycle" },
@@ -20,7 +20,7 @@ const binding = withRoleBinding(
     },
     source: "local" as const,
   },
-  "repo-write",
+  "contributor",
 );
 
 function git(rootDir: string, ...args: readonly string[]): string {

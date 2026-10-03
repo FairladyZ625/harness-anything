@@ -261,10 +261,14 @@ test(
       path.join(fixture.repo, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
     );
-    await applied(
-      { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" },
-      localAuthFixture(),
-    );
+    const review = { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" } as const;
+    const selfReview = await fixture.host.run(repoId, review, localAuthFixture());
+    assert.equal(selfReview.code, "actor_unauthorized", JSON.stringify(selfReview));
+    fixture.owners.keycloak.account("person-reviewer");
+    fixture.owners.keycloak.permit("person-reviewer", repoId, ["task-review-execution"]);
+    signInAt(fixture.userRoot, "person-reviewer");
+    await applied(review, localAuthFixture());
+    signInAt(fixture.userRoot, "person-owner");
     // The reviewer's report is accepted at the center, so completion finds no document left to carry.
     await applied({ kind: "doc-submit", taskId }, localAuthFixture());
 

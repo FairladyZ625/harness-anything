@@ -49,12 +49,8 @@ export function AccessServiceTab({
       return;
     }
     setBinding(nextBinding);
-    if (nextBinding.mode === "managed") {
-      const bootstrap = (await auth.bootstrapStatus(repoId)) as RecordValue;
-      setBootstrapRequired(bootstrap.required === true);
-    } else {
-      setBootstrapRequired(false);
-    }
+    const bootstrap = (await auth.bootstrapStatus(repoId)) as RecordValue;
+    setBootstrapRequired(bootstrap.required === true);
   };
 
   useEffect(() => {
@@ -266,16 +262,25 @@ function ExternalBindingForm({
   submit,
 }: {
   readonly busy: boolean;
-  readonly submit: (input: { mode: "external"; url: string; realm: string; clientId: string }) => Promise<void>;
+  readonly submit: (input: {
+    mode: "external";
+    url: string;
+    realm: string;
+    clientId: string;
+    clientSecret: string;
+  }) => Promise<void>;
 }) {
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const secretInput = event.currentTarget.elements.namedItem("clientSecret") as HTMLInputElement;
+    secretInput.value = "";
     void submit({
       mode: "external",
       url: String(data.get("url")),
       realm: String(data.get("realm")),
       clientId: String(data.get("clientId")),
+      clientSecret: String(data.get("clientSecret")),
     });
   };
   return (
@@ -283,7 +288,23 @@ function ExternalBindingForm({
       <p className="text-text-muted ui-meta">{t("identityAccess.externalDescription")}</p>
       <input required name="url" type="url" placeholder={t("identityAccess.urlPlaceholder")} className={INPUT} />
       <input required name="realm" placeholder={t("identityAccess.realm")} className={INPUT} />
-      <input required name="clientId" placeholder={t("identityAccess.clientId")} className={INPUT} />
+      <input
+        required
+        name="clientId"
+        value="harness-center"
+        readOnly
+        aria-label={t("identityAccess.clientId")}
+        className={INPUT}
+      />
+      <input
+        required
+        name="clientSecret"
+        type="password"
+        autoComplete="new-password"
+        aria-label={t("identityAccess.clientSecret")}
+        placeholder={t("identityAccess.clientSecret")}
+        className={INPUT}
+      />
       <span className="self-start">
         <Button type="submit" disabled={busy}>
           {t("identityAccess.applyExternal")}

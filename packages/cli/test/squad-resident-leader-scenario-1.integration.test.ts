@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import test from "node:test";
 import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
 import * as shared from "./squad-resident-leader.fixture.ts";
@@ -32,7 +33,7 @@ const {
   writeCredentialTool,
 } = shared;
 
-test("each terminal worker batch calls back into one leader turn and a failed worker can be reassigned", () => {
+test("each terminal worker batch calls back into one leader turn and a failed worker can be reassigned", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-squad-resident-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -60,6 +61,7 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
   ownDaemonFixture({ parent, userRoot, daemonId: String(env.HARNESS_DAEMON_ID), env });
 
   run(root, env, ["daemon", "start", "--service"]);
+  await signInProcessPolicyTestUser(userRoot, "owner", ["squad-resident"], "admin");
   run(root, env, ["init", "--repo-id", "squad-resident", "--person-id", "owner", "--display-name", "Owner"]);
   const remote = path.join(parent, "remote.git");
   git(parent, ["init", "--bare", remote]);
@@ -254,7 +256,7 @@ function git(cwd: string, args: readonly string[]): void {
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
 }
 
-test("a Claude leader dispatches Codex workers by each worker declaration and reports a missing kind", () => {
+test("a Claude leader dispatches Codex workers by each worker declaration and reports a missing kind", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-squad-mixed-runtime-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -292,6 +294,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
   ownDaemonFixture({ parent, userRoot, daemonId: String(env.HARNESS_DAEMON_ID), env });
 
   run(root, env, ["daemon", "start", "--service"]);
+  await signInProcessPolicyTestUser(userRoot, "owner", ["squad-mixed-runtime"], "admin");
   run(root, env, ["init", "--repo-id", "squad-mixed-runtime", "--person-id", "owner", "--display-name", "Owner"]);
   for (const [id, name, kind, provider, model] of [
     ["claude-lee", "Claude Leader", "claude", "anthropic", "fable"],
@@ -479,7 +482,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
 test(
   "same-instance API-key squad workers reuse the materialized bearer",
   { skip: process.platform !== "linux" ? "requires the Linux secret-tool credential backend" : false },
-  () => {
+  async () => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-squad-api-key-")),
       root = path.join(parent, "repo"),
       userRoot = path.join(parent, "user"),
@@ -515,6 +518,7 @@ test(
     });
     assert.equal(stored.status, 0, stored.stderr);
     run(root, env, ["daemon", "start", "--service"]);
+    await signInProcessPolicyTestUser(userRoot, "owner", ["squad-api-key"], "admin");
     run(root, env, ["init", "--repo-id", "squad-api-key", "--person-id", "owner", "--display-name", "Owner"]);
     run(root, env, [
       "runtime",

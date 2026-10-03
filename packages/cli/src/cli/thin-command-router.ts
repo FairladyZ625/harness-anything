@@ -54,6 +54,10 @@ function parseRbacBootstrap(
       "A first node registration writes the node's machine credential into --credential-file <path>, a new file only you can read; nothing was registered.",
       json,
     );
+  if (f.one.get("--mode") === "external" && !f.booleans.has("--client-secret-stdin"))
+    return rejected("missing_field", "External configuration requires --client-secret-stdin.", json);
+  if (f.booleans.has("--client-secret-stdin") && f.one.get("--mode") !== "external")
+    return rejected("invalid_field", "--client-secret-stdin requires --mode external.", json);
   const administratorFields = ["--username", "--email", "--display-name", "--person-id", "--password-file"];
   if (f.one.get("--operation") === "bootstrap-admin" && administratorFields.some((flag) => !f.one.get(flag)))
     return rejected("missing_field", `First administrator creation requires ${administratorFields.join(", ")}.`, json);
@@ -73,6 +77,7 @@ function parseRbacBootstrap(
       ...(f.one.get("--mode") ? { mode: f.one.get("--mode") } : {}),
       ...(f.one.get("--url") ? { url: f.one.get("--url") } : {}),
       ...(f.one.get("--realm") ? { realm: f.one.get("--realm") } : {}),
+      ...(f.booleans.has("--client-secret-stdin") ? { clientSecretStdin: true } : {}),
       ...(f.one.get("--client-id") ? { clientId: f.one.get("--client-id") } : {}),
       ...(f.one.get("--backup-dir") ? { backupDir: f.one.get("--backup-dir") } : {}),
       ...(f.one.get("--seconds") ? { sessionLifetimeSeconds: Number(f.one.get("--seconds")) } : {}),
@@ -380,10 +385,8 @@ function parseLedgerReconcileRouted(
 }
 
 const peopleRequiredInputs: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  "people-add": ["--person-id", "--display-name", "--role", "--command-class"],
   "people-delegate": ["--token-id", "--runtime-session-id", "--action", "--expires-at"],
   "people-revoke-delegation": ["--token-id"],
-  "people-remove": ["--person-id"],
 });
 
 function parseEntityRouted(
@@ -467,15 +470,7 @@ function parsePeople(
     const field = input.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase());
     if (!Object.hasOwn(action, field)) return rejectInput(inputs, route.id, input, json);
   }
-  if (route.id !== "people-add") return projected;
-  const credentials = [action.credentialKind, action.credentialIssuer, action.credentialSubject];
-  return credentials.some((value) => value !== undefined) && credentials.some((value) => value === undefined)
-    ? rejected(
-        "invalid_field",
-        "Credential kind, issuer, and subject must be supplied together, or all three must be omitted.",
-        json,
-      )
-    : projected;
+  return projected;
 }
 
 function parseRelationRouted(

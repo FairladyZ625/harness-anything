@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { eventually, initIngressRepo, rpc, writeProviderStub } from "./fixtures/runtime-ingress.ts";
@@ -29,6 +30,7 @@ test("a parked sessions.await does not re-read settlement for provider activity 
     providerSessionId = "claude-wake-session";
   let emit: (frame: Record<string, unknown>) => void = () => undefined,
     exit: (code: number) => void = () => undefined;
+  signInPolicyTestUser(userRoot, "person-wake", [repoId], "admin");
   const host = await openDaemonHost({
     daemonId: "sessions-await-wake",
     userRoot,

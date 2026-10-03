@@ -149,6 +149,7 @@ test("edge binding health reads the selected login authority through fleet disco
   assert.equal((await request({ operation: "session", repoId: "node-one" })).authenticated, true);
   await assert.rejects(oidc.requireRole("access-admin"), { code: "authorization_denied" });
   const binding = await request({ operation: "health", repoId: "node-one" });
+  assert.equal(binding.ok, true);
   assert.equal(binding.ready, true, JSON.stringify(binding));
   assert.equal(binding.source, "fleet-center");
   assert.equal(binding.realm, "node-one");
@@ -163,7 +164,9 @@ test("edge binding health reads the selected login authority through fleet disco
   assert.equal((await request({ operation: "health", repoId: "unknown" })).code, "repo_namespace_unknown");
   assert.equal((await request({ operation: "health" })).code, "rbac_not_configured");
   realmStatus = 503;
-  assert.equal((await request({ operation: "health", repoId: "node-one" })).ready, false);
+  const unhealthy = await request({ operation: "health", repoId: "node-one" });
+  assert.equal(unhealthy.ready, false);
+  assert.equal(unhealthy.ok, false);
   for (const invalid of ["missing", "invalid"]) {
     discovery = invalid;
     const refused = await request({ operation: "health", repoId: "node-one" });

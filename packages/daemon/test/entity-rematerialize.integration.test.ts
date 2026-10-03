@@ -6,11 +6,11 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-rematerialize" },
@@ -18,10 +18,10 @@ const binding = withRoleBinding(
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
-  secondNodeBinding = withRoleBinding(
-    withRoleBinding(
+  secondNodeBinding = withPolicyGroup(
+    withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-rematerialize-edge-two" },
@@ -30,9 +30,9 @@ const binding = withRoleBinding(
         source: "local" as const,
         authorizationBindingMode: "declared" as const,
       },
-      "repo-write",
+      "contributor",
     ),
-    "arbiter",
+    "maintainer",
   );
 
 test("entity rematerialize renders relative graph links and is idempotent at one cut", async () => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
   MIGRATION_DOCUMENT_POLICY_ID,
   MIGRATION_IMPORT_SOURCE,
@@ -15,19 +16,13 @@ export const actor = {
   principal: { personId: "person-owner" },
   executor: { kind: "agent", id: "codex" },
 } as const;
-export const ownerBinding = {
-  actor,
-  source: "local" as const,
-  roleBindings: [
-    {
-      actor: { kind: "person" as const, id: actor.principal.personId },
-      role: "owner",
-      target: "settings/repository" as const,
-      source: "declared" as const,
-      expiresAt: null,
-    },
-  ],
-};
+export const ownerBinding = withPolicyGroup(
+  {
+    actor,
+    source: "local" as const,
+  },
+  "admin",
+);
 export const opaqueTextualMediaType = "application/json";
 
 export function standardMigration(revision: number, target: string, body: string): CanonicalWriteBundle {

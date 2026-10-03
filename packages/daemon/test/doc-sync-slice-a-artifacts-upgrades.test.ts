@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -353,7 +353,7 @@ test("a renamed task plan H1 remains authored prose and submits normally", async
       rootDir: canonicalRoot(rootDir),
       ownerId: "h1-restore-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     taskId = "task_H1REST0RE000000000000AAAAA",
     title = "很长的自解释标题:带括号与路径的完整 create title";
   try {
@@ -394,7 +394,7 @@ test("amending the title retitles the published plan through the typed route and
       rootDir: canonicalRoot(rootDir),
       ownerId: "amend-retitle-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     taskId = "task_AMENDRETITLE000000AAAAAA",
     firstTitle = "amend retitle first title",
     secondTitle = "amend retitle second title";
@@ -463,7 +463,7 @@ test("a legacy-drifted plan heals via doc sync and a title amend refuses until t
       rootDir: canonicalRoot(rootDir),
       ownerId: "amend-noop-daemon",
     });
-    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
     const created = (await cell.run({ kind: "task-create", taskId, title: firstTitle }, binding)) as {
         packagePath?: string;
         opId: string;
@@ -577,7 +577,7 @@ test("authored CRLF prose is canonicalized on scanner read and submitted as LF",
       rootDir: canonicalRoot(rootDir),
       ownerId: "crlf-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     logical = "context/crlf.md",
     canonical = "# CRLF\n\naccepted\n";
   try {

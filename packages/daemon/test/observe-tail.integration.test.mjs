@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +18,7 @@ import { daemonRequestLogPath, openDaemonRequestLog } from "../src/request-log.t
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const actor = { principal: { personId: "person-observer" }, executor: null };
-const binding = withRoleBinding({ actor, source: "local" }, "owner");
+const binding = withPolicyGroup({ actor, source: "local" }, "admin");
 const at = (iso) => () => new Date(iso);
 
 test("observe.tail exposes the 3x3 mode matrix and advances only when the source advances", async () => {

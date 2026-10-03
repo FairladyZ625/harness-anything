@@ -96,8 +96,7 @@ test("bootstrap resolves zero-argument identity at the daemon boundary", () => {
     assert.equal(resolved.repoId, "fixture-repo");
     assert.equal(resolved.actor.principal.personId, "person-fixture-owner");
     const people = resolved.machineDocuments.find(({ path: target }) => target === "harness/people.yaml");
-    const roster = JSON.parse(people?.body ?? "{}").people as Array<{ displayName: string }>;
-    assert.equal(roster[0]?.displayName, "Fixture Owner");
+    assert.equal(people, undefined, "bootstrap must not create a retired authorization roster");
     // The initial settings document carries the declared defaults and none of the retired walFlush group.
     const harness = resolved.machineDocuments.find(({ path: target }) => target === "harness/harness.yaml")?.body;
     assert.match(

@@ -8,9 +8,9 @@ import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kerne
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
-const binding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+const binding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
 
 interface GraphNode {
   readonly ref: string;

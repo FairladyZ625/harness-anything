@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -19,6 +20,7 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
     binRoot = path.join(parent, "bin"),
     daemonId = "gui-cli-writer-lock",
     repoId = "gui-cli-writer-lock";
+  await signInProcessPolicyTestUser(userRoot, "owner", [repoId], "admin");
   mkdirSync(root, { recursive: true });
   mkdirSync(sourceRoot, { recursive: true });
   mkdirSync(binRoot, { recursive: true });

@@ -63,7 +63,7 @@ export function executeRelationAction(input: {
     current = input.projection.readRelationEdge(requestedRelationId),
     targetRef = requestedTargetRef ?? current?.targetRef,
     source = sourceRef ? input.projection.readEntityVersionWitness(sourceRef) : null,
-    target = targetRef ? input.projection.readEntityVersionWitness(targetRef) : null,
+    target = targetRef ? relationTargetWitness(input, targetRef) : null,
     replay = input.store.readEvent(opId),
     headRevision = input.store.readHead()?.revision ?? 0,
     lookupCut = input.projection.readCut(),
@@ -203,6 +203,21 @@ export function executeRelationAction(input: {
     authorizationDecision,
     relationId,
   } as WriteReceipt;
+}
+
+function relationTargetWitness(
+  input: Parameters<typeof executeRelationAction>[0],
+  targetRef: string,
+): ReturnType<TaskProjection["readEntityVersionWitness"]> {
+  const witness = input.projection.readEntityVersionWitness(targetRef),
+    parsed = parseEntityRef(targetRef),
+    userId = parsed?.kind === "person" ? input.binding.personIdentityWitnesses?.get(parsed.id) : undefined;
+  if (witness.currentVersion !== null || userId === undefined || parsed?.kind !== "person") return witness;
+  return {
+    entityRef: targetRef,
+    freshness: "current",
+    currentVersion: `keycloak-user:${parsed.id}:${userId}`,
+  };
 }
 
 function relationDocumentUpdates(

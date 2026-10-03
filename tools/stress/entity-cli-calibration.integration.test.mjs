@@ -36,7 +36,7 @@ test(
     const allRows = [],
       failures = [];
     for (const seed of workload.seeds) {
-      const f = fixture(seed);
+      const f = await fixture(seed);
       let reader;
       try {
         frame("resources-before", { seed, ...resourceSnapshot(f.root) });

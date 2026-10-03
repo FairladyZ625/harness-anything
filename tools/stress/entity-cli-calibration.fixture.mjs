@@ -1,3 +1,4 @@
+import { signInProcessPolicyTestUser } from "../../packages/daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { spawnSync, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -11,10 +12,11 @@ import { lastTimingRecord, percentile } from "../measure-cli-command-timing.mjs"
 export const workload = Object.freeze({ seeds: [1103, 2207, 3301], tasks: 3, entities: 3, binaryBytes: 4096 });
 export const frame = (type, value) => console.log(`ENTITY_CLI_CALIBRATION\t${JSON.stringify({ type, ...value })}`);
 
-export function fixture(seed, { daemonId = "entity-cli-calibration", frames = true } = {}) {
+export async function fixture(seed, { daemonId = "entity-cli-calibration", frames = true } = {}) {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-entity-cli-calibration-"));
   const root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
+  await signInProcessPolicyTestUser(userRoot, "owner", ["calibration"], "admin");
   mkdirSync(root);
   writeFileSync(path.join(root, "README.md"), "# Calibration fixture\n");
   git(root, "init", "--quiet");

@@ -9,18 +9,18 @@ import { makeTaskEventReader } from "@harness-anything/kernel";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } } as const,
   // The lifecycle persona writes and closes; closing a task is the maintainer tier's, so it holds both roles.
-  binding = withRoleBinding(withRoleBinding({ actor, source: "local" as const }, "repo-write"), "arbiter"),
-  reviewerBinding = withRoleBinding(
+  binding = withPolicyGroup(withPolicyGroup({ actor, source: "local" as const }, "contributor"), "maintainer"),
+  reviewerBinding = withPolicyGroup(
     {
       actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } },
       source: "local" as const,
     },
-    "arbiter",
+    "maintainer",
   );
 
 test("task complete rejects an undeclared upstream Fact and persists a still-holds disposition", async () => {

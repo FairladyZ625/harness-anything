@@ -36,6 +36,11 @@ export function classifyAuthored(
       disposition: "required" as const,
       reason,
     });
+  if (sourcePath === "people.yaml")
+    return excluded(
+      "retired-people-authority",
+      "Keycloak owns current identity and permission; source people bytes remain in the forensic archive",
+    );
   if (sourcePath.endsWith("/**")) {
     const directory = path.join(root, sourcePath.slice(0, -3));
     if (runtimeStateDirectory(directory))

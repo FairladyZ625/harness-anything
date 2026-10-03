@@ -462,7 +462,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
     settings: ["settings-read", "settings-show", "settings-update"],
-    people: ["people-add", "people-delegate", "people-remove", "people-revoke-delegation"],
+    people: ["people-delegate", "people-revoke-delegation"],
     pin: ["entity-pin"],
     squad: [
       "squad-cancel",
@@ -1137,10 +1137,8 @@ test("all public commands expose the canonical structured input facet", () => {
   );
   for (const id of [
     "task-review-execution",
-    "people-add",
     "people-delegate",
     "people-revoke-delegation",
-    "people-remove",
     "schedule-show",
     "schedule-update",
     "schedule-delete",

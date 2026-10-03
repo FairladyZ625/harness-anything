@@ -1,3 +1,4 @@
+import externalKeycloak from "./scenarios/external-keycloak.mjs";
 import shellNavigation from "./scenarios/shell-navigation.mjs";
 import overview from "./scenarios/overview-first-usable.mjs";
 import board from "./scenarios/board-preview-detail.mjs";
@@ -27,6 +28,7 @@ import pageSplitLayout from "./scenarios/page-split-layout.mjs";
 import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
 
 export const catalog = [
+  externalKeycloak,
   shellNavigation,
   overview,
   board,

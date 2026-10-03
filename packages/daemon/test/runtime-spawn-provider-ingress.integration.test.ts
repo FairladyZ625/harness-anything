@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,6 +32,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
     repoId = "runtime-provider-events",
     uid = process.getuid?.() ?? 0;
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   registerDaemonRepo({
     canonicalRoot: root,
     repoId,
@@ -390,6 +392,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
     repoId = "runtime-resume",
     uid = process.getuid?.() ?? 0;
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   registerDaemonRepo({
     canonicalRoot: root,
     repoId,
@@ -570,6 +573,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
     uid = process.getuid?.() ?? 0,
     lifecycle: DaemonLifecycleEntry[] = [];
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   registerDaemonRepo({
     canonicalRoot: root,
     repoId,
@@ -705,6 +709,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
     observedAt: "2026-08-19T00:00:00.000Z",
   };
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   registerDaemonRepo({
     canonicalRoot: root,
     repoId,
@@ -874,6 +879,7 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
       },
     } as const;
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const host = await openDaemonHost({
       daemonId: "runtime-claude-effort-ingress",

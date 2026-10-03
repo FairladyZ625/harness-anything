@@ -1,5 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
+import { parse as parseYaml } from "yaml";
+import { isRecord } from "../domain/write-chain.contract.ts";
 import { emptyTaskLifecycleSnapshot, reduceTaskEvent, type TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID, RAW_ARTIFACT_POLICY_ID } from "../domain/artifact-text-classification.ts";
 import {
@@ -12,7 +14,7 @@ import {
   normalizePersistedCanonicalEvent,
   normalizePersistedEventValue,
   serializePersistedCanonicalEvent,
-  type CanonicalEventV1,
+  type PersistedCanonicalEventV1,
   type DocumentState,
 } from "../domain/doc-sync.contract.ts";
 import { isEntityDocumentEvent } from "../domain/entity-document-event.ts";
@@ -37,9 +39,8 @@ import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isValidCloseoutOverrides } from "../domain/settings-closeout.ts";
 import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
-import { isPeopleEvent } from "../domain/people-event.ts";
+import { isRetiredPeopleEvent } from "../domain/people-event.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
-import { parsePeopleRosterDocument } from "../domain/people-roster.ts";
 import { scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
 import { lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "../layout/index.ts";
@@ -123,7 +124,7 @@ const UPSERT_PRESET_SNAPSHOT_SQL = [
 // Canonical-event dispatcher for non-task domains and task-event handoff.
 export function applyEvent(
   db: DatabaseSync,
-  event: CanonicalEventV1,
+  event: PersistedCanonicalEventV1,
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
@@ -415,33 +416,23 @@ export function applyEvent(
     runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
     return;
   }
-  if (isPeopleEvent(event)) {
+  if (isRetiredPeopleEvent(event)) {
     const claim = event.payload.peopleDocumentClaim,
       bytes = readBlob(claim.sha256);
-    if (!bytes || bytes.byteLength !== claim.size) throw new Error(`people.yaml blob ${claim.sha256} is unavailable`);
-    let body: string;
-    try {
-      body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    } catch {
-      throw new Error(`people.yaml blob ${claim.sha256} is not UTF-8`);
-    }
-    // Replay hands this branch a timestamp-normalized event while the blob keeps its authored
-    // spelling (`--expires-at` text may omit milliseconds); compare both facets normalized so
-    // precision is not mistaken for roster content.
-    if (
-      canonicalJson(normalizePersistedEventValue(parsePeopleRosterDocument(body))) !==
-      canonicalJson(normalizePersistedEventValue(event.payload.roster))
-    )
-      throw new Error(`people.yaml blob ${claim.sha256} does not match the event roster snapshot`);
-    const document: DocumentState = {
-      path: claim.path as DocumentState["path"],
-      blobSha256: claim.sha256,
-      body,
-      size: docByteLength(claim.size),
-      mediaType: claim.mediaType,
-      policyId: claim.policyId,
-      workspaceRevision: event.workspaceRevision,
-    };
+    if (!bytes || bytes.byteLength !== claim.size)
+      throw new Error(`retired People blob ${claim.sha256} is unavailable`);
+    const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      snapshot = parseYaml(body) as unknown;
+    if (!isRecord(snapshot)) throw new Error("retired People blob is not an audit snapshot");
+    const completeSnapshot = (value: Readonly<Record<string, unknown>>) =>
+      normalizePersistedEventValue({
+        ...value,
+        bindings: value.bindings ?? [],
+        delegatedExecutionTokens: value.delegatedExecutionTokens ?? [],
+      });
+    if (canonicalJson(completeSnapshot(snapshot)) !== canonicalJson(completeSnapshot(event.payload.roster)))
+      throw new Error(`retired People blob ${claim.sha256} does not match the event roster snapshot`);
+    // Preserve the audit index only; the retired snapshot cannot become a current Person projection.
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
@@ -449,7 +440,6 @@ export function applyEvent(
       event.workspaceRevision,
       eventJson,
     );
-    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
     return;
   }
   if (isFactEvent(event)) {
@@ -725,6 +715,7 @@ export function applyEvent(
     }
     return;
   }
+  if (event.schema === "execution-delegation-event/v1") return;
   applyTaskEvent(db, event, eventJson, readBlob);
 }
 
@@ -886,7 +877,7 @@ const SCAN_STATE_SQL = "SELECT scan_cursor, scanned_revision FROM projection_met
   ].join(" ");
 export function reduceBatch(
   db: DatabaseSync,
-  events: readonly CanonicalEventV1[],
+  events: readonly PersistedCanonicalEventV1[],
   limit: number,
   readBlob: EventStreamPort["readContentBlob"],
   head: ReturnType<EventStreamPort["readHead"]>,
@@ -983,12 +974,12 @@ export function catchUpRound(
 
 function readyDeferredEvents(
   db: DatabaseSync,
-  batch: readonly CanonicalEventV1[],
+  batch: readonly PersistedCanonicalEventV1[],
   limit: number,
   allowRevisionGaps: boolean,
-): readonly CanonicalEventV1[] {
+): readonly PersistedCanonicalEventV1[] {
   const current = watermark(db),
-    candidates = new Map<number, CanonicalEventV1>();
+    candidates = new Map<number, PersistedCanonicalEventV1>();
   for (const row of queryRows(
     db,
     [
@@ -999,10 +990,10 @@ function readyDeferredEvents(
     current,
     current + limit,
   ))
-    candidates.set(Number(row.workspace_revision), JSON.parse(String(row.event_json)) as CanonicalEventV1);
+    candidates.set(Number(row.workspace_revision), JSON.parse(String(row.event_json)) as PersistedCanonicalEventV1);
   for (const event of batch)
     if (event.workspaceRevision <= current + limit) candidates.set(event.workspaceRevision, event);
-  const ready: CanonicalEventV1[] = [];
+  const ready: PersistedCanonicalEventV1[] = [];
   for (let revision = current + 1; revision <= current + limit; revision += 1) {
     const event = candidates.get(revision);
     if (event === undefined) {
@@ -1014,7 +1005,7 @@ function readyDeferredEvents(
   return ready;
 }
 
-function stageEvent(db: DatabaseSync, event: CanonicalEventV1): void {
+function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
   const eventJson = serializePersistedCanonicalEvent(event).trimEnd();
   const applied = prepareQuery(db, "SELECT event_json FROM event_index WHERE op_id = ?", (sql) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-004 */ db.prepare(sql),
@@ -1055,7 +1046,7 @@ function drainDeferred(
       /* @gate-identity check-bypass-write-boundary/bypass-write-006 */ db.prepare(sql),
     ).get(next + 1, allowRevisionGaps ? 1 : 0, next) as { readonly event_json: string } | undefined;
     if (row === undefined) break;
-    const event = JSON.parse(row.event_json) as CanonicalEventV1;
+    const event = JSON.parse(row.event_json) as PersistedCanonicalEventV1;
     applyEvent(db, normalizePersistedCanonicalEvent(event), row.event_json, readBlob);
     runSql(db, "DELETE FROM event_source WHERE workspace_revision = ?", event.workspaceRevision);
     next = event.workspaceRevision;

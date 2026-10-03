@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -12,11 +13,11 @@ import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } },
-  binding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+  binding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
 
 function initRepo(rootDir: string): void {
   const git = (...args: readonly string[]) =>
@@ -94,7 +95,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       ],
     }),
   );
-  const host = await openDaemonHost({ daemonId: "doctor-host", userRoot, runtimeFile });
+  const host = await openSignedInHost({ daemonId: "doctor-host", userRoot, runtimeFile });
   await host.attachmentsSettled();
   try {
     for (const [disk, expected] of [
@@ -214,3 +215,13 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
     await removeTemporaryDirectory(rootDir);
   }
 });
+
+async function openSignedInHost(input: Parameters<typeof openDaemonHost>[0]) {
+  signInPolicyTestUser(
+    input.userRoot!,
+    "writer",
+    readDaemonRegistry({ userRoot: input.userRoot }).repos.map((repo) => repo.repoId),
+    "admin",
+  );
+  return openDaemonHost(input);
+}

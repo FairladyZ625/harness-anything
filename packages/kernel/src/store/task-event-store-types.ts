@@ -1,4 +1,8 @@
-import { type CanonicalEventV1, type LedgerCommitSha } from "../domain/doc-sync.contract.ts";
+import {
+  type CanonicalEventV1,
+  type PersistedCanonicalEventV1,
+  type LedgerCommitSha,
+} from "../domain/doc-sync.contract.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import { type EventHead, type FrozenWritePlan, type LedgerCutIdentity } from "../domain/write-chain.contract.ts";
 import { type LedgerLayoutState } from "../layout/ledger-object-layout.ts";
@@ -87,7 +91,7 @@ export interface EventFileBatch {
   readonly cursor: string | null;
   readonly done: boolean;
   readonly accessedItems: number;
-  readonly prefetchContent?: (events: readonly CanonicalEventV1[]) => ReadonlyMap<string, Uint8Array | null>;
+  readonly prefetchContent?: (events: readonly PersistedCanonicalEventV1[]) => ReadonlyMap<string, Uint8Array | null>;
 }
 export interface MaterializationSettlement {
   /** The authored document path this row describes, relative to the authored root. */

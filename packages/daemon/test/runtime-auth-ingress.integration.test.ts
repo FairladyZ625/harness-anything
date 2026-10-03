@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -46,6 +47,7 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
     observedAt: "2026-08-19T00:00:00.000Z",
   };
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const auth = {
     transportKind: "unix-socket",

@@ -104,12 +104,12 @@ test("one named kind-contract authority explains all thirteen entity kinds with 
     ["read", "update"],
   );
   const person = explanations.find(({ kind }) => kind === "person");
-  assert.deepEqual(person?.transitions.available, ["add", "delegate", "revoke-delegation", "remove"]);
+  assert.deepEqual(person?.transitions.available, ["delegate", "revoke-delegation"]);
   assert.deepEqual(
     person?.transitions.actions.map(({ id }) => id),
-    ["add", "delegate", "revoke-delegation", "remove"],
+    ["delegate", "revoke-delegation"],
   );
-  assert.deepEqual(person?.authoring, { kind: "people-event", contractRef: "people-event/v1" });
+  assert.equal(person?.authoring, null);
 });
 
 test("every Action declares version, target, and SDK exposure metadata", () => {

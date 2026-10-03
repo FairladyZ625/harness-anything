@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -21,7 +21,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { TASK_WIP_LIMIT_ENV } from "../src/task-wip-settings.ts";
 
-import { writeOwnerRoster } from "./role-binding.fixtures.ts";
+import { grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
 
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -50,7 +50,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
     git(root, "config", "user.name", "Spawn Test");
     git(root, "config", "user.email", "spawn@example.invalid");
     git(root, "commit", "--allow-empty", "-qm", "base");
-    writeOwnerRoster(root, ["person-spawn"]);
+    grantTestPolicyGroups(["person-spawn"], "admin");
     let launched: unknown,
       intentWasDurable = false,
       observerSawUnknown = false,
@@ -141,12 +141,12 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       },
     });
     try {
-      const binding = withRoleBinding(
+      const binding = withPolicyGroup(
         {
           actor: { principal: { personId: "person-spawn" }, executor: null },
           source: "local" as const,
         },
-        "owner",
+        "admin",
       );
       await assert.rejects(
         cell.spawnRuntime(
@@ -187,12 +187,12 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           taskId: null,
           idempotencyKey: "spawn-once",
         },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor: { principal: { personId: "person-spawn" }, executor: null },
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
       assert.equal(receipt.outcome, "applied");
@@ -328,12 +328,12 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           taskId: null,
           idempotencyKey: "spawn-terra",
         },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor: { principal: { personId: "person-spawn" }, executor: null },
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
       assert.equal(alternate.outcome, "applied");
@@ -358,12 +358,12 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           taskId: null,
           idempotencyKey: "spawn-low",
         },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor: { principal: { personId: "person-spawn" }, executor: null },
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
       assert.equal(low.outcome, "applied");
@@ -388,12 +388,12 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           taskId: null,
           idempotencyKey: "spawn-locked",
         },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor: { principal: { personId: "person-spawn" }, executor: null },
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
       assert.equal(locked.outcome, "applied");
@@ -415,12 +415,12 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           taskId: null,
           idempotencyKey: "spawn-xhigh",
         },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor: { principal: { personId: "person-spawn" }, executor: null },
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
       assert.equal(xhigh.outcome, "applied");
@@ -450,12 +450,12 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
             taskId: null,
             idempotencyKey: "legacy",
           },
-          withRoleBinding(
+          withPolicyGroup(
             {
               actor: { principal: { personId: "person-spawn" }, executor: null },
               source: "local",
             },
-            "owner",
+            "admin",
           ),
         ),
         (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_spawn",
@@ -515,7 +515,7 @@ test(
       pids: number[] = [];
     try {
       initIngressRepo(root, 4310);
-      writeOwnerRoster(root, ["person-cancel-tree"]);
+      grantTestPolicyGroups(["person-cancel-tree"], "admin");
       cell = await openRepoCell({
         repoId: workspaceId(repoId),
         rootDir: canonicalRoot(root),
@@ -539,7 +539,7 @@ test(
           taskId: null,
           idempotencyKey: "cancel-tree",
         },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor: {
               principal: { personId: "person-cancel-tree" },
@@ -547,7 +547,7 @@ test(
             },
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
       runtimeSessionId = String(spawned.runtimeSessionId);
@@ -573,7 +573,7 @@ test(
         (
           await cell.cancelRuntime(
             { runtimeSessionId },
-            withRoleBinding(
+            withPolicyGroup(
               {
                 actor: {
                   principal: { personId: "person-cancel-tree" },
@@ -581,7 +581,7 @@ test(
                 },
                 source: "local",
               },
-              "owner",
+              "admin",
             ),
           )
         ).detail,
@@ -617,7 +617,7 @@ test(
         try {
           await cell?.cancelRuntime(
             { runtimeSessionId },
-            withRoleBinding(
+            withPolicyGroup(
               {
                 actor: {
                   principal: { personId: "person-cancel-tree" },
@@ -625,7 +625,7 @@ test(
                 },
                 source: "local",
               },
-              "owner",
+              "admin",
             ),
           );
         } catch (error) {
@@ -648,7 +648,7 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
   let clock = "2026-09-11T00:00:00.000Z";
   try {
     initIngressRepo(root, 4313);
-    writeOwnerRoster(root, ["person-orphan-lease", "person-orphan-stranger"]);
+    grantTestPolicyGroups(["person-orphan-lease", "person-orphan-stranger"], "admin");
     const cell = await openRepoCell({
       repoId: workspaceId("runtime-orphan-lease"),
       rootDir: canonicalRoot(root),
@@ -697,13 +697,12 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
     });
     try {
       const taskId = "task-runtime-orphan-lease",
-        executionId = "execution-runtime-orphan-lease",
-        binding = withRoleBinding(
+        binding = withPolicyGroup(
           {
             actor: { principal: { personId: "person-orphan-lease" }, executor: null },
             source: "local" as const,
           },
-          "owner",
+          "admin",
         );
       const created = await cell.run({ kind: "task-create", taskId, title: "Orphan lease dispatch" }, binding);
       assert.equal(created.outcome, "applied");
@@ -714,27 +713,38 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
         (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
         "Orphan lease dispatch",
       );
-      assert.equal(
-        (
-          await cell.run(
-            {
-              kind: "task-start",
-              taskId,
-              executionId,
-              executor: { kind: "agent", id: "orphan-lease-worker" },
-              ttlMs: 60_000,
-            },
-            binding,
-          )
-        ).outcome,
-        "applied",
+      const initial = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Hold the task before the lease expires.",
+          taskId,
+          idempotencyKey: "orphan-lease-initial",
+        },
+        binding,
       );
+      assert.equal(initial.outcome, "applied", JSON.stringify(initial));
+      const initialProjection = makeTaskProjection({
+        rootDir: root,
+        eventStore: makeTaskEventReader({ repoId: "runtime-orphan-lease", rootDir: root }),
+        now: () => clock,
+      });
+      let expiresAt: string;
+      try {
+        const lease = initialProjection.read(taskId).snapshot.lease;
+        assert.equal(lease?.phase, "held");
+        assert.equal(lease?.actor.executor?.id, `runtime-session:${initial.runtimeSessionId}`);
+        assert.ok(lease?.expiresAt);
+        expiresAt = lease.expiresAt;
+      } finally {
+        initialProjection.close();
+      }
       const held = String(
         ((await cell.run({ kind: "task-show", taskId }, binding)) as Record<string, unknown>).summary,
       );
       assert.match(held, /\nlease: [^\n]*phase=held/u, held);
-      // Past the 60s TTL the lease projects as orphaned with no manual `ha task release`.
-      clock = "2026-09-11T00:01:01.000Z";
+      // Expire the real dispatch lease without a manual `ha task release`.
+      clock = new Date(Date.parse(expiresAt) + 1_000).toISOString();
       const lapsed = String(
         ((await cell.run({ kind: "task-show", taskId }, binding)) as Record<string, unknown>).summary,
       );
@@ -749,12 +759,12 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
             taskId,
             idempotencyKey: "orphan-lease-stranger",
           },
-          withRoleBinding(
+          withPolicyGroup(
             {
               actor: { principal: { personId: "person-orphan-stranger" }, executor: null },
               source: "local",
             },
-            "owner",
+            "admin",
           ),
         ),
         /same principal reclaiming an orphaned lease/u,
@@ -800,7 +810,7 @@ test("runtime dispatch of a planned task is rejected at a full worktable", async
   let launchCount = 0;
   try {
     initIngressRepo(root, 4312);
-    writeOwnerRoster(root, ["person-wip-full"]);
+    grantTestPolicyGroups(["person-wip-full"], "admin");
     const cell = await openRepoCell({
       repoId: workspaceId("runtime-wip-full"),
       rootDir: canonicalRoot(root),
@@ -850,12 +860,12 @@ test("runtime dispatch of a planned task is rejected at a full worktable", async
       },
     });
     try {
-      const binding = withRoleBinding(
+      const binding = withPolicyGroup(
         {
           actor: { principal: { personId: "person-wip-full" }, executor: null },
           source: "local" as const,
         },
-        "owner",
+        "admin",
       );
       const occupant = await cell.run(
         { kind: "task-create", taskId: "task-wip-full-occupant", title: "Occupant" },

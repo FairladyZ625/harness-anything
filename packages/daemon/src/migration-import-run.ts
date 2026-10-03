@@ -9,9 +9,7 @@ import {
   taskEntryToRow,
   validateCurrentMigrationImportEvent,
   validateCurrentCanonicalEvent,
-  compilePeopleRosterActionEvent,
   MIGRATION_IMPORT_SOURCE,
-  PEOPLE_ROSTER_PATH,
   type ActorIdentity,
   type CanonicalEventStore,
   type ColdDecisionProjectionRow,
@@ -24,12 +22,7 @@ import {
 } from "@harness-anything/kernel";
 import { auditAuthoredCoverage, authoredPaths, parseResolutions } from "./migration-import-authored-audit.ts";
 import { classifyAuthored, referencedContent } from "./migration-import-authored-classification.ts";
-import {
-  mediaType,
-  PEOPLE_REGISTRY_SURFACE,
-  portableMigrationPath,
-  resolveAuthoredConflict,
-} from "./migration-import-conflicts.ts";
+import { mediaType, portableMigrationPath, resolveAuthoredConflict } from "./migration-import-conflicts.ts";
 import { addDecision as addDecisionImpl } from "./migration-import-entities.ts";
 import {
   blob,
@@ -169,7 +162,6 @@ export interface MigrationImportContext extends MigrationRelationsContext {
   readonly classifyAuthored: typeof classifyAuthored;
   readonly destinationLayout: ReturnType<typeof resolveHarnessLayout>;
   readonly resolutions: ReturnType<typeof parseResolutions>;
-  readonly PEOPLE_REGISTRY_SURFACE: typeof PEOPLE_REGISTRY_SURFACE;
   readonly symlinkTarget: typeof symlinkTarget;
   readonly referencedContent: typeof referencedContent;
   readonly validDecision: typeof validDecision;
@@ -194,9 +186,7 @@ export interface MigrationImportContext extends MigrationRelationsContext {
   readonly sourceGit: ReturnType<typeof validateSourceGit>;
   readonly reboundRelation: (row: RelationGraphEdgeRow) => ReboundRelation | null;
   readonly readFileSync: typeof readFileSync;
-  readonly compilePeopleRosterActionEvent: typeof compilePeopleRosterActionEvent;
   readonly MIGRATION_IMPORT_SOURCE: typeof MIGRATION_IMPORT_SOURCE;
-  readonly PEOPLE_ROSTER_PATH: typeof PEOPLE_ROSTER_PATH;
   readonly alreadyImported: Record<EntityKind, number>;
   readonly taskRead: ReturnType<typeof readMarkdownSource>;
   readonly legacyTaskRestatements: ReadonlyMap<string, LegacyTaskRestatement>;
@@ -374,7 +364,6 @@ export async function runSingleMigrationImport(
     classifyAuthored,
     destinationLayout,
     resolutions,
-    PEOPLE_REGISTRY_SURFACE,
     symlinkTarget,
     referencedContent,
     validDecision,
@@ -396,9 +385,7 @@ export async function runSingleMigrationImport(
     attribution,
     attributionUse,
     migrationOperationId,
-    compilePeopleRosterActionEvent,
     MIGRATION_IMPORT_SOURCE,
-    PEOPLE_ROSTER_PATH,
     readFileSync,
     migrationImportError,
     operationRestatements,

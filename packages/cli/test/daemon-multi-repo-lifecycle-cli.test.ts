@@ -45,7 +45,7 @@ import {
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 
 test("daemon stop requires a mounted root unless --daemon-id is explicit", async () => {
-  const fixture = setup();
+  const fixture = await setup();
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     await register(fixture.alpha, fixture.userRoot, "alpha");
@@ -92,7 +92,7 @@ test("daemon stop requires a mounted root unless --daemon-id is explicit", async
 });
 
 test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite before Git follower verification", async () => {
-  const fixture = setup(),
+  const fixture = await setup(),
     ledgerReaders = trackLedgerReaders();
   try {
     const noDaemon = runMaybe(fixture.alpha, fixture.userRoot, [
@@ -523,7 +523,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
 });
 
 test("real CLI files subtask-expansion packages under a work and reads the work back", async () => {
-  const fixture = setup(),
+  const fixture = await setup(),
     ledgerReaders = trackLedgerReaders();
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
@@ -610,7 +610,7 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
 });
 
 test("resident daemon CLI write p50 includes process startup through parsed receipt", async (context) => {
-  const fixture = setup();
+  const fixture = await setup();
   try {
     // npm is npm.cmd on Windows, and Node refuses to execute a .cmd directly, so this failed
     // with ENOENT before the measurement even started -- a launcher defect wearing a
@@ -717,8 +717,8 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
   }
 });
 
-test("U-12 Configure-Verify failure keeps the canonical publication and returns an honest partial receipt", () => {
-  const fixture = setup(),
+test("U-12 Configure-Verify failure keeps the canonical publication and returns an honest partial receipt", async () => {
+  const fixture = await setup(),
     configPath = path.join(fixture.alpha, "harness/harness.yaml"),
     overlayPath = path.join(fixture.alpha, "harness/governance/task-scaffold.json");
   try {
@@ -761,8 +761,8 @@ test("U-12 Configure-Verify failure keeps the canonical publication and returns 
         .some((target) => target.startsWith("tasks/")),
       false,
     );
-    // Settings, the vertical, and the one event that publishes the scaffold documents init created.
-    assert.equal(stream.revision, 3);
+    // Settings, vertical, scaffold documents, and the two builtin schedules.
+    assert.equal(stream.revision, 5);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
     assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
     assert.equal(stream.events[2]?.schema, "doc-event/v1");
@@ -772,8 +772,8 @@ test("U-12 Configure-Verify failure keeps the canonical publication and returns 
   }
 });
 
-test("existing c606 pair upgrades additively and explicit name is the only config byte change", () => {
-  const fixture = setup();
+test("existing c606 pair upgrades additively and explicit name is the only config byte change", async () => {
+  const fixture = await setup();
   try {
     const configPath = path.join(fixture.alpha, "harness/harness.yaml"),
       peoplePath = path.join(fixture.alpha, "harness/people.yaml"),
@@ -846,36 +846,33 @@ test("existing c606 pair upgrades additively and explicit name is the only confi
   }
 });
 
-test("partial bootstrap pair fails closed before any scaffold write", () => {
-  const fixture = setupEmpty();
+test("an existing config without a legacy people file initializes through Keycloak", async () => {
+  const fixture = await setupEmpty("partial");
   try {
     mkdirSync(path.join(fixture.repo, "harness"));
-    writeFileSync(path.join(fixture.repo, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n");
+    const configPath = path.join(fixture.repo, "harness/harness.yaml"),
+      config = "layout:\n  authoredRoot: harness\n";
+    writeFileSync(configPath, config);
     assert.equal(run(fixture.repo, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    const before = readFileSync(path.join(fixture.repo, "harness/harness.yaml"), "utf8"),
-      rejected = runMaybe(fixture.repo, fixture.userRoot, [
-        "init",
-        "--repo-id",
-        "partial",
-        "--person-id",
-        "owner",
-        "--display-name",
-        "Owner",
-      ]);
-    assert.notEqual(rejected.status, 0);
-    assert.equal((rejected.receipt.error as { code?: string }).code, "bootstrap_incomplete");
-    assert.equal(readFileSync(path.join(fixture.repo, "harness/harness.yaml"), "utf8"), before);
+    const initialized = run(fixture.repo, fixture.userRoot, [
+      "init",
+      "--repo-id",
+      "partial",
+      "--display-name",
+      "Owner",
+    ]);
+    assert.equal(initialized.ok, true);
+    assert.equal(readFileSync(configPath, "utf8"), config);
     assert.equal(existsSync(path.join(fixture.repo, "harness/people.yaml")), false);
-    assert.equal(existsSync(path.join(fixture.repo, "harness/context")), false);
-    assert.equal(existsSync(path.join(fixture.repo, ".git")), false);
+    assert.equal(existsSync(path.join(fixture.repo, "harness/context")), true);
   } finally {
     stop(fixture.repo, fixture.userRoot);
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("existing architecture assets remain byte-owned and a half model is not completed", () => {
-  const fixture = setup();
+test("existing architecture assets remain byte-owned and a half model is not completed", async () => {
+  const fixture = await setup();
   try {
     const architectureRoot = path.join(fixture.alpha, "harness/context/architecture"),
       readme = "# Project Architecture\n\nProject-owned without builtin anchors.\n",
@@ -910,8 +907,8 @@ test("existing architecture assets remain byte-owned and a half model is not com
   }
 });
 
-test("repository overlay is additive, preserves authored prose, and rejects an invalid plan before publication", () => {
-  const fixture = setup();
+test("repository overlay is additive, preserves authored prose, and rejects an invalid plan before publication", async () => {
+  const fixture = await setup();
   try {
     const custom = "# Existing Context\n\nOwned by the project.\n",
       customAgents = "# Existing Agents\n\nProject-owned.\n",
@@ -970,8 +967,8 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
       rootDir: fixture.alpha,
       repoId: "alpha",
     }).read();
-    // Settings, the vertical, and the one event that publishes the scaffold documents init created.
-    assert.equal(stream.revision, 3);
+    // Settings, vertical, scaffold documents, and the two builtin schedules.
+    assert.equal(stream.revision, 5);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
     assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
     assert.equal(stream.events[2]?.schema, "doc-event/v1");
@@ -981,7 +978,7 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
     );
     assert.notEqual(initialized.commit, before);
     stop(fixture.alpha, fixture.userRoot);
-    const invalid = setup();
+    const invalid = await setup();
     writeFileSync(
       path.join(invalid.alpha, "harness/harness.yaml"),
       "layout:\n  authoredRoot: harness\nsettings:\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: invalid.json\n",
@@ -1014,8 +1011,8 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
   }
 });
 
-test("a changed overlay path leaves the prior authored document and reports it as governance drift", () => {
-  const fixture = setup();
+test("a changed overlay path leaves the prior authored document and reports it as governance drift", async () => {
+  const fixture = await setup();
   try {
     const config =
         "layout:\n  authoredRoot: harness\nsettings:\n  scaffolds:\n    task: governance/task-scaffold.json\n    repository: governance/repository-scaffold.json\n",
@@ -1069,8 +1066,8 @@ test("a changed overlay path leaves the prior authored document and reports it a
   }
 });
 
-test("old-only standards fail closed before repository scaffold publication", () => {
-  const fixture = setup();
+test("old-only standards fail closed before repository scaffold publication", async () => {
+  const fixture = await setup();
   try {
     mkdirSync(path.join(fixture.alpha, "harness/standards"), {
       recursive: true,

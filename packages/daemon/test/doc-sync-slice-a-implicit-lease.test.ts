@@ -14,7 +14,7 @@ import { runDocAction } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 import { initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 test("a selection submit accepts two authored paths with identical content", async () => {
@@ -249,7 +249,7 @@ test("path and confirmed full submits ride the repository prose channel when ano
       rootDir: canonicalRoot(rootDir),
       ownerId: "path-prose-daemon",
     });
-  const person = withRoleBinding(
+  const person = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-owner" },
@@ -257,9 +257,9 @@ test("path and confirmed full submits ride the repository prose channel when ano
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     ),
-    holder = withRoleBinding(
+    holder = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-owner" },
@@ -267,7 +267,7 @@ test("path and confirmed full submits ride the repository prose channel when ano
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     ),
     taskId = "task_PATHPR0SE000000000000AAAAA";
   try {
@@ -424,7 +424,7 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
       rootDir: canonicalRoot(rootDir),
       ownerId: "lapsed-recovery-daemon",
     });
-  const person = withRoleBinding(
+  const person = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-owner" },
@@ -432,9 +432,9 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     ),
-    worker = withRoleBinding(
+    worker = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-owner" },
@@ -442,7 +442,7 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     ),
     taskId = "task_REENTER00000000000000AAAAA";
   try {
@@ -539,7 +539,7 @@ test("a runtime actor's post-submit doc sync names the before-submit order, not 
       rootDir: canonicalRoot(rootDir),
       ownerId: "post-submit-order-daemon",
     });
-  const person = withRoleBinding(
+  const person = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-owner" },
@@ -547,9 +547,9 @@ test("a runtime actor's post-submit doc sync names the before-submit order, not 
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     ),
-    worker = withRoleBinding(
+    worker = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-owner" },
@@ -557,7 +557,7 @@ test("a runtime actor's post-submit doc sync names the before-submit order, not 
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     ),
     taskId = "task_PRBODY0000000000000000AAAAA";
   try {
@@ -719,7 +719,7 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
         }),
       } as unknown as TaskProjection,
       action = { kind: "doc-submit", paths: [logical] } as const,
-      baseBinding = withRoleBinding({ actor: runtimeActor, source }, "owner"),
+      baseBinding = withPolicyGroup({ actor: runtimeActor, source }, "admin"),
       authorizedBinding = () => {
         const revision = eventStore.readHead()?.revision ?? 0;
         return {

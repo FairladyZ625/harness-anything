@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +19,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 const runtimeSessionId = "runtime-session-identity",
   providerSessionId = "01a02711-fb92-7ae2-b5bc-76c9b7154ead",
   transcriptRef = "file:.harness/runtime/dispatches/dispatch_5beaecffdf966066d2816b0d.jsonl";
-const runtimeBinding = withRoleBinding(
+const runtimeBinding = withPolicyGroup(
   {
     actor: {
       principal: { personId: "person-runtime" },
@@ -27,14 +27,14 @@ const runtimeBinding = withRoleBinding(
     } as const,
     source: "local" as const,
   },
-  "owner",
+  "admin",
 );
-const humanBinding = withRoleBinding(
+const humanBinding = withPolicyGroup(
   {
     actor: { principal: { personId: "person-human" }, executor: null } as const,
     source: "local" as const,
   },
-  "owner",
+  "admin",
 );
 
 test("task create, fact record, and decision propose project the canonical runtime session identity", async () => {

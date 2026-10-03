@@ -20,31 +20,31 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 // The fixture's owner writes and closes: closing a task is the maintainer tier's, so it holds both roles.
-export const owner = withRoleBinding(
-  withRoleBinding(
+export const owner = withPolicyGroup(
+  withPolicyGroup(
     {
       actor: { principal: { personId: "completion-owner" }, executor: { kind: "agent" as const, id: "implementer" } },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
-  "arbiter",
+  "maintainer",
 );
 // Settings writes are principal-gated: the executor actor above owns the task lifecycle while this
 // binding stands in for the dispatching principal applying repository-level settings changes.
-export const principal = withRoleBinding(
-  withRoleBinding(
+export const principal = withPolicyGroup(
+  withPolicyGroup(
     {
       actor: { principal: owner.actor.principal, executor: null },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
-  "arbiter",
+  "maintainer",
 );
 export const taskId = "task-completion-review",
   executionId = "execution-completion-review";
@@ -434,7 +434,7 @@ export async function fixture(
       );
       return cell.run(
         { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: `harness/${packet}` },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor: {
               principal: owner.actor.principal,
@@ -442,7 +442,7 @@ export async function fixture(
             },
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
     },
@@ -470,7 +470,7 @@ export async function fixture(
           reviewId: `review-${dispatchId}`,
           fromFile: `harness/${packet}`,
         },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor: {
               principal: owner.actor.principal,
@@ -478,7 +478,7 @@ export async function fixture(
             },
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
     },

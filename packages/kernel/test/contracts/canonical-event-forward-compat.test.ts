@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { stableStringify } from "../../src/integrity/stable-hash.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import {
   canonicalEventSchemas,
@@ -232,4 +233,22 @@ test("historical artifact contract snapshots remain readable without inventing a
   assert.equal(original.payload.artifactContract.kindVersion, undefined);
   assert.deepEqual(parseCanonicalEvent(raw), original);
   assert.notEqual(validateCurrentCanonicalEvent(original).length, 0);
+});
+
+test("delegation audit additions remain read-only and required identity is still validated", () => {
+  const event = JSON.parse(
+    readFileSync(
+      path.resolve(import.meta.dirname, "../../fixtures/canonical-events/execution-delegation-event-v1/accepted.json"),
+      "utf8",
+    ),
+  );
+  for (const objectPath of objectPaths(event)) {
+    const future = structuredClone(event);
+    objectAt(future, objectPath).__fixtureFutureField = true;
+    assert.deepEqual(parseCanonicalEvent(stableStringify(future) + "\n"), future);
+    assert.ok(validateCurrentCanonicalEvent(future).length > 0);
+  }
+  const invalid = { ...event, payload: { operation: "issue" } };
+  assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(invalid)), /Invalid execution delegation/u);
+  assert.ok(validateCurrentCanonicalEvent(invalid).length > 0);
 });

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -42,7 +42,7 @@ test("HTML research documents are eligible, submit as opaque text, and become cl
       rootDir: canonicalRoot(rootDir),
       ownerId: "html-research-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     write(rootDir, logical, body);
     const dryRun = await cell.run({ kind: "doc-dry-run", paths: [logical] }, binding);
@@ -85,7 +85,7 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
       rootDir: canonicalRoot(rootDir),
       ownerId: "scanner-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     write(rootDir, "context/a.md", "# A\n\nfirst\n");
     write(rootDir, "context/b.md", "# B\n\nsecond\n");
@@ -162,7 +162,7 @@ test("large projections do not expand dirty or missing-path candidate scans", as
   const repoId = workspaceId("bounded-scan"),
     taskId = "task-bounded-scan",
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "bounded-scan-daemon" }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const created = await cell.run({ kind: "task-create", taskId, title: "Bounded scan" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
@@ -279,12 +279,12 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
     try {
       const created = await seed.run(
         { kind: "task-create", taskId: "task-size-type", title: "Size Type" },
-        withRoleBinding(
+        withPolicyGroup(
           {
             actor,
             source: "local",
           },
-          "owner",
+          "admin",
         ),
       );
       assert.equal(created.outcome, "applied", JSON.stringify(created));
@@ -302,7 +302,7 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
   rmSync(path.join(rootDir, "harness", oversized));
 
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "size-type-daemon" }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const status = await cell.run({ kind: "doc-status", paths: [] }, binding);
     assert.deepEqual(
@@ -373,7 +373,7 @@ test("batch submit commits eligible candidates and reports blocked rows instead 
       rootDir: canonicalRoot(rootDir),
       ownerId: "batch-tolerance-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     oversized = "context/oversized.md";
   try {
     write(rootDir, "context/data.json", "{}\n");
@@ -456,7 +456,7 @@ test("blocked-only submit names the scanner-first machine-region recovery", asyn
       rootDir: canonicalRoot(rootDir),
       ownerId: "blocked-closeout-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     laterBlocked = "tmp/z-blocked.md";
   try {
     write(rootDir, laterBlocked, "---\nowner: stable\n---\n# Stable\n\nbase\n");
@@ -490,7 +490,7 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
   initRepo(rootDir);
   const repoId = workspaceId("selection"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "selection-daemon" }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     write(rootDir, "context/selected.md", "# Selected\n");
     const authored = await cell.run({ kind: "doc-submit", paths: ["context/selected.md"] }, binding);
@@ -528,7 +528,7 @@ test("repo-relative doc-sync selection works when the authored root is its own l
       rootDir: canonicalRoot(rootDir),
       ownerId: "nested-ledger-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     write(rootDir, "context/selected.md", "# Selected\n");
     const authored = await cell.run({ kind: "doc-submit", paths: ["context/selected.md"] }, binding);
@@ -561,7 +561,7 @@ test("task-scoped doc sync derives every dirty candidate from the task id", asyn
       rootDir: canonicalRoot(rootDir),
       ownerId: "task-scope-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-scope", title: "Scoped task" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
@@ -608,7 +608,7 @@ test("doc retire deletes one projected document and returns an auditable retirem
       rootDir: canonicalRoot(rootDir),
       ownerId: "retire-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     logical = "context/temporary.md",
     reason = "superseded temporary evidence";
   try {
@@ -670,7 +670,7 @@ test("doc retire refuses to discard a locally modified canonical document", asyn
       rootDir: canonicalRoot(rootDir),
       ownerId: "retire-modified-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     write(rootDir, logical, "# Canonical\n");
     const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
@@ -737,7 +737,7 @@ test("doc retire refuses a document the canonical projection never claimed, even
     rootDir: canonicalRoot(rootDir),
     ownerId: "retire-tracked-daemon",
   });
-  const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+  const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     rmSync(path.join(rootDir, "harness", logical));
     const status = await cell.run({ kind: "doc-status", paths: [] }, binding);
@@ -765,7 +765,7 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
       rootDir: canonicalRoot(rootDir),
       ownerId: "non-textual-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   const proofTask = (await cell.run({ kind: "task-create", taskId: "task-proof", title: "Proof" }, binding)) as {
     readonly outcome: string;
     readonly opId: string;
@@ -808,7 +808,7 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
   }
 });
 
-test("people-registry ownership is inapplicable while typed writable routes remain blocked", async () => {
+test("retired people files are ordinary documents while typed writable routes remain blocked", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-owned-route-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -816,24 +816,18 @@ test("people-registry ownership is inapplicable while typed writable routes rema
       rootDir: canonicalRoot(rootDir),
       ownerId: "owned-route-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     write(rootDir, "people.yaml", "schema: harness-people/v1\npeople: []\nroles: []\n");
     write(rootDir, "harness.yaml", "schema: harness-anything/v1\nname: hand-edited\n");
     const people = await cell.run({ kind: "doc-status", paths: ["people.yaml"] }, binding),
       peopleRow = rows(people.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
-    assert.deepEqual(
-      [peopleRow?.state, peopleRow?.reason],
-      ["inapplicable", "path is owned by people-registry and is outside doc sync"],
-    );
+    assert.deepEqual([peopleRow?.state, peopleRow?.reason], ["eligible", null]);
     assert.deepEqual(people.detail?.unresolvedTouches, []);
-    const noOp = await cell.run({ kind: "doc-submit", paths: ["people.yaml"] }, binding);
-    assert.equal(noOp.outcome, "no_changes");
-    assert.equal(noOp.acceptance, null);
-    assert.equal(noOp.proof, undefined);
-    assert.equal(noOp.code, "no_changes");
-    assert.match(String(noOp.summary), /applied count: 0/u);
-    assert.match(noOp.opId, /^noop:/u);
+    const submitted = await cell.run({ kind: "doc-submit", paths: ["people.yaml"] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const document = await cell.run({ kind: "doc-show", path: "people.yaml" }, binding);
+    assert.match(document.evidence ?? "", /harness-people\/v1/u);
 
     const workspace = await cell.run({ kind: "doc-status", paths: ["harness.yaml"] }, binding),
       workspaceRow = rows(workspace.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
@@ -848,7 +842,7 @@ test("people-registry ownership is inapplicable while typed writable routes rema
 test("a committed DocEvent reports pending with its stable receipt id until L2 reaches the event cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-pending-")),
     repoId = workspaceId("doc-pending"),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId,
@@ -902,7 +896,7 @@ test("materialize reports an already settled SQLite follower without inventing a
       rootDir: canonicalRoot(rootDir),
       ownerId: "materialize-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const created = await cell.run(
       {
@@ -987,7 +981,7 @@ test("the SQLite worktree follower preserves a caller edit and recovers from its
         }
       },
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     write(rootDir, logical, canonical);
     injectLocal = true;
@@ -1055,7 +1049,7 @@ test("an authored branch advanced outside the daemon remains an ancestor of the 
       rootDir: canonicalRoot(rootDir),
       ownerId: "diverged-daemon",
     }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     write(rootDir, "context/notes.md", "# Notes\n");
     git(rootDir, "add", "harness/context/notes.md");
@@ -1093,7 +1087,7 @@ async function waitForReceipt(
       waitFor,
       timeoutMs: 5_000,
     },
-    withRoleBinding({ actor, source: "local" }, "owner"),
+    withPolicyGroup({ actor, source: "local" }, "admin"),
   );
   assert.equal(shown.status, "accepted_durable", JSON.stringify(shown));
   assert.equal(shown.wait?.state, "satisfied", JSON.stringify(shown));

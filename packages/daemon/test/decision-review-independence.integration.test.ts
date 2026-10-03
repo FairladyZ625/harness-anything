@@ -16,10 +16,10 @@ import {
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 
-const proposer = withRoleBinding(
+const proposer = withPolicyGroup(
   {
     actor: {
       principal: { personId: "person-proposer" },
@@ -28,7 +28,7 @@ const proposer = withRoleBinding(
     source: "local" as const,
     authorizationBindingMode: "declared" as const,
   },
-  "repo-write",
+  "contributor",
 );
 
 test("an independent approved review lets the proposal owner accept the current Decision cut", async () => {
@@ -40,9 +40,9 @@ test("an independent approved review lets the proposal owner accept the current 
     ownerId: "decision-review-independence-test",
   });
   try {
-    const settingsOwner = withRoleBinding(
+    const settingsOwner = withPolicyGroup(
       { actor: { principal: proposer.actor.principal, executor: null }, source: "local" as const },
-      "repo-write",
+      "contributor",
     );
     const settingsUpdated = await cell.run(
       {
@@ -56,8 +56,8 @@ test("an independent approved review lets the proposal owner accept the current 
     assert.equal(settingsUpdated.outcome, "applied", JSON.stringify(settingsUpdated));
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
-      owner = withRoleBinding({ ...proposer, actor: { ...proposer.actor, executor: null } }, "owner"),
-      independentReviewer = withRoleBinding(
+      owner = withPolicyGroup({ ...proposer, actor: { ...proposer.actor, executor: null } }, "admin"),
+      independentReviewer = withPolicyGroup(
         {
           actor: {
             principal: { personId: "person-reviewer" },
@@ -65,7 +65,7 @@ test("an independent approved review lets the proposal owner accept the current 
           },
           source: "local" as const,
         },
-        "owner",
+        "admin",
       );
     const relatedDecisionIds: string[] = [];
     for (const suffix of ["relation-a", "relation-b"]) {
@@ -139,7 +139,7 @@ test("an independent approved review lets the proposal owner accept the current 
     const reportRef = `decisions/decision-${decisionId}/artifacts/reports/independent.md`;
     const samePrincipalReportRef = `decisions/decision-${decisionId}/artifacts/reports/same-principal.md`;
     writeReport(rootDir, samePrincipalReportRef);
-    const samePrincipalReviewer = withRoleBinding(
+    const samePrincipalReviewer = withPolicyGroup(
       {
         actor: {
           principal: proposer.actor.principal,
@@ -147,7 +147,7 @@ test("an independent approved review lets the proposal owner accept the current 
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     );
     const samePrincipalReview = await cell.run(
       {
@@ -260,8 +260,8 @@ test("Decision scope authorization and human approval govern judgment and review
     rootDir: canonicalRoot(rootDir),
     ownerId: "decision-review-authority-test",
   });
-  const other = withRoleBinding(
-      withRoleBinding(
+  const other = withPolicyGroup(
+      withPolicyGroup(
         {
           actor: {
             principal: { personId: "person-other" },
@@ -270,11 +270,11 @@ test("Decision scope authorization and human approval govern judgment and review
           source: "local" as const,
           authorizationBindingMode: "declared" as const,
         },
-        "repo-write",
+        "contributor",
       ),
-      "arbiter",
+      "maintainer",
     ),
-    repoWriter = withRoleBinding(
+    repoWriter = withPolicyGroup(
       {
         actor: {
           principal: { personId: "person-repo-writer" },
@@ -283,15 +283,15 @@ test("Decision scope authorization and human approval govern judgment and review
         source: "local" as const,
         authorizationBindingMode: "declared" as const,
       },
-      "repo-write",
+      "contributor",
     ),
-    humanOwner = withRoleBinding(
+    humanOwner = withPolicyGroup(
       {
         actor: { principal: other.actor.principal, executor: null },
         source: "local" as const,
         authorizationBindingMode: "declared" as const,
       },
-      "arbiter",
+      "maintainer",
     ),
     approval = {
       consentBy: other.actor.principal.personId,
@@ -299,20 +299,6 @@ test("Decision scope authorization and human approval govern judgment and review
       consentChannel: "chat" as const,
     };
   try {
-    const ownerAdded = await cell.run(
-      {
-        kind: "people-add",
-        personId: proposer.actor.principal.personId,
-        displayName: "Proposal Owner",
-        role: "administrator",
-        commandClass: ["admin"],
-        credentialKind: "email-address",
-        credentialIssuer: "example.invalid",
-        credentialSubject: "proposal-owner@example.invalid",
-      },
-      withRoleBinding(proposer, "admin"),
-    );
-    assert.equal(ownerAdded.outcome, "applied", JSON.stringify(ownerAdded));
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
       shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer))
@@ -350,18 +336,18 @@ test("Decision scope authorization and human approval govern judgment and review
         consentAt: approval.consentAt,
         consentChannel: approval.consentChannel,
       },
-      { ...repoWriter, roleBindings: [] },
+      { ...repoWriter, keycloakAuthorization: undefined },
     );
     assert.deepEqual(
       { outcome: unqualifiedApproval.outcome, code: unqualifiedApproval.code },
       { outcome: "op_rejected", code: "authorization_denied" },
     );
-    const reviewer = withRoleBinding(
+    const reviewer = withPolicyGroup(
       {
         actor: { principal: { personId: "person-reviewer" }, executor: null },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     );
     const reportRef = `decisions/decision-${decisionId}/artifacts/reports/changes-requested.md`;
     writeReport(rootDir, reportRef);
@@ -542,9 +528,9 @@ test("Decision scope authorization and human approval govern judgment and review
         decisionReviewRequirement: "high",
         idempotencyKey: "require-review-before-responses",
       },
-      withRoleBinding(
+      withPolicyGroup(
         { actor: { principal: proposer.actor.principal, executor: null }, source: "local" as const },
-        "repo-write",
+        "contributor",
       ),
     );
     assert.equal(requirementUpdated.outcome, "applied", JSON.stringify(requirementUpdated));
@@ -639,7 +625,7 @@ test("Human approval preserves the proposing executor and survives a cold read",
     ownerId: "human-consent-test",
   };
   let cell = await openRepoCell(options);
-  const binding = withRoleBinding(proposer, "arbiter"),
+  const binding = withPolicyGroup(proposer, "maintainer"),
     consentAt = "2026-09-12T01:02:03.000Z";
   const eventIds: string[] = [];
   try {
@@ -744,9 +730,9 @@ test("a direct human can adjudicate without recording a separate approval", asyn
       rootDir: canonicalRoot(rootDir),
       ownerId: "direct-human-adjudication-test",
     }),
-    human = withRoleBinding(
+    human = withPolicyGroup(
       { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
-      "owner",
+      "admin",
     );
   try {
     for (const [variant, action] of [
@@ -815,29 +801,15 @@ test("retry completes the awaits write after the review write response is interr
     },
   });
   try {
-    const ownerAdded = await cell.run(
-      {
-        kind: "people-add",
-        personId: proposer.actor.principal.personId,
-        displayName: "Proposal Owner",
-        role: "administrator",
-        commandClass: ["admin"],
-        credentialKind: "email-address",
-        credentialIssuer: "example.invalid",
-        credentialSubject: "proposal-owner@example.invalid",
-      },
-      withRoleBinding(proposer, "admin"),
-    );
-    assert.equal(ownerAdded.outcome, "applied", JSON.stringify(ownerAdded));
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
       shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer))
         .decision as DecisionDocumentState & { readonly body: { readonly body: string } },
       { body, ...current } = shown,
       digest = decisionReviewContentDigest({ ...current, relations: [] }, body.body),
-      reviewer = withRoleBinding(
+      reviewer = withPolicyGroup(
         { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
-        "owner",
+        "admin",
       ),
       action = {
         kind: "decision-review" as const,
@@ -883,9 +855,9 @@ test("the in-progress agenda row names each running reviewer and the findings it
   try {
     const settingsUpdated = await cell.run(
       { kind: "settings-update", decisionReviewRequirement: "high", idempotencyKey: "decision-review-in-progress" },
-      withRoleBinding(
+      withPolicyGroup(
         { actor: { principal: proposer.actor.principal, executor: null }, source: "local" as const },
-        "repo-write",
+        "contributor",
       ),
     );
     assert.equal(settingsUpdated.outcome, "applied", JSON.stringify(settingsUpdated));
@@ -980,9 +952,9 @@ test("the in-progress agenda row names each running reviewer and the findings it
         evidenceChecked: [],
         reportRef,
       },
-      withRoleBinding(
+      withPolicyGroup(
         { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
-        "owner",
+        "admin",
       ),
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
@@ -1014,20 +986,6 @@ test("a person's ask on the proposal owner survives the review changes being res
     ownerId: "decision-review-awaits-owned-test",
   });
   try {
-    const ownerAdded = await cell.run(
-      {
-        kind: "people-add",
-        personId: proposer.actor.principal.personId,
-        displayName: "Proposal Owner",
-        role: "administrator",
-        commandClass: ["admin"],
-        credentialKind: "email-address",
-        credentialIssuer: "example.invalid",
-        credentialSubject: "proposal-owner@example.invalid",
-      },
-      withRoleBinding(proposer, "admin"),
-    );
-    assert.equal(ownerAdded.outcome, "applied", JSON.stringify(ownerAdded));
     const decisionId = receiptJson(await cell.run(decisionProposal(), proposer)).decisionId as string,
       asked = await cell.run(
         {
@@ -1041,6 +999,39 @@ test("a person's ask on the proposal owner survives the review changes being res
         proposer,
       );
     assert.equal(asked.outcome, "applied", JSON.stringify(asked));
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(rootDir, "harness", "people.yaml"),
+      JSON.stringify({
+        schema: "harness-people/v1",
+        people: [{ personId: "person-not-in-keycloak", roles: ["owner"] }],
+      }),
+    );
+    const beforeUnknownPerson = makeTaskEventReader({ repoId: "decision-review-awaits-owned", rootDir }).readHead()
+        .revision,
+      unknownPerson = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `decision/${decisionId}`,
+          targetRef: "person/person-not-in-keycloak",
+          relationType: "awaits",
+          rationale: "consent: This synthetic roster entry is not an identity.",
+          expectedVersion: 0,
+        },
+        proposer,
+      );
+    assert.deepEqual(
+      { outcome: unknownPerson.outcome, code: unknownPerson.code },
+      {
+        outcome: "op_rejected",
+        code: "entity_not_found",
+      },
+    );
+    assert.equal(
+      makeTaskEventReader({ repoId: "decision-review-awaits-owned", rootDir }).readHead()?.revision,
+      beforeUnknownPerson,
+      "a retired people.yaml entry cannot create an identity witness or publish a relation",
+    );
     const shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer))
         .decision as { readonly currentReviewContentDigest: `sha256:${string}` },
       reportRef = `decisions/decision-${decisionId}/artifacts/reports/changes-requested.md`;
@@ -1057,9 +1048,9 @@ test("a person's ask on the proposal owner survives the review changes being res
         evidenceChecked: [],
         reportRef,
       },
-      withRoleBinding(
+      withPolicyGroup(
         { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
-        "owner",
+        "admin",
       ),
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));

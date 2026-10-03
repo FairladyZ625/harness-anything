@@ -29,7 +29,7 @@ import {
 } from "../src/fleet-edge-mirror.ts";
 import { fleetDocPathInTaskPackage } from "../src/fleet-edge-task.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 const actor = { principal: { personId: "hardening-owner" }, executor: { kind: "agent", id: "hardening" } } as const;
 const assignmentSource = {
@@ -39,8 +39,8 @@ const assignmentSource = {
 } as const;
 const policyId = "markdown-body-replaceable/v1";
 // A node grants nothing by itself: each assignment-sourced binding carries its person's own authority.
-const ownerRole = (who: { readonly principal: { readonly personId: string }; readonly executor: unknown }) =>
-  withRoleBinding({ actor: who as typeof actor }, "owner").roleBindings;
+const ownerCredential = (who: { readonly principal: { readonly personId: string }; readonly executor: unknown }) =>
+  withPolicyGroup({ actor: who as typeof actor }, "admin").keycloakAuthorization;
 
 function git(root: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
@@ -172,11 +172,11 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
   initRepo(root);
   const cell = await openRepoCell({ repoId: workspaceId("w3c-h-f1"), rootDir: canonicalRoot(root), ownerId: "f1" });
   try {
-    const localOwner = withRoleBinding({ actor, source: "local" as const }, "owner"),
+    const localOwner = withPolicyGroup({ actor, source: "local" as const }, "admin"),
       heldAssignment = {
         actor,
         source: assignmentSource,
-        roleBindings: ownerRole(actor),
+        keycloakAuthorization: ownerCredential(actor),
         assignmentScope: {
           repoId: "w3c-h-f1",
           scope: { kind: "task" as const, taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] },
@@ -208,7 +208,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       {
         actor,
         source: assignmentSource,
-        roleBindings: ownerRole(actor),
+        keycloakAuthorization: ownerCredential(actor),
         assignmentScope: {
           repoId: "w3c-h-f1",
           scope: { kind: "task", taskId: "some-other-task", executionId: "some-other-execution", paths: ["tasks"] },
@@ -233,7 +233,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       {
         actor,
         source: assignmentSource,
-        roleBindings: ownerRole(actor),
+        keycloakAuthorization: ownerCredential(actor),
         assignmentScope: {
           repoId: "w3c-h-f1",
           scope: { kind: "task", taskId: "some-other-task", executionId: "some-other-execution", paths: ["tasks"] },
@@ -285,7 +285,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       {
         actor: other,
         source: assignmentSource,
-        roleBindings: ownerRole(other),
+        keycloakAuthorization: ownerCredential(other),
         assignmentScope: {
           repoId: "w3c-h-f1",
           scope: { kind: "task", taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] },
@@ -316,7 +316,7 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
   const binding = {
     actor,
     source: assignmentSource,
-    roleBindings: ownerRole(actor),
+    keycloakAuthorization: ownerCredential(actor),
     assignmentScope: {
       repoId: "w3c-h-f2",
       scope: { kind: "task" as const, taskId: "task-crash", executionId: "exe-crash", paths: ["tasks"] },
@@ -351,12 +351,12 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
     cell = await openRepoCell({ repoId: workspaceId("w3c-h-f2"), rootDir: canonicalRoot(root), ownerId: "f2-two" });
     const shown = await cell.run(
       { kind: "task-show", taskId: "task-crash" },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     );
     const evidence = JSON.parse(String(shown.evidence)) as { task?: { status?: string }; lease?: unknown };
     const doc = await cell.run(
       { kind: "doc-show", path: logical },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     );
     assert.equal(
       evidence.task?.status,
@@ -378,7 +378,7 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
   const binding = {
     actor,
     source: assignmentSource,
-    roleBindings: ownerRole(actor),
+    keycloakAuthorization: ownerCredential(actor),
     assignmentScope: {
       repoId: "w3c-h-f8",
       scope: { kind: "task" as const, taskId: "task-fence", executionId: "exe-fence", paths: ["tasks"] },
@@ -417,7 +417,7 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
     assert.equal(rolled.code, "mirror_behind_center");
     const unrelated = await cell.run(
       { kind: "task-create", taskId: "task-unrelated-fence", title: "Unrelated" },
-      withRoleBinding({ actor, source: "local" }, "owner"),
+      withPolicyGroup({ actor, source: "local" }, "admin"),
     );
     assert.equal(unrelated.outcome, "applied");
     for (const invalidBase of [

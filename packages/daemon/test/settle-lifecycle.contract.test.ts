@@ -9,23 +9,23 @@ import { makeTaskEventReader } from "@harness-anything/kernel";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
 
 const worker = {
     principal: { personId: "person-owner" },
     executor: { kind: "agent" as const, id: "worker-runtime" },
   },
-  workerBinding = withRoleBinding({ actor: worker, source: "local" as const }, "repo-write"),
+  workerBinding = withPolicyGroup({ actor: worker, source: "local" as const }, "contributor"),
   ownerRejoin = { principal: { personId: "person-owner" }, executor: null },
-  ownerRejoinBinding = withRoleBinding({ actor: ownerRejoin, source: "local" as const }, "repo-write"),
+  ownerRejoinBinding = withPolicyGroup({ actor: ownerRejoin, source: "local" as const }, "contributor"),
   handoff = {
     principal: { personId: "person-owner" },
     executor: { kind: "agent" as const, id: "handoff-runtime" },
   },
-  handoffBinding = withRoleBinding({ actor: handoff, source: "local" as const }, "repo-write"),
+  handoffBinding = withPolicyGroup({ actor: handoff, source: "local" as const }, "contributor"),
   peer = { principal: { personId: "person-peer" }, executor: null },
-  peerBinding = withRoleBinding({ actor: peer, source: "local" as const }, "repo-write");
+  peerBinding = withPolicyGroup({ actor: peer, source: "local" as const }, "contributor");
 
 function initRepo(rootDir: string): void {
   const git = (...args: readonly string[]) =>

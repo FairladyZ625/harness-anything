@@ -1,12 +1,24 @@
 // harness-test-tier: integration
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "owner" });
+await realm.control({
+  op: "permit",
+  personId: "owner",
+  resource: "interactive-session",
+  actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+});
 
 const cli = path.resolve("packages/cli/src/index.ts");
 const claudeIdentity = {
@@ -184,15 +196,14 @@ function setup(): { parent: string; root: string; userRoot: string } {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "README.md"), "# Fixture\n");
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n");
-  writeFileSync(
-    path.join(root, "harness/people.yaml"),
-    `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`,
-  );
+
   git(root, "init", "--quiet");
   git(root, "config", "user.name", "Session Identity Test");
   git(root, "config", "user.email", "session-identity@example.test");
   git(root, "add", ".");
   git(root, "commit", "--quiet", "-m", "fixture");
+  realm.bind(userRoot);
+  signInAt(userRoot, "owner");
   return { parent, root, userRoot };
 }
 function run(

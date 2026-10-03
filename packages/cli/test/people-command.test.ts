@@ -5,31 +5,7 @@ import { materializePacketStdin } from "../src/index.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("People CLI projects registry and delegated-token mutations onto closed Action payloads", () => {
-  const added = parseThinCommand([
-    "people",
-    "add",
-    "--person-id",
-    "person_alice",
-    "--display-name",
-    "Alice",
-    "--role",
-    "dispatcher",
-    "--command-class",
-    "repo-write",
-    "--command-class",
-    "repo-read",
-  ]);
-  assert.equal(added.ok, true);
-  if (added.ok)
-    assert.deepEqual(added.command.action, {
-      kind: "people-add",
-      personId: "person_alice",
-      displayName: "Alice",
-      role: "dispatcher",
-      commandClass: ["repo-write", "repo-read"],
-    });
-  // Role policies and RoleBindings are no longer writable from the CLI; Keycloak grants replaced them.
-  for (const retired of ["set-role", "bind"])
+  for (const retired of ["add", "remove", "set-role", "bind"])
     assert.equal(parseThinCommand(["people", retired, "--person-id", "person_alice"]).ok, false);
   const delegated = parseThinCommand([
     "people",
@@ -61,47 +37,11 @@ test("People CLI projects registry and delegated-token mutations onto closed Act
       kind: "people-revoke-delegation",
       tokenId: "det_alice_runtime_1",
     });
-  assert.equal(parseThinCommand(["people", "remove", "--person-id", "person_alice"]).ok, true);
-});
-
-test("People CLI enforces complete credentials and command class vocabulary", () => {
-  assert.equal(
-    parseThinCommand([
-      "people",
-      "add",
-      "--person-id",
-      "person_alice",
-      "--display-name",
-      "Alice",
-      "--role",
-      "owner",
-      "--command-class",
-      "root",
-    ]).ok,
-    false,
-  );
-  assert.equal(
-    parseThinCommand([
-      "people",
-      "add",
-      "--person-id",
-      "person_alice",
-      "--display-name",
-      "Alice",
-      "--role",
-      "owner",
-      "--command-class",
-      "admin",
-      "--credential-kind",
-      "email-address",
-    ]).ok,
-    false,
-  );
+  assert.equal(parseThinCommand(["people", "remove", "--person-id", "person_alice"]).ok, false);
 });
 
 test("People CLI exposes one closed structured packet facet per public command", () => {
   for (const [argv, action] of [
-    [["people", "add", "--from-file", "people-add.json"], { kind: "people-add", fromFile: "people-add.json" }],
     [
       ["people", "delegate", "--from-file", "people-delegation.json"],
       { kind: "people-delegate", fromFile: "people-delegation.json" },
@@ -110,24 +50,20 @@ test("People CLI exposes one closed structured packet facet per public command",
       ["people", "revoke-delegation", "--from-file", "people-revocation.json"],
       { kind: "people-revoke-delegation", fromFile: "people-revocation.json" },
     ],
-    [
-      ["people", "remove", "--from-file", "people-remove.json"],
-      { kind: "people-remove", fromFile: "people-remove.json" },
-    ],
   ] as const) {
     const parsed = parseThinCommand(argv);
     assert.equal(parsed.ok, true);
     if (parsed.ok) assert.deepEqual(parsed.command.action, action);
   }
-  const packet = '{"personId":"person_alice"}',
-    inline = parseThinCommand(["people", "remove", "--json-input", packet]),
-    stdin = parseThinCommand(["people", "remove", "--json-input", "@-"]);
+  const packet = '{"tokenId":"det_example"}',
+    inline = parseThinCommand(["people", "revoke-delegation", "--json-input", packet]),
+    stdin = parseThinCommand(["people", "revoke-delegation", "--json-input", "@-"]);
   assert.equal(inline.ok, true);
   assert.equal(stdin.ok, true);
-  if (inline.ok) assert.deepEqual(inline.command.action, { kind: "people-remove", jsonInput: packet });
+  if (inline.ok) assert.deepEqual(inline.command.action, { kind: "people-revoke-delegation", jsonInput: packet });
   if (stdin.ok)
     assert.deepEqual(materializePacketStdin(stdin.command, () => packet).action, {
-      kind: "people-remove",
+      kind: "people-revoke-delegation",
       jsonInput: packet,
     });
   assert.equal(parseThinCommand(["people", "add", "--person-id", "person_alice"]).ok, false);

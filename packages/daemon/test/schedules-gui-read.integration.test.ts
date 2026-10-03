@@ -1,6 +1,7 @@
 // harness-test-tier: integration
+import { signInAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -8,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { hostname } from "node:os";
+import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { registerDaemonRepo, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -16,9 +17,9 @@ import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";
 
-const actor = withRoleBinding(
+const actor = withPolicyGroup(
   { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const },
-  "owner",
+  "admin",
 );
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -37,37 +38,11 @@ function git(root: string, ...args: readonly string[]): void {
   execFileSync("git", ["-C", root, ...args], { stdio: "ignore" });
 }
 
-function initHarnessRepo(root: string, name: string, withPeople = false): void {
+function initHarnessRepo(root: string, name: string): void {
   writeFileSync(
     path.join(root, "harness/harness.yaml"),
     `schema: harness-anything/v1\nname: ${name}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
   );
-  if (withPeople)
-    writeFileSync(
-      path.join(root, "harness/people.yaml"),
-      `${JSON.stringify(
-        {
-          schema: "harness-people/v1",
-          people: [
-            {
-              personId: "owner",
-              displayName: "Owner",
-              roles: ["owner"],
-              credentials: [
-                {
-                  kind: "unix-socket-owner-boundary",
-                  issuer: `host:${hostname()}`,
-                  subject: String(process.getuid?.() ?? 0),
-                },
-              ],
-            },
-          ],
-          roles: [{ roleId: "owner", commandClasses: ["repo-read", "repo-write"] }],
-        },
-        null,
-        2,
-      )}\n`,
-    );
   git(root, "add", "harness");
   git(root, "commit", "-qm", "base");
 }
@@ -361,7 +336,17 @@ test(
       git(repo, "init", "-q");
       git(repo, "config", "user.name", "Schedule Center Test");
       git(repo, "config", "user.email", "center@example.invalid");
-      initHarnessRepo(repo, "schedules-gui-center", true);
+      initHarnessRepo(repo, "schedules-gui-center");
+      const prepared = await openRepoCell({
+        repoId: "schedules-gui-center",
+        rootDir: canonicalRoot(repo),
+        ownerId: "schedule-fixture",
+      });
+      try {
+        await seedBuiltinSchedules({ cell: prepared, binding: actor });
+      } finally {
+        await prepared.close();
+      }
       registerDaemonRepo({
         canonicalRoot: repo,
         repoId: "schedules-gui-center",
@@ -403,6 +388,7 @@ test(
         ).outcome,
         "applied",
       );
+      signInAt(userRoot, "operator");
       const localAuth = {
         transportKind: "unix-socket" as const,
         unixSocketOwnerBoundary: {

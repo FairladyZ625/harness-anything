@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +14,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
-import { writeOwnerRoster } from "./role-binding.fixtures.ts";
+import { grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
 
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-adjudicate-instance-bin-"));
 const originalPath = process.env.PATH;
@@ -31,12 +31,12 @@ after(() => {
   rmSync(ciBin, { recursive: true, force: true });
 });
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
   {
     actor: { principal: { personId: "person-adjudicate-instance" }, executor: null },
     source: "local" as const,
   },
-  "owner",
+  "admin",
 );
 const installation: RuntimeInstallationWitness = {
   installationId: "installation-adjudicate-instance",
@@ -60,7 +60,7 @@ test("adjudicate --forward pins reviewer resources and carries the owner context
   let pid = 9100;
   mkdirSync(root);
   initRepo(root);
-  writeOwnerRoster(root, [binding.actor.principal.personId]);
+  grantTestPolicyGroups([binding.actor.principal.personId], "admin");
   const cell = await openRepoCell({
     repoId: workspaceId("adjudicate-instance"),
     rootDir: canonicalRoot(root),

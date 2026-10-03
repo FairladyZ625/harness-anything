@@ -106,7 +106,7 @@ export function createSettingsActionCatalog(
       Object.freeze({
         ...read,
         input: input([]),
-        policy: Object.freeze({ ref: "default@5", action: null }),
+        policy: Object.freeze({ ref: "keycloak-policy@1", action: null }),
         criteria: Object.freeze([]),
         concurrency: settingsConcurrency,
         effects: Object.freeze([]),

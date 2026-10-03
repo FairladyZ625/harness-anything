@@ -8,7 +8,8 @@ import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openFencedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { signInPolicyTestUser, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
 const auth = {
@@ -24,6 +25,7 @@ test("a post-initialize open failure releases the workspace lock for the next at
     lockPath = `${rootDir}.harness-anything-writer.lock`;
   try {
     execFileSync("git", ["-C", rootDir, "init", "-q"]);
+    const owner = withPolicyGroup({ actor: { principal: { personId: "owner" }, executor: null } }, "admin");
     const bootstrap = resolveRepoBootstrap(
       { rootDir, repoId: "lock-release", personId: "owner", displayName: "Owner" },
       auth,
@@ -33,7 +35,7 @@ test("a post-initialize open failure releases the workspace lock for the next at
         rootDir: canonicalRoot(rootDir),
         repoId: workspaceId("lock-release"),
         ownerId: "lock-release-failure",
-        bootstrap,
+        bootstrap: { ...bootstrap, actor: owner.actor, keycloakAuthorization: owner.keycloakAuthorization },
         killpoint: (point) => {
           if (point === "before_event_write") throw new Error("post-initialize failure");
         },
@@ -57,6 +59,7 @@ test("repeated bare init reuses the registered repo id while its RepoCell is ope
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     request = { rootDir, repoId: "registered-id", personId: "owner", displayName: "Owner" };
+  signInPolicyTestUser(userRoot, "owner", ["registered-id"], "admin");
   let host = await openDaemonHost({ daemonId: "repeated-init-first", userRoot });
   try {
     execFileSync("git", ["init", "-q", rootDir]);

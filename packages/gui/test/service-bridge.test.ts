@@ -23,7 +23,7 @@ import {
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { reportInvalidTaskSnapshotRows } from "../src/main/local-composition-root.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
-import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
+import { seedTriadicReviewAwait, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 import type { Failure } from "./service-bridge.fixtures.ts";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
 
@@ -79,6 +79,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       providerId: "openai",
       models: ["gpt-5.6-terra"],
     },
+    afterRestart: seedTriadicReviewAwait,
     beforeRestart: async (rootDir: string, repoId: string, writerFence: WriterEpochFenceDescriptor) => {
       await seedRuntime(rootDir, repoId, writerFence);
       await seedSchedule(rootDir, repoId, writerFence);
@@ -490,6 +491,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(
       agenda.awaitingYou.some(({ sourceRef }) => sourceRef === "decision/dec_gui_smoke"),
       true,
+      JSON.stringify({ agenda, graph: results.get("repo.triadic.relationGraph") }),
     );
     assert.equal(
       agenda.awaitingDecision.some(({ decisionId }) => decisionId === "dec_gui_smoke"),

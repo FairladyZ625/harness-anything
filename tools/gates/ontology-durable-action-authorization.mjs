@@ -23,13 +23,14 @@ export function auditDurableActionAuthorization(rootDir = process.cwd(), durable
   const receipt = receiptAuthorizationContract(rootDir);
   const rows = kinds.map((kind) => ({
     action: kind,
-    authorizationPort: authority.ok && actionReachesAuthorization(kind, analysis),
+    authorizationPort:
+      kind === "rbac-bootstrap" ? bootstrapAuthority(analysis) : actionReachesAuthorization(kind, analysis, authority),
     receiptAuthorizationDecision: receipt.nonNullable,
   }));
   const findings = [
     ...rows
       .filter((row) => !row.authorizationPort)
-      .map((row) => `${row.action}: durable execution path does not statically reach AuthorizationPort`),
+      .map((row) => `${row.action}: durable execution path does not statically reach its authorization boundary`),
     ...(receipt.nonNullable
       ? []
       : [`${receipt.file}:${receipt.line} receipt.authorizationDecision is optional or nullable`]),
@@ -73,6 +74,12 @@ function namedFunction(node) {
   ) {
     return { name: node.name.text, body: node.initializer.body };
   }
+  if (
+    ts.isPropertyAssignment(node) &&
+    ts.isIdentifier(node.name) &&
+    (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+  )
+    return { name: node.name.text, body: node.initializer.body };
   if (ts.isMethodDeclaration(node) && node.name && ts.isIdentifier(node.name) && node.body) {
     return { name: node.name.text, body: node.body };
   }
@@ -84,7 +91,151 @@ function authorizationAuthority(rootDir, analysis) {
   const typedPort = sourceFile.getText().includes("daemonAuthorizationPort: AuthorizationPort");
   const definitions = analysis.functions.get("authorizeAction") ?? [];
   const callsPort = definitions.some(({ body }) => containsPortAuthorize(body));
-  return { ok: typedPort && callsPort };
+  const person = analysis.functions
+    .get("evaluateKeycloakPerson")
+    ?.find((definition) => definition.file === "packages/daemon/src/repo-cell-authorization.ts");
+  const keycloak =
+    person !== undefined &&
+    ["authorize", "authorizePerson"].every((method) =>
+      someNode(
+        person.body,
+        (node) =>
+          ts.isCallExpression(node) &&
+          ts.isPropertyAccessExpression(node.expression) &&
+          node.expression.name.text === method &&
+          ts.isNewExpression(node.expression.expression) &&
+          ts.isIdentifier(node.expression.expression.expression) &&
+          node.expression.expression.expression.text === "KeycloakPolicyAdapter",
+      ),
+    );
+  return { ok: typedPort && callsPort, keycloak };
+}
+
+function someNode(node, predicate) {
+  if (predicate(node)) return true;
+  return ts.forEachChild(node, (child) => someNode(child, predicate) || undefined) === true;
+}
+
+function calls(node, name) {
+  return someNode(
+    node,
+    (candidate) =>
+      ts.isCallExpression(candidate) &&
+      (ts.isIdentifier(candidate.expression)
+        ? candidate.expression.text
+        : ts.isPropertyAccessExpression(candidate.expression)
+          ? candidate.expression.name.text
+          : "") === name,
+  );
+}
+
+// CH3's first administrator is a local, serialized, one-time boundary, not an online grant.
+function bootstrapAuthority(analysis) {
+  const host = analysis.functions
+    .get("manageRbac")
+    ?.find((definition) => definition.file === "packages/daemon/src/daemon-host-open.ts");
+  const admin = analysis.functions
+    .get("bootstrapAdmin")
+    ?.find((definition) => definition.file === "packages/daemon/src/oidc-session-service.ts");
+  if (!host || !admin || !ts.isBlock(host.body) || !host.body.statements[0]) return false;
+  return (
+    calls(host.body.statements[0], "localOnly") &&
+    calls(host.body, "bootstrapAdmin") &&
+    someNode(
+      host.body,
+      (node) =>
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "requireAuthorizedHostAction" &&
+        node.arguments.some(
+          (argument) =>
+            calls(argument, "localSystemBinding") &&
+            someNode(argument, (child) => ts.isStringLiteral(child) && child.text === "rbac-bootstrap"),
+        ),
+    ) &&
+    hostRejectionGuard(analysis) &&
+    socketOwnerAuthority(analysis) &&
+    calls(admin.body, "serialize") &&
+    calls(admin.body, "#createUser") &&
+    someNode(
+      admin.body,
+      (node) =>
+        ts.isIfStatement(node) &&
+        ts.isPrefixUnaryExpression(node.expression) &&
+        node.expression.operator === ts.SyntaxKind.ExclamationToken &&
+        calls(node.expression, "#bootstrapRequired") &&
+        someNode(
+          node.thenStatement,
+          (child) =>
+            ts.isThrowStatement(child) &&
+            someNode(child, (literal) => ts.isStringLiteral(literal) && literal.text === "bootstrap_admin_closed"),
+        ),
+    )
+  );
+}
+
+function socketOwnerAuthority(analysis) {
+  const fleet = analysis.functions
+    .get("evaluateFleetAction")
+    ?.find((definition) => definition.file === "packages/daemon/src/host-action-authorization.ts");
+  if (!fleet) return false;
+  return someNode(
+    fleet.body,
+    (node) =>
+      ts.isIfStatement(node) &&
+      ts.isPrefixUnaryExpression(node.expression) &&
+      node.expression.operator === ts.SyntaxKind.ExclamationToken &&
+      ts.isIdentifier(node.expression.operand) &&
+      node.expression.operand.text === "credential" &&
+      someNode(
+        node.thenStatement,
+        (guard) =>
+          ts.isIfStatement(guard) &&
+          [
+            'input.binding.source === "local"',
+            "input.binding.daemonSocketOwner === true",
+            'declaration.residency.scope !== "canonical"',
+          ].every((expression) => conjuncts(guard.expression).some((term) => term.getText() === expression)) &&
+          calls(guard.thenStatement, "keycloakDecision"),
+      ) &&
+      someNode(
+        node.thenStatement,
+        (denial) =>
+          ts.isReturnStatement(denial) &&
+          denial.expression &&
+          ts.isCallExpression(denial.expression) &&
+          denial.expression.arguments.some(
+            (argument) => ts.isStringLiteral(argument) && argument.text === "authentication_required",
+          ),
+      ),
+  );
+}
+
+function conjuncts(node) {
+  return ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    ? [...conjuncts(node.left), ...conjuncts(node.right)]
+    : [node];
+}
+
+function hostRejectionGuard(analysis) {
+  const host = analysis.functions
+    .get("requireAuthorizedHostAction")
+    ?.find((definition) => definition.file === "packages/daemon/src/host-action-authorization.ts");
+  return (
+    host !== undefined &&
+    calls(host.body, "evaluateFleetAction") &&
+    someNode(
+      host.body,
+      (node) =>
+        ts.isIfStatement(node) &&
+        ts.isBinaryExpression(node.expression) &&
+        node.expression.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        node.expression.left.getText() === "decision.outcome" &&
+        ts.isStringLiteral(node.expression.right) &&
+        node.expression.right.text === "denied" &&
+        someNode(node.thenStatement, ts.isThrowStatement),
+    )
+  );
 }
 
 function containsPortAuthorize(node) {
@@ -138,7 +289,7 @@ function typeContainsNullish(node) {
   return found;
 }
 
-function actionReachesAuthorization(kind, analysis) {
+function actionReachesAuthorization(kind, analysis, authority) {
   const seeds = [];
   for (const { file, sourceFile } of analysis.sources) {
     if (routeSourceExclusion.test(file)) continue;
@@ -148,7 +299,7 @@ function actionReachesAuthorization(kind, analysis) {
       ts.forEachChild(node, visit);
     }
   }
-  return seeds.some((seed) => nodeReachesAuthorization(seed, analysis.functions, new Set()));
+  return seeds.some((seed) => nodeReachesAuthorization(seed, analysis, authority, new Set()));
 }
 
 function routeRegion(literal) {
@@ -158,6 +309,7 @@ function routeRegion(literal) {
     if (ts.isCaseClause(parent) || ts.isDefaultClause(parent)) return parent;
     if (ts.isIfStatement(parent) && containsNode(parent.expression, literal)) return parent.thenStatement;
     if (ts.isConditionalExpression(parent) && containsNode(parent.condition, literal)) return parent.whenTrue;
+    if (ts.isBlock(parent)) return parent;
     if (ts.isFunctionLike(parent) && parent.body) return parent.body;
     current = parent;
   }
@@ -168,14 +320,16 @@ function containsNode(container, target) {
   return target.pos >= container.pos && target.end <= container.end;
 }
 
-function nodeReachesAuthorization(node, functions, visiting) {
+function nodeReachesAuthorization(node, analysis, authority, visiting) {
   const calls = calledNames(node);
-  if (calls.has("authorizeAction")) return true;
+  if (calls.has("authorizeAction") && authority.ok) return true;
+  if (calls.has("evaluateKeycloakPerson") && authority.keycloak) return true;
   for (const name of calls) {
     if (visiting.has(name)) continue;
+    if (name === "requireAuthorizedHostAction" && !hostRejectionGuard(analysis)) continue;
     const next = new Set(visiting).add(name);
-    for (const definition of functions.get(name) ?? []) {
-      if (nodeReachesAuthorization(definition.body, functions, next)) return true;
+    for (const definition of analysis.functions.get(name) ?? []) {
+      if (nodeReachesAuthorization(definition.body, analysis, authority, next)) return true;
     }
   }
   return false;
@@ -198,10 +352,10 @@ export function main(argv = process.argv.slice(2)) {
     const { rootDir, mode, fixture } = parseCommonArgs(argv, { allowFixture: true });
     const result = auditDurableActionAuthorization(rootDir, loadDurableActionKinds(rootDir, fixture));
     console.log(`G0-2 ontology-durable-action-authorization: ${mode}`);
-    console.log("action | AuthorizationPort | receipt.authorizationDecision");
+    console.log("action | authorization boundary | receipt.authorizationDecision");
     for (const row of result.rows) {
       console.log(
-        `${row.action} | ${row.authorizationPort ? "traced" : "missing"} | ${row.receiptAuthorizationDecision ? "non-null" : "optional/null"}`,
+        `${row.action} | ${row.authorizationPort ? (row.action === "rbac-bootstrap" ? "local one-time bootstrap" : "traced") : "missing"} | ${row.receiptAuthorizationDecision ? "non-null" : "optional/null"}`,
       );
     }
     console.log(

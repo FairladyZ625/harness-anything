@@ -8,16 +8,16 @@ import test from "node:test";
 import { makeTaskEventReader, type CompletionNext } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } } as const;
-const reviewerBinding = withRoleBinding(
+const reviewerBinding = withPolicyGroup(
   {
     actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } },
     source: "local" as const,
   },
-  "arbiter",
+  "maintainer",
 );
 
 function git(rootDir: string, ...args: readonly string[]): string {
@@ -42,7 +42,7 @@ async function reachGreenInReview(
   title: string,
   taskClass: "work" | "standard" = "standard",
 ): Promise<void> {
-  const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+  const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   await createRealizedTaskPlanFixture(
     rootDir,
     async () => {
@@ -138,7 +138,7 @@ test("an orphan work task stops at completion until the prescribed decision rela
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const taskId = "task_m_line",
     executionId = "exe_m_line",
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     initRepo(rootDir);
     cell = await openRepoCell({
@@ -230,7 +230,7 @@ test("a standard task still completes with no decision relations at all", async 
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const taskId = "task_s_line",
     executionId = "exe_s_line",
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     initRepo(rootDir);
     cell = await openRepoCell({

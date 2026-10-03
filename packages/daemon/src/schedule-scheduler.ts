@@ -8,7 +8,6 @@ import {
   type ScheduleMissedReason,
 } from "@harness-anything/kernel";
 import type { ScheduleTriggerV1 } from "@harness-anything/kernel";
-import type { DaemonCommandClass } from "./identity/types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
   daemonCommandReceiptRejectionCode,
@@ -48,7 +47,7 @@ export function makeScheduleScheduler(input: {
   readonly localBinding: (
     repoId: string,
     rootDir: string,
-    required: DaemonCommandClass,
+    action: ScheduleAction,
   ) => RepoCellBinding | Promise<RepoCellBinding>;
   readonly remoteEdgeAction?: (
     repoId: string,
@@ -251,10 +250,9 @@ export function makeScheduleScheduler(input: {
       return {
         repoId,
         execute: async (action) =>
-          cell.run(
-            action,
-            await input.localBinding(repoId, rootDir, action.kind === "schedule-list" ? "repo-read" : "repo-write"),
-          ) as unknown as Promise<Readonly<Record<string, unknown>>>,
+          cell.run(action, await input.localBinding(repoId, rootDir, action)) as unknown as Promise<
+            Readonly<Record<string, unknown>>
+          >,
       };
     if (!input.remoteEdgeAction) return null;
     return {

@@ -7,7 +7,7 @@ import test, { after, before } from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import {
   commitDelivery,
@@ -54,13 +54,13 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     const collapsed = { personId: "0" } as const;
     const agentActor = { principal: collapsed, executor: { kind: "agent" as const, id: "windows-tester" } };
     const humanActor = { principal: collapsed, executor: null };
-    const agent = withRoleBinding(
-      withRoleBinding({ actor: agentActor, source: "local" as const }, "arbiter"),
-      "repo-write",
+    const agent = withPolicyGroup(
+      withPolicyGroup({ actor: agentActor, source: "local" as const }, "maintainer"),
+      "contributor",
     );
-    const human = withRoleBinding(
-      withRoleBinding({ actor: humanActor, source: "local" as const }, "arbiter"),
-      "repo-write",
+    const human = withPolicyGroup(
+      withPolicyGroup({ actor: humanActor, source: "local" as const }, "maintainer"),
+      "contributor",
     );
     const taskId = "task-review-axis",
       executionId = "exec-1";
@@ -114,10 +114,10 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     for (const id of ["r1", "r2", "r3"])
       writeFileSync(path.join(reviewReportDir, `${id}.md`), `# Review ${id}\n\nPhysical review findings.\n`);
 
-    // Missing the arbiter RoleBinding is a role problem, not an independence problem.
+    // Missing Keycloak authority is a permission problem, not an independence problem.
     const withoutRole = await cell.run(
       { kind: "task-review-execution", taskId, executionId, reviewId: "r1", fromFile: "review.json" },
-      { ...human, roleBindings: [], authorizationBindingMode: "declared" },
+      { ...human, keycloakAuthorization: undefined, authorizationBindingMode: "declared" },
     );
     assert.equal(withoutRole.code, "authorization_denied");
 
@@ -153,23 +153,23 @@ test("principal review independence rejects a different executor owned by the su
       ownerId: "daemon-test",
     });
     const principal = { personId: "person-review-principal" } as const,
-      person = withRoleBinding(
-        withRoleBinding({ actor: { principal, executor: null }, source: "local" as const }, "arbiter"),
-        "repo-write",
+      person = withPolicyGroup(
+        withPolicyGroup({ actor: { principal, executor: null }, source: "local" as const }, "maintainer"),
+        "contributor",
       ),
-      agent = withRoleBinding(
-        withRoleBinding(
+      agent = withPolicyGroup(
+        withPolicyGroup(
           { actor: { principal, executor: { kind: "agent" as const, id: "worker" } }, source: "local" as const },
-          "arbiter",
+          "maintainer",
         ),
-        "repo-write",
+        "contributor",
       ),
-      reviewer = withRoleBinding(
-        withRoleBinding(
+      reviewer = withPolicyGroup(
+        withPolicyGroup(
           { actor: { principal, executor: { kind: "agent" as const, id: "reviewer" } }, source: "local" as const },
-          "arbiter",
+          "maintainer",
         ),
-        "repo-write",
+        "contributor",
       );
     const updated = await cell.run(
       { kind: "settings-update", reviewIndependence: "principal", idempotencyKey: "strict-review-independence" },
@@ -287,15 +287,15 @@ test("a lightweight child bare-invocation execution closes without a review disp
         terminate: () => undefined,
       }),
     });
-    const bare = withRoleBinding(
-      withRoleBinding(
+    const bare = withPolicyGroup(
+      withPolicyGroup(
         {
           actor: { principal: { personId: "0" }, executor: null },
           source: "local" as const,
         },
-        "arbiter",
+        "maintainer",
       ),
-      "repo-write",
+      "contributor",
     );
     const parentTaskId = "task-bare-parent",
       parentExecutionId = "exec-bare-parent",
@@ -363,8 +363,8 @@ test("a lightweight child bare-invocation execution closes without a review disp
       (event) =>
         event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === worker.runtimeSessionId,
     );
-    const agent = withRoleBinding(
-      withRoleBinding(
+    const agent = withPolicyGroup(
+      withPolicyGroup(
         {
           actor: {
             principal: { personId: "0" },
@@ -372,9 +372,9 @@ test("a lightweight child bare-invocation execution closes without a review disp
           },
           source: "local" as const,
         },
-        "arbiter",
+        "maintainer",
       ),
-      "repo-write",
+      "contributor",
     );
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId: priorExecutionId }, bare);
@@ -408,8 +408,8 @@ test("a lightweight child bare-invocation execution closes without a review disp
         evidenceChecked: ["historical dispatch"],
       }),
     );
-    const priorReviewer = withRoleBinding(
-      withRoleBinding(
+    const priorReviewer = withPolicyGroup(
+      withPolicyGroup(
         {
           actor: {
             principal: { personId: "person-prior-reviewer" },
@@ -417,9 +417,9 @@ test("a lightweight child bare-invocation execution closes without a review disp
           },
           source: "local" as const,
         },
-        "arbiter",
+        "maintainer",
       ),
-      "repo-write",
+      "contributor",
     );
     assert.equal(
       (
@@ -521,15 +521,15 @@ test("a lightweight child bare-invocation execution closes without a review disp
     );
     assert.equal(dispatchCannotUseWeakMarker.code, "actor_unauthorized", JSON.stringify(dispatchCannotUseWeakMarker));
 
-    const wrongPrincipal = withRoleBinding(
-      withRoleBinding(
+    const wrongPrincipal = withPolicyGroup(
+      withPolicyGroup(
         {
           actor: { principal: { personId: "1" }, executor: null },
           source: "local" as const,
         },
-        "arbiter",
+        "maintainer",
       ),
-      "repo-write",
+      "contributor",
     );
     const denied = await cell.run(
       {
@@ -543,15 +543,15 @@ test("a lightweight child bare-invocation execution closes without a review disp
     );
     assert.equal(denied.code, "invalid_proof");
 
-    const impersonatingAgent = withRoleBinding(
-        withRoleBinding(
+    const impersonatingAgent = withPolicyGroup(
+        withPolicyGroup(
           {
             actor: { principal: { personId: "0" }, executor: { kind: "agent" as const, id: "another-runtime" } },
             source: "local" as const,
           },
-          "arbiter",
+          "maintainer",
         ),
-        "repo-write",
+        "contributor",
       ),
       impersonationDenied = await cell.run(
         {
@@ -595,12 +595,12 @@ test("a lightweight child bare-invocation execution closes without a review disp
       bare,
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    const wrongOwner = withRoleBinding(
+    const wrongOwner = withPolicyGroup(
       {
         actor: { principal: { personId: "person-outsider" }, executor: { kind: "agent" as const, id: "outsider" } },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     );
     const consent = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "r3" }, wrongOwner);
     assert.equal(consent.code, "actor_unauthorized");
@@ -617,15 +617,15 @@ test("a lightweight reviewed child closes without declaring a review executor", 
     parentTaskId = "task-bare-reviewed-parent",
     taskId = "task-bare-reviewed",
     executionId = "exec-bare-reviewed",
-    bare = withRoleBinding(
-      withRoleBinding(
+    bare = withPolicyGroup(
+      withPolicyGroup(
         {
           actor: { principal: { personId: "person-owner" }, executor: null },
           source: "local" as const,
         },
-        "arbiter",
+        "maintainer",
       ),
-      "repo-write",
+      "contributor",
     );
   try {
     initRepo(rootDir);
@@ -791,8 +791,8 @@ test("a lightweight reviewed child closes without declaring a review executor", 
         "no dispatch reason: The repository owner implemented the delivery directly.",
       ],
     );
-    const reviewer = withRoleBinding(
-      withRoleBinding(
+    const reviewer = withPolicyGroup(
+      withPolicyGroup(
         {
           actor: {
             principal: { personId: "person-reviewer" },
@@ -800,9 +800,9 @@ test("a lightweight reviewed child closes without declaring a review executor", 
           },
           source: "local" as const,
         },
-        "arbiter",
+        "maintainer",
       ),
-      "repo-write",
+      "contributor",
     );
     assert.equal(
       (
@@ -901,23 +901,23 @@ test("review binding permits independent runtimes but still rejects the executio
       },
     });
     const principal = { personId: "person-worker" } as const,
-      implementer = withRoleBinding(
+      implementer = withPolicyGroup(
         {
           actor: { principal, executor: { kind: "agent" as const, id: "implementer" } },
           source: "local" as const,
         },
-        "owner",
+        "admin",
       ),
       arbiter = (id: string) =>
-        withRoleBinding(
-          withRoleBinding(
+        withPolicyGroup(
+          withPolicyGroup(
             {
               actor: { principal, executor: { kind: "agent" as const, id } },
               source: "local" as const,
             },
-            "arbiter",
+            "maintainer",
           ),
-          "repo-write",
+          "contributor",
         );
     const taskId = "task-runtime-bound";
     const created = await cell.run(
@@ -989,7 +989,7 @@ test("review binding permits independent runtimes but still rejects the executio
     writeFileSync(path.join(workerRoot, "README.md"), "# Runtime closeout chain\n");
     git(workerRoot, "add", "README.md");
     git(workerRoot, "commit", "--quiet", "-m", "runtime implementation");
-    const resumedImplementer = withRoleBinding(
+    const resumedImplementer = withPolicyGroup(
       {
         actor: {
           principal,
@@ -997,7 +997,7 @@ test("review binding permits independent runtimes but still rejects the executio
         },
         source: "local" as const,
       },
-      "owner",
+      "admin",
     );
     const closeoutPath = `${String((created as Record<string, unknown>).packagePath)}/closeout.md`;
     writeFileSync(
@@ -1027,7 +1027,7 @@ test("review binding permits independent runtimes but still rejects the executio
       ).outcome,
       "applied",
     );
-    const operator = withRoleBinding(implementer, "repo-write");
+    const operator = withPolicyGroup(implementer, "contributor");
     assert.equal(
       submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, resumedImplementer)),
       "applied",

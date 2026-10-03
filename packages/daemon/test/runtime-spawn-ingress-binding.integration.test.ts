@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -33,6 +34,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
     repoId = "runtime-spawn-ingress",
     uid = process.getuid?.() ?? 0;
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: root });
   writeFileSync(path.join(root, "delivery.ts"), "export const delivered = true;\n");
   execFileSync("git", ["add", "delivery.ts"], { cwd: root });
@@ -179,7 +181,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@5");
+      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "keycloak-policy@1");
       assert.equal((receipt.authorizationDecision as { outcome?: string } | null)?.outcome, "allowed");
       assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
       assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, userRoot);
@@ -421,7 +423,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "default@5");
+      assert.equal((receipt.authorizationDecision as { policyRef?: string } | null)?.policyRef, "keycloak-policy@1");
       assert.equal((receipt.authorizationDecision as { outcome?: string } | null)?.outcome, "allowed");
       const bound = await eventuallyValue(
         async () =>

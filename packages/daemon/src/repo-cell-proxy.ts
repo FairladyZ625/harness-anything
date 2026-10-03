@@ -28,6 +28,10 @@ import {
   type RepoCellRuntimeContext,
 } from "./repo-cell-action-context.ts";
 import { createRepoCellApi, repoCellSynchronousRead, type RepoCellApiContext } from "./repo-cell-api.ts";
+import {
+  explainAuthenticationRequired,
+  preparePersonActionExplanationBinding,
+} from "./task-action-explanation-read.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import { executeRepoReadAction } from "./repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
@@ -423,6 +427,30 @@ export async function openRepoCellProxy(
             judgments: repoCellTaskQueryJudgmentsFor(projection),
           }).guiTasks(taskListQuery(payload)),
         ) as never;
+      if (method === "repo.entity.actions.explain") {
+        const verifiedBinding = query(
+          (projection) =>
+            bindVerifiedExecutorClaim({
+              action: { kind: "entity-action-explain", executor: payload.executor },
+              binding: binding ?? explainAuthenticationRequired(),
+              projection,
+              now: readRuntime(projection).actionContext.now(),
+            }).binding,
+        );
+        const prepared = await preparePersonActionExplanationBinding(
+          {
+            store: readCurrentLedger((store) => store),
+            repoId: input.repoId,
+            now: () => {
+              const value = input.now?.() ?? new Date();
+              return typeof value === "string" ? value : value.toISOString();
+            },
+            binding: verifiedBinding,
+          },
+          payload,
+        );
+        return query((projection) => readAtCut(projection, method, payload, prepared)) as never;
+      }
       return query((projection) => readAtCut(projection, method, payload, binding)) as never;
     },
     workspaceSummary: () => query((projection) => workspaceSummaryFromProjection(projection as never)),

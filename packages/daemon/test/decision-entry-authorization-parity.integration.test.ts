@@ -1,6 +1,6 @@
 // harness-test-tier: integration
-// dec_D60FAA451F24160E970323B6F3 CH4: adjudication authority is an action scope,
-// independent of proposal ownership; CLI and GUI must honor the same UMA decision.
+// dec_D60FAA451F24160E970323B6F3 CH4: adjudication authority is an Action scope,
+// independent of proposal ownership; CLI and GUI must honor the same Keycloak decision.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -12,7 +12,6 @@ import test from "node:test";
 import { makeTaskEventReader, type ActorIdentity } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { actionForDaemonMethod, commandClassForAction } from "../src/protocol/daemon-protocol-commands.ts";
-import { declaredRoleBindingsForActor } from "../src/identity/declared-role-binding-projection.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -47,7 +46,6 @@ test("adjudication entries share one qualification and transition judgment targe
   const authorityUrl = `http://127.0.0.1:${address.port}`;
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-entry-parity-"));
   initRepo(rootDir);
-  writePeopleRoster(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("decision-entry-parity"),
     rootDir: canonicalRoot(rootDir),
@@ -55,9 +53,17 @@ test("adjudication entries share one qualification and transition judgment targe
   });
   const reader = makeTaskEventReader({ repoId: "decision-entry-parity", rootDir });
   try {
-    const proposerBinding = declaredBinding(rootDir, proposerAgent),
-      repoWriteBinding = scopedBinding(rootDir, repoWriteJudgeId, "fixture-contributor", authorityUrl),
-      arbiterBinding = scopedBinding(rootDir, arbiterJudgeId, "fixture-judge", authorityUrl);
+    const proposerBinding = scopedBinding(proposerAgent, "fixture-proposer", authorityUrl),
+      repoWriteBinding = scopedBinding(
+        { principal: { personId: repoWriteJudgeId }, executor: null },
+        "fixture-contributor",
+        authorityUrl,
+      ),
+      arbiterBinding = scopedBinding(
+        { principal: { personId: arbiterJudgeId }, executor: null },
+        "fixture-judge",
+        authorityUrl,
+      );
 
     // Execution classes describe dispatch; authorization comes from the requested scope.
     assert.deepEqual(
@@ -76,7 +82,7 @@ test("adjudication entries share one qualification and transition judgment targe
       d4 = await propose(cell, reader, proposerBinding, "parity gui accept under arbiter"),
       d5 = await propose(cell, reader, proposerBinding, "parity transition targets");
 
-    // 1. A group without decision-accept is denied at both entries, despite a roster role.
+    // 1. A Keycloak identity without decision-accept is denied at both entries.
     const cliAccept = cliAction([
       "decision",
       "accept",
@@ -175,20 +181,13 @@ test("adjudication entries share one qualification and transition judgment targe
   }
 });
 
-/** The production `deriveLocalBinding` shape (daemon-host-binding.ts): declared mode + roster-projected roles. */
-function declaredBinding(rootDir: string, actor: ActorIdentity) {
+function scopedBinding(actor: ActorIdentity, accessToken: string, url: string) {
   return {
     actor,
     source: "local" as const,
-    authorizationBindingMode: "declared" as const,
-    roleBindings: declaredRoleBindingsForActor(canonicalRoot(rootDir), actor)!,
-  };
-}
-
-function scopedBinding(rootDir: string, personId: string, accessToken: string, url: string) {
-  return {
-    ...declaredBinding(rootDir, { principal: { personId }, executor: null }),
-    keycloakAuthorization: { session: { personId, url, realm: "fixture", clientId: "fixture", accessToken } },
+    keycloakAuthorization: {
+      session: { personId: actor.principal.personId, url, realm: "fixture", clientId: "fixture", accessToken },
+    },
   };
 }
 
@@ -202,7 +201,7 @@ function cliAction(argv: readonly string[]): Record<string, unknown> & { readonl
 async function propose(
   cell: RepoCell,
   reader: ReturnType<typeof makeTaskEventReader>,
-  binding: ReturnType<typeof declaredBinding>,
+  binding: ReturnType<typeof scopedBinding>,
   title: string,
 ): Promise<{ readonly decisionId: string; readonly revision: number }> {
   const proposed = await cell.run(
@@ -264,43 +263,6 @@ function acceptedEventOf(
   const event = reader.readEvent(receipt.opId);
   assert.ok(event, `${label}: accepted op ${receipt.opId} has no canonical event`);
   return { schema: event.schema, type: event.type };
-}
-
-function writePeopleRoster(rootDir: string): void {
-  writeFileSync(
-    path.join(rootDir, "harness", "people.yaml"),
-    JSON.stringify(
-      {
-        schema: "harness-people/v1",
-        people: [
-          {
-            personId: proposerAgent.principal.personId,
-            displayName: "Parity Proposer",
-            roles: ["contributor"],
-            credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:entry-parity", subject: "1" }],
-          },
-          {
-            personId: repoWriteJudgeId,
-            displayName: "Parity Repo Write Judge",
-            roles: ["contributor"],
-            credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:entry-parity", subject: "2" }],
-          },
-          {
-            personId: arbiterJudgeId,
-            displayName: "Parity Arbiter Judge",
-            roles: ["judge"],
-            credentials: [{ kind: "unix-socket-owner-boundary", issuer: "host:entry-parity", subject: "3" }],
-          },
-        ],
-        roles: [
-          { roleId: "contributor", commandClasses: ["repo-write", "repo-read"] },
-          { roleId: "judge", commandClasses: ["arbiter", "repo-write", "repo-read"] },
-        ],
-      },
-      null,
-      2,
-    ),
-  );
 }
 
 function initRepo(rootDir: string): void {

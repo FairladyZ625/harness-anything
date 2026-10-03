@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import {
@@ -23,6 +23,7 @@ import {
   type FleetReplicaPullClientOptions,
   type FleetWriteClientOptions,
 } from "../src/fleet/edge.ts";
+import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { type FleetCut } from "../src/fleet/contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -267,7 +268,6 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     path.join(repo, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
-  writePeopleFixture(repo);
   git(repo, "add", "harness");
   git(repo, "commit", "-qm", "harness");
   registerDaemonRepo({ canonicalRoot: repo, repoId: "fleet-repo", userRoot, createConvenienceLinks: false });
@@ -308,6 +308,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
       }
     }
   });
+  signInAt(userRoot, "person-owner");
   await host.attachmentsSettled();
   const assignment: FleetAssignmentRecord = {
       nodeId: "node-one",
@@ -433,13 +434,6 @@ function initRepo(rootDir: string): void {
 function git(rootDir: string, ...args: string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
 }
-function writePeopleFixture(rootDir: string): void {
-  const ownerUid = process.getuid?.() ?? 0;
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "fleet-fixture", displayName: "Fleet Fixture", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(ownerUid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
-  );
-}
 function localAuthFixture() {
   return {
     transportKind: "unix-socket" as const,
@@ -465,7 +459,6 @@ async function crossRepoFixture(t: TestContext) {
       path.join(repo.rootDir, "harness/harness.yaml"),
       `schema: harness-anything/v1\nname: ${repo.repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
     );
-    writePeopleFixture(repo.rootDir);
     git(repo.rootDir, "add", "harness");
     git(repo.rootDir, "commit", "-qm", "harness");
     registerDaemonRepo({ canonicalRoot: repo.rootDir, repoId: repo.repoId, userRoot, createConvenienceLinks: false });
@@ -519,6 +512,7 @@ async function crossRepoFixture(t: TestContext) {
       }
     }
   });
+  signInAt(userRoot, "person-owner");
   await host.attachmentsSettled();
   for (const assignment of assignments) {
     const auth = owners.auth(assignment),

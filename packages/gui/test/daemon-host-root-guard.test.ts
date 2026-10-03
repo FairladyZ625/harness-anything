@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +23,7 @@ test("GUI worktree stays attach-only when absent then reuses a canonical residen
   process.env.HARNESS_DAEMON_ID = daemonId;
   delete process.env.HARNESS_DAEMON_ENDPOINT;
   process.env.TMPDIR = "/tmp";
+  signInPolicyTestUser(userRoot, "person-gui", [daemonId], "admin");
   const daemon = resident(await startDaemon({ daemonId, userRoot }));
   try {
     const bootstrapped = await requestDaemonJsonRpcAt(

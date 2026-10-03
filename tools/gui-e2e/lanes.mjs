@@ -16,6 +16,7 @@ import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/r
 import {
   seedSupersedeChain,
   seedTriadicEvents,
+  seedTriadicReviewAwait,
   writeTriadicLedger,
 } from "../../packages/gui/test-support/triadic-ledger.mjs";
 import { seedGuiE2eRuntimeSessions, seedGuiE2eSessionTasks } from "./scenarios/sessions-grouping.mjs";
@@ -138,6 +139,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       daemonId: "g",
       repoId: "gui-e2e-catalog",
       task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
+      afterRestart: seedTriadicReviewAwait,
       // 层次 fixture 的任务实体要在 daemon 停机前经 repo.task.create 落进投影;
       // 事件与派工归档仍在停机窗口里种(sessions-grouping 场景自持)。
       beforeStop: async (endpoint, repoId) => {

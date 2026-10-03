@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
 import { connect, type TLSSocket } from "node:tls";
@@ -15,6 +15,7 @@ import { AccessAdminService } from "../src/access-admin-service.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -68,7 +69,6 @@ export async function fleetFixture(
     "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
       `settings:\n  closeout:\n    profile: ${closeoutProfile}\n`,
   );
-  writePeopleFixture(repo);
   git(repo, "add", "harness");
   git(repo, "commit", "-qm", "harness");
   registerDaemonRepo({ canonicalRoot: repo, repoId: "fleet-repo", userRoot, createConvenienceLinks: false });
@@ -113,6 +113,7 @@ export async function fleetFixture(
       }
     }
   });
+  signInAt(userRoot, "person-owner");
   await host.attachmentsSettled();
   const assignment: FleetAssignmentRecord = {
       nodeId: "node-one",
@@ -297,13 +298,6 @@ export function initRepo(rootDir: string): void {
 }
 export function git(rootDir: string, ...args: string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
-}
-export function writePeopleFixture(rootDir: string): void {
-  const ownerUid = process.getuid?.() ?? 0;
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "fleet-fixture", displayName: "Fleet Fixture", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(ownerUid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
-  );
 }
 export function localAuthFixture() {
   return {

@@ -69,7 +69,18 @@ test("ha bootstrap routes managed lifecycle options to the daemon", () => {
 
 test("ha bootstrap parses one external Keycloak through the same command", () => {
   const parsed = parseThinCommand(
-    ["bootstrap", "--mode", "external", "--url", "https://id.example", "--realm", "fleet", "--client-id", "center"],
+    [
+      "bootstrap",
+      "--mode",
+      "external",
+      "--url",
+      "https://id.example",
+      "--realm",
+      "fleet",
+      "--client-id",
+      "harness-center",
+      "--client-secret-stdin",
+    ],
     "/repo",
   );
   assert.equal(parsed.ok, true);
@@ -79,7 +90,8 @@ test("ha bootstrap parses one external Keycloak through the same command", () =>
     mode: "external",
     url: "https://id.example",
     realm: "fleet",
-    clientId: "center",
+    clientId: "harness-center",
+    clientSecretStdin: true,
   });
 });
 

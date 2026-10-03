@@ -244,7 +244,7 @@ export {
   slugifyTaskTitle,
   validateTaskIdSyntax,
 } from "./layout/index.ts";
-export type { HarnessLayoutInput, HarnessLayoutOverrides } from "./layout/index.ts";
+export type { HarnessLayoutOverrides } from "./layout/index.ts";
 export * from "./ports/index.ts";
 export type {
   FactAnchorRow,

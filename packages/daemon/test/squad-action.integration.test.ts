@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,7 +17,7 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { evidence, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-const owner = withRoleBinding(
+const owner = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-squad-owner" },
@@ -25,9 +25,9 @@ const owner = withRoleBinding(
       },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   ),
-  contender = withRoleBinding(
+  contender = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-squad-contender" },
@@ -35,7 +35,7 @@ const owner = withRoleBinding(
       },
       source: "local" as const,
     },
-    "owner",
+    "admin",
   ),
   leader = {
     schema: "agent-declaration/v1",

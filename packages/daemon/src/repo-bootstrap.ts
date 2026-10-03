@@ -1,11 +1,9 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
   assertCurrentWriter,
-  applyPeopleRosterAction,
   configureLedgerMaintenance,
   DEFAULT_TASK_WIP_LIMIT,
   HARNESS_LEDGER_WRITER_ENV,
@@ -54,11 +52,7 @@ export interface RepoBootstrapInput {
   readonly repoId: WorkspaceId;
   readonly machineDocuments: readonly BootstrapDocument[];
   readonly settingsBootstrap: readonly [settings: SettingsV1, documentBody: string];
-  /**
-   * The people.yaml body this init created; RepoCell open publishes it as the first canonical People document.
-   * Absent when people.yaml already existed: claiming it would rewrite authored bytes into the canonical form.
-   */
-  readonly peopleBootstrap?: string;
+  readonly keycloakAuthorization?: import("./repo-cell-types.ts").RepoCellBinding["keycloakAuthorization"];
   readonly repositoryPlan: RepositoryScaffoldPlan;
   readonly actor: ActorIdentity;
   readonly configureOnly?: boolean;
@@ -133,22 +127,6 @@ export function resolveRepoBootstrap(
       ...(npmWorkspaces(rootDir) ? ["  worktree:", "    setup:", "      - node-modules"] : []),
       "",
     ].join("\n"),
-    people = applyPeopleRosterAction(null, {
-      kind: "people-add",
-      person: {
-        personId,
-        displayName,
-        roles: ["owner"],
-        credentials: [
-          {
-            kind: "unix-socket-owner-boundary",
-            issuer: `host:${os.hostname()}`,
-            subject: String(uid),
-          },
-        ],
-      },
-      rolePolicy: { roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] },
-    }).body,
     layout = resolveHarnessLayout(rootDir),
     machineRoot = machineDocumentRoot(rootDir, layout),
     harnessDocument = machineDocument(
@@ -157,14 +135,8 @@ export function resolveRepoBootstrap(
       configuredBody(layout) ?? config,
       request.name,
     ),
-    peopleDocument = machineDocument(rootDir, `${machineRoot}/people.yaml`, people),
-    identityDocuments = [harnessDocument, peopleDocument],
-    initialized = identityDocuments.every(({ existingSha256 }) => existingSha256 !== null);
-  if (initialized !== identityDocuments.some(({ existingSha256 }) => existingSha256 !== null))
-    throw repoBootstrapError(
-      "bootstrap_incomplete",
-      "harness.yaml and people.yaml must either both exist or both be absent.",
-    );
+    identityDocuments = [harnessDocument],
+    initialized = harnessDocument.existingSha256 !== null;
   if (request.configureOnly && !initialized)
     throw repoBootstrapError(
       "workspace_not_initialized",
@@ -181,10 +153,20 @@ export function resolveRepoBootstrap(
   return {
     rootDir,
     repoId: normalizedRepoId,
-    actor: { principal: { personId }, executor: null },
+    actor: { principal: { personId: auth.oidcPrincipal?.personId ?? personId }, executor: null },
     machineDocuments,
     settingsBootstrap: [settings, harnessDocument.body],
-    ...(initialized ? {} : { peopleBootstrap: peopleDocument.body }),
+    ...(auth.oidcPrincipal === undefined
+      ? {}
+      : {
+          keycloakAuthorization: {
+            session: {
+              personId: auth.oidcPrincipal.personId,
+              accessToken: auth.oidcPrincipal.accessToken,
+              ...auth.oidcPrincipal.authority,
+            },
+          },
+        }),
     repositoryPlan: compileRepoRepositoryScaffold(rootDir, settings),
     ...(request.configureOnly ? { configureOnly: true } : {}),
   };

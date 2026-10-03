@@ -7,11 +7,11 @@ import path from "node:path";
 import test from "node:test";
 import { MAX_ENTITY_CONTENT_OBJECT_BYTES, makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
-const binding = withRoleBinding(
+const binding = withPolicyGroup(
     {
       actor: {
         principal: { personId: "person-declared-kind-content" },
@@ -19,7 +19,7 @@ const binding = withRoleBinding(
       },
       source: "local" as const,
     },
-    "repo-write",
+    "contributor",
   ),
   // A remote edge with no role binding: neither a declared repo-write role nor the local default binding
   // holds for it, so the policy is the only thing standing between this caller and a durable Kind write.
@@ -29,7 +29,7 @@ const binding = withRoleBinding(
       executor: { kind: "agent" as const, id: "declared-kind-content-reader-edge" },
     },
     source: "remote_direct" as const,
-    roleBindings: [],
+    keycloakAuthorization: undefined,
   };
 
 const surveyKind = {
@@ -297,7 +297,7 @@ test("Publishing a Kind schema version is refused for a caller with no repositor
     assert.equal(refused.authorizationDecision?.outcome, "denied", JSON.stringify(refused.authorizationDecision));
     assert.equal(
       refused.authorizationDecision?.policyRef,
-      "default@5",
+      "keycloak-policy@1",
       "the refusal must come from the declared policy, not from an ad hoc check",
     );
 

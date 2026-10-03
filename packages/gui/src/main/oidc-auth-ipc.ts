@@ -80,12 +80,15 @@ export function registerOidcAuthIpc(
       url: input.url,
       realm: input.realm,
       clientId: input.clientId,
+      clientSecret: input.clientSecret,
       ...authTarget(rawInput),
     });
   });
   registrar.handle(OIDC_OPEN_CONSOLE_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
-    const binding = await daemonRequest({ operation: "health", ...authTarget(input) });
+    const binding = normalizeBindingStatusReply(
+      await ports.daemonRequest({ operation: "health", ...authTarget(input) }),
+    );
     if (typeof binding.url !== "string" || typeof binding.realm !== "string")
       throw new Error("Daemon did not return a Keycloak binding.");
     const url = typeof binding.browserUrl === "string" ? binding.browserUrl : binding.url;
@@ -117,6 +120,8 @@ export function requireSuccessfulAuthReply(reply: JsonObject): JsonObject {
 }
 
 export function normalizeBindingStatusReply(reply: JsonObject): JsonObject {
+  // An HTTP health result describes a configured service even when it is not ready.
+  if (typeof reply.ready === "boolean") return reply;
   return reply.ok === false && reply.code === "rbac_not_configured"
     ? { ok: true, configured: false }
     : requireSuccessfulAuthReply(reply);

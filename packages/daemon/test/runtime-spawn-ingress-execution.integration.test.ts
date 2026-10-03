@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -31,6 +32,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
     repoId = "runtime-spawn-ingress",
     uid = process.getuid?.() ?? 0;
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: root });
   writeFileSync(path.join(root, "delivery.ts"), "export const delivered = true;\n");
   execFileSync("git", ["add", "delivery.ts"], { cwd: root });

@@ -350,6 +350,7 @@ export function addTaskPackage(context: MigrationImportContext, entry: TaskSourc
     prefix = `${sourcePackage}/`;
   if (!packagePath || !mappedTaskId) return;
   for (const source of context.authoredEntries) {
+    if (source.path === "people.yaml") continue; // Retired authority is never imported.
     if (source.symlink || !source.path.startsWith(prefix) || source.path === `${sourcePackage}/INDEX.md`) continue;
     const relative = source.path.slice(prefix.length),
       originalBody = context.utf8File(context.sourceLayout.authoredRoot, source.path),
@@ -430,6 +431,7 @@ export function addTaskPackage(context: MigrationImportContext, entry: TaskSourc
 
 export function addRepoDocuments(context: MigrationImportContext): void {
   for (const source of context.authoredEntries) {
+    if (source.path === "people.yaml") continue; // Retired authority is never imported.
     const agent = /^agents\/([^/]+)\.json$/u.exec(source.path),
       schedule = /^schedules\/([^/]+)\.json$/u.exec(source.path);
     // Native entity events below own these paths. A generic repo-document
@@ -454,50 +456,13 @@ export function addRepoDocuments(context: MigrationImportContext): void {
       source.symlink,
       context.resolutions,
     );
-    if (
-      classification.disposition !== "migrated" ||
-      (classification.surface !== "repo-document" && classification.surface !== context.PEOPLE_REGISTRY_SURFACE)
-    )
-      continue;
+    if (classification.disposition !== "migrated" || classification.surface !== "repo-document") continue;
     const body =
         classification.mergedBody ??
         (source.symlink
           ? context.symlinkTarget(context.sourceLayout.authoredRoot, source.path)!
           : context.utf8File(context.sourceLayout.authoredRoot, source.path)!),
       occurredAt = lstatSync(path.join(context.sourceLayout.authoredRoot, source.path)).mtime.toISOString();
-    if (classification.surface === context.PEOPLE_REGISTRY_SURFACE) {
-      const currentBody = context.readFileSync(
-          path.join(context.destinationLayout.authoredRoot, context.PEOPLE_ROSTER_PATH),
-          "utf8",
-        ),
-        migrationAction =
-          classification.resolution === "source"
-            ? { kind: "people-replace" as const, sourceBody: body }
-            : {
-                kind: "people-reconcile" as const,
-                sourceBody: context.utf8File(context.sourceLayout.authoredRoot, source.path)!,
-              },
-        opId = context.migrationOperationId(context.sourceKey, "people", source.path);
-      context.packageDrafts.push({
-        migratedFrom: source.path,
-        occurredAt,
-        build: (workspaceRevision: number) => {
-          const compiled = context.compilePeopleRosterActionEvent({
-            currentBody,
-            action: migrationAction,
-            eventId: `event-${sha256Text(opId)}`,
-            opId,
-            workspaceRevision,
-            actor: context.actorFor(`person/${source.path}`),
-            source: context.MIGRATION_IMPORT_SOURCE,
-            occurredAt,
-          });
-          if (compiled.bundle === null) throw new Error("people migration classification produced no change");
-          return compiled.bundle;
-        },
-      });
-      continue;
-    }
     const references = source.symlink
       ? { blobs: [] }
       : context.referencedContent(context.sourceLayout.authoredRoot, body);

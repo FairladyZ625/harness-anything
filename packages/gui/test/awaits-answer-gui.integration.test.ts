@@ -27,41 +27,7 @@ test("GUI answers an awaits ask through the resident daemon write path", async (
   delete process.env.HARNESS_DAEMON_ENDPOINT;
   Object.assign(process.env, fixture.env);
   try {
-    const added = await requestDaemonJsonRpcAt(
-      fixture.endpoint,
-      "repo.task.run",
-      {
-        repo: { repoId: fixture.repoId },
-        payload: {
-          action: {
-            kind: "people-add",
-            personId: "person-reviewer",
-            displayName: "GUI Reviewer",
-            role: "administrator",
-            commandClass: ["admin"],
-            credentialKind: "email-address",
-            credentialIssuer: "example.invalid",
-            credentialSubject: "reviewer@example.invalid",
-          },
-        },
-      },
-      1_000,
-    );
-    assert.equal(added.ok, true, JSON.stringify(added));
-    // 人员名册经发布进投影后,person/<id> 才是可被 relate 的目标(含 bootstrap 的 person-gui)。
-    const published = await requestDaemonJsonRpcAt(
-      fixture.endpoint,
-      "repo.task.read",
-      {
-        repo: { repoId: fixture.repoId },
-        payload: {
-          action: { kind: "receipt-show", opId: added.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
-        },
-      },
-      1_000,
-      10_000,
-    );
-    assert.equal(published.wait?.state, "satisfied", JSON.stringify(published));
+    // person-gui is resolved from the fixture's current Keycloak account.
     const related = await requestDaemonJsonRpcAt(
       fixture.endpoint,
       "repo.task.run",

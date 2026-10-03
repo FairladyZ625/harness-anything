@@ -1,11 +1,14 @@
 // harness-test-tier: integration
+import { after } from "node:test";
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 
 import { execFileSync, spawnSync } from "node:child_process";
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 
 import path from "node:path";
 
@@ -14,6 +17,27 @@ import { makeTaskEventReader, sha256Bytes } from "@harness-anything/kernel";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
+
+const realm = await spawnKeycloak();
+after(() => realm.close());
+for (const personId of ["owner", "reviewer"]) {
+  await realm.control({ op: "account", personId });
+  for (const resource of [
+    "release-acc-chain",
+    "release-acc-rework",
+    "release-acc-artifacts",
+    "release-acc-entity",
+    "browser-e2e",
+    "browser-write-first",
+    "browser-write-second",
+  ])
+    await realm.control({
+      op: "permit",
+      personId,
+      resource,
+      actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), personId === "owner" ? "admin" : "maintainer"),
+    });
+}
 
 const cli = path.resolve("packages/cli/src/index.ts"),
   daemonId = "release-acc-e2e";
@@ -27,14 +51,10 @@ const cli = path.resolve("packages/cli/src/index.ts"),
 function initialize(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n");
-  writeFileSync(
-    path.join(root, "harness/people.yaml"),
-    `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`,
-  );
   git(root, "init", "--quiet");
   git(root, "config", "user.name", "Release Acceptance");
   git(root, "config", "user.email", "release-acceptance@example.test");
-  git(root, "add", "harness/harness.yaml", "harness/people.yaml");
+  git(root, "add", "harness/harness.yaml");
   git(root, "commit", "--quiet", "-m", "release acceptance fixture");
 }
 
@@ -97,6 +117,8 @@ function runMaybe(
   args: readonly string[],
   actor?: string,
 ): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
+  realm.bind(userRoot);
+  signInAt(userRoot, actor === "agent:release-reviewer" ? "reviewer" : "owner");
   const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], {
     encoding: "utf8",
     env: environment(root, userRoot, actor),
@@ -155,7 +177,6 @@ export {
   rmSync,
   statSync,
   writeFileSync,
-  hostname,
   tmpdir,
   path,
   makeTaskEventReader,

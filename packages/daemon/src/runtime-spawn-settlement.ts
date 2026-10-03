@@ -206,7 +206,7 @@ export async function publishExit(
               rootDir: context.input.rootDir,
               store: context.requiredRuntimeStore(context.input),
               projection: context.requiredRuntimeProjection(context.input),
-              binding: context.input.authorizeRuntimeArchive?.(archive, terminalBinding) ?? terminalBinding,
+              binding: await (context.input.authorizeRuntimeArchive?.(archive, terminalBinding) ?? terminalBinding),
               now: context.input.now,
               archive,
             });

@@ -22,6 +22,7 @@ import {
   readLedgerWriterEpoch,
   type WriterEpochFenceDescriptor,
 } from "../src/writer-epoch.ts";
+import { policyTestCenter, provisionPolicyTestRepository } from "./keycloak-policy.fixtures.ts";
 
 const seededSettings = new Set<string>();
 
@@ -107,6 +108,7 @@ export async function registerSettledBootstrappedDaemonRepo(
 }
 
 export const openFencedRepoCell: typeof openProductRepoCell = async (input) => {
+  provisionPolicyTestRepository(input.repoId);
   if (input.mode === "remote-edge") return openProductRepoCell(input);
   const defaultWriterEpochFence =
     input.defaultWriterEpochFence ??
@@ -115,7 +117,7 @@ export const openFencedRepoCell: typeof openProductRepoCell = async (input) => {
       input.rootDir,
       path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
     );
-  return openProductRepoCell({ ...input, defaultWriterEpochFence });
+  return openProductRepoCell({ keycloakCenter: policyTestCenter, ...input, defaultWriterEpochFence });
 };
 
 export async function waitForFixturePublication(cell: RepoCell, opId: string, binding: RepoCellBinding): Promise<void> {
@@ -127,6 +129,7 @@ export async function waitForFixturePublication(cell: RepoCell, opId: string, bi
 }
 
 export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input) => {
+  provisionPolicyTestRepository(input.repoId);
   if (input.mode === "remote-edge") return openProductRepoCell(input);
   const defaultWriterEpochFence =
     input.defaultWriterEpochFence ??
@@ -136,7 +139,7 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
       path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
     );
   await settleSettingsEvent({ ...input, writerEpochFence: defaultWriterEpochFence });
-  const cell = await openProductRepoCell({ ...input, defaultWriterEpochFence });
+  const cell = await openProductRepoCell({ keycloakCenter: policyTestCenter, ...input, defaultWriterEpochFence });
   try {
     await cell.read("repo.settings.read");
   } catch (error) {

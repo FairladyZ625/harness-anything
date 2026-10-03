@@ -14,7 +14,7 @@ import {
   reduceDecisionDocument,
 } from "../domain/decision-event-document.ts";
 import type { DecisionEventV1 } from "../domain/decision-event-types.ts";
-import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
+import type { CanonicalEventV1, PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { submissionDigest, submissionId, type ExecutionV1, type SubmissionV1 } from "../domain/execution.ts";
 import { reviewDigest, type ReviewV1 } from "../domain/review.ts";
 import { dropRetiredSettingsWalFlush, normalizeHistoricalSettingsRoles } from "../domain/settings-history.ts";
@@ -878,7 +878,7 @@ function replayRewrites(
         cursor: done ? null : String(batch.at(-1)?.workspaceRevision ?? events.length),
         done,
         accessedItems: batch.length,
-        prefetchContent: (replay: readonly CanonicalEventV1[]) => {
+        prefetchContent: (replay: readonly PersistedCanonicalEventV1[]) => {
           const persisted = replay.filter((event) => contentClaims(event).every((claim) => !blobs.has(claim.sha256))),
             generated = [...blobs].map(([sha256, blob]) => [sha256, Buffer.from(blob.body)] as const),
             content = new Map([...(prefetchContent?.(persisted) ?? []), ...generated]);

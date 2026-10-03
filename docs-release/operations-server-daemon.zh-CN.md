@@ -24,6 +24,18 @@ ha bootstrap --operation node-register --operation-id <unique-id> --node-id <nod
 
 `login` 在另一台有浏览器的设备完成授权，中心和边缘复用同一入口。随后节点登记只将一次性机器凭据写入新的受控文件。
 
+## 外接 Keycloak 中心凭据
+
+在中心主机上，准备已有 fleet realm、`harness-center` 机密服务账号客户端，以及 Harness 所需的 realm-management 权限和 Authorization Services 配置。浏览器登录使用 `harness-gui`。先配置凭据，再执行上面的首管理员命令：
+
+```bash
+ha bootstrap --mode external --url https://identity.example.com --realm fleet --client-id harness-center --client-secret-stdin < /path/to/protected-client-secret
+```
+
+密钥只从重定向 stdin 输入并经中心原始本地 socket 传输，保存在中心 user root 中仅所有者可读的文件；health/status 和回执不读回密钥。realm 或凭据校验失败保留旧配置。其他 client ID 会被拒绝。首管理员已存在后，更换配置必须先在当前权威登录为 `access-admin`。
+
+本地 GUI 的「账号与访问控制 → 改接外部 Keycloak」提供相同入口。输入 URL、realm 和中心客户端密钥后验证并应用；密码框在提交时清空，包括失败情况。外接 realm 需要首次引导时也显示首管理员表单。边缘节点和 remote-proxy 连接不能配置中心凭据。
+
 ## 连接模式 / Connection modes
 
 在已登记工作区读取当前保留日志的性能窗口：
