@@ -159,6 +159,47 @@ describe("任务详情概况时间线:实体引用可导航", () => {
     }
   });
 
+  it("changed completion without navigation preserves user scroll; a new navigation can focus the same record again", async () => {
+    const bridge = installBridge();
+    const response = await bridge.getTaskCompletion({ taskId: baseTask.taskId });
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
+    try {
+      await mount({ task: taskWithTimelineRefs, strict: true });
+      await act(async () => {
+        timelineTail("execution-w3").click();
+      });
+      await flushEffects();
+      expect(scroll).toHaveBeenCalledTimes(1);
+
+      const changed = {
+        ...response,
+        completionNext: { ...response.completionNext!, action: "Review status updated" },
+        completionBlocker: { code: "review_missing", gate: "review" },
+      };
+      bridge.getTaskCompletion.mockResolvedValue(changed);
+      await act(async () => {
+        await mounted.at(-1)!.client.invalidateQueries({
+          queryKey: ["tasks", "repo-a", baseTask.taskId, "completion"],
+        });
+      });
+      await flushEffects();
+      expect(document.querySelector('[data-testid="task-completion-next"]')!.textContent).toContain(
+        changed.completionNext.action,
+      );
+      expect(scroll).toHaveBeenCalledTimes(1);
+
+      await clickTab("概况");
+      await act(async () => {
+        timelineTail("execution-w3").click();
+      });
+      await flushEffects();
+      expect(scroll).toHaveBeenCalledTimes(2);
+      expect(scroll.mock.instances.at(-1)).toBe(document.getElementById("closeout-record-execution-execution-w3"));
+    } finally {
+      scroll.mockRestore();
+    }
+  });
+
   it("completion read arriving after navigation positions the focused row only after layout is ready", async () => {
     const bridge = installBridge();
     const response = await bridge.getTaskCompletion({ taskId: baseTask.taskId });
