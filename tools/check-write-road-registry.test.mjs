@@ -120,12 +120,12 @@ test("write-road declarations cannot lose their inventory or their thin CLI cons
     writeFileSync(
       declaration,
       original.replace(
-        'writeRoad("lifecycle.event-publication", closure("task-complete", "task/complete"))',
+        'closure("task-complete", "task/complete", "lifecycle.event-publication")',
         'closure("task-complete", "task/complete")',
       ),
     );
     assert.match(findWriteRoadRegistryViolations(root).join("\n"), /actions must equal/u);
-    writeFileSync(declaration, original.replace("...action, writeRoad: road", "...action"));
+    writeFileSync(declaration, original.replaceAll("...(writeRoad === undefined ? {} : { writeRoad }),", ""));
     assert.match(
       findWriteRoadRegistryViolations(root).join("\n"),
       /missing lifecycle.event-publication action declarations/u,

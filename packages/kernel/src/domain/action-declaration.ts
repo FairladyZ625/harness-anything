@@ -31,6 +31,7 @@ const canonical = (
   executionClass: ActionExecutionClass,
   receiptSettlement: ReceiptSettlementClass = "canonical-acceptance",
   policyTier: ActionPolicyTier = policyTierFor(executionClass),
+  writeRoad?: ActionDeclaration["writeRoad"],
 ): ActionDeclaration =>
   Object.freeze({
     kind,
@@ -40,11 +41,12 @@ const canonical = (
     policyTier,
     residency: canonicalResidency,
     receiptSettlement,
+    ...(writeRoad === undefined ? {} : { writeRoad }),
   });
 
 /** Commanding a submitted cut and closing a task are lifecycle closure: the maintainer tier, never the creator. */
-const closure = (kind: string, catalogId: string): ActionDeclaration =>
-  canonical(kind, catalogId, "repo-write", "canonical-acceptance", "maintainer");
+const closure = (kind: string, catalogId: string, writeRoad?: ActionDeclaration["writeRoad"]): ActionDeclaration =>
+  canonical(kind, catalogId, "repo-write", "canonical-acceptance", "maintainer", writeRoad);
 
 const local = (
   kind: string,
@@ -61,7 +63,7 @@ const local = (
     receiptSettlement: "none",
   });
 
-const hostAdmin = (kind: string): ActionDeclaration =>
+const hostAdmin = (kind: string, writeRoad?: ActionDeclaration["writeRoad"]): ActionDeclaration =>
   Object.freeze({
     kind,
     catalogId: null,
@@ -70,6 +72,7 @@ const hostAdmin = (kind: string): ActionDeclaration =>
     policyTier: "admin",
     residency: hostResidency,
     receiptSettlement: "none",
+    ...(writeRoad === undefined ? {} : { writeRoad }),
   });
 
 const runtimeAdmin = (kind: string): ActionDeclaration =>
@@ -82,10 +85,6 @@ const runtimeAdmin = (kind: string): ActionDeclaration =>
     residency: runtimeResidency,
     receiptSettlement: "none",
   });
-
-/** Publication families consumed by the write-road coverage check, on the action authority itself. */
-const writeRoad = (road: NonNullable<ActionDeclaration["writeRoad"]>, action: ActionDeclaration): ActionDeclaration =>
-  Object.freeze({ ...action, writeRoad: road });
 
 /**
  * The built-in non-read action inventory. Protocol descriptors are checked against these rows;
@@ -100,19 +99,19 @@ export const actionDeclarations = Object.freeze([
   hostAdmin("daemon-connection-probe"),
   hostAdmin("daemon-connection-remove"),
   hostAdmin("daemon-connection-update"),
-  writeRoad("workspace.bootstrap", hostAdmin("ledger-backup")),
-  writeRoad("workspace.bootstrap", hostAdmin("ledger-restore-drill")),
+  hostAdmin("ledger-backup", "workspace.bootstrap"),
+  hostAdmin("ledger-restore-drill", "workspace.bootstrap"),
   canonical("daemon-control-request", null, "admin"),
   canonical("daemon-fleet-center-start", null, "admin"),
   canonical("daemon-fleet-edge-sync", null, "admin"),
-  writeRoad("workspace.bootstrap", hostAdmin("daemon-repo-register")),
-  writeRoad("workspace.bootstrap", canonical("repo-purge", null, "admin")),
-  writeRoad("workspace.bootstrap", hostAdmin("repo-unbind")),
+  hostAdmin("daemon-repo-register", "workspace.bootstrap"),
+  canonical("repo-purge", null, "admin", undefined, undefined, "workspace.bootstrap"),
+  hostAdmin("repo-unbind", "workspace.bootstrap"),
   hostAdmin("daemon-repo-update"),
   hostAdmin("daemon-service-install"),
   hostAdmin("daemon-service-uninstall"),
-  writeRoad("daemon.runtime-control", canonical("daemon-start", null, "admin")),
-  writeRoad("daemon.runtime-control", canonical("daemon-stop", null, "admin")),
+  canonical("daemon-start", null, "admin", undefined, undefined, "daemon.runtime-control"),
+  canonical("daemon-stop", null, "admin", undefined, undefined, "daemon.runtime-control"),
   canonical("decision-accept", "decision/accept", "repo-write"),
   canonical("decision-amend", "decision/amend", "repo-write"),
   canonical("decision-claim-add", "decision/declare-claim", "repo-write"),
@@ -159,11 +158,11 @@ export const actionDeclarations = Object.freeze([
   canonical("preset-uninstall", null, "repo-write", "none"),
   canonical("preset-upgrade", null, "repo-write"),
   canonical("projection-rebuild", null, "repo-write", "none"),
-  writeRoad("workspace.bootstrap", hostAdmin("rbac-bootstrap")),
+  hostAdmin("rbac-bootstrap", "workspace.bootstrap"),
   canonical("relation-reconfirm", "relation/reconfirm", "repo-write"),
   canonical("relation-relate", "relation/relate", "repo-write"),
   canonical("relation-unrelate", "relation/unrelate", "repo-write"),
-  writeRoad("workspace.bootstrap", canonical("repo-bootstrap", null, "admin")),
+  canonical("repo-bootstrap", null, "admin", undefined, undefined, "workspace.bootstrap"),
   canonical("runtime-batch", null, "repo-write"),
   canonical("runtime-cancel", null, "repo-write"),
   runtimeAdmin("runtime-instance-create"),
@@ -202,9 +201,9 @@ export const actionDeclarations = Object.freeze([
   canonical("task-attest", null, "repo-write"),
   canonical("task-code-doc-reconcile", "task/reconcile", "repo-write"),
   canonical("task-code-doc-repoint", "task/repoint", "repo-write"),
-  writeRoad("lifecycle.event-publication", closure("task-complete", "task/complete")),
+  closure("task-complete", "task/complete", "lifecycle.event-publication"),
   canonical("task-contract-migrate", "task/contract-migrate", "repo-write"),
-  writeRoad("lifecycle.event-publication", canonical("task-create", "task/create", "repo-write")),
+  canonical("task-create", "task/create", "repo-write", undefined, undefined, "lifecycle.event-publication"),
   canonical("task-declare-executor", null, "repo-write"),
   canonical("task-delete", "task/delete", "repo-write"),
   canonical("task-dispatch-review", null, "repo-write", "none"),
@@ -215,10 +214,10 @@ export const actionDeclarations = Object.freeze([
   canonical("task-reopen", "task/reopen", "repo-write"),
   closure("task-adjudicate", "task/adjudicate"),
   closure("task-review-consent", "task/consent"),
-  writeRoad("lifecycle.event-publication", canonical("task-review-execution", "task/review", "arbiter")),
+  canonical("task-review-execution", "task/review", "arbiter", undefined, undefined, "lifecycle.event-publication"),
   canonical("task-settle", null, "repo-write"),
   canonical("task-start", "task/start", "repo-write"),
-  writeRoad("lifecycle.event-publication", canonical("task-submit", "task/submit", "repo-write")),
+  canonical("task-submit", "task/submit", "repo-write", undefined, undefined, "lifecycle.event-publication"),
   canonical("task-supersede", "task/supersede", "repo-write"),
   canonical("task-transition", "task/transition", "repo-write"),
   canonical("task-unpin", null, "repo-write"),
