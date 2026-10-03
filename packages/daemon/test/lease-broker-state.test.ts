@@ -89,3 +89,73 @@ test("completed commands persist receipts without copying them into coordination
     broker.close();
   }
 });
+
+for (const revoked of [true, false])
+  test(`delivery preparation rechecks ${revoked ? "assignment before enqueue" : "authorization after transfer"}`, async () => {
+    const stateRoot = mkdtempSync(path.join(tmpdir(), "ha-delivery-broker-"));
+    const assignment = {
+      nodeId: "node-one",
+      assignmentId: "assignment-one",
+      repoId: "repo-one",
+      scope: { kind: "task", taskId: "task-one", executionId: "execution-one", paths: ["tasks"] },
+      viewId: "view-one",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    } as const;
+    let transferred = false,
+      writes = 0,
+      changed = false;
+    const broker = openFleetLeaseBroker({
+      stateRoot,
+      resolveAssignment: () => (revoked && changed ? null : assignment),
+      now: () => "2026-10-03T00:00:00.000Z",
+      auth: async () => {
+        if (changed) throw Object.assign(new Error("owner changed during transfer"), { code: "authorization_denied" });
+        return {};
+      },
+      prepareTaskSubmit: async (_assignment, action) => {
+        transferred = true;
+        changed = true;
+        return action;
+      },
+      host: {
+        run: async (_repo, action) => {
+          if (action.kind === "task-show")
+            return {
+              outcome: "applied",
+              evidence: JSON.stringify({
+                lease: {
+                  executionId: "execution-one",
+                  phase: "held",
+                  expiresAt: assignment.expiresAt,
+                  source: { kind: "assignment", nodeId: assignment.nodeId, assignmentId: assignment.assignmentId },
+                },
+              }),
+            } as never;
+          writes += 1;
+          return { outcome: "applied" } as never;
+        },
+      },
+    });
+    try {
+      const result = broker.handleTaskCommand(
+        assignment.nodeId,
+        {
+          schema: "fleet.task.command/v1",
+          assignmentId: assignment.assignmentId,
+          repoId: assignment.repoId,
+          taskId: assignment.scope.taskId,
+          action: { kind: "task-submit", taskId: assignment.scope.taskId },
+          opId: "delivery-one",
+          docChanges: null,
+          mirrorBaseCut: null,
+        } as never,
+        () => false,
+      );
+      if (revoked) assert.equal((await result).code, "assignment_rejected");
+      else await assert.rejects(result, /owner changed during transfer/u);
+      assert.equal(transferred, true);
+      assert.equal(writes, 0, "no submission enters the repository queue on stale early authorization");
+    } finally {
+      broker.close();
+    }
+  });
