@@ -40,7 +40,7 @@ export async function waitForRuntimeSessions(
       // daemon-side await is the settle authority either way.
       const initial = await readDaemonSubscription(
         async () => {
-          statusReader ??= await openRuntimeStatusReader(command, singleId, target);
+          statusReader ??= await openRuntimeStatusReader(command, singleId);
           return statusReader.read();
         },
         () => {

@@ -84,6 +84,7 @@ const fleetRuntimeMethods = [
   "repo.agentRuntime.cancel",
   "repo.agentRuntime.overview",
   "repo.agentRuntime.sessions.read",
+  "repo.agentRuntime.sessions.await",
 ] as const;
 
 function hasCommandDescriptor(actionKind: string): boolean {
