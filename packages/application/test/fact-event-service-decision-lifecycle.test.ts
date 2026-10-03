@@ -35,21 +35,20 @@ test("Decision transition matrix, transport arbiter, claims, historical relation
         kind: "decision-accept",
         target: "decision/dec_FIXTURE",
         actor,
-        authorizationRef: "default@5",
+        authorizationRef: "keycloak-policy@1",
         idempotencyKey: "decision-self-judgment",
       },
       {
-        roleBindings: [
-          {
-            actor: { kind: "person", id: actor.principal.personId },
-            role: "repo-write",
-            target: "settings/repository",
-            source: "declared",
-            expiresAt: null,
-          },
-        ],
-        roleBindingTargets: ["settings/repository"],
-        target: { proposalActor: actor },
+        decision: {
+          policyRef: "keycloak-policy@1",
+          actor,
+          subject: "decision/dec_FIXTURE",
+          bindingsUsed: [{ authority: "keycloak", scope: "decision-accept" }],
+          outcome: "allowed",
+          reasonCodes: [],
+          nextActions: [],
+          evaluatedAtCut: "canonical:1",
+        },
         evaluatedAtCut: "canonical:1",
       },
     );

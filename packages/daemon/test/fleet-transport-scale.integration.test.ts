@@ -1,8 +1,9 @@
 // harness-test-tier: integration
+import { signInAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test, { type TestContext } from "node:test";
@@ -147,14 +148,6 @@ function git(rootDir: string, ...args: string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
 }
 
-function writePeopleFixture(rootDir: string): void {
-  const ownerUid = process.getuid?.() ?? 0;
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "fleet-fixture", displayName: "Fleet Fixture", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(ownerUid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
-  );
-}
-
 function localAuthFixture() {
   return {
     transportKind: "unix-socket" as const,
@@ -217,7 +210,7 @@ async function scaleFixture(t: TestContext) {
       path.join(repo.rootDir, "harness/harness.yaml"),
       `schema: harness-anything/v1\nname: ${repo.repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
     );
-    writePeopleFixture(repo.rootDir);
+
     git(repo.rootDir, "add", "harness");
     git(repo.rootDir, "commit", "-qm", "harness");
     registerDaemonRepo({ canonicalRoot: repo.rootDir, repoId: repo.repoId, userRoot, createConvenienceLinks: false });
@@ -263,6 +256,7 @@ async function scaleFixture(t: TestContext) {
       }
     }
   });
+  signInAt(userRoot, "fleet-owner");
   await host.attachmentsSettled();
   const drafts = Array.from({ length: 45 }, (_, index) => {
       const repo = repos[index % repos.length]!,

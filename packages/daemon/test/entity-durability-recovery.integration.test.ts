@@ -636,7 +636,7 @@ const binding = withPolicyGroup(
     },
     source: "local",
   },
-  "repo-write",
+  "contributor",
 );
 const reader = () => makeTaskEventReader({ repoId, rootDir });
 const acceptedEntityEvents = () => reader().read().events.filter((event) => event.schema === "entity-event/v1");

@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
@@ -12,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { signInAt, signOutAt, spawnKeycloak } from "../../daemon/test/keycloak.fixtures.ts";
@@ -35,6 +37,14 @@ test(
       // The center's node registry lives in Keycloak: the node is registered to a person who holds the
       // sync action on this repository, and Keycloak mints the machine credential.
       realm.bind(fixture.centerUser);
+      await realm.control({ op: "account", personId: "owner" });
+      await realm.control({
+        op: "permit",
+        personId: "owner",
+        resource: "fleet-demo",
+        actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+      });
+      signInAt(fixture.centerUser, "owner");
       await realm.control({ op: "account", personId: "edge-operator" });
       await realm.control({
         op: "permit",
@@ -299,10 +309,16 @@ test(
         "the edge-authored 950-character plan body lands at the center byte-for-byte",
       );
     } finally {
-      stop(fixture, "center");
-      stop(fixture, "edge");
-      realm.close();
-      rmSync(fixture.root, { recursive: true, force: true });
+      try {
+        stop(fixture, "center");
+      } finally {
+        try {
+          stop(fixture, "edge");
+        } finally {
+          realm.close();
+          rmSync(fixture.root, { recursive: true, force: true });
+        }
+      }
     }
   },
 );
@@ -314,10 +330,18 @@ test(
   "a clean edge node completes its first sync on the machine credential the center issued",
   { timeout: 180_000 },
   async () => {
-    const fixture = setup({ cleanEdge: true }),
+    const fixture = setup(),
       realm = await spawnKeycloak();
     try {
       realm.bind(fixture.centerUser);
+      await realm.control({ op: "account", personId: "owner" });
+      await realm.control({
+        op: "permit",
+        personId: "owner",
+        resource: "fleet-demo",
+        actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+      });
+      signInAt(fixture.centerUser, "owner");
       assert.equal(existsSync(path.join(fixture.edgeRepo, "harness", "people.yaml")), false);
       assert.equal(run(fixture, "center", ["daemon", "start", "--service"]).ok, true);
       register(fixture);
@@ -461,10 +485,16 @@ test(
       assert.equal(JSON.stringify(wrong).includes(credential), false);
       assert.deepEqual((await logins()).at(-1), { clientId: "harness-node-edge-one", ok: false });
     } finally {
-      stop(fixture, "center");
-      stop(fixture, "edge");
-      realm.close();
-      rmSync(fixture.root, { recursive: true, force: true });
+      try {
+        stop(fixture, "center");
+      } finally {
+        try {
+          stop(fixture, "edge");
+        } finally {
+          realm.close();
+          rmSync(fixture.root, { recursive: true, force: true });
+        }
+      }
     }
   },
 );
@@ -491,7 +521,7 @@ function readCutFile(viewRoot: string, revision: number, logical: string): strin
     "utf8",
   );
 }
-function setup(options: { readonly cleanEdge?: boolean } = {}): {
+function setup(): {
   root: string;
   repo: string;
   edgeRepo: string;
@@ -518,16 +548,6 @@ function setup(options: { readonly cleanEdge?: boolean } = {}): {
   mkdirSync(edgeUser);
   writeFileSync(path.join(repo, "harness", "harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
   writeFileSync(path.join(edgeRepo, "harness", "harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
-  writeFileSync(
-    path.join(repo, "harness", "people.yaml"),
-    `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Fleet Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`,
-    "utf8",
-  );
-  if (!options.cleanEdge)
-    writeFileSync(
-      path.join(edgeRepo, "harness", "people.yaml"),
-      readFileSync(path.join(repo, "harness", "people.yaml")),
-    );
   git(repo, "init", "--quiet");
   git(repo, "config", "user.name", "Fleet CLI Test");
   git(repo, "config", "user.email", "fleet-cli@example.test");
@@ -821,8 +841,9 @@ test("stale-build state remains structured in JSON and visible in human receipts
   assert.match(human.text, /task created.*warning:.*old build build-a.*3 live runtime session/su);
 });
 
-test("daemon control reports Git follower failure while SQLite keeps accepting commands", () => {
+test("daemon control reports Git follower failure while SQLite keeps accepting commands", async () => {
   const fixture = receiptSetup();
+  await signInProcessPolicyTestUser(fixture.userRoot, "owner", ["receipt"], "admin");
   let refLock: string | null = null;
   const indexLock = path.join(fixture.repo, ".git", "index.lock");
   try {
@@ -926,10 +947,6 @@ function receiptSetup(): { readonly root: string; readonly repo: string; readonl
       "  defaultPreset: standard-task",
       "",
     ].join("\n"),
-  );
-  writeFileSync(
-    path.join(repo, "harness", "people.yaml"),
-    `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`,
   );
   receiptGit(repo, "init", "--quiet");
   receiptGit(repo, "add", "harness");

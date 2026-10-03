@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { openDaemonHost } from "../../../packages/daemon/src/daemon-host.ts";
 import { openRuntimeInstanceStore } from "../../../packages/daemon/src/agent-runtime-instances.ts";
@@ -299,40 +299,11 @@ function initHarnessRepo(rootDir, name) {
     path.join(rootDir, "harness/harness.yaml"),
     `schema: harness-anything/v1\nname: ${name}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
   );
-  writePeople(rootDir);
+
   git(rootDir, "add", "harness");
   git(rootDir, "commit", "-qm", "harness");
   git(rootDir, "remote", "add", "origin", rootDir);
   git(rootDir, "fetch", "-q", "origin", "main");
-}
-
-function writePeople(rootDir) {
-  const ownerUid = process.getuid?.() ?? 0;
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify(
-      {
-        schema: "harness-people/v1",
-        people: [
-          {
-            personId: "fleet-stress",
-            displayName: "Fleet Stress",
-            roles: ["owner"],
-            credentials: [
-              {
-                kind: "unix-socket-owner-boundary",
-                issuer: `host:${hostname()}`,
-                subject: String(ownerUid),
-              },
-            ],
-          },
-        ],
-        roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }],
-      },
-      null,
-      2,
-    )}\n`,
-  );
 }
 
 function makeCertificate(keyFile, certFile) {

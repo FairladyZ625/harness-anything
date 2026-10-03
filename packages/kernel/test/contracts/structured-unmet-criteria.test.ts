@@ -2,27 +2,20 @@
 import { rejectedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { authorizationPort, type ActionEnvelope, type AuthorizationContext } from "../../src/index.ts";
+import { type AuthorizationDecision } from "../../src/index.ts";
 import { validateWriteReceipt, type WriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
 
 const actor = { principal: { personId: "person-criteria" }, executor: null } as const;
-const authorizationDecision = authorizationPort.authorize(
-  {
-    actionId: "action-criteria",
-    kind: "task-start",
-    target: "task/task-criteria",
-    actor,
-    idempotencyKey: "criteria",
-  } satisfies ActionEnvelope,
-  {
-    defaultBinding: { principalPersonId: actor.principal.personId, source: "local" },
-    roleBindingTargets: ["settings/repository"],
-    evaluatedAt: "2026-09-01T00:00:00.000Z",
-    evaluatedAtCut: "canonical:7",
-    writeSource: "local",
-    target: {},
-  } satisfies AuthorizationContext,
-);
+const authorizationDecision: AuthorizationDecision = {
+  policyRef: "keycloak-policy@1",
+  actor,
+  subject: "task/task-criteria",
+  outcome: "allowed",
+  bindingsUsed: [{ authority: "keycloak", scope: "task-start" }],
+  reasonCodes: ["keycloak_allowed"],
+  nextActions: [],
+  evaluatedAtCut: "canonical:7",
+};
 
 const criterion = {
   ref: "task-lifecycle-command-transitions/canStartExecution",

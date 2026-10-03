@@ -1,10 +1,11 @@
 #!/usr/bin/env node
+import { signInProcessPolicyTestUser } from "./keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonProcessAlive } from "../src/daemon-singleton.ts";
@@ -22,7 +23,8 @@ export async function reproduceRegistrySqliteRestart(arm, options = {}) {
     repoId = `registry-wal-${arm}`,
     daemonId = `registry-wal-${arm}`,
     fixture = { fixtureRoot, rootDir, userRoot, repoId, daemonId };
-  rosterRepo(rootDir, repoId);
+  initializeRepo(rootDir, repoId);
+  await signInProcessPolicyTestUser(userRoot, "writer", [repoId], "admin");
   await registerSettledBootstrappedDaemonRepo({
     canonicalRoot: rootDir,
     repoId,
@@ -178,7 +180,7 @@ async function waitForPublication(fixture, opId) {
   const receipt = runCli(fixture, ["receipt", "show", opId, "--wait", "worktree_visible", "--timeout-ms", "30000"]);
   assert.equal(receipt.worktree.state, "verified", JSON.stringify(receipt));
 }
-function rosterRepo(rootDir, repoId) {
+function initializeRepo(rootDir, repoId) {
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   git(rootDir, "init", "--quiet");
   git(rootDir, "config", "user.name", "Registry WAL Daemon Test");
@@ -195,27 +197,7 @@ function rosterRepo(rootDir, repoId) {
       "",
     ].join("\n"),
   );
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify({
-      schema: "harness-people/v1",
-      people: [
-        {
-          personId: "writer",
-          displayName: "writer",
-          roles: ["writer"],
-          credentials: [
-            {
-              kind: "unix-socket-owner-boundary",
-              issuer: `host:${hostname()}`,
-              subject: String(process.getuid?.() ?? 0),
-            },
-          ],
-        },
-      ],
-      roles: [{ roleId: "writer", commandClasses: ["repo-read", "repo-write", "admin"] }],
-    })}\n`,
-  );
+
   git(rootDir, "add", "harness");
   git(rootDir, "commit", "--quiet", "-m", "fixture base");
 }

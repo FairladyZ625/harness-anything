@@ -4,7 +4,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getExecutableEntityAction, personActionUsage } from "../../src/index.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
-import { validateExecutionDelegationEvent } from "../../src/domain/execution-delegation-event.ts";
+import {
+  validateExecutionDelegationEvent,
+  validateCurrentExecutionDelegationEvent,
+} from "../../src/domain/execution-delegation-event.ts";
 
 const now = "2026-09-19T10:00:00.000Z",
   issuer = { principal: { personId: "person_owner" }, executor: null },
@@ -86,8 +89,8 @@ test("audit event rejects capability data so the ledger cannot become an authori
     payload: { tokenId: "det_contract", operation: "issue" },
   };
   assert.deepEqual(validateExecutionDelegationEvent(event), []);
-  assert.ok(
-    validateExecutionDelegationEvent({ ...event, payload: { ...event.payload, allowedActions: ["task-amend"] } })
-      .length,
-  );
+  assert.deepEqual(validateCurrentExecutionDelegationEvent(event), []);
+  const capability = { ...event, payload: { ...event.payload, allowedActions: ["task-amend"] } };
+  assert.deepEqual(validateExecutionDelegationEvent(capability), [], "historical envelopes remain readable");
+  assert.ok(validateCurrentExecutionDelegationEvent(capability).length, "new writes cannot store capability data");
 });

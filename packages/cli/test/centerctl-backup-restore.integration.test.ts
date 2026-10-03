@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -111,10 +112,11 @@ test("center bootstrap chain: backup, offline restore, remote-center register, r
     run(center, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });
   });
+  await signInProcessPolicyTestUser(source.userRoot, "center-restore-owner", [repoId], "admin");
   mkdirSync(source.root, { recursive: true });
 
   // Seed the source exactly the way an operator's repository is born: `ha init` scaffolds the
-  // authored ledger (including this host's local credential), then real writes flow through the
+  // authored ledger; the signed-in Keycloak account authorizes real writes through the
   // resident daemon.
   applied(source, [
     "--root",
@@ -217,6 +219,7 @@ test("center bootstrap chain: backup, offline restore, remote-center register, r
 
   // The centerctl sequence: start the center daemon, register the restored root as
   // remote-center, wait for attach, and prove the projection rebuild lands on the exact cut.
+  await signInProcessPolicyTestUser(center.userRoot, "center-restore-owner", [repoId], "admin");
   receiptOf(center, ["daemon", "start", "--service"]);
   applied(center, [
     "daemon",
@@ -263,6 +266,7 @@ test("restore refuses an existing center root and a tampered backup", async (t) 
     run(source, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });
   });
+  await signInProcessPolicyTestUser(source.userRoot, "center-restore-owner", [repoId], "admin");
   mkdirSync(source.root, { recursive: true });
   applied(source, [
     "--root",
@@ -371,6 +375,7 @@ test("centerctl restore admission: a rejected backup never materializes and a re
     run(source, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });
   });
+  await signInProcessPolicyTestUser(source.userRoot, "center-restore-owner", [repoId], "admin");
   mkdirSync(source.root, { recursive: true });
   applied(source, [
     "--root",

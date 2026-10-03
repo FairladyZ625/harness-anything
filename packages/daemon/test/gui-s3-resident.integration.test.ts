@@ -1,7 +1,8 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import net from "node:net";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -96,6 +97,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
       `if (process.argv[2] === "--version") console.log("resident-runtime-stub 1.0.0");\nprocess.exit(0);\n`,
     ),
     uid = process.getuid?.() ?? 0;
+  signInPolicyTestUser(userRoot, "writer", ["alpha", "beta"], "admin");
   initRepo(alpha, "alpha", uid);
   initRepo(beta, "beta", uid);
   registerDaemonRepo({ canonicalRoot: alpha, repoId: "alpha", userRoot, createConvenienceLinks: false });
@@ -354,7 +356,7 @@ function terminalOutput(frames: readonly Record<string, unknown>[]): string {
     .map((frame) => frame.utf8)
     .join("");
 }
-function initRepo(root: string, repoId: string, uid: number): void {
+function initRepo(root: string, repoId: string, _uid: number): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   git(root, "init", "-q");
   git(root, "config", "user.name", "S3 Resident");
@@ -363,10 +365,7 @@ function initRepo(root: string, repoId: string, uid: number): void {
     path.join(root, "harness/harness.yaml"),
     `schema: harness-anything/v1\nname: ${repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
   );
-  writeFileSync(
-    path.join(root, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "owner", displayName: "Owner", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }] }], roles: [{ roleId: "owner", commandClasses: ["repo-read", "repo-write", "admin", "arbiter"] }] }, null, 2)}\n`,
-  );
+
   git(root, "add", "harness");
   git(root, "commit", "-qm", "fixture");
 }

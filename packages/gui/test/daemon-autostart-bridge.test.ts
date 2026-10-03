@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,6 +35,7 @@ test("GUI bridge is attach-only even when its first request finds no daemon", as
   process.env.HARNESS_DAEMON_ID = daemonId;
   delete process.env.HARNESS_DAEMON_ENDPOINT;
   process.env.TMPDIR = "/tmp";
+  signInPolicyTestUser(userRoot, "person-gui", [daemonId], "admin");
   const daemon = resident(await startDaemon({ daemonId, userRoot }));
   try {
     assert.equal(
@@ -77,6 +79,7 @@ test("GUI bridge reuses a resident daemon and does not respawn it after an expli
   process.env.HARNESS_DAEMON_ID = daemonId;
   delete process.env.HARNESS_DAEMON_ENDPOINT;
   process.env.TMPDIR = "/tmp";
+  signInPolicyTestUser(userRoot, "person-gui", [daemonId], "admin");
   const daemon = resident(await startDaemon({ daemonId, userRoot }));
   try {
     assert.equal(

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
+import { signInProcessPolicyTestUser } from "../../../packages/daemon/test/keycloak-process-policy.fixtures.ts";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
 import path from "node:path";
 import { makeTaskEventReader } from "../../../packages/kernel/src/index.ts";
 import { localUserDaemonEndpoint } from "../../../packages/daemon/src/client/local-daemon-target.ts";
@@ -27,7 +27,8 @@ export async function runRegistryChangeoverScenario(root) {
     repoRoot = path.join(registryRoot, "repo"),
     baseUserRoot = path.join(registryRoot, "user-base"),
     repoId = "stress-s3-registry";
-  rosterRepo(repoRoot, repoId);
+  initializeRepo(repoRoot, repoId);
+
   registerBootstrappedDaemonRepo({
     canonicalRoot: repoRoot,
     repoId,
@@ -175,7 +176,7 @@ export async function runRuntimeOwnershipScenario(root) {
 
 export async function runMultiClientScenario(root) {
   mkdirSync(root, { recursive: true });
-  const fixture = cliFixture(root, "stress-s3-multi-client"),
+  const fixture = await cliFixture(root, "stress-s3-multi-client"),
     env = fixture.env;
   runCli(fixture.repoRoot, env, ["daemon", "start", "--service"]);
   try {
@@ -270,7 +271,8 @@ async function runLiveBuildDrain(root) {
     daemonId = `stress-live-drift-${randomUUID()}`,
     endpoint = localUserDaemonEndpoint(userRoot, daemonId),
     repoId = "stress-live-build-drain";
-  rosterRepo(repoRoot, repoId);
+  initializeRepo(repoRoot, repoId);
+  await signInProcessPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: repoRoot, repoId, userRoot, createConvenienceLinks: false });
   let lifecycle, first, second;
   try {
@@ -330,7 +332,7 @@ async function runLiveBuildDrain(root) {
 }
 
 async function runLiveRuntimeRestart(root) {
-  const fixture = cliFixture(root, "stress-s3-runtime"),
+  const fixture = await cliFixture(root, "stress-s3-runtime"),
     binRoot = path.join(root, "bin"),
     release = path.join(root, "provider-release");
   mkdirSync(binRoot, { recursive: true });
@@ -430,12 +432,13 @@ async function runLiveRuntimeRestart(root) {
   }
 }
 
-function cliFixture(root, repoId) {
+async function cliFixture(root, repoId) {
   const repoRoot = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
     daemonId = `${repoId}-${randomUUID()}`,
     inherited = { ...process.env };
   for (const key of Object.keys(inherited)) if (key.startsWith("HARNESS_")) delete inherited[key];
+  await signInProcessPolicyTestUser(userRoot, "owner", [repoId], "admin");
   mkdirSync(repoRoot, { recursive: true });
   return {
     repoId,
@@ -468,7 +471,7 @@ function writeHoldingProvider(target, release) {
   );
 }
 
-function rosterRepo(root, repoId) {
+function initializeRepo(root, repoId) {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   git(root, "init", "--quiet");
   git(root, "config", "user.name", "Stress Registry Test");
@@ -478,27 +481,7 @@ function rosterRepo(root, repoId) {
     path.join(root, "harness/harness.yaml"),
     `schema: harness-anything/v1\nname: ${repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
   );
-  writeFileSync(
-    path.join(root, "harness/people.yaml"),
-    `${JSON.stringify({
-      schema: "harness-people/v1",
-      people: [
-        {
-          personId: "writer",
-          displayName: "writer",
-          roles: ["writer"],
-          credentials: [
-            {
-              kind: "unix-socket-owner-boundary",
-              issuer: `host:${hostname()}`,
-              subject: String(process.getuid?.() ?? 0),
-            },
-          ],
-        },
-      ],
-      roles: [{ roleId: "writer", commandClasses: ["repo-read", "repo-write", "admin"] }],
-    })}\n`,
-  );
+
   git(root, "add", "harness");
   git(root, "commit", "--quiet", "-m", "fixture base");
 }

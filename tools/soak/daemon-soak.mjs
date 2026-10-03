@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
+import { serveKeycloak, signInAt } from "../../packages/daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "../../packages/kernel/src/index.ts";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -277,7 +279,7 @@ async function runSoak(config = readConfig()) {
   const hermetic = assessHermeticConfig({ userRoot, daemonId, userRootSource: "flag" });
   if (!hermetic.ok) throw new Error(`soak fixture is not hermetic: ${hermetic.failures.join("; ")}`);
   mkdirSync(resultsDir, { recursive: true });
-  let child, detach, rejectServer;
+  let child, detach, rejectServer, realm;
   const daemonOutput = [];
   try {
     console.log(`[soak] hermetic user-root=${userRoot} daemon-id=${daemonId}`);
@@ -289,6 +291,11 @@ async function runSoak(config = readConfig()) {
         `(legacy snapshot -> operator conversion -> activated generation ${conversion.generation}, revision ${conversion.revision})`,
     );
 
+    realm = await serveKeycloak();
+    realm.keycloak.account("person-soak");
+    realm.keycloak.permit("person-soak", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
+    realm.bind(userRoot);
+    signInAt(userRoot, "person-soak");
     const launch = daemonServeLaunch({ userRoot, daemonId, home });
     child = spawn(launch.command, launch.args, { cwd: repoRoot, env: launch.env, stdio: ["ignore", "pipe", "pipe"] });
     for (const stream of [child.stdout, child.stderr])
@@ -421,6 +428,7 @@ async function runSoak(config = readConfig()) {
     detach?.();
     if (rejectServer) await closeServer(rejectServer).catch(() => undefined);
     await stopChild(child);
+    await realm?.close();
     if (!existsSync(path.join(resultsDir, "daemon-output.log")))
       writeFileSync(path.join(resultsDir, "daemon-output.log"), renderDaemonOutput(daemonOutput), "utf8");
     rmSync(parent, { recursive: true, force: true });
@@ -435,11 +443,7 @@ function initializeFixture({ rootDir, userRoot, repoId, events }) {
     `schema: harness-anything/v1\nname: ${repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
     "utf8",
   );
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `schema: harness-people/v1\npeople:\n  - personId: person-soak\n    displayName: Nightly Soak\n    primaryEmail: soak@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`,
-    "utf8",
-  );
+
   for (const event of events) {
     const target = path.join(rootDir, eventObjectTarget(event.opId));
     mkdirSync(path.dirname(target), { recursive: true });

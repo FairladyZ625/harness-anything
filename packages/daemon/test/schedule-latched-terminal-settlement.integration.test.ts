@@ -5,7 +5,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { withPolicyGroup, grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
+import {
+  withPolicyGroup,
+  grantTestPolicyGroups,
+  policyTestCenter,
+  provisionPolicyTestRepository,
+} from "./keycloak-policy.fixtures.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
 import { makeTaskEventStore, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -51,7 +56,9 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
       writerEpoch = openPersistentWriterEpoch({ stateRoot: writerStateRoot, holderId }),
       lease = writerEpoch.acquire(repoId);
     writerEpoch.close();
+    provisionPolicyTestRepository(repoId);
     const cell = await openRepoCell({
+      keycloakCenter: policyTestCenter,
       repoId,
       rootDir: canonicalRoot(root),
       ownerId: holderId,
@@ -307,7 +314,9 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
       writerEpoch = openPersistentWriterEpoch({ stateRoot: writerStateRoot, holderId }),
       lease = writerEpoch.acquire(repoId);
     writerEpoch.close();
+    provisionPolicyTestRepository(repoId);
     const cell = await openRepoCell({
+      keycloakCenter: policyTestCenter,
       repoId,
       rootDir: canonicalRoot(root),
       ownerId: holderId,

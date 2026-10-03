@@ -85,6 +85,7 @@ for (const resource of [
   "executor-axis",
   "reinstate",
   "contract-receipt",
+  "contract-lifecycle",
   "autostart-fail",
 ])
   await realm.control({

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,6 +39,7 @@ test("runtime discovery write load keeps independent read clients within the sto
     };
   let discoveryCalls = 0;
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const host = await openDaemonHost({
       daemonId,
@@ -159,6 +161,7 @@ test("WAL Git materialization leaves an independent socket client within the iso
   process.env.HARNESS_WAL_FLUSH_MS = "60000";
   process.env.HARNESS_WAL_FLUSH_ADAPTIVE = "false";
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const host = await openDaemonHost({ daemonId, userRoot }),
     transport = createUnixSocketTransportServer({
@@ -229,6 +232,7 @@ test("sustained RepoWriterCell writes keep completed-cut reads within strict CH3
   process.env.HARNESS_WAL_FLUSH_MS = "60000";
   process.env.HARNESS_WAL_FLUSH_ADAPTIVE = "false";
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
   const host = await openDaemonHost({ daemonId, userRoot }),
     transport = createUnixSocketTransportServer({

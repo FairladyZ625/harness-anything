@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
 import path from "node:path";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { type RuntimeInstallationWitness } from "../../src/agent-runtime-instances.ts";
@@ -32,7 +31,7 @@ export const installation: RuntimeInstallationWitness = {
   observedAt: "2026-08-14T00:00:00.000Z",
 };
 
-export function initIngressRepo(root: string, uid: number): void {
+export function initIngressRepo(root: string, _uid: number): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   git(root, "init", "-q");
   git(root, "config", "user.name", "Spawn Test");
@@ -44,10 +43,7 @@ export function initIngressRepo(root: string, uid: number): void {
       "settings:\n  ci:\n    workflows: [rewrite-ci]\n" +
       "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n",
   );
-  writeFileSync(
-    path.join(root, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "owner", displayName: "Owner", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }] }], roles: [{ roleId: "owner", commandClasses: ["repo-read", "repo-write"] }] }, null, 2)}\n`,
-  );
+
   git(root, "add", "harness");
   git(root, "commit", "-qm", "fixture");
 }

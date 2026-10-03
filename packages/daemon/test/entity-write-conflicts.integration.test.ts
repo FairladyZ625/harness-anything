@@ -1,7 +1,8 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/kernel";
@@ -138,27 +139,8 @@ test("JSON-RPC returns domain conflicts during concurrent reads without recoveri
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness"));
   writeFileSync(path.join(rootDir, "source.md"), "RPC accepted bytes\n");
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    JSON.stringify({
-      schema: "harness-people/v1",
-      people: [
-        {
-          personId: "writer",
-          displayName: "Writer",
-          roles: ["writer"],
-          credentials: [
-            {
-              kind: "unix-socket-owner-boundary",
-              issuer: `host:${hostname()}`,
-              subject: String(process.getuid?.() ?? 0),
-            },
-          ],
-        },
-      ],
-      roles: [{ roleId: "writer", commandClasses: ["repo-read", "repo-write", "admin"] }],
-    }),
-  );
+
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   const prepared = await openBootstrappedRepoCell({
     repoId: workspaceId(repoId),
     rootDir: canonicalRoot(rootDir),

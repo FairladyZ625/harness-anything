@@ -1,9 +1,9 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -31,7 +31,8 @@ test("the daemon binds and serves status and queued commands before repository a
     attachmentStarted = deferred<void>();
   let daemon: RunningDaemon | undefined,
     attachmentReleased = false;
-  rosterRepo(rootDir, repoId);
+  initializeRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
     daemon = runningDaemon(
@@ -88,7 +89,8 @@ test("a drifted daemon exits on its own while a runtime session is live", async 
     buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"),
     repoId = "live-build-drain";
   let daemon: RunningDaemon | undefined;
-  rosterRepo(rootDir, repoId);
+  initializeRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
     daemon = runningDaemon(
@@ -167,7 +169,8 @@ test("a drifted daemon stays resident while a write is queued behind an unfinish
     attachmentStarted = deferred<void>();
   let daemon: RunningDaemon | undefined,
     attachmentReleased = false;
-  rosterRepo(rootDir, repoId);
+  initializeRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
     daemon = runningDaemon(
@@ -335,7 +338,7 @@ test("a stop whose repository drain stalls still exceeds its shutdown deadline",
     attachmentGate = deferred<void>(),
     deadlineExceeded = deferred<void>();
   let daemon: RunningDaemon | undefined;
-  rosterRepo(rootDir, daemonId);
+  initializeRepo(rootDir, daemonId);
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId: daemonId, userRoot, createConvenienceLinks: false });
   try {
     daemon = runningDaemon(
@@ -524,7 +527,8 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
         projection.close();
       }
     };
-  rosterRepo(rootDir, repoId);
+  initializeRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
     daemon = runningDaemon(
@@ -750,7 +754,8 @@ test("a superseded exit hands the slot over while a --wait client's parked await
         return false;
       }
     };
-  rosterRepo(rootDir, repoId);
+  initializeRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
     daemon = runningDaemon(
@@ -973,7 +978,8 @@ test("a parked --wait survives a drain that outlasts its settle re-read and stil
         return false;
       }
     };
-  rosterRepo(rootDir, repoId);
+  initializeRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
     daemon = runningDaemon(
@@ -1092,7 +1098,8 @@ test("autostart readiness is independent of a simulated 32 second canonical repo
   let daemon: RunningDaemon | undefined,
     daemonStart: Promise<RunningDaemon> | undefined,
     attachmentCompleted = false;
-  rosterRepo(rootDir, repoId);
+  initializeRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
     const endpoint = localUserDaemonEndpoint(userRoot, repoId),
@@ -1144,7 +1151,8 @@ test("a drain that rejects still releases the pid file and the singleton lock", 
     // The injected close never reaches the real cell, so the test owns closing it: otherwise its
     // worker thread keeps the test process alive after every assertion has passed.
     realCell: Awaited<ReturnType<typeof openBootstrappedRepoCell>> | undefined;
-  rosterRepo(rootDir, repoId);
+  initializeRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
     daemon = runningDaemon(
@@ -1196,7 +1204,8 @@ test("a pid file that cannot be removed still releases the singleton lock", asyn
     lockPath = daemonSingletonLockPath(userRoot, repoId),
     pidPath = daemonPidPath(userRoot, repoId);
   let daemon: RunningDaemon | undefined;
-  rosterRepo(rootDir, repoId);
+  initializeRepo(rootDir, repoId);
+  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
     daemon = runningDaemon(
@@ -1323,7 +1332,7 @@ function builtRuntime(runtimeRoot: string, buildId: string): string {
   return runtimeFile;
 }
 
-function rosterRepo(rootDir: string, repoId: string): void {
+function initializeRepo(rootDir: string, repoId: string): void {
   mkdirSync(rootDir, { recursive: true });
   git(rootDir, "init", "--quiet");
   git(rootDir, "config", "user.name", "Daemon Build Drain Test");
@@ -1335,33 +1344,9 @@ function rosterRepo(rootDir: string, repoId: string): void {
     path.join(rootDir, "harness/harness.yaml"),
     `schema: harness-anything/v1\nname: ${repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
   );
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify(
-      {
-        schema: "harness-people/v1",
-        people: [
-          {
-            personId: "writer",
-            displayName: "writer",
-            roles: ["writer"],
-            credentials: [
-              {
-                kind: "unix-socket-owner-boundary",
-                issuer: `host:${hostname()}`,
-                subject: String(process.getuid?.() ?? 0),
-              },
-            ],
-          },
-        ],
-        roles: [{ roleId: "writer", commandClasses: ["repo-read", "repo-write", "admin"] }],
-      },
-      null,
-      2,
-    )}\n`,
-  );
+
   git(rootDir, "add", "harness");
-  git(rootDir, "commit", "--quiet", "-m", "add roster fixture");
+  git(rootDir, "commit", "--quiet", "-m", "add repository fixture");
 }
 
 function git(rootDir: string, ...args: readonly string[]): string {
