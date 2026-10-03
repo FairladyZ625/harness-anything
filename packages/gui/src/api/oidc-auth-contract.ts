@@ -9,7 +9,13 @@ export const OIDC_BOOTSTRAP_ADMIN_CHANNEL = "harness:auth:bootstrap-admin";
 
 export type RbacBindingInput =
   | { readonly mode: "managed" }
-  | { readonly mode: "external"; readonly url: string; readonly realm: string; readonly clientId: string };
+  | {
+      readonly mode: "external";
+      readonly url: string;
+      readonly realm: string;
+      readonly clientId: string;
+      readonly clientSecret: string;
+    };
 
 export interface BootstrapAdminInput {
   readonly username: string;

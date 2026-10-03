@@ -53,12 +53,43 @@ describe("IdentityAccessView", () => {
     );
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
-    const values = ["https://127.0.0.1:9", "bogus", "ha-gui"];
+    const values = ["https://127.0.0.1:9", "bogus", "harness-center", "fixture-secret"];
     form!.querySelectorAll("input").forEach((input, index) => {
-      Object.defineProperty(input, "value", { configurable: true, value: values[index] });
+      input.value = values[index]!;
     });
     await act(async () => form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("bootstrap_failed: fetch failed");
+  });
+
+  it.each([false, true])("external secret is cleared on submit, including refusal=%s", async (reject) => {
+    let configured = false;
+    const configure = vi.fn(async () => {
+      expect(container.querySelector<HTMLInputElement>('input[name="clientSecret"]')!.value).toBe("");
+      if (reject) throw new Error("Credentials rejected");
+      configured = true;
+      return { ok: true };
+    });
+    await render(
+      auth({
+        configure,
+        bindingStatus: vi.fn(async () => (configured ? { mode: "external", ready: true } : { configured: false })),
+        bootstrapStatus: vi.fn(async () => ({ required: true })),
+      }),
+    );
+    const form = container.querySelector<HTMLFormElement>('[data-testid="external-binding-form"]')!;
+    form.querySelector<HTMLInputElement>('[name="url"]')!.value = "https://identity.example.test";
+    form.querySelector<HTMLInputElement>('[name="realm"]')!.value = "fleet";
+    const secret = form.querySelector<HTMLInputElement>('[name="clientSecret"]')!;
+    expect(secret.type).toBe("password");
+    secret.value = "fixture-write-only";
+    await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(configure).toHaveBeenCalledWith(
+      expect.objectContaining({ clientId: "harness-center", clientSecret: "fixture-write-only" }),
+      undefined,
+    );
+    expect(secret.value).toBe("");
+    expect(container.textContent).not.toContain("fixture-write-only");
+    expect(Boolean(container.querySelector('[data-testid="bootstrap-admin-form"]'))).toBe(!reject);
   });
 
   it("renders an unbound state and disables login when Keycloak is not configured", async () => {

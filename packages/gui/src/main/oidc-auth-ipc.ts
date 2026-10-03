@@ -80,6 +80,7 @@ export function registerOidcAuthIpc(
       url: input.url,
       realm: input.realm,
       clientId: input.clientId,
+      clientSecret: input.clientSecret,
       ...authTarget(rawInput),
     });
   });

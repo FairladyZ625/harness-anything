@@ -345,10 +345,13 @@ export class OidcSessionService {
     return run;
   }
 
-  /** D1: the original local socket may configure the listener only before the first administrator. */
-  changeListener<T>(operation: () => Promise<T>): Promise<T> {
+  /** D1: original-socket configuration is open until the first administrator exists. */
+  configureAuthority<T>(operation: () => Promise<T>): Promise<T> {
     return this.serialize(async () => {
-      if (!(await this.#bootstrapRequired(await this.#centerToken()))) {
+      if (
+        existsSync(path.join(this.#rbacRoot, "config.json")) &&
+        !(await this.#bootstrapRequired(await this.#centerToken()))
+      ) {
         // Already in the write queue: renew directly rather than enqueueing behind ourselves.
         const { session, unavailable } = await this.#useCurrent();
         if (unavailable) throw unavailable;

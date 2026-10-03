@@ -31,27 +31,67 @@ test("external Keycloak writes the connection contract only after probing the re
     const service = new ManagedRbacService(root, {
       fetch: (() => {
         fetches += 1;
-        return Promise.resolve(new Response("{}", { status: 200 }));
+        return Promise.resolve(Response.json({ access_token: "test-token" }));
       }) as typeof fetch,
     });
     const result = await service.run({
       mode: "external",
       url: "https://identity.example.test/",
       realm: "fleet",
-      clientId: "center",
+      clientId: "harness-center",
+      clientSecret: "test-center-secret",
     });
     assert.equal(result.mode, "external");
-    assert.equal(fetches, 1);
+    assert.equal(fetches, 3);
     const config = JSON.parse(readFileSync(path.join(root, "rbac", "config.json"), "utf8"));
     assert.deepEqual(
       { mode: config.mode, url: config.url, realm: config.realm, clientId: config.clientId },
-      { mode: "external", url: "https://identity.example.test", realm: "fleet", clientId: "center" },
+      { mode: "external", url: "https://identity.example.test", realm: "fleet", clientId: "harness-center" },
     );
     assert.deepEqual(config.versions, managedRbacVersions);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+for (const failure of ["token", "malformed", "missing", "admin"] as const) {
+  test(`external ${failure} refusal preserves the configured credentials without response disclosure`, async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-external-refusal-"));
+    let reject = false;
+    const service = new ManagedRbacService(root, {
+      fetch: async (url) => {
+        if (String(url).endsWith("/token")) {
+          if (reject && failure === "token") return new Response(null, { status: 401 });
+          if (reject && failure === "malformed") return new Response("candidate-secret");
+          return Response.json(reject && failure === "missing" ? null : { access_token: "test-token" });
+        }
+        return Response.json([], {
+          status: reject && failure === "admin" && String(url).includes("/admin/") ? 403 : 200,
+        });
+      },
+    });
+    const config = {
+      mode: "external",
+      url: "https://identity.example.test",
+      realm: "fleet",
+      clientId: "harness-center",
+    } as const;
+    try {
+      await service.run({ ...config, clientSecret: "original-secret" });
+      const configFile = path.join(root, "rbac", "config.json"),
+        before = readFileSync(configFile, "utf8");
+      reject = true;
+      await assert.rejects(service.run({ ...config, clientSecret: "candidate-secret" }), (error: unknown) => {
+        assert.equal(String(error).includes("candidate-secret"), false);
+        return (error as { code: string }).code === "rbac_external_credentials_rejected";
+      });
+      assert.equal(readFileSync(configFile, "utf8"), before);
+      assert.equal(readFileSync(path.join(root, "rbac", "center-client-secret"), "utf8") === "original-secret", true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test("failed external Keycloak probe does not replace the active configuration", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-probe-"));
@@ -60,7 +100,13 @@ test("failed external Keycloak probe does not replace the active configuration",
       fetch: (() => Promise.resolve(new Response(null, { status: 503 }))) as typeof fetch,
     });
     await assert.rejects(
-      service.run({ mode: "external", url: "https://identity.example.test", realm: "fleet", clientId: "center" }),
+      service.run({
+        mode: "external",
+        url: "https://identity.example.test",
+        realm: "fleet",
+        clientId: "harness-center",
+        clientSecret: "test-center-secret",
+      }),
       (error: unknown) => (error as { code?: string }).code === "rbac_external_probe_failed",
     );
     assert.equal(existsSync(path.join(root, "rbac", "config.json")), false);
@@ -74,7 +120,13 @@ test("external Keycloak rejects a non-loopback cleartext authority", async () =>
   try {
     const service = new ManagedRbacService(root);
     await assert.rejects(
-      service.run({ mode: "external", url: "http://identity.example.test", realm: "fleet", clientId: "center" }),
+      service.run({
+        mode: "external",
+        url: "http://identity.example.test",
+        realm: "fleet",
+        clientId: "harness-center",
+        clientSecret: "test-center-secret",
+      }),
       (error: unknown) => (error as { code?: string }).code === "rbac_external_url_insecure",
     );
   } finally {

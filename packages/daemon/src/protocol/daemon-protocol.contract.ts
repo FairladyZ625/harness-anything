@@ -143,6 +143,7 @@ export const daemonProtocolMethods = Object.freeze([
       url: "string?",
       realm: "string?",
       clientId: "string?",
+      clientSecret: "string?",
       backupDir: "string?",
       redirectUri: "string?",
       code: "string?",
