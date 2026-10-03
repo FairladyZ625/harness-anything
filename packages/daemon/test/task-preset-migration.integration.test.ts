@@ -85,7 +85,6 @@ test("explicit preset migration atomically freezes contract, gates and auditable
     );
     rebuilt.close();
     projection.close();
-    await reader.drain();
     const wait = await cell.run(
       {
         kind: "receipt-show",
@@ -101,8 +100,10 @@ test("explicit preset migration atomically freezes contract, gates and auditable
     );
     const started = await cell.run({ kind: "task-start", taskId, executionId: "execution_migrated" }, binding);
     assert.equal(started.outcome, "applied", JSON.stringify(started));
+    const leasedRevision = reader.read().revision;
     const leased = await cell.run({ ...action, toPresetId: "standard-task" }, binding);
     assert.equal(leased.code, "active_lease", JSON.stringify(leased));
+    assert.equal(reader.read().revision, leasedRevision, "lease rejection must not append an event");
     const released = await cell.run({ kind: "task-release", taskId }, binding);
     assert.equal(released.outcome, "applied", JSON.stringify(released));
     const cancelled = await cell.run(
@@ -118,6 +119,7 @@ test("explicit preset migration atomically freezes contract, gates and auditable
     assert.equal(cancelled.outcome, "applied", JSON.stringify(cancelled));
     const terminal = await cell.run({ ...action, toPresetId: "standard-task" }, binding);
     assert.equal(terminal.code, "terminal_task", JSON.stringify(terminal));
+    await reader.drain();
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

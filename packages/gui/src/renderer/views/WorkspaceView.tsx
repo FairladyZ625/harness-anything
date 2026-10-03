@@ -33,6 +33,8 @@ type WorkspaceTab = "overview" | "tasks" | "progress" | "decisions" | "graph" | 
 export interface WorkspaceViewProps {
   readonly scope: WorkspaceScopeRead;
   readonly repoId?: string;
+  /** 当前仓所属连接(system status 仓行);分割偏好按连接+仓隔离,缺省时仅会话内态。 */
+  readonly connectionId?: string | null;
   readonly projectName: string;
   /** 行点击进抽屉;抽屉里的「打开完整详情」仍走这里(工作根由共享路由落回本页)。 */
   readonly onOpenTask: (taskId: string) => void;
@@ -66,6 +68,7 @@ interface MemberRow {
 export function WorkspaceView({
   scope,
   repoId = "unselected",
+  connectionId = null,
   projectName,
   onOpenTask,
   tasks = [],
@@ -368,6 +371,8 @@ export function WorkspaceView({
 
           {tab === "overview" ? (
             <WorkOverview
+              connectionId={connectionId}
+              repoId={repoId}
               submitted={submitted}
               stalled={stalled}
               leaves={leafRows}

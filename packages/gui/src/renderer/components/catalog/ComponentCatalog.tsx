@@ -1,6 +1,6 @@
 import { DocReader } from "../DocReader.tsx";
 import { BinaryDocumentPreview } from "../BinaryDocumentPreview.tsx";
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, Fragment, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider, useTheme, type ThemeMode } from "../../theme.tsx";
 import { AppMotionConfig, useMotionPreference, type MotionPreference } from "../../motion-config.tsx";
@@ -11,6 +11,9 @@ import { DenseRow, RowTime } from "../primitives/DenseRow.tsx";
 import { Toggle } from "../primitives/Toggle.tsx";
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
+import { StepChain } from "../primitives/StepChain.tsx";
+import { ChainStrip } from "../primitives/ChainStrip.tsx";
+import { DayDigest } from "../primitives/DayDigest.tsx";
 import { Tabs } from "../primitives/Tabs.tsx";
 import { TabPanel } from "../primitives/EntryBoundary.tsx";
 import { Button } from "../primitives/Button.tsx";
@@ -152,6 +155,84 @@ function ComponentCatalog() {
             <StatusTag tone="neutral" mono label="session/live-conn" />
             <StatusTag status="active" mono label="运行中 · live" />
             <StatusTag tone="wait" label="等待" count={3} />
+          </div>
+        </section>
+        <section className="grid min-w-0 gap-3">
+          <h2 className="font-semibold ui-title">进展收束 / DayDigest · StepChain · ChainStrip</h2>
+          <p className="text-text-muted ui-meta">
+            按天收束的进展路径:长状态链(StepChain)单行呈现,超出宽度在链内部横向滚动,行高不随步骤数增长;窄容器(&lt;32rem,勾选顶部「窄容器」对比)下标题与状态链转上下两行,时间不拆行。溢出时链右缘出「›」提示、滚动区可键盘聚焦(方向键/Home/End
+            平移),不溢出时不进 tab 序。
+          </p>
+          <div className="min-w-0 rounded border border-border bg-surface/40 p-2">
+            <DayDigest
+              day="今天"
+              summary="3 条路径 · 长链与短链对照"
+              defaultOpen
+              paths={[
+                {
+                  time: "13:17",
+                  name: "回归循环修复布局塌陷",
+                  steps: Array.from({ length: 24 }, (_, index) =>
+                    index % 2 === 0
+                      ? { label: "提交", tone: "wait" as const }
+                      : { label: "打回重跑", tone: "bad" as const },
+                  ),
+                },
+                {
+                  time: "11:02",
+                  name: "短链样本",
+                  steps: [
+                    { label: "提交", tone: "wait" as const },
+                    { label: "合入", tone: "done" as const },
+                  ],
+                },
+                { time: "09:40", name: "没有步骤的生命周期记录", steps: [], ref: "execution-catalog-sample" },
+              ]}
+            />
+          </div>
+          <p className="text-text-muted ui-meta">StepChain 也可独立使用(详情卡等正文场景,占满容器宽单行横滚):</p>
+          <StepChain
+            steps={Array.from({ length: 16 }, (_, index) =>
+              index % 3 === 2
+                ? { label: `门禁通过 #${index + 1}`, tone: "done" as const }
+                : { label: `复跑 #${index + 1}`, tone: "active" as const },
+            )}
+          />
+          <p className="text-text-muted ui-meta">
+            ChainStrip 是同一横滚容器的链接链形态(决策取代链等):链接可点,滚动手势只滚链、不触发导航。
+          </p>
+          <div className="rounded border border-border bg-surface-raised/50 px-2.5 py-2 ui-micro flex items-center gap-1.5">
+            <ChainStrip testId="catalog-supersede-chain" label="取代链" className="min-w-0">
+              <EntityRefLink
+                entityRef="decision/dec_catalog"
+                onNavigate={() => setNavigation("decision/dec_catalog")}
+                title="dec_catalog"
+                className="flex-none font-mono text-danger hover:underline"
+              />
+              <span aria-hidden className="flex-none text-text-faint">
+                →
+              </span>
+              {Array.from({ length: 12 }, (_, index) => `dec_sup_${String(index + 1).padStart(2, "0")}`).map(
+                (id, index, all) => (
+                  <Fragment key={id}>
+                    <EntityRefLink
+                      entityRef={`decision/${id}`}
+                      onNavigate={() => setNavigation(`decision/${id}`)}
+                      title={id}
+                      className="flex-none font-mono text-danger hover:underline"
+                    />
+                    {index < all.length - 1 && (
+                      <span aria-hidden className="flex-none text-text-faint">
+                        ,
+                      </span>
+                    )}
+                  </Fragment>
+                ),
+              )}
+            </ChainStrip>
+            <span className="flex-none rounded-xs bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted">
+              修订于 10-03 13:17
+            </span>
           </div>
         </section>
         <section className="grid min-w-0 gap-3">

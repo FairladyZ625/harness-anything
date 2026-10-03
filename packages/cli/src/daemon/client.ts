@@ -482,19 +482,20 @@ export async function streamRuntimeThroughDaemon(
 export async function openRuntimeStatusReader(
   command: ThinCommand,
   runtimeSessionId: string,
-  waitTarget?: { readonly taskId: string; readonly dispatchId: string },
 ): Promise<{ readonly read: () => Promise<JsonObject>; readonly close: () => void }> {
+  // The spawn receipt already identifies the canonical session; task/dispatch point reads
+  // depend on a dispatch stream that lives on the execution node, not at the fleet center.
   const fleetCommand = {
     ...command,
     method: "repo.agentRuntime.sessions.read",
-    action: { kind: "runtime-status", ...(waitTarget ?? { runtimeSessionId }) },
+    action: { kind: "runtime-status", runtimeSessionId },
   } as ThinCommand;
   if (await fleetRuntimeRoute(fleetCommand))
     return {
       read: () => runCommandThroughDaemon(fleetCommand, () => undefined, { autostart: false }),
       close: () => undefined,
     };
-  return openDaemonStatusReader(fleetCommand, "repo.agentRuntime.sessions.read", waitTarget ?? { runtimeSessionId });
+  return openDaemonStatusReader(fleetCommand, "repo.agentRuntime.sessions.read", { runtimeSessionId });
 }
 async function openLocalDaemonReader(
   target: { readonly socketPath: string; readonly sessionEnvironment?: DaemonSessionEnvironment },

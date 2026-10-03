@@ -22,9 +22,17 @@ import type { SnapshotCut } from "./replica-cut-store.ts";
 export async function serve(
   socket: TLSSocket,
   options: FleetCenterOptions,
-  handle: (nodeId: string, frame: FleetFrameV1, window: SessionWindow, clientGone: () => boolean) => Promise<Delivery>,
+  handle: (
+    nodeId: string,
+    frame: FleetFrameV1,
+    window: SessionWindow,
+    clientGone: () => boolean,
+    connectionSignal: AbortSignal,
+  ) => Promise<Delivery>,
   sessions: Map<string, Set<TLSSocket>>,
 ): Promise<void> {
+  const disconnected = new AbortController();
+  socket.once("close", () => disconnected.abort());
   let nodeId: string | null = null,
     pumping = false;
   const reader = new FleetUtf8LineDecoder(),
@@ -139,7 +147,7 @@ export async function serve(
       }
       if (frame.schema === "fleet.session.hello/v1")
         throw new FleetFault("hello_replayed", "Session hello is only valid as the first frame.");
-      await enqueue(await handle(nodeId, frame, window, () => socket.destroyed));
+      await enqueue(await handle(nodeId, frame, window, () => socket.destroyed, disconnected.signal));
     } catch (error) {
       consumeKnownError(error);
       const fault =

@@ -14,6 +14,7 @@ import {
 } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
 import {
+  seedSupersedeChain,
   seedTriadicEvents,
   seedTriadicReviewAwait,
   writeTriadicLedger,
@@ -140,6 +141,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       afterRestart: seedTriadicReviewAwait,
       beforeRestart: async (rootDir, repoId, writerFence) => {
         await seedTriadicEvents(rootDir, repoId, writerFence);
+        await seedSupersedeChain(rootDir, repoId, writerFence);
         await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence);
       },
     });

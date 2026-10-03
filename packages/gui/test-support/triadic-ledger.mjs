@@ -227,3 +227,103 @@ export async function seedTriadicReviewAwait(endpoint, repoId) {
   );
   if (receipt.ok !== true) throw new Error(`GUI review awaits fixture failed: ${JSON.stringify(receipt)}`);
 }
+
+/**
+ * 取代链种子:dec_gui_smoke 以 supersedes 边指向 12 个真实 proposed 决策,给
+ * decision-supersede-chain 场景种出「随关系数无界增长的链接链」真实数据(12 条边
+ * 足以让详情卡里的链溢出)。走与 seedTriadicEvents 同一 decisionService 写路。
+ */
+export async function seedSupersedeChain(rootDir, repoId, writerFence) {
+  const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
+    projection = makeTaskProjection({ rootDir, eventStore: store }),
+    decisionService = makeDecisionService({ eventStore: store, projection }),
+    actor = { principal: { personId: "person-gui" }, executor: null };
+  try {
+    const append = (type, decisionId, payload) => {
+      const revision = (store.readHead()?.revision ?? 0) + 1,
+        event = {
+          schema: "decision-event/v1",
+          eventId: `event-${type}-${revision}`,
+          workspaceRevision: revision,
+          opId: `op-${type}-${revision}`,
+          decisionId,
+          type,
+          actor,
+          source: "local",
+          occurredAt: `2026-08-13T00:01:${String(revision % 60).padStart(2, "0")}.000Z`,
+          payload,
+        },
+        read = projection.readDecision(decisionId),
+        path = `decisions/decision-${decisionId}/decision.md`,
+        document = projection.readDocument(path).document,
+        relations = projection
+          .readDecisionGraph()
+          .edges.filter((edge) => edge.ownerRef === `decision/${decisionId}`)
+          .map((edge) => ({
+            relation_id: edge.relationId,
+            source: edge.sourceRef,
+            target: edge.targetRef,
+            type: edge.relationType,
+            strength: edge.strength,
+            direction: edge.direction,
+            origin: edge.origin,
+            rationale: edge.rationale,
+            state: edge.state,
+          }));
+      decisionService.record(
+        compileDecisionWrite({
+          event,
+          currentDecision: read.decision,
+          currentRelations: relations,
+          currentDocument: document,
+        }),
+      );
+    };
+    for (let index = 1; index <= 12; index += 1) {
+      const decisionId = `dec_sup_${String(index).padStart(2, "0")}`;
+      append("decision_proposed", decisionId, {
+        title: `取代链样本决策 ${index}`,
+        question: "GUI 取代链横滚场景的种子决策?",
+        riskTier: "low",
+        urgency: "low",
+        vertical: "software/coding",
+        preset: "architecture-decision",
+        appliesTo: { modules: ["gui"], productLines: [] },
+        decisionClass: "ordinary",
+        chosen: [{ id: "CH1", text: "跟随被取代决策的既有路线" }],
+        rejected: [{ id: "RJ1", text: "另立新决策", whyNot: "取代链场景只需要被取代的存量路线" }],
+        body: `\n# 取代链样本决策 ${index}\n`,
+        claims: [],
+        fulfillments: [],
+        relations: [],
+        provenance: [
+          {
+            runtime: "codex",
+            sessionId: "gui-supersede-chain",
+            transcriptReachability: "by_session_id",
+            boundAt: "2026-08-13T00:01:00.000Z",
+          },
+        ],
+      });
+      const identity = {
+        source: "decision/dec_gui_smoke",
+        target: `decision/${decisionId}`,
+        type: "supersedes",
+        direction: "directed",
+      };
+      append("decision_related", "dec_gui_smoke", {
+        relation: {
+          relation_id: deriveRelationId(identity),
+          ...identity,
+          strength: "strong",
+          origin: "declared",
+          state: "active",
+          rationale: "supersede-chain e2e: canonical decision policy lineage seed.",
+        },
+      });
+    }
+  } finally {
+    projection.close();
+    await store.drain();
+  }
+}

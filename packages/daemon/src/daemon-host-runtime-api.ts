@@ -270,7 +270,7 @@ export function createDaemonHostRuntimeApi(
             "repo_mode_read_only",
             "Fleet runtime launch requires the matching enabled remote-edge registration.",
           );
-        const result = await context.edgeRuntimeFor(request).run(request.method, request.action);
+        const result = await context.edgeRuntimeFor(request).run(request.method, request.action, auth.connectionSignal);
         await context.scheduleScheduler.refresh();
         return result;
       },

@@ -204,7 +204,11 @@ export type FleetFrameV1 =
       {
         assignmentId: string;
         repoId: string;
-        method: "repo.agentRuntime.overview" | "repo.agentRuntime.sessions.read" | "repo.tasks.runtimeContext.read";
+        method:
+          | "repo.agentRuntime.overview"
+          | "repo.agentRuntime.sessions.read"
+          | "repo.agentRuntime.sessions.await"
+          | "repo.tasks.runtimeContext.read";
         payload: Readonly<Record<string, unknown>>;
       }
     >
@@ -688,15 +692,13 @@ const scheduleActionShapes: Readonly<Record<string, Check>> = {
   },
   scheduleAction: Check = (value) =>
     record(value) && typeof value.kind === "string" && !!scheduleActionShapes[value.kind]?.(value);
-// Liveness is deliberately absent: the edge daemon derives exit/outcome from
-// its local process, and no parallel heartbeat or client-reported liveness is
-// admitted on the Fleet wire.
 const runtimeEventType = one(
   "runtime_installation_observed",
   "runtime_dispatch_requested",
   "runtime_session_started",
   "runtime_session_provider_bound",
   "runtime_session_task_bound",
+  "runtime_session_liveness_changed",
   "runtime_session_cancelled",
   "runtime_session_exited",
   "runtime_session_outcome_observed",
@@ -832,7 +834,12 @@ const schemas: Readonly<Record<string, Check>> = {
     ...common,
     assignmentId: id,
     repoId: id,
-    method: one("repo.agentRuntime.overview", "repo.agentRuntime.sessions.read", "repo.tasks.runtimeContext.read"),
+    method: one(
+      "repo.agentRuntime.overview",
+      "repo.agentRuntime.sessions.read",
+      "repo.agentRuntime.sessions.await",
+      "repo.tasks.runtimeContext.read",
+    ),
     payload: record,
   }),
   "fleet.runtime.read.result/v1": shape({ ...reply, result: record }),

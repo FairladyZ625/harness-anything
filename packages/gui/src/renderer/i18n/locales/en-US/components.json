@@ -299,5 +299,14 @@
   "components.taskPreviewDrawer.made": "What is done",
   "components.taskPreviewDrawer.gatesPassed": "{passed} gate checks passed · closeout {readiness}",
   "components.taskPreviewDrawer.keyRecords": "Key records",
-  "components.taskPreviewDrawer.dayRecords": "{count} records"
+  "components.taskPreviewDrawer.dayRecords": "{count} records",
+  "components.splitLayout.group": "Content layout",
+  "components.splitLayout.row": "Side by side",
+  "components.splitLayout.rowTitle": "Side by side; drag the divider to adjust the ratio",
+  "components.splitLayout.column": "Stacked",
+  "components.splitLayout.columnTitle": "Stacked; drag the divider to adjust the ratio",
+  "components.splitLayout.collapse": "Collapse first pane",
+  "components.splitLayout.expand": "Expand first pane",
+  "components.splitLayout.reset": "Reset layout",
+  "components.splitLayout.resetTitle": "Reset to the default responsive layout (clears this page's remembered arrangement and ratio)"
 }

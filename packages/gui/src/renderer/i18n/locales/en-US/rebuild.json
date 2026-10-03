@@ -130,7 +130,7 @@
   "accessControl.scope.entityNamed": "{entityRef} in {repoId}",
   "accessControl.effective.title": "Effective permissions: {personId} on {scope}",
   "accessControl.effective.grantRow": "Holds {group}, granted on {scope}",
-  "accessControl.effective.inherits": "Expands to {chain}",
+  "accessControl.effective.inherits": "Expands to",
   "accessControl.effective.source": "from {source} (via {granted} on {scope})",
   "accessControl.effective.deniedNoGrant": "This person holds no grant on this scope, so all {count} actions are denied.",
   "accessControl.effective.deniedNotIncluded": "These {count} actions are denied: no policy group this person holds on this scope includes them.",

@@ -2,6 +2,8 @@ import shellNavigation from "./scenarios/shell-navigation.mjs";
 import overview from "./scenarios/overview-first-usable.mjs";
 import board from "./scenarios/board-preview-detail.mjs";
 import taskTimelineRecordNavigation from "./scenarios/task-timeline-record-navigation.mjs";
+import workProgressChain from "./scenarios/work-progress-chain.mjs";
+import decisionSupersedeChain from "./scenarios/decision-supersede-chain.mjs";
 import taskTerminal from "./scenarios/task-detail-open-terminal.mjs";
 import terminalBasics from "./scenarios/terminal-basics.mjs";
 import terminalPanes from "./scenarios/terminal-panes.mjs";
@@ -21,6 +23,7 @@ import scheduleRunHistory from "./scenarios/schedule-run-history.mjs";
 import daemonStartupWait from "./scenarios/daemon-startup-wait.mjs";
 import cadenceView from "./scenarios/cadence-view.mjs";
 import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
+import pageSplitLayout from "./scenarios/page-split-layout.mjs";
 
 export const catalog = [
   shellNavigation,
@@ -45,7 +48,10 @@ export const catalog = [
   daemonStartupWait,
   cadenceView,
   taskTimelineRecordNavigation,
+  workProgressChain,
+  decisionSupersedeChain,
   taskCloseoutLongValues,
+  pageSplitLayout,
 ];
 
 export function selectScenarios({ lane, ids }) {

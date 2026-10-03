@@ -13,6 +13,14 @@ import { TaskCloseoutTab } from "../components/taskDetail/TaskCloseoutTab.tsx";
 import { TaskRelationsTab, type TaskDecisionRef } from "../components/taskDetail/TaskRelationsTab.tsx";
 import { TaskDocumentSidebar, TaskFilesTab } from "../components/taskDetail/TaskFilesTab.tsx";
 import { PhaseSteps } from "../components/taskDetail/PhaseSteps.tsx";
+import {
+  SplitDivider,
+  SplitExpandStrip,
+  SplitLayoutControls,
+  collapsedGridTemplate,
+  splitGridTemplate,
+  useSplitLayout,
+} from "../components/primitives/split-layout.tsx";
 import type { RelationEdge, TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
@@ -36,6 +44,7 @@ type TaskDetailTab = (typeof tabs)[number]["id"];
 
 export function TaskDetailView({
   repoId,
+  connectionId = null,
   task,
   onBack,
   tasks,
@@ -63,6 +72,8 @@ export function TaskDetailView({
 }: {
   /** 当前仓;给出时详情头下列出挂在本任务上、等你答复 / 已答复的 awaits(同一答复面板)。 */
   repoId?: string;
+  /** 当前仓所属连接(system status 仓行);分割偏好按连接+仓隔离,缺省时仅会话内态。 */
+  connectionId?: string | null;
   task: TaskRow;
   onBack: () => void;
   tasks?: readonly TaskRow[];
@@ -155,6 +166,25 @@ export function TaskDetailView({
   }, [tasks, task.taskId]);
   const childTotal = Object.values(childCounts).reduce((sum, count) => sum + count, 0);
   const gatesPassed = task.gates.filter((gate) => gate.ok === true).length;
+
+  // 文件树|正文 分割(task_fb3ba20d66…):默认自适应(<1100px 树在上、≥1100px 树在左 14rem),
+  // 用户在树头部选了排列/拖过比例后由显式两窗比例接管;偏好按连接+仓记忆,重置回自适应。
+  const split = useSplitLayout({
+    connectionId,
+    repoId: task.projectId,
+    slot: "task-detail-docs",
+    minRatio: 0.15,
+    maxRatio: 0.75,
+    defaultRatioRow: 0.22,
+    defaultRatioColumn: 0.4,
+    autoBreakpoint: 1100,
+    collapsible: true,
+  });
+  const splitStyle = split.collapsed
+    ? collapsedGridTemplate(split.effectiveOrientation)
+    : split.mode === "auto"
+      ? undefined
+      : splitGridTemplate(split.mode, split.ratio);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg" data-testid="task-detail-view">
@@ -392,21 +422,43 @@ export function TaskDetailView({
 
       {/* 宽屏自适应:main 是容器量尺(内容盒宽 = 卡片宽),卡片铺满可用宽度。
           断带:容器 <1100px 单栏叠放(文件树横排在上,量高 18rem 内滚,不挤死正文);
-          ≥1100px 文件树收窄为 14rem 侧栏。 */}
+          ≥1100px 文件树收窄为 14rem 侧栏。
+          分割(task_fb3ba20d66…):auto 之外用户显式排列/比例用内联模板接管同样的两窗,
+          中间是可拖分隔条;树可折叠(恢复条召回),重置回上面的自适应断带。 */}
       <main className="@container min-h-0 flex-1 overflow-hidden px-3 py-2 sm:px-4">
         <div
+          ref={split.containerRef}
+          data-testid="task-detail-content-grid"
+          style={splitStyle}
           className={[
             "h-full w-full overflow-hidden rounded-sm border border-border bg-bg",
             "grid grid-cols-1 grid-rows-[auto_minmax(0,1fr)]",
             "@min-[1100px]:grid-cols-[14rem_minmax(0,1fr)] @min-[1100px]:grid-rows-1",
           ].join(" ")}
         >
-          <TaskDocumentSidebar
-            task={task}
-            activeDoc={activeDoc}
-            onActiveDocChange={setActiveDoc}
-            onOpenDoc={openDocument}
-          />
+          {split.collapsed ? (
+            <SplitExpandStrip
+              orientation={split.effectiveOrientation}
+              onExpand={split.controlsProps.onToggleCollapse}
+              label={t("views.taskDetailView.expandFileTree")}
+              testId="task-doc-split-expand"
+            />
+          ) : (
+            <TaskDocumentSidebar
+              task={task}
+              activeDoc={activeDoc}
+              onActiveDocChange={setActiveDoc}
+              onOpenDoc={openDocument}
+              headerExtra={<SplitLayoutControls {...split.controlsProps} testId="task-doc-split-controls" />}
+            />
+          )}
+          {split.mode !== "auto" && !split.collapsed ? (
+            <SplitDivider
+              {...split.dividerProps}
+              label={t("views.taskDetailView.splitDividerLabel")}
+              testId="task-doc-split-divider"
+            />
+          ) : null}
           {/* 概况是一屏的区域板:面板自己是板的容器量尺(量面板内容宽,不含文件树),
               ≥900px 时板占满面板高度、区域在自己内部滚动;其余页签随内容往下排。 */}
           <TabPanel

@@ -299,5 +299,14 @@
   "components.taskPreviewDrawer.made": "做成了什么",
   "components.taskPreviewDrawer.gatesPassed": "{passed} 项检查全过 · 收口 {readiness}",
   "components.taskPreviewDrawer.keyRecords": "关键记录",
-  "components.taskPreviewDrawer.dayRecords": "{count} 条记录"
+  "components.taskPreviewDrawer.dayRecords": "{count} 条记录",
+  "components.splitLayout.group": "内容区排列",
+  "components.splitLayout.row": "左右排列",
+  "components.splitLayout.rowTitle": "左右排列；中间分隔条可拖动调整比例",
+  "components.splitLayout.column": "上下排列",
+  "components.splitLayout.columnTitle": "上下排列；中间分隔条可拖动调整比例",
+  "components.splitLayout.collapse": "收起首窗",
+  "components.splitLayout.expand": "展开首窗",
+  "components.splitLayout.reset": "恢复默认布局",
+  "components.splitLayout.resetTitle": "恢复默认自适应布局（清除本页的排列与比例记忆）"
 }
