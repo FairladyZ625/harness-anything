@@ -43,15 +43,7 @@ const schedule = (scheduleId: string) => ({
   idempotencyKey: `seed-${scheduleId}`,
 });
 
-const edgeAssignment = (repoId: string, nodeId: string) => ({
-  nodeId,
-  repoId,
-  taskId: "task-entrance",
-  executionId: "execution-entrance",
-  viewId: `${nodeId}_task-entrance`,
-  expiresAt: "2099-01-01T00:00:00.000Z",
-  paths: [],
-});
+const edgeNode = (_repoId: string, nodeId: string) => ({ nodeId });
 
 async function openModes(prefix: string) {
   const parent = mkdtempSync(path.join(tmpdir(), prefix)),
@@ -255,7 +247,7 @@ test("a center-local write and an edge write race through one queue under expect
     const local = (action: Readonly<Record<string, unknown>>) =>
         host.run("center", action as never, auth) as Promise<Receipt>,
       edge = (action: Readonly<Record<string, unknown>>) =>
-        host.run("center", action as never, owners.auth(edgeAssignment("center", "edge-one"))) as Promise<Receipt>;
+        host.run("center", action as never, owners.auth(edgeNode("center", "edge-one"))) as Promise<Receipt>;
     // Independent writes from both entrances serialize: each lands on its own revision.
     const [localCreate, edgeCreate] = await Promise.all([
       local({ kind: "task-create", taskId: "task-race-local", title: "Local" }),

@@ -286,10 +286,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     });
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
-  // Fleet roster snapshot retained when the center is admitted (daemon-fleet-center-start).
-  // startFleetCenterAdmission reads the roster file once and the center cannot restart on a
-  // live daemon, so the snapshot is an invariant after admission; schedule reads on
-  // remote-center repos join it through the cell context getter below.
   let initialAttachments: Promise<void> | null = null,
     closing = false;
   // An unavailable row reports no writer generation or queue: the cell that would own them
@@ -399,8 +395,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now,
     warmingSettlements,
     startInitialAttachments,
-    // Live view of the admission-time fleet roster snapshot for performOpenRegistered,
-    // which hands it to repo cells as a read-time resolver.
     get initialAttachments() {
       return initialAttachments;
     },

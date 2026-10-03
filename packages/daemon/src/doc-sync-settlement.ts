@@ -245,11 +245,31 @@ export function scanRejectionSummary(code: string, scan: DocCandidateScan): stri
 export function admissionRejection(
   input: Pick<Input, "binding" | "workspaceId" | "store" | "projection" | "runtimeArchive"> & {
     readonly taskDocumentChannel?: DocIntentChannel;
+    readonly taskId?: string;
     readonly unleasedTaskCommandId?: string;
   },
   intent: DocWriteIntent,
   lease: ReturnType<TaskProjection["currentLeaseForExecution"]>,
+  delegatedTaskId?: string,
 ): { readonly code: string; readonly detail: DocSyncReceiptDetail } | null {
+  if (input.taskDocumentChannel === "task-command") {
+    const outside = intent.changes.filter(
+      (change) => input.projection.taskIdForDocumentPath(change.path) !== input.taskId,
+    );
+    if (outside.length)
+      return {
+        code: "execution_scope_mismatch",
+        detail: detail(
+          intent,
+          input.store.currentCut(),
+          "execution_scope_mismatch",
+          lease,
+          outside.map((change) =>
+            touch(change.path, "canonical-task-package", "Carried documents must belong to this task command"),
+          ),
+        ),
+      };
+  }
   // Class-A reserve commands validate their one canonical task package before
   // the lease exists; service.executeWithDocuments then commits docs and lease
   // together only if the canonical reserve CAS succeeds. Explicit amendment
@@ -300,7 +320,7 @@ export function admissionRejection(
     : scopeTouches(
         input,
         intent.changes.map((change) => change.path),
-        input.taskDocumentChannel === "task-command" ? input.unleasedTaskCommandId : undefined,
+        input.taskDocumentChannel === "task-command" ? input.unleasedTaskCommandId : delegatedTaskId,
       );
   if (!touches.length) return null;
   const rejected = detail(intent, input.store.currentCut(), "execution_scope_mismatch", lease, touches);

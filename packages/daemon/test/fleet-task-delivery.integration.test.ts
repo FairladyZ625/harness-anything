@@ -136,22 +136,29 @@ for (const explicit of [false, true])
           { kind: "task-submit", taskId: created.taskId, executionId: "exe-other", commitSha },
           { kind: "task-submit", taskId: "task-other", commitSha },
         ]) {
-          await assert.rejects(
-            runFleetTaskCommandClient({
-              hostname: config.host,
-              port: config.port,
-              ca: readFileSync(config.caPath),
-              servername: config.servername,
-              nodeId: config.nodeId,
-              credential: config.credential,
-              repoId: config.repoId,
-              taskId: action.taskId,
-              action,
-              opId: `negative-${action.taskId}-${action.executionId ?? "sha"}`,
-              waitMs: 1000,
-              timeoutMs: 5000,
-            }),
-            /delivery_fetch_failed|execution_scope_mismatch|task_read_failed/u,
+          const denied = await runFleetTaskCommandClient({
+            hostname: config.host,
+            port: config.port,
+            ca: readFileSync(config.caPath),
+            servername: config.servername,
+            nodeId: config.nodeId,
+            credential: config.credential,
+            repoId: config.repoId,
+            taskId: action.taskId,
+            action,
+            opId: `negative-${action.taskId}-${action.executionId ?? "sha"}`,
+            waitMs: 1000,
+            timeoutMs: 5000,
+          }).catch((error: unknown) => {
+            assert.ok(error instanceof Error && "code" in error, String(error));
+            return { outcome: "op_rejected", code: error.code };
+          });
+          assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
+          assert.ok(
+            ["delivery_fetch_failed", "lease_holder_mismatch", "entity_not_found", "task_read_failed"].includes(
+              String(denied.code),
+            ),
+            JSON.stringify(denied),
           );
           assert.equal(ledgerRevision(fixture), before);
         }

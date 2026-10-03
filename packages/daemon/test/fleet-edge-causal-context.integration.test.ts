@@ -245,7 +245,7 @@ test(
     );
     const reclaimed = await fixture.host.run(
       fixture.subject.repoId,
-      { kind: "task-start", taskId: fixture.subject.taskId, executionId: "execution-fleet-second" },
+      { kind: "task-start", taskId: fixture.subject.taskId, executionId: fixture.subject.executionId },
       fixture.auth,
     );
     assert.equal(reclaimed.outcome, "applied", JSON.stringify(reclaimed));
@@ -376,7 +376,7 @@ for (const probe of [
         idempotencyKey: "mirror-probe",
       }),
       (error: unknown) => {
-        assert.equal((error as { code?: string }).code, probe.code);
+        assert.equal((error as { code?: string }).code, probe.code, (error as Error).stack);
         assert.match((error as Error).message, probe.message);
         return true;
       },

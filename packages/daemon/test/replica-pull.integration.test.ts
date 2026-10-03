@@ -42,9 +42,10 @@ test(
         write = await runFleetWriteClient({
           ...fixture.peer(center.port, fixture.subject),
           channel: "replica",
+          executionId: fixture.subject.executionId,
           changes: [{ path: fixture.documentPath, body }],
         });
-      assert.equal(write.center.outcome, "applied");
+      assert.equal(write.center.outcome, "applied", JSON.stringify(write.center));
       assert.equal("transferId" in write.center, false);
       const pending = center.replicaReceipt(
         write.center.opId,
@@ -98,6 +99,7 @@ test(
         second = await runFleetWriteClient({
           ...fixture.peer(center.port, fixture.subject),
           channel: "replica",
+          executionId: fixture.subject.executionId,
           changes: [
             {
               path: fixture.documentPath,
@@ -301,7 +303,7 @@ async function replicaFixture(t: TestContext) {
     stateRoot,
     subject,
     otherSubject,
-    documentPath: subject.paths[0]!,
+    documentPath: `${String((created as Record<string, unknown>).packagePath)}/notes.md`,
     preRegistrationOpId: created.opId,
     peer: (port: number, a: typeof subject) => ({
       port,

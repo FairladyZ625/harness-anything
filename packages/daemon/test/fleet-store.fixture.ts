@@ -98,13 +98,13 @@ export async function fleetNodeOwners(input: {
     nodeOwner: ownerOf,
     /** Re-registers a node to another person, the way an administrator moves a machine between owners. */
     reassign: register,
-    /** The authentication context the center derives for one frame of `assignment`. */
-    auth: (assignment: { readonly nodeId: string }) => {
-      const personId = ownerOf(assignment.nodeId);
-      assert.ok(personId, `fixture node ${assignment.nodeId} has no registered owner`);
+    /** The authentication context the center derives for one authenticated node frame. */
+    auth: (node: { readonly nodeId: string }) => {
+      const personId = ownerOf(node.nodeId);
+      assert.ok(personId, `fixture node ${node.nodeId} has no registered owner`);
       return {
         transportKind: "fleet-tls" as const,
-        nodePrincipal: { nodeId: assignment.nodeId, personId },
+        nodePrincipal: { nodeId: node.nodeId, personId },
       };
     },
   };

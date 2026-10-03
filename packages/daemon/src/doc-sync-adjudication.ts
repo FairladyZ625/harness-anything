@@ -4,6 +4,7 @@ import {
   docSyncWritePlan,
   parseDocWriteIntent,
   resolveTaskBoundRuntimeBinding,
+  isTaskBoundRuntimeWriter,
   runtimeSessionIdFromActor,
   sha256Bytes,
   taskIsDescendantOf,
@@ -80,8 +81,6 @@ export function adjudicateDocIntent(
       },
     };
   }
-  const admission = admissionRejection(input, intent, lease);
-  if (admission) return { accepted: false, code: admission.code, detail: admission.detail, authorizationDecision };
   const cut = input.store.currentCut(),
     currentDocuments = documents.map((read) => read.document);
   const resolvedTaskIds = intent.changes.map((change) => input.projection.taskIdForDocumentPath(change.path)),
@@ -100,6 +99,15 @@ export function adjudicateDocIntent(
         ? input.taskId
         : null,
     authorization = authorizationDecision;
+  const delegatedTaskId =
+    runtimeDelegatedTaskId &&
+    runtimeBinding &&
+    lease &&
+    isTaskBoundRuntimeWriter(lease, input.binding.actor, input.binding.source, runtimeBinding)
+      ? runtimeDelegatedTaskId
+      : undefined;
+  const admission = admissionRejection(input, intent, lease, delegatedTaskId);
+  if (admission) return { accepted: false, code: admission.code, detail: admission.detail, authorizationDecision };
   const decision = decideDocWrite({
     intent,
     opId,
@@ -140,7 +148,15 @@ function requiredDocAuthorization(decision: AuthorizationDecision | undefined): 
 
 export function nodeIntent(input: Input): DocWriteIntent {
   try {
-    if (!hasExactDocSyncActionFields(input.action, ["kind", "executionId", "baseLedgerSha", "changes"]))
+    if (
+      !hasExactDocSyncActionFields(input.action, [
+        "kind",
+        "executionId",
+        "baseLedgerSha",
+        "changes",
+        ...(typeof input.action.taskId === "string" ? ["taskId"] : []),
+      ])
+    )
       throw new Error("node doc submit requires staged claim descriptors");
     const intent = parseDocWriteIntent(
       {

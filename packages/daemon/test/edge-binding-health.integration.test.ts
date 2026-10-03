@@ -76,7 +76,6 @@ test("edge binding health reads the selected login authority through fleet disco
     cert: readFileSync(certFile),
     authenticate: (_nodeId, credential) => credential === "fixture-machine-secret",
     nodeOwner: () => "ordinary-person",
-    resolveAssignment: () => null,
     loginAuthority: (nodeId) =>
       discovery === "missing"
         ? null

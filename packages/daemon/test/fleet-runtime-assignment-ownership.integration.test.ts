@@ -128,20 +128,21 @@ for (const distinctNode of [false, true])
               endpoint: path.join(fixture.root, "edge.sock"),
             },
             ports: scheduleRuntimePorts(),
-            launch: () => {
+            launch: (prepared) => {
+              const taskId = path.basename(prepared.cwd);
               let output: ((chunk: string) => void) | undefined;
               return {
-                pid: 81234,
+                pid: taskId === fixture.subject.taskId ? 81234 : 81235,
                 onOutput: (listener) => {
                   output = listener;
                 },
                 onErrorOutput: () => undefined,
                 onExit: (listener) => {
-                  terminals.set(subject.taskId, () => {
+                  terminals.set(taskId, () => {
                     output?.(
-                      `${JSON.stringify({ type: "thread.started", thread_id: `provider-${subject.taskId}` })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "Task completed." } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
+                      `${JSON.stringify({ type: "thread.started", thread_id: `provider-${taskId}` })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "Task completed." } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
                     );
-                    listener(subject.taskId === fixture.subject.taskId ? firstExitCode : 0);
+                    listener(taskId === fixture.subject.taskId ? firstExitCode : 0);
                   });
                 },
                 terminate: () => {

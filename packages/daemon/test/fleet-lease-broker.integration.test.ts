@@ -12,6 +12,7 @@ import {
   runFleetTaskCommandClient,
 } from "../src/fleet/edge.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { parseFleetFrame } from "../src/fleet/contract.ts";
 
 // The retired broker suite is replaced by canonical lease tests through actual TLS clients.
@@ -50,7 +51,8 @@ test(
   "node selector rejects same person's other node and reassigned owner; release retains selector",
   { timeout: 60_000 },
   async (t) => {
-    const f = await fleetNodeClaimFixture(t);
+    let clock = Date.now();
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, () => new Date(clock).toISOString());
     await f.command("node-one", { kind: "task-create", taskId: "task-node", title: "Node" });
     const shown = await f.command("node-one", { kind: "task-show", taskId: "task-node" });
     const snapshot = JSON.parse(String(shown.receipt?.evidence));
@@ -76,6 +78,27 @@ test(
       (await f.command("node-one", { kind: "task-start", taskId: "task-node" })).code,
       "task_assignee_mismatch",
     );
+    await f.command("node-two", { kind: "task-create", taskId: "task-expired", title: "Expired selector" });
+    const unassigned = JSON.parse(
+      String((await f.command("node-two", { kind: "task-show", taskId: "task-expired" })).receipt?.evidence),
+    );
+    const expiry = new Date(clock + 10000).toISOString();
+    const expired = await f.command("node-two", {
+      kind: "task-assign",
+      taskId: "task-expired",
+      nodeId: "node-one",
+      expiresAt: expiry,
+      expectedVersion: unassigned.revision,
+    });
+    assert.equal(expired.outcome, "applied", JSON.stringify(expired));
+    clock += 10001;
+    const next = await f.command("node-two", { kind: "task-start", taskId: "task-expired" });
+    assert.equal(next.outcome, "applied", JSON.stringify(next));
+    const taken = JSON.parse(
+      String((await f.command("node-two", { kind: "task-show", taskId: "task-expired" })).receipt?.evidence),
+    );
+    assert.equal(taken.lease.source.nodeId, "node-two");
+    assert.equal(taken.task.assignment.expiresAt, expiry);
   },
 );
 
@@ -202,6 +225,7 @@ test(
       ).outcome,
       "applied",
     );
+    assert.equal((await f.command("node-one", { kind: "task-start", taskId: "task-other" })).outcome, "applied");
     const before = f.eventCount();
     const wrongNode = await submit("node-two", await prepare("node-two"));
     assert.equal(wrongNode.code, "task_assignee_mismatch", JSON.stringify(wrongNode));
@@ -235,3 +259,82 @@ test(
     assert.equal((body.match(/## Node candidate/g) ?? []).length, 1);
   },
 );
+
+test(
+  "native team membership is current and never substitutes for task-start permission",
+  { timeout: 60000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t);
+    const adapter = new KeycloakPolicyAdapter({
+      url: f.owners.url,
+      realm: "harness",
+      resourceServerClientId: "harness-center",
+    });
+    await adapter.createTeam("center-token", "workers");
+    const team = (await adapter.readTeams("center-token"))[0]!;
+    const member = await adapter.findUserId("center-token", "person-one");
+    assert.ok(member);
+    await adapter.setTeamMember("center-token", team.id, member, true);
+    await f.command("node-one", { kind: "task-create", taskId: "task-team", title: "Team" });
+    const snapshot = JSON.parse(
+      String((await f.command("node-one", { kind: "task-show", taskId: "task-team" })).receipt?.evidence),
+    );
+    assert.equal(
+      (
+        await f.command("node-one", {
+          kind: "task-assign",
+          taskId: "task-team",
+          teamId: team.id,
+          expectedVersion: snapshot.revision,
+        })
+      ).outcome,
+      "applied",
+    );
+    const before = f.eventCount();
+    f.owners.keycloak.revoke("person-one", "lease-repo", ["task-start"]);
+    const noPermission = await f.command("node-one", { kind: "task-start", taskId: "task-team" });
+    assert.equal(noPermission.outcome, "op_rejected", JSON.stringify(noPermission));
+    assert.equal(f.eventCount(), before);
+    f.owners.keycloak.permit("person-one", "lease-repo", ["task-start"]);
+    await adapter.setTeamMember("center-token", team.id, member, false);
+    const removed = await f.command("node-one", { kind: "task-start", taskId: "task-team" });
+    assert.equal(removed.code, "task_assignee_mismatch", JSON.stringify(removed));
+    assert.equal(f.eventCount(), before);
+    await adapter.setTeamMember("center-token", team.id, member, true);
+    assert.equal((await f.command("node-one", { kind: "task-start", taskId: "task-team" })).outcome, "applied");
+  },
+);
+
+test("unreachable Keycloak refuses task-start without an accepted canonical write", { timeout: 60000 }, async (t) => {
+  const f = await fleetNodeClaimFixture(t);
+  await f.command("node-one", { kind: "task-create", taskId: "task-offline", title: "Offline" });
+  const before = f.eventCount();
+  await f.owners.close();
+  const denied = await f.command("node-one", { kind: "task-start", taskId: "task-offline" }).catch((error: unknown) => {
+    assert.ok(error instanceof Error && "code" in error, String(error));
+    return { outcome: "op_rejected", code: error.code };
+  });
+  assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
+  // Center token acquisition fails before RepoCell authorization when the realm is offline.
+  assert.equal(denied.code, "daemon_error", JSON.stringify(denied));
+  assert.equal(f.eventCount(), before);
+});
+
+test("node document reads remain bound to the canonical lease scope", { timeout: 60000 }, async (t) => {
+  const f = await fleetNodeClaimFixture(t);
+  const created = await f.command("node-one", { kind: "task-create", taskId: "task-read", title: "Read" });
+  const action = { kind: "doc-show", path: String(created.receipt?.packagePath) + "/task_plan.md" };
+  const auth = f.owners.auth({ nodeId: "node-one" });
+  const before = f.eventCount();
+  const unheld = await f.host.run("lease-repo", action, auth);
+  assert.equal(unheld.code, "execution_scope_mismatch", JSON.stringify(unheld));
+  assert.equal(f.eventCount(), before);
+  assert.equal((await f.command("node-one", { kind: "task-start", taskId: "task-read" })).outcome, "applied");
+  const held = f.eventCount();
+  const shown = await f.host.run("lease-repo", action, auth);
+  assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+  assert.match(String(shown.evidence), /Read/);
+  const other = await f.host.run("lease-repo", action, f.owners.auth({ nodeId: "node-two" }));
+  assert.equal(other.code, "execution_scope_mismatch", JSON.stringify(other));
+  assert.equal(f.eventCount(), held);
+});

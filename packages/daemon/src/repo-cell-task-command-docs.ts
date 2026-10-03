@@ -150,6 +150,7 @@ export async function runTaskCommandWithDocs(
       projection: cell.projection,
       now: cell.now,
       taskDocumentChannel: "task-command",
+      taskId,
       ...(unleasedTaskCommandId === undefined ? {} : { unleasedTaskCommandId }),
     },
     intent,

@@ -271,8 +271,8 @@ test(
     assert.equal(probe.outcome, "op_rejected");
     assert.equal(probe.code, "base_blob_changed");
     assert.equal(
-      fixture.center.status().leases.leases.filter((row) => row.taskId === created.taskId).length,
-      0,
+      JSON.parse(String((await fixture.centerRun({ kind: "task-show", taskId: created.taskId })).evidence)).lease,
+      null,
       "the probe transition must not apply either",
     );
   },
@@ -846,7 +846,7 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
       if (commandKind === "task-settle") {
         const replay = await fixture.edgeTask("node-one", { kind: "task-settle", taskId: created.taskId });
         assert.equal(replay.ok, true, JSON.stringify(replay).slice(0, 1000));
-        assert.equal(replay.opId, submitted.opId, "same assignment resumes the same cut after replica pull");
+        assert.equal(replay.opId, submitted.opId, "same node resumes the same cut after replica pull");
         const foreign = await fixture.edgeTask("node-two", { kind: "task-settle", taskId: created.taskId });
         assert.equal(foreign.ok, false, JSON.stringify(foreign));
         const changedCloseout = readFileSync(fixture.worktree("node-one", closeoutPath), "utf8").replace(

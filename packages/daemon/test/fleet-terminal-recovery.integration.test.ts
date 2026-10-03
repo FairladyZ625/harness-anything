@@ -7,7 +7,7 @@ import test from "node:test";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
-import { fleetFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
+import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
 import { eventually, scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test("edge terminal task settlement rejects a changed node owner", { timeout: 60_000 }, async (t) => {
@@ -119,6 +119,13 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   );
   peer.close();
   // The node moves to another owner mid-run: the lease its previous owner holds is not the new owner's to release.
+  let denied!: (error: unknown) => void;
+  const denial = new Promise<unknown>((resolve) => {
+    denied = resolve;
+  });
+  t.mock.method(console, "error", (...args: unknown[]) => {
+    if (String(args[0]).includes("Pending runtime work failed")) denied(args[1]);
+  });
   fixture.setOwner("replacement-owner");
   terminal();
   const outcomes = () =>
@@ -130,8 +137,20 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
           event.payload.runtimeSessionId === launched.runtimeSessionId,
       )
       .map((event) => event.payload);
+  assert.equal(((await denial) as { code?: string }).code, "execution_scope_mismatch");
+  assert.deepEqual(outcomes(), [], "the replacement owner cannot publish the original owner's terminal outcome");
+  const shown = await fixture.host.run(
+    fixture.subject.repoId,
+    { kind: "task-show", taskId: fixture.subject.taskId },
+    localAuthFixture(),
+  );
+  const snapshot = JSON.parse(String(shown.evidence));
+  assert.equal(snapshot.lease.actor.principal.personId, "person-owner");
+  assert.deepEqual(snapshot.lease.source, { kind: "node", nodeId: fixture.subject.nodeId });
+  fixture.setOwner("person-owner");
+  await runtime.run("repo.agentRuntime.overview", { limit: 1 });
   assert.equal(await eventually(async () => outcomes().length > 0), true);
-  assert.equal(outcomes()[0]?.reasonCode, "runtime_lease_release_failed", JSON.stringify(outcomes()));
+  assert.equal(outcomes()[0]?.reasonCode, "runtime_archive_failed", JSON.stringify(outcomes()));
   assert.equal(outcomes()[0]?.outcome, "failed", JSON.stringify(outcomes()));
 });
 for (const restart of [false, true])

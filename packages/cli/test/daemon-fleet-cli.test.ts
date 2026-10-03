@@ -85,24 +85,12 @@ test(
       const missing = maybeRun(fixture, "center", ["daemon", "fleet", "center", "start"]);
       assert.equal(missing.status, 2);
       assert.equal(missing.receipt.code, "missing_field");
-      const rejected = maybeRun(fixture, "center", [
-        "daemon",
-        "fleet",
-        "center",
-        "start",
-        "--port",
-        "0",
-        "--key",
-        fixture.key,
-        "--cert",
-        fixture.cert,
-        "--roster",
-        "retired.json",
-        "--quota-bytes",
-        String(quotaBytes),
-      ]);
-      assert.notEqual(rejected.status, 0);
-      assert.equal(rejected.receipt.code, "unknown_option");
+      const help = spawnSync(process.execPath, [cli, "daemon", "fleet", "center", "start", "--help"], {
+        encoding: "utf8",
+      });
+      assert.equal(help.status, 0, help.stderr);
+      assert.match(help.stdout, /--repo/u);
+      assert.doesNotMatch(help.stdout, /--roster/u);
       const center = run(fixture, "center", [
         "daemon",
         "fleet",
@@ -114,7 +102,7 @@ test(
         fixture.key,
         "--cert",
         fixture.cert,
-        "--repo-id",
+        "--repo",
         "fleet-demo",
         "--quota-bytes",
         String(quotaBytes),
@@ -188,7 +176,7 @@ test(
         sync = (extra: readonly string[] = []) => run(fixture, "edge", [...syncArgs, ...extra]);
       const pulled = first.ok === false && first.code === "replica_pending" ? retryReplicaPending(sync) : first;
       assert.equal(pulled.status, "fleet.ack.result/v1");
-      assert.equal(pulled.viewId, "edge-one-view");
+      assert.equal(pulled.viewId, "edge-one");
       const syncedStatus = run(fixture, "edge", ["daemon", "status"]);
       assert.equal(
         syncedStatus.ok,
@@ -202,7 +190,7 @@ test(
         null,
       );
       assert.equal((pulled.cut as { revision: number }).revision, pulled.ackCut);
-      const viewRoot = path.join(fixture.viewRoot, "repos", "fleet-demo", "views", "edge-one-view");
+      const viewRoot = path.join(fixture.viewRoot, "repos", "fleet-demo", "views", "edge-one");
       assert.equal(readCutFile(viewRoot, pulled.ackCut as number, docPath), docBody);
       assert.equal(
         readFileSync(path.join(fixture.edgeRepo, "harness", docPath), "utf8"),
@@ -357,7 +345,7 @@ test(
           fixture.key,
           "--cert",
           fixture.cert,
-          "--repo-id",
+          "--repo",
           "fleet-demo",
           "--quota-bytes",
           String(quotaBytes),
@@ -465,7 +453,7 @@ test(
       for (let attempt = 0; attempt < 40 && first.receipt.code === "replica_pending"; attempt += 1)
         first = sync(credential);
       assert.equal(first.status, 0, JSON.stringify(first.receipt));
-      assert.equal(first.receipt.viewId, "edge-one-view");
+      assert.equal(first.receipt.viewId, "edge-one");
       assert.equal(
         readFileSync(path.join(fixture.edgeRepo, "harness", planPath), "utf8"),
         readFileSync(path.join(fixture.repo, "harness", planPath), "utf8"),

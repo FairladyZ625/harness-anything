@@ -71,6 +71,7 @@ async function pushRejectionFixture() {
   let center: FleetTlsCenter | null = null;
   let race: { readonly path: string; readonly base: string; readonly centerBody: string } | null = null;
   let raceInjected = false;
+  let raceOwnerReads = 0;
   let rejectCenterDocStatus = false;
   const centerHost: FleetCenterOptions["host"] = {
     replica: (...args) => host.replica(...args),
@@ -82,7 +83,19 @@ async function pushRejectionFixture() {
     run: async (repoId, action, auth) => {
       if (rejectCenterDocStatus && action.kind === "doc-status")
         throw new Error("fleet node must not scan document status");
-      if (race !== null && action.kind === "doc-submit" && auth.nodePrincipal?.nodeId === "node-one") {
+      return host.run(repoId, action, auth);
+    },
+  };
+  center = await listenFleetTls({
+    host: centerHost,
+    stateRoot,
+    key,
+    cert,
+    replicaDiskQuotaBytes: replicaQuota,
+    authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+    nodeOwner: async (nodeId) => {
+      // Compare pull reads owner twice; the next metadata lookup precedes its cut capture.
+      if (race !== null && nodeId === "node-one" && ++raceOwnerReads === 3) {
         const pending = race;
         race = null;
         if (center === null) throw new Error("fleet center is not ready");
@@ -107,17 +120,8 @@ async function pushRejectionFixture() {
         assert.equal(moved.center.outcome, "applied", JSON.stringify(moved.center));
         raceInjected = true;
       }
-      return host.run(repoId, action, auth);
+      return owners.nodeOwner(nodeId);
     },
-  };
-  center = await listenFleetTls({
-    host: centerHost,
-    stateRoot,
-    key,
-    cert,
-    replicaDiskQuotaBytes: replicaQuota,
-    authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
-    nodeOwner: owners.nodeOwner,
   });
   const edgeRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-edge`);
   const workspaceRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-workspace`);
@@ -164,6 +168,7 @@ async function pushRejectionFixture() {
     },
     armBaseBlobRace: (path: string, base: string, centerBody: string) => {
       race = { path, base, centerBody };
+      raceOwnerReads = 0;
     },
     raceInjected: () => raceInjected,
     conflicts: () =>

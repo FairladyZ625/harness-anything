@@ -114,7 +114,6 @@ test("local CLI initializes and accepts the native generation-2 SQLite ledger", 
       writerId: "takeover-center",
       authenticate: () => false,
       nodeOwner: () => null,
-      resolveAssignment: () => null,
     });
     try {
       const centerObserver = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot, holderId: "observer" }),

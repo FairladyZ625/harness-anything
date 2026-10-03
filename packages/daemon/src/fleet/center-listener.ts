@@ -467,28 +467,37 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       if (frame.docChanges !== null) verifyOwnedClaims(nodeId, a.repoId, frame.docChanges);
       let command = frame.action;
-      if (command.kind === "task-submit" && typeof command.taskId === "string") {
-        const shown = await options.host.run(
-          a.repoId,
-          { kind: "task-show", taskId: command.taskId },
-          await writerAuth(a),
-        );
-        if (typeof shown.evidence !== "string")
-          throw new FleetFault("task_read_failed", "Cannot read the delivery task.");
-        const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
-        if (snapshot.workspace?.kind === "worktree" && snapshot.lease) {
-          const executionId = assertFleetDeliveryHolder(snapshot, {
-            nodeId,
-            personId: (await readerAuth(a)).nodePrincipal.personId,
-            ...(typeof command.executionId === "string" ? { executionId: command.executionId } : {}),
-          });
-          const commitSha = await fetchWorkerDelivery(
-            repoRoot(a.repoId),
-            command.taskId,
-            typeof command.commitSha === "string" ? command.commitSha : undefined,
+      try {
+        if (command.kind === "task-submit" && typeof command.taskId === "string") {
+          const shown = await options.host.run(
+            a.repoId,
+            { kind: "task-show", taskId: command.taskId },
+            await writerAuth(a),
           );
-          command = { ...command, executionId, commitSha };
+          if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
+            throw new FleetFault("task_read_failed", "Cannot read the delivery task.");
+          const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
+          if (snapshot.workspace?.kind === "worktree" && snapshot.lease) {
+            const executionId = assertFleetDeliveryHolder(snapshot, {
+              nodeId,
+              personId: (await readerAuth(a)).nodePrincipal.personId,
+              ...(typeof command.executionId === "string" ? { executionId: command.executionId } : {}),
+            });
+            const commitSha = await fetchWorkerDelivery(
+              repoRoot(a.repoId),
+              command.taskId,
+              typeof command.commitSha === "string" ? command.commitSha : undefined,
+            ).catch((error: unknown) => {
+              throw new FleetFault("delivery_fetch_failed", runtimeErrorMessage(error));
+            });
+            command = { ...command, executionId, commitSha };
+          }
         }
+      } catch (error) {
+        const code = runtimeErrorCode(error);
+        if (code && ["lease_holder_mismatch", "delivery_fetch_failed"].includes(code))
+          throw new FleetFault(code, runtimeErrorMessage(error));
+        throw error;
       }
       const action = {
         ...command,
@@ -583,6 +592,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (uploadId && receipt.outcome === "applied") {
         discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.result! }]);
       }
+      if (receipt.outcome === "op_rejected" && typeof receipt.code === "string")
+        throw new FleetFault(receipt.code, String(receipt.rejectionExplanation ?? receipt.code));
       const event = receipt.event;
       if (!event || typeof event !== "object" || Array.isArray(event))
         throw new FleetFault("runtime_event_missing", "Center runtime ingress did not return its authoritative event.");
@@ -628,10 +639,23 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         ...(await auth(a)),
         connectionSignal: connectionSignal ? AbortSignal.any([connectionSignal, closing.signal]) : closing.signal,
       };
-      const result =
-        frame.method === "repo.agentRuntime.sessions.await"
-          ? await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding)
-          : await options.host.read(a.repoId, frame.method, frame.payload, binding);
+      let result;
+      try {
+        result =
+          frame.method === "repo.agentRuntime.sessions.await"
+            ? await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding)
+            : await options.host.read(a.repoId, frame.method, frame.payload, binding);
+      } catch (error) {
+        const code = runtimeErrorCode(error);
+        if (
+          code &&
+          ["authentication_required", "authorization_denied", "keycloak_unavailable", "projection_pending"].includes(
+            code,
+          )
+        )
+          throw new FleetFault(code, runtimeErrorMessage(error));
+        throw error;
+      }
       return immediate({
         schema: "fleet.runtime.read.result/v1",
         messageId: mid(frame.messageId, "runtime-read"),

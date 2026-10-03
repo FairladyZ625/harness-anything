@@ -13,6 +13,33 @@ import {
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
+// S8's two exact registrations do not authorize another path or a second constructor.
+for (const eventType of ["task_assigned", "task_unassigned"]) {
+  test(`${eventType} registration rejects duplicate and unregistered constructors`, () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-assignment-entry-"));
+    try {
+      const allowed = path.join(root, "packages/kernel/src/domain/task-assignment-transitions.ts");
+      mkdirSync(path.dirname(allowed), { recursive: true });
+      const constructor = `envelope(command, "${eventType}", {});\n`;
+      writeFileSync(allowed, constructor);
+      assert.deepEqual(checkTaskEventConstructionSites(scanTaskEventConstructionSites(root)), []);
+      writeFileSync(allowed, constructor.repeat(2));
+      assert.match(
+        checkTaskEventConstructionSites(scanTaskEventConstructionSites(root)).join("\n"),
+        /found 2 construction sites, allowlist ceiling is 1/u,
+      );
+      writeFileSync(allowed, constructor);
+      writeFileSync(path.join(path.dirname(allowed), "unregistered.ts"), constructor);
+      assert.match(
+        checkTaskEventConstructionSites(scanTaskEventConstructionSites(root)).join("\n"),
+        /unregistered.ts.*outside the aggregate-entry allowlist/u,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
 test("task event aggregate-entry gate accepts the repository allowlist", () => {
   const result = spawnSync("node", [path.join(repoRoot, "tools/check-task-event-aggregate-entry.mjs")], {
     cwd: repoRoot,

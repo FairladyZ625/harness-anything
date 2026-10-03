@@ -232,7 +232,7 @@ start_center() {
   fi
   ha daemon fleet center start --port "$fleet_port" --bind "$fleet_bind" \
     --key "$fleet_root/server.key" --cert "$fleet_root/server.crt" \
-    --repo-id "$repo_id" --quota-bytes "$fleet_quota_bytes" \
+    --repo "$repo_id" --quota-bytes "$fleet_quota_bytes" \
     --state-root "$state_root" >"$center_root/fleet-start.json"
   local deadline=$((SECONDS + 30))
   until tls_healthy; do

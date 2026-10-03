@@ -25,6 +25,7 @@ export async function fleetNodeClaimFixture(
   t: TestContext,
   wrapRun?: (run: DaemonHost["run"]) => DaemonHost["run"],
   verifyHuman?: Parameters<typeof listenFleetTls>[0]["verifyHuman"],
+  now?: () => string,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
@@ -94,7 +95,7 @@ export async function fleetNodeClaimFixture(
     return center;
   };
   const openHost = async (): Promise<DaemonHost> => {
-    const host = await openDaemonHost({ daemonId: "lease-center", userRoot });
+    const host = await openDaemonHost({ daemonId: "lease-center", userRoot, ...(now ? { now } : {}) });
     const wrapped = wrapRun ? { ...host, run: wrapRun(host.run) } : host;
     hosts.push(wrapped);
     await host.attachmentsSettled();

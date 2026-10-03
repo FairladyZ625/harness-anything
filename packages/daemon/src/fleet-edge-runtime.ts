@@ -190,7 +190,7 @@ export function openFleetEdgeRuntime(input: {
           action: { kind: "task-show", taskId },
           waitMs: 0,
         });
-        if (typeof shown.receipt?.evidence !== "string")
+        if (shown.outcome !== "applied" || typeof shown.receipt?.evidence !== "string")
           throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
         const current = JSON.parse(shown.receipt.evidence) as {
           lease?: { executionId: string } | null;

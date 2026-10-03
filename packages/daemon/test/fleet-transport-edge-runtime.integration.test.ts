@@ -294,6 +294,14 @@ test(
     const after = await fixture.host.read(fixture.subject.repoId, "repo.tasks.list", {}, fixture.auth);
     assert.ok(after.sourceRevision > before.sourceRevision);
     await t.test("provider resume recovers when the center loses the outcome publication", async () => {
+      // A retained provider session does not retain the terminal attempt's released task lease.
+      const rejoined = await fixture.host.run(
+        fixture.subject.repoId,
+        { kind: "task-start", taskId: fixture.subject.taskId, executionId: fixture.subject.executionId },
+        fixture.auth,
+      );
+      assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
+      await waitForFleetPublication(fixture.host, fixture.subject.repoId, rejoined.opId, fixture.auth);
       const outcomeFailure = fixture.failNextRuntimeOutcome();
       let reportQueueFailure!: () => void;
       const queueFailure = new Promise<void>((resolve) => {
