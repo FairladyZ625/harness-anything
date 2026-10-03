@@ -20,11 +20,13 @@ export function startDetachedProcess(
   env: NodeJS.ProcessEnv,
   outputPath?: string,
   cwd?: string,
+  windowsHide: boolean = detachedProcessOptions.windowsHide,
 ): ChildProcess {
   const outputFd = outputPath ? openDaemonOutputFd(outputPath) : null;
   try {
     const child = spawn(command, [...args], {
       ...detachedProcessOptions,
+      windowsHide,
       ...(outputFd === null ? {} : { stdio: ["ignore", outputFd, outputFd] }),
       ...(cwd ? { cwd } : {}),
       env,

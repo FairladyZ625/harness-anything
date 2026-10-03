@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { createWriteStream, existsSync, mkdirSync, rmSync } from "node:fs";
-import { chmod, cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, realpath, rename, rm } from "node:fs/promises";
 import https from "node:https";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { runNpm } from "./npm-command.mjs";
 
 const nodeVersion = process.env.HARNESS_GUI_NODE_VERSION ?? process.versions.node;
 const guiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,7 +20,6 @@ const nodeArchiveBase = `node-v${nodeVersion}-${nodeDistPlatform}-${arch}`;
 const nodeArchiveName = `${nodeArchiveBase}${nodeArchiveExt}`;
 const nodeArchiveUrl = `https://nodejs.org/dist/v${nodeVersion}/${nodeArchiveName}`;
 const nodeExecutableName = platform === "win32" ? "node.exe" : "node";
-const npmExecutableName = platform === "win32" ? "npm.cmd" : "npm";
 const cacheDir = join(guiRoot, ".runtime-cache");
 const archivePath = join(cacheDir, nodeArchiveName);
 const nodeRuntimeDir = join(guiRoot, "build-resources/node", runtimeId);
@@ -98,7 +98,7 @@ async function prepareDaemonNodeModules() {
   const dependencyPaths = [
     ...new Set(
       ["@harness-anything/cli", "@harness-anything/daemon"].flatMap((workspace) =>
-        execFileSync(npmExecutableName, ["ls", "--workspace", workspace, "--omit=dev", "--parseable", "--all"], {
+        runNpm(["ls", "--workspace", workspace, "--omit=dev", "--parseable", "--all"], {
           cwd: repoRoot,
           encoding: "utf8",
         })
@@ -112,7 +112,7 @@ async function prepareDaemonNodeModules() {
   const nodeModulesRoot = join(repoRoot, "node_modules");
   for (const dependencyPath of dependencyPaths) {
     if (!dependencyPath.startsWith(nodeModulesRoot)) continue;
-    const packageName = relative(nodeModulesRoot, dependencyPath);
+    const packageName = relative(nodeModulesRoot, dependencyPath).replaceAll(sep, "/");
     if (!packageName || packageName === "@harness-anything/cli") continue;
     const target = join(appNodeModulesDir, packageName);
     await mkdir(dirname(target), { recursive: true });
@@ -121,8 +121,8 @@ async function prepareDaemonNodeModules() {
       try {
         // Use the same compiled files and export mapping as the npm distribution.
         const [{ filename }] = JSON.parse(
-          execFileSync(npmExecutableName, ["pack", "--json", "--pack-destination", packDir], {
-            cwd: dependencyPath,
+          runNpm(["pack", "--json", "--pack-destination", packDir], {
+            cwd: await realpath(dependencyPath),
             encoding: "utf8",
             stdio: ["ignore", "pipe", "inherit"],
           }),
