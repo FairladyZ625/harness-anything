@@ -608,7 +608,7 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
         input: {
           rootDir,
           repoId: "node-owner",
-          runtimeNodeId: "node-b",
+          runtimeAssignment: { nodeId: "node-b", assignmentId: "assignment-b" },
           remote: {
             readRuntimeSessions: async () => [
               { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },

@@ -209,7 +209,7 @@ function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null) {
       repoId: "edge-repo",
       rootDir,
       daemonGeneration: 1,
-      runtimeNodeId: "node-a",
+      runtimeAssignment: { nodeId: "node-a", assignmentId: "assignment-a" },
       runtimeDaemonRoute: { userRoot: path.join(rootDir, ".user"), daemonId: "edge", endpoint: "/tmp/edge.sock" },
       remote: {
         existing: async () => null,
