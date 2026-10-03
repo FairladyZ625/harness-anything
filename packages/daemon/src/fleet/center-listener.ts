@@ -38,7 +38,7 @@ import {
 } from "./center-transport.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./contract.ts";
+import { FLEET_SESSION_SEND_WINDOW_BYTES, FLEET_CHUNK_BYTES, type FleetFrameV1 } from "./contract.ts";
 import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";
 
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
@@ -84,8 +84,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         nodePrincipal: { nodeId: node.nodeId, personId },
       };
     },
-    writerAuth = async (node: { nodeId: string; repoId: string }, accessToken?: string) => {
-      const lease = ownedEpochFor(node.repoId);
+    principalAuth = async (node: { nodeId: string; repoId: string }, accessToken?: string) => {
       const machine = await readerAuth(node);
       if (accessToken && !options.verifyHuman)
         throw new FleetFault("human_confirmation_required", "Human sessions are unavailable at this center.");
@@ -102,6 +101,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           throw error;
         }
       }
+      return principal;
+    },
+    writerAuth = async (node: { nodeId: string; repoId: string }, accessToken?: string) => {
+      const lease = ownedEpochFor(node.repoId);
+      const principal = await principalAuth(node, accessToken);
       return {
         ...principal,
         writerEpoch: lease.epoch,
@@ -628,6 +632,39 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         receipt,
       });
     }
+    if (frame.schema === "fleet.repository.read/v1") {
+      const node = await nodeContext(nodeId, frame.repoId);
+      const principal = await principalAuth(node, frame.accessToken ?? undefined);
+      let result;
+      try {
+        result =
+          frame.method === "repo.task.read"
+            ? await options.host.run(node.repoId, frame.payload as { readonly kind: string }, principal)
+            : await options.host.read(node.repoId, frame.method, frame.payload, principal);
+      } catch (error) {
+        const code = runtimeErrorCode(error);
+        if (code) throw new FleetFault(code, runtimeErrorMessage(error));
+        throw error;
+      }
+      const bytes = Buffer.from(JSON.stringify(result));
+      return {
+        key: null,
+        frames: (async function* () {
+          for (let offset = 0; offset < bytes.length; offset += FLEET_CHUNK_BYTES) {
+            const end = Math.min(offset + FLEET_CHUNK_BYTES, bytes.length);
+            yield {
+              schema: "fleet.repository.read.result/v1" as const,
+              messageId: mid(frame.messageId, `read-${offset}`),
+              inReplyTo: frame.messageId,
+              offset,
+              dataBase64: bytes.subarray(offset, end).toString("base64"),
+              done: end === bytes.length,
+            };
+          }
+        })(),
+      };
+    }
+
     if (frame.schema === "fleet.runtime.read/v1") {
       const a = await nodeContext(nodeId, frame.repoId);
       if (frame.repoId !== a.repoId)

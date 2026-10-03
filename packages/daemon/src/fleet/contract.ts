@@ -1,3 +1,5 @@
+import { repositoryReadDescriptor, validRepositoryReadPayload } from "../repository-read-contract.ts";
+import type { DaemonGuiRpcReadMethod } from "../protocol/daemon-protocol-gui-types.ts";
 import { TextDecoder } from "node:util";
 import {
   actionDeclarations,
@@ -27,6 +29,7 @@ export type FleetCut = Readonly<{ revision: number; headDigest: string }>;
 export type FleetMirrorBaseCut = FleetCut;
 export type FleetBlob = Readonly<{ sha256: string; size: number; mediaType: string }>;
 export type FleetDescriptor = FleetBlob & Readonly<{ ref: string }>;
+export type FleetRepositoryReadMethod = DaemonGuiRpcReadMethod | "repo.task.read";
 export type FleetTaskCommandKind = string;
 export interface FleetLoginAuthority {
   readonly url: string;
@@ -46,6 +49,16 @@ export interface FleetRuntimeDispatchContext {
 }
 type Msg<S extends string, P extends object = object> = Readonly<{ schema: S; messageId: string }> & Readonly<P>;
 export type FleetFrameV1 =
+  | Msg<
+      "fleet.repository.read/v1",
+      {
+        repoId: string;
+        accessToken: string | null;
+        method: FleetRepositoryReadMethod;
+        payload: Readonly<Record<string, unknown>>;
+      }
+    >
+  | Msg<"fleet.repository.read.result/v1", { inReplyTo: string; offset: number; dataBase64: string; done: boolean }>
   | Msg<"fleet.session.hello/v1", { protocolVersion: ContractVersion; nodeId: string; credential: string }>
   | Msg<
       "fleet.session.ready/v1",
@@ -726,6 +739,25 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.runtime.event.result/v1": shape({ ...reply, event: record, receipt: record }),
   "fleet.runtime.archive/v1": shape({ ...common, writerEpoch: uint, repoId: id, archive: record }),
   "fleet.runtime.archive.result/v1": shape({ ...reply, receipt: record }),
+  "fleet.repository.read/v1": (value) =>
+    shape({
+      ...common,
+      repoId: id,
+      accessToken: nullable(text),
+      method: (method) =>
+        typeof method === "string" && (method === "repo.task.read" || repositoryReadDescriptor(method) !== undefined),
+      payload: record,
+    })(value) &&
+    record(value) &&
+    (value.method === "repo.task.read"
+      ? record(value.payload) &&
+        taskAction(value.payload) &&
+        (() => {
+          const declaration = fleetCommand(String(value.payload.kind));
+          return declaration !== undefined && "repositoryRead" in declaration && declaration.repositoryRead === true;
+        })()
+      : validRepositoryReadPayload(String(value.method), value.payload)),
+  "fleet.repository.read.result/v1": shape({ ...reply, offset: uint, dataBase64: base64, done: boolean }),
   "fleet.runtime.read/v1": shape({
     ...common,
     repoId: id,

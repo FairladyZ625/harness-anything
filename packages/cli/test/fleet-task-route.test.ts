@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { parseFleetFrame } from "@harness-anything/daemon/internal/fleet/contract";
+import { parseThinCommand } from "../src/cli/thin-command.ts";
 import {
   fleetDocRoute,
   fleetRuntimeRoute,
@@ -258,4 +260,29 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   t.diagnostic(JSON.stringify({ declaredForwardWithoutRoute: missing, declaredRejectedWithRoute: unexpected }));
   assert.deepEqual(missing, []);
   assert.deepEqual(unexpected, []);
+
+  for (const argv of [
+    ["task", "list", "--kind", "fix", "--parent", "task_one", "--limit", "500", "--depth", "all"],
+    ["task", "show", "task_one"],
+    ["work", "list", "--all", "--limit", "500"],
+    ["work", "show", "task_one"],
+  ]) {
+    const parsed = parseThinCommand(argv, root);
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) continue;
+    const routed = await fleetTaskRoute(parsed.command, env);
+    assert.ok(routed, argv.join(" "));
+    assert.doesNotThrow(
+      () =>
+        parseFleetFrame({
+          schema: "fleet.repository.read/v1",
+          messageId: "read",
+          repoId: "route-repo",
+          accessToken: null,
+          method: "repo.task.read",
+          payload: routed.action,
+        }),
+      argv.join(" "),
+    );
+  }
 });

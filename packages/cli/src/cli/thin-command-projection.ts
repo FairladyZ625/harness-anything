@@ -3,7 +3,6 @@ import { accepted, readFlags, rejectInput, rejected } from "./thin-command-flags
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export const projectedAliases: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze({
-  "task-list": { "--kind": "workKind", "--parent": "parentTaskId" },
   "relation-list": { "--type": "relationType" },
   "task-review": { "--reviewer": "reviewerId" },
   "fact-show": { "--id": "factId" },

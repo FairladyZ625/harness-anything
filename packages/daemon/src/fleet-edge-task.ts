@@ -11,6 +11,7 @@
 // base, and lifecycle transition as one serial command. A conflict rejects the
 // whole command and stages base/local/center into .harness/conflicts; an
 // applied outcome auto-pulls and reports the dual-axis mirror outcome.
+import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import { randomUUID } from "node:crypto";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import { readFileSync } from "node:fs";
@@ -26,6 +27,7 @@ import {
   readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
   runFleetTaskCommandClient,
+  runFleetRepositoryReadClient,
   runFleetUploadClient,
 } from "./fleet/edge.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
@@ -109,7 +111,7 @@ export async function runFleetEdgeTask(
 ): Promise<Record<string, unknown>> {
   const payload = input.payload;
   let action = payload.action;
-  const readOnly = action.kind === "task-show";
+  const readOnly = commandDescriptorForAction(action.kind).commandClass === "repo-read";
   const credential = payload.credential;
   const taskId = typeof action.taskId === "string" ? action.taskId : null;
   const waitMs =
@@ -126,6 +128,21 @@ export async function runFleetEdgeTask(
       credential,
       repoId: payload.repoId,
     };
+  const declaration = commandDescriptorForAction(action.kind);
+  if ("repositoryRead" in declaration && declaration.repositoryRead === true) {
+    const receipt = await runFleetRepositoryReadClient({
+      ...peer,
+      method: "repo.task.read",
+      payload: action,
+      accessToken: await readAccessToken?.(),
+    });
+    return {
+      schema: "command-receipt/v2",
+      command: action.kind,
+      ok: receipt.outcome === "applied",
+      ...receipt,
+    };
+  }
   const workspaceRoot = payload.workspaceRoot ?? null;
   // One edge/view has one registered harness materialization. Hold its round fence
   // across gate check, candidate scan/upload, center command, pull, and local

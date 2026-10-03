@@ -199,6 +199,10 @@ export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopolo
   defineQueryOnlyRepoReadCommand = defineTopologyCommand(queryOnlyRepoReadCommandTopology),
   defineLedgerWriteCommand = defineTopologyCommand(ledgerWriteCommandTopology),
   defineCenterForwardReadCommand = defineTopologyCommand(centerForwardReadCommandTopology),
+  defineCenterForwardQueryOnlyReadCommand = defineTopologyCommand({
+    ...centerForwardReadCommandTopology,
+    repoCellExecution: "query-only",
+  }),
   defineCenterForwardWriteCommand = defineTopologyCommand(centerForwardWriteCommandTopology),
   defineRuntimeLocalWriteCommand = defineTopologyCommand(runtimeLocalWriteCommandTopology),
   defineLocalArbiterCommand = defineTopologyCommand(localArbiterCommandTopology),

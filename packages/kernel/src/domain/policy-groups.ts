@@ -11,7 +11,12 @@ export interface PolicyGroup {
   readonly composites: readonly string[];
 }
 
-const tierRank: Readonly<Record<ActionPolicyTier, number>> = Object.freeze({ contributor: 1, maintainer: 2, admin: 3 });
+const tierRank: Readonly<Record<ActionPolicyTier, number>> = Object.freeze({
+  viewer: 0,
+  contributor: 1,
+  maintainer: 2,
+  admin: 3,
+});
 
 /** Base groups contain only their minimum tier; effective membership comes from composite inheritance. */
 export function deriveBasePolicyGroups(
@@ -31,7 +36,7 @@ export function deriveBasePolicyGroups(
         .sort(),
     );
   return Object.freeze([
-    Object.freeze({ id: "viewer", base: true, scopes: Object.freeze([]), composites: Object.freeze([]) }),
+    Object.freeze({ id: "viewer", base: true, scopes: exactScopes("viewer"), composites: Object.freeze([]) }),
     Object.freeze({
       id: "contributor",
       base: true,
@@ -48,7 +53,7 @@ export function deriveBasePolicyGroups(
   ]);
 }
 
-export function minimumBasePolicyGroup(declaration: ActionDeclaration): Exclude<BasePolicyGroupId, "viewer"> {
+export function minimumBasePolicyGroup(declaration: ActionDeclaration): BasePolicyGroupId {
   return declaration.policyTier;
 }
 
@@ -113,5 +118,5 @@ export function decodeAuthorizationResource(value: string): AuthorizationResourc
 }
 
 export function tierIncludes(group: BasePolicyGroupId, tier: ActionPolicyTier): boolean {
-  return group !== "viewer" && tierRank[tier] <= tierRank[group];
+  return tierRank[tier] <= tierRank[group];
 }

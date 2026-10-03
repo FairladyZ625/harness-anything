@@ -93,6 +93,7 @@ export async function fleetNodeOwners(input: {
   }
   return {
     keycloak: served.keycloak,
+    bind: served.bind,
     url: served.url,
     close: served.close,
     nodeOwner: ownerOf,
