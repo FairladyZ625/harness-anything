@@ -172,7 +172,7 @@ export function openFleetEdgeRuntime(input: {
     repoId: request.repoId,
     rootDir: request.workspaceRoot,
     daemonGeneration: input.daemonGeneration,
-    runtimeNodeId: request.nodeId,
+    runtimeAssignment: { nodeId: request.nodeId, assignmentId: request.assignmentId },
     runtimeDaemonRoute: input.daemonRoute,
     remote: {
       existing: async (opId) => {
