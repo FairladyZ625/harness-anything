@@ -47,6 +47,12 @@ ha daemon metrics --window 7d --json
 
 The default window is 24h; 15m, 1h, 24h and 7d are supported. The command reads
 existing rotated logs through `observe.tail`, with no new storage or sampling.
+Request logging excludes only `observe.tail` reads with `kind: repo-log` and
+`direction: history`, including failed reads, so diagnostics do not grow their
+own denominator or retained request history. Business requests, other observe
+kinds and repo-log follow reads keep their existing logging behavior; connection
+logs still record diagnostic traffic. Previously recorded diagnostics remain in
+retained history and statistics; they are neither rewritten nor filtered out.
 It reports completed request counts, observed first/last timestamps and silent
 intervals over one hour. Retained-history exhaustion does not establish continuous
 coverage: inactivity and retention loss cannot be distinguished. A 7d request

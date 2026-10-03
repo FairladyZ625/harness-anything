@@ -14,6 +14,7 @@ import {
 } from "../src/lifecycle-log.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+import { observeTailKinds } from "../src/protocol/daemon-protocol-gui-types.ts";
 import {
   daemonRequestLogPath,
   openDaemonRequestLog,
@@ -114,6 +115,80 @@ test("a repo-scoped read request is recorded in the repository local root", asyn
   assert.ok(Date.parse(record.at) > 0);
   // The log is local-only state, never the authored ledger.
   assert.ok(daemonRequestLogPath(rootDir).startsWith(path.join(rootDir, ".harness")));
+});
+
+test("only repo-log history diagnostics skip request recording, including failed reads", async () => {
+  const rootDir = tempRoot();
+  let rejectRead = false;
+  const host = {
+    ...stubHost(rootDir),
+    read: async () => {
+      if (rejectRead) throw Object.assign(new Error("Diagnostic unavailable"), { code: "service_rejected" });
+      return { ok: true };
+    },
+  } as unknown as DaemonHost;
+  const log = openDaemonRequestLog({ resolveRootDir: () => rootDir });
+  const traffic: string[] = [];
+  const recorded: DaemonRequestLogEntry[] = [];
+  const server = createJsonRpcProtocolServer({
+    host,
+    build: { commit: null },
+    authContext: { transportKind: "unix-socket" },
+    emit: async () => undefined,
+    recordRequest: (entry) => {
+      recorded.push(entry);
+      log.record(entry);
+    },
+    recordTraffic: (entry) => {
+      if (entry.method === "observe.tail") traffic.push(entry.method);
+    },
+  });
+  await handshake(server);
+  for (const rejected of [false, true]) {
+    rejectRead = rejected;
+    for (const kind of observeTailKinds) {
+      for (const direction of ["history", "follow"]) {
+        const before = recorded.length;
+        const response = await server.handle({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "observe.tail",
+          params: {
+            repo: { repoId: "logged" },
+            payload: {
+              kind,
+              direction,
+              ...(direction === "follow"
+                ? { cursor: kind === "events" ? { kind, revision: 0 } : { kind, fileId: "fixture", offset: 0 } }
+                : {}),
+              ...(kind === "dispatch" ? { dispatchId: "dispatch_000000000000000000000000" } : {}),
+            },
+          },
+        });
+        assert.equal(
+          recorded.length - before,
+          kind === "repo-log" && direction === "history" ? 0 : 1,
+          `${kind}/${direction}, rejected=${rejected}: ${JSON.stringify(response)}`,
+        );
+      }
+    }
+  }
+  // Business requests remain recorded alongside the retained observation kinds.
+  await server.handle({
+    jsonrpc: "2.0",
+    id: 3,
+    method: "repo.task.read",
+    params: {
+      repo: { repoId: "logged" },
+      payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } },
+    },
+  });
+  server.close();
+  await log.settle();
+  assert.equal(recorded.length, 19);
+  assert.equal(recorded.at(-1)?.method, "repo.task.read");
+  assert.equal(readRecords(rootDir).length, 19);
+  assert.equal(traffic.length, 20);
 });
 
 test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async () => {
