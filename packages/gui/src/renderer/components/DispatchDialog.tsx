@@ -1,3 +1,4 @@
+import { Toggle } from "./primitives/Toggle.tsx";
 import { SegCtl } from "./primitives/SegCtl.tsx";
 import { Button } from "./primitives/Button.tsx";
 import { useMemo, useState, type ReactNode } from "react";
@@ -55,6 +56,7 @@ export function DispatchDialog({
   onSubmit,
   onPreview,
 }: DispatchDialogProps) {
+  const [handoffEnabled, setHandoffEnabled] = useState(false);
   const [open, setOpen] = useState<StepKey>(initialMission ? "mission" : "task");
   const [taskId, setTaskId] = useState(""),
     [mission, setMission] = useState(initialMission);
@@ -86,6 +88,7 @@ export function DispatchDialog({
   // submit would send, so the daemon assembles the prompt from the same spawn input.
   const buildRequest = (): DispatchRequest => ({
     subject,
+    ...(handoffEnabled && instance?.kindId === "codex" ? { handoffEnabled: true } : {}),
     ...(runtimeMode === "manual" ? { runtimeInstanceId: instance!.instanceId } : {}),
     mission: mission.trim(),
     cwd: cwdScope === "repo-root" ? { scope: "repo-root" } : { scope: "repo-relative", path: cwdPath.trim() },
@@ -153,6 +156,17 @@ export function DispatchDialog({
           </>
         }
       >
+        {instance?.kindId === "codex" && (
+          <div className="mb-3 flex items-center gap-2 ui-meta">
+            <Toggle
+              label={t("agentRuntime.handoffEnable")}
+              checked={handoffEnabled}
+              onChange={setHandoffEnabled}
+              disabled={busy}
+            />
+            <span>{t("agentRuntime.handoffEnable")}</span>
+          </div>
+        )}
         <Step
           no="①"
           step="who"

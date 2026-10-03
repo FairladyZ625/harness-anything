@@ -483,6 +483,7 @@ type DaemonFleetTaskPayload = DaemonFleetChannelPayload & {
         readonly method:
           | "repo.agentRuntime.spawn"
           | "repo.agentRuntime.cancel"
+          | "repo.agentRuntime.handoff"
           | "repo.agentRuntime.overview"
           | "repo.agentRuntime.sessions.await"
           | "repo.agentRuntime.sessions.read";

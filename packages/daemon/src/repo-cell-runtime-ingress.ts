@@ -1,3 +1,4 @@
+import { admitHandoffDispatch } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
 import {
   canonicalEventWritePlan,
@@ -17,13 +18,18 @@ const auxiliaryEventTypes = Object.freeze([
   "runtime_installation_observed",
   "runtime_dispatch_requested",
   "runtime_dispatch_outcome_unknown",
+  "runtime_handoff_exported",
+  "runtime_handoff_revoked",
 ] as const satisfies readonly AgentRuntimeEventV1["type"][]);
 
 export function appendAuxiliaryRuntimeIngress(
   cell: RepoCellActionContext,
   action: RuntimeIngressAction,
   binding: RepoCellBinding,
+  trustedHandoff = false,
 ): JsonObject {
+  if (action.kind === "event" && action.type.startsWith("runtime_handoff_") && !trustedHandoff)
+    throw cell.cellCodedError("invalid_runtime_event", "Handoff audit events require the authorized handoff action.");
   const remote = typeof binding.source === "object" && binding.source.kind === "node";
   if (action.kind === "archive") {
     return archiveRuntimeDispatch({
@@ -96,6 +102,7 @@ export function appendAuxiliaryRuntimeIngress(
         }
       }
     }
+    admitHandoffDispatch(cell, action.payload, binding);
     const sourceId = action.payload.resumedFromDispatchId;
     if (typeof sourceId === "string") {
       const source = cell.projection.readRuntimeDispatchById(sourceId)?.event,
@@ -108,10 +115,12 @@ export function appendAuxiliaryRuntimeIngress(
       if (
         !isSamePerson(source.actor, binding.actor) ||
         source.payload.taskId !== action.payload.taskId ||
-        source.payload.executionId !== action.payload.executionId ||
+        (action.payload.handoffCheckpointId === undefined &&
+          source.payload.executionId !== action.payload.executionId) ||
         (remote &&
           ((source.payload.taskId ?? null) !== dispatch?.taskId ||
-            (source.payload.executionId ?? null) !== dispatch?.executionId))
+            (action.payload.handoffCheckpointId === undefined &&
+              (source.payload.executionId ?? null) !== dispatch?.executionId)))
       )
         throw cell.cellCodedError(
           "runtime_resume_binding_mismatch",

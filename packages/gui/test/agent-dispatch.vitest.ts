@@ -561,3 +561,33 @@ describe("agent dispatch flow", () => {
     expect(markup).toContain("# Mission\n\nassembled prompt with\nmultiple lines and &quot;quotes&quot;");
   });
 });
+
+it("opts a new handoff session into its managed task worktree", () => {
+  const payload = buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject, handoffEnabled: true }, [
+    codexInstance,
+  ]);
+  expect(payload.handoffEnabled).toBe(true);
+  expect(payload).not.toHaveProperty("cwd");
+});
+it("uses the same handoff action for GUI export, claim and revoke", async () => {
+  const handoffAgentRuntime = vi.fn(async () => ({
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "runtime-handoff",
+    outcome: "applied",
+    opId: "handoff-one",
+  }));
+  vi.stubGlobal("window", { harness: { handoffAgentRuntime } });
+  try {
+    for (const operation of ["export", "claim", "revoke"] as const) {
+      await runtimeCommandClient.handoff("repo-a", { operation, dispatchId: "dispatch-source" });
+      expect(handoffAgentRuntime).toHaveBeenLastCalledWith({
+        repoId: "repo-a",
+        operation,
+        dispatchId: "dispatch-source",
+      });
+    }
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

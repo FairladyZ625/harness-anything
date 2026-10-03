@@ -184,6 +184,7 @@ export interface RepoCell {
   ) => Promise<WriteReceipt | SquadControlResult>;
   readonly presetRun: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<PresetRunReceiptV1>;
   readonly spawnRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
+  readonly handoffRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
   readonly cancelRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
   /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
   readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;

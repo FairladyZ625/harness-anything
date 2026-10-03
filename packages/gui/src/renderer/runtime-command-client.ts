@@ -2,6 +2,16 @@ import { parseAgentDispatchPreview, type AgentDispatchPreview, type RuntimeSpawn
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { invoke } from "./api-client-invoke.ts";
 export const runtimeCommandClient = {
+  handoff: async (
+    repoId: string,
+    input: {
+      readonly operation: "export" | "claim" | "revoke";
+      readonly dispatchId: string;
+      readonly runtimeInstanceId?: string;
+      readonly prompt?: string;
+      readonly idempotencyKey?: string;
+    },
+  ) => action(await invoke("repo.agentRuntime.handoff", { repoId, ...input }, "handoffAgentRuntime")),
   spawn: async (repoId: string, input: RuntimeSpawnInput): Promise<unknown> =>
     action(await invoke("repo.agentRuntime.spawn", { repoId, ...input }, "spawnAgentRuntime")),
   // The preview asks the same spawn action for the assembled prompt and nothing else:

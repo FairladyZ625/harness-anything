@@ -28,6 +28,8 @@ export const agentRuntimeEventTypes = [
   "runtime_session_exited",
   "runtime_session_outcome_observed",
   "runtime_dispatch_outcome_unknown",
+  "runtime_handoff_exported",
+  "runtime_handoff_revoked",
 ] as const;
 
 export function runtimeTaskExecutionRelation(runtimeSessionId: string, taskId: string): EntityRelationRecord {
@@ -337,6 +339,10 @@ interface RuntimePayloads {
     readonly definitionSnapshot: AgentDefinitionSnapshot;
     readonly startedAt?: string;
     readonly resumedFromDispatchId?: string;
+    readonly handoffEnabled?: boolean;
+    readonly handoffCheckpointId?: string;
+    readonly acceptedCommit?: string;
+    readonly resumeProviderSessionId?: string;
     readonly taskId?: string;
     readonly executionId?: string;
     readonly attemptGroupId?: string;
@@ -393,6 +399,15 @@ interface RuntimePayloads {
     readonly endedAt?: string;
     readonly runtimeMetrics?: RuntimeDispatchMetrics;
   };
+  readonly runtime_handoff_exported: {
+    readonly dispatchId: string;
+    readonly runtimeSessionId: string;
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly commit: string;
+    readonly sha256: string;
+  };
+  readonly runtime_handoff_revoked: { readonly dispatchId: string; readonly runtimeSessionId: string };
   readonly runtime_dispatch_outcome_unknown: { readonly dispatchId: string; readonly runtimeSessionId: string };
 }
 export interface RuntimeDispatchMetrics {
@@ -452,6 +467,8 @@ const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
   runtime_session_cancelled: ["runtimeSessionId"],
   runtime_session_exited: ["runtimeSessionId"],
   runtime_session_outcome_observed: ["runtimeSessionId", "outcome", "exitCode", "resultRef", "result"],
+  runtime_handoff_exported: ["dispatchId", "runtimeSessionId", "taskId", "executionId", "commit", "sha256"],
+  runtime_handoff_revoked: ["dispatchId", "runtimeSessionId"],
   runtime_dispatch_outcome_unknown: ["dispatchId", "runtimeSessionId"],
 };
 export function validateAgentRuntimePayload(type: AgentRuntimeEventType, value: unknown): readonly string[] {
@@ -471,6 +488,10 @@ function validateAgentRuntimePayloadFields(
           ? [
               "startedAt",
               "resumedFromDispatchId",
+              "handoffEnabled",
+              "handoffCheckpointId",
+              "acceptedCommit",
+              "resumeProviderSessionId",
               "taskId",
               "executionId",
               "attemptGroupId",
@@ -490,6 +511,11 @@ function validateAgentRuntimePayloadFields(
       Object.keys(value).some((field) => !payloadFields[type].includes(field) && !optionalFields.includes(field)))
   )
     return ["agent runtime payload fields are incomplete or unknown"];
+  if (
+    type === "runtime_handoff_exported" &&
+    (!/^[a-f0-9]{40}$/u.test(String(value.commit)) || !/^[a-f0-9]{64}$/u.test(String(value.sha256)))
+  )
+    return ["runtime handoff audit binding is invalid"];
   const ids = payloadFields[type].filter((field) => /(?:Id|Key)$/u.test(field));
   if (ids.some((field) => !isNonEmptyString(value[field]))) return ["agent runtime payload identity is invalid"];
   if (
@@ -518,6 +544,12 @@ function validateAgentRuntimePayloadFields(
       (value.attemptIndex !== undefined && (!Number.isInteger(value.attemptIndex) || Number(value.attemptIndex) < 0)))
   )
     return ["runtime dispatch query metadata is invalid"];
+  if (
+    type === "runtime_dispatch_requested" &&
+    ((value.handoffEnabled !== undefined && typeof value.handoffEnabled !== "boolean") ||
+      (value.acceptedCommit !== undefined && !/^[a-f0-9]{40}$/u.test(String(value.acceptedCommit))))
+  )
+    return ["runtime handoff metadata is invalid"];
   if (
     type === "runtime_session_started" &&
     (!validRef(value.definitionSnapshotRef) ||
@@ -699,6 +731,8 @@ export function reduceRuntimeSession(
   if (
     event.type === "runtime_dispatch_requested" ||
     event.type === "runtime_dispatch_outcome_unknown" ||
+    event.type === "runtime_handoff_exported" ||
+    event.type === "runtime_handoff_revoked" ||
     event.type === "runtime_installation_observed"
   )
     return current;

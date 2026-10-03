@@ -21,6 +21,7 @@ export async function runRuntimeFacadeCommand(
   writeActivity: (text: string) => void = (text) => process.stderr.write(text),
 ): Promise<JsonObject> {
   const action = command.action;
+  if (action.kind.startsWith("runtime-handoff-")) return runCommandThroughDaemon(command);
   if (command.method.startsWith("repo.runtimeInstance.auth.")) return runRuntimeAuthCommand(command, writeActivity);
   if (action.kind === "runtime-batch") return runRuntimeBatch(command);
   if (action.kind === "squad-run") return runSquadRun(command, writeActivity);

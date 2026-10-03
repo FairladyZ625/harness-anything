@@ -21,6 +21,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
   inputs: [
     cliInput("--task", "single", false, { code: "missing_field" }),
     cliInput("--resume-dispatch", "single", false, { code: "invalid_field" }),
+    cliInput("--enable-handoff", "boolean", false, { code: "invalid_field" }),
     cliInput("--instance", "single", false, { code: "invalid_field" }),
     cliInput("--cwd", "single", false, { code: "invalid_field" }),
     cliInput("--to", "single", false, { code: "invalid_field" }),
@@ -46,6 +47,32 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
 });
 
 export const runtimeFleetProtocolCommands = Object.freeze([
+  ...(["export", "claim", "revoke"] as const).map((operation) =>
+    defineCenterForwardWriteCommand({
+      id: `runtime-handoff-${operation}`,
+      phase: "Runtime-B",
+      path: ["runtime", "handoff", operation, "<dispatch-id>"],
+      summary: `${operation} an explicitly enabled, settled Codex session checkpoint.`,
+      method: "repo.agentRuntime.handoff",
+      payloadFields:
+        operation === "export"
+          ? [
+              { field: "commit", type: "string", required: true, regex: "^[a-f0-9]{40}$" },
+              { field: "candidate", type: "json-object", required: true },
+            ]
+          : operation === "claim"
+            ? [{ field: "offset", type: "number", required: false }]
+            : [],
+      inputs:
+        operation === "claim"
+          ? [
+              cliInput("--instance", "single", true, { code: "missing_field" }, { wire: { omit: true } }),
+              cliInput("--prompt", "single", true, { code: "missing_field" }, { wire: { omit: true } }),
+              cliInput("--idempotency-key", "single", false, { code: "invalid_field" }),
+            ]
+          : [],
+    }),
+  ),
   defineRuntimeLocalWriteCommand({
     id: "runtime-run",
     phase: "Runtime-B",

@@ -147,12 +147,7 @@ export async function checkoutTaskWorktree(
       await git(rootDir, "fetch", "--quiet", "origin", acceptedCommit);
       const fresh = !existsSync(cwd);
       if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: acceptedCommit });
-      const verify = async () => {
-        if ((await git(cwd, "status", "--porcelain")).trim())
-          throw cellCodedError("runtime_handoff_workspace_dirty", "Handoff requires a clean worktree.");
-        if ((await git(cwd, "rev-parse", "HEAD")).trim() !== acceptedCommit)
-          throw cellCodedError("runtime_handoff_sha_mismatch", "Worktree HEAD differs from the accepted handoff SHA.");
-      };
+      const verify = () => verifyHandoffWorktree(cwd, acceptedCommit);
       await verify();
       const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps: setup });
       await verify();
@@ -406,4 +401,22 @@ export function taskClosed(task: {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Recheck the prepared immutable anchor immediately before runtime admission. */
+export async function verifyHandoffWorktree(cwd: string, acceptedCommit: string): Promise<void> {
+  const git = (...args: string[]) =>
+    runProcessTextAsync(
+      "git",
+      ["-C", cwd, ...args],
+      undefined,
+      { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      undefined,
+      undefined,
+      { timeoutMs: 30_000 },
+    );
+  if ((await git("status", "--porcelain")).trim())
+    throw cellCodedError("runtime_handoff_workspace_dirty", "Handoff requires a clean worktree.");
+  if ((await git("rev-parse", "HEAD")).trim() !== acceptedCommit)
+    throw cellCodedError("runtime_handoff_sha_mismatch", "Worktree HEAD differs from the accepted handoff SHA.");
 }

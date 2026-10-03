@@ -10,7 +10,7 @@ import { admitRepoMode } from "./repo-mode.ts";
 // Spawn, cancellation, and runtime ingress share this writer-fenced publication boundary.
 export function enqueueRuntimePublication(
   context: RepoCellApiContext,
-  commandKind: "runtime-run" | "runtime-cancel",
+  commandKind: "runtime-run" | "runtime-cancel" | "runtime-handoff-claim",
   policyAction: RepoTaskAction,
   binding: RepoCellBinding,
   execute: (authorizedBinding: RepoCellBinding, revision: number) => JsonObject | Promise<JsonObject>,

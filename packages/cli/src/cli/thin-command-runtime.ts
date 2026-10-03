@@ -12,6 +12,26 @@ export function parseRuntime(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   const kind = route.id;
+  if (kind.startsWith("runtime-handoff-")) {
+    const dispatchId = args[3],
+      f = readFlags(kind, args.slice(4), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    if (!nonEmpty(dispatchId)) return rejected("missing_field", "A source dispatch ID is required.", json);
+    return accepted(
+      rootDir,
+      repoId,
+      json,
+      {
+        kind,
+        dispatchId,
+        operation: kind.slice("runtime-handoff-".length),
+        ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
+        ...(f.one.get("--prompt") ? { prompt: f.one.get("--prompt") } : {}),
+        ...(f.one.get("--idempotency-key") ? { idempotencyKey: f.one.get("--idempotency-key") } : {}),
+      },
+      route.method,
+    );
+  }
   if (kind === "runtime-status") {
     // runtime-status is the one runtime surface with an optional positional — and the only one that
     // accepts several: --wait turns consecutive session ids into one multi-target await request.

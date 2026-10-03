@@ -234,6 +234,7 @@ export async function openRepoCellProxy(
     const runtimeSpawner: RepoCellRuntimeContext["runtimeSpawner"] = {
         prepareWorktree: unsupportedWrite,
         spawn: unsupportedWrite,
+        spawnHandoff: unsupportedWrite,
         spawnCoordinated: unsupportedWrite,
         spawnScheduled: unsupportedWrite,
         adopt: unsupportedWrite,
@@ -405,6 +406,7 @@ export async function openRepoCellProxy(
     run,
     presetRun: (action, binding) => supervisor.request("presetRun", { action }, binding),
     spawnRuntime: (payload, binding) => supervisor.request("spawnRuntime", payload, binding),
+    handoffRuntime: (payload, binding) => supervisor.request("handoffRuntime", payload, binding),
     cancelRuntime: (payload, binding) => supervisor.request("cancelRuntime", payload, binding),
     runtimeIngress: (action, binding) => supervisor.request("runtimeIngress", { action }, binding),
     catalog: {
