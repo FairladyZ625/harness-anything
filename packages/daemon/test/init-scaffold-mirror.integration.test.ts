@@ -26,9 +26,6 @@ import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 
-// Idle WAL→Git materialization defaults to one hour; these tests wait for materialized commits.
-process.env.HARNESS_WAL_FLUSH_MS = "250";
-
 const repoId = "scaffold-mirror",
   nodeId = "node-one",
   replicaQuota = 64 * 1024 * 1024,
@@ -82,6 +79,9 @@ async function initializedCenterWithEdge() {
   // The full `ha init` shape: nothing but the bootstrap command touches the ledger.
   const initialized = await host.bootstrap({ rootDir: repo, repoId, personId: "owner", displayName: "Owner" }, auth);
   assert.equal(initialized.outcome, "applied", JSON.stringify(initialized));
+  // Bootstrap accepts the builtin schedules in SQLite before its Git follower publishes them.
+  // Sample Git only after that accepted cut is materialized, matching the replica's read cut.
+  await host.settleMaterialization(repoId, "scaffold mirror baseline");
   const writerEpochStateRoot = path.join(userRoot, "fleet"),
     writerAuthority = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot }),
     hostLease = writerAuthority.current(repoId);
@@ -160,6 +160,8 @@ test("init publishes every scaffold document it writes under the authored root",
   const written = ledgerFiles(fixture.repo);
   assert.ok(written.includes(standard), `init must scaffold ${standard}; saw ${written.join(",")}`);
   assert.ok(written.includes("context/architecture/README.md"));
+  assert.ok(written.includes("schedules/builtin-ledger-backup.json"));
+  assert.ok(written.includes("schedules/builtin-nightly-reckoning.json"));
   assert.equal((await fixture.edgeSync()).ok, true);
   // Whatever init committed to the ledger repository is a ledger document the replica cut carries:
   // no file is on the center's disk only.
