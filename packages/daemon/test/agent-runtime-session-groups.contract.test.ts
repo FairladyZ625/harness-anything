@@ -589,7 +589,13 @@ test("exited sessions skip the dispatch-stream evidence read in session groups a
     now: () => "2026-08-26T12:00:00.000Z",
     readActivityEvidence: () => {
       evidenceReads += 1;
-      return { lastObservedAt: "2026-08-26T11:30:00.000Z", workerHostAlive: true };
+      return {
+        lastObservedAt: "2026-08-26T11:30:00.000Z",
+        workerHostAlive: true,
+        process: null,
+        terminalOutcome: null,
+        runtimeMetrics: null,
+      };
     },
     readDispatches: () => dispatches,
   });

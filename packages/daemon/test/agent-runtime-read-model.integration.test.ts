@@ -1014,6 +1014,9 @@ test("live dispatch evidence repairs an unknown session and advances its observe
         readActivityEvidence: () => ({
           lastObservedAt: "2026-09-06T01:45:42.460Z",
           workerHostAlive: true,
+          process: null,
+          terminalOutcome: null,
+          runtimeMetrics: null,
         }),
         store,
         projection: unknownProjection,
