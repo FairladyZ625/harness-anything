@@ -260,6 +260,7 @@ export async function fleetFixture(
           key,
           cert,
           replicaDiskQuotaBytes: diskQuotaBytes,
+          verifyHuman: (auth) => new OidcSessionService(userRoot).bind(auth),
           authenticate: async (nodeId, credential) => {
             const barrier = authenticateBarrier;
             if (barrier) {

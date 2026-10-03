@@ -105,6 +105,34 @@ export const taskExecutionProtocolCommands = Object.freeze([
   ...derivedTaskActionProtocolCommands,
   defineCenterForwardWriteCommand({
     id: "task-progress-append",
+    payloadFields: [
+      { field: "taskId", type: "string", required: false, regex: "^[A-Za-z0-9_-]{1,96}$" },
+      { field: "executionId", type: "string", required: false, regex: "^[A-Za-z0-9_-]{1,96}$" },
+      { field: "text", type: "string", required: false, wire: { maxLength: 32 * 1024 } },
+      {
+        field: "evidence",
+        type: "json-object-array",
+        required: false,
+        fields: [
+          { field: "type", type: "string", required: true },
+          {
+            field: "path",
+            type: "string",
+            required: true,
+            wire: { normalization: "NFC" },
+            regex: "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/]+(?:/[^/]+)*$",
+          },
+          { field: "summary", type: "string", required: true },
+        ],
+      },
+      {
+        field: "baseDocumentSha256",
+        type: "string",
+        required: false,
+        regex: "^[0-9a-f]{64}$",
+        wire: { nullable: true },
+      },
+    ],
     phase: "W3",
     path: ["task", "progress", "append", "<task-id>"],
     summary: "Append typed progress through the active task lease, or backfill after release with --as-owner.",
@@ -130,18 +158,28 @@ export const taskExecutionProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-dispatch-review",
+    payloadFields: [
+      { field: "taskId", type: "string", required: false, wire: { omit: true } },
+      {
+        field: "taskIds",
+        type: "string-array",
+        required: true,
+        items: { field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" },
+      },
+      { field: "agentId", type: "string", required: false, regex: "^[A-Za-z0-9_-]{1,96}$" },
+      { field: "runtimeInstanceId", type: "string", required: false, regex: "^[A-Za-z0-9_-]{1,96}$" },
+      { field: "executionId", type: "string", required: false, regex: "^[A-Za-z0-9_-]{1,96}$" },
+    ],
     phase: "W3",
     path: ["task", "dispatch-review", "<task-id>"],
     summary:
       "Dispatch one independent reviewer per selected task; each review binds to the task's submitted cut, never to an implementation execution.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "repeated", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--agent", "single", false, { code: "invalid_field" }),
+      cliInput("--task", "repeated", false, { code: "invalid_field" }, { field: "taskIds" }),
+      cliInput("--agent", "single", false, { code: "invalid_field" }, { field: "agentId" }),
       cliInput("--execution-id", "single", false, { code: "invalid_field" }),
-      cliInput("--instance", "single", false, { code: "invalid_field" }),
+      cliInput("--instance", "single", false, { code: "invalid_field" }, { field: "runtimeInstanceId" }),
       cliInput("--model", "single", false, { code: "invalid_field" }),
       cliInput(
         "--effort",
@@ -221,6 +259,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
   }),
   defineCenterForwardReadCommand({
     id: "task-show",
+    payloadFields: [{ field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" }],
     phase: "W3",
     path: ["task", "show", "<task-id>"],
     summary: "Read the task projection.",

@@ -352,7 +352,7 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       taskId: "task_abc",
       executionId: "exe_abc",
     },
-    { kind: "task-complete", taskId: "task_abc", consent: true },
+    { kind: "task-complete", taskId: "task_abc" },
     {
       kind: "task-review-execution",
       taskId: "task_abc",
@@ -458,6 +458,7 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     { ...snapshotCurrent, cut: { ...cut, commitSha: "a".repeat(40) } },
     { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", actor: { principal: { personId: "spoof" } } } },
     { ...taskCommand, action: { kind: "task-complete", taskId: "task_abc", consentId: "old" } },
+    { ...taskCommand, action: { kind: "task-complete", taskId: "task_abc", consent: true } },
     { ...taskCommand, action: { kind: "task-review-consent", taskId: "task_abc", jsonInput: "{}" } },
     { ...taskCommand, action: { kind: "task-review-consent", taskId: "task_abc", fromFile: "packet.json" } },
     { ...taskCommand, action: { kind: "host-run", command: "anything" } },

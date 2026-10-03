@@ -1,23 +1,52 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
+import { runInNewContext } from "node:vm";
 import { fileURLToPath } from "node:url";
 import { findW3WriteAuthorityViolations } from "./check-write-coordinator-boundary.mjs";
 
-const requiredRows = Object.freeze({
-  "lifecycle.event-publication": ["task-create", "task-submit", "task-review-execution", "task-complete"],
-  "workspace.bootstrap": [
-    "rbac-bootstrap",
-    "repo-bootstrap",
-    "daemon-repo-register",
-    "ledger-backup",
-    "ledger-restore-drill",
-    "repo-unbind",
-    "repo-purge",
-  ],
-  "daemon.runtime-control": ["daemon-start", "daemon-stop"],
-  "projection.sqlite": [],
-});
+const declarationPath = "packages/kernel/src/domain/action-declaration.ts";
+
+// Parse the inspected tree, never the checker's own checkout or the registry under test.
+function declaredWriteRoads(rootDir, violations) {
+  const roads = {
+    "lifecycle.event-publication": [],
+    "workspace.bootstrap": [],
+    "daemon.runtime-control": [],
+    "projection.sqlite": [],
+  };
+  let declarations;
+  try {
+    const context = { exports: {} };
+    const compiled = ts.transpileModule(read(path.join(rootDir, declarationPath)), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    });
+    runInNewContext(compiled.outputText, context, { timeout: 1000, filename: declarationPath });
+    declarations = context.exports.actionDeclarations;
+    if (!Array.isArray(declarations)) throw new Error("actionDeclarations must be exported as an array");
+  } catch (error) {
+    violations.push(`${declarationPath}: ${error instanceof Error ? error.message : String(error)}`);
+    return roads;
+  }
+  for (const action of declarations) {
+    if (action.writeRoad === undefined) continue;
+    if (
+      !Object.hasOwn(roads, action.writeRoad) ||
+      action.writeRoad === "projection.sqlite" ||
+      typeof action.kind !== "string"
+    )
+      violations.push(`${declarationPath}: invalid writeRoad action declaration`);
+    else roads[action.writeRoad].push(action.kind);
+  }
+  for (const [road, actions] of Object.entries(roads)) {
+    if (road !== "projection.sqlite" && actions.length === 0)
+      violations.push(`${declarationPath}: missing ${road} action declarations`);
+    if (new Set(actions).size !== actions.length)
+      violations.push(`${declarationPath}: duplicate ${road} action declarations`);
+  }
+  return roads;
+}
 const mutatingFs = new Set([
   "appendFile",
   "appendFileSync",
@@ -60,17 +89,18 @@ export function findWriteRoadRegistryViolations(
   }
   if (registry.schema !== "harness-anything/write-road-registry/v2" || !Array.isArray(registry.rows))
     return [...violations, `${registryRelative}: expected write-road-registry/v2 rows`];
-  const ids = registry.rows.map((row) => row?.id);
-  for (const id of Object.keys(requiredRows))
+  const expectedRows = declaredWriteRoads(rootDir, violations),
+    ids = registry.rows.map((row) => row?.id);
+  for (const id of Object.keys(expectedRows))
     if (ids.filter((candidate) => candidate === id).length !== 1)
       violations.push(`${registryRelative}: row ${id} must occur exactly once`);
   for (const row of registry.rows) {
-    if (!Object.hasOwn(requiredRows, row?.id)) {
+    if (!Object.hasOwn(expectedRows, row?.id)) {
       violations.push(`${registryRelative}: stale or unknown row ${String(row?.id)}`);
       continue;
     }
-    if (JSON.stringify(row.actions ?? []) !== JSON.stringify(requiredRows[row.id]))
-      violations.push(`${row.id}: actions must equal ${requiredRows[row.id].join(",")}`);
+    if (JSON.stringify(row.actions ?? []) !== JSON.stringify(expectedRows[row.id]))
+      violations.push(`${row.id}: actions must equal ${expectedRows[row.id].join(",")}`);
     if (!Array.isArray(row.evidence) || row.evidence.length === 0)
       violations.push(`${row.id}: evidence must be non-empty`);
     for (const file of row.evidence ?? [])
@@ -88,7 +118,7 @@ export function findWriteRoadRegistryViolations(
     );
   }
   const cli = read(path.join(rootDir, "packages/cli/src/cli/thin-command.ts"));
-  for (const action of requiredRows["lifecycle.event-publication"])
+  for (const action of expectedRows["lifecycle.event-publication"])
     if (!cli.includes(`"${action}"`)) violations.push(`thin CLI is missing lifecycle action ${action}`);
   const discovered = discoverPhysicalWriteFiles(rootDir),
     declared = [...new Set(registry.physicalWriteFiles ?? [])].sort();

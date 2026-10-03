@@ -8,6 +8,7 @@ import {
   stableStringify,
   type ContractVersion,
   type LedgerCutIdentity,
+  type EntityActionInputField,
 } from "@harness-anything/kernel";
 import { daemonProtocolCommands } from "../protocol/daemon-protocol-commands.ts";
 import { isUtcTimestamp } from "../protocol/json-rpc-types.ts";
@@ -338,174 +339,124 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
         command.path[0] !== "doc" &&
         command.path[0] !== "schedule",
     ),
-  declaredActionFields = (kind: string): ReadonlySet<string> | null => {
+  declaredActionFields = (kind: string): readonly EntityActionInputField[] | null => {
     const command = fleetCommand(kind);
     if (!command) return null;
-    const fields = new Set<string>(["kind"]),
+    const fields = new Map<string, EntityActionInputField>(),
       entity = getExecutableEntityAction(kind);
-    for (const input of entity?.input.fields ?? []) fields.add(input.field);
+    const add = (field: EntityActionInputField) => {
+      if (field.wire?.omit) {
+        fields.set(field.field, field);
+        return;
+      }
+      if (field.cli?.jsonSchema) {
+        fields.delete(field.field);
+        for (const nested of field.cli.jsonSchema.fields) fields.set(nested.field, nested);
+      } else {
+        const prior = fields.get(field.field);
+        fields.set(field.field, { ...prior, ...field, wire: { ...prior?.wire, ...field.wire } });
+      }
+    };
     for (const input of command.inputs) {
-      if ("jsonAllowedFields" in input && Array.isArray(input.jsonAllowedFields)) {
-        fields.delete("field" in input && typeof input.field === "string" ? input.field : fieldName(input.name));
-        for (const field of input.jsonAllowedFields) fields.add(field);
-      } else fields.add("field" in input && typeof input.field === "string" ? input.field : fieldName(input.name));
+      const declaration = input as typeof input & {
+        readonly field?: string;
+        readonly projection?: string;
+        readonly maxLength?: number;
+        readonly wire?: EntityActionInputField["wire"];
+      };
+      if (declaration.jsonAllowedFields) {
+        add({
+          field: declaration.field ?? fieldName(input.name),
+          type: "string",
+          required: false,
+          wire: { omit: true },
+        });
+        continue;
+      }
+      add({
+        field: declaration.field ?? fieldName(input.name),
+        type:
+          input.kind === "boolean" || declaration.projection === "boolean"
+            ? "boolean"
+            : declaration.projection === "number"
+              ? "number"
+              : input.kind === "repeated"
+                ? "string-array"
+                : declaration.projection === "json-object"
+                  ? "json-object"
+                  : "string",
+        required: input.required,
+        ...(input.enum ? { enum: input.enum } : {}),
+        ...(input.regex && declaration.projection !== "number" ? { regex: input.regex } : {}),
+        wire: {
+          ...(declaration.maxLength === undefined ? {} : { maxLength: declaration.maxLength }),
+          ...declaration.wire,
+        },
+      });
     }
+    for (const input of entity?.input.fields ?? []) add(input);
+    if ("payloadFields" in command)
+      for (const field of command.payloadFields as readonly EntityActionInputField[]) add(field);
     for (const token of command.syntaxPath ?? command.path) {
-      const match = token.match(/^<?\[?([a-z][a-z0-9-]*)[>\]]?$/u);
-      if (match && (token.startsWith("<") || token.startsWith("["))) fields.add(fieldName(`--${match[1]}`));
+      const match = token.match(/^<([a-z][a-z0-9-]*)>$/u);
+      if (match) {
+        const name = fieldName(`--${match[1]}`);
+        if (!fields.has(name)) add({ field: name, type: "string", required: true });
+      }
     }
     if ("actionDefaults" in command && command.actionDefaults)
-      for (const field of Object.keys(command.actionDefaults)) fields.add(field);
-    return fields;
+      for (const [field, value] of Object.entries(command.actionDefaults))
+        if (typeof value === "string") add({ field, type: "string", required: false, enum: [value] });
+    return [...fields.values()].filter((field) => !field.wire?.omit);
   };
+const fieldCheck = (field: EntityActionInputField, value: unknown): boolean => {
+  if (field.wire?.nullable && value === null) return true;
+  const type = field.type;
+  if (type === "boolean") return boolean(value);
+  if (type === "number") return Number.isSafeInteger(value) && Number(value) >= (field.wire?.minimum ?? 0);
+  if (type === "json-object") {
+    if (!record(value)) return false;
+    return !field.fields || checkFields(field.fields, value);
+  }
+  if (type === "string-array" || type === "fact-hold-array" || type === "json-object-array") {
+    if (!Array.isArray(value) || value.length > FLEET_PAGE_ROWS) return false;
+    return value.every((item) =>
+      fieldCheck(
+        field.items ?? {
+          field: field.field,
+          type: type === "string-array" ? "string" : "json-object",
+          required: true,
+          regex: field.regex,
+          enum: field.enum,
+          wire: field.wire,
+          ...(field.fields ? { fields: field.fields } : {}),
+        },
+        item,
+      ),
+    );
+  }
+  return (
+    typeof value === "string" &&
+    (!field.wire?.normalization || value === value.normalize(field.wire.normalization)) &&
+    value.length > 0 &&
+    value.length <= (field.wire?.maxLength ?? 512) &&
+    (!(field.wire?.enum ?? field.enum) || (field.wire?.enum ?? field.enum)!.includes(value)) &&
+    (!(field.wire?.pattern ?? field.regex) || new RegExp((field.wire?.pattern ?? field.regex)!, "u").test(value))
+  );
+};
+const checkFields = (fields: readonly EntityActionInputField[], value: RecordValue): boolean =>
+  fields.every((field) => !(field.wire?.required ?? field.required) || Object.hasOwn(value, field.field)) &&
+  Object.entries(value).every(([name, entry]) => {
+    const field = fields.find((candidate) => candidate.field === name);
+    return field !== undefined && fieldCheck(field, entry);
+  });
 const taskAction: Check = (value) => {
   if (!record(value) || typeof value.kind !== "string") return false;
-  if (Object.hasOwn(fleetActionChecks, value.kind))
-    return fleetActionChecks[value.kind as FleetTaskCommandKind]!(value);
   const fields = declaredActionFields(value.kind);
-  return fields !== null && Object.keys(value).every((field) => fields.has(field));
+  const { kind: _kind, ...payload } = value;
+  return fields !== null && checkFields(fields, payload);
 };
 export const isFleetTaskAction = taskAction;
-const taskEvidence = shape({ type: text, path: logicalPath, summary: text });
-const fleetActionChecks: Readonly<Record<FleetTaskCommandKind, Check>> = {
-  "task-create": optionalShape(
-    {
-      kind: one("task-create"),
-      title: text,
-      taskId: id,
-      idempotencyKey: text,
-      parentTaskId: id,
-      workKind: one("feat", "fix", "refactor", "docs", "test", "chore"),
-      riskTier: one("low", "medium", "high"),
-      urgency: one("low", "medium", "high"),
-      verticalId: text,
-      presetId: id,
-      profileId: id,
-      slug: (value) => typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(value),
-      surfaces: array(text),
-      taskClass: one("standard", "work", "long_running"),
-      reviewReturnBudget: positiveInt,
-      // The resolved plan body crosses the wire; --plan-file itself stays center-local like --from-file.
-      plan: bodyText,
-      locale: one("zh-CN", "en-US"),
-      dryRun: boolean,
-    },
-    ["kind"],
-  ),
-  "task-start": optionalShape(
-    { kind: one("task-start"), taskId: id, executionId: id, ttlMs: positiveInt, dryRun: boolean },
-    ["kind"],
-  ),
-  "task-progress-append": optionalShape(
-    {
-      kind: one("task-progress-append"),
-      taskId: id,
-      executionId: id,
-      text: bodyText,
-      evidence: array(taskEvidence),
-      baseDocumentSha256: nullable(sha64),
-      asOwner: boolean,
-    },
-    ["kind"],
-  ),
-  "task-settle": optionalShape({ kind: one("task-settle"), taskId: id }, ["kind", "taskId"]),
-  "task-submit": optionalShape(
-    {
-      kind: one("task-submit"),
-      taskId: id,
-      executionId: id,
-      commitSha: text,
-      submission: record,
-      amend: boolean,
-      asOwner: boolean,
-    },
-    ["kind"],
-  ),
-  "task-complete": optionalShape(
-    {
-      kind: one("task-complete"),
-      taskId: id,
-      executionId: id,
-      consent: boolean,
-      factHolds: array(shape({ factRef: text, rationale: text })),
-      verb: one("complete"),
-      commandType: one("CompleteTask"),
-    },
-    ["kind", "taskId"],
-  ),
-  "task-review-execution": optionalShape(
-    {
-      kind: one("task-review-execution"),
-      taskId: id,
-      executionId: id,
-      reviewId: id,
-      verdict: one("approved", "changes_requested", "dismissed"),
-      reason: text,
-      evidenceChecked: array(text),
-      commandType: one("RecordReview"),
-    },
-    ["kind", "taskId", "reviewId", "verdict", "reason", "evidenceChecked"],
-  ),
-  "task-review-consent": optionalShape(
-    {
-      kind: one("task-review-consent"),
-      taskId: id,
-      executionId: id,
-      reviewId: id,
-      dispose: array(id),
-      rationale: text,
-      commandType: one("RecordReviewConsent"),
-    },
-    ["kind", "taskId"],
-  ),
-  "task-adjudicate": optionalShape(
-    {
-      kind: one("task-adjudicate"),
-      taskId: id,
-      executionId: id,
-      forward: boolean,
-      return: boolean,
-      reviewer: id,
-      runtimeInstanceId: id,
-      model: text,
-      reviewId: id,
-      reason: text,
-      noteFile: text,
-      commandType: one("AdjudicateSubmission"),
-    },
-    ["kind", "taskId"],
-  ),
-  "task-dispatch-review": optionalShape(
-    {
-      kind: one("task-dispatch-review"),
-      taskIds: array(id),
-      agentId: id,
-      runtimeInstanceId: id,
-      executionId: id,
-      model: text,
-      effort: text,
-      fast: boolean,
-    },
-    ["kind", "taskIds"],
-  ),
-  "task-release": optionalShape(
-    {
-      kind: one("task-release"),
-      taskId: id,
-      reason: text,
-      terminalExecutionId: id,
-      terminalRuntimeSessionId: id,
-    },
-    ["kind"],
-  ),
-  "task-transition": optionalShape({ kind: one("task-transition"), taskId: id, status: one("blocked"), reason: text }, [
-    "kind",
-    "taskId",
-    "status",
-    "reason",
-  ]),
-  "task-show": optionalShape({ kind: one("task-show"), taskId: id }, ["kind", "taskId"]),
-};
 const scheduleActionShapes: Readonly<Record<string, Check>> = {
     "schedule-create": (value) =>
       optionalShape(

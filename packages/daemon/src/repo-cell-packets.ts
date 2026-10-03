@@ -3,6 +3,7 @@ import {
   approvedReviewHistoryForExecution,
   consentedApprovedReviewForExecution,
   makeTaskEventStore,
+  getExecutableEntityAction,
   reviewDigest,
   taskCompletionAction,
   type WriteReceiptDraft as WriteReceipt,
@@ -104,7 +105,21 @@ export function reviewPacket(
   readonly value: Record<string, unknown>;
   readonly digest: `sha256:${string}`;
 } {
-  const body = readPacketSource(rootDir, action);
+  // Local CLI sources are resolved here; fleet has already resolved the same packet on the edge.
+  // Envelope fields come from the action authority, while the packet still receives the exact checks below.
+  const envelopeFields = new Set(
+    getExecutableEntityAction("task-review-execution")!
+      .input.fields.filter((field) => !reviewJsonFields.includes(field.field))
+      .map((field) => field.field),
+  );
+  const body =
+    action.fromFile !== undefined || action.jsonInput !== undefined
+      ? readPacketSource(rootDir, action)
+      : JSON.stringify(
+          Object.fromEntries(
+            Object.entries(action).filter(([field]) => field !== "kind" && !envelopeFields.has(field)),
+          ),
+        );
   let value: Record<string, unknown>;
   try {
     const parsed = JSON.parse(body) as unknown,

@@ -4,7 +4,13 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fleetDocRoute, fleetRuntimeRoute, fleetTaskRoute } from "../src/daemon/fleet-command-route.ts";
+import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import {
+  fleetDocRoute,
+  fleetRuntimeRoute,
+  fleetScheduleRoute,
+  fleetTaskRoute,
+} from "../src/daemon/fleet-command-route.ts";
 
 test("fleet task routing requires both edge config and remote-edge registry mode", async (t) => {
   // Registry roots are compared after realpath; a symlinked tmpdir (macOS /var) must not fail the match.
@@ -236,4 +242,20 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       idempotencyKey: "runtime-route",
     },
   });
+  const missing: string[] = [],
+    unexpected: string[] = [];
+  for (const descriptor of daemonProtocolCommands) {
+    const kind = "actionKind" in descriptor ? descriptor.actionKind : descriptor.id;
+    const entry = command(descriptor.method, { kind });
+    const routed =
+      (await fleetScheduleRoute(entry, env)) ??
+      (await fleetRuntimeRoute(entry, env)) ??
+      (await fleetTaskRoute(entry, env)) ??
+      (await fleetDocRoute(entry, env));
+    if (descriptor.admission["remote-edge"] === "via-center-forward" && routed === null) missing.push(descriptor.id);
+    if (descriptor.admission["remote-edge"] === "rejected" && routed !== null) unexpected.push(descriptor.id);
+  }
+  t.diagnostic(JSON.stringify({ declaredForwardWithoutRoute: missing, declaredRejectedWithRoute: unexpected }));
+  assert.deepEqual(missing, []);
+  assert.deepEqual(unexpected, []);
 });

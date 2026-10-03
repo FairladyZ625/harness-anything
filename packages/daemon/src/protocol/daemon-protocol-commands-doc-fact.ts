@@ -268,6 +268,18 @@ export const docFactProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "fact-record",
+    payloadFields: [
+      {
+        field: "supersedes",
+        type: "json-object",
+        required: false,
+        fields: [
+          { field: "factRef", type: "string", required: true },
+          { field: "rationale", type: "string", required: true },
+        ],
+      },
+      { field: "rationale", type: "string", required: false, wire: { omit: true } },
+    ],
     phase: "DecisionFact-A",
     path: ["fact", "record"],
     syntaxPath: ["fact", "record", "[task-id]"],
@@ -282,7 +294,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "statement", conflictsWith: ["--text"] },
+        { field: "statement", maxLength: 32 * 1024, conflictsWith: ["--text"] },
       ),
       cliInput(
         "--text",
@@ -291,7 +303,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { field: "statement", conflictsWith: ["--statement"] },
+        { field: "statement", maxLength: 32 * 1024, conflictsWith: ["--statement"] },
       ),
       cliInput("--source", "single", true, { code: "missing_field" }, { field: "evidenceSource" }),
       cliInput(
