@@ -4,6 +4,12 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import {
+  classifyTextualArtifactPath,
+  serializeEventHead,
+  serializePersistedCanonicalEvent,
+  sha256Text,
+} from "@harness-anything/kernel";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 import { makeDaemonCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
@@ -27,6 +33,63 @@ const reviewerActor = (runtimeSessionId: string) =>
     },
     "admin",
   );
+
+test("expanded reviewer runtime publishes only its bound report atomically", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+  try {
+    await f.install();
+    const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
+    const { dispatchId, runtimeSessionId } = dispatchesOf(receipt)[0]! as Required<DispatchStep>;
+    const head = f.events().at(-1)!,
+      body = "# Independent review\n\nThe submitted execution and report were checked.\n",
+      report = `${f.packagePath}/artifacts/reports/${dispatchId}.md`,
+      ref = "doc-sync-claims/0123456789abcdef0123456789abcdef",
+      claim = path.join(f.root, ".harness", ref),
+      action = {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId: `review-${dispatchId}`,
+        verdict: "approved",
+        reason: "Checked the submitted execution.",
+        evidenceChecked: ["tests"],
+        docChanges: [
+          {
+            path: report,
+            baseBlobSha256: null,
+            policyId: classifyTextualArtifactPath(report)!.policyId,
+            candidate: { ref, sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/markdown" },
+          },
+        ],
+        mirrorBaseCut: {
+          revision: head.workspaceRevision,
+          headDigest: `sha256:${sha256Text(
+            serializeEventHead({
+              revision: head.workspaceRevision,
+              opId: head.opId,
+              eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(head))}`,
+            }),
+          )}`,
+        },
+      };
+    mkdirSync(path.dirname(claim), { recursive: true });
+    writeFileSync(claim, body);
+    const before = f.events().length,
+      wrong = await f.cell().run({ ...action, reviewId: "review-unbound" }, reviewerActor(runtimeSessionId));
+    assert.equal(wrong.code, "actor_unauthorized", JSON.stringify(wrong));
+    assert.equal(f.events().length, before);
+    assert.equal(existsSync(path.join(f.root, "harness", report)), false);
+    writeFileSync(claim, body);
+    const accepted = await f.cell().run(action, reviewerActor(runtimeSessionId));
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    const event = f.events().find((event) => event.opId === accepted.opId);
+    assert.ok(event?.type === "review_recorded");
+    assert.equal(event.payload.carriedDocumentClaims?.[0]?.path, report);
+    assert.equal(event.payload.carriedDocumentClaims?.[0]?.candidate.sha256, sha256Text(body));
+  } finally {
+    await f.close();
+  }
+});
 
 test("decision dispatch-review passes spawn admission and launches once for the current digest", async () => {
   const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });

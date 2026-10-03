@@ -12,6 +12,7 @@
 // whole command and stages base/local/center into .harness/conflicts; an
 // applied outcome auto-pulls and reports the dual-axis mirror outcome.
 import { randomUUID } from "node:crypto";
+import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -340,7 +341,11 @@ export async function runFleetEdgeTask(
     const preScan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
     const packagePath = fleetExactTaskPackagePath(view, workspaceRoot, taskId);
     if (packagePath === null || preScan === null) return null;
-    const candidates = preScan.changes.filter((change) => change.path.startsWith(`${packagePath}/`));
+    const reportPath =
+      action.kind === "task-review-execution" ? reviewReportRelativePath(packagePath, String(action.reviewId)) : null;
+    const candidates = preScan.changes.filter((change) =>
+      action.kind === "task-review-execution" ? change.path === reportPath : change.path.startsWith(`${packagePath}/`),
+    );
     if (candidates.length === 0) return null;
     const descriptors = await runFleetUploadClient({
       ...peer,

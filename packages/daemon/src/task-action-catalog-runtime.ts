@@ -30,6 +30,7 @@ export async function runTaskActionCatalogRuntime(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
+  carriedReview?: NonNullable<ReturnType<typeof reviewerArtifactsForReview>>,
 ): Promise<WriteReceipt> {
   // A reviewer runtime session may only record a review; every other task action belongs to an
   // implementation executor. This runs before lease and transition checks so a reviewer can never
@@ -161,6 +162,7 @@ export async function runTaskActionCatalogRuntime(
       cell.rootDir,
       current.snapshot,
       current.packagePath,
+      carriedReview ? { path: carriedReview.changes[0]!.path, body: carriedReview.blobs[0]!.body } : undefined,
     );
   } catch (error) {
     const rejection = taskActionFailure(
@@ -272,7 +274,8 @@ export async function runTaskActionCatalogRuntime(
   let result: Awaited<ReturnType<RepoCellOperationalContext["service"]["execute"]>>;
   try {
     const reviewerArtifacts =
-      action.kind === "task-review-execution" ? reviewerArtifactsForReview(cell, action, binding) : null;
+      carriedReview ??
+      (action.kind === "task-review-execution" ? reviewerArtifactsForReview(cell, action, binding) : null);
     result = reviewerArtifacts
       ? await cell.service.executeWithDocuments(command, authorityProof, reviewerArtifacts)
       : await cell.service.execute(command, authorityProof);

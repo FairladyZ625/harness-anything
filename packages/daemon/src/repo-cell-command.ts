@@ -87,6 +87,7 @@ export function buildCommand(
   rootDir: string,
   snapshot: Snapshot,
   packagePath: string | null,
+  carriedReport?: { readonly path: string; readonly body: string },
 ): Omit<TaskLifecycleCommand, "eventId" | "workspaceRevision" | "occurredAt"> {
   const bound = {
       workspaceId,
@@ -183,6 +184,7 @@ export function buildCommand(
       reviewId,
       subject: `Task ${taskId}`,
       retry: `ha task review-execution ${taskId} --review-id ${reviewId}`,
+      ...(carriedReport ? { carriedReport } : {}),
     });
     return normalizeTaskLifecycleCommand(bound, fields);
   }
