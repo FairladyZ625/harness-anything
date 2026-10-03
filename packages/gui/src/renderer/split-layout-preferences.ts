@@ -23,6 +23,7 @@ export interface SplitPanePreference {
   /** 首窗(文件树/主区)占可用空间的比例,不含分隔条自身。 */
   readonly ratio?: number;
   readonly collapsed?: boolean;
+  readonly order?: readonly string[];
 }
 
 export type SplitSlotMap = Record<string, SplitPanePreference>;
@@ -51,6 +52,9 @@ function preference(value: unknown): SplitPanePreference {
         }
       : {}),
     ...(value.collapsed === true ? { collapsed: true } : {}),
+    ...(Array.isArray(value.order) && value.order.every((id) => typeof id === "string")
+      ? { order: [...new Set(value.order)] }
+      : {}),
   };
 }
 

@@ -432,7 +432,7 @@ describe("SplitDivider and SplitExpandStrip", () => {
     expect(handle.title).toContain("拖拽调宽");
     expect(handle.title).toContain("双击恢复默认");
     const track = host.querySelector<HTMLElement>('[data-testid="divider-track"]')!;
-    expect(track.className).toContain("w-[0.375rem]");
+    expect(track.className).toContain("w-1");
 
     await act(async () => {
       root!.render(
@@ -455,7 +455,7 @@ describe("SplitDivider and SplitExpandStrip", () => {
     const horizontal = host.querySelector<HTMLElement>('[data-testid="divider-h"]')!;
     expect(horizontal.getAttribute("aria-orientation")).toBe("horizontal");
     expect(horizontal.title).toContain("拖拽调高");
-    expect(host.querySelector<HTMLElement>('[data-testid="divider-h-track"]')!.className).toContain("h-[0.375rem]");
+    expect(host.querySelector<HTMLElement>('[data-testid="divider-h-track"]')!.className).toContain("h-1");
   });
 
   it("exposes the collapsed strip as a labelled expand button", async () => {

@@ -22,10 +22,12 @@ const readerFonts: Record<ReaderFont, string> = {
 
 export function DocReader({
   content,
+  fill = false,
   packageBasePath = null,
   onOpenPackageDoc,
 }: {
   content: string;
+  fill?: boolean;
   /** 当前文档在任务包内的 repo 相对路径(如 `tasks/<pkg>/task_plan.md`);相对链接据此归一化。 */
   packageBasePath?: string | null;
   /** 包内文档导航出口:收到归一化后的 repo 相对路径。缺省时相对链接保持 inert。 */
@@ -51,9 +53,10 @@ export function DocReader({
   return (
     <DocumentFrame
       testId="doc-reader"
+      fill={fill}
       toolbar={
         <>
-          <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
+          <div className="flex flex-wrap items-center gap-1 border-b border-border bg-surface-raised px-2 py-1">
             <div className="flex w-56 max-w-full items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1">
               <MagnifyingGlass weight="bold" className="shrink-0 ui-meta text-text-faint" />
               <input
@@ -70,7 +73,7 @@ export function DocReader({
               </span>
             )}
           </div>
-          <div className="flex flex-wrap justify-end px-3 pb-2">
+          <div className="flex flex-wrap justify-end px-2 pb-1">
             <div className="flex flex-wrap items-center gap-1" data-testid="reader-floating-toolbar">
               {/* 栏数默认「自适应」:由 .doc-flow 容器查询按可用宽度自动分栏,无需点击;
               单栏/双栏是显式覆盖,手动选择后仍可切回自适应。 */}
@@ -79,7 +82,7 @@ export function DocReader({
                 aria-label="文档字体"
                 value={font}
                 onChange={(event) => setFont(event.target.value as ReaderFont)}
-                className="min-h-[40px] rounded-md border border-border bg-surface px-1.5 ui-micro text-text"
+                className="min-h-7 rounded-md border border-border bg-surface px-1.5 ui-micro text-text"
               >
                 <option value="sans">无衬线</option>
                 <option value="serif">衬线</option>
@@ -91,7 +94,7 @@ export function DocReader({
                 disabled={fontSize <= 13}
                 onClick={() => setFontSize((size) => Math.max(13, size - 1))}
                 className={[
-                  "grid min-h-[40px] min-w-[40px] place-items-center rounded-md ui-prose text-text-muted",
+                  "grid min-h-7 min-w-[40px] place-items-center rounded-md ui-prose text-text-muted",
                   "hover:bg-surface hover:text-text disabled:opacity-35",
                 ].join(" ")}
               >
@@ -106,7 +109,7 @@ export function DocReader({
                 disabled={fontSize >= 19}
                 onClick={() => setFontSize((size) => Math.min(19, size + 1))}
                 className={[
-                  "grid min-h-[40px] min-w-[40px] place-items-center rounded-md ui-prose text-text-muted",
+                  "grid min-h-7 min-w-[40px] place-items-center rounded-md ui-prose text-text-muted",
                   "hover:bg-surface hover:text-text disabled:opacity-35",
                 ].join(" ")}
               >

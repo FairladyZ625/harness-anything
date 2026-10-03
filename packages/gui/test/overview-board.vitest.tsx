@@ -221,6 +221,7 @@ function mount(props: Partial<Parameters<typeof OverviewView>[0]> = {}): HTMLEle
           null,
           createElement(OverviewView, {
             repoId: "probe-repo",
+            connectionId: "local",
             agenda: agenda(),
             works: WORKS,
             titles: TITLES,
@@ -486,6 +487,7 @@ describe("总览区域板(S3)", () => {
               schema: "daemon.observe-tail/v3",
               ok: true,
               repoId: "probe-repo",
+              connectionId: "local",
               mode: "local",
               kind: "events",
               direction: "history",

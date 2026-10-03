@@ -20,24 +20,17 @@ import {
 } from "../../split-layout-preferences.ts";
 import { t } from "../../i18n/index.tsx";
 
-/**
- * 原页面内容区域的共享分割布局(task_fb3ba20d66…):两处真实消费——任务详情的
- * 「文件树|正文」与工作概况的「主区|最近进展」——同一套「排列(左右/上下) + 拖分隔条
- * 调比例 + 折叠(仅首窗) + 重置」交互。默认(无偏好)完全走调用方既有的自适应布局,
- * DOM 与类名不变;用户显式选了排列或拖过比例后,布局改由「固定两窗 + 显式比例」接管,
- * 重置即回到自适应。偏好按连接+仓+页面槽存 localStorage(split-layout-preferences)。
- *
- * 调用方结构:容器挂 containerRef,自备 auto 类名;显式模式用 splitGridTemplate 生成
- * 内联 grid 模板(首窗 | 6px 分隔条 | 次窗),分隔条是真实 grid 轨道子元素(拖动有独立
- * 命中区,不压在内容点击上)。长内容在各自窗内滚动(模板的 minmax(0,…) 保证不撑开容器)。
+/** Shared proportional seams for page regions. Preferences are local to connection/repo/page slot.
+ * The measured container supplies the responsive direction and pointer/keyboard pixel conversion.
+ * Region movement composes these seams in PageRegions; all content remains in bounded grid tracks.
  */
 
-/** 分隔条轨道宽度(0.375rem);手柄 12px 命中区居中骑在轨道上。 */
-export const SPLIT_GUTTER_PX = 6;
+/** 分隔条轨道宽度(0.25rem);手柄 12px 命中区居中骑在轨道上。 */
+export const SPLIT_GUTTER_PX = 4;
 
 const fr = (fraction: number) => `${(fraction * 100).toFixed(2)}fr`;
 
-/** 显式模式的 grid 模板:首窗占 ratio,中间 6px 分隔条轨道,次窗占余量。 */
+/** 显式模式的 grid 模板:首窗占 ratio,中间 4px 分隔条轨道,次窗占余量。 */
 export function splitGridTemplate(orientation: SplitOrientation, ratio: number): CSSProperties {
   return orientation === "row"
     ? {
@@ -81,6 +74,8 @@ export interface SplitLayout {
   readonly containerRef: (element: HTMLElement | null) => void;
   /** "auto" = 无显式偏好,走调用方自适应类名;否则为用户显式排列。 */
   readonly mode: "auto" | SplitOrientation;
+  readonly order: readonly string[];
+  readonly setOrder: (order: readonly string[]) => void;
   /** 实际生效的排列(auto 按容器宽度解析;显式即偏好值)。 */
   readonly effectiveOrientation: SplitOrientation;
   /** 当前生效的首窗占比(显式模式下总有效)。 */
@@ -153,7 +148,13 @@ export function useSplitLayout(options: UseSplitLayoutOptions): SplitLayout {
 
   const mode = pref.orientation ?? "auto";
   const effectiveOrientation = pref.orientation ?? (size.width >= autoBreakpoint ? "row" : "column");
-  const ratio = pref.ratio ?? (effectiveOrientation === "row" ? options.defaultRatioRow : options.defaultRatioColumn);
+  const ratio = Math.min(
+    maxRatio,
+    Math.max(
+      minRatio,
+      pref.ratio ?? (effectiveOrientation === "row" ? options.defaultRatioRow : options.defaultRatioColumn),
+    ),
+  );
   const collapsed = pref.collapsed === true;
   const splittable = Math.max(0, (effectiveOrientation === "row" ? size.width : size.height) - SPLIT_GUTTER_PX);
   const clampRatio = useCallback(
@@ -183,6 +184,8 @@ export function useSplitLayout(options: UseSplitLayoutOptions): SplitLayout {
 
   return {
     containerRef,
+    order: pref.order ?? [],
+    setOrder: (order) => commit({ ...pref, order }),
     mode,
     effectiveOrientation,
     ratio,
@@ -206,7 +209,7 @@ export function useSplitLayout(options: UseSplitLayoutOptions): SplitLayout {
   };
 }
 
-/** 显式模式的两窗分隔条:6px 轨道 + 骑在轨道上的 12px 拖拽手柄(键盘可达,双击重置)。 */
+/** 显式模式的两窗分隔条:4px 轨道 + 骑在轨道上的 12px 拖拽手柄(键盘可达,双击重置)。 */
 export function SplitDivider({
   orientation,
   panePx,
@@ -230,12 +233,12 @@ export function SplitDivider({
   const vertical = orientation === "row";
   return (
     <div
-      className={`relative ${vertical ? "w-[0.375rem]" : "h-[0.375rem]"}`}
+      className={`relative ${vertical ? "w-1" : "h-1"}`}
       data-testid={testId === undefined ? undefined : `${testId}-track`}
     >
       <span
         aria-hidden="true"
-        className={`pointer-events-none absolute rounded-full bg-border-strong ${vertical ? "left-1/2 top-1/2 h-8 w-0.5 -translate-x-1/2 -translate-y-1/2" : "left-1/2 top-1/2 h-0.5 w-8 -translate-x-1/2 -translate-y-1/2"}`}
+        className={`pointer-events-none absolute rounded-full bg-border-strong ${vertical ? "left-1/2 top-1/2 h-full w-px -translate-x-1/2 -translate-y-1/2" : "left-1/2 top-1/2 h-px w-full -translate-x-1/2 -translate-y-1/2"}`}
       />
       <ColumnResizeHandle
         label={label}
@@ -246,7 +249,7 @@ export function SplitDivider({
         onChange={onPanePxChange}
         onReset={onReset}
         testId={testId}
-        // 手柄 12px 命中区居中骑在 6px 轨道上,两侧各溢出 3px,不压内容的可点击主体。
+        // 手柄 12px 命中区居中骑在 4px 轨道上,两侧各溢出 4px,不压内容的可点击主体。
         className={vertical ? "left-1/2 inset-y-0 -translate-x-1/2" : "top-1/2 inset-x-0 -translate-y-1/2"}
       />
     </div>
@@ -314,6 +317,7 @@ export function SplitLayoutControls({
       className="flex items-center gap-1"
       role="group"
       aria-label={t("components.splitLayout.group")}
+      onClick={(event) => event.stopPropagation()}
       data-testid={testId}
     >
       <button

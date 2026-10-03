@@ -5,15 +5,17 @@ export function DocumentFrame({
   toolbar,
   children,
   testId,
+  fill = false,
 }: {
   readonly toolbar: ReactNode;
   readonly children: ReactNode;
   readonly testId?: string;
+  readonly fill?: boolean;
 }) {
   return (
     <section
       data-testid={testId}
-      className="flex min-h-0 min-w-0 max-h-[var(--long-content-cap)] flex-col overflow-hidden rounded-lg border border-border bg-surface"
+      className={`flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface ${fill ? "h-full" : "max-h-[var(--long-content-cap)] rounded-lg border border-border"}`}
     >
       <header className="shrink-0 border-b border-border bg-surface-raised">{toolbar}</header>
       <div className="min-h-0 min-w-0 overflow-auto" data-document-scroll>
