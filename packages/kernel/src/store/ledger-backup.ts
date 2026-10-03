@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
-import { contentClaims, readContentObject } from "./task-event-store-claims-layout.ts";
+import { contentClaims, objectPath } from "./task-event-store-claims-layout.ts";
 import { parseCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import { DEFAULT_RESTORE_DRILL_RETENTION, readSettingsFacet } from "../domain/settings.ts";
 import { consumeKnownError } from "../error-consumption.ts";
@@ -66,7 +65,7 @@ export function createLedgerBackup(input: {
   const sqlite = sqlitePresent
       ? inspectSqlite(path.join(payloadRoot, path.relative(layout.rootDir, sqlitePath)))
       : null,
-    legacy = sqlitePresent ? null : inspectLegacy(payloadRoot),
+    legacy = sqlitePresent ? null : readStoppedLegacyGeneration({ rootInput: payloadRoot }),
     files = inventory(payloadRoot).map((backupFile) => {
       const relative = portable(path.relative(payloadRoot, backupFile)),
         vacuumed = /^\.harness\/store\/generations\/[12]\/ledger\.sqlite$/u.test(relative),
@@ -358,31 +357,20 @@ function inspectSqlite(databasePath: string): {
       throw new Error("SQLite accepted revision/opId counts differ");
     const objectRoot = path.join(path.dirname(databasePath), "objects", "sha256");
     for (const row of db.prepare("SELECT event_json FROM event ORDER BY revision").iterate()) {
-      const event =
-        Number(metadata.generation) === 1
-          ? decodeLegacyEventBytes(String(row.event_json), "generation 1 backup").event
-          : parseCanonicalEvent(String(row.event_json));
-      verifyContentClaims(event, (sha256) => readContentObject(objectRoot, sha256));
+      if (Number(metadata.generation) === 1) decodeLegacyEventBytes(String(row.event_json), "generation 1 backup");
+      else {
+        const event = parseCanonicalEvent(String(row.event_json));
+        for (const claim of contentClaims(event)) {
+          const stat = fileSystem.stat(objectPath(objectRoot, claim.sha256), { throwIfNoEntry: false });
+          if (stat === undefined) throw new Error(`event content object ${claim.sha256} is missing`);
+          if (stat.size !== claim.size) throw new Error(`event content object ${claim.sha256} size differs`);
+        }
+      }
     }
     return { revision: Number(counts.revision), opIds: Number(counts.op_ids), integrity };
   } finally {
     db.close();
   }
-}
-
-function verifyContentClaims(event: CanonicalEventV1, read: (sha256: string) => Uint8Array | null): void {
-  for (const claim of contentClaims(event)) {
-    const bytes = read(claim.sha256);
-    if (bytes === null) throw new Error(`event content object ${claim.sha256} is missing`);
-    if (bytes.byteLength !== claim.size) throw new Error(`event content object ${claim.sha256} size differs`);
-  }
-}
-
-function inspectLegacy(rootInput: HarnessLayoutInput): ReturnType<typeof readStoppedLegacyGeneration> {
-  const legacy = readStoppedLegacyGeneration({ rootInput }),
-    objects = new Map(legacy.objects.map(({ sha256, bytes }) => [sha256, bytes]));
-  for (const { event } of legacy.eventEntries) verifyContentClaims(event, (sha256) => objects.get(sha256) ?? null);
-  return legacy;
 }
 
 function readSqliteEvents(databasePath: string): readonly unknown[] {
@@ -449,7 +437,6 @@ function verifyManifest(root: string, manifest: LedgerBackupManifestV1): void {
   }
   for (const database of manifest.files.filter(({ method }) => method === "vacuum-into"))
     inspectSqlite(path.join(root, database.path));
-  if (!manifest.sqlite.present) inspectLegacy(root);
 }
 
 // Symbolic links are backed up as links: the manifest records the link target, never the
