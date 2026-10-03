@@ -3,7 +3,6 @@ import test from "node:test";
 import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import * as shared from "./release-cli-acceptance.fixture.ts";
-import { artifactRpcDiagnostics } from "./release-artifact-rpc-diagnostics.fixture.ts";
 
 const {
   assert,
@@ -629,7 +628,6 @@ test("release acceptance: a fresh custom Artifact kind runs its file/folder life
       },
       undefined,
       { autostart: false, env: environment(root, userRoot) },
-      artifactRpcDiagnostics(userRoot, shared.daemonId, (line) => context.diagnostic(line)),
     );
     assert.ok(String(upserted.opId ?? "").length > 0, `upsert must be accepted: ${JSON.stringify(upserted)}`);
     // The write surface addresses a kind by its stable opaque ref; the read surface also accepts the id.
