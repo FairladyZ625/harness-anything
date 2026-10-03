@@ -7,7 +7,7 @@ import test from "node:test";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
-import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";
+import { fleetFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
 import { eventually, scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test("edge terminal task settlement rejects a changed assignment holder", { timeout: 60_000 }, async (t) => {
@@ -82,6 +82,44 @@ test("edge terminal task settlement rejects a changed assignment holder", { time
   });
   assert.equal(launched.outcome, "applied", JSON.stringify(launched));
   assert.ok(terminal);
+  const events = () => makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo }).read().events;
+  assert.equal(
+    await eventually(async () =>
+      events().some(
+        (event) =>
+          event.type === "runtime_session_liveness_changed" &&
+          event.payload.runtimeSessionId === launched.runtimeSessionId,
+      ),
+    ),
+    true,
+    "the real edge producer must publish process liveness through Fleet into the center journal",
+  );
+  const live = events().find(
+    (event) =>
+      event.type === "runtime_session_liveness_changed" && event.payload.runtimeSessionId === launched.runtimeSessionId,
+  );
+  assert.equal(live?.payload.liveness, "live");
+  const peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret");
+  const rejected = await peer.raw({
+    schema: "fleet.runtime.event/v1",
+    messageId: "unknown-runtime-event",
+    assignmentId: fixture.assignment.assignmentId,
+    writerEpoch: 1,
+    repoId: fixture.assignment.repoId,
+    opId: "unknown-runtime-event",
+    eventType: "runtime_session_unknown_event",
+    payload: { runtimeSessionId: launched.runtimeSessionId, liveness: "live" },
+    result: null,
+    dispatchContext: null,
+  });
+  assert.equal(rejected.schema, "fleet.error/v1");
+  if (rejected.schema !== "fleet.error/v1") assert.fail("expected a Fleet error");
+  assert.equal(rejected.code, "invalid_frame");
+  assert.equal(
+    events().some((event) => event.opId === "unknown-runtime-event"),
+    false,
+  );
+  peer.close();
   // The node moves to another owner mid-run: the lease its previous owner holds is not the new owner's to release.
   fixture.setOwner("replacement-owner");
   terminal();
