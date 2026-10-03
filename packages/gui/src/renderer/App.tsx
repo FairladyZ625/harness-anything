@@ -424,6 +424,7 @@ function AppShell() {
     return (
       <TaskDetailView
         repoId={projectId}
+        connectionId={activeRepo?.connectionId ?? null}
         task={task}
         tasks={tasks}
         relations={edgeRelations}
@@ -605,6 +606,7 @@ function AppShell() {
                     key={workspaceScope.root.taskId}
                     scope={workspaceScope}
                     repoId={projectId}
+                    connectionId={activeRepo?.connectionId ?? null}
                     projectName={project.name}
                     tasks={projectTasks}
                     decisions={decisions}

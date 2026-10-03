@@ -25,7 +25,7 @@ import { t } from "../../i18n/index.tsx";
  * 「文件树|正文」与工作概况的「主区|最近进展」——同一套「排列(左右/上下) + 拖分隔条
  * 调比例 + 折叠(仅首窗) + 重置」交互。默认(无偏好)完全走调用方既有的自适应布局,
  * DOM 与类名不变;用户显式选了排列或拖过比例后,布局改由「固定两窗 + 显式比例」接管,
- * 重置即回到自适应。偏好按仓+页面槽存 localStorage(split-layout-preferences)。
+ * 重置即回到自适应。偏好按连接+仓+页面槽存 localStorage(split-layout-preferences)。
  *
  * 调用方结构:容器挂 containerRef,自备 auto 类名;显式模式用 splitGridTemplate 生成
  * 内联 grid 模板(首窗 | 6px 分隔条 | 次窗),分隔条是真实 grid 轨道子元素(拖动有独立
@@ -58,7 +58,9 @@ export function collapsedGridTemplate(orientation: SplitOrientation): CSSPropert
 }
 
 export interface UseSplitLayoutOptions {
-  /** 偏好归属的仓;同仓各页面槽互不影响,跨仓不串用。 */
+  /** 偏好归属的连接(system status 仓行的 connectionId);null = 连接未解析,仅会话内态。 */
+  readonly connectionId: string | null;
+  /** 偏好归属的仓;连接+仓+页面槽组成存储键,跨连接/跨仓不串用。 */
   readonly repoId: string;
   /** 页面槽键,如 "task-detail-docs" / "work-overview"。 */
   readonly slot: string;
@@ -104,24 +106,28 @@ export interface SplitLayout {
 }
 
 export function useSplitLayout(options: UseSplitLayoutOptions): SplitLayout {
-  const { repoId, slot, minRatio, maxRatio, autoBreakpoint } = options;
-  const [pref, setPref] = useState<SplitPanePreference>(
-    () => readSplitPreferences(splitPreferenceStorage(), repoId)[slot] ?? {},
+  const { connectionId, repoId, slot, minRatio, maxRatio, autoBreakpoint } = options;
+  const [pref, setPref] = useState<SplitPanePreference>(() =>
+    connectionId === null ? {} : (readSplitPreferences(splitPreferenceStorage(), connectionId, repoId)[slot] ?? {}),
   );
-  // 仓/槽切换(多仓连接间导航)时重读,不沿用上一个仓的偏好。
+  // 连接/仓/槽任一切换(多仓导航,或仓被 registry 改挂到另一连接)时重读,不沿用上一身份的偏好。
   useEffect(() => {
-    setPref(readSplitPreferences(splitPreferenceStorage(), repoId)[slot] ?? {});
-  }, [repoId, slot]);
+    setPref(
+      connectionId === null ? {} : (readSplitPreferences(splitPreferenceStorage(), connectionId, repoId)[slot] ?? {}),
+    );
+  }, [connectionId, repoId, slot]);
 
   // 写穿透(同看板列宽):每次调整即落 localStorage,重启/重载后保留。
   const commit = useCallback(
     (next: SplitPanePreference) => {
       setPref(next);
+      // 连接身份未解析(如系统状态未就绪):只改本会话布局,不猜键落盘。
+      if (connectionId === null) return;
       const storage = splitPreferenceStorage();
-      const slots: SplitSlotMap = setSplitSlot(readSplitPreferences(storage, repoId), slot, next);
-      writeSplitPreferences(storage, repoId, slots);
+      const slots: SplitSlotMap = setSplitSlot(readSplitPreferences(storage, connectionId, repoId), slot, next);
+      writeSplitPreferences(storage, connectionId, repoId, slots);
     },
-    [repoId, slot],
+    [connectionId, repoId, slot],
   );
 
   // 容器量尺:ref 回调挂载/换元素时自管 ResizeObserver(auto 排列解析与 px↔比例换算共用)。

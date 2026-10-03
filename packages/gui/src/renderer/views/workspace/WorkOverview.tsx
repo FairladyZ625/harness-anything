@@ -69,7 +69,9 @@ const STATUS_LABEL: Readonly<Record<SnapshotStatus, MessageKey>> = {
 };
 
 export interface WorkOverviewProps {
-  /** 分割偏好归属的仓(task_fb3ba20d66…:主区|最近进展比例按仓记忆)。 */
+  /** 分割偏好归属的连接(system status 仓行;task_fb3ba20d66…:比例按连接+仓记忆)。 */
+  readonly connectionId: string | null;
+  /** 分割偏好归属的仓。 */
   readonly repoId: string;
   readonly submitted: readonly TaskRow[];
   readonly stalled: readonly TaskRow[];
@@ -97,6 +99,7 @@ export interface WorkOverviewProps {
 const actionButton = "h-6 rounded-xs border px-2.5 ui-meta disabled:opacity-60";
 
 export function WorkOverview({
+  connectionId,
   repoId,
   submitted,
   stalled,
@@ -331,8 +334,9 @@ export function WorkOverview({
 
   // 主区|最近进展 分割(task_fb3ba20d66…):默认自适应(≥900px 主区 3 份|时间线 2 份,
   // ≥1400px 主区自身展开成列);用户显式排列/比例后由固定两窗接管,重置回自适应。
-  // 比例按仓记忆;没有时间线(没有进展数据)时板退回无右列形态,不给分割。
+  // 比例按连接+仓记忆;没有时间线(没有进展数据)时板退回无右列形态,不给分割。
   const split = useSplitLayout({
+    connectionId,
     repoId,
     slot: "work-overview",
     minRatio: 0.3,

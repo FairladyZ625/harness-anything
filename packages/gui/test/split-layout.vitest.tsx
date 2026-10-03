@@ -23,8 +23,9 @@ import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**
  * 原页面内容区域可调布局(task_fb3ba20d66…):共享分割模块(hook + 分隔条 + 控件组)、
- * 手柄的横/竖两向键盘路径、偏好按仓+页面槽的持久化。happy-dom 无布局引擎:容器尺寸经
- * prototype getter 注入,比例换算按注入尺寸断言;真实几何由 Electron 场景留证。
+ * 手柄的横/竖两向键盘路径、偏好按连接+仓+页面槽的持久化(同 repoId 换连接不串用)。
+ * happy-dom 无布局引擎:容器尺寸经 prototype getter 注入,比例换算按注入尺寸断言;
+ * 真实几何由 Electron 场景留证。
  */
 
 const STORAGE_KEY = "harness:gui:split-layout";
@@ -73,6 +74,7 @@ function injectElementSize(width: number, height: number): () => void {
 }
 
 interface Probe {
+  readonly connectionId: string | null;
   readonly repoId: string;
   readonly slot: string;
   readonly minRatio: number;
@@ -83,8 +85,9 @@ interface Probe {
 }
 
 /** 把 hook 状态拉出 React 树的探针;containerRef 挂在真实 div 上(量尺寸)。 */
-function SplitProbe({ repoId, slot, minRatio, maxRatio, autoBreakpoint, collapsible, onSplit }: Probe) {
+function SplitProbe({ connectionId, repoId, slot, minRatio, maxRatio, autoBreakpoint, collapsible, onSplit }: Probe) {
   const split = useSplitLayout({
+    connectionId,
     repoId,
     slot,
     minRatio,
@@ -101,6 +104,7 @@ function SplitProbe({ repoId, slot, minRatio, maxRatio, autoBreakpoint, collapsi
 async function mountProbe(overrides: Partial<Probe> = {}) {
   const seen: ReturnType<typeof useSplitLayout>[] = [];
   const probe: Probe = {
+    connectionId: "local",
     repoId: "repo-a",
     slot: "test-split",
     minRatio: 0.2,
@@ -118,39 +122,70 @@ async function mountProbe(overrides: Partial<Probe> = {}) {
 }
 
 describe("split layout preferences storage", () => {
-  it("round-trips per repo and slot, clamping stale ratios into the sanity range", () => {
+  it("round-trips per connection, repo and slot, clamping stale ratios into the sanity range", () => {
     const storage = new MemoryStorage();
-    writeSplitPreferences(storage, "repo-a", { docs: { orientation: "row", ratio: 5, collapsed: true } });
-    writeSplitPreferences(storage, "repo-b", { docs: { orientation: "column" } });
-    const repoA = readSplitPreferences(storage, "repo-a");
+    writeSplitPreferences(storage, "local", "repo-a", {
+      docs: { orientation: "row", ratio: 5, collapsed: true },
+    });
+    writeSplitPreferences(storage, "local", "repo-b", { docs: { orientation: "column" } });
+    const repoA = readSplitPreferences(storage, "local", "repo-a");
     expect(repoA.docs).toEqual({ orientation: "row", ratio: 0.9, collapsed: true });
-    expect(readSplitPreferences(storage, "repo-b").docs).toEqual({ orientation: "column" });
-    // 跨仓不串用:repo-c 读到空。
-    expect(readSplitPreferences(storage, "repo-c")).toEqual({});
+    expect(readSplitPreferences(storage, "local", "repo-b").docs).toEqual({ orientation: "column" });
+    // 跨连接/跨仓不串用:repo-c 与别的连接都读到空。
+    expect(readSplitPreferences(storage, "local", "repo-c")).toEqual({});
+    expect(readSplitPreferences(storage, "remote-abc123def456", "repo-a")).toEqual({});
+  });
+
+  it("keeps same-repo preferences of two connections apart through writes and resets", () => {
+    const storage = new MemoryStorage();
+    // registry 允许 remote-proxy 仓改挂连接:同 repoId 先后在两个连接下使用。
+    writeSplitPreferences(storage, "conn-a", "repo-x", { docs: { orientation: "column", ratio: 0.4 } });
+    // 另一连接写同 repoId:互不覆盖。
+    writeSplitPreferences(storage, "conn-b", "repo-x", { docs: { orientation: "row" } });
+    expect(readSplitPreferences(storage, "conn-a", "repo-x").docs).toEqual({ orientation: "column", ratio: 0.4 });
+    expect(readSplitPreferences(storage, "conn-b", "repo-x").docs).toEqual({ orientation: "row" });
+    // 重置(清槽)只影响当前连接:conn-b 清空,conn-a 原样。
+    writeSplitPreferences(
+      storage,
+      "conn-b",
+      "repo-x",
+      setSplitSlot(readSplitPreferences(storage, "conn-b", "repo-x"), "docs", {}),
+    );
+    expect(readSplitPreferences(storage, "conn-b", "repo-x")).toEqual({});
+    expect(readSplitPreferences(storage, "conn-a", "repo-x").docs).toEqual({ orientation: "column", ratio: 0.4 });
   });
 
   it("falls back to empty on garbage or foreign schema instead of throwing", () => {
     const storage = new MemoryStorage();
     storage.setItem(STORAGE_KEY, "not json");
-    expect(readSplitPreferences(storage, "repo-a")).toEqual({});
-    storage.setItem(STORAGE_KEY, JSON.stringify({ schema: "split-layout/v0", repos: { "repo-a": { docs: {} } } }));
-    expect(readSplitPreferences(storage, "repo-a")).toEqual({});
+    expect(readSplitPreferences(storage, "local", "repo-a")).toEqual({});
+    // v1 是按仓分槽的旧 schema:作废不迁移,不把旧仓槽并进任何连接。
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ schema: "split-layout/v1", repos: { "repo-a": { docs: { orientation: "row" } } } }),
+    );
+    expect(readSplitPreferences(storage, "local", "repo-a")).toEqual({});
     // 写入时把旧 schema 视为空,不沿用其槽位。
-    writeSplitPreferences(storage, "repo-a", { docs: { orientation: "row" } });
-    expect(readSplitPreferences(storage, "repo-a").docs).toEqual({ orientation: "row" });
+    writeSplitPreferences(storage, "local", "repo-a", { docs: { orientation: "row" } });
+    expect(readSplitPreferences(storage, "local", "repo-a").docs).toEqual({ orientation: "row" });
   });
 
-  it("clears a slot with an empty preference and prunes the oldest repositories past the cap", () => {
+  it("clears a slot with an empty preference and prunes the oldest connection+repo slots past the cap", () => {
     const storage = new MemoryStorage();
     let slots: SplitSlotMap = { docs: { orientation: "row" } };
     slots = setSplitSlot(slots, "docs", {});
     expect(slots).toEqual({});
     for (let index = 0; index < 10; index += 1)
-      writeSplitPreferences(storage, `repo-${index}`, { docs: { ratio: 0.3 } });
-    // 上限 8 个仓,最旧的 repo-0/repo-1 被丢,最近的仍在。
-    expect(readSplitPreferences(storage, "repo-0")).toEqual({});
-    expect(readSplitPreferences(storage, "repo-1")).toEqual({});
-    expect(readSplitPreferences(storage, "repo-9").docs).toEqual({ ratio: 0.3 });
+      writeSplitPreferences(storage, "local", `repo-${index}`, { docs: { ratio: 0.3 } });
+    // 上限 8 个连接+仓槽,最旧的 repo-0/repo-1 被丢,最近的仍在。
+    expect(readSplitPreferences(storage, "local", "repo-0")).toEqual({});
+    expect(readSplitPreferences(storage, "local", "repo-1")).toEqual({});
+    expect(readSplitPreferences(storage, "local", "repo-9").docs).toEqual({ ratio: 0.3 });
+    // 上限按全局首次写入顺序裁剪:新连接的仓槽挤掉最旧连接的仓槽。
+    writeSplitPreferences(storage, "remote-abc123def456", "repo-9", { docs: { ratio: 0.5 } });
+    expect(readSplitPreferences(storage, "local", "repo-2")).toEqual({});
+    expect(readSplitPreferences(storage, "local", "repo-3").docs).toEqual({ ratio: 0.3 });
+    expect(readSplitPreferences(storage, "remote-abc123def456", "repo-9").docs).toEqual({ ratio: 0.5 });
   });
 });
 
@@ -199,7 +234,7 @@ describe("useSplitLayout", () => {
         latest().controlsProps.onToggleCollapse();
       });
       expect(latest().collapsed).toBe(true);
-      expect(readSplitPreferences(localStorage, "repo-a")["test-split"]).toEqual({
+      expect(readSplitPreferences(localStorage, "local", "repo-a")["test-split"]).toEqual({
         orientation: "row",
         ratio: 0.7,
         collapsed: true,
@@ -214,22 +249,23 @@ describe("useSplitLayout", () => {
         second.latest().controlsProps.onReset();
       });
       expect(second.latest().mode).toBe("auto");
-      expect(readSplitPreferences(localStorage, "repo-a")).toEqual({});
+      expect(readSplitPreferences(localStorage, "local", "repo-a")).toEqual({});
     } finally {
       restore();
     }
   });
 
-  it("re-reads preferences when the repo changes so connections do not share arrangements", async () => {
+  it("re-reads preferences when the repo changes so repositories do not share arrangements", async () => {
     const restore = injectElementSize(1200, 800);
     try {
-      writeSplitPreferences(localStorage, "repo-b", { "test-split": { orientation: "column", ratio: 0.5 } });
+      writeSplitPreferences(localStorage, "local", "repo-b", { "test-split": { orientation: "column", ratio: 0.5 } });
       const probe: Partial<Probe> = { repoId: "repo-a" };
       const first = await mountProbe(probe);
       expect(first.latest().mode).toBe("auto");
       await act(async () => {
         root!.render(
           createElement(SplitProbe, {
+            connectionId: "local",
             repoId: "repo-b",
             slot: "test-split",
             minRatio: 0.2,
@@ -243,6 +279,92 @@ describe("useSplitLayout", () => {
       const switched = first.latest();
       expect(switched.mode).toBe("column");
       expect(switched.ratio).toBe(0.5);
+    } finally {
+      restore();
+    }
+  });
+
+  it("isolates the same repoId across connections: re-read on switch, no cross-write on commit or reset", async () => {
+    const restore = injectElementSize(1200, 800);
+    try {
+      // 仓在连接 conn-a 下存了上下排列;同 repoId 切到 conn-b(如 remote-proxy 改挂)不沿用。
+      writeSplitPreferences(localStorage, "conn-a", "repo-a", { "test-split": { orientation: "column", ratio: 0.5 } });
+      const first = await mountProbe({ connectionId: "conn-a" });
+      expect(first.latest().mode).toBe("column");
+      await act(async () => {
+        root!.render(
+          createElement(SplitProbe, {
+            connectionId: "conn-b",
+            repoId: "repo-a",
+            slot: "test-split",
+            minRatio: 0.2,
+            maxRatio: 0.7,
+            autoBreakpoint: 1000,
+            collapsible: true,
+            onSplit: (split) => first.seen.push(split),
+          }),
+        );
+      });
+      expect(first.latest().mode).toBe("auto");
+      // conn-b 下的显式排列与重置都只写 conn-b 的键;conn-a 原样。
+      await act(async () => {
+        first.latest().controlsProps.onOrientation("row");
+      });
+      await act(async () => {
+        first.latest().controlsProps.onReset();
+      });
+      expect(readSplitPreferences(localStorage, "conn-b", "repo-a")).toEqual({});
+      expect(readSplitPreferences(localStorage, "conn-a", "repo-a")["test-split"]).toEqual({
+        orientation: "column",
+        ratio: 0.5,
+      });
+      // 切回 conn-a:原偏好仍在(不是被 conn-b 的写动覆盖)。
+      await act(async () => {
+        root!.render(
+          createElement(SplitProbe, {
+            connectionId: "conn-a",
+            repoId: "repo-a",
+            slot: "test-split",
+            minRatio: 0.2,
+            maxRatio: 0.7,
+            autoBreakpoint: 1000,
+            collapsible: true,
+            onSplit: (split) => first.seen.push(split),
+          }),
+        );
+      });
+      expect(first.latest().mode).toBe("column");
+      expect(first.latest().ratio).toBe(0.5);
+    } finally {
+      restore();
+    }
+  });
+
+  it("stays session-only while the connection identity is unresolved instead of guessing a key", async () => {
+    const restore = injectElementSize(1200, 800);
+    try {
+      const first = await mountProbe({ connectionId: null });
+      await act(async () => {
+        first.latest().controlsProps.onOrientation("row");
+      });
+      expect(first.latest().mode).toBe("row");
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+      // 连接身份到位后按真实键重读:没有存储偏好,回到自适应。
+      await act(async () => {
+        root!.render(
+          createElement(SplitProbe, {
+            connectionId: "local",
+            repoId: "repo-a",
+            slot: "test-split",
+            minRatio: 0.2,
+            maxRatio: 0.7,
+            autoBreakpoint: 1000,
+            collapsible: true,
+            onSplit: (split) => first.seen.push(split),
+          }),
+        );
+      });
+      expect(first.latest().mode).toBe("auto");
     } finally {
       restore();
     }

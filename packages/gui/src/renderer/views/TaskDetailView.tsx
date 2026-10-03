@@ -44,6 +44,7 @@ type TaskDetailTab = (typeof tabs)[number]["id"];
 
 export function TaskDetailView({
   repoId,
+  connectionId = null,
   task,
   onBack,
   tasks,
@@ -71,6 +72,8 @@ export function TaskDetailView({
 }: {
   /** 当前仓;给出时详情头下列出挂在本任务上、等你答复 / 已答复的 awaits(同一答复面板)。 */
   repoId?: string;
+  /** 当前仓所属连接(system status 仓行);分割偏好按连接+仓隔离,缺省时仅会话内态。 */
+  connectionId?: string | null;
   task: TaskRow;
   onBack: () => void;
   tasks?: readonly TaskRow[];
@@ -165,8 +168,9 @@ export function TaskDetailView({
   const gatesPassed = task.gates.filter((gate) => gate.ok === true).length;
 
   // 文件树|正文 分割(task_fb3ba20d66…):默认自适应(<1100px 树在上、≥1100px 树在左 14rem),
-  // 用户在树头部选了排列/拖过比例后由显式两窗比例接管;偏好按仓记忆,重置回自适应。
+  // 用户在树头部选了排列/拖过比例后由显式两窗比例接管;偏好按连接+仓记忆,重置回自适应。
   const split = useSplitLayout({
+    connectionId,
     repoId: task.projectId,
     slot: "task-detail-docs",
     minRatio: 0.15,

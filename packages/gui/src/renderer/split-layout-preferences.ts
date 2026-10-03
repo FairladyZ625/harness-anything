@@ -1,17 +1,20 @@
 import { consumeKnownError } from "../api/error-consumption.ts";
 import { isRendererRecord } from "./result-validation.ts";
 
-const schema = "split-layout/v1",
+const schema = "split-layout/v2",
   storageKey = "harness:gui:split-layout",
-  maxRepositories = 8;
+  maxRepoSlots = 8;
 
 /**
  * 原页面内容区域可调布局的本地持久化(task_fb3ba20d66…):任务详情「文件树|正文」与
  * 工作概况「主区|最近进展」两处分隔的用户偏好——显式排列(左右/上下)、首窗比例、折叠态。
  *
  * 只落 renderer 侧 localStorage(同 terminal-layout/favorites,不进台账、不进 URL),按
- * repoId 分槽(每个仓一套偏好,不跨仓串用);比例存分数而非像素,窗口缩放后两侧仍按同一
- * 比例分配,读入时统一夹回 sanity 区间。没有偏好的槽位 = 自适应默认布局。
+ * 连接+仓分槽:任务契约要求布局偏好按连接+仓隔离,而 registry 允许 remote-proxy 仓在
+ * 连接间改挂——同 repoId 换连接后不沿用上一连接的排列,写回也不覆盖它。connectionId
+ * 即 system status 仓行上的连接("local" 为隐含本机连接),不另立身份源,旧 v1 槽位
+ * 直接作废不迁移。比例存分数而非像素,窗口缩放后两侧仍按同一比例分配,读入时统一夹回
+ * sanity 区间。没有偏好的槽位 = 自适应默认布局。
  */
 export type SplitOrientation = "row" | "column";
 
@@ -63,39 +66,68 @@ function slotMap(value: unknown): SplitSlotMap {
 
 export function readSplitPreferences(
   storage: { getItem(key: string): string | null } | null | undefined,
+  connectionId: string,
   repoId: string,
 ): SplitSlotMap {
   if (!storage) return {};
   try {
     const parsed: unknown = JSON.parse(storage.getItem(storageKey) ?? "null");
-    if (!isRendererRecord(parsed) || parsed.schema !== schema || !isRendererRecord(parsed.repos)) return {};
-    return slotMap(parsed.repos[repoId]);
+    if (!isRendererRecord(parsed) || parsed.schema !== schema || !isRendererRecord(parsed.connections)) return {};
+    const repos = parsed.connections[connectionId];
+    if (!isRendererRecord(repos)) return {};
+    return slotMap(repos[repoId]);
   } catch (cause) {
     consumeKnownError(cause);
     return {};
   }
 }
 
+interface StoredRepoSlot {
+  readonly connectionId: string;
+  readonly repoId: string;
+  readonly slots: unknown;
+}
+
+/** 展平成首次写入顺序的(连接,仓)序列:上限裁剪按这个全局顺序丢最旧。 */
+function flattenRepoSlots(connections: Record<string, unknown>): StoredRepoSlot[] {
+  const flat: StoredRepoSlot[] = [];
+  for (const [connectionId, repos] of Object.entries(connections)) {
+    if (!isRendererRecord(repos)) continue;
+    for (const [repoId, slots] of Object.entries(repos)) flat.push({ connectionId, repoId, slots });
+  }
+  return flat;
+}
+
+function nestRepoSlots(entries: readonly StoredRepoSlot[]): Record<string, unknown> {
+  const nested: Record<string, unknown> = {};
+  for (const { connectionId, repoId, slots } of entries) {
+    const repos = isRendererRecord(nested[connectionId]) ? nested[connectionId] : {};
+    repos[repoId] = slots;
+    nested[connectionId] = repos;
+  }
+  return nested;
+}
+
 export function writeSplitPreferences(
   storage: { getItem(key: string): string | null; setItem(key: string, value: string): void } | null | undefined,
+  connectionId: string,
   repoId: string,
   slots: SplitSlotMap,
 ): void {
   if (!storage) return;
   try {
     const existing: unknown = JSON.parse(storage.getItem(storageKey) ?? "null");
-    const repos =
-      isRendererRecord(existing) && parsedSchemaIsCurrent(existing) && isRendererRecord(existing.repos)
-        ? { ...existing.repos }
+    const connections =
+      isRendererRecord(existing) && parsedSchemaIsCurrent(existing) && isRendererRecord(existing.connections)
+        ? { ...existing.connections }
         : {};
-    const reposNext = { ...repos, [repoId]: slots };
-    const ordered = Object.keys(reposNext);
-    // 同 terminal-layout:超出上限丢最旧的仓槽。
-    const pruned =
-      ordered.length > maxRepositories
-        ? Object.fromEntries(ordered.slice(ordered.length - maxRepositories).map((key) => [key, reposNext[key]]))
-        : reposNext;
-    storage.setItem(storageKey, JSON.stringify({ schema, repos: pruned }));
+    const repos = isRendererRecord(connections[connectionId]) ? { ...connections[connectionId] } : {};
+    repos[repoId] = slots;
+    connections[connectionId] = repos;
+    // 同 terminal-layout:超出上限丢最旧的连接+仓槽。
+    const flattened = flattenRepoSlots(connections);
+    const kept = flattened.length > maxRepoSlots ? flattened.slice(flattened.length - maxRepoSlots) : flattened;
+    storage.setItem(storageKey, JSON.stringify({ schema, connections: nestRepoSlots(kept) }));
   } catch (cause) {
     // 隐私模式/quota 满:本会话布局仍生效,只是不跨会话记忆(显式消费,不静默吞)。
     consumeKnownError(cause);
