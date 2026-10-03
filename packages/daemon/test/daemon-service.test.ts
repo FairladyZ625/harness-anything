@@ -140,3 +140,37 @@ test("the service manager's own pid is what the unit state reports", () => {
   );
   assert.deepEqual(parseDaemonServiceState("launchd", { exitCode: 113, stdout: "" }), { loaded: false, pid: null });
 });
+
+for (const platform of ["linux", "darwin"] as const) {
+  test(`${platform} persists only the explicit CA path alongside PATH`, () => {
+    const unit = daemonServiceUnit(target, platform)!;
+    const extraCaCerts = path.resolve('/opt/R&D <ca>/a "b"/100%/$HOME\\cert.pem');
+    const input = { ...launch, extraCaCerts, SECRET: "must-not-persist" };
+    const content = daemonServiceUnitContent(unit, input);
+    if (platform === "linux") {
+      const environment = content.split("\n").filter((line) => line.startsWith("Environment="));
+      assert.equal(environment.length, 2);
+      assert.equal(
+        JSON.parse(environment[1]!.slice("Environment=".length)).replaceAll("%%", "%"),
+        `NODE_EXTRA_CA_CERTS=${extraCaCerts}`,
+      );
+    } else {
+      const escaped = extraCaCerts.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+      assert.ok(content.includes(`<key>NODE_EXTRA_CA_CERTS</key><string>${escaped}</string>`), content);
+    }
+    assert.ok(!content.includes("must-not-persist"));
+    assert.ok(!content.includes("NODE_TLS_REJECT_UNAUTHORIZED"));
+    for (const extraCaCerts of [undefined, ""]) {
+      assert.equal(daemonServiceUnitContent(unit, { ...launch, extraCaCerts }), daemonServiceUnitContent(unit, launch));
+    }
+    const relative = daemonServiceUnitContent(unit, { ...launch, extraCaCerts: "certs/ca.pem" });
+    const resolved = path.resolve("certs/ca.pem");
+    assert.ok(
+      relative.includes(platform === "linux" ? JSON.stringify(resolved.replaceAll("%", "%%")).slice(1, -1) : resolved),
+      relative,
+    );
+    const controls = daemonServiceUnitContent(unit, { ...launch, extraCaCerts: "ca\n\r\t.pem" });
+    assert.ok(controls.includes(platform === "linux" ? "ca\\n\\r\\t.pem" : "ca\n&#13;\t.pem"), controls);
+    assert.notEqual(content, daemonServiceUnitContent(unit, launch));
+  });
+}

@@ -138,6 +138,22 @@ The unit records the `PATH` of the shell that ran `install`; the daemon finds
 `git` and the agent CLIs through it. Run `install` again after that `PATH`,
 the Node.js location, or the Harness Anything checkout changes.
 
+If HTTPS endpoints use a private CA, explicitly provide its PEM file when installing:
+
+```bash
+NODE_EXTRA_CA_CERTS=/path/to/ca.pem ha daemon service install
+```
+
+The unit preserves this path alongside `PATH`; it does not copy other shell
+environment variables. Relative CA paths are resolved against the installer's
+current directory. Keep the file readable by the service user. Certificate
+verification remains enabled, and Node loads the extra certificates at process
+startup. Re-run `install` with the new path to change it, or without the variable
+to remove it; a changed unit is reloaded. After changing the file contents at
+the same path, run `ha daemon stop` then `ha daemon start --service` to reload
+the certificates. This configures Node HTTPS trust, including OIDC; Fleet's
+separate `caPath` setting does not configure OIDC trust.
+
 Starting at boot before anyone logs in needs one privileged step that Harness
 Anything does not perform: `loginctl enable-linger <user>` on Linux, and
 automatic login for the user on macOS.
