@@ -1,3 +1,4 @@
+import { assertTaskAssignment } from "./task-assignment-runtime.ts";
 import { readCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "./repo-cell-submit.ts";
 import { createHash } from "node:crypto";
 import {
@@ -7,6 +8,8 @@ import {
   taskCompletionNext,
   getExecutableEntityAction,
   isTaskEvent,
+  isSameExecution,
+  sameWriteSource,
   lifecycleDocumentFetchPaths,
   parseDocWriteIntent,
   reduceTaskEvent,
@@ -93,6 +96,30 @@ export async function runTaskCommandWithDocs(
     )
       return cell.rejected(opId, "mirror_behind_center");
   }
+  const reservingTaskId =
+    getExecutableEntityAction(taskAction.kind)?.execution?.lifecycle?.coordination === "reserve" ? taskId : undefined;
+  if (reservingTaskId !== undefined) {
+    const current = await cell.service.read(taskId);
+    binding = {
+      ...binding,
+      taskClaimant: await assertTaskAssignment(current.snapshot.task?.assignment, binding, cell.now()),
+    };
+  }
+  let unleasedTaskCommandId = reservingTaskId;
+  if (taskAction.kind === "task-submit" && taskAction.amend === true && typeof taskAction.executionId === "string") {
+    const acceptedOp = cell.projection.readTaskSubmissionOperation(taskId, taskAction.executionId),
+      accepted = acceptedOp === null ? null : cell.store.readEvent(acceptedOp);
+    if (
+      accepted &&
+      isTaskEvent(accepted) &&
+      accepted.type === "execution_submitted" &&
+      accepted.taskId === taskId &&
+      accepted.payload.execution.executionId === taskAction.executionId &&
+      isSameExecution(accepted.actor, binding.actor) &&
+      sameWriteSource(accepted.source, binding.source)
+    )
+      unleasedTaskCommandId = taskId;
+  }
   const lease = cell.projection.currentLease(taskId, cell.now());
   const intent = parseDocWriteIntent(
     {
@@ -123,6 +150,7 @@ export async function runTaskCommandWithDocs(
       projection: cell.projection,
       now: cell.now,
       taskDocumentChannel: "task-command",
+      ...(unleasedTaskCommandId === undefined ? {} : { unleasedTaskCommandId }),
     },
     intent,
     docChanges.map((change) => claimBytes(cell.rootDir, change.candidate.ref as DocClaimRef)),

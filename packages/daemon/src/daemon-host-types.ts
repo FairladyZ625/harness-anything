@@ -77,6 +77,7 @@ export interface DaemonHost {
     repoId: string,
     kind: string,
     auth: DaemonAuthenticationContext,
+    target?: { readonly taskId: string },
   ) => Promise<AuthorizationDecision>;
   readonly terminalAttach: (
     repoId: string,

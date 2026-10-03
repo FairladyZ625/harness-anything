@@ -1,7 +1,7 @@
 // Marks a workspace root as a remote-edge mirror and names the fleet channel
 // its write commands must take. Present in `<root>/fleet-edge.json`; it carries
 // the machine credential the center issued when the node was registered. The
-// optional rosterPath names a local copy of the center assignments.
+// repository selects the canonical center namespace.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 export interface FleetEdgeConfig {
@@ -11,9 +11,7 @@ export interface FleetEdgeConfig {
   readonly caPath: string;
   readonly servername?: string;
   readonly nodeId: string;
-  readonly rosterPath?: string;
   readonly credential: string;
-  readonly assignmentId: string;
   readonly viewRoot: string;
   readonly quotaBytes: number;
   readonly waitTimeoutMs?: number;
@@ -49,8 +47,10 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
   if (row.schema !== "fleet-edge-config/v1") fail("the top-level schema must be fleet-edge-config/v1");
   const text = (field: string): string | undefined =>
     typeof row[field] === "string" && (row[field] as string).length > 0 ? (row[field] as string) : undefined;
-  for (const field of ["repoId", "host", "caPath", "nodeId", "credential", "assignmentId", "viewRoot"])
+  for (const field of ["repoId", "host", "caPath", "nodeId", "credential", "viewRoot"])
     if (!text(field)) fail(`${field} must be a non-empty string`);
+  if (Object.hasOwn(row, "assignmentId") || Object.hasOwn(row, "rosterPath"))
+    fail("Static fleet assignments are retired.");
   const port = Number(row.port),
     quotaBytes = Number(row.quotaBytes);
   if (!Number.isSafeInteger(port) || port < 0 || port > 65535) fail("port must be an integer from 0 to 65535");
@@ -58,7 +58,6 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
   const waitTimeoutMs = row.waitTimeoutMs === undefined ? undefined : Number(row.waitTimeoutMs);
   if (waitTimeoutMs !== undefined && (!Number.isSafeInteger(waitTimeoutMs) || waitTimeoutMs <= 0))
     fail("waitTimeoutMs must be a positive integer when present");
-  const rosterPath = text("rosterPath");
   return {
     repoId: text("repoId")!,
     host: text("host")!,
@@ -66,9 +65,7 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
     caPath: text("caPath")!,
     ...(text("servername") ? { servername: text("servername") } : {}),
     nodeId: text("nodeId")!,
-    ...(rosterPath ? { rosterPath } : {}),
     credential: text("credential")!,
-    assignmentId: text("assignmentId")!,
     viewRoot: text("viewRoot")!,
     quotaBytes,
     ...(waitTimeoutMs !== undefined ? { waitTimeoutMs } : {}),

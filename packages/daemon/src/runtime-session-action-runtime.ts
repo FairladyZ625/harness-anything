@@ -16,26 +16,20 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
       ingressSource = binding.source,
       localOwner = dispatchSource === "local" && ingressSource === "local";
     if (!localOwner) {
-      const scope = binding.assignmentScope;
-      if (!scope)
-        invalidRuntimeSessionAction(
-          "assignment_required",
-          "RuntimeSession event ingress requires an authenticated assignment.",
-        );
       if (
         !dispatch ||
         typeof dispatchSource !== "object" ||
-        dispatchSource.kind !== "assignment" ||
+        dispatchSource.kind !== "node" ||
         typeof ingressSource !== "object" ||
-        ingressSource.kind !== "assignment" ||
-        dispatchSource.nodeId !== ingressSource.nodeId ||
-        dispatchSource.assignmentId !== ingressSource.assignmentId
+        ingressSource.kind !== "node" ||
+        dispatch.actor.principal.personId !== binding.actor.principal.personId ||
+        dispatchSource.nodeId !== ingressSource.nodeId
       )
         invalidRuntimeSessionAction(
-          "assignment_scope_mismatch",
-          "RuntimeSession events must come from the assignment that owns the session dispatch.",
+          "execution_scope_mismatch",
+          "RuntimeSession events must come from the node and owner that own the session dispatch.",
           contract.id,
-          "runtime-session/assignment-fence",
+          "runtime-session/node-fence",
         );
       const claimedTask =
         action.kind === "runtime_session_task_bound"
@@ -49,23 +43,21 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
             : null;
       if (
         claimedTask !== null &&
-        (scope.scope.kind !== "task" ||
-          claimedTask.taskId !== scope.scope.taskId ||
-          claimedTask.executionId !== scope.scope.executionId)
+        (claimedTask.taskId !== dispatch.payload.taskId || claimedTask.executionId !== dispatch.payload.executionId)
       )
         invalidRuntimeSessionAction(
-          "assignment_scope_mismatch",
-          "RuntimeSession task and execution binding must match the authenticated assignment.",
+          "execution_scope_mismatch",
+          "RuntimeSession task and execution binding must match the canonical dispatch.",
           contract.id,
           "runtime-session/task-binding",
         );
     }
     if (!dispatch)
       invalidRuntimeSessionAction(
-        "assignment_scope_mismatch",
+        "execution_scope_mismatch",
         "RuntimeSession events require a canonical dispatch owned by their ingress source.",
         contract.id,
-        "runtime-session/assignment-fence",
+        "runtime-session/node-fence",
       );
     return { ...action, dispatchId: dispatch.payload.dispatchId };
   };

@@ -51,7 +51,7 @@ const initialRow: ScheduleGuiRowDto = {
   },
   mission: "Keep the mainline green.",
   executionAvailability: "local",
-  claim: { nodeId: null, assignmentId: null },
+  claim: { nodeId: null, claimFence: null },
   nextRunAt: null,
   actions: {
     edit: { available: true, code: null, nextAction: null },

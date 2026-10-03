@@ -1,4 +1,4 @@
-import { isNonEmptyString, isRecord } from "./write-chain.contract.ts";
+import { isNonEmptyString, isRecord } from "./contract-validation.ts";
 import { timestamp } from "./timestamp.ts";
 
 export type TaskAssignee =

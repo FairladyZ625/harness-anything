@@ -279,7 +279,7 @@ function scheduleRow(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRow
     },
     mission: "Keep the line green.",
     executionAvailability: "claimed-elsewhere",
-    claim: { nodeId: "edge-two", assignmentId: "assignment-edge-two" },
+    claim: { nodeId: "edge-two", claimFence: "claim-edge-two" },
     health: { recent: [], bucket: "clean", failedCount: 0, lastFailureDetail: null },
     nextRunAt: null,
     actions: {

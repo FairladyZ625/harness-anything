@@ -10,9 +10,8 @@ import { signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 
 // A settled unregistration is the center cutting the node's live sessions, not a per-frame question.
-// These cases hold the mechanism to the whole frame surface: the five schemas whose handlers never
-// read an owner — assignment.get and the upload/ack family — plus a handshake still awaiting its
-// verdict, plus a removal whose receipt only settles through reconcile.
+// These cases cover repository metadata and the upload/ack family, plus a handshake still awaiting
+// its verdict and a removal whose receipt only settles through reconcile.
 async function unregisterNodeOne(
   fixture: Awaited<ReturnType<typeof fleetFixture>>,
   center: FleetTlsCenter,
@@ -23,8 +22,8 @@ async function unregisterNodeOne(
     removed = await admin.run({
       operation: "node-unregister",
       operationId,
-      nodeId: fixture.assignment.nodeId,
-      expectedVersion: listed.find((node) => node.nodeId === fixture.assignment.nodeId)!.version,
+      nodeId: fixture.subject.nodeId,
+      expectedVersion: listed.find((node) => node.nodeId === fixture.subject.nodeId)!.version,
     });
   assert.equal(removed.ok, true, JSON.stringify(removed));
   return removed;
@@ -37,10 +36,10 @@ test(
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
     const center = await fixture.center(),
-      { nodeId, assignmentId } = fixture.assignment,
+      { nodeId, repoId } = fixture.subject,
       peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
-      other = await rawPeer(fixture.track, center.port, fixture.cert, fixture.peerAssignment.nodeId, "machine-secret"),
-      assigned = await peer.request({ schema: "fleet.assignment.get/v1", messageId: "assignment", assignmentId }),
+      other = await rawPeer(fixture.track, center.port, fixture.cert, fixture.peerSubject.nodeId, "machine-secret"),
+      assigned = await peer.request({ schema: "fleet.repo.metadata.get/v1", messageId: "metadata", repoId }),
       body = "a retired machine staged this before its removal",
       answer = (frame: FleetFrameV1) =>
         frame.schema === "fleet.error/v1"
@@ -48,23 +47,23 @@ test(
           : frame.schema === "fleet.ack.result/v1"
             ? frame.outcome
             : frame.schema;
-    assert.equal(assigned.schema, "fleet.assignment.result/v1");
-    if (assigned.schema !== "fleet.assignment.result/v1") return;
+    assert.equal(assigned.schema, "fleet.repo.metadata.result/v1");
+    if (assigned.schema !== "fleet.repo.metadata.result/v1") return;
     assert.equal(
       answer(
         await other.request({
-          schema: "fleet.assignment.get/v1",
-          messageId: "other-assignment",
-          assignmentId: fixture.peerAssignment.assignmentId,
+          schema: "fleet.repo.metadata.get/v1",
+          messageId: "other-metadata",
+          repoId: fixture.peerSubject.repoId,
         }),
       ),
-      "fleet.assignment.result/v1",
+      "fleet.repo.metadata.result/v1",
     );
-    // While the node is registered, the five frames whose handlers never read an owner all work.
+    // While the node is registered, repository metadata and upload/ack frames all work.
     const ready = await peer.request({
       schema: "fleet.upload.begin/v1",
       messageId: "begin",
-      assignmentId,
+      repoId,
       content: {
         sha256: sha256Bytes(Buffer.from(body)),
         size: Buffer.byteLength(body),
@@ -87,7 +86,7 @@ test(
       uploadId: ready.uploadId,
     });
     assert.equal(staged.schema, "fleet.upload.result/v1");
-    const pulled = await peer.request({ schema: "fleet.replica.pull/v1", messageId: "pull", assignmentId });
+    const pulled = await peer.request({ schema: "fleet.replica.pull/v1", messageId: "pull", repoId });
     assert.equal(pulled.schema, "fleet.snapshot.begin/v1");
     if (pulled.schema !== "fleet.snapshot.begin/v1") return;
     let frame = await peer.receive();
@@ -115,12 +114,12 @@ test(
     assert.equal(
       answer(
         await other.request({
-          schema: "fleet.assignment.get/v1",
+          schema: "fleet.repo.metadata.get/v1",
           messageId: "other-after-cut",
-          assignmentId: fixture.peerAssignment.assignmentId,
+          repoId: fixture.peerSubject.repoId,
         }),
       ),
-      "fleet.assignment.result/v1",
+      "fleet.repo.metadata.result/v1",
     );
     other.close();
   },
@@ -156,7 +155,7 @@ test("an unregistration that lands mid-handshake leaves no live connection behin
       schema: "fleet.session.hello/v1",
       messageId: "hello",
       protocolVersion: { major: 1, minor: 0 },
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
     }),
   );
@@ -181,10 +180,10 @@ test("a removal whose receipt never settled cuts through reconcile", { timeout: 
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
   const center = await fixture.center(),
-    { nodeId, assignmentId } = fixture.assignment,
+    { nodeId, repoId } = fixture.subject,
     peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
-    assigned = await peer.request({ schema: "fleet.assignment.get/v1", messageId: "assignment", assignmentId });
-  assert.equal(assigned.schema, "fleet.assignment.result/v1");
+    assigned = await peer.request({ schema: "fleet.repo.metadata.get/v1", messageId: "metadata", repoId });
+  assert.equal(assigned.schema, "fleet.repo.metadata.result/v1");
   const before = fixture.eventCount();
 
   // The write reached the registry but the settle did not — the shape a center that died

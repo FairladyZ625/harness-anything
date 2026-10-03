@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, sha256Bytes } from "@harness-anything/kernel";
 import { runFleetReplicaPullClient, runFleetWriteClient } from "./fleet/edge.ts";
-import { fleetEdgeScopePaths, FleetEdgeTaskError } from "./fleet-edge-task.ts";
+import { FleetEdgeTaskError } from "./fleet-edge-task.ts";
 import {
   applyFleetMirrorCut,
   cacheFleetMirrorDirtyBases,
@@ -40,8 +40,6 @@ export interface FleetEdgeChannelPayload {
   readonly servername?: string;
   readonly nodeId: string;
   readonly credential: string;
-  readonly rosterPath?: string;
-  readonly assignmentId: string;
   readonly repoId: string;
   readonly viewRoot: string;
   readonly quotaBytes: number;
@@ -72,7 +70,7 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
       servername: payload.servername,
       nodeId: payload.nodeId,
       credential,
-      assignmentId: payload.assignmentId,
+      repoId: payload.repoId,
     },
     timeoutMs = payload.timeoutMs ?? 60_000;
   const selection = payload.paths === undefined || payload.paths.length === 0 ? undefined : [...new Set(payload.paths)];
@@ -122,26 +120,13 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
         mirrorOutcome: "applied",
         ...cutOf(pulled.current.cut.revision),
       });
-    const scope = fleetEdgeScopePaths(payload.assignmentId, payload.rosterPath);
     const scan = scanFleetMirrorWorktree(view, payload.workspaceRoot, selection);
     // Task-context documents never ride the shared-surface round: they travel
     // with their task commands (class A). Report them so the operator knows.
     const rideAlong = scan.changes.filter((change) => change.path.startsWith("tasks/")).map((change) => change.path);
     const shared = scan.changes.filter((change) => !change.path.startsWith("tasks/"));
-    const outOfScope =
-      scope === null
-        ? []
-        : shared
-            .filter(
-              (change) => !scope.some((allowed) => change.path === allowed || change.path.startsWith(`${allowed}/`)),
-            )
-            .map((change) => change.path);
-    const candidates =
-      scope === null
-        ? shared
-        : shared.filter((change) =>
-            scope.some((allowed) => change.path === allowed || change.path.startsWith(`${allowed}/`)),
-          );
+    const outOfScope: string[] = [];
+    const candidates = shared;
     const rows = candidates.map((change) => ({
       path: change.path,
       baseBlobSha256: change.baseBlobSha256,
@@ -262,13 +247,13 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
 export async function settlePushRejection(
   payload: FleetEdgeChannelPayload & { readonly paths?: readonly string[] },
   peer: {
+    readonly repoId: string;
     readonly hostname: string;
     readonly port: number;
     readonly ca: string;
     readonly servername?: string;
     readonly nodeId: string;
     readonly credential: string;
-    readonly assignmentId: string;
   },
   timeoutMs: number,
   code: string,
@@ -333,7 +318,7 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
       servername: payload.servername,
       nodeId: payload.nodeId,
       credential,
-      assignmentId: payload.assignmentId,
+      repoId: payload.repoId,
     };
     const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
     if (view === null)
@@ -456,7 +441,7 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
             pushed.center.code === "lease_conflict"
               ? "Task-context overwrite requires the current holder; acquire the task lease first, then retry the exit."
               : pushed.center.code === "task_docs_require_task_command"
-                ? "Task-context documents ride the lease-brokered task command; run the task command instead of this exit."
+                ? "Task-context documents ride the canonical lease-checked task command; run the task command instead of this exit."
                 : "The center refused the overwrite (it moved again or the policy denies it); rerun ha doc sync and restage.",
         },
       };

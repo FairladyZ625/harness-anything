@@ -145,14 +145,14 @@ test(
         "local",
       ]),
     );
-    // The agent occurrence was just as due: it belongs to the edge holding its assignment, so the
+    // The agent occurrence was just as due: it belongs to the edge holding its occurrence claim, so the
     // center neither claims it nor writes it off as missed.
     assert.deepEqual(
       center.events.filter(([, scheduleId]) => scheduleId === "agent-probe").map(([type]) => type),
       ["schedule_created"],
     );
     assert.equal(center.rows.get("agent-probe")?.status.activeRun, null);
-    // Host-level manual execution remains restricted to the assignment entrance.
+    // Host-level manual execution remains restricted to the authenticated node entrance.
     assert.equal(center.manual.outcome, "op_rejected");
     assert.equal(center.manual.code, "repo_mode_requires_center_ingress");
   },
@@ -200,11 +200,11 @@ test("a remote-center cell admits the daemon scheduler only on builtin occurrenc
     assert.equal(fired.outcome, "applied", JSON.stringify(fired));
     assert.equal((await show(builtinLedgerBackupScheduleId)).status.lastRun?.outcome, "succeeded");
 
-    // Each of N edges reaches the center through its own assignment; none can claim a builtin occurrence.
+    // Each of N edges reaches the center through its own authenticated node identity; none can claim a builtin occurrence.
     for (const nodeId of ["edge-one", "edge-two"]) {
       const edge = await run(
         { kind: "schedule-run-now", scheduleId: builtinLedgerBackupScheduleId, idempotencyKey: `${nodeId}-fire` },
-        { ...scheduler, source: { kind: "assignment", nodeId, assignmentId: `assignment-${nodeId}` } },
+        { ...scheduler, source: { kind: "node", nodeId } },
       );
       assert.deepEqual([edge.outcome, edge.code], ["op_rejected", "schedule_builtin_local_only"], nodeId);
     }

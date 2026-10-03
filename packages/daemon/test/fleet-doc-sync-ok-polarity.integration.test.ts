@@ -10,12 +10,7 @@ import { registerDaemonRepo, sha256Bytes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import {
-  listenFleetTls,
-  type FleetAssignmentRecord,
-  type FleetCenterOptions,
-  type FleetTlsCenter,
-} from "../src/fleet/center.ts";
+import { listenFleetTls, type FleetCenterOptions, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetWriteClient } from "../src/fleet/edge.ts";
 
 const replicaQuota = 64 * 1024 * 1024;
@@ -73,21 +68,9 @@ async function pushRejectionFixture() {
       repoIds: ["fleet-doc-sync-repo"],
     });
   await host.attachmentsSettled();
-  const assignment = (nodeId: NodeId): FleetAssignmentRecord => ({
-    nodeId,
-    assignmentId: `assignment-${nodeId}`,
-    repoId: "fleet-doc-sync-repo",
-    taskId: "task-seeded",
-    executionId: "exe-seeded",
-    paths: ["context/shared-notes.md"],
-    viewId: `${nodeId}-view`,
-    expiresAt: "2099-01-01T00:00:00.000Z",
-  });
-  const assignments = new Map(nodes.map((nodeId) => [assignment(nodeId).assignmentId, assignment(nodeId)]));
   let center: FleetTlsCenter | null = null;
   let race: { readonly path: string; readonly base: string; readonly centerBody: string } | null = null;
   let raceInjected = false;
-  let raceAssignmentReads = 0;
   let rejectCenterDocStatus = false;
   const centerHost: FleetCenterOptions["host"] = {
     replica: (...args) => host.replica(...args),
@@ -98,22 +81,8 @@ async function pushRejectionFixture() {
     authorize: (...args) => host.authorize(...args),
     run: async (repoId, action, auth) => {
       if (rejectCenterDocStatus && action.kind === "doc-status")
-        throw new Error("fleet assignment must not scan document status");
-      return host.run(repoId, action, auth);
-    },
-  };
-  center = await listenFleetTls({
-    host: centerHost,
-    stateRoot,
-    key,
-    cert,
-    replicaDiskQuotaBytes: replicaQuota,
-    authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
-    nodeOwner: owners.nodeOwner,
-    resolveAssignment: async (assignmentId) => {
-      if (race !== null && assignmentId === "assignment-node-one") {
-        raceAssignmentReads += 1;
-        if (raceAssignmentReads < 2) return assignments.get(assignmentId) ?? null;
+        throw new Error("fleet node must not scan document status");
+      if (race !== null && action.kind === "doc-submit" && auth.nodePrincipal?.nodeId === "node-one") {
         const pending = race;
         race = null;
         if (center === null) throw new Error("fleet center is not ready");
@@ -124,7 +93,7 @@ async function pushRejectionFixture() {
           servername: "localhost",
           nodeId: "node-two",
           credential: "secret-node-two",
-          assignmentId: "assignment-node-two",
+          repoId: "fleet-doc-sync-repo",
           timeoutMs: 30_000,
           channel: "collaborator",
           changes: [
@@ -138,8 +107,17 @@ async function pushRejectionFixture() {
         assert.equal(moved.center.outcome, "applied", JSON.stringify(moved.center));
         raceInjected = true;
       }
-      return assignments.get(assignmentId) ?? null;
+      return host.run(repoId, action, auth);
     },
+  };
+  center = await listenFleetTls({
+    host: centerHost,
+    stateRoot,
+    key,
+    cert,
+    replicaDiskQuotaBytes: replicaQuota,
+    authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+    nodeOwner: owners.nodeOwner,
   });
   const edgeRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-edge`);
   const workspaceRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-workspace`);
@@ -151,7 +129,6 @@ async function pushRejectionFixture() {
     servername: "localhost",
     nodeId,
     credential: `secret-${nodeId}`,
-    assignmentId: `assignment-${nodeId}`,
     repoId: "fleet-doc-sync-repo",
     viewRoot: edgeRoot(nodeId),
     quotaBytes: replicaQuota,
@@ -187,7 +164,6 @@ async function pushRejectionFixture() {
     },
     armBaseBlobRace: (path: string, base: string, centerBody: string) => {
       race = { path, base, centerBody };
-      raceAssignmentReads = 0;
     },
     raceInjected: () => raceInjected,
     conflicts: () =>
@@ -203,7 +179,7 @@ async function pushRejectionFixture() {
   };
 }
 
-test("assignment admission uses the replica cut without a document-status scan", { timeout: 60_000 }, async (t) => {
+test("node admission uses the replica cut without a document-status scan", { timeout: 60_000 }, async (t) => {
   const fixture = await pushRejectionFixture();
   t.after(() => fixture.close());
   fixture.rejectDocumentStatusAtCenter();

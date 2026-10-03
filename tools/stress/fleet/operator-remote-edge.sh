@@ -23,7 +23,6 @@ seed=1
 while [ "$seed" -le 3 ]; do
   repo_id="stress-seed-$seed"
   workspace="$WORKSPACE_ROOT/$repo_id"
-  assignment="$repo_id-schedule-1"
   node_id="edge-1"
   view="$VIEW_ROOT/$repo_id"
 
@@ -40,7 +39,7 @@ while [ "$seed" -le 3 ]; do
       --servername localhost \
       --node-id "$node_id" \
       --credential "credential-$node_id" \
-      --assignment "$assignment" \
+      --repo "$repo_id" \
       --view-root "$view" \
       --quota-bytes "$QUOTA_BYTES"
   )

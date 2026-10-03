@@ -44,7 +44,7 @@ function dto(
     },
     mission: "Scan the previous day of pull requests.",
     executionAvailability: "local",
-    claim: { nodeId: null, assignmentId: null },
+    claim: { nodeId: null, claimFence: null },
     health: { recent: ["succeeded"], bucket: "clean", failedCount: 0, lastFailureDetail: null },
     nextRunAt: "2026-08-27T08:30:00.000Z",
     actions: {
@@ -61,7 +61,7 @@ function dto(
       endedAt: "2026-08-27T08:02:00.000Z",
       outcome: "succeeded",
       nodeId: "local",
-      assignmentId: null,
+      claimFence: "claim-prior",
       attemptIndex: 0,
       dispatchId: "dispatch_000000000000000000000001",
       runtimeSessionId: "runtime-prior",
@@ -582,7 +582,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         data: dto(
           {
             executionAvailability: "not-on-this-node",
-            claim: { nodeId: "edge-one", assignmentId: "assignment-edge-one" },
+            claim: { nodeId: "edge-one", claimFence: "claim-edge-one" },
             actions: {
               edit: { available: true, code: null, nextAction: null },
               delete: { available: true, code: null, nextAction: null },
@@ -591,7 +591,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
               runNow: {
                 available: false,
                 code: "repo_mode_requires_center_ingress",
-                nextAction: "Send write commands through the authenticated Fleet assignment ingress.",
+                nextAction: "Send write commands through the authenticated Fleet node ingress.",
               },
             },
           },
@@ -610,7 +610,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     expect(text).toContain("Scan the previous day of pull requests.");
     const runNow = container.querySelector<HTMLButtonElement>('[data-testid="schedule-action-runNow"]');
     expect(runNow?.disabled).toBe(true);
-    expect(runNow?.getAttribute("data-tip")).toContain("Fleet assignment ingress");
+    expect(runNow?.getAttribute("data-tip")).toContain("Fleet node ingress");
     const disable = container.querySelector<HTMLButtonElement>('[data-testid="schedule-action-disable"]');
     expect(disable).not.toBeNull();
     expect(disable?.disabled).toBe(false);

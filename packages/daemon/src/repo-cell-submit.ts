@@ -194,7 +194,7 @@ export function deriveCloseoutSubmission(
   }
   // An assignment's checkout belongs to its node. Its delivery was fetched from the
   // center's configured origin before enqueue; a leftover center checkout is not that node's HEAD.
-  const remoteDelivery = typeof source === "object" && source.kind === "assignment";
+  const remoteDelivery = typeof source === "object" && source.kind === "node";
   const dispatches = cell.projection
       .readRuntimeDispatchesByTaskExecution(taskId, executionId)
       .map(({ event }) => event.payload)
@@ -479,7 +479,7 @@ export async function submitTask(
   // Assignment callers carry their changed documents above. With no carried changes,
   // consume center-accepted content; never scan the center worktree on an edge's behalf.
   const synced =
-    typeof binding.source === "object" && binding.source.kind === "assignment"
+    typeof binding.source === "object" && binding.source.kind === "node"
       ? null
       : await runDocAction({
           action: { kind: "doc-submit", taskId },

@@ -28,7 +28,7 @@ const result = await runFleetWriteClient({
   servername: "localhost",
   nodeId: config.nodeId,
   credential: config.credential,
-  assignmentId: config.assignmentId,
+  repoId: config.repoId,
   channel: "collaborator",
   executionId: null,
   baseLedgerSha: config.baseLedgerSha,

@@ -26,7 +26,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const policyId = "markdown-body-replaceable/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
-const assignmentSource = { kind: "assignment", nodeId: "node-one", assignmentId: "assignment-one" } as const;
+const assignmentSource = { kind: "node", nodeId: "node-one" } as const;
 const localBinding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
 
 // The execution worker rides the held-lease channel like any direct executor; the reviewer is a
@@ -382,30 +382,19 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
     const body = "# Scoped\n",
       relativePath = "tasks/task-doc-docs/outside.md";
     writeClaim(scoped.rootDir, "scoped", body);
-    const result = await scoped.cell.run(
-      remoteAction(before, relativePath, "scoped", body),
-      assignmentBinding("scoped", ["tasks/task-doc-docs/inside.md"]),
-    );
-    assert.equal(result.code, "assignment_scope_mismatch");
+    const result = await scoped.cell.run(remoteAction(before, relativePath, "scoped", body), {
+      ...assignmentBinding("scoped", []),
+      source: { kind: "node", nodeId: "another-node" },
+    });
+    assert.equal(result.code, "execution_scope_mismatch");
     assert.equal(result.detail?.holder?.personId, "person-owner");
-    assert.match(result.detail?.unresolvedTouches[0]?.requiredRoute ?? "", /assignment-one.*inside\.md/u);
+    assert.match(result.detail?.unresolvedTouches[0]?.requiredRoute ?? "", /canonical-task-lease/u);
     assert.deepEqual(result.detail?.currentLedgerSha, before);
     assert.equal(existsSync(path.join(scoped.rootDir, ".harness/doc-sync-claims/scoped")), false);
     writeClaim(scoped.rootDir, "identity", body);
     const identityBinding = assignmentBinding("scoped", [relativePath]);
-    // W3-C: the assignment's static taskId/executionId labels no longer veto a
-    // task-document write — design-v2 §3 makes the dynamically acquired lease
-    // the task-context authority (decideDocWrite arbitrates holder, execution,
-    // and write channel), and a node-level roster cannot name every task a
-    // W3-B automatic lease will grant. Path scope plus lease arbitration fully
-    // bind this write, so the mislabeled scope no longer rejects it.
-    const identity = await scoped.cell.run(remoteAction(before, relativePath, "identity", body), {
-      ...identityBinding,
-      assignmentScope: {
-        ...identityBinding.assignmentScope!,
-        scope: { ...identityBinding.assignmentScope!.scope, taskId: "task-other" },
-      },
-    });
+    // The canonical lease defines the task scope, independent of retired roster labels.
+    const identity = await scoped.cell.run(remoteAction(before, relativePath, "identity", body), identityBinding);
     assert.equal(identity.outcome, "applied", JSON.stringify(identity).slice(0, 400));
     assert.equal(existsSync(path.join(scoped.rootDir, ".harness/doc-sync-claims/identity")), false);
   } finally {
@@ -770,16 +759,12 @@ async function waitForWorktree(
   assert.equal(shown.wait?.state, "satisfied", JSON.stringify(shown));
   return shown;
 }
-function assignmentBinding(repoId: string, paths: readonly string[]): RepoCellBinding {
+function assignmentBinding(_repoId: string, _paths: readonly string[]): RepoCellBinding {
   // A node grants nothing by itself: the binding carries its person's own authority.
   return {
     actor,
     source: assignmentSource,
     keycloakAuthorization: withPolicyGroup({ actor }, "admin").keycloakAuthorization,
-    assignmentScope: {
-      repoId,
-      scope: { kind: "task", taskId: "task-doc", executionId: "execution-doc", paths },
-    },
   };
 }
 function remoteAction(baseLedgerSha: unknown, relativePath: string, ref: string, body: string) {

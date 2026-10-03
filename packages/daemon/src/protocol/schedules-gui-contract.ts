@@ -7,7 +7,7 @@ import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
  * 不判 repo mode,不选 node/provider(dec_9C393CDA 拓扑:定义=ledger,执行=runtime-local,
  * run view=projection)。本文件只持有线形状与校验,读侧 join 在
  * packages/daemon/src/schedules-gui-read.ts,protocol 目录不引 kernel barrel。 */
-export type ScheduleExecutionAvailability = "local" | "claimed-elsewhere" | "unassigned" | "not-on-this-node";
+export type ScheduleExecutionAvailability = "local" | "claimed-elsewhere" | "not-on-this-node";
 
 export type ScheduleGuiTriggerDto =
   | {
@@ -112,7 +112,7 @@ export interface ScheduleGuiRowDto {
   readonly targetError?: { readonly code: string; readonly hint: string };
   readonly mission: string;
   readonly executionAvailability: ScheduleExecutionAvailability;
-  readonly claim: { readonly nodeId: string | null; readonly assignmentId: string | null };
+  readonly claim: { readonly nodeId: string | null; readonly claimFence: string | null };
   readonly health: ScheduleGuiHealthDto;
   readonly nextRunAt: string | null;
   readonly actions: {
@@ -128,7 +128,7 @@ export interface ScheduleGuiRowDto {
     readonly scheduledFor: string;
     readonly claimedAt: string;
     readonly nodeId: string;
-    readonly assignmentId: string | null;
+    readonly claimFence: string;
     readonly attemptIndex: number;
     readonly dispatchId: string | null;
     readonly runtimeSessionId: string | null;
@@ -139,7 +139,7 @@ export interface ScheduleGuiRowDto {
     readonly endedAt: string;
     readonly outcome: string;
     readonly nodeId: string;
-    readonly assignmentId: string | null;
+    readonly claimFence: string;
     readonly attemptIndex: number;
     readonly dispatchId: string | null;
     readonly runtimeSessionId: string | null;
@@ -176,12 +176,7 @@ export interface SchedulesListResult {
   readonly sourceRevision: number;
 }
 
-const scheduleGuiAvailabilityWords: readonly string[] = [
-  "local",
-  "claimed-elsewhere",
-  "unassigned",
-  "not-on-this-node",
-];
+const scheduleGuiAvailabilityWords: readonly string[] = ["local", "claimed-elsewhere", "not-on-this-node"];
 const scheduleGuiOutcomeWords: readonly string[] = ["succeeded", "failed", "unknown", "cancelled"];
 const scheduleGuiMissedReasonWords: readonly string[] = ["scheduler_unavailable", "single_flight"];
 const scheduleGuiRowFields = [
@@ -214,7 +209,7 @@ const activeRunFields = [
   "scheduledFor",
   "claimedAt",
   "nodeId",
-  "assignmentId",
+  "claimFence",
   "attemptIndex",
   "dispatchId",
   "runtimeSessionId",
@@ -225,7 +220,7 @@ const lastRunFields = [
   "endedAt",
   "outcome",
   "nodeId",
-  "assignmentId",
+  "claimFence",
   "attemptIndex",
   "dispatchId",
   "runtimeSessionId",
@@ -316,7 +311,7 @@ function validAttemptSummary(value: unknown, fields: readonly string[]): boolean
     ["dispatchId", "runtimeSessionId", "detail"].every(
       (field) => !Object.hasOwn(value, field) || nullableNonEmpty(value[field]),
     ) &&
-    nullableNonEmpty(value.assignmentId) &&
+    scheduleNonEmptyText(value.claimFence) &&
     Number.isSafeInteger(value.attemptIndex) &&
     Number(value.attemptIndex) >= 0
   );
@@ -385,7 +380,7 @@ export function validateSchedulesList(value: unknown): readonly string[] {
       !isJsonObject(row.claim) ||
       Object.keys(row.claim).length !== 2 ||
       !nullableNonEmpty(row.claim.nodeId) ||
-      !nullableNonEmpty(row.claim.assignmentId) ||
+      !nullableNonEmpty(row.claim.claimFence) ||
       !validHealthRollup(row.health) ||
       !utcTimestamp(row.nextRunAt, true) ||
       !isJsonObject(row.actions) ||

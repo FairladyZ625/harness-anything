@@ -22,13 +22,12 @@ import {
 } from "@harness-anything/kernel";
 import {
   FleetRemoteError,
+  readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
   runFleetTaskCommandClient,
   runFleetUploadClient,
 } from "./fleet/edge.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
-import { readFleetRosterFile } from "./fleet-center-admission.ts";
-import { fleetLeaseTimers } from "./lease-broker.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
 import {
   applyFleetMirrorCut,
@@ -53,8 +52,6 @@ export interface FleetEdgeTaskRequest {
     readonly servername?: string;
     readonly nodeId: string;
     readonly credential: string;
-    readonly rosterPath?: string;
-    readonly assignmentId: string;
     readonly repoId: string;
     readonly viewRoot: string;
     readonly quotaBytes: number;
@@ -72,14 +69,6 @@ export class FleetEdgeTaskError extends Error {
   }
 }
 
-// The edge's optional local copy of the center assignments names only which paths a round may carry.
-export function fleetEdgeScopePaths(assignmentId: string, rosterPath: string | undefined): readonly string[] | null {
-  if (!rosterPath) return null;
-  return (
-    readFleetRosterFile(rosterPath).assignments.find((entry) => entry.assignmentId === assignmentId)?.scope.paths ??
-    null
-  );
-}
 // Conservative task-path predicate for the unresolved-conflict gate. It
 // deliberately has no ULID alphabet heuristic, so lowercase generated ids
 // and plain ids are both covered. Automatic carry resolves the exact package
@@ -117,8 +106,7 @@ export async function runFleetEdgeTask(
   input: FleetEdgeTaskRequest,
   readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
-  const payload = input.payload,
-    timers = fleetLeaseTimers();
+  const payload = input.payload;
   let action = payload.action;
   const readOnly = action.kind === "task-show";
   const credential = payload.credential;
@@ -126,7 +114,7 @@ export async function runFleetEdgeTask(
   const waitMs =
     payload.waitTimeoutMs !== undefined && Number.isSafeInteger(payload.waitTimeoutMs) && payload.waitTimeoutMs > 0
       ? payload.waitTimeoutMs
-      : timers.maxWaitMs;
+      : 60_000;
   const opId = randomUUID(),
     peer = {
       hostname: payload.host,
@@ -135,7 +123,7 @@ export async function runFleetEdgeTask(
       servername: payload.servername,
       nodeId: payload.nodeId,
       credential,
-      assignmentId: payload.assignmentId,
+      repoId: payload.repoId,
     };
   const workspaceRoot = payload.workspaceRoot ?? null;
   // One edge/view has one registered harness materialization. Hold its round fence
@@ -177,8 +165,16 @@ export async function runFleetEdgeTask(
       action = await prepareEdgeTaskDelivery({
         workspaceRoot,
         nodeId: payload.nodeId,
-        assignmentId: payload.assignmentId,
         action,
+        authorize: async () => {
+          const metadata = await readFleetRepositoryMetadataClient({ ...peer, actionKind: "task-submit", taskId });
+          if (metadata.actionAllowed !== true)
+            throw new FleetEdgeTaskError(
+              "authorization_denied",
+              "Task submit permission is required before publishing delivery.",
+            );
+          return metadata.personId;
+        },
         readTask: async () => {
           const shown = await runFleetTaskCommandClient({
             ...peer,
@@ -256,7 +252,7 @@ export async function runFleetEdgeTask(
                 applied ? "pull" : "command-rejected",
                 {
                   taskId,
-                  executionId: result.lease?.executionId ?? null,
+                  executionId: typeof result.receipt?.executionId === "string" ? result.receipt.executionId : null,
                   kind: "task-docs",
                   ...(conflictCode !== null ? { code: conflictCode } : {}),
                 },
@@ -305,10 +301,9 @@ export async function runFleetEdgeTask(
       fleet: {
         origin: "fleet-edge",
         nodeId: payload.nodeId,
-        assignmentId: payload.assignmentId,
+        repoId: payload.repoId,
         commandOpId: opId,
         waitOutcome: result.outcome,
-        lease: result.lease,
       },
       ...(mirror ? { mirror } : {}),
       ...(staged.length
@@ -321,12 +316,11 @@ export async function runFleetEdgeTask(
             })),
           }
         : {}),
-      ...(result.queuePosition !== null ? { queuePosition: result.queuePosition } : {}),
     } as Record<string, unknown>;
   });
 
   // PUSHING_DOCS_AND_TRANSITION: gather this task's dirty registered-harness prose
-  // (doc-sync-allowed routes only, inside the assignment scope), upload the
+  // (doc-sync-allowed routes only, inside the canonical task package), upload the
   // bytes as claims, and carry descriptors plus the mirror base cut on the
   // command frame.
   async function attachTaskDocs(): Promise<{
@@ -346,12 +340,7 @@ export async function runFleetEdgeTask(
     const preScan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
     const packagePath = fleetExactTaskPackagePath(view, workspaceRoot, taskId);
     if (packagePath === null || preScan === null) return null;
-    const scope = fleetEdgeScopePaths(payload.assignmentId, payload.rosterPath);
-    const inScope = (changePath: string): boolean =>
-      scope === null || scope.some((allowed) => changePath === allowed || changePath.startsWith(`${allowed}/`));
-    const candidates = preScan.changes.filter(
-      (change) => change.path.startsWith(`${packagePath}/`) && inScope(change.path),
-    );
+    const candidates = preScan.changes.filter((change) => change.path.startsWith(`${packagePath}/`));
     if (candidates.length === 0) return null;
     const descriptors = await runFleetUploadClient({
       ...peer,

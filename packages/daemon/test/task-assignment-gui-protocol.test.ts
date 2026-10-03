@@ -52,3 +52,26 @@ test("task read accepts the canonical assignment and rejects malformed assignmen
   ])
     assert.equal(task({ ...value, assignment }), false);
 });
+
+test("selection and claimable reads never accept a client principal or node", () => {
+  assert.equal(
+    parseDaemonRpcParams("repo.tasks.assignmentDirectory", {
+      repo: { repoId: "repo-a" },
+      payload: { taskId: "task-a" },
+    }).ok,
+    true,
+  );
+  for (const payload of [
+    { taskId: "task-a", nodeId: "node-a" },
+    { taskId: "task-a", personId: "owner" },
+  ])
+    assert.equal(
+      parseDaemonRpcParams("repo.tasks.assignmentDirectory", { repo: { repoId: "repo-a" }, payload }).ok,
+      false,
+    );
+  assert.equal(parseDaemonRpcParams("repo.tasks.claimable", { repo: { repoId: "repo-a" } }).ok, true);
+  assert.equal(
+    parseDaemonRpcParams("repo.tasks.claimable", { repo: { repoId: "repo-a" }, payload: { nodeId: "node-a" } }).ok,
+    false,
+  );
+});

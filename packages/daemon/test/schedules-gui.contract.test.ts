@@ -37,22 +37,8 @@ import {
   type ScheduleGuiRowDto,
   type SchedulesListResult,
 } from "../src/protocol/schedules-gui-contract.ts";
-import type { FleetRoster } from "../src/fleet-center-admission.ts";
-
 const now = "2026-08-27T08:00:00.000Z";
 const actor = { principal: { personId: "schedule-gui" }, executor: null } as const;
-const roster = (nodeIds: readonly string[], scheduleIds: readonly string[]): FleetRoster => ({
-  assignments: nodeIds.flatMap((nodeId, index) =>
-    scheduleIds.map((scheduleId) => ({
-      assignmentId: `assignment-${nodeId}-${scheduleId}`,
-      nodeId,
-      repoId: "schedule-gui",
-      viewId: `view-${index}`,
-      expiresAt: "2099-01-01T00:00:00.000Z",
-      scope: { kind: "schedule" as const, scheduleId, paths: ["schedules"] },
-    })),
-  ),
-});
 
 const armedSchedule = createScheduleV1({
   scheduleId: "heartbeat-probe",
@@ -295,7 +281,7 @@ test("the schedules list validator locks the joined wire shape", () => {
   // A schedule with no run history still carries a (empty) daemon-side health rollup —
   // the renderer has no "pending projection" state left to render.
   assert.deepEqual(row.health, { recent: [], bucket: "clean", failedCount: 0, lastFailureDetail: null });
-  assert.deepEqual(row.claim, { nodeId: null, assignmentId: null });
+  assert.deepEqual(row.claim, { nodeId: null, claimFence: null });
   assert.equal(row.nextRunAt, "2026-08-27T08:30:00.000Z");
   assert.equal(row.actions.runNow.available, true);
   assert.equal(row.actions.edit.available, true);
@@ -318,6 +304,7 @@ test("the schedules list validator locks the joined wire shape", () => {
   const rowMutations = [
     (row: ScheduleGuiRowDto) => ({ ...row, state: "running" }),
     (row: ScheduleGuiRowDto) => ({ ...row, executionAvailability: "remote" }),
+    (row: ScheduleGuiRowDto) => ({ ...row, claim: { nodeId: null, assignmentId: null } }),
     (row: ScheduleGuiRowDto) => ({ ...row, nextRunAt: "tomorrow" }),
     (row: ScheduleGuiRowDto) => ({ ...row, target: { ...row.target, extra: 1 } }),
     (row: ScheduleGuiRowDto) => ({
@@ -348,7 +335,6 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
         scheduledFor: now,
         claimedAt: now,
         nodeId: "edge-one",
-        assignmentId: null,
         claimFence: "claim_fence",
         attemptIndex: 0,
       },
@@ -358,7 +344,6 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
         endedAt: "2026-08-27T07:01:00.000Z",
         outcome: "succeeded" as const,
         nodeId: "local",
-        assignmentId: null,
         claimFence: "claim_fence",
         attemptIndex: 0,
       },
@@ -382,6 +367,15 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
   assert.equal(result.schedules[0]!.activeRun!.runtimeSessionId, null);
   assert.equal(result.schedules[0]!.lastRun!.detail, null);
   const activeRun = result.schedules[0]!.activeRun as unknown as ScheduleGuiRowDto["activeRun"];
+  for (const claimFence of [null, "", undefined])
+    assert.notDeepEqual(
+      validateSchedulesList({
+        ...result,
+        schedules: [{ ...result.schedules[0]!, activeRun: { ...activeRun!, claimFence } }],
+      }),
+      [],
+      "an actual occurrence must retain its non-empty claim fence",
+    );
   assert.notDeepEqual(
     validateSchedulesList({
       ...result,
@@ -501,122 +495,28 @@ test("invalid Agent options and schedules with unavailable Agent targets degrade
   assert.deepEqual(validateSchedulesList(result), []);
 });
 
-test("availability distinguishes the four execution states from roster truth", () => {
-  const base = { repoId: "schedule-gui", scheduleId: "heartbeat-probe", now, targetKind: "agent" as const };
-  assert.equal(
-    deriveScheduleExecutionAvailability({
-      ...base,
-      mode: "local",
-      viewerNodeId: "local",
-      roster: null,
-      activeNodeId: null,
-    }),
-    "local",
-  );
-  assert.equal(
-    deriveScheduleExecutionAvailability({
-      ...base,
-      mode: "remote-edge",
-      viewerNodeId: "edge-one",
-      roster: roster(["edge-one"], ["heartbeat-probe"]),
-      activeNodeId: null,
-    }),
-    "local",
-  );
-  assert.equal(
-    deriveScheduleExecutionAvailability({
-      ...base,
-      mode: "remote-edge",
-      viewerNodeId: "edge-two",
-      roster: roster(["edge-one"], ["heartbeat-probe"]),
-      activeNodeId: null,
-    }),
-    "not-on-this-node",
-  );
-  assert.equal(
-    deriveScheduleExecutionAvailability({
-      ...base,
-      mode: "remote-edge",
-      viewerNodeId: "edge-one",
-      roster: roster(["edge-one"], ["other-schedule"]),
-      activeNodeId: null,
-    }),
-    "unassigned",
-  );
-  assert.equal(
-    deriveScheduleExecutionAvailability({
-      ...base,
-      mode: "remote-center",
-      viewerNodeId: null,
-      roster: roster(["edge-one"], ["heartbeat-probe"]),
-      activeNodeId: "edge-one",
-    }),
-    "claimed-elsewhere",
-  );
-  assert.equal(
-    deriveScheduleExecutionAvailability({
-      ...base,
-      mode: "remote-edge",
-      viewerNodeId: "edge-one",
-      roster: roster(["edge-one"], ["heartbeat-probe"]),
-      activeNodeId: "edge-two",
-    }),
-    "claimed-elsewhere",
-  );
-  // A builtin occurrence never rides the roster: the node holding the canonical cell executes it.
-  for (const [mode, viewerNodeId, expected] of [
-    ["local", "local", "local"],
-    ["remote-center", null, "local"],
-    ["remote-edge", "edge-one", "not-on-this-node"],
-  ] as const)
-    for (const activeNodeId of [null, "local"])
-      assert.equal(
-        deriveScheduleExecutionAvailability({
-          ...base,
-          targetKind: "builtin",
-          mode,
-          viewerNodeId,
-          roster: mode === "local" ? null : roster(["edge-one"], ["other-schedule"]),
-          activeNodeId,
-        }),
-        expected,
-        `${mode} ${String(activeNodeId)}`,
-      );
-  // An expired roster assignment is not an owner: the schedule reads unassigned.
-  const expired = roster(["edge-one"], ["heartbeat-probe"]);
-  expired.assignments[0]!.expiresAt = "2020-01-01T00:00:00.000Z";
-  assert.equal(
-    deriveScheduleExecutionAvailability({
-      ...base,
-      mode: "remote-edge",
-      viewerNodeId: "edge-one",
-      roster: expired,
-      activeNodeId: null,
-    }),
-    "unassigned",
-  );
+test("availability follows occurrence node ownership, without a static assignment", () => {
+  for (const mode of ["local", "remote-center", "remote-edge"] as const) {
+    const viewerNodeId = mode === "remote-edge" ? "edge-one" : "local";
+    for (const targetKind of ["agent", "builtin"] as const) {
+      for (const activeNodeId of [null, viewerNodeId, "other-node"]) {
+        const expected =
+          targetKind === "builtin"
+            ? mode === "remote-edge"
+              ? "not-on-this-node"
+              : "local"
+            : activeNodeId === null || activeNodeId === viewerNodeId
+              ? "local"
+              : "claimed-elsewhere";
+        assert.equal(deriveScheduleExecutionAvailability({ mode, viewerNodeId, targetKind, activeNodeId }), expected);
+      }
+    }
+  }
 });
 
-test("a remote-edge read resolves viewer node and roster from the repo root", () => {
+test("a remote-edge read resolves viewer node without a roster", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-schedules-edge-"));
   try {
-    const rosterFile = path.join(root, "roster.json");
-    writeFileSync(
-      rosterFile,
-      JSON.stringify({
-        schema: "fleet-roster/v3",
-        assignments: [
-          {
-            assignmentId: "assignment-edge-one",
-            nodeId: "edge-one",
-            repoId: "schedule-gui",
-            viewId: "view-edge-one",
-            expiresAt: "2099-01-01T00:00:00.000Z",
-            scope: { kind: "schedule", scheduleId: "heartbeat-probe", paths: ["schedules"] },
-          },
-        ],
-      }),
-    );
     writeFileSync(
       path.join(root, "fleet-edge.json"),
       JSON.stringify({
@@ -627,8 +527,6 @@ test("a remote-edge read resolves viewer node and roster from the repo root", ()
         caPath: "/tmp/ca.pem",
         nodeId: "edge-one",
         credential: "credential-edge-one",
-        rosterPath: rosterFile,
-        assignmentId: "assignment-edge-one",
         viewRoot: path.join(root, "view"),
         quotaBytes: 1024,
       }),
@@ -638,7 +536,7 @@ test("a remote-edge read resolves viewer node and roster from the repo root", ()
     assert.equal(result.viewerNodeId, "edge-one");
     const row = result.schedules[0]!;
     assert.equal(row.executionAvailability, "local");
-    assert.deepEqual(row.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one" });
+    assert.deepEqual(row.claim, { nodeId: null, claimFence: null });
     assert.equal(row.actions.runNow.available, true);
     assert.equal(row.actions.enable.available, false);
     assert.equal(row.actions.enable.nextAction, "repo_mode_read_only");
@@ -648,48 +546,28 @@ test("a remote-edge read resolves viewer node and roster from the repo root", ()
 });
 
 test("a remote-center read keeps the catalog blockers instead of faking an executor", () => {
-  const result = readSchedulesGui(
-    guiContext({ mode: "remote-center", fleetRoster: roster(["edge-one"], ["heartbeat-probe"]) }),
-  );
+  const result = readSchedulesGui(guiContext({ mode: "remote-center" }));
   assert.equal(result.repoMode, "remote-center");
-  assert.equal(result.viewerNodeId, null);
+  assert.equal(result.viewerNodeId, "local");
   const row = result.schedules[0]!;
-  assert.equal(row.executionAvailability, "not-on-this-node");
-  assert.deepEqual(row.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one-heartbeat-probe" });
-  // The center edits the Schedule definition it owns, but execution stays with the assigned
-  // node: the run-now facet carries the assignment-ingress blocker — the center never fakes an executor.
+  assert.equal(row.executionAvailability, "local");
+  assert.deepEqual(row.claim, { nodeId: null, claimFence: null });
+  // Topology does not bypass the declared center ingress admission.
   assert.equal(row.actions.runNow.available, false);
   assert.equal(row.actions.runNow.code, "repo_mode_requires_center_ingress");
   assert.equal(row.actions.enable.code, "no_changes");
   assert.deepEqual(row.actions.disable, { available: true, code: null, nextAction: null });
-  assert.throws(() => readSchedulesGui(guiContext({ mode: "remote-center" })), /requires an admitted fleet roster/u);
 });
 
-test("remote-edge reads propagate edge config and roster failures", () => {
+test("remote-edge reads propagate invalid edge configuration", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-schedules-edge-failure-"));
   try {
-    const configPath = path.join(root, "fleet-edge.json"),
-      rosterPath = path.join(root, "roster.json");
-    writeFileSync(configPath, "{");
-    assert.throws(() => readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root })), /not valid JSON/u);
-    writeFileSync(
-      configPath,
-      JSON.stringify({
-        schema: "fleet-edge-config/v1",
-        repoId: "schedule-gui",
-        host: "127.0.0.1",
-        port: 1,
-        caPath: "/tmp/ca.pem",
-        nodeId: "edge-one",
-        credential: "credential-edge-one",
-        rosterPath,
-        assignmentId: "assignment-edge-one",
-        viewRoot: path.join(root, "view"),
-        quotaBytes: 1024,
-      }),
+    assert.throws(
+      () => readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root })),
+      /requires fleet-edge.json/u,
     );
-    writeFileSync(rosterPath, "{");
-    assert.throws(() => readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root })), /JSON/u);
+    writeFileSync(path.join(root, "fleet-edge.json"), "{");
+    assert.throws(() => readSchedulesGui(guiContext({ mode: "remote-edge", rootDir: root })), /not valid JSON/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -710,7 +588,6 @@ test("paused and single-flight states produce precise run-now blockers", () => {
           scheduledFor: now,
           claimedAt: now,
           nodeId: "edge-two",
-          assignmentId: null,
           claimFence: "claim_fence",
           attemptIndex: 0,
         },
@@ -755,7 +632,6 @@ test("the health rollup aggregates recent outcomes daemon-side from canonical ru
           endedAt: "2026-08-27T06:01:00.000Z",
           outcome: "succeeded" as const,
           nodeId: "local",
-          assignmentId: null,
           claimFence: "claim_ok",
           attemptIndex: 0,
         },
@@ -772,7 +648,6 @@ test("the health rollup aggregates recent outcomes daemon-side from canonical ru
           endedAt: "2026-08-27T07:31:00.000Z",
           outcome: "failed" as const,
           nodeId: "local",
-          assignmentId: null,
           claimFence: "claim_bad",
           attemptIndex: 1,
           detail: "cwd /missing does not exist",

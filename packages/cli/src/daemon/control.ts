@@ -224,8 +224,8 @@ async function fleetControl(
   if (!center && !edge)
     return reject("unsupported_command", "Use daemon fleet center start or daemon fleet edge sync.");
   const required = center
-      ? ["--port", "--key", "--cert", "--roster", "--quota-bytes"]
-      : ["--host", "--port", "--ca", "--node-id", "--assignment", "--view-root", "--quota-bytes"],
+      ? ["--port", "--key", "--cert", "--repo", "--quota-bytes"]
+      : ["--host", "--port", "--ca", "--node-id", "--view-root", "--quota-bytes"],
     missing = required.filter((name) => !flag(name));
   if (missing.length > 0)
     return reject(
@@ -261,7 +261,7 @@ async function fleetControl(
     port: Number(flag("--port")),
     keyPath: path.resolve(flag("--key")!),
     certPath: path.resolve(flag("--cert")!),
-    rosterPath: path.resolve(flag("--roster")!),
+    repoId: flag("--repo"),
     quotaBytes: Number(flag("--quota-bytes")),
     ...(flag("--bind") ? { bind: flag("--bind") } : {}),
     ...(flag("--state-root") ? { stateRoot: path.resolve(flag("--state-root")!) } : {}),
@@ -272,7 +272,6 @@ async function fleetControl(
     caPath: path.resolve(flag("--ca")!),
     nodeId: flag("--node-id"),
     credential,
-    assignmentId: flag("--assignment"),
     repoId: edgeTarget!.repoId,
     viewRoot: path.resolve(flag("--view-root")!),
     quotaBytes: Number(flag("--quota-bytes")),

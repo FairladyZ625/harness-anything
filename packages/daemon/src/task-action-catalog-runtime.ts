@@ -82,7 +82,10 @@ export async function runTaskActionCatalogRuntime(
     activeLease &&
     ["held", "reserving"].includes(activeLease.phase)
   ) {
-    if (heldLeaseForExecutionActor(current.snapshot, activeLease.executionId, binding.actor)) {
+    if (
+      heldLeaseForExecutionActor(current.snapshot, activeLease.executionId, binding.actor) &&
+      JSON.stringify(activeLease.source) === JSON.stringify(binding.source)
+    ) {
       const revision = current.snapshot.revision;
       return {
         outcome: "no_changes",

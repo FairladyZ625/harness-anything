@@ -73,12 +73,12 @@ const entries = (personId: string): Readonly<Record<string, RepoCellBinding>> =>
     },
     "edge-a": {
       actor,
-      source: { kind: "assignment", nodeId: "edge-a", assignmentId: "assignment-a" },
+      source: { kind: "node", nodeId: "edge-a" },
       keycloakAuthorization: { center },
     },
     "edge-b": {
       actor,
-      source: { kind: "assignment", nodeId: "edge-b", assignmentId: "assignment-b" },
+      source: { kind: "node", nodeId: "edge-b" },
       keycloakAuthorization: { center },
     },
   };
@@ -597,30 +597,21 @@ test("the answer follows the person a node is registered to, not the node", asyn
   assert.deepEqual(await through(), ["bob", "allowed"]);
 });
 
-test("an actor reported by the assignment or the frame never reaches the decision", async () => {
+test("an actor reported by the frame never reaches the decision", async () => {
   const { keycloak, run, evaluate, root } = await fixture();
   keycloak.account("alice");
   keycloak.account("root-admin");
   await run({ operation: "grant", personId: "root-admin", groupId: "admin", resource: "repo-a" });
-  const assignment = {
-      assignmentId: "assignment-a",
-      nodeId: "edge-a",
-      repoId: "repo-a",
-      viewId: "view-a",
-      expiresAt: "2099-01-01T00:00:00.000Z",
-      scope: { kind: "task" as const, taskId: "task-owned", executionId: "execution-1", paths: ["src"] },
-    },
-    selfReported = { principal: { personId: "root-admin" }, executor: { kind: "agent", id: "edge-a" } },
-    derive = (extra: Readonly<Record<string, unknown>>, assignmentExtra: Readonly<Record<string, unknown>>) =>
+  const selfReported = { principal: { personId: "root-admin" }, executor: { kind: "agent", id: "edge-a" } },
+    derive = (extra: Readonly<Record<string, unknown>>) =>
       deriveBinding(root, {
         transportKind: "fleet-tls",
-        assignmentBinding: { ...assignment, ...assignmentExtra },
         nodePrincipal: { nodeId: "edge-a", personId: "alice" },
         keycloakCenter: async () => center,
         ...extra,
       } as Parameters<typeof deriveBinding>[1]),
-    plain = await derive({}, {}),
-    claimed = await derive({ actor: selfReported, personId: "root-admin" }, { actor: selfReported });
+    plain = await derive({}),
+    claimed = await derive({ actor: selfReported, personId: "root-admin" });
   assert.deepEqual(claimed, plain);
   assert.deepEqual(claimed.actor, { principal: { personId: "alice" }, executor: null });
   // root-admin holds the action; the node's owner does not, and the claim does not lend it to her.
@@ -630,7 +621,7 @@ test("an actor reported by the assignment or the frame never reaches the decisio
   await assert.rejects(
     deriveBinding(root, {
       transportKind: "fleet-tls",
-      assignmentBinding: { ...assignment, actor: selfReported },
+      actor: selfReported,
       keycloakCenter: async () => center,
     } as Parameters<typeof deriveBinding>[1]),
     { code: "authentication_required" },

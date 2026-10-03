@@ -9,7 +9,7 @@ import { connect, type TLSSocket } from "node:tls";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/contract.ts";
 import {
   fleetHostWriterOptions,
@@ -19,6 +19,15 @@ import {
 } from "./fleet-store.fixture.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+type FleetTestSubject = {
+  nodeId: string;
+  repoId: string;
+  taskId: string;
+  executionId: string;
+  paths: readonly string[];
+  viewId: string;
+};
+
 const replicaQuota = 64 * 1024 * 1024;
 
 function reclaimer() {
@@ -56,8 +65,7 @@ export async function fleetFixture(
     certFile = path.join(root, "tls.crt"),
     emptyPath = path.join(root, "empty-path"),
     owned = reclaimer();
-  let expiresAt = "2099-01-01T00:00:00.000Z",
-    assignmentDelayMs = 0,
+  let ownerLookupDelayMs = 0,
     runtimeOutcomeFailures = 0,
     runtimeOutcomeFailureObserved: (() => void) | null = null,
     taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
@@ -102,7 +110,7 @@ export async function fleetFixture(
     }),
     owners = await fleetNodeOwners({
       userRoot,
-      owners: { "node-one": "person-owner", "node-two": "person-owner" },
+      owners: { "node-one": "person-owner", "node-two": "person-owner", "node-slow": "person-owner" },
       repoIds: ["fleet-repo"],
     });
   t.after(async () => {
@@ -119,50 +127,44 @@ export async function fleetFixture(
   });
   signInAt(userRoot, "person-owner");
   await host.attachmentsSettled();
-  const assignment: FleetAssignmentRecord = {
+  const subject: FleetTestSubject = {
       nodeId: "node-one",
-      assignmentId: "assignment-one",
       repoId: "fleet-repo",
       taskId: "task-fleet",
       executionId: "execution-fleet",
       paths,
-      viewId: "node-one_task-fleet",
-      expiresAt: "2099-01-01T00:00:00.000Z",
+      viewId: "node-one",
     },
-    slowAssignment: FleetAssignmentRecord = {
-      ...assignment,
-      assignmentId: "assignment-slow",
-      viewId: "node-one_task-fleet-slow",
+    slowSubject: FleetTestSubject = {
+      ...subject,
+      nodeId: "node-slow",
+      viewId: "node-slow",
     },
-    auth = owners.auth(assignment);
-  const created = await host.run(
-    assignment.repoId,
-    { kind: "task-create", taskId: assignment.taskId, title: "Fleet" },
-    auth,
-  );
+    auth = owners.auth(subject);
+  const created = await host.run(subject.repoId, { kind: "task-create", taskId: subject.taskId, title: "Fleet" }, auth);
   assert.equal(created.outcome, "applied");
-  await waitForFleetPublication(host, assignment.repoId, created.opId, auth);
+  await waitForFleetPublication(host, subject.repoId, created.opId, auth);
   await realizeTaskPlanFixture(
     repo,
     String((created as Record<string, unknown>).packagePath),
-    (planPath) => host.run(assignment.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+    (planPath) => host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
     "Fleet",
   );
   const started = await host.run(
-    assignment.repoId,
-    { kind: "task-start", taskId: assignment.taskId, executionId: assignment.executionId },
+    subject.repoId,
+    { kind: "task-start", taskId: subject.taskId, executionId: subject.executionId },
     auth,
   );
   assert.equal(started.outcome, "applied", JSON.stringify(started));
-  await waitForReceiptCommit(host, assignment.repoId, started.opId, auth);
+  await waitForReceiptCommit(host, subject.repoId, started.opId, auth);
   return {
     root,
     repo,
     stateRoot,
     writerOptions: fleetHostWriterOptions(userRoot, ["fleet-repo"]),
-    path: assignment.paths[0]!,
-    assignment,
-    slowAssignment,
+    path: subject.paths[0]!,
+    subject,
+    slowSubject,
     auth,
     host,
     key,
@@ -172,12 +174,9 @@ export async function fleetFixture(
     track: owned.track,
     hold: owned.hold,
     owners,
-    setOwner: (personId: string) => owners.reassign(assignment.nodeId, personId),
-    setExpiry: (value: string) => {
-      expiresAt = value;
-    },
-    setAssignmentDelay: (value: number) => {
-      assignmentDelayMs = value;
+    setOwner: (personId: string) => owners.reassign(subject.nodeId, personId),
+    setOwnerLookupDelay: (value: number) => {
+      ownerLookupDelayMs = value;
     },
     failNextRuntimeOutcome: () => {
       runtimeOutcomeFailures += 1;
@@ -236,15 +235,11 @@ export async function fleetFixture(
           key,
           cert,
           replicaDiskQuotaBytes: replicaQuota,
-          authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
-          nodeOwner: owners.nodeOwner,
-          resolveAssignment: async (assignmentId) => {
-            if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
-            return assignmentId === assignment.assignmentId
-              ? { ...assignment, expiresAt }
-              : assignmentId === slowAssignment.assignmentId
-                ? { ...slowAssignment, expiresAt }
-                : null;
+          authenticate: (nodeId, credential) =>
+            [subject.nodeId, slowSubject.nodeId].includes(nodeId) && credential === "machine-secret",
+          nodeOwner: async (nodeId) => {
+            if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
+            return owners.nodeOwner(nodeId);
           },
         }),
       ),

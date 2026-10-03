@@ -32,10 +32,9 @@ import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 const actor = { principal: { personId: "hardening-owner" }, executor: { kind: "agent", id: "hardening" } } as const;
-const assignmentSource = {
-  kind: "assignment",
+const nodeSource = {
+  kind: "node",
   nodeId: "node-hardening",
-  assignmentId: "assignment-hardening",
 } as const;
 const policyId = "markdown-body-replaceable/v1";
 // A node grants nothing by itself: each assignment-sourced binding carries its person's own authority.
@@ -175,12 +174,8 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
     const localOwner = withPolicyGroup({ actor, source: "local" as const }, "admin"),
       heldAssignment = {
         actor,
-        source: assignmentSource,
+        source: nodeSource,
         keycloakAuthorization: ownerCredential(actor),
-        assignmentScope: {
-          repoId: "w3c-h-f1",
-          scope: { kind: "task" as const, taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] },
-        },
       };
     const created = await cell.run({ kind: "task-create", taskId: "task-direct", title: "Direct" }, localOwner);
     await cell.settlePendingMaterialization("inspect created task package");
@@ -207,12 +202,8 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       },
       {
         actor,
-        source: assignmentSource,
+        source: nodeSource,
         keycloakAuthorization: ownerCredential(actor),
-        assignmentScope: {
-          repoId: "w3c-h-f1",
-          scope: { kind: "task", taskId: "some-other-task", executionId: "some-other-execution", paths: ["tasks"] },
-        },
       },
     );
     assert.equal(bypass.outcome, "op_rejected");
@@ -232,12 +223,8 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       },
       {
         actor,
-        source: assignmentSource,
+        source: nodeSource,
         keycloakAuthorization: ownerCredential(actor),
-        assignmentScope: {
-          repoId: "w3c-h-f1",
-          scope: { kind: "task", taskId: "some-other-task", executionId: "some-other-execution", paths: ["tasks"] },
-        },
       },
     );
     assert.equal(ghost.outcome, "op_rejected");
@@ -284,16 +271,12 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       },
       {
         actor: other,
-        source: assignmentSource,
+        source: nodeSource,
         keycloakAuthorization: ownerCredential(other),
-        assignmentScope: {
-          repoId: "w3c-h-f1",
-          scope: { kind: "task", taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] },
-        },
       },
     );
     assert.equal(forged.outcome, "op_rejected");
-    assert.equal(forged.code, "lease_conflict");
+    assert.equal(forged.code, "execution_scope_mismatch");
   } finally {
     await cell.close();
   }
@@ -315,12 +298,8 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
   });
   const binding = {
     actor,
-    source: assignmentSource,
+    source: nodeSource,
     keycloakAuthorization: ownerCredential(actor),
-    assignmentScope: {
-      repoId: "w3c-h-f2",
-      scope: { kind: "task" as const, taskId: "task-crash", executionId: "exe-crash", paths: ["tasks"] },
-    },
   };
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-crash", title: "Crash" }, binding);
@@ -344,7 +323,7 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
       },
       binding,
     );
-    assert.equal(failed.outcome, "pending");
+    assert.equal(failed.outcome, "pending", JSON.stringify(failed));
     assert.equal(failed.status, "accepted_durable");
     assert.ok(failed.acceptance, "the committed command must retain its acceptance interval");
     await cell.close();
@@ -377,12 +356,8 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
   const cell = await openRepoCell({ repoId: workspaceId("w3c-h-f8"), rootDir: canonicalRoot(root), ownerId: "f8" });
   const binding = {
     actor,
-    source: assignmentSource,
+    source: nodeSource,
     keycloakAuthorization: ownerCredential(actor),
-    assignmentScope: {
-      repoId: "w3c-h-f8",
-      scope: { kind: "task" as const, taskId: "task-fence", executionId: "exe-fence", paths: ["tasks"] },
-    },
   };
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-fence", title: "Fence" }, binding);
@@ -464,7 +439,7 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
       },
       binding,
     );
-    assert.equal(exact.outcome, "applied", JSON.stringify(exact).slice(0, 300));
+    assert.equal(exact.outcome, "applied", JSON.stringify(exact));
   } finally {
     await cell.close();
   }

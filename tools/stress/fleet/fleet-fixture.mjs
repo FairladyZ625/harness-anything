@@ -23,21 +23,15 @@ export async function openFleetCampaignFixture(options = {}) {
       repoId: `stress-${name}`,
       rootDir: path.join(root, `repo-${name}`),
     })),
-    assignments = repos.flatMap((repo) =>
+    subjects = repos.flatMap((repo) =>
       Array.from({ length: 8 }, (_value, index) => ({
         nodeId: `edge-${index + 1}`,
-        assignmentId: `${repo.repoId}-schedule-${index + 1}`,
+
         repoId: repo.repoId,
-        viewId: `${repo.repoId}-view-${index + 1}`,
-        scope: {
-          kind: "schedule",
-          scheduleId: "campaign",
-          paths: ["agents", "schedules"],
-        },
-        expiresAt: "2099-01-01T00:00:00.000Z",
+        viewId: `edge-${index + 1}`,
+        scheduleId: "campaign",
       })),
-    ),
-    byId = new Map(assignments.map((assignment) => [assignment.assignmentId, assignment]));
+    );
   let center = null,
     centerStarts = 0,
     activeEpochs = new Map(),
@@ -89,7 +83,7 @@ export async function openFleetCampaignFixture(options = {}) {
     });
     await host.attachmentsSettled();
     for (const repo of repos) {
-      const assignment = assignments.find((candidate) => candidate.repoId === repo.repoId);
+      const subject = subjects.find((candidate) => candidate.repoId === repo.repoId);
       const installed = await host.run(
         repo.repoId,
         {
@@ -103,7 +97,7 @@ export async function openFleetCampaignFixture(options = {}) {
             instance: "stress-runtime",
           },
         },
-        owners.auth(assignment),
+        owners.auth(subject),
       );
       if (installed.outcome !== "applied") throw new Error(`agent install failed for ${repo.repoId}`);
     }
@@ -150,7 +144,6 @@ export async function openFleetCampaignFixture(options = {}) {
         now: () => clock,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
         nodeOwner: owners.nodeOwner,
-        resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
       });
       return center;
     };
@@ -159,20 +152,20 @@ export async function openFleetCampaignFixture(options = {}) {
       center = null;
       await current?.close();
     };
-    const peer = (assignment, overrides = {}) => ({
+    const peer = (subject, overrides = {}) => ({
       hostname: "127.0.0.1",
       port: center.port,
       ca: readFileSync(certFile),
       servername: "localhost",
-      nodeId: assignment.nodeId,
-      credential: `credential-${assignment.nodeId}`,
-      assignmentId: assignment.assignmentId,
+      nodeId: subject.nodeId,
+      credential: `credential-${subject.nodeId}`,
+      repoId: subject.repoId,
       ...overrides,
     });
     return {
       root,
       repos,
-      assignments,
+      subjects,
       host,
       certFile,
       quotaBytes,
@@ -183,19 +176,19 @@ export async function openFleetCampaignFixture(options = {}) {
       writerEpoch: (repoId) => activeEpochs.get(repoId)?.epoch ?? null,
       writerLease: (repoId) => activeEpochs.get(repoId) ?? null,
       closeCenter,
-      assignment: (repoId, index) =>
-        assignments.find((candidate) => candidate.repoId === repoId && candidate.nodeId === `edge-${index + 1}`),
-      schedule: (assignment, opId, action, overrides = {}) =>
+      subject: (repoId, index) =>
+        subjects.find((candidate) => candidate.repoId === repoId && candidate.nodeId === `edge-${index + 1}`),
+      schedule: (subject, opId, action, overrides = {}) =>
         runFleetScheduleCommandClient({
-          ...peer(assignment, overrides),
-          repoId: assignment.repoId,
-          scheduleId: assignment.scope.scheduleId,
+          ...peer(subject, overrides),
+          repoId: subject.repoId,
+          scheduleId: subject.scheduleId,
           opId,
           action,
         }),
-      pull: (assignment, viewRoot, overrides = {}) =>
+      pull: (subject, viewRoot, overrides = {}) =>
         runFleetReplicaPullClient({
-          ...peer(assignment, overrides),
+          ...peer(subject, overrides),
           viewRoot,
           diskQuotaBytes: quotaBytes,
         }),
@@ -220,9 +213,9 @@ export async function openFleetCampaignFixture(options = {}) {
   }
 }
 
-async function raceClaimChildren(root, certFile, port, assignments, action, children) {
-  const runs = assignments.map((assignment, index) => {
-    const childRoot = path.join(root, "claim-children", assignment.assignmentId);
+async function raceClaimChildren(root, certFile, port, subjects, action, children) {
+  const runs = subjects.map((subject, index) => {
+    const childRoot = path.join(root, "claim-children", `${subject.repoId}-${subject.nodeId}`);
     mkdirSync(childRoot, { recursive: true });
     const configFile = path.join(childRoot, "config.json");
     writeFileSync(
@@ -232,11 +225,10 @@ async function raceClaimChildren(root, certFile, port, assignments, action, chil
         port,
         caFile: certFile,
         servername: "localhost",
-        nodeId: assignment.nodeId,
-        credential: `credential-${assignment.nodeId}`,
-        assignmentId: assignment.assignmentId,
-        repoId: assignment.repoId,
-        scheduleId: assignment.scope.scheduleId,
+        nodeId: subject.nodeId,
+        credential: `credential-${subject.nodeId}`,
+        repoId: subject.repoId,
+        scheduleId: subject.scheduleId,
         opId: `claim-race-${index + 1}`,
         action,
       }),

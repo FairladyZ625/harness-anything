@@ -8,8 +8,8 @@ import test from "node:test";
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "../src/fleet-task-delivery.ts";
 import { fetchWorkerDelivery, readWorkerRemoteCommit } from "../src/runtime-worker-push.ts";
 
-for (const revokedBeforeRead of [false, true])
-  test(`delivery CAS fences an old assignment ${revokedBeforeRead ? "before authorization" : "after authorization and a tracking-ref refresh"}`, async (t) => {
+for (const denialMode of ["node", "owner", "permission", "cas"])
+  test(`delivery checks current node, owner, permission and remote CAS (${denialMode})`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-cas-"));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
@@ -44,16 +44,17 @@ for (const revokedBeforeRead of [false, true])
       git(path.join(cwd, "worker"), "add", "delivery.txt");
       git(path.join(cwd, "worker"), "commit", "-qm", "feat: delivery");
     }
-    const snapshot = (assignmentId: string): FleetDeliveryTask =>
+    const snapshot = (nodeId: string): FleetDeliveryTask =>
       ({
         task: { iteration: 0 },
         executions: [],
         workspace: { kind: "worktree", path: "worker" },
         lease: {
           phase: "held",
-          executionId: assignmentId,
+          executionId: nodeId,
+          actor: { principal: { personId: "owner" }, executor: null },
           expiresAt: "2099-01-01T00:00:00.000Z",
-          source: { kind: "assignment", nodeId: assignmentId, assignmentId },
+          source: { kind: "node", nodeId: nodeId },
         },
       }) as unknown as FleetDeliveryTask;
     const ready = Promise.withResolvers<void>(),
@@ -62,23 +63,33 @@ for (const revokedBeforeRead of [false, true])
     const old = prepareEdgeTaskDelivery({
       workspaceRoot: first,
       nodeId: "old",
-      assignmentId: "old",
+      authorize: async () => {
+        if (denialMode === "permission") throw new Error("authorization denied before push");
+        return denialMode === "owner" ? "changed-owner" : "owner";
+      },
       action: { kind: "task-submit", taskId },
       readTask: async () => {
         if (++reads === 2) {
           ready.resolve();
           await release.promise;
         }
-        return snapshot(reads === 2 && revokedBeforeRead ? "new" : "old");
+        return snapshot(reads === 2 && denialMode === "node" ? "new" : "old");
       },
     });
     // Attach the rejection observer before unblocking the operation.
-    const rejected = assert.rejects(old, revokedBeforeRead ? /current assignment/u : /stale info/u);
+    const rejected = assert.rejects(
+      old,
+      denialMode === "permission"
+        ? /authorization denied/u
+        : denialMode === "cas"
+          ? /stale info/u
+          : /current node, owner/u,
+    );
     await ready.promise;
     const accepted = await prepareEdgeTaskDelivery({
       workspaceRoot: second,
       nodeId: "new",
-      assignmentId: "new",
+      authorize: async () => "owner",
       action: { kind: "task-submit", taskId },
       readTask: async () => snapshot("new"),
     });

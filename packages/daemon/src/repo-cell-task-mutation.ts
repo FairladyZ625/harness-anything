@@ -72,7 +72,9 @@ export function taskMutation(
           ? terminalExecutionRuntimeBinding(cell, activeLease, terminalRuntimeSessionId)
           : null,
       authorizationDecision = binding.authorizationDecision,
-      sameHolder = isSameExecution(activeLease.actor, binding.actor),
+      sameHolder =
+        isSameExecution(activeLease.actor, binding.actor) &&
+        JSON.stringify(activeLease.source) === JSON.stringify(binding.source),
       samePrincipalRecovery =
         isSamePerson(activeLease.actor, binding.actor) &&
         (activeLease.phase === "orphaned" || execution === undefined || terminalRuntimeBinding !== null),

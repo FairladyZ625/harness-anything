@@ -190,7 +190,7 @@ export function executeRelationAction(input: {
       eventType: compiled.type,
       aggregateRevision: appended.revision,
       executor: binding.actor.executor,
-      executionId: binding.assignmentScope?.scope.kind === "task" ? binding.assignmentScope.scope.executionId : null,
+      executionId: null,
     }),
     visibility: "center",
     proof: {

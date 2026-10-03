@@ -77,8 +77,12 @@ export function archiveRuntimeDispatch(
       .find((event) => event.payload.dispatchId === value.dispatchId),
     session = input.projection.readRuntimeSession(value.runtimeSessionId),
     runtimeExecutorId = `runtime-session:${value.runtimeSessionId}`,
-    assignmentScope = input.binding.assignmentScope,
-    runtimeActor = input.binding.actor.executor?.id === runtimeExecutorId,
+    runtimeActor =
+      input.binding.actor.executor?.id === runtimeExecutorId ||
+      (typeof input.binding.source === "object" &&
+        input.binding.source.kind === "node" &&
+        occurrence?.actor.principal.personId === input.binding.actor.principal.personId &&
+        JSON.stringify(occurrence.source) === JSON.stringify(input.binding.source)),
     matchingTask =
       session?.taskBindings.some(
         (binding) => binding.taskId === value.taskId && binding.executionId === value.executionId,
@@ -91,10 +95,9 @@ export function archiveRuntimeDispatch(
             interval.holder.actor.executor?.id === runtimeExecutorId &&
             interval.holder.actor.principal.personId === input.binding.actor.principal.personId,
         ) ||
-      (assignmentScope?.repoId === input.workspaceId &&
-        assignmentScope.scope.kind === "task" &&
-        assignmentScope.scope.taskId === value.taskId &&
-        assignmentScope.scope.executionId === value.executionId);
+      (occurrence?.payload.taskId === value.taskId &&
+        occurrence.payload.executionId === value.executionId &&
+        JSON.stringify(occurrence.source) === JSON.stringify(input.binding.source));
   if (
     occurrence?.payload.runtimeSessionId !== value.runtimeSessionId ||
     occurrence.payload.instanceId !== value.instanceId ||

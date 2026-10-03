@@ -61,7 +61,7 @@ test("delegation compiler binds issuer, source, runtime and expiry and rejects r
     () =>
       compileExecutionDelegation("revoke-delegation", {
         ...revoke,
-        source: { kind: "assignment", nodeId: "node", assignmentId: "assignment" },
+        source: { kind: "node", nodeId: "node" },
       }),
     /source/u,
   );

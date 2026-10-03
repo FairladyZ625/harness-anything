@@ -1,20 +1,21 @@
-import { useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient } from "../../api-client.ts";
-import { guiHostBridge } from "../../gui-transport.ts";
 import { t } from "../../i18n/index.tsx";
 import type { TaskRow } from "../../model/types.ts";
 import { formatTime } from "../../model/time.ts";
 import { settleTaskReceipt } from "../../task-actions.ts";
 import { taskQueryKeys } from "../../task-data.ts";
-import { AccessNotice, INPUT, useAccessRead } from "../identityAccess/AccessParts.tsx";
+import { INPUT } from "../identityAccess/AccessParts.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { IdText } from "../IdText.tsx";
 
 export function TaskAssignmentPanel({ task }: { readonly task: TaskRow }) {
-  const access = useMemo(() => guiHostBridge()?.access?.forRepository(task.projectId), [task.projectId]),
-    teams = useAccessRead(access?.teams),
-    nodes = useAccessRead(access?.nodes),
+  const directory = useQuery({
+      queryKey: ["task-assignment-directory", task.projectId, task.taskId],
+      queryFn: () => harnessClient.getTaskAssignmentDirectory({ repoId: task.projectId, taskId: task.taskId }),
+      retry: false,
+    }),
     queryClient = useQueryClient(),
     [kind, setKind] = useState("person"),
     [target, setTarget] = useState(""),
@@ -27,10 +28,10 @@ export function TaskAssignmentPanel({ task }: { readonly task: TaskRow }) {
     assignee = assignment?.assignee,
     choices =
       kind === "node"
-        ? nodes.data?.nodes.map((node) => ({ id: node.nodeId, label: `${node.nodeId} · ${node.personId}` }))
+        ? directory.data?.nodes.map((node) => ({ id: node.nodeId, label: `${node.nodeId} · ${node.personId}` }))
         : kind === "team"
-          ? teams.data?.teams.map((team) => ({ id: team.id, label: team.name }))
-          : teams.data?.people.map((person) => ({ id: person.personId, label: person.username }));
+          ? directory.data?.teams.map((team) => ({ id: team.id, label: team.name }))
+          : directory.data?.people.map((person) => ({ id: person.personId, label: person.username }));
 
   async function save(remove: boolean) {
     if (disabled || task.revision === undefined) return;
@@ -57,7 +58,6 @@ export function TaskAssignmentPanel({ task }: { readonly task: TaskRow }) {
       setBusy(false);
     }
   }
-  if (!access) return null;
   return (
     <section data-testid="task-assignment-panel" className="grid gap-3 border-b border-border p-3">
       <h3 className="font-semibold">{t("taskAssignment.title")}</h3>
@@ -75,8 +75,7 @@ export function TaskAssignmentPanel({ task }: { readonly task: TaskRow }) {
           t("taskAssignment.none")
         )}
       </div>
-      {teams.rejection && <AccessNotice rejection={teams.rejection} />}
-      {nodes.rejection && <AccessNotice rejection={nodes.rejection} />}
+      {directory.error && <p role="alert">{directory.error.message}</p>}
       <form
         className="flex flex-wrap items-end gap-3"
         onSubmit={(event) => {

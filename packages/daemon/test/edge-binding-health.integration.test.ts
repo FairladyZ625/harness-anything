@@ -103,7 +103,6 @@ test("edge binding health reads the selected login authority through fleet disco
         servername: "localhost",
         nodeId,
         credential: "fixture-machine-secret",
-        assignmentId: "fixture-assignment",
         viewRoot: edgeRoot,
         quotaBytes: 1024,
       }),

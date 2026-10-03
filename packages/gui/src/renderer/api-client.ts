@@ -1,3 +1,4 @@
+import type { TaskAssignmentDirectory } from "@harness-anything/daemon/protocol";
 import { validateDaemonTaskCompletion } from "@harness-anything/daemon/protocol";
 import type {
   AgendaRead,
@@ -283,6 +284,12 @@ export const harnessClient = {
   },
   async tailObservability(payload: ObserveTailRequest): Promise<ObserveTailRead> {
     return readObserveTailResult(await invoke("observe.tail", payload, "tailObservability"));
+  },
+  async getTaskAssignmentDirectory(payload: RepoScope & { readonly taskId: string }): Promise<TaskAssignmentDirectory> {
+    const result = await invoke("repo.tasks.assignmentDirectory", payload, "getTaskAssignmentDirectory");
+    if (result.schema !== "task-assignment-directory/v1")
+      throw new Error(localErrorHint(result, "Task assignment directory unavailable."));
+    return result;
   },
   async getTasks(payload: RepoScope & TaskQueryFacets): Promise<TaskListSuccess> {
     return readTaskListResult(await invoke("repo.tasks.list", payload, "getTasks"));

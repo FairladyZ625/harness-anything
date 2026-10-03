@@ -1,6 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { AccessAdminService } from "../../daemon/src/access-admin-service.ts";
+import { OidcSessionService } from "../../daemon/src/oidc-session-service.ts";
 import { parseDaemonGuiActionResponse, parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
@@ -28,6 +32,35 @@ test("GUI assignment carries the read version and preserves assignment through a
           "repo.tasks.list",
           await bridge.invoke("getTasks", { repoId: fixture.repoId }),
         ).rows.find((row) => row.taskId === scope.taskId)!.snapshot;
+    fixture.keycloak.revoke(
+      "person-gui",
+      fixture.repoId,
+      effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+    );
+    fixture.keycloak.permit(
+      "person-gui",
+      fixture.repoId,
+      effectivePolicyGroupScopes(deriveBasePolicyGroups(), "maintainer"),
+    );
+    signInAt(fixture.userRoot, "person-gui", []);
+    fixture.keycloak.node("node-assignment", "person-gui");
+    const recipients = parseDaemonGuiReadResult(
+      "repo.tasks.assignmentDirectory",
+      await bridge.invoke("getTaskAssignmentDirectory", scope),
+    );
+    assert.deepEqual(recipients.nodes, [{ nodeId: "node-assignment", personId: "person-gui" }]);
+    assert.ok(recipients.people.some((person) => person.personId === "person-gui"));
+    await assert.rejects(
+      new AccessAdminService(new OidcSessionService(fixture.userRoot), fixture.userRoot).run({
+        operation: "node-list",
+      }),
+      /access-admin/,
+    );
+    fixture.keycloak.revoke("person-gui", fixture.repoId, ["task-assign"]);
+    const deniedDirectory = await bridge.invoke("getTaskAssignmentDirectory", scope);
+    assert.match(JSON.stringify(deniedDirectory), /authorization_denied/);
+    assert.equal("people" in deniedDirectory, false);
+    fixture.keycloak.permit("person-gui", fixture.repoId, ["task-assign"]);
     const before = await read(),
       personId = before.task!.createdBy.principal.personId;
     const assigned = parseDaemonGuiActionResponse(

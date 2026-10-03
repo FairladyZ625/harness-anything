@@ -15,7 +15,6 @@ test("Schedule runs project claimed, settled, and each missed occurrence from ca
       scheduledFor: "2026-08-26T10:30:00.000Z",
       claimedAt: "2026-08-26T10:30:01.000Z",
       nodeId: "edge-a",
-      assignmentId: "assignment-1",
       claimFence: "claim-1",
       attemptIndex: 0,
       dispatchId: "dispatch-1",
@@ -37,7 +36,6 @@ test("Schedule runs project claimed, settled, and each missed occurrence from ca
           endedAt: "2026-08-26T10:31:00.000Z",
           outcome: "succeeded",
           nodeId: active.nodeId,
-          assignmentId: active.assignmentId,
           claimFence: active.claimFence,
           attemptIndex: active.attemptIndex,
           dispatchId: active.dispatchId,
@@ -91,6 +89,15 @@ test("Schedule runs project claimed, settled, and each missed occurrence from ca
   );
 
   const complete = readScheduleRuns(projection(events, base), base.scheduleId);
+  assert.equal(complete.runs[2]!.claimFence, "claim-1");
+  assert.equal(Object.hasOwn(complete.runs[2]!, "assignmentId"), false);
+  assert.notDeepEqual(
+    validateScheduleRuns({
+      ...complete,
+      runs: [{ ...complete.runs[2], assignmentId: "retired-assignment" }],
+    }),
+    [],
+  );
   assert.equal(complete.runs[2]!.durationMs, 59_000);
   assert.equal(complete.runs[2]!.reportRef, `artifact:runtime-result/sha256/${"a".repeat(64)}`);
   assert.equal(complete.runs[2]!.nodeId, "edge-a");
@@ -110,7 +117,6 @@ test("Schedule runs project occurrence outputs, attempt, failure detail, and rep
           endedAt: "2026-08-26T09:02:00.000Z",
           outcome: "failed",
           nodeId: "local",
-          assignmentId: null,
           claimFence: "claim-out",
           attemptIndex: 2,
           dispatchId: "dispatch-out",
@@ -131,7 +137,6 @@ test("Schedule runs project occurrence outputs, attempt, failure detail, and rep
             scheduledFor: "2026-08-26T09:00:00.000Z",
             claimedAt: "2026-08-26T09:00:01.000Z",
             nodeId: "local",
-            assignmentId: null,
             claimFence: "claim-out",
             attemptIndex: 2,
           },

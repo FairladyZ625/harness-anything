@@ -17,13 +17,7 @@ export function admitHostMode(
     }).repos.find((entry) => entry.repoId === repoId && entry.state === "enabled"),
     fallback = context.unavailable.get(repoId);
   if (!persisted?.mode && !fallback?.mode) return repoModeAdmission(false, "repo_namespace_unknown");
-  const source: WriteSource = auth.assignmentBinding
-    ? {
-        kind: "assignment",
-        nodeId: auth.assignmentBinding.nodeId,
-        assignmentId: auth.assignmentBinding.assignmentId,
-      }
-    : "local";
+  const source: WriteSource = auth.nodePrincipal ? { kind: "node", nodeId: auth.nodePrincipal.nodeId } : "local";
   return admitRepoMode(persisted?.mode ?? fallback!.mode!, command, source);
 }
 

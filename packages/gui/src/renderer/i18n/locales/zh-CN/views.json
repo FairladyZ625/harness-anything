@@ -680,7 +680,7 @@
   "schedules.fields.model": "模型",
   "schedules.fields.cwd": "工作目录",
   "schedules.fields.availability": "执行权",
-  "schedules.fields.assignment": "assignment",
+  "schedules.fields.claimFence": "领用围栏",
   "schedules.fields.nextRun": "下次运行",
   "schedules.fields.evaluatedThrough": "自动评估至",
   "schedules.fields.occurrence": "occurrence",

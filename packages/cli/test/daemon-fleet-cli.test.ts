@@ -97,11 +97,12 @@ test(
         "--cert",
         fixture.cert,
         "--roster",
-        fixture.badRoster,
+        "retired.json",
         "--quota-bytes",
         String(quotaBytes),
       ]);
-      assert.equal(rejected.receipt.code, "roster_invalid");
+      assert.notEqual(rejected.status, 0);
+      assert.equal(rejected.receipt.code, "unknown_option");
       const center = run(fixture, "center", [
         "daemon",
         "fleet",
@@ -113,15 +114,15 @@ test(
         fixture.key,
         "--cert",
         fixture.cert,
-        "--roster",
-        fixture.roster,
+        "--repo-id",
+        "fleet-demo",
         "--quota-bytes",
         String(quotaBytes),
       ]);
       assert.equal(center.ok, true);
       assert.equal(center.bind, "127.0.0.1");
       assert.equal(center.stateRoot, path.join(fixture.centerUser, "fleet"));
-      assert.equal(center.assignments, 1);
+      assert.equal("assignments" in center, false);
       const port = center.port as number;
       writeFileSync(
         path.join(fixture.edgeRepo, "fleet-edge.json"),
@@ -133,7 +134,6 @@ test(
           caPath: fixture.ca,
           nodeId: "edge-one",
           credential: machineCredential,
-          assignmentId: "assignment-edge-one",
           viewRoot: fixture.viewRoot,
           quotaBytes,
         }),
@@ -174,8 +174,6 @@ test(
         fixture.ca,
         "--node-id",
         "edge-one",
-        "--assignment",
-        "assignment-edge-one",
         "--view-root",
         fixture.viewRoot,
         "--quota-bytes",
@@ -259,8 +257,6 @@ test(
         "edge-one",
         "--credential",
         "wrong-secret",
-        "--assignment",
-        "assignment-edge-one",
         "--view-root",
         fixture.viewRoot,
         "--quota-bytes",
@@ -361,8 +357,8 @@ test(
           fixture.key,
           "--cert",
           fixture.cert,
-          "--roster",
-          fixture.roster,
+          "--repo-id",
+          "fleet-demo",
           "--quota-bytes",
           String(quotaBytes),
         ]),
@@ -398,8 +394,6 @@ test(
             "edge-one",
             "--credential",
             credential,
-            "--assignment",
-            "assignment-edge-one",
             "--view-root",
             fixture.viewRoot,
             "--quota-bytes",
@@ -531,8 +525,6 @@ function setup(): {
   key: string;
   cert: string;
   ca: string;
-  roster: string;
-  badRoster: string;
 } {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-cli-")),
     repo = path.join(root, "repo"),
@@ -615,31 +607,6 @@ function setup(): {
     ],
     { stdio: "ignore" },
   );
-  const roster = path.join(root, "roster.json");
-  writeFileSync(
-    roster,
-    JSON.stringify({
-      schema: "fleet-roster/v3",
-      assignments: [
-        {
-          assignmentId: "assignment-edge-one",
-          nodeId: "edge-one",
-          repoId: "fleet-demo",
-          viewId: "edge-one-view",
-          expiresAt: "2099-01-01T00:00:00.000Z",
-          scope: {
-            kind: "task",
-            taskId: "task-fleet",
-            executionId: "exec-fleet",
-            paths: ["tasks/task-fleet-fleet/notes.md"],
-          },
-        },
-      ],
-    }),
-    "utf8",
-  );
-  const badRoster = path.join(root, "bad-roster.json");
-  writeFileSync(badRoster, JSON.stringify({ schema: "fleet-roster/v3", assignments: [] }), "utf8");
   return {
     root,
     repo,
@@ -650,8 +617,6 @@ function setup(): {
     key: path.join(tls, "server.key"),
     cert: path.join(tls, "server.pem"),
     ca: path.join(tls, "ca.pem"),
-    roster,
-    badRoster,
   };
 }
 function register(fixture: ReturnType<typeof setup>): void {

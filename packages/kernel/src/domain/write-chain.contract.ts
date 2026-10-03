@@ -31,7 +31,7 @@ export type WriteSource =
   | "local"
   | "remote_direct"
   | "migration-import/v1"
-  | { readonly kind: "assignment"; readonly nodeId: string; readonly assignmentId: string }
+  | { readonly kind: "node"; readonly nodeId: string }
   | { readonly kind: "watch_session"; readonly sessionId: string; readonly path: string; readonly fingerprint: string };
 
 export interface NormalizedCommandEnvelope<A extends ActorIdentity = ActorIdentity> {
@@ -147,10 +147,9 @@ export function validateWriteSource(value: unknown, allowUnknownFields = false):
   if (value === "local" || value === "remote_direct" || value === "migration-import/v1") return [];
   if (
     isRecord(value) &&
-    hasContractFields(value, ["kind", "nodeId", "assignmentId"], allowUnknownFields) &&
-    value.kind === "assignment" &&
-    isNonEmptyString(value.nodeId) &&
-    isNonEmptyString(value.assignmentId)
+    hasContractFields(value, ["kind", "nodeId"], allowUnknownFields) &&
+    value.kind === "node" &&
+    isNonEmptyString(value.nodeId)
   )
     return [];
   if (
@@ -182,8 +181,8 @@ export function sameActorIdentity(left: unknown, right: unknown): boolean {
 function writeSourceShape(value: unknown): unknown {
   if (validateWriteSource(value, true).length) return null;
   if (!isRecord(value)) return value;
-  return value.kind === "assignment"
-    ? [value.kind, value.nodeId, value.assignmentId]
+  return value.kind === "node"
+    ? [value.kind, value.nodeId]
     : [value.kind, value.sessionId, value.path, value.fingerprint];
 }
 export function sameWriteSource(left: unknown, right: unknown): boolean {

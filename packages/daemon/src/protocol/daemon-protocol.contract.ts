@@ -307,7 +307,7 @@ export const fleetProtocolMethods = Object.freeze([
         port: "number",
         keyPath: "string",
         certPath: "string",
-        rosterPath: "string",
+        repoId: "string",
         quotaBytes: "number",
         bind: "string?",
         stateRoot: "string?",
@@ -326,7 +326,6 @@ export const fleetProtocolMethods = Object.freeze([
         caPath: "string",
         nodeId: "string",
         credential: "string",
-        assignmentId: "string",
         repoId: "string",
         viewRoot: "string",
         quotaBytes: "number",
@@ -348,9 +347,7 @@ export const fleetProtocolMethods = Object.freeze([
         caPath: "string",
         nodeId: "string",
         credential: "string",
-        rosterPath: "string?",
         servername: "string?",
-        assignmentId: "string",
         repoId: "string",
         viewRoot: "string",
         quotaBytes: "number",
@@ -372,9 +369,7 @@ export const fleetProtocolMethods = Object.freeze([
         caPath: "string",
         nodeId: "string",
         credential: "string",
-        rosterPath: "string?",
         servername: "string?",
-        assignmentId: "string",
         repoId: "string",
         viewRoot: "string",
         quotaBytes: "number",
@@ -397,9 +392,7 @@ export const fleetProtocolMethods = Object.freeze([
         caPath: "string",
         nodeId: "string",
         credential: "string",
-        rosterPath: "string?",
         servername: "string?",
-        assignmentId: "string",
         repoId: "string",
         viewRoot: "string",
         quotaBytes: "number",
@@ -474,8 +467,6 @@ type DaemonFleetChannelPayload = {
   readonly servername?: string;
   readonly nodeId: string;
   readonly credential: string;
-  readonly rosterPath?: string;
-  readonly assignmentId: string;
   readonly repoId: string;
   readonly viewRoot: string;
   readonly quotaBytes: number;
@@ -856,3 +847,5 @@ export {
 } from "./daemon-protocol-validate-results.ts";
 export { isolateDaemonTaskSnapshotRows, validateDaemonTaskSnapshotList } from "./daemon-protocol-validate-task.ts";
 export { validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-relation-query.ts";
+
+export type { TaskAssignmentDirectory } from "./daemon-protocol-gui-types.ts";

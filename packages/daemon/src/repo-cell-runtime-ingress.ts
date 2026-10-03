@@ -24,18 +24,8 @@ export function appendAuxiliaryRuntimeIngress(
   action: RuntimeIngressAction,
   binding: RepoCellBinding,
 ): JsonObject {
-  const scope = binding.assignmentScope;
+  const remote = typeof binding.source === "object" && binding.source.kind === "node";
   if (action.kind === "archive") {
-    if (
-      !scope ||
-      scope.scope.kind !== "task" ||
-      action.archive.taskId !== scope.scope.taskId ||
-      action.archive.executionId !== scope.scope.executionId
-    )
-      throw cell.cellCodedError(
-        "assignment_scope_mismatch",
-        "Runtime archive task and execution must match the authenticated assignment.",
-      );
     return archiveRuntimeDispatch({
       workspaceId: cell.input.repoId,
       rootDir: cell.rootDir,
@@ -46,8 +36,6 @@ export function appendAuxiliaryRuntimeIngress(
       archive: action.archive,
     }) as unknown as JsonObject;
   }
-  if (!scope && binding.source !== "local")
-    throw cell.cellCodedError("assignment_required", "Runtime Fleet ingress requires an authenticated assignment.");
   if (!auxiliaryEventTypes.includes(action.type as (typeof auxiliaryEventTypes)[number]))
     throw cell.cellCodedError(
       "invalid_runtime_event",
@@ -71,51 +59,41 @@ export function appendAuxiliaryRuntimeIngress(
       "Runtime dispatch admission context is only valid on runtime_dispatch_requested.",
     );
   if (action.type === "runtime_dispatch_requested") {
-    if (scope && action.dispatchContext === undefined)
+    if (remote && action.dispatchContext === undefined)
       throw cell.cellCodedError("invalid_runtime_event", "Remote runtime dispatch requires center admission context.");
     const dispatch = action.dispatchContext;
-    if (scope && dispatch) {
-      const taskScope = scope.scope.kind === "task" ? scope.scope : null,
-        taskMatches =
-          taskScope === null
-            ? dispatch.taskId === null && dispatch.executionId === null
-            : dispatch.taskId === taskScope.taskId && dispatch.executionId === taskScope.executionId;
-      if (!taskMatches)
-        throw cell.cellCodedError(
-          "assignment_scope_mismatch",
-          "Runtime dispatch task and execution must match the authenticated assignment.",
-        );
-      // The task lease is the one concurrency subject (dec_57370FF2021DADF04E3B21724D CH5): while another
-      // execution holds it, this assignment's implementation dispatch is a second node arriving late. It is
-      // refused before it launches, so only the holder works in the task's worktree and publishes its branch.
-      const held =
-        taskScope !== null && dispatch.role !== "reviewer" ? cell.projection.currentLease(taskScope.taskId) : null;
-      if (taskScope !== null && held?.phase === "held" && held.executionId !== taskScope.executionId)
-        throw cell.cellCodedError(
-          "runtime_task_lease_required",
-          `Task ${taskScope.taskId} is held by execution ${held.executionId}, not by this assignment's ` +
-            `${taskScope.executionId}; only the lease holder dispatches its implementation runtime.`,
-        );
-      if (dispatch.role === "reviewer") {
-        if (taskScope === null)
-          throw cell.cellCodedError(
-            "assignment_scope_mismatch",
-            "A remote reviewer dispatch requires an authenticated task assignment.",
-          );
+    if (remote && dispatch) {
+      if (
+        dispatch.taskId !== (action.payload.taskId ?? null) ||
+        dispatch.executionId !== (action.payload.executionId ?? null)
+      )
+        throw cell.cellCodedError("runtime_scope_mismatch", "Dispatch context must match its task and execution.");
+      if (dispatch.taskId !== null) {
         const snapshot = requireCurrentTaskProjection(
-            cell.projection,
-            taskScope.taskId,
-            "remote reviewer dispatch",
-          ).snapshot,
-          submitted = currentSubmittedExecutions(snapshot).find(
-            (execution) => execution.executionId === taskScope.executionId,
-          );
-        if (!submitted)
-          throw cell.cellCodedError(
-            "task_not_submitted",
-            `Task ${taskScope.taskId} has no current submitted cut for execution ${taskScope.executionId}; ` +
-              "submit the implementation at the center, refresh the assignment, then retry reviewer dispatch.",
-          );
+          cell.projection,
+          dispatch.taskId,
+          "remote runtime dispatch",
+        ).snapshot;
+        if (dispatch.role === "reviewer") {
+          if (!currentSubmittedExecutions(snapshot).some((execution) => execution.executionId === dispatch.executionId))
+            throw cell.cellCodedError(
+              "task_not_submitted",
+              "Reviewer dispatch requires the current submitted execution.",
+            );
+        } else {
+          const held = cell.projection.currentLease(dispatch.taskId);
+          if (
+            !held ||
+            held.phase !== "held" ||
+            held.executionId !== dispatch.executionId ||
+            held.actor.principal.personId !== binding.actor.principal.personId ||
+            stableStringify(held.source) !== stableStringify(binding.source)
+          )
+            throw cell.cellCodedError(
+              "runtime_task_lease_required",
+              "Implementation dispatch requires this node's canonical task lease.",
+            );
+        }
       }
     }
     const sourceId = action.payload.resumedFromDispatchId;
@@ -131,7 +109,7 @@ export function appendAuxiliaryRuntimeIngress(
         !isSamePerson(source.actor, binding.actor) ||
         source.payload.taskId !== action.payload.taskId ||
         source.payload.executionId !== action.payload.executionId ||
-        (scope &&
+        (remote &&
           ((source.payload.taskId ?? null) !== dispatch?.taskId ||
             (source.payload.executionId ?? null) !== dispatch?.executionId))
       )

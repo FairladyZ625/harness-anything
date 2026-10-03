@@ -1,6 +1,6 @@
 import type { SquadDispatchSelection } from "./agent-entities.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
-import type { FleetAssignmentScope, FleetRuntimeDispatchContext } from "./fleet/contract.ts";
+import type { FleetRuntimeDispatchContext } from "./fleet/contract.ts";
 import type {
   CanonicalEventStore,
   SettingsV1,
@@ -68,7 +68,6 @@ export interface RuntimeCallbackRelay {
 export type RuntimeBinding = {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
-  readonly assignmentScope?: FleetAssignmentScope;
   readonly authorizationDecision?: AuthorizationDecision;
 };
 
@@ -77,7 +76,6 @@ export function runtimeBindingForDispatch(binding: RuntimeBinding): RuntimeBindi
   return {
     actor: binding.actor,
     source: binding.source,
-    ...(binding.assignmentScope === undefined ? {} : { assignmentScope: binding.assignmentScope }),
   };
 }
 
@@ -276,7 +274,7 @@ export interface RuntimeSpawnerInput {
   readonly repoId: string;
   readonly rootDir: string;
   readonly daemonGeneration: number;
-  readonly runtimeAssignment?: { readonly nodeId: string; readonly assignmentId: string };
+  readonly runtimeNode?: { readonly nodeId: string };
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly store?: () => CanonicalEventStore;
   readonly projection?: () => TaskProjection;

@@ -56,7 +56,7 @@ export function readDetail(
   const reads = paths.map((candidate) => input.projection.readDocument(candidate));
   return {
     kind: "doc_sync",
-    code: unresolvedTouches.length ? "assignment_scope_mismatch" : input.action.kind,
+    code: unresolvedTouches.length ? "execution_scope_mismatch" : input.action.kind,
     baseLedgerSha: current,
     currentLedgerSha: current,
     paths: reads.map((read, index) => ({

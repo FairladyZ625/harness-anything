@@ -102,8 +102,8 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
   if (hostAuthorities.length > 0) {
     for (const token of [
       "new Map<string, RepoCell>()",
-      "auth.assignmentBinding",
-      'kind: "assignment"',
+      "auth.nodePrincipal",
+      'kind: "node"',
       "actor",
       "root",
       "canonicalRoot",
@@ -129,13 +129,7 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
     }
   }
   if (auth) {
-    for (const token of [
-      'DaemonTransportKind = "unix-socket"',
-      "unixSocketOwnerBoundary",
-      "assignmentBinding",
-      "nodeId",
-      "assignmentId",
-    ]) {
+    for (const token of ['DaemonTransportKind = "unix-socket"', "unixSocketOwnerBoundary", "nodePrincipal", "nodeId"]) {
       if (!auth.includes(token)) violations.push(`${authPath}: missing authenticated transport binding ${token}`);
     }
   }
@@ -186,7 +180,7 @@ function checkPrincipalBindings(graph, violations) {
     "assignment dispatch",
     "binding",
     ts.isIfStatement,
-    "if(auth.assignmentBinding)returnnodeOwnerBinding(auth);",
+    'if(auth.transportKind==="fleet-tls")returnnodeOwnerBinding(auth);',
   );
   requireSyntax(
     "local principal authentication and expiry",
@@ -218,7 +212,7 @@ function checkPrincipalBindings(graph, violations) {
     "registered node owner",
     "nodeOwnerBinding",
     rejectingGuard,
-    "!owner||owner.nodeId!==assignment.nodeId||!auth.keycloakCenter",
+    "!owner||!owner.nodeId||!auth.keycloakCenter",
     condition,
   );
   requireSyntax(
@@ -231,7 +225,7 @@ function checkPrincipalBindings(graph, violations) {
     "authenticated assignment source",
     "nodeOwnerBinding",
     ts.isVariableDeclaration,
-    "assignment=auth.assignmentBinding!",
+    "owner=auth.nodePrincipal",
   );
   requireSyntax(
     "node server-derived person",
@@ -239,12 +233,7 @@ function checkPrincipalBindings(graph, violations) {
     property,
     "actor:{principal:{personId:owner.personId},executor:null}",
   );
-  requireSyntax(
-    "node assignment provenance",
-    "nodeOwnerBinding",
-    property,
-    'source:{kind:"assignment",nodeId:owner.nodeId,assignmentId:assignment.assignmentId}',
-  );
+  requireSyntax("node assignment provenance", "nodeOwnerBinding", property, 'source:{kind:"node",nodeId:owner.nodeId}');
   requireSyntax("node Keycloak authority", "nodeOwnerBinding", call, "auth.keycloakCenter()");
   requireSyntax("center node registry connection", null, call, "keycloakNodeRegistry(context.keycloakCenter)");
   requireSyntax(

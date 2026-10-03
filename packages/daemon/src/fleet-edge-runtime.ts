@@ -19,7 +19,7 @@ import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import {
-  readFleetAssignmentClient,
+  readFleetRepositoryMetadataClient,
   readFleetReceiptClient,
   runFleetReplicaPullClient,
   runFleetRuntimeArchiveClient,
@@ -48,7 +48,6 @@ export interface FleetEdgeRuntimeRequest {
     readonly servername?: string;
     readonly nodeId: string;
     readonly credential: string;
-    readonly assignmentId: string;
     readonly repoId: string;
     readonly viewRoot: string;
     readonly quotaBytes: number;
@@ -142,7 +141,7 @@ export function openFleetEdgeRuntime(input: {
       ...(request.servername ? { servername: request.servername } : {}),
       nodeId: request.nodeId,
       credential,
-      assignmentId: request.assignmentId,
+      repoId: request.repoId,
     },
     runtimeReadTimeoutMs = readFleetEdgeConfig(request.workspaceRoot)?.waitTimeoutMs,
     runtimeReadPeer: FleetPeerOptions = {
@@ -173,7 +172,7 @@ export function openFleetEdgeRuntime(input: {
     repoId: request.repoId,
     rootDir: request.workspaceRoot,
     daemonGeneration: input.daemonGeneration,
-    runtimeAssignment: { nodeId: request.nodeId, assignmentId: request.assignmentId },
+    runtimeNode: { nodeId: request.nodeId },
     runtimeDaemonRoute: input.daemonRoute,
     remote: {
       existing: async (opId) => {
@@ -183,12 +182,23 @@ export function openFleetEdgeRuntime(input: {
           : null;
       },
       taskContext: async (taskId, missionName) => {
-        const assigned = await readFleetAssignmentClient(peer);
-        if (assigned.repoId !== request.repoId || assigned.scope.kind !== "task" || assigned.scope.taskId !== taskId)
-          throw edgeRuntimeError(
-            "assignment_scope_mismatch",
-            `Task ${taskId} is outside assignment ${request.assignmentId}.`,
-          );
+        const shown = await runFleetTaskCommandClient({
+          ...peer,
+          opId: `context_${Date.now()}`,
+          taskId,
+          repoId: request.repoId,
+          action: { kind: "task-show", taskId },
+          waitMs: 0,
+        });
+        if (typeof shown.receipt?.evidence !== "string")
+          throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
+        const current = JSON.parse(shown.receipt.evidence) as {
+          lease?: { executionId: string } | null;
+          executions: { executionId: string; submission: unknown }[];
+        };
+        const executionId =
+          current.lease?.executionId ?? current.executions.find((execution) => execution.submission)?.executionId;
+        if (!executionId) throw edgeRuntimeError("execution_missing", "The task has no current execution.");
         const view = locateFleetMirrorView(request.viewRoot, request.repoId);
         const materializedRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot;
         const packagePathsFor = (logical: string): string[] => {
@@ -270,7 +280,7 @@ export function openFleetEdgeRuntime(input: {
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ];
         return {
-          executionId: assigned.scope.executionId,
+          executionId,
           packageRoot,
           mission: (reachedPackageRoot) =>
             [
@@ -382,7 +392,7 @@ export function openFleetEdgeRuntime(input: {
   });
   // Adoption is shared by concurrent requests, but a failed connection must not become a
   // permanent property of the cached edge runtime.  The daemon keeps one runtime per
-  // assignment, so retain the instance and discard only the rejected readiness attempt;
+  // node, so retain the instance and discard only the rejected readiness attempt;
   // the next request can then observe a recovered center and adopt again.
   let ready: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
@@ -422,22 +432,8 @@ export function openFleetEdgeRuntime(input: {
 
   async function runSchedule(action: JsonObject): Promise<JsonObject> {
     const actionKind = requiredScheduleText(action.kind, "kind"),
-      assigned = await readFleetAssignmentClient(peer),
-      scheduleId =
-        actionKind === "schedule-list" || actionKind === "schedule-reckon"
-          ? assigned.scope.kind === "schedule"
-            ? assigned.scope.scheduleId
-            : ""
-          : requiredScheduleText(action.scheduleId, "scheduleId");
-    if (
-      assigned.repoId !== request.repoId ||
-      assigned.scope.kind !== "schedule" ||
-      assigned.scope.scheduleId !== scheduleId
-    )
-      throw edgeRuntimeError(
-        "assignment_scope_mismatch",
-        `Schedule ${scheduleId} is outside assignment ${request.assignmentId}.`,
-      );
+      assigned = await readFleetRepositoryMetadataClient(peer),
+      scheduleId = typeof action.scheduleId === "string" ? action.scheduleId : request.repoId;
     const operationKey =
         typeof action.idempotencyKey === "string" && action.idempotencyKey
           ? action.idempotencyKey
@@ -446,7 +442,7 @@ export function openFleetEdgeRuntime(input: {
         ...peer,
         repoId: request.repoId,
         scheduleId,
-        opId: fleetScheduleOpId(request.repoId, request.assignmentId, operationKey),
+        opId: fleetScheduleOpId(request.repoId, request.nodeId, operationKey),
         writerEpoch: assigned.writerEpoch,
         action: { ...action, kind: actionKind, scheduleId },
       });
@@ -466,13 +462,7 @@ export function openFleetEdgeRuntime(input: {
     const scheduleValueV1 = scheduleValue as unknown as ScheduleV1,
       active = scheduleValueV1.status.activeRun,
       target = scheduleValueV1.spec.target;
-    if (
-      !active ||
-      active.nodeId !== request.nodeId ||
-      active.assignmentId !== request.assignmentId ||
-      typeof active.claimFence !== "string" ||
-      target.kind !== "agent"
-    )
+    if (!active || active.nodeId !== request.nodeId || typeof active.claimFence !== "string" || target.kind !== "agent")
       throw edgeRuntimeError(
         "schedule_claim_invalid",
         "Applied Schedule claim owner, fence, mission, or target is invalid.",
@@ -518,7 +508,7 @@ export function openFleetEdgeRuntime(input: {
           ...peer,
           repoId: request.repoId,
           scheduleId,
-          opId: fleetScheduleOpId(request.repoId, request.assignmentId, idempotencyKey),
+          opId: fleetScheduleOpId(request.repoId, request.nodeId, idempotencyKey),
           action: { kind: "schedule-dispatch-link", ...linked },
         }),
       settleFailure: ({ idempotencyKey, ...failed }) =>
@@ -526,7 +516,7 @@ export function openFleetEdgeRuntime(input: {
           ...peer,
           repoId: request.repoId,
           scheduleId,
-          opId: fleetScheduleOpId(request.repoId, request.assignmentId, idempotencyKey),
+          opId: fleetScheduleOpId(request.repoId, request.nodeId, idempotencyKey),
           action: { kind: "schedule-settle", ...failed },
         }),
     });
@@ -609,8 +599,8 @@ function requiredScheduleText(value: unknown, field: string): string {
   throw edgeRuntimeError("invalid_field", `${field} is required.`);
 }
 
-function fleetScheduleOpId(repoId: string, assignmentId: string, key: string): string {
-  return `schedule-${createHash("sha256").update(`${repoId}\0${assignmentId}\0${key}`).digest("hex").slice(0, 32)}`;
+function fleetScheduleOpId(repoId: string, nodeId: string, key: string): string {
+  return `schedule-${createHash("sha256").update(`${repoId}\0${nodeId}\0${key}`).digest("hex").slice(0, 32)}`;
 }
 
 function scheduleResult(
@@ -628,10 +618,10 @@ function scheduleResult(
   };
 }
 
-function edgeBinding(request: Pick<FleetEdgeRuntimeRequest["payload"], "nodeId" | "assignmentId">) {
+function edgeBinding(request: Pick<FleetEdgeRuntimeRequest["payload"], "nodeId">) {
   return {
     actor: { principal: { personId: "fleet-edge" }, executor: null },
-    source: { kind: "assignment" as const, nodeId: request.nodeId, assignmentId: request.assignmentId },
+    source: { kind: "node" as const, nodeId: request.nodeId },
   };
 }
 /**

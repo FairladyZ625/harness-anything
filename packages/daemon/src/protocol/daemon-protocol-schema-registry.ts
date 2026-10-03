@@ -169,6 +169,22 @@ export const daemonGuiReadSchemas = Object.freeze([
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/terminal-session-list-invalid.json"]),
   },
   {
+    id: "task-assignment-directory/v1",
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#TASK_ASSIGNMENT_DIRECTORY_SCHEMA",
+    parser: "packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateTaskAssignmentDirectory",
+    writer: "packages/daemon/src/task-assignment-directory.ts#readTaskAssignmentDirectory",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/task-assignment-directory-invalid.json"]),
+  },
+  {
+    id: "task-claimable/v1",
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#TASK_CLAIMABLE_SCHEMA",
+    parser: "packages/daemon/src/protocol/daemon-protocol-validate-entities.ts#validateTaskClaimableResult",
+    writer: "packages/daemon/src/task-claimable-read.ts#readClaimableTasks",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/task-claimable-invalid.json"]),
+  },
+  {
     id: DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.id,
     schema: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DAEMON_TASK_SNAPSHOT_LIST_SCHEMA",
     parser: "packages/daemon/src/protocol/daemon-protocol.contract.ts#validateDaemonTaskSnapshotList",

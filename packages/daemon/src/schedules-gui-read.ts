@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import {
   nextScheduleOccurrence,
   validateScheduleV1,
@@ -10,7 +9,6 @@ import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { storedAgentDeclarationOutcome } from "./agent-entities.ts";
 import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { parseFleetRoster, type FleetRoster } from "./fleet-center-admission.ts";
 import { scheduleReasoningEfforts } from "./protocol/daemon-protocol-commands-runtime-fleet.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import { formatScheduleDuration } from "./protocol/daemon-protocol-vocabulary.ts";
@@ -63,13 +61,6 @@ export interface SchedulesGuiReadContext {
       readonly sourceRevision: number;
     };
   };
-  /** remote-center daemon 在 startFleetCenterAdmission 后保留的 roster;缺省视为不可解析。 */
-  readonly fleetRoster?: FleetRoster | null;
-}
-
-interface RosterAssignment {
-  readonly assignmentId: string;
-  readonly nodeId: string;
 }
 
 /** Builtin rows expose the effective retention policy (defaults applied here, not in the renderer). */
@@ -116,68 +107,23 @@ function triggerDtoOf(schedule: ScheduleV1): ScheduleGuiTriggerDto {
 }
 
 function viewerNodeIdOf(mode: DaemonRepoMode, rootDir: string): string | null {
-  if (mode === "local") return "local";
+  if (mode === "local" || mode === "remote-center") return "local";
   if (mode !== "remote-edge") return null;
   const config = readFleetEdgeConfig(rootDir);
   if (!config) throw new Error("A remote-edge Schedule read requires fleet-edge.json.");
   return config.nodeId;
 }
 
-function rosterOf(
-  mode: DaemonRepoMode,
-  rootDir: string,
-  fleetRoster: FleetRoster | null | undefined,
-): FleetRoster | null {
-  if (mode === "remote-center") {
-    if (!fleetRoster) throw new Error("A remote-center Schedule read requires an admitted fleet roster.");
-    return fleetRoster;
-  }
-  if (mode !== "remote-edge") return null;
-  const config = readFleetEdgeConfig(rootDir);
-  if (!config) throw new Error("A remote-edge Schedule read requires fleet-edge.json.");
-  if (!config.rosterPath) throw new Error("A remote-edge Schedule read requires fleet-edge.json rosterPath.");
-  return parseFleetRoster(JSON.parse(readFileSync(config.rosterPath, "utf8")));
-}
-
-function scheduleAssignmentOf(
-  roster: FleetRoster | null,
-  repoId: string,
-  scheduleId: string,
-  now: string,
-): RosterAssignment | null {
-  if (!roster) return null;
-  return (
-    roster.assignments.find(
-      (assignment) =>
-        assignment.repoId === repoId &&
-        assignment.scope.kind === "schedule" &&
-        assignment.scope.scheduleId === scheduleId &&
-        Date.parse(assignment.expiresAt) > Date.parse(now),
-    ) ?? null
-  );
-}
-
-/** Availability 是 daemon 侧判断,renderer 不复算:builtin 不经 roster,恒由持有 canonical cell
- * 的节点执行;其余 active claim 的 owner 优先,空闲时 local 恒可执行,edge/center 按 roster 分辨
- * unassigned 与 not-on-this-node。 */
+/** Topology hint only: action admission and center authorization remain authoritative. */
 export function deriveScheduleExecutionAvailability(input: {
   readonly mode: DaemonRepoMode;
   readonly targetKind: ScheduleV1["spec"]["target"]["kind"];
   readonly viewerNodeId: string | null;
-  readonly roster: FleetRoster | null;
-  readonly repoId: string;
-  readonly scheduleId: string;
   readonly activeNodeId: string | null;
-  readonly now: string;
 }): ScheduleExecutionAvailability {
-  const { mode, viewerNodeId, roster, repoId, scheduleId, activeNodeId, now } = input;
-  if (input.targetKind === "builtin") return mode === "remote-edge" ? "not-on-this-node" : "local";
-  if (activeNodeId !== null) return activeNodeId === viewerNodeId ? "local" : "claimed-elsewhere";
-  if (mode === "local") return "local";
-  if (!roster) throw new Error(`A ${mode} Schedule availability read requires a fleet roster.`);
-  const assignment = scheduleAssignmentOf(roster, repoId, scheduleId, now);
-  if (assignment === null) return "unassigned";
-  return assignment.nodeId === viewerNodeId ? "local" : "not-on-this-node";
+  if (input.targetKind === "builtin") return input.mode === "remote-edge" ? "not-on-this-node" : "local";
+  if (input.activeNodeId !== null) return input.activeNodeId === input.viewerNodeId ? "local" : "claimed-elsewhere";
+  return "local";
 }
 
 function admissionFacet(
@@ -210,7 +156,6 @@ function runNowFacet(input: {
   readonly state: "armed" | "paused";
   readonly availability: ScheduleExecutionAvailability;
   readonly active: { readonly occurrenceId: string; readonly nodeId: string } | null;
-  readonly claimNodeId: string | null;
   readonly targetKind: "agent" | "agent-unconfigured" | "squad" | "builtin";
 }): ScheduleGuiActionFacet {
   const admission = admissionFacet("schedule-run-now", input.mode);
@@ -254,7 +199,7 @@ function activeRunDtoOf(schedule: ScheduleV1): ScheduleGuiRowDto["activeRun"] {
     scheduledFor: active.scheduledFor,
     claimedAt: active.claimedAt,
     nodeId: active.nodeId,
-    assignmentId: active.assignmentId,
+    claimFence: active.claimFence,
     attemptIndex: active.attemptIndex,
     dispatchId: active.dispatchId ?? null,
     runtimeSessionId: active.runtimeSessionId ?? null,
@@ -270,7 +215,7 @@ function lastRunDtoOf(schedule: ScheduleV1): ScheduleGuiRowDto["lastRun"] {
     endedAt: last.endedAt,
     outcome: last.outcome,
     nodeId: last.nodeId,
-    assignmentId: last.assignmentId,
+    claimFence: last.claimFence,
     attemptIndex: last.attemptIndex,
     dispatchId: last.dispatchId ?? null,
     runtimeSessionId: last.runtimeSessionId ?? null,
@@ -285,7 +230,6 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
   const mode = repoMode,
     now = context.now(),
     viewerNodeId = viewerNodeIdOf(mode, context.rootDir),
-    roster = rosterOf(mode, context.rootDir, context.fleetRoster),
     cut = context.projection.readTaskStatuses(),
     agentOptions = scheduleAgentOptions(context),
     agentsById = new Map(agentOptions.map((agent) => [agent.agentId, agent])),
@@ -305,13 +249,8 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
           mode,
           targetKind: schedule.spec.target.kind,
           viewerNodeId,
-          roster,
-          repoId: context.input.repoId,
-          scheduleId: schedule.scheduleId,
           activeNodeId: schedule.status.activeRun?.nodeId ?? null,
-          now,
         }),
-        assignment = scheduleAssignmentOf(roster, context.input.repoId, schedule.scheduleId, now),
         targetProjection =
           schedule.spec.target.kind === "agent"
             ? scheduleTargetProjection(schedule.spec.target.agentId, agentsById.get(schedule.spec.target.agentId))
@@ -323,7 +262,6 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
           active: schedule.status.activeRun
             ? { occurrenceId: schedule.status.activeRun.occurrenceId, nodeId: schedule.status.activeRun.nodeId }
             : null,
-          claimNodeId: assignment?.nodeId ?? null,
           targetKind: schedule.spec.target.kind,
         });
       return {
@@ -339,11 +277,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
         ...(targetProjection ? { targetState: targetProjection.state, targetError: targetProjection.error } : {}),
         mission: schedule.spec.mission,
         executionAvailability: availability,
-        claim: active
-          ? { nodeId: active.nodeId, assignmentId: active.assignmentId }
-          : assignment
-            ? { nodeId: assignment.nodeId, assignmentId: assignment.assignmentId }
-            : { nodeId: null, assignmentId: null },
+        claim: active ? { nodeId: active.nodeId, claimFence: active.claimFence } : { nodeId: null, claimFence: null },
         health,
         nextRunAt: schedule.state === "armed" ? nextScheduleOccurrence(schedule.spec.trigger, now) : null,
         actions: {

@@ -32,7 +32,6 @@ import {
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
-import type { FleetRoster } from "./fleet-center-admission.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
@@ -140,7 +139,6 @@ export interface RepoCellOpenInput {
   readonly shouldStop?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
-  readonly fleetRoster?: () => FleetRoster | null;
   /** Daemon-owned fallback for writes produced inside the cell rather than a request. */
   readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
 }
@@ -957,9 +955,6 @@ export async function openRepoWriterCell(
     mode,
     // Resolved per read so the schedule GUI join sees the host's current admission
     // snapshot even when this cell attached before the fleet center started.
-    get fleetRoster() {
-      return input.fleetRoster?.() ?? null;
-    },
     input,
     rejected,
     operationId,

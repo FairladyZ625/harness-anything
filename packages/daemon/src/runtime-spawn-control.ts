@@ -26,7 +26,7 @@ export async function cancelRuntime(
     missingOwnedProcess =
       matchingHeader !== undefined &&
       matchingHeader.binding !== undefined &&
-      ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeAssignment) &&
+      ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode) &&
       !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process;
   if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) await adoptRuntimes(context);
   const active = context.processes.get(runtimeSessionId);

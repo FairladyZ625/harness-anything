@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { signInAt } from "../../../packages/daemon/test/keycloak.fixtures.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 
 export default {
@@ -30,6 +32,20 @@ export default {
       operationId: "assignment-team-create",
     });
     assert.equal(team.ok, true, JSON.stringify(team));
+    // Assignment selectors belong to task-assign, not the access-admin role.
+    fixture.keycloak.revoke(
+      "person-gui",
+      fixture.repoId,
+      effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+    );
+    fixture.keycloak.permit(
+      "person-gui",
+      fixture.repoId,
+      effectivePolicyGroupScopes(deriveBasePolicyGroups(), "maintainer"),
+    );
+    signInAt(fixture.userRoot, "person-gui", []);
+    const adminDenied = await manage({ operation: "node-list" });
+    assert.equal(adminDenied.ok, false, JSON.stringify(adminDenied));
     await page.getByRole("button", { name: /^(?:看板|Board)$/u }).click();
     await page.getByTestId("board-task-card").filter({ hasText: "Render the real triadic projection" }).click();
     await page.getByRole("button", { name: /打开完整详情|Open full details/u }).click();

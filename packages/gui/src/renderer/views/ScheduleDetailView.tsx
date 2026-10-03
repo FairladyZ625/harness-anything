@@ -41,7 +41,6 @@ import {
 const AVAILABILITY_META: Record<ScheduleGuiRowDto["executionAvailability"], MessageKey> = {
   local: "schedules.availability.local",
   "claimed-elsewhere": "schedules.availability.claimedElsewhere",
-  unassigned: "schedules.availability.unassigned",
   "not-on-this-node": "schedules.availability.notOnThisNode",
 };
 const TARGET_STATE_KEY: Readonly<Record<NonNullable<ScheduleGuiRowDto["targetState"]>, MessageKey>> = {
@@ -660,7 +659,7 @@ function ScheduleOverviewTab({
                 value={t(AVAILABILITY_META[row.executionAvailability])}
               />
               <Field name={t("schedules.fields.claimNode")} value={row.claim.nodeId} />
-              <Field name={t("schedules.fields.assignment")} value={row.claim.assignmentId} />
+              <Field name={t("schedules.fields.claimFence")} value={row.claim.claimFence} />
               <Field name={t("schedules.fields.nextRun")} value={time(row.nextRunAt)} />
               <Field name={t("schedules.fields.evaluatedThrough")} value={time(row.automaticEvaluatedThrough)} />
             </Region>

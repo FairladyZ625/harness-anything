@@ -8,7 +8,7 @@ import test from "node:test";
 import { registerDaemonRepo } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
+import { listenFleetTls } from "../src/fleet/center.ts";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { definition, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
@@ -22,13 +22,9 @@ test("Fleet rejects a missing Schedule Agent before leaving an active claim", { 
     certFile = path.join(root, "tls.crt"),
     repoId = "schedule-fleet-agent",
     scheduleId = "missing-agent-schedule",
-    assignment: FleetAssignmentRecord = {
+    subject = {
       nodeId: "edge-one",
-      assignmentId: "schedule-assignment-one",
       repoId,
-      viewId: "schedule-view-one",
-      scope: { kind: "schedule", scheduleId, paths: ["agents", "schedules"] },
-      expiresAt: "2099-01-01T00:00:00.000Z",
     };
   let center: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
     host: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
@@ -81,8 +77,7 @@ test("Fleet rejects a missing Schedule Agent before leaving an active claim", { 
     });
     await host.attachmentsSettled();
     const owners = await fleetNodeOwners({ userRoot, owners: { "edge-one": "operator-one" }, repoIds: [repoId] });
-    const certificate = readFileSync(certFile),
-      byId = new Map([[assignment.assignmentId, assignment]]);
+    const certificate = readFileSync(certFile);
     center = await listenFleetTls({
       host,
       stateRoot,
@@ -91,7 +86,6 @@ test("Fleet rejects a missing Schedule Agent before leaving an active claim", { 
       replicaDiskQuotaBytes: 64 * 1024 * 1024,
       authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
       nodeOwner: owners.nodeOwner,
-      resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
     });
     const workspaceRoot = path.join(root, "edge-workspace"),
       viewRoot = path.join(root, "edge-view");
@@ -102,9 +96,8 @@ test("Fleet rejects a missing Schedule Agent before leaving an active claim", { 
         port: center.port,
         caPath: certFile,
         servername: "localhost",
-        nodeId: assignment.nodeId,
-        credential: `credential-${assignment.nodeId}`,
-        assignmentId: assignment.assignmentId,
+        nodeId: subject.nodeId,
+        credential: `credential-${subject.nodeId}`,
         repoId,
         viewRoot,
         quotaBytes: 64 * 1024 * 1024,

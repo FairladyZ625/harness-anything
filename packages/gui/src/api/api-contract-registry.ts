@@ -65,6 +65,9 @@ export interface GuiTaskDocumentPayload {
   readonly taskId: string;
   readonly path: string;
 }
+export interface GuiTaskAssignmentDirectoryPayload {
+  readonly taskId: string;
+}
 export interface GuiTaskDocumentListPayload {
   readonly taskId: string;
 }
@@ -74,6 +77,7 @@ export interface GuiArtifactsListPayload {
 }
 
 export const apiSchemaContracts = [
+  { id: "gui.task-id/v1", owner: "gui", typeName: "GuiTaskAssignmentDirectoryPayload" },
   { id: "gui.empty/v1", owner: "gui", typeName: "EmptyGuiPayload" },
   { id: "gui.task-query/v1", owner: "gui", typeName: "GuiTaskQueryPayload" },
   { id: "gui.agenda-query/v1", owner: "gui", typeName: "GuiAgendaQueryPayload" },

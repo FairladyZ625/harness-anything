@@ -680,7 +680,7 @@
   "schedules.fields.model": "Model",
   "schedules.fields.cwd": "Working dir",
   "schedules.fields.availability": "Execution",
-  "schedules.fields.assignment": "assignment",
+  "schedules.fields.claimFence": "Claim fence",
   "schedules.fields.nextRun": "Next run",
   "schedules.fields.evaluatedThrough": "Evaluated through",
   "schedules.fields.occurrence": "occurrence",

@@ -55,7 +55,7 @@ export interface FleetPeerOptions {
   readonly servername?: string;
   readonly nodeId: string;
   readonly credential: string;
-  readonly assignmentId: string;
+  readonly repoId: string;
   readonly timeoutMs?: number;
   readonly onFrame?: (frame: FleetFrameV1) => void;
 }
@@ -346,29 +346,21 @@ export async function runFleetWriteClient(options: FleetWriteClientOptions): Pro
     staged: Array<{ input: FleetEdgeChange; descriptor: FleetDescriptor }> = [];
   try {
     const assigned = await session.request({
-      schema: "fleet.assignment.get/v1",
+      schema: "fleet.repo.metadata.get/v1",
       messageId: session.messageId(),
-      assignmentId: options.assignmentId,
+      repoId: options.repoId,
     });
-    if (assigned.schema !== "fleet.assignment.result/v1" || options.changes.length === 0)
-      throw new Error("assignment result and changes expected");
+    if (assigned.schema !== "fleet.repo.metadata.result/v1" || options.changes.length === 0)
+      throw new Error("repository metadata and changes expected");
     for (const input of options.changes)
-      staged.push({ input, descriptor: await uploadFleetChange(session, options.assignmentId, input) });
-    // W2's mirror writer is a system replication of its authenticated
-    // assignment and therefore names that assignment's execution. The W3
-    // collaborator route keeps its explicit execution (or null repository
-    // channel). The center still proves holder actor/source/task; no client-
-    // reported exemption crosses the wire.
-    const executionId =
-      options.channel === "replica"
-        ? assigned.scope.kind === "task"
-          ? assigned.scope.executionId
-          : null
-        : (options.executionId ?? null);
+      staged.push({ input, descriptor: await uploadFleetChange(session, options.repoId, input) });
+    // Task writes name the current execution; shared prose uses a null
+    // repository channel. The center proves canonical holder actor and node.
+    const executionId = options.executionId ?? null;
     const center = await session.request({
       schema: "fleet.doc.submit/v1",
       messageId: session.messageId(),
-      assignmentId: options.assignmentId,
+      repoId: options.repoId,
       executionId,
       writerEpoch: assigned.writerEpoch,
       baseLedgerSha: options.baseLedgerSha ?? assigned.baseLedgerSha,
@@ -393,29 +385,30 @@ export async function runFleetUploadClient(
   const session = await openPeer(options);
   try {
     await session.request({
-      schema: "fleet.assignment.get/v1",
+      schema: "fleet.repo.metadata.get/v1",
       messageId: session.messageId(),
-      assignmentId: options.assignmentId,
+      repoId: options.repoId,
     });
     const descriptors: FleetDescriptor[] = [];
-    for (const input of options.changes)
-      descriptors.push(await uploadFleetChange(session, options.assignmentId, input));
+    for (const input of options.changes) descriptors.push(await uploadFleetChange(session, options.repoId, input));
     return descriptors;
   } finally {
     session.close();
   }
 }
-export async function readFleetAssignmentClient(
-  options: FleetPeerOptions,
-): Promise<Extract<FleetFrameV1, { schema: "fleet.assignment.result/v1" }>> {
+export async function readFleetRepositoryMetadataClient(
+  options: FleetPeerOptions & { readonly actionKind?: string; readonly taskId?: string },
+): Promise<Extract<FleetFrameV1, { schema: "fleet.repo.metadata.result/v1" }>> {
   const session = await openPeer(options);
   try {
     const result = await session.request({
-      schema: "fleet.assignment.get/v1",
+      schema: "fleet.repo.metadata.get/v1",
       messageId: session.messageId(),
-      assignmentId: options.assignmentId,
+      repoId: options.repoId,
+      ...(options.actionKind ? { actionKind: options.actionKind } : {}),
+      ...(options.taskId ? { taskId: options.taskId } : {}),
     });
-    if (result.schema !== "fleet.assignment.result/v1") throw new Error("assignment result expected");
+    if (result.schema !== "fleet.repo.metadata.result/v1") throw new Error("repository metadata result expected");
     return result;
   } finally {
     session.close();
@@ -429,7 +422,7 @@ export async function readFleetReceiptClient(
     const result = await session.request({
       schema: "fleet.receipt.get/v1",
       messageId: session.messageId(),
-      assignmentId: options.assignmentId,
+      repoId: options.repoId,
       opId: options.opId,
     });
     if (result.schema !== "fleet.receipt.result/v1") throw new Error("receipt result expected");
@@ -451,15 +444,15 @@ export async function runFleetRuntimeEventClient(
   const session = await openPeer(options);
   try {
     const assigned = await session.request({
-      schema: "fleet.assignment.get/v1",
+      schema: "fleet.repo.metadata.get/v1",
       messageId: session.messageId(),
-      assignmentId: options.assignmentId,
+      repoId: options.repoId,
     });
-    if (assigned.schema !== "fleet.assignment.result/v1") throw new Error("assignment result expected");
+    if (assigned.schema !== "fleet.repo.metadata.result/v1") throw new Error("repository metadata result expected");
     const result =
         options.resultBody === undefined
           ? null
-          : await uploadFleetChange(session, options.assignmentId, {
+          : await uploadFleetChange(session, options.repoId, {
               path: "runtime-result.txt",
               body: options.resultBody,
               mediaType: "text/plain; charset=utf-8",
@@ -467,7 +460,6 @@ export async function runFleetRuntimeEventClient(
       response = await session.request({
         schema: "fleet.runtime.event/v1",
         messageId: session.messageId(),
-        assignmentId: options.assignmentId,
         writerEpoch: assigned.writerEpoch,
         repoId: options.repoId,
         opId: options.opId,
@@ -488,15 +480,14 @@ export async function runFleetRuntimeArchiveClient(
   const session = await openPeer(options);
   try {
     const assigned = await session.request({
-      schema: "fleet.assignment.get/v1",
+      schema: "fleet.repo.metadata.get/v1",
       messageId: session.messageId(),
-      assignmentId: options.assignmentId,
+      repoId: options.repoId,
     });
-    if (assigned.schema !== "fleet.assignment.result/v1") throw new Error("assignment result expected");
+    if (assigned.schema !== "fleet.repo.metadata.result/v1") throw new Error("repository metadata result expected");
     const response = await session.request({
       schema: "fleet.runtime.archive/v1",
       messageId: session.messageId(),
-      assignmentId: options.assignmentId,
       writerEpoch: assigned.writerEpoch,
       repoId: options.repoId,
       archive: options.archive,
@@ -514,7 +505,8 @@ export async function runFleetRuntimeReadClient(
       | "repo.agentRuntime.overview"
       | "repo.agentRuntime.sessions.await"
       | "repo.agentRuntime.sessions.read"
-      | "repo.tasks.runtimeContext.read";
+      | "repo.tasks.runtimeContext.read"
+      | "repo.tasks.claimable";
     readonly connectionSignal?: AbortSignal;
     readonly payload: Readonly<Record<string, unknown>>;
   },
@@ -530,7 +522,6 @@ export async function runFleetRuntimeReadClient(
       {
         schema: "fleet.runtime.read/v1",
         messageId: session.messageId(),
-        assignmentId: options.assignmentId,
         repoId: options.repoId,
         method: options.method,
         payload: options.payload,
@@ -550,7 +541,7 @@ type FleetUploadSession = {
 };
 async function uploadFleetChange(
   session: FleetUploadSession,
-  assignmentId: string,
+  repoId: string,
   input: FleetEdgeChange,
 ): Promise<FleetDescriptor> {
   const body = Buffer.isBuffer(input.body) ? input.body : Buffer.from(input.body),
@@ -562,7 +553,7 @@ async function uploadFleetChange(
     ready = await session.request({
       schema: "fleet.upload.begin/v1",
       messageId: session.messageId(),
-      assignmentId,
+      repoId,
       content,
     });
   if (ready.schema !== "fleet.upload.ready/v1") throw new Error("upload ready expected");
@@ -602,8 +593,7 @@ export interface FleetTaskCommandClientOptions extends FleetPeerOptions {
   }[];
   readonly mirrorBaseCut?: { readonly revision: number; readonly headDigest: string } | null;
 }
-// The center parks a conflicted command server-side, so the peer response window
-// must cover the whole wait, not the transport default of five seconds.
+// Task conflicts return immediately; this timeout covers one canonical command round trip.
 export async function runFleetTaskCommandClient(
   options: FleetTaskCommandClientOptions,
 ): Promise<Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }>> {
@@ -612,27 +602,26 @@ export async function runFleetTaskCommandClient(
     const assigned =
       options.writerEpoch === undefined
         ? await session.request({
-            schema: "fleet.assignment.get/v1",
+            schema: "fleet.repo.metadata.get/v1",
             messageId: session.messageId(),
-            assignmentId: options.assignmentId,
+            repoId: options.repoId,
           })
         : null;
-    if (assigned !== null && assigned.schema !== "fleet.assignment.result/v1")
-      throw new Error("assignment result expected");
+    if (assigned !== null && assigned.schema !== "fleet.repo.metadata.result/v1")
+      throw new Error("repository metadata result expected");
     const writerEpoch =
-      options.writerEpoch ?? (assigned as Extract<FleetFrameV1, { schema: "fleet.assignment.result/v1" }>).writerEpoch;
+      options.writerEpoch ??
+      (assigned as Extract<FleetFrameV1, { schema: "fleet.repo.metadata.result/v1" }>).writerEpoch;
     let result: FleetFrameV1;
     try {
       result = await session.request({
         schema: "fleet.task.command/v1",
         messageId: session.messageId(),
-        assignmentId: options.assignmentId,
         writerEpoch,
         opId: options.opId,
         repoId: options.repoId,
         taskId: options.taskId,
         action: options.action,
-        waitMs: options.waitMs,
         docChanges: options.docChanges ?? null,
         mirrorBaseCut: options.mirrorBaseCut ?? null,
         ...(options.accessToken ? { accessToken: options.accessToken } : {}),
@@ -642,7 +631,7 @@ export async function runFleetTaskCommandClient(
         const queried = await session.request({
           schema: "fleet.receipt.get/v1",
           messageId: session.messageId(),
-          assignmentId: options.assignmentId,
+          repoId: options.repoId,
           opId: options.opId,
         });
         if (queried.schema !== "fleet.receipt.result/v1") throw new Error("receipt result expected");
@@ -655,8 +644,6 @@ export async function runFleetTaskCommandClient(
           revision: null,
           code: error.code,
           receipt: queried.receipt,
-          lease: null,
-          queuePosition: null,
         };
       }
       throw error;
@@ -681,20 +668,20 @@ export async function runFleetScheduleCommandClient(
     const assigned =
       options.writerEpoch === undefined
         ? await session.request({
-            schema: "fleet.assignment.get/v1",
+            schema: "fleet.repo.metadata.get/v1",
             messageId: session.messageId(),
-            assignmentId: options.assignmentId,
+            repoId: options.repoId,
           })
         : null;
-    if (assigned !== null && assigned.schema !== "fleet.assignment.result/v1")
-      throw new Error("assignment result expected");
+    if (assigned !== null && assigned.schema !== "fleet.repo.metadata.result/v1")
+      throw new Error("repository metadata result expected");
     const writerEpoch =
-      options.writerEpoch ?? (assigned as Extract<FleetFrameV1, { schema: "fleet.assignment.result/v1" }>).writerEpoch;
+      options.writerEpoch ??
+      (assigned as Extract<FleetFrameV1, { schema: "fleet.repo.metadata.result/v1" }>).writerEpoch;
     try {
       const result = await session.request({
         schema: "fleet.schedule.command/v1",
         messageId: session.messageId(),
-        assignmentId: options.assignmentId,
         writerEpoch,
         opId: options.opId,
         repoId: options.repoId,
@@ -708,7 +695,7 @@ export async function runFleetScheduleCommandClient(
       const queried = await session.request({
         schema: "fleet.receipt.get/v1",
         messageId: session.messageId(),
-        assignmentId: options.assignmentId,
+        repoId: options.repoId,
         opId: options.opId,
       });
       if (queried.schema !== "fleet.receipt.result/v1") throw new Error("receipt result expected");
@@ -738,7 +725,7 @@ export async function runFleetReplicaPullClient(
       session.send({
         schema: "fleet.replica.pull/v1",
         messageId: session.messageId(),
-        assignmentId: options.assignmentId,
+        repoId: options.repoId,
       });
       for (;;) {
         const inbound = await session.next();
@@ -766,7 +753,7 @@ export async function runFleetReplicaPullClient(
     session.close();
   }
 }
-async function openPeer(options: FleetPeerOptions) {
+async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
   const socket = await peerSocket(options),
     peer = peerFor(socket, options.timeoutMs ?? 5_000),
     prefix = `${options.nodeId}_${Date.now().toString(36)}`;
@@ -798,7 +785,7 @@ async function openPeer(options: FleetPeerOptions) {
     throw error;
   }
 }
-export async function readFleetLoginAuthorityClient(options: FleetPeerOptions) {
+export async function readFleetLoginAuthorityClient(options: Omit<FleetPeerOptions, "repoId">) {
   const peer = await openPeer(options);
   try {
     if (
@@ -814,7 +801,7 @@ export async function readFleetLoginAuthorityClient(options: FleetPeerOptions) {
     peer.close();
   }
 }
-function peerSocket(options: FleetPeerOptions): Promise<TLSSocket> {
+function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocket> {
   return new Promise((resolve, reject) => {
     const socket = connect(
       {

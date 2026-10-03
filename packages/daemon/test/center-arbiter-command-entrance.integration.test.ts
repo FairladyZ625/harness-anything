@@ -394,7 +394,6 @@ test("the center admits no unauthenticated arbiter and the edge admits no local 
           repoId: "center",
           taskId: "task-negative",
           executionId: "exec-negative",
-          assignmentId: "assignment-edge-one",
           viewId: "edge-one_task-negative",
           expiresAt: "2099-01-01T00:00:00.000Z",
           paths: [],

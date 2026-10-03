@@ -75,7 +75,7 @@ export function publicRegistryRepo(repo: ReturnType<typeof unbindDaemonRepo>["re
 }
 
 export function localOnly(auth: DaemonAuthenticationContext): void {
-  if (auth.transportKind !== "unix-socket" || auth.assignmentBinding)
+  if (auth.transportKind !== "unix-socket" || auth.nodePrincipal)
     throw hostCodedError("local_transport_required", "This control is available only through the local session token.");
 }
 

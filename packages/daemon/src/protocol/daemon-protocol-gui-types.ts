@@ -1,3 +1,5 @@
+import type { TaskAssignmentDirectory, TaskClaimableResult } from "./daemon-protocol-schema-ids.ts";
+export type { TaskAssignmentDirectory, TaskClaimableResult } from "./daemon-protocol-schema-ids.ts";
 import type { DaemonTaskCompletionResult } from "./daemon-protocol-task-completion.ts";
 import type { TaskDispatchRow } from "./task-dispatch-contract.ts";
 export type { TaskDispatchRow } from "./task-dispatch-contract.ts";
@@ -349,6 +351,8 @@ export type DaemonGuiReadResultMap = {
   readonly "daemon.gui.system.read": JsonObject;
   readonly "daemon.gui.control.receipt": JsonObject;
   readonly "observe.tail": ObserveTailResult;
+  readonly "repo.tasks.assignmentDirectory": TaskAssignmentDirectory;
+  readonly "repo.tasks.claimable": TaskClaimableResult;
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
   readonly "repo.tasks.wip": DaemonTaskWipResult;
   readonly "repo.works.index": ReturnType<typeof import("../work-read.ts").workIndexFromProjection>;
@@ -437,6 +441,8 @@ export type DaemonGuiReadPayloadMap = {
   readonly "daemon.gui.system.read": Readonly<Record<string, never>>;
   readonly "daemon.gui.control.receipt": { readonly operationId: string };
   readonly "observe.tail": ObserveTailPayload;
+  readonly "repo.tasks.assignmentDirectory": { readonly taskId: string };
+  readonly "repo.tasks.claimable": Readonly<Record<string, never>>;
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
   readonly "repo.tasks.wip": Readonly<Record<string, never>>;
   readonly "repo.works.index": Readonly<Record<string, never>>;

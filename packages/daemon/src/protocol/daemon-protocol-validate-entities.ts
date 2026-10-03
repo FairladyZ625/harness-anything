@@ -111,10 +111,7 @@ export function source(value: unknown): boolean {
   return (
     value === "local" ||
     value === "remote_direct" ||
-    (exactRecord(value, ["kind", "nodeId", "assignmentId"]) &&
-      value.kind === "assignment" &&
-      nonEmpty(value.nodeId) &&
-      nonEmpty(value.assignmentId))
+    (exactRecord(value, ["kind", "nodeId"]) && value.kind === "node" && nonEmpty(value.nodeId))
   );
 }
 
@@ -747,4 +744,58 @@ export function validateReceiptAcceptanceWire(value: Readonly<Record<string, unk
   )
     errors.push("receipt wait result is invalid");
   return errors;
+}
+
+export function validateTaskAssignmentDirectory(value: unknown): readonly string[] {
+  const rows = (items: unknown, fields: readonly string[]) =>
+    Array.isArray(items) &&
+    items.every(
+      (item) =>
+        isJsonObject(item) &&
+        Object.keys(item).length === fields.length &&
+        fields.every((field) => typeof item[field] === "string"),
+    );
+  return isJsonObject(value) &&
+    Object.keys(value).length === 4 &&
+    value.schema === "task-assignment-directory/v1" &&
+    rows(value.people, ["personId", "username"]) &&
+    rows(value.nodes, ["nodeId", "personId"]) &&
+    rows(value.teams, ["id", "name"])
+    ? []
+    : ["Invalid task assignment directory."];
+}
+export function validateTaskClaimableResult(value: unknown): readonly string[] {
+  return isJsonObject(value) &&
+    Object.keys(value).length === 3 &&
+    value.schema === "task-claimable/v1" &&
+    ["node", "reserved", "startable"].includes(String(value.scope)) &&
+    Array.isArray(value.tasks) &&
+    value.tasks.every(
+      (task) =>
+        isJsonObject(task) &&
+        Object.keys(task).length === 3 &&
+        typeof task.taskId === "string" &&
+        typeof task.title === "string" &&
+        (task.assignment === null || validClaimAssignment(task.assignment)),
+    )
+    ? []
+    : ["Invalid claimable task result."];
+}
+
+function validClaimAssignment(value: unknown): boolean {
+  if (
+    !isJsonObject(value) ||
+    Object.keys(value).length !== 2 ||
+    typeof value.expiresAt !== "string" ||
+    !Number.isFinite(Date.parse(value.expiresAt)) ||
+    !isJsonObject(value.assignee)
+  )
+    return false;
+  const a = value.assignee;
+  return a.kind === "team"
+    ? Object.keys(a).length === 2 && nonEmpty(a.teamId)
+    : a.kind === "person" &&
+        nonEmpty(a.personId) &&
+        Object.keys(a).every((key) => ["kind", "personId", "nodeId"].includes(key)) &&
+        (a.nodeId === undefined || nonEmpty(a.nodeId));
 }

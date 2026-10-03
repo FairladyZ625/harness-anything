@@ -297,9 +297,6 @@ export async function openRepoCellProxy(
     const context = {
         extracted: operationalContext,
         mode: input.mode ?? "local",
-        get fleetRoster() {
-          return input.fleetRoster?.() ?? null;
-        },
         input: {
           repoId: input.repoId,
           ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
@@ -543,7 +540,6 @@ export async function openRepoCellProxy(
       query((projection) =>
         readRepoInFlightWork({
           projection,
-          fleetRoster: input.fleetRoster?.() ?? null,
           repoId: input.repoId,
           queueDepth: supervisor.status().queueDepth ?? 0,
         }),

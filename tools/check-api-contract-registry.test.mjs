@@ -96,9 +96,9 @@ for (const [label, before, after] of [
   ["local person binding", "personId: auth.oidcPrincipal.personId", 'personId: "client-person"'],
   ["Keycloak session connection", "withSessionEnvironment({", "unboundSession({"],
   ["Keycloak session credential", "accessToken: auth.oidcPrincipal.accessToken", 'accessToken: "client-token"'],
-  ["registered owner guard", "owner.nodeId !== assignment.nodeId", "false"],
+  ["registered owner guard", "!owner.nodeId", "false"],
   ["authenticated owner source", "owner = auth.nodePrincipal", "owner = clientOwner"],
-  ["authenticated assignment source", "assignment = auth.assignmentBinding!", "assignment = clientAssignment"],
+  ["authenticated assignment source", "owner = auth.nodePrincipal", "owner = clientOwner"],
   ["registered person binding", "personId: owner.personId", 'personId: "client-person"'],
   ["assignment provenance", "nodeId: owner.nodeId", 'nodeId: "client-node"'],
   ["node Keycloak connection", "auth.keycloakCenter()", "otherAuthority()"],
@@ -183,14 +183,14 @@ function withFixture(run) {
     write(
       root,
       "packages/daemon/src/mode-admission.ts",
-      "/** @daemon-transport-authority */\nexport function admit(auth) { return auth.assignmentBinding; }\n",
+      "/** @daemon-transport-authority */\nexport function admit(auth) { return auth.nodePrincipal; }\n",
     );
     write(root, "packages/daemon/src/repository-dispatch.ts", validRepositoryDispatch());
     write(root, "packages/daemon/src/node-registry.ts", validNodeRegistry());
     write(
       root,
       "packages/daemon/src/transport/auth-context.ts",
-      'export type DaemonTransportKind = "unix-socket"; export interface Auth { unixSocketOwnerBoundary: unknown; assignmentBinding: { nodeId: string; assignmentId: string }; }\n',
+      'export type DaemonTransportKind = "unix-socket"; export interface Auth { unixSocketOwnerBoundary: unknown; nodePrincipal: { nodeId: string; personId: string }; }\n',
     );
     run(root);
   } finally {
@@ -232,14 +232,14 @@ function withSessionEnvironment(binding, auth) {
   return { ...binding, keycloakAuthorization: { session: { accessToken: auth.oidcPrincipal.accessToken } } };
 }
 function nodeOwnerBinding(auth) {
-  const assignment = auth.assignmentBinding!, owner = auth.nodePrincipal;
-  if (!owner || owner.nodeId !== assignment.nodeId || !auth.keycloakCenter) throw new Error("authentication_required");
+  const owner = auth.nodePrincipal;
+  if (!owner || !owner.nodeId || !auth.keycloakCenter) throw new Error("authentication_required");
   return { actor: { principal: { personId: owner.personId }, executor: null },
-    source: { kind: "assignment", nodeId: owner.nodeId, assignmentId: assignment.assignmentId },
+    source: { kind: "node", nodeId: owner.nodeId },
     keycloakAuthorization: { center: auth.keycloakCenter() } };
 }
 export function binding(rootDir, auth, executor) {
-  if (auth.assignmentBinding) return nodeOwnerBinding(auth);
+  if (auth.transportKind === "fleet-tls") return nodeOwnerBinding(auth);
   return localDefaultBinding(auth, executor);
 }
 `;

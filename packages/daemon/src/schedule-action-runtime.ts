@@ -302,21 +302,16 @@ function readScheduleAction(
   }
   if (action.kind === "schedule-list") {
     const revision = cell.store.readHead()?.revision ?? 0,
-      assignmentScheduleId =
-        binding.assignmentScope?.scope.kind === "schedule" ? binding.assignmentScope.scope.scheduleId : null,
-      schedules = cell.projection
-        .listEntities("schedule")
-        .filter((row) => assignmentScheduleId === null || row.id === assignmentScheduleId)
-        .map((row) => {
-          const projection = inspectScheduleProjection(row);
-          if (!projection.valid) return projection.invalid;
-          const schedule = projection.schedule;
-          return {
-            ...schedule,
-            definitionRevision: row.workspaceRevision,
-            nextRunAt: schedule.state === "armed" ? nextScheduleOccurrence(schedule.spec.trigger, cell.now()) : null,
-          };
-        }),
+      schedules = cell.projection.listEntities("schedule").map((row) => {
+        const projection = inspectScheduleProjection(row);
+        if (!projection.valid) return projection.invalid;
+        const schedule = projection.schedule;
+        return {
+          ...schedule,
+          definitionRevision: row.workspaceRevision,
+          nextRunAt: schedule.state === "armed" ? nextScheduleOccurrence(schedule.spec.trigger, cell.now()) : null,
+        };
+      }),
       opId = cell.operationId(action, binding, cell.input.repoId, revision);
     return scheduleReadReceipt(opId, revision, `schedule-list:${revision}`, {
       schedules,

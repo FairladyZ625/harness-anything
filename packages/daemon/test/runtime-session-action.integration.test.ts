@@ -28,7 +28,7 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
     dispatchId = `dispatch_${hash.slice(0, 24)}`,
     runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
     dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`,
-    source = { kind: "assignment", nodeId: "edge-a", assignmentId: "assignment-a" } as const,
+    source = { kind: "node", nodeId: "edge-a" } as const,
     // Both nodes act for one person who holds every action here, so only the assignment fence can
     // tell the two starts apart.
     served = await serveKeycloak(),
@@ -38,15 +38,11 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       keycloakAuthorization: {
         center: { url: served.url, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" },
       },
-      assignmentScope: {
-        repoId,
-        scope: { kind: "task", taskId: "task-runtime-action", executionId: "exe-runtime-action", paths: [] },
-      },
       writerEpoch: 7,
     },
     foreignBinding: RepoCellBinding = {
       ...binding,
-      source: { kind: "assignment", nodeId: "edge-b", assignmentId: "assignment-b" },
+      source: { kind: "node", nodeId: "edge-b" },
     },
     definition = {
       schema: "agent-definition-snapshot/v1",
@@ -82,7 +78,7 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
         opId: dispatchOpId,
         // A remote dispatch declares the admission context the center judges it by; a worker
         // dispatch names its task scope and no reviewer role.
-        dispatchContext: { role: null, taskId: "task-runtime-action", executionId: "exe-runtime-action" },
+        dispatchContext: { role: null, taskId: null, executionId: null },
         payload: {
           dispatchId,
           runtimeSessionId,
@@ -123,14 +119,25 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
     const receipts = attempts.flatMap((attempt) => (attempt.status === "fulfilled" ? [attempt.value] : [])),
       rejected = receipts.find(({ outcome }) => outcome === "op_rejected");
     assert.equal(receipts.filter(({ outcome }) => outcome === "applied").length, 1);
-    assert.equal(rejected?.code, "assignment_scope_mismatch");
+    assert.equal(rejected?.code, "execution_scope_mismatch");
     assert.deepEqual(rejected?.unmetCriteria, [
       {
-        ref: "runtime-session/assignment-fence",
-        failureCode: "assignment_scope_mismatch",
-        explain: "The authenticated assignment owns the dispatch that created this RuntimeSession.",
+        ref: "runtime-session/node-fence",
+        failureCode: "execution_scope_mismatch",
+        explain: "The authenticated node and owner own the canonical dispatch that created this RuntimeSession.",
       },
     ]);
+    served.keycloak.account("person-new-owner");
+    served.keycloak.permit(
+      "person-new-owner",
+      repoId,
+      actionDeclarations.map(({ kind }) => kind),
+    );
+    const changedOwner = await start("runtime-start-new-owner", {
+      ...binding,
+      actor: { principal: { personId: "person-new-owner" }, executor: null },
+    });
+    assert.equal(changedOwner.code, "execution_scope_mismatch");
     const stale = await start("runtime-start-stale-generation", binding);
     assert.equal(stale.outcome, "op_rejected");
     assert.equal(stale.code, "runtime_session_adoption_stale");

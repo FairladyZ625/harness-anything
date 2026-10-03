@@ -41,7 +41,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       fixture = await fleetFixture(t, ["tasks/task-fleet-fleet", "agents"], [installation]);
     t.after(() => fixture.close());
     await fixture.host.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuthFixture());
-    const { repoId, taskId } = fixture.assignment,
+    const { repoId, taskId } = fixture.subject,
       // The Agent is installed at the center only; the edge has no ledger and reads it from its mirrored view.
       packageSource = path.join(fixture.repo, "source", "edge-worker");
     mkdirSync(packageSource, { recursive: true });
@@ -83,16 +83,14 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           cert: fixture.cert,
           replicaDiskQuotaBytes: replicaQuota,
           ...(port === undefined ? {} : { port }),
-          authenticate: (nodeId, credential) => nodeId === fixture.assignment.nodeId && credential === "machine-secret",
+          authenticate: (nodeId, credential) => nodeId === fixture.subject.nodeId && credential === "machine-secret",
           nodeOwner: fixture.owners.nodeOwner,
-          resolveAssignment: (id) => (id === fixture.assignment.assignmentId ? fixture.assignment : null),
         }),
       );
     const center = await openCenter(),
       edgeRoot = path.join(fixture.root, "worker-edge"),
       edgeUserRoot = path.join(fixture.root, "worker-edge-user"),
       viewRoot = path.join(fixture.root, "worker-edge-view"),
-      rosterPath = path.join(fixture.root, "worker-roster.json"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
@@ -109,18 +107,14 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     await runFleetReplicaPullClient({
       port: center.port,
       ca: fixture.cert,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);
-    writeFileSync(
-      rosterPath,
-      `${JSON.stringify({ schema: "fleet-roster/v3", assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId, viewId: fixture.assignment.viewId, expiresAt: fixture.assignment.expiresAt, scope: { kind: "task", taskId, executionId: fixture.assignment.executionId, paths: fixture.assignment.paths } }] })}\n`,
-    );
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId,
@@ -168,10 +162,8 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       host: "127.0.0.1",
       port: center.port,
       caPath: fixture.certFile,
-      nodeId: fixture.assignment.nodeId,
+      nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
-      rosterPath,
-      assignmentId: fixture.assignment.assignmentId,
       repoId,
       viewRoot,
       quotaBytes: replicaQuota,
@@ -271,8 +263,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       runFleetRuntimeReadClient({
         port: center.port,
         ca: fixture.cert,
-        nodeId: fixture.assignment.nodeId,
-        assignmentId: fixture.assignment.assignmentId,
+        nodeId: fixture.subject.nodeId,
         credential: "unknown-test-credential",
         repoId,
         method: "repo.agentRuntime.sessions.await",

@@ -68,7 +68,6 @@ test("center start uses the signed-in person's authority repository permission w
       schema: "fleet-roster/v3",
       assignments: [
         {
-          assignmentId: "assignment-one",
           nodeId: "node-one",
           repoId: "authority",
           viewId: "view-one",

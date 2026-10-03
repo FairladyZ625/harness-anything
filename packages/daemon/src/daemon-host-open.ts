@@ -64,7 +64,6 @@ import {
 import type { DaemonHost } from "./daemon-host-types.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
-import type { FleetRoster } from "./fleet-center-admission.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -235,7 +234,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     };
   void refreshDiscovery().catch(consumeKnownError);
   const edgeRuntimeFor = (request: FleetEdgeRuntimeRequest["payload"]) => {
-      const key = `${request.repoId}\0${request.assignmentId}\0${request.host}\0${request.port}`,
+      const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
         runtime =
           fleetEdgeRuntimes.get(key) ??
           openFleetEdgeRuntime({
@@ -291,7 +290,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   // startFleetCenterAdmission reads the roster file once and the center cannot restart on a
   // live daemon, so the snapshot is an invariant after admission; schedule reads on
   // remote-center repos join it through the cell context getter below.
-  let fleetRoster: FleetRoster | null = null;
   let initialAttachments: Promise<void> | null = null,
     closing = false;
   // An unavailable row reports no writer generation or queue: the cell that would own them
@@ -403,9 +401,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     startInitialAttachments,
     // Live view of the admission-time fleet roster snapshot for performOpenRegistered,
     // which hands it to repo cells as a read-time resolver.
-    get fleetRoster() {
-      return fleetRoster;
-    },
     get initialAttachments() {
       return initialAttachments;
     },
@@ -577,12 +572,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     set fleetCenter(value) {
       fleetCenter = value;
-    },
-    get fleetRoster() {
-      return fleetRoster;
-    },
-    set fleetRoster(value) {
-      fleetRoster = value;
     },
     fleetEdgeRuntimes,
     runtimeDaemonRoute,

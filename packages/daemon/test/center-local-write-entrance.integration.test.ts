@@ -48,7 +48,6 @@ const edgeAssignment = (repoId: string, nodeId: string) => ({
   repoId,
   taskId: "task-entrance",
   executionId: "execution-entrance",
-  assignmentId: `assignment-${nodeId}`,
   viewId: `${nodeId}_task-entrance`,
   expiresAt: "2099-01-01T00:00:00.000Z",
   paths: [],

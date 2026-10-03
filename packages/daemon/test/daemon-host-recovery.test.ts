@@ -753,18 +753,7 @@ test("repository modes close local, center-assignment, and edge command families
   const host = await openSignedInHost({ daemonId: "host-modes", userRoot }),
     owners = await fleetNodeOwners({ userRoot, owners: { "node-mode": "writer" }, repoIds: ["local", "center"] });
   await host.attachmentsSettled();
-  const assignment = (repoId: string) =>
-    ({
-      ...owners.auth({
-        nodeId: "node-mode",
-        repoId,
-        taskId: "task-mode",
-        executionId: "execution-mode",
-        assignmentId: `assignment-${repoId}`,
-        paths: [],
-      } as never),
-      transportKind: "unix-socket",
-    }) as const;
+  const nodeAuth = (_repoId: string) => owners.auth({ nodeId: "node-mode" });
   try {
     assert.deepEqual(
       host.status().repos.map(({ repoId, mode }) => [repoId, mode]),
@@ -793,7 +782,7 @@ test("repository modes close local, center-assignment, and edge command families
         await host.run(
           "local",
           { kind: "task-create", taskId: "task-local-remote", title: "Assignment on local" },
-          assignment("local"),
+          nodeAuth("local"),
         )
       ).outcome,
       "applied",
@@ -819,7 +808,7 @@ test("repository modes close local, center-assignment, and edge command families
     signInAt(userRoot, "writer");
     assert.equal((await host.run("center", { kind: "projection-rebuild" }, auth)).outcome, "applied");
     assert.equal(
-      (await host.run("center", { kind: "task-create", taskId: "task-center", title: "Center" }, assignment("center")))
+      (await host.run("center", { kind: "task-create", taskId: "task-center", title: "Center" }, nodeAuth("center")))
         .outcome,
       "applied",
     );

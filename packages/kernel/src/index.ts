@@ -359,6 +359,7 @@ export {
 } from "./composition/receipt-acceptance.ts";
 
 export {
+  type TaskClaimScope,
   validTaskAssignment,
   taskAssignmentMatches,
   type TaskAssignment,

@@ -5,7 +5,6 @@ import path from "node:path";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
-import type { FleetAssignmentRecord } from "../src/fleet/center.ts";
 
 export const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -62,7 +61,7 @@ export function scheduleRuntimePorts() {
 }
 
 export async function pullScheduleView(
-  edge: { assignment: FleetAssignmentRecord; workspaceRoot: string; viewRoot: string },
+  edge: { subject: { nodeId: string; repoId: string }; workspaceRoot: string; viewRoot: string },
   port: number,
   ca: Buffer,
 ): Promise<void> {
@@ -70,14 +69,14 @@ export async function pullScheduleView(
     port,
     ca,
     servername: "localhost",
-    nodeId: edge.assignment.nodeId,
-    credential: `credential-${edge.assignment.nodeId}`,
-    assignmentId: edge.assignment.assignmentId,
+    nodeId: edge.subject.nodeId,
+    credential: `credential-${edge.subject.nodeId}`,
+    repoId: edge.subject.repoId,
     viewRoot: edge.viewRoot,
     diskQuotaBytes: 64 * 1024 * 1024,
   });
   assert.equal(
-    applyFleetMirrorCut(edge.viewRoot, edge.assignment.repoId, edge.workspaceRoot, "pull", {
+    applyFleetMirrorCut(edge.viewRoot, edge.subject.repoId, edge.workspaceRoot, "pull", {
       viewId: pulled.replica.viewId,
     }).outcome,
     "applied",

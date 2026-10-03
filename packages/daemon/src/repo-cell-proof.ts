@@ -337,7 +337,7 @@ export async function proofFor(
     // center resolves for it decides what the node may do, and confirmed nothing.
     if (
       typeof command.source === "object" &&
-      command.source.kind === "assignment" &&
+      command.source.kind === "node" &&
       binding.keycloakAuthorization?.session?.personId !== command.actor.principal.personId
     )
       throw cellCodedError(

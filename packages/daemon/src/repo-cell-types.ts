@@ -16,7 +16,7 @@ import {
 import { type PresetRunReceiptV1 } from "@harness-anything/preset";
 import { type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
-import type { FleetAssignmentScope, FleetRuntimeDispatchContext } from "./fleet/contract.ts";
+import type { FleetRuntimeDispatchContext } from "./fleet/contract.ts";
 import { type ReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import {
@@ -75,7 +75,6 @@ export interface RepoCellBinding {
   /** Keycloak user IDs resolved at the writer cut for Person endpoints used by this Action. */
   readonly personIdentityWitnesses?: ReadonlyMap<string, string>;
   readonly explanationDecisions?: ReadonlyMap<string, AuthorizationDecision>;
-  readonly assignmentScope?: FleetAssignmentScope;
   readonly writerEpoch?: number;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;
   readonly writerEpochFence?: WriterEpochFenceDescriptor;
@@ -138,7 +137,7 @@ export interface RepoCellStatus {
 }
 
 export interface RepoInFlightWork {
-  readonly kind: "runtime-session" | "task-lease" | "publication" | "schedule-occurrence" | "fleet-assignment";
+  readonly kind: "runtime-session" | "task-lease" | "publication" | "schedule-occurrence";
   readonly id: string;
   readonly taskId?: string;
   readonly executionId?: string;
@@ -146,7 +145,6 @@ export interface RepoInFlightWork {
   readonly holder?: string;
   readonly scheduleId?: string;
   readonly runtimeSessionId?: string;
-  readonly assignmentId?: string;
   readonly nodeId?: string;
   readonly queueDepth?: number;
   readonly nextAction: string;
@@ -154,6 +152,8 @@ export interface RepoInFlightWork {
 
 export type RepoCellReadMethod = Exclude<
   DaemonGuiReadMethod,
+  | "repo.tasks.claimable"
+  | "repo.tasks.assignmentDirectory"
   | "daemon.gui.system.read"
   | "daemon.gui.control.receipt"
   | "repo.gui.catalog.snapshot"

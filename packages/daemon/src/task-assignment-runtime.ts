@@ -56,7 +56,7 @@ export async function assertTaskAssignment(
   now: string,
 ): Promise<TaskClaimant> {
   const personId = binding.actor.principal.personId,
-    nodeId = typeof binding.source === "object" && binding.source.kind === "assignment" ? binding.source.nodeId : null;
+    nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
   let teamIds: readonly string[] = [];
   if (assignment?.assignee.kind === "team" && Date.parse(assignment.expiresAt) > Date.parse(now)) {
     const { adapter, token } = directory(binding);

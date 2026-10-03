@@ -361,14 +361,7 @@ test(
         owners: { "edge-one": "operator" },
         repoIds: ["schedules-gui-center"],
       });
-      const assignmentAuth = owners.auth({
-        nodeId: "edge-one",
-        assignmentId: "assignment-edge-one",
-        repoId: "schedules-gui-center",
-        viewId: "view-edge-one",
-        scope: { kind: "schedule" as const, scheduleId: "heartbeat-probe", paths: ["schedules"] },
-        expiresAt: "2099-01-01T00:00:00.000Z",
-      });
+      const nodeAuth = owners.auth({ nodeId: "edge-one" });
       assert.equal(
         (
           await host.run(
@@ -383,7 +376,7 @@ test(
               runtimeInstanceId: definition.instanceId,
               mission: "Inspect the repository and report success.",
             },
-            assignmentAuth,
+            nodeAuth,
           )
         ).outcome,
         "applied",
@@ -401,71 +394,14 @@ test(
           "repo.projection.read",
           await host.read("schedules-gui-center", "repo.projection.read", { name: "schedule-plane" }, localAuth),
         ).projection as SchedulesListResult;
-      // Ownership is authoritative input to this join: before center admission the
-      // whole read fails instead of fabricating an unresolved owner.
-      await assert.rejects(list, /requires an admitted fleet roster/u);
-      // Admitting the fleet center snapshots the roster onto the host; the repo cell
-      // (already attached at daemon boot) must resolve that snapshot at read time.
-      const keyFile = path.join(root, "center.key"),
-        certFile = path.join(root, "center.crt"),
-        rosterFile = path.join(root, "roster.json");
-      execFileSync(
-        "openssl",
-        [
-          "req",
-          "-x509",
-          "-newkey",
-          "rsa:2048",
-          "-nodes",
-          "-keyout",
-          keyFile,
-          "-out",
-          certFile,
-          "-subj",
-          "/CN=localhost",
-          "-days",
-          "1",
-          "-addext",
-          "subjectAltName=DNS:localhost",
-        ],
-        { stdio: "ignore" },
-      );
-      writeFileSync(
-        rosterFile,
-        JSON.stringify({
-          schema: "fleet-roster/v3",
-          assignments: [
-            {
-              assignmentId: "assignment-edge-one",
-              nodeId: "edge-one",
-              repoId: "schedules-gui-center",
-              viewId: "view-edge-one",
-              expiresAt: "2099-01-01T00:00:00.000Z",
-              scope: { kind: "schedule", scheduleId: "heartbeat-probe", paths: ["schedules"] },
-            },
-          ],
-        }),
-      );
-      const admission = (await host.fleet.startCenter(
-        {
-          port: 0,
-          keyPath: keyFile,
-          certPath: certFile,
-          rosterPath: rosterFile,
-          quotaBytes: 64 * 1024 * 1024,
-        },
-        localAuth,
-      )) as unknown as { readonly ok: boolean; readonly assignments: number };
-      assert.equal(admission.ok, true);
-      assert.equal(admission.assignments, 1);
-      const rosterJoined = await list();
+      const joinedList = await list();
       const rowOf = (scheduleId: string) =>
-          rosterJoined.schedules.find((row) => row.scheduleId === scheduleId) as ScheduleGuiRowDto,
+          joinedList.schedules.find((row) => row.scheduleId === scheduleId) as ScheduleGuiRowDto,
         joined = rowOf("heartbeat-probe");
-      assert.deepEqual(joined.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one" });
-      // The viewer is the center, never the executing node: ownership stays remote.
-      assert.equal(joined.executionAvailability, "not-on-this-node");
-      // The seeded builtin Schedule needs no assignment: the center holding the canonical cell runs it.
+      assert.deepEqual(joined.claim, { nodeId: null, claimFence: null });
+      // Idle topology is local; action admission still requires authenticated node ingress.
+      assert.equal(joined.executionAvailability, "local");
+      // The seeded builtin executes on the node holding the canonical cell.
       assert.equal(rowOf("builtin-ledger-backup").executionAvailability, "local");
       assert.equal(rowOf("builtin-ledger-backup").actions.runNow.code, "repo_mode_requires_center_ingress");
       const rejected = (await host.run(

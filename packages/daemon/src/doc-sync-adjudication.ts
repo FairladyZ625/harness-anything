@@ -20,13 +20,13 @@ import { docSyncError, hasExactDocSyncActionFields } from "./doc-sync-files.ts";
 import { admissionRejection } from "./doc-sync-settlement.ts";
 
 // Pure adjudication of one doc write intent against the current canonical
-// state: projection readiness, assignment-scope admission, and the domain
+// state: projection readiness, canonical task admission, and the domain
 // decideDocWrite judgment (lease channel, ledger base, per-path bases, region
 // proofs). Both the standalone doc submit and the class-A task bundle consume
 // the same verdict, so a carried document set can never pass a weaker check
 // than an explicit `ha doc sync` submission.
 //
-// Task-package documents have exactly ONE fleet entry: the lease-brokered task
+// Task-package documents have exactly ONE fleet entry: the canonical lease-checked task
 // command (design §3 — 绕过自动入口的提交直接拒绝). A fleet doc submit that
 // touches a task package without naming the held execution is refused here;
 // the local repo-prose channel keeps its pre-start edit flow.
@@ -57,6 +57,7 @@ export type DocIntentAdjudication =
 export function adjudicateDocIntent(
   input: Omit<Input, "action"> & {
     readonly taskDocumentChannel?: DocIntentChannel;
+    readonly unleasedTaskCommandId?: string;
     readonly taskId?: string;
     readonly runtimeArchive?: RuntimeArchiveWriteScope;
   },
@@ -137,10 +138,10 @@ function requiredDocAuthorization(decision: AuthorizationDecision | undefined): 
   return decision;
 }
 
-export function assignmentIntent(input: Input): DocWriteIntent {
+export function nodeIntent(input: Input): DocWriteIntent {
   try {
     if (!hasExactDocSyncActionFields(input.action, ["kind", "executionId", "baseLedgerSha", "changes"]))
-      throw new Error("assignment doc submit requires staged claim descriptors");
+      throw new Error("node doc submit requires staged claim descriptors");
     const intent = parseDocWriteIntent(
       {
         schema: "doc-write-intent/v1",

@@ -22,7 +22,6 @@ const result = await runFleetScheduleCommandClient({
   servername: config.servername,
   nodeId: config.nodeId,
   credential: config.credential,
-  assignmentId: config.assignmentId,
   repoId: config.repoId,
   scheduleId: config.scheduleId,
   opId: config.opId,

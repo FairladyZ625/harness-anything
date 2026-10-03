@@ -4,7 +4,7 @@ import test from "node:test";
 import { getExecutableEntityAction, sha256Text, type RuntimeSession } from "../../src/index.ts";
 
 const actor = { principal: { personId: "runtime-action" }, executor: null } as const;
-const source = { kind: "assignment", nodeId: "edge-a", assignmentId: "assignment-a" } as const;
+const source = { kind: "node", nodeId: "edge-a" } as const;
 const compileInput = {
   actor,
   source,

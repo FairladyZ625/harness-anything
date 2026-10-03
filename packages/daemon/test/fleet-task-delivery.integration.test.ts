@@ -144,7 +144,6 @@ for (const explicit of [false, true])
               servername: config.servername,
               nodeId: config.nodeId,
               credential: config.credential,
-              assignmentId: config.assignmentId,
               repoId: config.repoId,
               taskId: action.taskId,
               action,
@@ -152,7 +151,7 @@ for (const explicit of [false, true])
               waitMs: 1000,
               timeoutMs: 5000,
             }),
-            /delivery_fetch_failed|assignment_scope_mismatch/u,
+            /delivery_fetch_failed|execution_scope_mismatch|task_read_failed/u,
           );
           assert.equal(ledgerRevision(fixture), before);
         }
@@ -170,11 +169,10 @@ for (const explicit of [false, true])
       assert.equal(readFileSync(fixture.worktree("node-one", closeout), "utf8"), body);
       const duplicate = await invoke(explicit ? ["--commit", commitSha] : []);
       assert.equal(duplicate.code, 0, JSON.stringify(duplicate));
-      const assignment = fixture.byId.get(config.assignmentId)!;
-      fixture.byId.set(config.assignmentId, { ...assignment, expiresAt: "2000-01-01T00:00:00.000Z" });
+      fixture.owners.keycloak.revoke("person-node-one", "dual-repo", ["task-submit"]);
       const stale = await invoke([]);
       assert.equal(stale.code, 1, JSON.stringify(stale));
-      assert.match(stale.stdout, /assignment_rejected/u);
+      assert.match(stale.stdout, /authorization_denied|access_denied/u);
       assert.equal(git(remote, "rev-parse", `refs/heads/${created.taskId}`), commitSha);
     },
   );

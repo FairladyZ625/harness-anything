@@ -40,7 +40,7 @@ export function entityActionCommandTopology(
  * no transport source.
  */
 export function builtinOccurrenceCommandTopology(command: CommandTopology, builtinTarget: boolean): CommandTopology {
-  if (!builtinTarget || command.admission["remote-center"] !== "via-assignment") return command;
+  if (!builtinTarget || command.admission["remote-center"] !== "via-node") return command;
   return { ...command, admission: { ...command.admission, "remote-center": "direct" } };
 }
 
@@ -51,12 +51,11 @@ export function admitRepoMode(
 ): RepoModeAdmission {
   if (mode === "remote-proxy") return rejection("repo_mode_remote_proxy");
   const route = command.admission[mode],
-    assignment = typeof source === "object" && source.kind === "assignment";
+    node = typeof source === "object" && source.kind === "node";
   if (mode === "local" && source === "remote_direct") return rejection("repo_mode_rejects_direct_remote");
-  if (route === "direct" && !(mode === "remote-edge" && assignment))
-    return repoModeAdmission(true, "repo_mode_admitted");
-  if (route === "via-assignment" && assignment) return repoModeAdmission(true, "repo_mode_admitted");
-  if (route === "via-assignment") return rejection("repo_mode_requires_center_ingress");
+  if (route === "direct" && !(mode === "remote-edge" && node)) return repoModeAdmission(true, "repo_mode_admitted");
+  if (route === "via-node" && node) return repoModeAdmission(true, "repo_mode_admitted");
+  if (route === "via-node") return rejection("repo_mode_requires_center_ingress");
   if (route === "via-center-forward") return rejection("repo_mode_read_only");
   if (mode === "remote-edge") return rejection("repo_mode_read_only");
   return rejection("repo_mode_command_rejected");
