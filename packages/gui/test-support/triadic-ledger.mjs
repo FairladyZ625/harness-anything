@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
 import { makeDecisionService, makeFactService } from "@harness-anything/application";
 import {
   compileDecisionWrite,
@@ -198,26 +199,31 @@ export async function seedTriadicEvents(rootDir, repoId, writerFence) {
       },
       { principal: { personId: "person-gui-reviewer" }, executor: null },
     );
-    // This fixture bypasses the daemon command lane. Seed its review notification as well,
-    // matching decision-review-awaits so owner work is visible in the agenda's awaits group.
-    const reviewAwait = {
-      source: "decision/dec_gui_smoke",
-      target: "person/person-gui",
-      type: "awaits",
-      direction: "directed",
-    };
-    append("decision_related", "dec_gui_smoke", {
-      relation: {
-        relation_id: deriveRelationId(reviewAwait),
-        ...reviewAwait,
-        strength: "strong",
-        origin: "declared",
-        state: "active",
-        rationale: "consent: Decision dec_gui_smoke has review changes to resolve.",
-      },
-    });
   } finally {
     projection.close();
     await store.drain();
   }
+}
+
+// The person endpoint is witnessed by current Keycloak identity through the live command lane.
+export async function seedTriadicReviewAwait(endpoint, repoId) {
+  const receipt = await requestDaemonJsonRpcAt(
+    endpoint,
+    "repo.task.run",
+    {
+      repo: { repoId },
+      payload: {
+        action: {
+          kind: "relation-relate",
+          sourceRef: "decision/dec_gui_smoke",
+          targetRef: "person/person-gui",
+          relationType: "awaits",
+          rationale: "consent: Decision dec_gui_smoke has review changes to resolve.",
+          expectedVersion: 0,
+        },
+      },
+    },
+    1_000,
+  );
+  if (receipt.ok !== true) throw new Error(`GUI review awaits fixture failed: ${JSON.stringify(receipt)}`);
 }

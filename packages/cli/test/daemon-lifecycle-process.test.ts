@@ -128,7 +128,7 @@ test("two concurrent daemon serves yield exactly one resident daemon and one def
   }
 });
 
-test("platform stop during a long migration replay exits the daemon in bounded time and releases every lock", async () => {
+test("platform stop after migration acceptance preserves the complete import and releases every lock", async () => {
   const fixture = setup(),
     legacyRoot = path.join(fixture.parent, "legacy");
   try {
@@ -141,10 +141,15 @@ test("platform stop during a long migration replay exits the daemon in bounded t
       [cli, "--root", fixture.root, "--json", "migrate", "import", "--source", legacyRoot],
       { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) },
     );
-    // Observe actual migration progress rather than counting initialization events.
-    await waitForImportProgress(fixture.root);
+    let migrationOutput = "";
+    migration.stdout.on("data", (chunk) => {
+      migrationOutput += String(chunk);
+    });
+    // entity_migrated is visible only after the entire command interval commits.
+    // It is an acceptance boundary, not an intermediate replay-progress signal.
+    const acceptedOpId = await waitForImportAcceptance(fixture.root);
     const pid = readDaemonPid(fixture.userRoot, "default");
-    assert.ok(pid, "a resident daemon pid file must exist mid-replay");
+    assert.ok(pid, "a resident daemon pid file must exist before stop");
     const stopAt = Date.now();
     if (process.platform === "win32")
       assert.equal(
@@ -157,7 +162,11 @@ test("platform stop during a long migration replay exits the daemon in bounded t
     const exitMs = Date.now() - stopAt;
     assert.ok(exitMs < 20_000, `daemon must exit in bounded time, took ${exitMs}ms`);
     const migrationResult = await closeOf(migration);
-    assert.notEqual(migrationResult.code, 0, "an interrupted migration must not report success");
+    assert.equal(migrationResult.code, 0, migrationOutput);
+    const receipt = JSON.parse(migrationOutput) as { status: string; opId: string };
+    assert.equal(receipt.status, "accepted_durable");
+    assert.equal(receipt.opId, acceptedOpId);
+    assert.equal(await waitForImportAcceptance(fixture.root), acceptedOpId, "stop must preserve accepted data");
     assert.equal(
       existsSync(daemonSingletonLockPath(fixture.userRoot, "default")),
       false,
@@ -592,17 +601,27 @@ async function residentPid(userRoot: string): Promise<number> {
   }
   throw new Error("no resident daemon pid appeared");
 }
-async function waitForImportProgress(root: string): Promise<void> {
+async function waitForImportAcceptance(root: string): Promise<string> {
+  const reader = makeTaskEventReader({ rootDir: root, repoId: "singleton-import" });
   for (let attempt = 0; attempt < 12_000; attempt += 1) {
-    if (
-      makeTaskEventReader({ rootDir: root, repoId: "singleton-import" })
-        .read()
-        .events.some((event) => event.type === "entity_migrated")
-    )
-      return;
+    const migrated = reader.read().events.filter((event) => event.type === "entity_migrated");
+    if (migrated.length > 0) {
+      assert.equal(migrated.filter((event) => event.payload.entity.kind === "task").length, 150);
+      const terminal = migrated.at(-1)!;
+      assert.equal(terminal.payload.entity.kind, "repo-document");
+      if (terminal.payload.entity.kind === "repo-document")
+        assert.match(terminal.payload.entity.documentClaim.path, /\/entity-backfill\.json$/u);
+      const outcome = reader.readCommandOutcome(terminal.opId);
+      assert.equal(outcome?.status, "accepted_durable");
+      assert.deepEqual(
+        outcome.memberOpIds,
+        migrated.map((event) => event.opId),
+      );
+      return terminal.opId;
+    }
     await delay(5);
   }
-  throw new Error("migration replay did not make SQLite-accepted progress");
+  throw new Error("migration command interval was not accepted");
 }
 
 async function waitForProcessExit(pid: number, boundMs: number): Promise<void> {

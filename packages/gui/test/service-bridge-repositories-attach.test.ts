@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -12,7 +13,7 @@ import { parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { streamAgentRuntimeAt } from "@harness-anything/daemon/client";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
-import { seedTriadicEvents, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
+import { seedTriadicEvents, seedTriadicReviewAwait, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 
 import type { Failure } from "./service-bridge.fixtures.ts";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
@@ -32,6 +33,7 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
       assert.equal(created.ok, true, JSON.stringify(created));
     },
     beforeRestart: seedTriadicEvents,
+    afterRestart: seedTriadicReviewAwait,
   });
   const previous = {
     userRoot: process.env.HARNESS_DAEMON_USER_ROOT,
@@ -43,13 +45,13 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
     writeTriadicLedger(fixture.rootDir);
     const repoBRoot = path.join(path.dirname(fixture.rootDir), "repo-b"),
       repoBId = "gui-test-b";
+    fixture.keycloak.permit("person-gui", repoBId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
     const bootstrapped = await requestDaemonJsonRpcAt(
       fixture.endpoint,
       "daemon.repo.bootstrap",
       {
         rootDir: repoBRoot,
         repoId: repoBId,
-        personId: "person-gui",
         displayName: "GUI Test B",
       },
       1_000,

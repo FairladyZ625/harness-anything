@@ -4,6 +4,8 @@ import path from "node:path";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { startDaemon } from "@harness-anything/daemon/internal/runtime";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { serveKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 export async function startGuiResidentDaemonFixture({
@@ -13,6 +15,7 @@ export async function startGuiResidentDaemonFixture({
   task,
   beforeStop,
   beforeRestart,
+  afterRestart,
   runtimeInstance,
 } = {}) {
   const parent = mkdtempSync(path.join(tmpdir(), prefix));
@@ -29,7 +32,15 @@ export async function startGuiResidentDaemonFixture({
         },
       ]
     : undefined;
-  let daemon = await startDaemon({ daemonId, userRoot, runtimeDiscover });
+  const realm = await serveKeycloak();
+  realm.keycloak.account("person-gui");
+  realm.keycloak.permit("person-gui", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
+  realm.bind(userRoot);
+  signInAt(userRoot, "person-gui");
+  let daemon = await startDaemon({ daemonId, userRoot, runtimeDiscover }).catch(async (error) => {
+    await realm.close();
+    throw error;
+  });
   let stopped = false;
   const pauseDaemon = async () => {
     await daemon.stop();
@@ -49,13 +60,14 @@ export async function startGuiResidentDaemonFixture({
     if (stopped) return;
     stopped = true;
     await daemon.stop();
+    await realm.close();
     rmSync(parent, { recursive: true, force: true });
   };
   try {
     const bootstrapped = await requestDaemonJsonRpcAt(
       daemon.endpoint,
       "daemon.repo.bootstrap",
-      { rootDir, repoId, personId: "person-gui", displayName: "GUI Test" },
+      { rootDir, repoId, displayName: "GUI Test" },
       1_000,
     );
     if (bootstrapped.ok !== true) throw new Error(`GUI daemon bootstrap failed: ${JSON.stringify(bootstrapped)}`);
@@ -136,8 +148,10 @@ export async function startGuiResidentDaemonFixture({
       }
       await beforeRestart(rootDir, repoId, writerFence);
       daemon = await startDaemon({ daemonId, userRoot });
+      await afterRestart?.(daemon.endpoint, repoId);
     }
     return {
+      keycloak: realm.keycloak,
       rootDir,
       userRoot,
       daemonId,

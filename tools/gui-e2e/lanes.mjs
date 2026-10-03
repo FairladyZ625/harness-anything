@@ -13,7 +13,11 @@ import {
   daemonGuiInvokeFacets,
 } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
-import { seedTriadicEvents, writeTriadicLedger } from "../../packages/gui/test-support/triadic-ledger.mjs";
+import {
+  seedTriadicEvents,
+  seedTriadicReviewAwait,
+  writeTriadicLedger,
+} from "../../packages/gui/test-support/triadic-ledger.mjs";
 import { seedGuiE2eRuntimeSessions } from "./scenarios/sessions-grouping.mjs";
 import { warmDaemonProjection } from "../e2e-probe.mjs";
 
@@ -133,6 +137,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       daemonId: "g",
       repoId: "gui-e2e-catalog",
       task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
+      afterRestart: seedTriadicReviewAwait,
       beforeRestart: async (rootDir, repoId, writerFence) => {
         await seedTriadicEvents(rootDir, repoId, writerFence);
         await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence);

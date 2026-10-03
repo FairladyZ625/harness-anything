@@ -68,6 +68,13 @@ test("GUI task writes settle from their own durable receipt without a follow-up 
     }
     assert.deepEqual(invoked, ["pinTask", "unpinTask"]);
 
+    // A signed-in account loses this action immediately when current authority revokes it.
+    fixture.keycloak.revoke("person-gui", fixture.repoId, ["entity-pin"]);
+    const denied = (await harnessClient.pinTask({ ...scope, taskId })) as unknown as Receipt;
+    assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
+    assert.equal(denied.code, "authorization_denied", JSON.stringify(denied));
+    assert.equal(settleTaskReceipt(denied as never).state, "op_rejected");
+
     // An operation that never published stays a rejected read; it is never reported as applied.
     const unknown = (await harnessClient.showReceipt({ ...scope, opId: "op-never-published" })) as unknown as Receipt;
     assert.equal(unknown.outcome, "op_rejected", JSON.stringify(unknown));
