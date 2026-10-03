@@ -7,64 +7,68 @@ import { collectGuiVitestFiles } from "./gui-test-runner-lib.mjs";
 import { readTestQuarantine } from "./test-quarantine.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const args = process.argv.slice(2);
-const listOnly = args.includes("--list");
+process.exitCode = await main();
 
-const unknownArgs = args.filter((arg) => arg !== "--list");
-if (unknownArgs.length > 0) {
-  console.error(`unknown run-gui-tests option: ${unknownArgs[0]}`);
-  process.exit(2);
-}
+async function main() {
+  const args = process.argv.slice(2);
+  const listOnly = args.includes("--list");
 
-const testFiles = await collectGuiVitestFiles(repoRoot);
-
-if (listOnly) {
-  for (const file of testFiles) {
-    console.log(file);
+  const unknownArgs = args.filter((arg) => arg !== "--list");
+  if (unknownArgs.length > 0) {
+    console.error(`unknown run-gui-tests option: ${unknownArgs[0]}`);
+    return 2;
   }
-  process.exit(0);
-}
 
-if (testFiles.length === 0) {
-  console.log("No GUI Vitest files found.");
-  process.exit(0);
-}
+  const testFiles = await collectGuiVitestFiles(repoRoot);
 
-const npmCli = resolveNpmCli();
-const vitestResults = process.env.HARNESS_CI_VITEST_RESULTS ?? process.env.HARNESS_CI_OBSERVATION_RAW;
-const quarantinePattern =
-  process.env.HARNESS_TEST_QUARANTINE === "skip"
-    ? excludedTestNamePattern(readTestQuarantine(repoRoot).map((entry) => entry.test))
-    : null;
-const vitestArgs = [
-  ...(vitestResults
-    ? ["--reporter=default", "--reporter=json", `--outputFile=${resolve(repoRoot, vitestResults)}`]
-    : []),
-  ...(quarantinePattern ? [`--testNamePattern=${quarantinePattern}`] : []),
-];
-const observationArgs = vitestArgs.length > 0 ? ["--", ...vitestArgs] : [];
-const child = npmCli
-  ? spawn(process.execPath, [npmCli, "run", "test:gui", "-w", "@harness-anything/gui", ...observationArgs], {
-      cwd: repoRoot,
-      stdio: "inherit",
-    })
-  : spawn("npm", ["run", "test:gui", "-w", "@harness-anything/gui", ...observationArgs], {
-      cwd: repoRoot,
-      stdio: "inherit",
-    });
-
-child.on("error", (error) => {
-  console.error(error.message);
-  process.exit(1);
-});
-
-child.on("close", (code, signal) => {
-  if (signal !== null) {
-    console.error(`GUI Vitest runner terminated by signal ${signal}`);
-    process.exit(1);
+  if (listOnly) {
+    for (const file of testFiles) {
+      console.log(file);
+    }
+    return 0;
   }
-  process.exit(code ?? 1);
-});
+
+  if (testFiles.length === 0) {
+    console.log("No GUI Vitest files found.");
+    return 0;
+  }
+
+  const npmCli = resolveNpmCli();
+  const vitestResults = process.env.HARNESS_CI_VITEST_RESULTS ?? process.env.HARNESS_CI_OBSERVATION_RAW;
+  const quarantinePattern =
+    process.env.HARNESS_TEST_QUARANTINE === "skip"
+      ? excludedTestNamePattern(readTestQuarantine(repoRoot).map((entry) => entry.test))
+      : null;
+  const vitestArgs = [
+    ...(vitestResults
+      ? ["--reporter=default", "--reporter=json", `--outputFile=${resolve(repoRoot, vitestResults)}`]
+      : []),
+    ...(quarantinePattern ? [`--testNamePattern=${quarantinePattern}`] : []),
+  ];
+  const observationArgs = vitestArgs.length > 0 ? ["--", ...vitestArgs] : [];
+  const child = npmCli
+    ? spawn(process.execPath, [npmCli, "run", "test:gui", "-w", "@harness-anything/gui", ...observationArgs], {
+        cwd: repoRoot,
+        stdio: "inherit",
+      })
+    : spawn("npm", ["run", "test:gui", "-w", "@harness-anything/gui", ...observationArgs], {
+        cwd: repoRoot,
+        stdio: "inherit",
+      });
+
+  child.on("error", (error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+
+  child.on("close", (code, signal) => {
+    if (signal !== null) {
+      console.error(`GUI Vitest runner terminated by signal ${signal}`);
+      process.exitCode = 1;
+    }
+    process.exitCode = code ?? 1;
+  });
+}
 
 function resolveNpmCli() {
   if (process.env.npm_execpath && existsSync(process.env.npm_execpath)) {
