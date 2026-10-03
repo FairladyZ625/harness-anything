@@ -15,6 +15,7 @@ import {
   OIDC_BOOTSTRAP_STATUS_CHANNEL,
   OIDC_BOOTSTRAP_ADMIN_CHANNEL,
   OIDC_BINDING_STATUS_CHANNEL,
+  OIDC_OPEN_CONSOLE_CHANNEL,
 } from "../src/api/oidc-auth-contract.ts";
 
 test("a local repository keeps the original socket bootstrap status and a targeted administrator mutation is refused", async () => {
@@ -128,6 +129,7 @@ test("binding IPC forwards the selected edge and preserves center metadata and d
   const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
   const event = { sender: { id: 7 }, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent;
   const binding = {
+    ok: true,
     source: "fleet-center",
     mode: "external",
     ready: true,
@@ -136,6 +138,7 @@ test("binding IPC forwards the selected edge and preserves center metadata and d
     clientId: "harness-node-edge",
   };
   let failed = false;
+  const opened: string[] = [];
   registerOidcAuthIpc(
     {
       handle: (channel, handler) => {
@@ -153,13 +156,23 @@ test("binding IPC forwards the selected edge and preserves center metadata and d
           ? { ok: false, code: "oidc_listener_required", rejectionExplanation: "Center discovery refused." }
           : binding;
       },
-      openExternal: async () => undefined,
+      openExternal: async (url) => {
+        opened.push(url);
+      },
     },
   );
   const read = () => handlers.get(OIDC_BINDING_STATUS_CHANNEL)!(event, { repoId: "edge" });
   assert.deepEqual(await read(), binding);
+  binding.ok = false;
+  binding.ready = false;
+  assert.deepEqual(await read(), binding);
+  await handlers.get(OIDC_OPEN_CONSOLE_CHANNEL)!(event, { repoId: "edge" });
+  assert.deepEqual(opened, ["https://center.example/admin/harness/console/"]);
   failed = true;
   await assert.rejects(read(), { code: "oidc_listener_required" });
+  await assert.rejects(handlers.get(OIDC_OPEN_CONSOLE_CHANNEL)!(event, { repoId: "edge" }), {
+    code: "oidc_listener_required",
+  });
 });
 
 test("system-browser login opens only after the loopback callback is listening", async () => {

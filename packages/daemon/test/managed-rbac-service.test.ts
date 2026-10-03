@@ -93,6 +93,31 @@ for (const failure of ["token", "malformed", "missing", "admin"] as const) {
   });
 }
 
+test("health propagates a realm transport failure", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-health-"));
+  try {
+    mkdirSync(path.join(root, "rbac"));
+    writeFileSync(
+      path.join(root, "rbac", "config.json"),
+      JSON.stringify({
+        mode: "external",
+        url: "https://identity.example.test",
+        realm: "fleet",
+        clientId: "center",
+      }),
+    );
+    const failure = new Error("fixture realm transport failure");
+    const service = new ManagedRbacService(root, {
+      fetch: async () => {
+        throw failure;
+      },
+    });
+    await assert.rejects(service.run({ operation: "health" }), (error) => error === failure);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("failed external Keycloak probe does not replace the active configuration", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-probe-"));
   try {

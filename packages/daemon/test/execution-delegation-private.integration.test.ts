@@ -51,7 +51,6 @@ test("center private delegation survives restart and narrows online Keycloak per
     binding = {
       actor: { principal: { personId: issuerPersonId }, executor: null },
       source: "local" as const,
-      authorizationBindingMode: "declared" as const,
       keycloakAuthorization: {
         session: {
           personId: issuerPersonId,

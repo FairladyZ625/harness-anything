@@ -275,6 +275,7 @@ export class ManagedRbacService {
     const config = this.#readConfig();
     const response = await this.#ports.fetch(`${config.url}/realms/${encodeURIComponent(config.realm)}`);
     return {
+      ok: response.ok,
       ready: response.ok,
       mode: config.mode,
       url: config.url,

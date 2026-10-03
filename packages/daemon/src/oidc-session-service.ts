@@ -254,6 +254,7 @@ export class OidcSessionService {
     return {
       source: "fleet-center",
       mode: "external",
+      ok: response.ok,
       ready: response.ok,
       url: authority.url,
       realm: authority.realm,
