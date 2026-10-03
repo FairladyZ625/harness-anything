@@ -14,6 +14,7 @@ function auth(overrides: Partial<OidcAuthApi> = {}): OidcAuthApi {
     status: vi.fn(async () => ({ ok: true, authenticated: false })),
     bindingStatus: vi.fn(async () => ({ ok: true, mode: "managed", ready: true })),
     bootstrapStatus: vi.fn(async () => ({ ok: true, required: false })),
+    cancelLogin: vi.fn(async () => ({ ok: true })),
     login: vi.fn(async () => ({ ok: true })),
     logout: vi.fn(async () => ({ ok: true })),
     openConsole: vi.fn(async () => ({ ok: true })),
@@ -142,4 +143,57 @@ describe("IdentityAccessView", () => {
     expect(container.textContent).toContain("Sign in with Keycloak");
     expect(container.textContent).not.toMatch(/[\u3400-\u9fff]/u);
   });
+});
+
+it("embeds the authorization URL, cancels cleanly and refreshes identity after a retry", async () => {
+  let finish!: () => void,
+    reject!: (error: Error) => void,
+    signedIn = false;
+  const api = auth({
+    status: vi.fn(async () => ({ authenticated: signedIn, personId: signedIn ? "person-fixture" : undefined })),
+    login: vi.fn((_repoId, openBrowser) => {
+      openBrowser("https://identity.example.test/auth");
+      return new Promise<void>((resolve, rejectLogin) => {
+        finish = () => {
+          signedIn = true;
+          resolve();
+        };
+        reject = rejectLogin;
+      });
+    }),
+    cancelLogin: vi.fn(async () => {
+      reject(new Error("Sign-in cancelled."));
+    }),
+  });
+  await render(api);
+  const click = async (id: string) =>
+    act(async () => container.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)!.click());
+  await click("account-session-action");
+  expect(container.querySelector("webview")?.getAttribute("src")).toBe("https://identity.example.test/auth");
+  await click("account-login-cancel");
+  expect(container.querySelector("webview")).toBeNull();
+  expect(container.textContent).toContain("Sign-in cancelled.");
+  await click("account-session-action");
+  await act(async () => finish());
+  expect(container.querySelector("webview")).toBeNull();
+  expect(container.textContent).toContain("person-fixture");
+});
+
+it("leaving the account surface cancels its active login", async () => {
+  let reject!: (error: Error) => void;
+  const api = auth({
+    login: vi.fn((_repoId, openBrowser) => {
+      openBrowser("https://identity.example.test/auth");
+      return new Promise((_resolve, rejectLogin) => {
+        reject = rejectLogin;
+      });
+    }),
+    cancelLogin: vi.fn(async () => {
+      reject(new Error("Sign-in cancelled."));
+    }),
+  });
+  await render(api);
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="account-session-action"]')!.click());
+  await act(async () => root.render(null));
+  expect(api.cancelLogin).toHaveBeenCalledOnce();
 });

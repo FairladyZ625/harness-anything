@@ -21,6 +21,8 @@ import {
 } from "../api/local-doc-contract.ts";
 import {
   OIDC_LOGIN_CHANNEL,
+  OIDC_LOGIN_URL_CHANNEL,
+  OIDC_CANCEL_LOGIN_CHANNEL,
   OIDC_LOGOUT_CHANNEL,
   OIDC_STATUS_CHANNEL,
   OIDC_BINDING_STATUS_CHANNEL,
@@ -107,7 +109,16 @@ const exposedHarnessApi = {
     inspectWorkspace: (input) => invoke(WORKSPACE_INSPECT_CHANNEL, input),
   } satisfies RepoAdminApi,
   auth: {
-    login: (repoId) => invoke(OIDC_LOGIN_CHANNEL, repoId ? { repoId } : null),
+    login: async (repoId, openBrowser) => {
+      const listener = (_event: Electron.IpcRendererEvent, url: string) => openBrowser(url);
+      ipcRenderer.on(OIDC_LOGIN_URL_CHANNEL, listener);
+      try {
+        return await invoke(OIDC_LOGIN_CHANNEL, repoId ? { repoId } : null);
+      } finally {
+        ipcRenderer.removeListener(OIDC_LOGIN_URL_CHANNEL, listener);
+      }
+    },
+    cancelLogin: () => invoke(OIDC_CANCEL_LOGIN_CHANNEL, null),
     logout: (repoId) => invoke(OIDC_LOGOUT_CHANNEL, repoId ? { repoId } : null),
     status: (repoId) => invoke(OIDC_STATUS_CHANNEL, repoId ? { repoId } : null),
     bindingStatus: (repoId) => invoke(OIDC_BINDING_STATUS_CHANNEL, repoId ? { repoId } : null),

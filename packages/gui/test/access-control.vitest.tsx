@@ -118,6 +118,7 @@ const auth: OidcAuthApi = {
   status: vi.fn(async () => ({ ok: true, authenticated: true, personId: "person-admin" })),
   bindingStatus: vi.fn(async () => ({ ok: true, mode: "managed", ready: true, url: keycloakUrl, realm: "harness" })),
   bootstrapStatus: vi.fn(async () => ({ ok: true, required: false })),
+  cancelLogin: vi.fn(async () => ({ ok: true })),
   login: vi.fn(async () => ({ ok: true })),
   logout: vi.fn(async () => ({ ok: true })),
   openConsole: vi.fn(async () => ({ ok: true })),

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   AccessAdminApi,
   AccessRejection,
@@ -7,6 +7,7 @@ import type {
 import type { OidcAuthApi } from "../../../api/oidc-auth-contract.ts";
 import { isRejection } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
+import { BrowserView } from "../../views/BrowserView.tsx";
 import { DenseRow } from "../primitives/DenseRow.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
@@ -38,6 +39,14 @@ export function AccessServiceTab({
     [bootstrapRequired, setBootstrapRequired] = useState(false),
     [busy, setBusy] = useState(false),
     [feedback, setFeedback] = useState("");
+  const [login, setLogin] = useState<{ url?: string } | null>(null);
+  const loggingIn = useRef(false);
+  useEffect(
+    () => () => {
+      if (loggingIn.current) void auth.cancelLogin();
+    },
+    [auth],
+  );
 
   const refresh = async () => {
     const nextSession = await auth.status(repoId);
@@ -61,7 +70,10 @@ export function AccessServiceTab({
     setBusy(true);
     setFeedback("");
     return operation()
-      .then(refresh)
+      .then(() => {
+        window.dispatchEvent(new Event("harness-auth-changed"));
+        return refresh();
+      })
       .then(
         () => setBusy(false),
         (error: unknown) => {
@@ -70,6 +82,35 @@ export function AccessServiceTab({
         },
       );
   };
+
+  const signIn = () =>
+    run(async () => {
+      loggingIn.current = true;
+      setLogin({});
+      try {
+        await auth.login(repoId, (url) => setLogin({ url }));
+      } finally {
+        loggingIn.current = false;
+        setLogin(null);
+      }
+    });
+
+  if (login)
+    return (
+      <section className="flex min-h-0 flex-1 flex-col" data-testid="account-login">
+        <header className="flex items-center justify-between gap-2 px-2 py-1">
+          <span>{t("identityAccess.signIn")}</span>
+          <Button testId="account-login-cancel" onClick={() => void auth.cancelLogin()}>
+            {t("identityAccess.cancelLogin")}
+          </Button>
+        </header>
+        {login.url ? (
+          <BrowserView initialUrl={login.url} onLoadError={() => void auth.cancelLogin()} />
+        ) : (
+          <p className="p-2 text-text-muted">{t("identityAccess.loading")}</p>
+        )}
+      </section>
+    );
 
   const authenticated = session?.authenticated === true,
     ready = binding?.ready === true;
@@ -127,7 +168,8 @@ export function AccessServiceTab({
                       size="sm"
                       disabled={busy || (!authenticated && !ready)}
                       tip={!authenticated && !ready ? t("identityAccess.signInDisabled") : undefined}
-                      onClick={() => void run(() => (authenticated ? auth.logout(repoId) : auth.login(repoId)))}
+                      testId="account-session-action"
+                      onClick={() => void (authenticated ? run(() => auth.logout(repoId)) : signIn())}
                     >
                       {authenticated ? t("identityAccess.signOut") : t("identityAccess.signIn")}
                     </Button>
