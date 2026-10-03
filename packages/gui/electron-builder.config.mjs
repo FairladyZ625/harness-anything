@@ -6,7 +6,7 @@ const config = {
   productName: "Harness Anything",
   copyright: "Copyright © 2026 Harness Anything contributors",
   asar: false,
-  npmRebuild: false,
+  nativeModules: { npmRebuild: false },
   compression: "normal",
   forceCodeSigning: false,
   directories: {
@@ -56,12 +56,12 @@ const config = {
       { target: "zip", arch: ["arm64"] },
     ],
     category: "public.app-category.developer-tools",
-    identity: null,
+    sign: { identity: null },
     artifactName: "Harness-Anything-${version}-${arch}.${ext}",
   },
   win: {
     target: [{ target: "nsis", arch: ["x64"] }],
-    signExecutable: false,
+    sign: false,
     artifactName: "Harness-Anything-GUI-Setup-${version}-win-${arch}.${ext}",
   },
   linux: {
