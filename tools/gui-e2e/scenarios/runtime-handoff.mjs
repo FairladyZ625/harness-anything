@@ -21,7 +21,9 @@ export default {
     await page.getByTestId(`rail-session-runtime_${hash.slice(24, 48)}`).click();
     const panel = page.getByTestId("runtime-handoff");
     await panel.waitFor();
+    await panel.getByTestId("handoff-instance").click();
     await panel.getByTestId("handoff-instance").fill("target-codex");
+    assert.equal(await panel.getByTestId("handoff-instance").inputValue(), "target-codex");
     await panel.getByTestId("handoff-prompt").fill("Continue the same conversation.");
     await panel.getByTestId("handoff-export").click();
     await panel
