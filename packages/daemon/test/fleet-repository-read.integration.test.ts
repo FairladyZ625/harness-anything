@@ -171,9 +171,16 @@ test(
       await edge.read("lease-repo", "repo.workspace.scope.read", { rootTaskId: "task-read-000" }, auth),
       await f.host.read("lease-repo", "repo.workspace.scope.read", { rootTaskId: "task-read-000" }, auth),
     );
+    const longToken = [
+      Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url"),
+      Buffer.from(JSON.stringify({ sub: "person-one", fixture: "a".repeat(2048) })).toString("base64url"),
+      Buffer.alloc(256, 97).toString("base64url"),
+    ].join(".");
+    assert.ok(Buffer.byteLength(longToken) > 2048);
+    f.owners.keycloak.interactiveSession("person-one", "node-one", f.owners.url, longToken);
     const cli = await runFleetEdgeTask(
       { payload: { ...config, workspaceRoot: edgeRoot, action: { kind: "task-list", limit: 500 } } },
-      async () => "token-person-one",
+      async () => longToken,
     );
     assert.equal(cli.ok, true, JSON.stringify(cli));
     assert.equal(JSON.parse(String(cli.evidence)).rows.length, 53);
@@ -271,6 +278,12 @@ test(
     f.owners.keycloak.node("node-two", "person-one");
     f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
     await assert.rejects(edge.read("lease-repo", "repo.tasks.list", {}, auth), { code: "authorization_denied" });
+    const revokedCli = await runFleetEdgeTask(
+      { payload: { ...config, workspaceRoot: edgeRoot, action: { kind: "task-list" } } },
+      async () => longToken,
+    );
+    assert.equal(revokedCli.ok, false);
+    assert.equal(revokedCli.code, "authorization_denied");
     assert.equal(
       (await f.command("node-two", { kind: "task-show", taskId: "task-read-000" })).code,
       "authorization_denied",

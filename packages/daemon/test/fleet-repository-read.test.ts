@@ -30,6 +30,45 @@ test("repository reads accept declared queries and reject writes, unmarked metho
     assert.throws(() => parseFleetFrame(invalid), /closed schema/);
 });
 
+test("repository read authentication uses the command token UTF-8 byte bound", () => {
+  const read = {
+    schema: "fleet.repository.read/v1",
+    messageId: "read",
+    repoId: "repo-a",
+    accessToken: null,
+    method: "repo.tasks.list",
+    payload: {},
+  };
+  const command = {
+    schema: "fleet.task.command/v1",
+    messageId: "command",
+    writerEpoch: 1,
+    opId: "command-op",
+    repoId: "repo-a",
+    taskId: null,
+    action: { kind: "task-list" },
+    docChanges: null,
+    mirrorBaseCut: null,
+  };
+  for (const accessToken of ["a".repeat(513), "a".repeat(2048), "a".repeat(16 * 1024), "é".repeat(8192)]) {
+    for (const frame of [read, command]) {
+      const authenticated = { ...frame, accessToken };
+      assert.deepEqual(parseFleetFrame(authenticated), authenticated);
+      assert.deepEqual(parseFleetFrame(JSON.parse(serializeFleetFrame(authenticated))), authenticated);
+    }
+  }
+  for (const accessToken of ["", "a".repeat(16 * 1024 + 1), "é".repeat(8192) + "a", 513, {}]) {
+    for (const frame of [read, command])
+      assert.throws(() => parseFleetFrame({ ...frame, accessToken }), /closed schema/);
+  }
+  assert.deepEqual(parseFleetFrame(read), read);
+  const { accessToken: _token, ...missing } = read;
+  assert.throws(() => parseFleetFrame(missing), /closed schema/);
+  assert.throws(() => parseFleetFrame({ ...read, repoId: "a".repeat(513) }), /closed schema/);
+  assert.throws(() => parseFleetFrame({ ...read, accessToken: "a".repeat(2048), personId: "other" }), /closed schema/);
+  assert.throws(() => parseFleetFrame({ ...read, accessToken: "\u0001".repeat(16 * 1024) }), /exceeds 98304 bytes/);
+});
+
 test("several full read-result frames may share a transport chunk without exceeding the pending remainder bound", () => {
   const frame = {
     schema: "fleet.repository.read.result/v1",
