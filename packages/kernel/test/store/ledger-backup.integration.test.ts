@@ -20,11 +20,14 @@ import { DatabaseSync } from "node:sqlite";
 import { Worker } from "node:worker_threads";
 import {
   createLedgerBackup,
+  restoreLedgerBackup,
   drillLedgerBackup,
   readOfflineLedgerEvents,
   readVerifiedLedgerBackup,
 } from "../../src/store/ledger-backup.ts";
 import { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
+import { localLedgerBackupFileSystem } from "../../src/local/local-layout-file-system.ts";
+import { objectPath } from "../../src/store/task-event-store-claims-layout.ts";
 import { sha256Bytes, sha256Text } from "../../src/integrity/stable-hash.ts";
 import { event, flatLedgerFixture } from "./task-event-store.fixtures.ts";
 
@@ -192,6 +195,82 @@ test("VACUUM backup survives source deletion and rejects wrong generation metada
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(backupDir, { recursive: true, force: true });
+  }
+});
+
+test("backup and restore reject missing or wrong-sized accepted content in both SQLite generations", (t) => {
+  for (const generation of [1, 2] as const) {
+    const root = fixture(`claims-${generation}`),
+      backupDir = path.join(root, "backup"),
+      body = "accepted plan\n",
+      sha256 = sha256Text(body),
+      claim = {
+        path: "tasks/task-1/task_plan.md",
+        sha256,
+        size: Buffer.byteLength(body),
+        mediaType: "text/markdown",
+        policyId: "markdown-body-replaceable/v1",
+      } as const,
+      claimedEvent = { ...event, payload: { ...event.payload, documentClaims: [claim] } },
+      store = openSqliteEventStore({ repoId: "backup-test", rootInput: root, generation }),
+      object = objectPath(path.join(path.dirname(store.databasePath), "objects/sha256"), sha256);
+    try {
+      store.appendCommand({
+        fence: { repoId: "backup-test", holder: "test", epoch: 1 },
+        intent: {
+          opId: event.opId,
+          intentDigest: `sha256:${sha256Text(JSON.stringify(claimedEvent))}`,
+          summary: event.type,
+        },
+        events: [claimedEvent],
+        blobs: [{ ...claim, body }],
+      });
+      store.close();
+      const copy = localLedgerBackupFileSystem.copy;
+      t.mock.method(localLedgerBackupFileSystem, "copy", (...args: Parameters<typeof copy>) => {
+        const result = copy(...args);
+        if (args[0] === object) rmSync(object);
+        return result;
+      });
+      createLedgerBackup({ rootInput: root, backupDir, generation });
+      t.mock.restoreAll();
+      const payloadObject = path.join(backupDir, "payload", path.relative(root, object));
+      // Restore must use frozen content even after the live source loses its object.
+      assert.equal(store.readContentObject(sha256), null);
+      restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "healthy-restore") });
+      assert.throws(
+        () => createLedgerBackup({ rootInput: root, backupDir: path.join(root, "missing"), generation }),
+        new RegExp(`content object ${sha256} is missing`, "u"),
+      );
+      writeFileSync(object, "short");
+      assert.throws(
+        () => createLedgerBackup({ rootInput: root, backupDir: path.join(root, "size"), generation }),
+        new RegExp(`content object ${sha256} size differs`, "u"),
+      );
+      rmSync(payloadObject);
+      assert.throws(
+        () => restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "lost-restore") }),
+        /inventory differs/u,
+      );
+      // A backup made by the old verifier can have an internally consistent inventory while missing a claim.
+      const manifestPath = path.join(backupDir, "manifest.json"),
+        manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      manifest.files = manifest.files.filter(
+        (entry: { path: string }) =>
+          entry.path !== path.relative(path.join(backupDir, "payload"), payloadObject).split(path.sep).join("/"),
+      );
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      for (const verify of [
+        () => readVerifiedLedgerBackup(backupDir),
+        () => restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "incomplete-restore") }),
+        () => drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") }),
+      ])
+        assert.throws(verify, new RegExp(`content object ${sha256} is missing`, "u"));
+    } finally {
+      t.mock.restoreAll();
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 
