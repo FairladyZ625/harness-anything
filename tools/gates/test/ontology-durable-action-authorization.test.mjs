@@ -74,9 +74,23 @@ function hostSnapshot(t) {
 
 function mutate(root, name, before, after) {
   const file = `packages/daemon/src/${name}.ts`,
-    source = readFileSync(path.join(root, file), "utf8");
+    source = readFileSync(path.join(root, file), "utf8").replaceAll("\r\n", "\n");
   assert.ok(source.includes(before), `mutation anchor missing in ${name}: ${before}`);
   writeRepoFile(root, file, source.replaceAll(before, after));
+}
+
+for (const newline of ["\n", "\r\n"]) {
+  test(`G0-2 mutation removes a multiline return with ${newline === "\n" ? "LF" : "CRLF"} and rejects missing anchors`, (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ontology-mutation-")),
+      file = "packages/daemon/src/fixture.ts",
+      before = 'if (decision.outcome === "denied")\n  return rejected();',
+      after = 'if (decision.outcome === "denied")\n  rejected();';
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    writeRepoFile(root, file, before.replaceAll("\n", newline));
+    mutate(root, "fixture", before, after);
+    assert.equal(readFileSync(path.join(root, file), "utf8"), after);
+    assert.throws(() => mutate(root, "fixture", before, after), /mutation anchor missing in fixture/u);
+  });
 }
 
 test("G0-2 traces actual Keycloak host routes and the distinct one-time bootstrap boundary", (t) => {
