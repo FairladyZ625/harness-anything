@@ -366,7 +366,7 @@ function occurrenceAt(trigger: ScheduleTriggerV1, first: string, offset: number)
 }
 
 async function recordMissed(input: MissedOccurrences): Promise<void> {
-  await input.target.execute({
+  const result = await input.target.execute({
     kind: "schedule-missed",
     scheduleId: input.scheduleId,
     from: input.from,
@@ -378,6 +378,10 @@ async function recordMissed(input: MissedOccurrences): Promise<void> {
       ":",
     ),
   });
+  const receipt = makeDaemonCommandReceipt("schedule-missed", result),
+    rejectionCode = daemonCommandReceiptRejectionCode(receipt);
+  if (rejectionCode)
+    throw Object.assign(new Error(`Schedule missed rejected: ${rejectionCode}.`), { code: rejectionCode });
 }
 
 async function applyMissed(inputs: readonly MissedOccurrences[]): Promise<boolean> {

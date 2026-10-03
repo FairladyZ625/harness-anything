@@ -379,6 +379,87 @@ test("a remote-center that wakes past the admission window records its builtin o
   scheduler.close();
 });
 
+test("rejected missed settlements retry without advancing the cursor and re-arm on recovery", async (t) => {
+  for (const mode of ["local", "remote-edge"] as const)
+    for (const wake of ["start", "tick"] as const)
+      await t.test(`${mode}/${wake}`, async () => {
+        const clock = fakeClock(wake === "start" ? "2026-08-27T10:35:00.000Z" : "2026-08-27T10:00:00.000Z"),
+          heartbeat = schedule("heartbeat"),
+          repo = fixtureRepo("missed-rejection", mode, [heartbeat]),
+          warnings: string[] = [],
+          attempts: Readonly<Record<string, unknown>>[] = [],
+          originalWarn = console.warn;
+        let reject = true;
+        const execute = async (action: Readonly<Record<string, unknown>>) => {
+          if (action.kind !== "schedule-missed") return repo.execute(action);
+          attempts.push(action);
+          if (!reject) return repo.execute(action);
+          // Bound the old implementation's immediate recursion by its own third rejection.
+          if (attempts.length === 3) scheduler.close();
+          return {
+            ...(mode === "remote-edge" ? { schema: "command-receipt/v2", command: "schedule-missed", ok: false } : {}),
+            outcome: "op_rejected",
+            code: "authorization_denied",
+            origin: "daemon",
+            evidence: "rejection:authorization_denied",
+          };
+        };
+        repo.cell.run = execute as RepoCell["run"];
+        const scheduler = makeScheduleScheduler({
+          cells: new Map([[repo.repoId, repo.cell]]),
+          localBinding,
+          remoteEdgeAction: async (_repoId, _rootDir, action) => execute(action),
+          now: clock.now,
+          setTimer: clock.setTimer,
+          clearTimer: clock.clearTimer,
+        });
+        console.warn = (message?: unknown) => warnings.push(String(message));
+        try {
+          await scheduler.start();
+          if (wake === "tick") {
+            clock.value = "2026-08-27T10:35:00.000Z";
+            clock.liveTimers()[0]!.callback();
+            await waitUntil(() => attempts.length >= 3 || clock.liveTimers().length === 1);
+          }
+          const assertRetry = (count: number) => {
+            assert.equal(attempts.length, count);
+            assert.equal(repo.actions.filter((kind) => kind === "schedule-list").length, count);
+            assert.equal(heartbeat.status.automaticEvaluatedThrough, "2026-08-27T10:00:00.000Z");
+            assert.deepEqual(repo.missed, []);
+            assert.equal(clock.liveTimers().length, 1);
+            assert.equal(clock.liveTimers()[0]!.delayMs, 1_000);
+            assert.deepEqual(
+              warnings,
+              Array(count).fill(
+                "[schedule-scheduler] missed-rejection/heartbeat missed settlement failed: Schedule missed rejected: authorization_denied.",
+              ),
+            );
+          };
+          // Tick has one initial read to arm its occurrence before the late wake.
+          if (wake === "tick") repo.actions.shift();
+          assertRetry(1);
+          clock.liveTimers()[0]!.callback();
+          await waitUntil(() => attempts.length >= 3 || clock.liveTimers().length === 1);
+          assertRetry(2);
+          assert.deepEqual(attempts[1], attempts[0]);
+
+          reject = false;
+          clock.liveTimers()[0]!.callback();
+          await waitUntil(() => clock.liveTimers().length === 1);
+          assert.equal(attempts.length, 3);
+          assert.deepEqual(attempts[2], attempts[0]);
+          assert.equal(heartbeat.status.automaticEvaluatedThrough, "2026-08-27T10:30:00.000Z");
+          assert.equal(heartbeat.status.missedCount, 1);
+          assert.equal(repo.missed.length, 1);
+          assert.deepEqual(repo.fired, []);
+          assert.equal(clock.liveTimers()[0]!.delayMs, 25 * 60_000);
+        } finally {
+          console.warn = originalWarn;
+          scheduler.close();
+        }
+      });
+});
+
 test("a remote-edge Schedule read that cannot reach the center retries on backoff and re-arms on recovery", async () => {
   const clock = fakeClock("2026-08-27T10:00:00.000Z"),
     edge = fixtureRepo("edge-unreachable", "remote-edge", [schedule("edge-schedule")]),
