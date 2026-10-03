@@ -177,8 +177,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const dryRun = payload.dryRun === true;
     const requestedDispatchId =
         payload.dispatchId === undefined ? undefined : requiredRuntimeSpawnText(payload.dispatchId, "dispatchId"),
-      resumed = admitRuntimeResume(input.rootDir, requestedDispatchId, () =>
-        extracted.requiredRuntimeProjection(input),
+      resumed = admitRuntimeResume(
+        input.rootDir,
+        requestedDispatchId,
+        input.remote ? null : () => extracted.requiredRuntimeProjection(input),
       );
     const explicitRuntimeInstanceId =
         payload.runtimeInstanceId === undefined

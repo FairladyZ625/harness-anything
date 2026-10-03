@@ -16,11 +16,12 @@ import { worktreeSetupFailure } from "./worktree-setup.ts";
 export function admitRuntimeResume(
   rootDir: string,
   dispatchId: string | undefined,
-  projection: () => Pick<TaskProjection, "readRuntimeDispatchByResumeSource">,
+  projection: (() => Pick<TaskProjection, "readRuntimeDispatchByResumeSource">) | null,
 ) {
   const resumed = dispatchId ? readDispatchStream(rootDir, dispatchId) : null;
   if (!dispatchId) return resumed;
-  const resumedDispatch = projection().readRuntimeDispatchByResumeSource(dispatchId);
+  // On an edge the center checks consumption atomically when accepting the dispatch.
+  const resumedDispatch = projection?.().readRuntimeDispatchByResumeSource(dispatchId);
   const admission = runtimeResumeAdmission({
     dispatchId,
     agentId: resumed?.header.agentId ?? null,
@@ -64,7 +65,7 @@ export function resumedDispatchesBySource(
   );
 }
 
-/** The only resume decision point. Read paths supply already-read data and do not reopen streams. */
+/** Stream-backed admission and read models share this availability judgment without reopening streams. */
 export function runtimeResumeAdmission(input: {
   readonly dispatchId: string;
   readonly agentId: string | null;

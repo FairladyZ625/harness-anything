@@ -10,6 +10,7 @@ import {
   type ExecutionV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
+import { derivedTaskActionProtocolCommands } from "./protocol/daemon-protocol-commands-task.ts";
 import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
@@ -239,6 +240,7 @@ export function reviewDispatchPrompt(input: {
       "Record approved or changes_requested through RecordReview; never infer approval from provider success.",
     `Write this execution's review report to harness/${report} and review input to harness/${packet}. ` +
       "These dispatch-specific paths replace any shared report path in your declaration.",
+    derivedTaskActionProtocolCommands.find((command) => command.id === "task-review-execution")!.help,
     `Register with ha task review-execution ${taskId} --execution-id ${execution.executionId} ` +
       `--review-id review-${dispatchId} --from-file harness/${packet}.`,
     "Do not submit, consent, or complete. If the submitted cut changes, stop and report it; " +

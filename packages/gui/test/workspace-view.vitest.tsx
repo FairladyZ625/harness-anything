@@ -408,8 +408,8 @@ describe("overview narrative", () => {
       />,
     );
     const board = host.querySelector<HTMLElement>('[data-testid="work-overview-board"]')!;
-    expect(board.style.gridTemplateColumns).toBe("");
-    expect(host.querySelector('[data-testid="work-overview-split-divider"]')).toBeNull();
+    expect(board.style.gridTemplateColumns).toBe("minmax(0,1fr)");
+    expect(host.querySelector('[data-testid="work-overview-split-divider"]')).not.toBeNull();
     const controls = host.querySelector<HTMLElement>('[data-testid="work-overview-split-controls"]')!;
     const controlButton = (suffix: string) =>
       controls.querySelector<HTMLButtonElement>(`[data-testid="work-overview-split-controls-${suffix}"]`)!;
@@ -432,8 +432,8 @@ describe("overview narrative", () => {
     await act(async () => {
       controlButton("reset").click();
     });
-    expect(board.style.gridTemplateColumns).toBe("");
-    expect(host.querySelector('[data-testid="work-overview-split-divider"]')).toBeNull();
+    expect(board.style.gridTemplateColumns).toBe("minmax(0,1fr)");
+    expect(host.querySelector('[data-testid="work-overview-split-divider"]')).not.toBeNull();
   });
 
   // task_fb3ba20d66…(返工):分割偏好按连接+仓隔离。App 传的是 system status 仓行的
@@ -473,7 +473,7 @@ describe("overview narrative", () => {
     });
     // 同 repoId 换连接:不沿用上一连接的排列,后续写动也不覆盖它。
     const local = await mountOverview("local");
-    expect(local.querySelector('[data-testid="work-overview-split-divider"]')).toBeNull();
+    expect(local.querySelector('[data-testid="work-overview-split-divider"]')).not.toBeNull();
     await act(async () => {
       local.querySelector<HTMLButtonElement>('[data-testid="work-overview-split-controls-column"]')!.click();
     });
@@ -849,7 +849,8 @@ describe("layout adapts without guessed viewport constants(原则 9)", () => {
     expect(scroll.className).toContain("min-h-0");
     expect(scroll.className).toContain("flex-1");
     // 画布宽度跟随容器,不再有横向滚动容器与 52rem 下限。
-    expect(scroll.className).not.toContain("overflow-x-auto");
+    // Real canvas geometry and scrollbar behavior: page-split-layout Electron scenario.
+    expect(scroll.className).toContain("overflow-hidden");
     const canvas = host.querySelector('[data-testid="workspace-graph-canvas"]')!;
     expect(canvas.className).toContain("h-full");
     expect(canvas.className).not.toMatch(/calc\(100vh|min-w-\[/u);

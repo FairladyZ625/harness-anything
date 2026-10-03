@@ -102,8 +102,7 @@ function withCreatePlanBody(rootDir: string, action: RepoTaskAction): RepoTaskAc
       "invalid_command",
       "Use --plan-file <workspace-relative markdown path> as the only plan source.",
     );
-  const { planFile: _planFile, ...rest } = action;
-  return { ...rest, plan: workspaceText(rootDir, action.planFile, "planFile") };
+  return { ...action, plan: workspaceText(rootDir, action.planFile, "planFile") };
 }
 
 export function decisionProposalAction(
