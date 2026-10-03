@@ -236,6 +236,7 @@ export async function runTaskCommandWithDocs(
       current.snapshot,
       bodyOverrides,
       typeof taskAction.commitSha === "string" ? taskAction.commitSha : undefined,
+      binding.source,
     );
     if (!derived.ok) {
       recycleClaims(cell.rootDir, intent);
