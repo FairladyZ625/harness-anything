@@ -274,9 +274,7 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Record an immutable Fact event.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", false, {
-        code: "missing_field",
-      }),
+      cliInput("--task", "single", false, { code: "missing_field" }, { field: "taskId" }),
       cliInput(
         "--statement",
         "single",
@@ -284,7 +282,7 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { conflictsWith: ["--text"] },
+        { field: "statement", conflictsWith: ["--text"] },
       ),
       cliInput(
         "--text",
@@ -293,11 +291,9 @@ export const docFactProtocolCommands = Object.freeze([
         {
           code: "missing_field",
         },
-        { conflictsWith: ["--statement"] },
+        { field: "statement", conflictsWith: ["--statement"] },
       ),
-      cliInput("--source", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput("--source", "single", true, { code: "missing_field" }, { field: "evidenceSource" }),
       cliInput(
         "--observed-at",
         "single",
@@ -327,12 +323,8 @@ export const docFactProtocolCommands = Object.freeze([
         },
         { enum: ["semantic", "episodic", "procedural"] },
       ),
-      cliInput("--type", "repeated", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--memory-tag", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--type", "repeated", false, { code: "invalid_field" }, { field: "domainTypes" }),
+      cliInput("--memory-tag", "repeated", false, { code: "invalid_field" }, { field: "memoryTags" }),
       cliInput(
         "--supersedes",
         "single",

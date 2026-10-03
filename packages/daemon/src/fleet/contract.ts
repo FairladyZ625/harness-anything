@@ -401,7 +401,7 @@ const fleetActionChecks: Readonly<Record<FleetTaskCommandKind, Check>> = {
       kind: one("task-progress-append"),
       taskId: id,
       executionId: id,
-      text,
+      text: bodyText,
       evidence: array(taskEvidence),
       baseDocumentSha256: nullable(sha64),
       asOwner: boolean,
