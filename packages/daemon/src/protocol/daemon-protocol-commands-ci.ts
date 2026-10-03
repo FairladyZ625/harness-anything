@@ -31,8 +31,7 @@ export const ciObservationProtocolCommands = Object.freeze([
         },
         {
           regex: "^(?:[1-9]|[1-9][0-9]|100)$",
-          jsonFields: ["limit"],
-          jsonAllowedFields: ["limit"],
+          projection: "number",
         },
       ),
     ],

@@ -56,6 +56,7 @@ export async function fleetFixture(
   t: TestContext,
   paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"],
   closeoutProfile: "standard" | "strict" = "standard",
+  startExecution = true,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
     repo = path.join(root, "repo"),
@@ -150,16 +151,22 @@ export async function fleetFixture(
   await realizeTaskPlanFixture(
     repo,
     String((created as Record<string, unknown>).packagePath),
-    (planPath) => host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+    async (planPath) => {
+      const planned = await host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture());
+      await waitForReceiptCommit(host, subject.repoId, planned.opId, auth);
+      return planned;
+    },
     "Fleet",
   );
-  const started = await host.run(
-    subject.repoId,
-    { kind: "task-start", taskId: subject.taskId, executionId: subject.executionId },
-    auth,
-  );
-  assert.equal(started.outcome, "applied", JSON.stringify(started));
-  await waitForReceiptCommit(host, subject.repoId, started.opId, auth);
+  if (startExecution) {
+    const started = await host.run(
+      subject.repoId,
+      { kind: "task-start", taskId: subject.taskId, executionId: subject.executionId },
+      auth,
+    );
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    await waitForReceiptCommit(host, subject.repoId, started.opId, auth);
+  }
   return {
     root,
     repo,
@@ -260,6 +267,7 @@ export async function fleetFixture(
           key,
           cert,
           replicaDiskQuotaBytes: diskQuotaBytes,
+          verifyHuman: (auth) => new OidcSessionService(userRoot).bind(auth),
           authenticate: async (nodeId, credential) => {
             const barrier = authenticateBarrier;
             if (barrier) {

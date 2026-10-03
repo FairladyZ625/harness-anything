@@ -28,6 +28,9 @@ import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import { assertTaskTransitionDocumentReady, readOnDiskBody } from "./transition-document-access.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
+import { reviewerArtifactsForReview } from "./reviewer-artifact-publication.ts";
+import { runTaskActionCatalogRuntime } from "./task-action-catalog-runtime.ts";
+import { reviewExecutionSelection } from "./repo-cell-execution-selection.ts";
 
 export type TaskCommandWithDocsAction = RepoTaskAction & {
   readonly docChanges: readonly {
@@ -141,6 +144,21 @@ export async function runTaskCommandWithDocs(
     cell.input.repoId,
     headRevision,
   );
+  if (taskAction.kind === "task-review-execution") {
+    try {
+      const current = await cell.service.read(taskId),
+        selection = reviewExecutionSelection(taskAction, current.snapshot, taskId),
+        submittedOp = cell.projection.readTaskSubmissionOperation(taskId, selection.executionId),
+        submitted = submittedOp === null ? null : cell.store.readEvent(submittedOp);
+      if (!mirrorBaseCut || !submitted || submitted.workspaceRevision > mirrorBaseCut.revision)
+        throw cell.cellCodedError("invalid_proof", "Review report must observe the current submitted cut.");
+      const artifacts = reviewerArtifactsForReview(cell, taskAction, binding, intent);
+      if (!artifacts) throw cell.cellCodedError("review_report_missing", "Review requires its declared report.");
+      return await runTaskActionCatalogRuntime(cell, taskAction, binding, artifacts);
+    } finally {
+      recycleClaims(cell.rootDir, intent);
+    }
+  }
   const adjudication = adjudicateDocIntent(
     {
       binding,

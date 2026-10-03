@@ -226,6 +226,17 @@ export interface EntityActionContract extends EntityActionDescriptorFacets {
 }
 
 export interface EntityActionInputField {
+  /** Constraints of the resolved transport value, after CLI file/JSON expansion. */
+  readonly wire?: {
+    readonly omit?: boolean;
+    readonly required?: boolean;
+    readonly pattern?: string;
+    readonly maxLength?: number;
+    readonly minimum?: number;
+    readonly nullable?: boolean;
+    readonly normalization?: "NFC";
+    readonly enum?: readonly string[];
+  };
   readonly field: string;
   readonly description?: string;
   readonly type?:

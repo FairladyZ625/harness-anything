@@ -88,9 +88,61 @@ test("write-road registry rejects stale legacy rows", () =>
     assert.match(findWriteRoadRegistryViolations(root).join("\n"), /stale or unknown row write-coordinator/u);
   }));
 
+for (const [label, mutate, expected] of [
+  ["missing row", (registry) => registry.rows.shift(), /must occur exactly once/u],
+  ["duplicate row", (registry) => registry.rows.push(registry.rows[0]), /must occur exactly once/u],
+  ["wrong action", (registry) => (registry.rows[0].actions[0] = "task-unknown"), /actions must equal/u],
+  ["omitted action", (registry) => registry.rows[0].actions.pop(), /actions must equal/u],
+  ["reordered actions", (registry) => registry.rows[0].actions.reverse(), /actions must equal/u],
+  ["wrong authority", (registry) => (registry.rows[0].authority = "other.ts"), /authority\/store\/leasePolicy/u],
+  ["wrong store", (registry) => (registry.rows[0].store = "other.ts"), /authority\/store\/leasePolicy/u],
+  ["wrong lease policy", (registry) => (registry.rows[0].leasePolicy = "none"), /authority\/store\/leasePolicy/u],
+  ["empty evidence", (registry) => (registry.rows[0].evidence = []), /evidence must be non-empty/u],
+  ["missing evidence path", (registry) => (registry.rows[0].evidence = ["missing.ts"]), /missing evidence/u],
+  ["stale physical sink", (registry) => registry.physicalWriteFiles.push("missing.ts"), /stale physicalWriteFiles/u],
+]) {
+  test(`write-road registry rejects ${label}`, () =>
+    withFixture((root) => {
+      const file = path.join(root, "tools/write-road-registry.json"),
+        registry = JSON.parse(readFileSync(file, "utf8"));
+      mutate(registry);
+      writeFileSync(file, JSON.stringify(registry));
+      assert.match(findWriteRoadRegistryViolations(root).join("\n"), expected);
+    }));
+}
+
+test("write-road declarations cannot lose their inventory or their thin CLI consumer", () =>
+  withFixture((root) => {
+    const declaration = path.join(root, "packages/kernel/src/domain/action-declaration.ts"),
+      original = readFileSync(declaration, "utf8");
+    writeFileSync(declaration, original.replace("export const actionDeclarations", "const actionDeclarations"));
+    assert.match(findWriteRoadRegistryViolations(root).join("\n"), /actionDeclarations must be exported as an array/u);
+    writeFileSync(
+      declaration,
+      original.replace(
+        'closure("task-complete", "task/complete", "lifecycle.event-publication")',
+        'closure("task-complete", "task/complete")',
+      ),
+    );
+    assert.match(findWriteRoadRegistryViolations(root).join("\n"), /actions must equal/u);
+    writeFileSync(declaration, original.replaceAll("...(writeRoad === undefined ? {} : { writeRoad }),", ""));
+    assert.match(
+      findWriteRoadRegistryViolations(root).join("\n"),
+      /missing lifecycle.event-publication action declarations/u,
+    );
+    writeFileSync(declaration, original);
+    write(root, "packages/cli/src/cli/thin-command.ts", "export {};\n");
+    assert.match(findWriteRoadRegistryViolations(root).join("\n"), /thin CLI is missing lifecycle action/u);
+  }));
+
 function withFixture(run) {
   const root = mkdtempSync(path.join(tmpdir(), "w3-write-roads-"));
   try {
+    write(
+      root,
+      "packages/kernel/src/domain/action-declaration.ts",
+      readFileSync(new URL("../packages/kernel/src/domain/action-declaration.ts", import.meta.url), "utf8"),
+    );
     write(
       root,
       "packages/cli/src/cli/thin-command.ts",
@@ -120,7 +172,7 @@ function withFixture(run) {
           rows: [
             {
               id: "lifecycle.event-publication",
-              actions: ["task-create", "task-submit", "task-review-execution", "task-complete"],
+              actions: ["task-complete", "task-create", "task-review-execution", "task-submit"],
               authority: "packages/daemon/src/repo-cell.ts",
               store: "packages/kernel/src/store/task-event-store.ts",
               leasePolicy: "domain-contract",
@@ -129,13 +181,13 @@ function withFixture(run) {
             {
               id: "workspace.bootstrap",
               actions: [
-                "rbac-bootstrap",
-                "repo-bootstrap",
-                "daemon-repo-register",
                 "ledger-backup",
                 "ledger-restore-drill",
-                "repo-unbind",
+                "daemon-repo-register",
                 "repo-purge",
+                "repo-unbind",
+                "rbac-bootstrap",
+                "repo-bootstrap",
               ],
               authority: "packages/daemon/src/daemon-host.ts",
               evidence: ["packages/daemon/src/daemon-host.ts"],

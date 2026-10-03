@@ -37,6 +37,7 @@ export function fakeKeycloak() {
     permissions = new Map<string, Permission>(),
     users = new Map<string, { id: string; username: string; attributes: Record<string, string[]> }>(),
     tokens = new Map<string, string>(),
+    interactiveSessions = new Map<string, { personId: string; nodeId: string; issuer: string }>(),
     nodeClients = new Map<string, NodeClient>(),
     nodeLogins: { clientId: string; ok: boolean }[] = [],
     profile = { attributes: [{ name: "username" }, { name: "email" }] as { name: string }[] },
@@ -85,6 +86,23 @@ export function fakeKeycloak() {
       method = init?.method ?? "GET",
       body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : undefined,
       bearer = new Headers(init?.headers).get("authorization")?.replace("Bearer ", "");
+    if (url.pathname.endsWith("/protocol/openid-connect/token/introspect")) {
+      const token = (init?.body as URLSearchParams).get("token") ?? "",
+        session = interactiveSessions.get(token);
+      return json(
+        session
+          ? {
+              active: true,
+              exp: Math.floor(Date.now() / 1000) + 3600,
+              iss: `${session.issuer}/realms/${keycloakRealm}`,
+              azp: `harness-node-${session.nodeId}`,
+              aud: ["harness-center"],
+              sub: tokens.get(token),
+              harness_person_id: session.personId,
+            }
+          : { active: false },
+      );
+    }
     if (url.pathname.endsWith("/protocol/openid-connect/token")) {
       const form = init?.body as URLSearchParams;
       if (form.get("grant_type") === "client_credentials") {
@@ -192,6 +210,10 @@ export function fakeKeycloak() {
     if (route === "/users/profile") {
       if (method === "PUT") profile.attributes = (body as typeof profile).attributes;
       return json(profile);
+    }
+    if (/^\/users\/[^/]+$/u.test(route) && method === "GET") {
+      const user = users.get(tail);
+      return user ? json({ ...user, enabled: true }) : json({}, 404);
     }
     if (route === "/users" && method === "GET") {
       const query = url.searchParams.get("q"),
@@ -356,6 +378,10 @@ export function fakeKeycloak() {
       client.attributes = { ...client.attributes, harness_person_id: personId };
       nodeClients.set(clientId, client);
       return client.secret;
+    },
+    interactiveSession(personId: string, nodeId: string, issuer: string): void {
+      if (!tokens.has(`token-${personId}`)) throw new Error(`unknown fixture account ${personId}`);
+      interactiveSessions.set(`token-${personId}`, { personId, nodeId, issuer });
     },
     /** Registers an account the way an administrator would and returns its bearer token. */
     account(personId: string): string {

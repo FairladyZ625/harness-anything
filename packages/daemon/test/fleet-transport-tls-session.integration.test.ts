@@ -8,6 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createServer } from "node:tls";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { digestId } from "../src/fleet/center-transport.ts";
 import {
   readFleetRepositoryMetadataClient,
@@ -34,6 +35,54 @@ import {
   waitForReceiptCommit,
 } from "./fleet-tls-session.fixture.ts";
 type RoundTripOptions = FleetWriteClientOptions & Pick<FleetReplicaPullClientOptions, "viewRoot" | "edgeKillpoint">;
+test(
+  "fact record from the real CLI parser crosses TLS and reaches the canonical ledger",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const center = await fixture.center(),
+      { nodeId, repoId, taskId } = fixture.subject,
+      peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+      metadata = await peer.request({ schema: "fleet.repo.metadata.get/v1", messageId: "fact-metadata", repoId }),
+      statement = "The center records the complete edge observation. ".repeat(20),
+      parsed = parseThinCommand([
+        "fact",
+        "record",
+        "--task",
+        taskId,
+        "--statement",
+        statement,
+        "--source",
+        "test:fleet-fact-cli",
+        "--confidence",
+        "high",
+      ]);
+    assert.equal(metadata.schema, "fleet.repo.metadata.result/v1");
+    assert.equal(parsed.ok, true);
+    if (metadata.schema !== "fleet.repo.metadata.result/v1" || !parsed.ok) return;
+    const result = await peer.request({
+      schema: "fleet.task.command/v1",
+      messageId: "record-fact",
+      writerEpoch: metadata.writerEpoch,
+      opId: "record-fact",
+      repoId,
+      taskId,
+      action: parsed.command.action,
+      docChanges: null,
+      mirrorBaseCut: null,
+    });
+    assert.equal(result.schema, "fleet.task.result/v1");
+    if (result.schema !== "fleet.task.result/v1") return;
+    assert.equal(result.outcome, "applied", JSON.stringify(result));
+    assert.equal(result.receipt?.status, "accepted_durable");
+    const shown = await fixture.host.run(repoId, { kind: "fact-show", factId: result.receipt?.factId }, fixture.auth);
+    assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+    assert.ok(String(shown.evidence).includes(statement), String(shown.evidence));
+    assert.ok(String(shown.evidence).includes("test:fleet-fact-cli"), String(shown.evidence));
+  },
+);
+
 async function runFleetRoundTrip(options: RoundTripOptions) {
   const peer = {
     hostname: options.hostname,

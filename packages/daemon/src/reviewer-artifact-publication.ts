@@ -8,7 +8,9 @@ import {
   runtimeSessionIdFromActor,
   sha256Text,
   type DocEventChange,
+  type DocWriteIntent,
 } from "@harness-anything/kernel";
+import { claimBytes } from "./doc-sync-details.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -19,9 +21,9 @@ import { decisionWritePlan } from "@harness-anything/kernel/internal/domain/deci
 /**
  * The reviewer-authored Markdown report is the physical credential behind every recorded Review.
  * A dispatched review (`review-<dispatchId>`) reports at `artifacts/reports/<dispatchId>.md`; any
- * other review reports at `artifacts/reports/<reviewId>.md`. Recording and consent both require
- * the file to exist on disk with substantive content, so a Review can never be injected from
- * in-memory JSON alone.
+ * other review reports at `artifacts/reports/<reviewId>.md`. Recording requires substantive report
+ * bytes, either already on disk or carried in the same atomic publication. Consent requires the
+ * landed report; a Review packet alone is never sufficient.
  */
 export function reviewReportRelativePath(packagePath: string, reviewId: string): string | null {
   const stem = reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId;
@@ -34,6 +36,7 @@ export function assertPhysicalReviewReport(input: {
   readonly reviewId: string;
   readonly subject: string;
   readonly retry: string;
+  readonly carriedReport?: { readonly path: string; readonly body: string };
 }): {
   readonly path: string;
   readonly sha256: string;
@@ -51,7 +54,9 @@ export function assertPhysicalReviewReport(input: {
         `artifacts/reports/ directory, then retry ${retry}.`,
     );
   const absolute = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...report.split("/"));
-  if (!existsSync(absolute) || !statSync(absolute).isFile())
+  if (input.carriedReport && input.carriedReport.path !== report)
+    throw cellCodedError("review_report_invalid", `Review report must be ${report}.`);
+  if (!input.carriedReport && (!existsSync(absolute) || !statSync(absolute).isFile()))
     throw cellCodedError(
       "review_report_missing",
       `Review ${input.reviewId} has no physical report on disk: expected harness/${report}. ` +
@@ -60,7 +65,7 @@ export function assertPhysicalReviewReport(input: {
     );
   let body: string;
   try {
-    body = new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(absolute));
+    body = input.carriedReport?.body ?? new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(absolute));
   } catch {
     throw cellCodedError(
       "review_report_invalid",
@@ -94,6 +99,7 @@ export function reviewerArtifactsForReview(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
+  intent?: DocWriteIntent,
 ): {
   readonly changes: readonly DocEventChange[];
   readonly blobs: readonly {
@@ -103,14 +109,57 @@ export function reviewerArtifactsForReview(
     readonly body: string;
   }[];
 } | null {
-  const runtimeSessionId = runtimeSessionIdFromActor(binding.actor);
-  if (runtimeSessionId === null) return null;
-  const session = cell.projection.readRuntimeSession(runtimeSessionId),
-    dispatch = session && cell.projection.readRuntimeDispatch(runtimeSessionId, session.definitionSnapshotRef);
-  if (!dispatch) return null;
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     task = cell.projection.read(taskId),
-    dispatchId = dispatch.payload.dispatchId;
+    reviewId = cell.requiredCellText(action.reviewId, "reviewId"),
+    reportPath = task.packagePath && reviewReportRelativePath(task.packagePath, reviewId),
+    runtimeSessionId = runtimeSessionIdFromActor(binding.actor);
+  const session = runtimeSessionId === null ? null : cell.projection.readRuntimeSession(runtimeSessionId),
+    dispatch = session && cell.projection.readRuntimeDispatch(runtimeSessionId!, session.definitionSnapshotRef);
+  if (intent) {
+    if (runtimeSessionId !== null && (!dispatch || reviewId !== `review-${dispatch.payload.dispatchId}`))
+      throw cell.cellCodedError("actor_unauthorized", "Review report must belong to the bound reviewer dispatch.");
+    if (runtimeSessionId === null && binding.actor.executor !== null)
+      throw cell.cellCodedError("actor_unauthorized", "Review report requires a human or bound reviewer runtime.");
+    if (intent.changes.length !== 1 || intent.changes[0]?.path !== reportPath)
+      throw cell.cellCodedError("review_report_invalid", `Review must carry only its declared report: ${reportPath}.`);
+    const change = intent.changes[0]!,
+      candidate = change.candidate,
+      classification = classifyTextualArtifactPath(change.path);
+    if (
+      !candidate ||
+      !classification ||
+      change.policyId !== classification.policyId ||
+      candidate.mediaType !== classification.mediaType
+    )
+      throw cell.cellCodedError("review_report_invalid", "Review report requires its declared textual policy.");
+    if ((cell.projection.readDocument(change.path).document?.blobSha256 ?? null) !== change.baseBlobSha256)
+      throw cell.cellCodedError("base_blob_changed", "Review report base has changed at the center.");
+    const bytes = claimBytes(cell.rootDir, candidate.ref);
+    if (!bytes || bytes.byteLength !== candidate.size)
+      throw cell.cellCodedError("content_claim_mismatch", "Review report bytes do not match the carried claim.");
+    let body: string;
+    try {
+      body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      throw cell.cellCodedError("review_report_invalid", "Review report must be UTF-8 text.");
+    }
+    if (sha256Text(body) !== candidate.sha256)
+      throw cell.cellCodedError("content_claim_mismatch", "Review report digest does not match the carried claim.");
+    return {
+      changes: [
+        {
+          ...change,
+          candidate: { sha256: candidate.sha256, size: candidate.size, mediaType: candidate.mediaType },
+          regionProofs: [],
+        },
+      ],
+      blobs: [{ sha256: candidate.sha256, size: candidate.size, mediaType: candidate.mediaType, body }],
+    };
+  }
+  if (runtimeSessionId === null) return null;
+  if (!dispatch) return null;
+  const dispatchId = dispatch.payload.dispatchId;
   if (!task.packagePath) return null;
   const packet = `${task.packagePath}/artifacts/reports/${dispatchId}.json`,
     report = `${task.packagePath}/artifacts/reports/${dispatchId}.md`,

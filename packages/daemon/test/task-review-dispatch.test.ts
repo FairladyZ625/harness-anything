@@ -83,3 +83,18 @@ test("review input accepts the dispatched field contract and rejects persisted-r
       /Review JSON requires exactly/u,
     );
 });
+
+test("resolved fleet review packets preserve the local packet validation and digest", () => {
+  const value = { verdict: "approved", reason: "Checked the wire cut.", evidenceChecked: ["tests"] };
+  const resolved = { kind: "task-review-execution", taskId: "task_one", reviewId: "review_one", ...value };
+  assert.deepEqual(
+    reviewPacket("/unused", resolved),
+    reviewPacket("/unused", {
+      kind: "task-review-execution",
+      jsonInput: JSON.stringify(value),
+    }),
+  );
+  assert.throws(() => reviewPacket("/unused", { ...resolved, principal: "client" }), /Review JSON requires exactly/u);
+  const { evidenceChecked: _evidence, ...missing } = resolved;
+  assert.throws(() => reviewPacket("/unused", missing), /Review JSON requires exactly/u);
+});

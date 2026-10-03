@@ -417,7 +417,16 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
       "policyTier",
       "receiptSettlement",
       "residency",
+      ...(declaration.writeRoad === undefined ? [] : ["writeRoad"]),
     ]);
+    if (declaration.writeRoad !== undefined) {
+      assert.ok(
+        ["lifecycle.event-publication", "workspace.bootstrap", "daemon.runtime-control"].includes(
+          declaration.writeRoad,
+        ),
+        kind,
+      );
+    }
   }
 
   const catalogActions = new Map(

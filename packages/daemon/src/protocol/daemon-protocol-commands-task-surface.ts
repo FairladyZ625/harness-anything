@@ -19,6 +19,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-settle",
+    payloadFields: [{ field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" }],
     phase: "W3",
     path: ["task", "settle", "<task-id>"],
     summary:

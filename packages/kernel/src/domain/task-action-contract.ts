@@ -13,6 +13,11 @@ import type {
 import { withDerivedActionReturns } from "./entity-action-descriptor.ts";
 import { all, equals, stateTransition } from "./task-action-state-transition.ts";
 
+const wire = (
+  value: EntityActionInputField,
+  constraints: NonNullable<EntityActionInputField["wire"]>,
+): EntityActionInputField => Object.freeze({ ...value, wire: Object.freeze(constraints) });
+
 const stringArrayValue = Object.freeze({ kind: "array" as const, items: Object.freeze({ kind: "string" as const }) });
 // The completion contract is resolved by the center at submit, never supplied by the caller.
 const submissionFields = Object.freeze(
@@ -48,21 +53,21 @@ const reviewFields = Object.freeze(
 );
 const createPacketFields = Object.freeze([
   field("title", "string", true),
-  field("taskId"),
+  wire(field("taskId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
   field("idempotencyKey"),
-  field("parentTaskId"),
+  wire(field("parentTaskId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
   field("workKind", "string", false, taskWorkKinds),
   field("riskTier", "string", false, priorityTiers),
   field("urgency", "string", false, priorityTiers),
   field("verticalId"),
-  field("presetId"),
-  field("profileId"),
+  wire(field("presetId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+  wire(field("profileId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
   field("slug", "string", false, undefined, "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$"),
   field("surfaces", "string-array"),
   field("taskClass", "string", false, taskClasses),
-  field("reviewReturnBudget", "number"),
+  wire(field("reviewReturnBudget", "number"), { minimum: 1 }),
   field("locale", "string", false, settingsLocales),
-  field("createMode", "string", false, ["migration", "import", "admin"]),
+  wire(field("createMode", "string", false, ["migration", "import", "admin"]), { omit: true }),
 ]);
 const packet = (schemaRef: string, fields: readonly EntityActionInputField[]) => Object.freeze({ schemaRef, fields });
 const packetSources = (schemaRef: string, fields: readonly EntityActionInputField[], errorCode = "invalid_field") => [
@@ -92,40 +97,43 @@ const packetSources = (schemaRef: string, fields: readonly EntityActionInputFiel
     errorCode,
   ),
 ];
-const taskId = field("taskId", "string", true);
+const taskId = wire(field("taskId", "string", true), { pattern: "^[A-Za-z0-9_-]{1,96}$" });
 const expectedVersion = field("expectedVersion", "number");
 const optionalPacketFields = (fields: readonly EntityActionInputField[]) =>
   fields.map((item) => Object.freeze({ ...item, required: false }));
 
 const createInput = input([
   cli("title", "string", false, "--title", "single", {}, "missing_field"),
-  cli("taskId", "string", false, "--id"),
+  wire(cli("taskId", "string", false, "--id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
   cli("idempotencyKey", "string", false, "--idempotency-key"),
-  cli("parentTaskId", "string", false, "--work"),
+  wire(cli("parentTaskId", "string", false, "--work"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
   cli("workKind", "string", false, "--kind", "single", { enum: taskWorkKinds }),
   cli("riskTier", "string", false, "--risk-tier", "single", { enum: priorityTiers }),
   cli("urgency", "string", false, "--urgency", "single", { enum: priorityTiers }),
   ...packetSources("TaskCreateInput/v1", createPacketFields),
   cli("verticalId", "string", false, "--vertical"),
-  cli("presetId", "string", false, "--preset"),
-  cli("profileId", "string", false, "--profile"),
+  wire(cli("presetId", "string", false, "--preset"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+  wire(cli("profileId", "string", false, "--profile"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
   cli("slug", "string", false, "--slug", "single", {
     regex: "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$",
   }),
   cli("surfaces", "string-array", false, "--surface", "repeated"),
   cli("taskClass", "string", false, "--task-class", "single", { enum: taskClasses }),
-  cli("reviewReturnBudget", "number", false, "--review-return-budget", "single", {
-    regex: "^[1-9][0-9]*$",
-    projection: "number",
-  }),
-  cli("planFile", "string", false, "--plan-file", "single"),
+  wire(
+    cli("reviewReturnBudget", "number", false, "--review-return-budget", "single", {
+      regex: "^[1-9][0-9]*$",
+      projection: "number",
+    }),
+    { minimum: 1 },
+  ),
+  wire(cli("planFile", "string", false, "--plan-file", "single"), { omit: true }),
   cli("dryRun", "boolean", false, "--dry-run", "boolean"),
   cli("locale", "string", false, "--locale", "single", { enum: settingsLocales }),
-  cli("migration", "boolean", false, "--migration", "boolean"),
-  cli("import", "boolean", false, "--import", "boolean"),
-  cli("admin", "boolean", false, "--admin", "boolean"),
-  field("createMode", "string", false, ["migration", "import", "admin"]),
-  field("plan", "string"),
+  wire(cli("migration", "boolean", false, "--migration", "boolean"), { omit: true }),
+  wire(cli("import", "boolean", false, "--import", "boolean"), { omit: true }),
+  wire(cli("admin", "boolean", false, "--admin", "boolean"), { omit: true }),
+  wire(field("createMode", "string", false, ["migration", "import", "admin"]), { omit: true }),
+  wire(field("plan", "string"), { maxLength: 32 * 1024 }),
 ]);
 
 const taskConcurrency = (
@@ -424,11 +432,14 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       taskId,
       expectedVersion,
-      cli("executionId", "string", false, "--execution-id"),
-      cli("ttlMs", "number", false, "--ttl-ms", "single", {
-        regex: "^[1-9][0-9]*$",
-        projection: "number",
-      }),
+      wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+      wire(
+        cli("ttlMs", "number", false, "--ttl-ms", "single", {
+          regex: "^[1-9][0-9]*$",
+          projection: "number",
+        }),
+        { minimum: 1 },
+      ),
       cli("dryRun", "boolean", false, "--dry-run", "boolean"),
     ]),
     criteria: Object.freeze([
@@ -453,8 +464,10 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       taskId,
       expectedVersion,
-      field("status", "string", true, ["planned", "active", "blocked", "in_review", "done", "cancelled"]),
-      cli("reason", "string", false, "--reason"),
+      wire(field("status", "string", true, ["planned", "active", "blocked", "in_review", "done", "cancelled"]), {
+        enum: ["blocked"],
+      }),
+      wire(cli("reason", "string", false, "--reason"), { required: true }),
       cli("force", "boolean", false, "--force", "boolean"),
     ]),
     criteria: Object.freeze([
@@ -471,11 +484,12 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       taskId,
       expectedVersion,
-      cli("executionId", "string", false, "--execution-id"),
+      wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       cli("commitSha", "string", false, "--commit", "single", { regex: "^[0-9a-f]{40}$" }),
       cli("amend", "boolean", false, "--amend", "boolean"),
       cli("asOwner", "boolean", false, "--as-owner", "boolean"),
       ...optionalPacketFields(submissionFields),
+      field("submission", "json-object"),
     ]),
     criteria: Object.freeze([
       criterion(
@@ -506,13 +520,13 @@ export const declarations: readonly Declaration[] = Object.freeze([
       [
         taskId,
         expectedVersion,
-        cli("executionId", "string", false, "--execution-id"),
+        wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
         cli("forward", "boolean", false, "--forward", "boolean"),
         cli("return", "boolean", false, "--return", "boolean"),
-        cli("reviewer", "string", false, "--reviewer"),
-        cli("runtimeInstanceId", "string", false, "--instance"),
+        wire(cli("reviewer", "string", false, "--reviewer"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+        wire(cli("runtimeInstanceId", "string", false, "--instance"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
         cli("model", "string", false, "--model"),
-        cli("reviewId", "string", false, "--review-id"),
+        wire(cli("reviewId", "string", false, "--review-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
         cli("reason", "string", false, "--note"),
         cli("noteFile", "string", false, "--note-file", "single", {
           conflictsWith: ["--note"],
@@ -545,8 +559,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
       [
         taskId,
         expectedVersion,
-        cli("executionId", "string", false, "--execution-id"),
-        cli("reviewId", "string", true, "--review-id"),
+        wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+        wire(cli("reviewId", "string", true, "--review-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
         ...optionalPacketFields(reviewFields),
         ...packetSources(REVIEW_V1_SCHEMA.id, reviewFields),
       ],
@@ -575,8 +589,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       taskId,
       expectedVersion,
-      cli("executionId", "string", false, "--execution-id"),
-      cli("reviewId", "string", false, "--review-id"),
+      wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+      wire(cli("reviewId", "string", false, "--review-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       cli("dispose", "string-array", false, "--dispose", "repeated"),
       cli("rationale", "string", false, "--rationale"),
     ]),
@@ -597,7 +611,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       taskId,
       expectedVersion,
-      field("executionId"),
+      wire(field("executionId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       field("witnessId"),
       field("commitSha"),
       field("iteration", "number"),
@@ -643,14 +657,17 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       taskId,
       expectedVersion,
-      cli("executionId", "string", false, "--execution-id"),
+      wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       field("ci"),
       field("paths", "string-array"),
-      cli("factHolds", "fact-hold-array", false, "--fact-holds", "repeated", {
-        format: "<fact-id>:<rationale>",
-        regex: "^(?:fact/)?F-[0-9A-HJKMNP-TV-Z]{8}:.+$",
-        projection: "fact-hold-array",
-      }),
+      {
+        ...cli("factHolds", "fact-hold-array", false, "--fact-holds", "repeated", {
+          format: "<fact-id>:<rationale>",
+          regex: "^(?:fact/)?F-[0-9A-HJKMNP-TV-Z]{8}:.+$",
+          projection: "fact-hold-array",
+        }),
+        fields: [field("factRef", "string", true), field("rationale", "string", true)],
+      },
     ]),
     criteria: Object.freeze([
       criterion(
@@ -675,8 +692,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input([
       taskId,
       cli("reason", "string", false, "--reason"),
-      field("terminalExecutionId"),
-      field("terminalRuntimeSessionId"),
+      wire(field("terminalExecutionId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+      wire(field("terminalRuntimeSessionId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
     ]),
     "lease_conflict",
     "The Task has a releasable lease owned by the authenticated holder or an authorized recovery actor.",
@@ -693,7 +710,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
     "archive",
     input(
       [
-        field("taskId"),
+        wire(field("taskId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
         field("taskIds", "string-array"),
         cli("filter", "string", false, "--filter"),
         cli("before", "string", false, "--before"),
@@ -750,7 +767,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
   mutation(
     "contract-migrate",
     input([
-      field("taskId"),
+      wire(field("taskId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       field("mode", "string", true, ["dry-run", "apply"]),
       field("repairPresetSnapshotDigest"),
       field("repairTaskContractBody"),
@@ -797,14 +814,14 @@ const createResult = Object.freeze({
   ...lifecycleResult,
   fields: Object.freeze([
     ...receiptFields,
-    field("taskId", "string", true),
+    wire(field("taskId", "string", true), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
     field("taskStatus", "string", true, ["planned"]),
     field("packagePath", "string", true),
     field("generatedPaths", "string-array", true),
     field("presetDigest", "string", true),
     field("scaffoldDigest", "string", true),
-    field("presetId", "string", true),
-    field("profileId", "string", true),
+    wire(field("presetId", "string", true), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
+    wire(field("profileId", "string", true), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
     field("outputShape", "string", true),
     field("completionGates", "string-array", true),
     field("dryRun", "boolean", true),

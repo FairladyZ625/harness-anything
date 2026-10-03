@@ -243,6 +243,7 @@ export const taskActionDescriptorProjection = {
           { field: "knownGaps", type: "string-array", required: false },
           { field: "residualRisks", type: "string-array", required: false },
           { field: "commitSha", type: "string", required: false },
+          { field: "submission", type: "json-object", required: false },
           { field: "verb", type: "string", required: false, enum: ["submit"] },
           { field: "commandType", type: "string", required: false, enum: ["SubmitExecution"] },
         ],
