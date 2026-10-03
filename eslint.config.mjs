@@ -218,6 +218,23 @@ const packageSyntaxRestrictions = [
   },
 ];
 
+// Date rendering belongs to the shared time model; this adds to the GUI restrictions below.
+const guiRendererTimeFormatRestrictions = [
+  {
+    selector: "CallExpression[callee.type='MemberExpression'][callee.property.name=/^toLocale(Date|Time)?String$/]",
+    message: "Format renderer dates through model/time.ts; do not format dates at page call sites.",
+  },
+  {
+    selector: "NewExpression[callee.object.name='Intl'][callee.property.name='DateTimeFormat']",
+    message: "Create date formatters only in renderer/model/time.ts.",
+  },
+  {
+    selector:
+      "CallExpression[callee.type='MemberExpression'][callee.property.name=/^get(UTC)?(FullYear|Month|Date|Day|Hours|Minutes|Seconds|Milliseconds)$/]",
+    message: "Derive display dates only in renderer/model/time.ts.",
+  },
+];
+
 const crossPackageRelativeSourceSyntaxRestrictions = [
   {
     selector: String.raw`ImportExpression[source.type='Literal'][source.value=/^(?:\.\.\/)+(?:application|kernel|daemon|preset|cli)\/src(?:\/|$)/u]`,
@@ -370,6 +387,18 @@ export default tseslint.config(
     ignores: ["packages/gui/src/main/ipc-handlers.ts", "packages/gui/src/preload/electron-preload.ts"],
     rules: {
       "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...guiIpcRestrictedSyntax],
+    },
+  },
+  {
+    files: ["packages/gui/src/renderer/**/*.{ts,tsx,js,mjs}"],
+    ignores: ["packages/gui/src/renderer/model/time.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...packageSyntaxRestrictions,
+        ...guiIpcRestrictedSyntax,
+        ...guiRendererTimeFormatRestrictions,
+      ],
     },
   },
   {
