@@ -181,9 +181,18 @@ export async function embeddedBrowserLogin(ports: {
     server.listen(0, "127.0.0.1", resolve);
   });
   const interrupted = Promise.withResolvers<never>();
-  const cancelled = () => interrupted.reject(new Error("Sign-in cancelled."));
+  let completing = false;
+  const interrupt = (reason: string) =>
+    interrupted.reject(
+      new Error(
+        completing
+          ? `${reason} The sign-in request was already sent and may still complete. Reopen account settings to check your identity; sign out explicitly if needed.`
+          : reason,
+      ),
+    );
+  const cancelled = () => interrupt("Sign-in cancelled.");
   ports.signal.addEventListener("abort", cancelled, { once: true });
-  const timeout = setTimeout(() => interrupted.reject(new Error("OIDC callback timed out.")), 300_000);
+  const timeout = setTimeout(() => interrupt("OIDC callback timed out."), 300_000);
   try {
     ports.signal.throwIfAborted();
     const address = server.address() as AddressInfo,
@@ -197,6 +206,7 @@ export async function embeddedBrowserLogin(ports: {
     const result = await Promise.race([callback, interrupted.promise]);
     if (result instanceof Error) throw result;
     ports.signal.throwIfAborted();
+    completing = true;
     return requireSuccessfulAuthReply(
       await Promise.race([ports.daemonRequest({ operation: "login-complete", ...result }), interrupted.promise]),
     );

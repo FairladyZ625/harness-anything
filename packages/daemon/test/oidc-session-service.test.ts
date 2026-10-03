@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { OidcSessionService, type OidcSessionPorts, type OidcLoginAuthority } from "../src/oidc-session-service.ts";
 import { localDefaultBinding } from "../src/daemon-host-binding.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -16,7 +16,7 @@ const sessionLifetimeSeconds = 21_600,
   accessTokenSeconds = 60;
 
 /** A Keycloak token endpoint whose refresh tokens slide with use and lapse after `lifetimeSeconds` idle. */
-function fixture(start = 1_000) {
+function fixture(start = 1_000, ports: Partial<OidcSessionPorts> = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-session-")),
     requests: Request[] = [],
     clock = { now: start },
@@ -60,6 +60,7 @@ function fixture(start = 1_000) {
           return Response.json({ error: "invalid_grant" }, { status: 400 });
         return issue();
       }) as typeof fetch,
+      ...ports,
     }),
   };
 }
@@ -339,4 +340,113 @@ test("first administrator closes after one success and access-admin can invite",
     }),
     { ok: true, invited: true, personId: "person-alice" },
   );
+});
+
+const remoteAuthority: OidcLoginAuthority = {
+  url: "https://center.example.test",
+  realm: "harness",
+  clientId: "harness-node-fixture",
+};
+
+for (const late of ["success", "failure"] as const) {
+  test(`late authority ${late} cannot replace a newer PKCE attempt`, async () => {
+    const authority = Promise.withResolvers<OidcLoginAuthority>();
+    let calls = 0;
+    const active = fixture(1_000, {
+      loginAuthority: async () => (++calls === 1 ? authority.promise : remoteAuthority),
+    });
+    const first = active.service.begin("http://127.0.0.1:1111/callback", "old-target");
+    const rejected = assert.rejects(
+      first,
+      late === "success" ? { code: "oidc_login_superseded" } : /authority unavailable/u,
+    );
+    const fresh = await active.service.begin("http://127.0.0.1:2222/callback", "new-target");
+    if (late === "success") authority.resolve(remoteAuthority);
+    else authority.reject(new Error("authority unavailable"));
+    await rejected;
+    assert.equal((await active.service.complete("fresh-code", String(fresh.state))).authenticated, true);
+    const form = new URLSearchParams(await active.requests[0]!.text());
+    assert.equal(form.get("redirect_uri"), "http://127.0.0.1:2222/callback");
+    assert.equal(form.get("code"), "fresh-code");
+    assert.equal(JSON.parse(managedRbacSessionStore(active.root).read()!).loginTarget, "new-target");
+  });
+}
+
+test("an old or unknown callback does not consume the current attempt", async () => {
+  const { service, requests } = fixture();
+  const old = await service.begin("http://localhost:1111/callback");
+  const fresh = await service.begin("http://localhost:2222/callback");
+  for (const state of [String(old.state), "unknown-state"]) {
+    await assert.rejects(service.complete("old-code", state), { code: "oidc_state_invalid" });
+  }
+  assert.equal(requests.length, 0);
+  assert.equal((await service.complete("fresh-code", String(fresh.state))).authenticated, true);
+  await assert.rejects(service.complete("replay", String(fresh.state)), { code: "oidc_state_invalid" });
+});
+
+for (const stage of ["token", "userinfo"] as const) {
+  test(`an old complete delayed at ${stage} cannot overwrite a newer identity`, async () => {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const active = fixture(1_000, {
+      fetch: (async (input, init) => {
+        const token = String(input).endsWith("/token");
+        const code = token
+          ? (init!.body as URLSearchParams).get("code")
+          : JSON.parse(
+              Buffer.from(new Headers(init?.headers).get("authorization")!.split(".")[1]!, "base64url").toString(),
+            ).person;
+        if (code === "old" && (stage === "token") === token) {
+          entered.resolve();
+          await release.promise;
+        }
+        return Response.json(
+          token
+            ? {
+                access_token: `x.${Buffer.from(JSON.stringify({ person: code })).toString("base64url")}.x`,
+                refresh_token: "fixture-refresh",
+                expires_in: 300,
+                refresh_expires_in: 1800,
+              }
+            : { sub: code, harness_person_id: code },
+        );
+      }) as typeof fetch,
+    });
+    const first = await active.service.begin("http://localhost:1111/callback");
+    const completed = active.service.complete("old", String(first.state));
+    const rejected = assert.rejects(completed, { code: "oidc_login_superseded" });
+    await entered.promise;
+    const fresh = await active.service.begin("http://localhost:2222/callback");
+    assert.equal((await active.service.complete("fresh", String(fresh.state))).personId, "fresh");
+    release.resolve();
+    await rejected;
+    assert.equal((await active.service.status()).personId, "fresh");
+  });
+}
+
+test("logout invalidates authority discovery before it can publish a pending login", async () => {
+  const authority = Promise.withResolvers<OidcLoginAuthority>();
+  const { service } = fixture(1_000, { loginAuthority: () => authority.promise });
+  const begun = service.begin("http://localhost:1111/callback", "remote-target");
+  const rejected = assert.rejects(begun, { code: "oidc_login_superseded" });
+  await service.logout();
+  authority.resolve(remoteAuthority);
+  await rejected;
+  assert.equal((await service.status()).authenticated, false);
+});
+
+test("independent daemons reject each other's state without consuming their own login", async () => {
+  const first = fixture(1_000, {
+    randomBytes: ((size: number) => Buffer.alloc(size, 10)) as OidcSessionPorts["randomBytes"],
+  });
+  const second = fixture(1_000, {
+    randomBytes: ((size: number) => Buffer.alloc(size, 20)) as OidcSessionPorts["randomBytes"],
+  });
+  const a = await first.service.begin("http://localhost:1111/callback");
+  const b = await second.service.begin("http://localhost:2222/callback");
+  await assert.rejects(first.service.complete("wrong-node", String(b.state)), { code: "oidc_state_invalid" });
+  await assert.rejects(second.service.complete("wrong-node", String(a.state)), { code: "oidc_state_invalid" });
+  assert.equal(first.requests.length + second.requests.length, 0);
+  assert.equal((await first.service.complete("a", String(a.state))).authenticated, true);
+  assert.equal((await second.service.complete("b", String(b.state))).authenticated, true);
 });

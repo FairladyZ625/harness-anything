@@ -15,6 +15,7 @@ interface RbacConfig {
 }
 
 interface PendingLogin {
+  readonly generation: number;
   readonly state: string;
   readonly verifier: string;
   readonly redirectUri: string;
@@ -82,6 +83,7 @@ export class OidcSessionService {
   readonly #rbacRoot: string;
   readonly #ports: OidcSessionPorts;
   #pending: PendingLogin | undefined;
+  #loginGeneration = 0;
   #device: PendingDeviceLogin | undefined;
   #writes: Promise<unknown> = Promise.resolve();
 
@@ -94,11 +96,16 @@ export class OidcSessionService {
     const redirect = new URL(redirectUri);
     if (redirect.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(redirect.hostname))
       throw coded("oidc_redirect_invalid", "OIDC callback must use a loopback HTTP address.");
-    const authority = await this.#loginAuthority(loginTarget),
-      verifier = this.#ports.randomBytes(32).toString("base64url"),
+    // This daemon owns one browser login. Claim it before remote discovery can yield.
+    const generation = ++this.#loginGeneration;
+    this.#pending = undefined;
+    const authority = await this.#loginAuthority(loginTarget);
+    this.#assertLoginGeneration(generation);
+    const verifier = this.#ports.randomBytes(32).toString("base64url"),
       state = this.#ports.randomBytes(24).toString("base64url"),
       challenge = createHash("sha256").update(verifier).digest("base64url");
     this.#pending = {
+      generation,
       state,
       verifier,
       redirectUri: redirect.toString(),
@@ -124,9 +131,9 @@ export class OidcSessionService {
 
   async complete(code: string, state: string): Promise<Record<string, unknown>> {
     const pending = this.#pending;
-    this.#pending = undefined;
     if (!pending || pending.state !== state || this.#ports.now() - pending.createdAt > 5 * 60_000)
       throw coded("oidc_state_invalid", "OIDC callback state is missing, mismatched, or expired.");
+    this.#pending = undefined;
     const authority = pending.authority,
       tokenUrl = `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/token`,
       tokenResponse = await this.#ports.fetch(tokenUrl, {
@@ -142,7 +149,17 @@ export class OidcSessionService {
       });
     if (!tokenResponse.ok)
       throw coded("oidc_code_rejected", `Keycloak token exchange returned HTTP ${tokenResponse.status}.`);
-    return this.#acceptTokens((await tokenResponse.json()) as Record<string, unknown>, authority, pending.loginTarget);
+    return this.#acceptTokens(
+      (await tokenResponse.json()) as Record<string, unknown>,
+      authority,
+      pending.loginTarget,
+      pending.generation,
+    );
+  }
+
+  #assertLoginGeneration(generation: number): void {
+    if (generation !== this.#loginGeneration)
+      throw coded("oidc_login_superseded", "A newer login or logout superseded this sign-in attempt.");
   }
 
   async beginDevice(loginTarget?: string): Promise<Record<string, unknown>> {
@@ -224,6 +241,7 @@ export class OidcSessionService {
     tokens: Record<string, unknown>,
     authority: OidcLoginAuthority,
     loginTarget?: string,
+    generation?: number,
   ): Promise<Record<string, unknown>> {
     const accessToken = requiredString(tokens.access_token, "access_token"),
       userResponse = await this.#ports.fetch(
@@ -236,7 +254,13 @@ export class OidcSessionService {
       subject = requiredString(user.sub, "sub"),
       personId = typeof user.harness_person_id === "string" ? user.harness_person_id : subject;
     const session = this.#issued(tokens, { subject, personId, ...(loginTarget ? { loginTarget } : {}) });
-    this.#writeSession(session);
+    if (generation === undefined) this.#writeSession(session);
+    else
+      await this.serialize(async () => {
+        // Serialize with renewal/logout; a late exchange must not replace the newer session.
+        this.#assertLoginGeneration(generation);
+        this.#writeSession(session);
+      });
     return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
   }
 
@@ -265,6 +289,7 @@ export class OidcSessionService {
 
   /** Queued behind a renewal in flight, so a session that is being renewed stays signed out. */
   logout(): Promise<Record<string, unknown>> {
+    ++this.#loginGeneration;
     this.#pending = undefined;
     this.#device = undefined;
     return this.serialize(async () => {
