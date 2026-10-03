@@ -4,6 +4,7 @@ export default {
   lane: "isolated",
   description: "Terminal launch, attach, and sidebar resize controls are interactive.",
   async run({ page }) {
+    await page.getByRole("button", { name: /^(?:终端|Terminal)$/u }).click();
     await page.getByTestId("terminal-launch-options").click();
     await page.getByTestId("terminal-launch-options").waitFor();
     await page.keyboard.press("Escape");

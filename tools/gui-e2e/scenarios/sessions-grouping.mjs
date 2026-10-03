@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import path from "node:path";
 import { canonicalEventWritePlan, makeTaskEventStore, makeTaskProjection } from "../../../packages/kernel/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { nav } from "./helpers.mjs";
+import { assertUnscrolledLayout, nav } from "./helpers.mjs";
 
 /**
  * #2225 会话页:状态筛选 + 按缺失原因命名的 unattributed 三桶。
@@ -183,7 +185,7 @@ export default {
   lane: "isolated",
   description:
     "Seeded runtime sessions group into reason-named unattributed buckets, the status filter narrows the list and says so, and totals.sessions agree across group-by dimensions.",
-  async run({ page, app }) {
+  async run({ page, app, runRoot, shot }) {
     // 隔离 daemon 的仓先 warming 后 attached:分组读在 warming 期会被拒(bootstrap_failed)
     // 且 react-query 只重试一次。先等系统读面说仓已挂载,再进会话页。
     const deadline = Date.now() + 20_000;
@@ -211,11 +213,17 @@ export default {
       width: globalThis.innerWidth,
       height: globalThis.innerHeight,
     }));
+    const layouts = [];
     for (const width of [1100, 1440]) {
       await page.setViewportSize({ width, height: originalViewport.height });
       await page
         .getByTestId(width === 1100 ? "sessions-status-filter-menu" : "sessions-status-failed")
         .waitFor({ state: "visible" });
+      layouts.push({
+        viewportWidth: width,
+        layout: await assertUnscrolledLayout(page.getByTestId("sessions-toolbar"), "button, input"),
+      });
+      await shot(`sessions-toolbar-${width}`);
       // 状态筛选:开启后列表只剩该状态,计数行把「筛选已开」说出来。
       await toggleFailedFilter(page);
       await page.getByTestId("session-group-unattributed:no-task").waitFor();
@@ -238,6 +246,7 @@ export default {
       await page.getByTestId("session-group-unattributed:no-dispatch").waitFor();
     }
     await page.setViewportSize(originalViewport);
+    writeFileSync(path.join(runRoot, "sessions-toolbar-layout.json"), `${JSON.stringify(layouts, null, 2)}\n`);
 
     // 4. 各维度 totals.sessions 相等:对照 daemon 的 runtime-session-groups 读命令。
     const { endpoint, repoId } = await isolatedDaemonTarget(app);
