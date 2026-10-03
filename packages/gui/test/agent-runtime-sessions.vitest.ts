@@ -509,6 +509,30 @@ describe("sessions page: single-session groups", () => {
     expect(markup).not.toContain("h-[25px]");
   });
 
+  it("makes the task group head and its round rows different shapes: semibold head, single-line rounds under a guide line", () => {
+    // 层次裁定(task_666b2539):父子关系不能只靠缩进——组头半粗两行,子行 40px 单行,
+    // 第几轮打头、Agent 名降为行内弱色,整组子行挂在连续 border-l 细竖线容器里。
+    const markup = groupList();
+    const head = markup.slice(
+      markup.indexOf('data-testid="session-group-toggle-task_1994d52c"'),
+      markup.indexOf('data-testid="session-group-body-task_1994d52c"'),
+    );
+    expect(head).toContain("font-semibold");
+    expect(head).toContain('title="GUI 会话页重构"');
+    const body = markup.slice(
+      markup.indexOf('data-testid="session-group-body-task_1994d52c"'),
+      markup.indexOf('data-testid="session-group-unattributed:no-squad"'),
+    );
+    expect(body).toContain("border-l border-border");
+    // 子行是单行 40px 档,不再与组头同高同字形;轮次打头,Agent/委派是弱色行内补充。
+    expect(body).toContain("min-h-10");
+    expect(body).not.toContain("min-h-14");
+    expect(body.indexOf(">Round 1<")).toBeLessThan(body.indexOf('data-testid="runtime-classification-runtime-0"'));
+    // disclosure 语义:组头控制组体。
+    expect(markup).toContain('aria-controls="session-group-body-task_1994d52c"');
+    expect(markup).toContain('id="session-group-body-task_1994d52c"');
+  });
+
   it("names each unattributed bucket after the thing that is missing, not one shared word", () => {
     const markup = groupList({
       expandedKeys: new Set(),

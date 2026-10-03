@@ -19,7 +19,7 @@ import {
   seedTriadicReviewAwait,
   writeTriadicLedger,
 } from "../../packages/gui/test-support/triadic-ledger.mjs";
-import { seedGuiE2eRuntimeSessions } from "./scenarios/sessions-grouping.mjs";
+import { seedGuiE2eRuntimeSessions, seedGuiE2eSessionTasks } from "./scenarios/sessions-grouping.mjs";
 import { warmDaemonProjection } from "../e2e-probe.mjs";
 
 // Long script-free HTML report: tall enough that a 150px-default webview clips after
@@ -132,6 +132,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
   const originalTmpdir = process.env.TMPDIR;
   process.env.TMPDIR = "/tmp";
   let fixture;
+  let sessionTaskPackages;
   try {
     fixture = await startGuiResidentDaemonFixture({
       prefix: "hg-",
@@ -139,10 +140,15 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       repoId: "gui-e2e-catalog",
       task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
       afterRestart: seedTriadicReviewAwait,
+      // 层次 fixture 的任务实体要在 daemon 停机前经 repo.task.create 落进投影;
+      // 事件与派工归档仍在停机窗口里种(sessions-grouping 场景自持)。
+      beforeStop: async (endpoint, repoId) => {
+        sessionTaskPackages = await seedGuiE2eSessionTasks(endpoint, repoId);
+      },
       beforeRestart: async (rootDir, repoId, writerFence) => {
         await seedTriadicEvents(rootDir, repoId, writerFence);
         await seedSupersedeChain(rootDir, repoId, writerFence);
-        await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence);
+        await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, sessionTaskPackages);
       },
     });
   } finally {

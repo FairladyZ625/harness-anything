@@ -860,9 +860,11 @@ test("reconciliation uses immutable source, import evidence, row digests, outcom
   assert.deepEqual(exact.expected, { events: 3, outcomes: 3, objects: 0 });
   const db = new DatabaseSync(databasePath);
   try {
+    const originalEventJson = db.prepare("SELECT event_json FROM event WHERE revision=2").get()!.event_json as string;
     db.prepare("UPDATE event SET event_json=event_json || ? WHERE revision=2").run(" ");
     assert.equal(reconcile().rowDigestMatches, false);
-    db.prepare("UPDATE event SET event_json=? WHERE revision=2").run(serializePersistedCanonicalEvent(events[1]!));
+    db.prepare("UPDATE event SET event_json=? WHERE revision=2").run(originalEventJson);
+    assert.equal(reconcile().matches, true);
     db.prepare("UPDATE command_outcome SET last_revision=3 WHERE first_revision=2").run();
     assert.equal(reconcile().outcomeMatches, false);
     db.prepare("UPDATE command_outcome SET last_revision=2 WHERE first_revision=2").run();

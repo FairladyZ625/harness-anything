@@ -355,6 +355,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
       [
         { name: "submission-completion-contract", count: 0, firstRevision: null, lastRevision: null },
         { name: "task-v2-snapshots", count: 0, firstRevision: null, lastRevision: null },
+        { name: "entity-owned-content-manifests", count: 0, firstRevision: null, lastRevision: null },
         { name: "legacy-import-normalization", count: 0, firstRevision: null, lastRevision: null },
         { name: "relation-events", count: 0, firstRevision: null, lastRevision: null },
         { name: "review-submission-pins", count: 0, firstRevision: null, lastRevision: null },
@@ -860,7 +861,10 @@ test("Task/v2 snapshot migration preserves lifecycle and relation final state", 
         },
         {
           ...legacyLifecycle,
-          task: legacyLifecycle.task === null ? null : currentTaskForWrite(legacyLifecycle.task),
+          task:
+            legacyLifecycle.task === null
+              ? null
+              : { ...currentTaskForWrite(legacyLifecycle.task), packageDisposition: "active" },
         },
       );
       assert.deepEqual(
@@ -1215,7 +1219,10 @@ test("pre-freeze conversion refuses incorrect source review and consent bindings
         /invalid source/u,
       );
     }
-    const frozen = lifecycleFixture().events;
+    const frozen = lifecycleFixture().events.map((event) => ({
+      ...event,
+      payload: { ...event.payload, task: { ...event.payload.task, packageDisposition: "active" as const } },
+    }));
     const unchanged = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(frozen, () => null) });
     assert.equal(unchanged.rewrites.length, 0);
     assert.deepEqual(unchanged.events, frozen);

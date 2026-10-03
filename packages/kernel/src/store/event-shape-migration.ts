@@ -31,6 +31,7 @@ import {
 import { isRelationEvent } from "../domain/relation-event.ts";
 import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
 import { isTaskEvent, serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
+import { isEntityEvent, ownedContentForDeclarationEvent } from "../domain/entity-event.ts";
 import { validateTaskV2, type TaskV2 } from "../domain/task.ts";
 import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
@@ -48,6 +49,7 @@ import type { CanonicalContentBlob, CanonicalEventStore } from "./task-event-sto
 // replayed at their historical cuts; the planner neither mutates the source nor publishes into an
 // active store. Conversion validates the complete plan before seeding an inactive destination.
 export type EventShapeMigrationName =
+  | "entity-owned-content-manifests"
   | "task-v2-snapshots"
   | "legacy-import-normalization"
   | "relation-events"
@@ -60,6 +62,7 @@ export type EventShapeMigrationName =
   | "ci-workflow-verification"
   | "ci-run-observation-v3";
 export type EventShapeMigrationKind =
+  | "entity-owned-content-manifests-migrate"
   | "task-v2-snapshots-migrate"
   | "legacy-import-normalization-migrate"
   | "relation-events-migrate"
@@ -130,8 +133,13 @@ const taskV2SnapshotsMigration: EventShapeMigrationSpec = {
   name: "task-v2-snapshots",
   // A non-empty carrier reads the relation aggregate at the pre-event cut. In particular,
   // task_relation_added becomes the canonical relation event before later snapshots drop the
-  // retired hosted field.
-  matches: (event) => (taskWithRetiredRelations(event)?.relations.length ?? 0) > 0,
+  // retired hosted field. Match the raw carrier: another migration may normalize its task
+  // into validity within this batch, but cannot retroactively publish its required cut.
+  matches: (event) => {
+    const carrier = isTaskEvent(event) ? event : asTaskBootstrapEvent(event);
+    const relations = (carrier?.payload.task as (TaskV2 & { readonly relations?: unknown }) | undefined)?.relations;
+    return Array.isArray(relations) && relations.length > 0;
+  },
   rewrite: (event, cut) => {
     const legacy = taskWithRetiredRelations(event);
     if (legacy === null) return null;
@@ -190,6 +198,7 @@ function normalizeEmbeddedTaskToCurrentTaskV2(task: TaskV2): TaskV2 | null {
     ...current,
     schema: "task/v2",
     ...(Object.hasOwn(current, "pinned") ? {} : { pinned: false }),
+    ...(current.packageDisposition === undefined ? { packageDisposition: "active" as const } : {}),
   };
   if (normalized.metadata !== undefined) {
     const { longRunning: _retiredLongRunning, ...metadata } = normalized.metadata as TaskV2["metadata"] & {
@@ -754,8 +763,27 @@ export const ciRunObservationV3Migration = {
   },
 } satisfies EventShapeMigrationSpec;
 
+// Pre-manifest upserts accepted exactly the declaration claim already carried by the event.
+// Observed/updated declarations own additional content that cannot be inferred from that claim.
+const entityOwnedContentMigration: EventShapeMigrationSpec = {
+  name: "entity-owned-content-manifests",
+  matches: () => false,
+  rewrite: (event) => {
+    if (!isEntityEvent(event) || event.type !== "entity_upserted" || Object.hasOwn(event.payload, "ownedContent"))
+      return null;
+    const ownedContent = ownedContentForDeclarationEvent(event);
+    return {
+      event: { ...event, payload: { ...event.payload, ownedContent } } as CanonicalEventV1,
+      category: "pre-manifest upsert owned-content manifest restored",
+      before: null,
+      after: ownedContent,
+    };
+  },
+};
+
 export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, EventShapeMigrationSpec>> = {
   "task-v2-snapshots-migrate": taskV2SnapshotsMigration,
+  "entity-owned-content-manifests-migrate": entityOwnedContentMigration,
   "legacy-import-normalization-migrate": legacyImportNormalizationMigration,
   "relation-events-migrate": relationEventsMigration,
   "review-submission-pins-migrate": reviewSubmissionPinsMigration,
