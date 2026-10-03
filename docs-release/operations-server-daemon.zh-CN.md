@@ -149,6 +149,18 @@ ha daemon service uninstall   # 停止被托管的 daemon 并移除单元
 单元记录的是执行 `install` 的那个 shell 的 `PATH`，daemon 通过它找到 `git` 与各 agent CLI。
 `PATH`、Node.js 位置或 Harness Anything 的 checkout 变化之后，重新执行一次 `install`。
 
+若 HTTPS 端点使用私有 CA，安装时显式提供 PEM 文件：
+
+```bash
+NODE_EXTRA_CA_CERTS=/path/to/ca.pem ha daemon service install
+```
+
+单元只保留这个路径和 `PATH`，不复制其余 shell 环境变量。相对 CA 路径按安装进程的当前目录
+转成绝对路径，文件需始终对服务用户可读。证书验证保持开启，Node 在进程启动时读取额外证书。
+更换路径时带新值重新执行 `install`；移除时不带该变量重新安装，单元发生变化会重新加载。
+若只替换同一路径的文件内容，执行 `ha daemon stop` 再执行 `ha daemon start --service` 重新读取证书。
+这配置的是包括 OIDC 在内的 Node HTTPS 信任；Fleet 独立的 `caPath` 不会配置 OIDC 信任。
+
 开机后无人登录也要启动，需要一个 Harness Anything 不代做的特权步骤：Linux 上执行
 `loginctl enable-linger <user>`，macOS 上为该用户打开自动登录。
 

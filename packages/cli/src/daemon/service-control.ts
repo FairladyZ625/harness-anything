@@ -77,6 +77,7 @@ export async function runDaemonServiceControl(
       execPath: process.execPath,
       entry: daemonServeEntry(),
       searchPath: process.env.PATH ?? "",
+      extraCaCerts: process.env.NODE_EXTRA_CA_CERTS,
     }),
     changed = !existsSync(unit.unitPath) || readFileSync(unit.unitPath, "utf8") !== content;
   // A loaded unit keeps running its old definition, so a changed one is unloaded before it is replaced.
