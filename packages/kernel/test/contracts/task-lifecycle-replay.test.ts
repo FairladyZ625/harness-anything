@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   REPLAY_TASK_GRAPH,
+  compileCompletionGateWitness,
   compileExecutionAnnotation,
   compileTaskLifecycleWrite,
   currentTaskForWrite,
@@ -13,6 +14,7 @@ import {
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
 import { lifecycleFixture, implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
+import { completionEvidenceBasis } from "../../src/domain/completion-evidence.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
 import { validateTaskGraph } from "../../src/domain/task-graph.ts";
 import {
@@ -590,4 +592,94 @@ test("execution annotation appends one note to a historical execution without re
         }),
       /annotation|append/u,
     );
+});
+
+test("admitted frozen gate witnesses replay outside the task declaration", () => {
+  const gates = [
+    {
+      gateId: "ci",
+      appliesTo: "code" as const,
+      witness: {
+        adapterId: "github-actions" as const,
+        adapterOptions: {
+          workflows: ["rewrite-ci"],
+          branch: "main",
+          event: "push",
+          coverage: "exact" as const,
+          selection: "newest" as const,
+        },
+      },
+    },
+  ];
+  const fixture = lifecycleFixture({ gates, complete: false });
+  const snapshot = { ...fixture.snapshot, task: { ...fixture.snapshot.task!, completionGateIds: [] } };
+  const execution = snapshot.executions[0]!;
+  const event = compileCompletionGateWitness({
+    snapshot,
+    taskId: snapshot.task.taskId,
+    executionId: execution.executionId,
+    gateId: "ci",
+    result: "pass",
+    receiptId: "op-frozen",
+    checkerId: "ci",
+    commitSha: execution.submission!.commitSha,
+    iteration: execution.iteration,
+    reviewGate: true,
+    actor: implementer,
+    source: "local",
+    opId: "op-frozen",
+    eventId: "event-frozen",
+    workspaceRevision: snapshot.revision + 1,
+    occurredAt: "2026-08-11T00:05:00.000Z",
+    packagePath: null,
+    currentDocuments: [],
+    evidence: {
+      schema: "completion-evidence/v1",
+      checkerId: "ci",
+      gateId: "ci",
+      result: "pass",
+      observed: true,
+      basis: completionEvidenceBasis(execution),
+      provenance: { source: "runner", adapterId: "github-actions", runId: "run-frozen", rawResult: "success" },
+    },
+  }).event;
+  assert.equal(reduceTaskEvent(snapshot, event).gateWitnesses.length, 1);
+  for (const invalid of [
+    { gateId: "unknown" },
+    { executionId: "other" },
+    { commitSha: "b".repeat(40) },
+    { iteration: execution.iteration + 1 },
+  ]) {
+    assert.throws(
+      () =>
+        reduceTaskEvent(snapshot, {
+          ...event,
+          payload: { ...event.payload, witness: { ...event.payload.witness, ...invalid } },
+        }),
+      /not bound to the execution cut/u,
+    );
+  }
+  const wrongScope = {
+    ...execution,
+    submission: {
+      ...execution.submission!,
+      completionContract: {
+        gates: gates.map((gate) => ({ ...gate, appliesTo: "artifacts" as const })),
+      },
+    },
+  };
+  assert.throws(
+    () =>
+      reduceTaskEvent(
+        { ...snapshot, executions: [wrongScope] },
+        {
+          ...event,
+          payload: {
+            ...event.payload,
+            execution: wrongScope,
+          },
+        },
+      ),
+    /not bound to the execution cut/u,
+  );
 });

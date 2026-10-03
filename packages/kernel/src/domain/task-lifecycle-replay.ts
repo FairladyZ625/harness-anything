@@ -729,7 +729,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
             ? { gateId: event.payload.witness.gateId, appliesTo: "submission" as const }
             : undefined);
       return (
-        !snapshot.task?.completionGateIds.includes(event.payload.witness.gateId) ||
+        !completionGateIds(snapshot.task?.completionGateIds ?? [], submission).includes(event.payload.witness.gateId) ||
         event.payload.witness.executionId !== event.payload.execution.executionId ||
         event.payload.witness.commitSha !== submission?.commitSha ||
         event.payload.witness.iteration !== event.payload.execution.iteration ||
