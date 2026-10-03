@@ -276,6 +276,63 @@ test("backup and restore reject missing or wrong-sized accepted content in gener
   }
 });
 
+test("capture boundary freezes SQLite, authored bytes and legacy events before validation", () => {
+  for (const kind of ["sqlite", "legacy"]) {
+    const root = fixture(kind),
+      backupDir = path.join(os.tmpdir(), `ha-backup-cut-${kind}-${process.pid}-${Date.now()}`),
+      note = path.join(root, "harness", "cut.md");
+    let store: ReturnType<typeof openSqliteEventStore> | undefined;
+    try {
+      writeFileSync(note, "before cut\n");
+      writeFileSync(
+        path.join(root, "harness/harness.yaml"),
+        "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n",
+      );
+      if (kind === "sqlite") {
+        store = openSqliteEventStore({ repoId: "backup-test", rootInput: root, generation: 1 });
+        store.appendCommand({
+          fence: { repoId: "backup-test", holder: "test", epoch: 1 },
+          intent: {
+            opId: event.opId,
+            intentDigest: `sha256:${sha256Text(JSON.stringify(event))}`,
+            summary: event.type,
+          },
+          events: [event],
+        });
+        store.close();
+        store = undefined;
+      }
+      let captured = false;
+      const manifest = createLedgerBackup({
+        rootInput: root,
+        backupDir,
+        onSnapshotCaptured: () => {
+          captured = true;
+          assert.equal(readFileSync(path.join(backupDir, "payload/harness/cut.md"), "utf8"), "before cut\n");
+          writeFileSync(note, "after cut\n");
+          if (kind === "sqlite") {
+            const database = new DatabaseSync(sqliteLedgerPath(root, 1));
+            database.prepare("UPDATE ledger_meta SET revision=99 WHERE singleton=1").run();
+            database.close();
+          } else {
+            execFileSync("git", ["update-ref", "-d", "refs/ha/canonical"], { cwd: path.join(root, "harness") });
+          }
+        },
+      });
+      assert.equal(captured, true);
+      assert.deepEqual(manifest.accepted, { revision: 1, opIds: 1 });
+      const restored = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") });
+      assert.equal(readOfflineLedgerEvents({ rootInput: restored.shadowRoot }).length, 1);
+      assert.equal(readFileSync(path.join(restored.shadowRoot, "harness/cut.md"), "utf8"), "before cut\n");
+      assert.equal(readFileSync(note, "utf8"), "after cut\n");
+    } finally {
+      store?.close();
+      rmSync(root, { recursive: true, force: true });
+      rmSync(backupDir, { recursive: true, force: true });
+    }
+  }
+});
+
 test("restore drill rolls shadows by retention, preserves unrelated directories and reports removals", () => {
   const root = fixture("retention"),
     backupDir = path.join(os.tmpdir(), `ha-backup-retention-${process.pid}-${Date.now()}`),
