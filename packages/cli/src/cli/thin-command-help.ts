@@ -16,6 +16,14 @@ export type ThinHelpCatalogEntry = {
 export const clientLocalCommands = [
   generationMigrationCommand,
   {
+    id: "daemon-metrics",
+    path: ["daemon", "metrics"],
+    usage:
+      "ha daemon metrics [--window 15m|1h|24h|7d] [--root <path>] [--repo <id>] [--user-root <path>] [--daemon-id <id>] [--json]",
+    summary: "Read retained request-log coverage and daemon latency; excludes active awaits from latency.",
+    help: "    Defaults to 24h. Retained samples only; no CLI-only or complete-window traffic estimate.",
+  },
+  {
     id: "ledger-restore-offline",
     path: ["restore"],
     usage: "ha restore <backup-directory> --to <absolute-directory>",
