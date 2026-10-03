@@ -1,5 +1,5 @@
 import { RegionDragHandle, RegionLayoutControls } from "../primitives/page-regions.tsx";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo } from "react";
 import { CaretRight, FileText } from "@phosphor-icons/react";
 import { EntityRefLink, entityRefOf } from "../EntityRefLink.tsx";
 import { DocReader } from "../DocReader.tsx";
@@ -16,8 +16,6 @@ interface TaskDocumentSidebarProps {
   readonly activeDoc: string;
   readonly onActiveDocChange: (path: string) => void;
   readonly onOpenDoc: (path: string) => void;
-  /** 头部右侧的控件位(task_fb3ba20d66…:文件树|正文分割的排列/折叠/重置)。 */
-  readonly headerExtra?: ReactNode;
 }
 
 export function TaskDocumentSidebar(props: TaskDocumentSidebarProps) {
@@ -64,7 +62,6 @@ export function TaskDocumentSidebar(props: TaskDocumentSidebarProps) {
         <span className="ml-auto shrink-0">
           <RegionLayoutControls />
         </span>
-        {props.headerExtra ? <span className="ml-auto flex shrink-0 items-center">{props.headerExtra}</span> : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3" data-testid="task-document-tree-scroll">
         {tree.length === 0 ? (

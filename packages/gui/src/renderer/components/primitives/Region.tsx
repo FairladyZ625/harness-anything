@@ -78,7 +78,9 @@ export function Region({
       </motion.div>
       <motion.div layout={content} layoutDependency={focusOpen} className="relative min-h-0 flex-1">
         {/* padded 是长正文容器(标准 §4.1):滚动/裁切/边距由这里统一管,正文词内换行默认开。 */}
-        <div className={`h-full overflow-y-auto ${padded ? "break-words px-3.5 pb-3" : ""}`}>{children}</div>
+        <div data-region-scroll className={`h-full overflow-y-auto ${padded ? "break-words px-3.5 pb-3" : ""}`}>
+          {children}
+        </div>
       </motion.div>
       {footer !== undefined && (
         <motion.div

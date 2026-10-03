@@ -20,14 +20,8 @@ import type { SnapshotStatus, TaskRow } from "../../model/types.ts";
 import type { MessageKey } from "../../i18n/core.ts";
 import { t } from "../../i18n/index.tsx";
 
-/**
- * 概况页(标准 §2.1):与全局总览同一套区域板。左侧主区按固定顺序放「等你裁决 →
- * 阻塞与异常 → 进行中 → 接下来 → 结构与统计」,右侧一列是「最近进展」时间线;每块信息
- * 都在一个 Region 里,行用 DenseRow,内容超出在区域内滚动,没有内容的区域整块消失(§1.5)。
- *
- * 不走 overview-layout 的权重落列:那套算法把区域放进当前最矮的一列,保证不了时间线
- * 固定在右列,而且工作概况没有 daemon 权重。列容器是共享的 RegionBoard(固定顺序 +
- * 右侧时间线,断点与列内分配见该原语)。
+/** Work overview defaults to attention/structure beside the timeline. Every real region participates
+ * in the shared page layout; user order and ratios override these defaults without changing reads.
  */
 
 /** 步骤种类的呈现(标签/状态色);文案键单源在 WORK_STEP_LABEL_KEY,这里只补色调。 */

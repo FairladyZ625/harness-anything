@@ -4,18 +4,8 @@ import path from "node:path";
 import { assertUnscrolledLayout } from "./helpers.mjs";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 
-/**
- * task_fb3ba20d66…:原页面内容区域可调布局的 Electron 实测(isolated lane)。
- *
- * 覆盖两处真实消费:
- *   1) 任务详情「文件树|正文」——默认自适应(无分隔条/内联模板);左右排列后拖真实
- *      指针调比例(窗口缩放后有界)、键盘微调、刷新记忆、折叠/召回、上下排列、重置回
- *      自适应;树里塞 120 个种子文件,展开后树在自己窗内滚动、不挤死正文。
- *   2) 工作概况「主区|最近进展」——通过 daemon 真实建一个子任务让夹具根任务成为工作根
- *      (时间线来自 triadic 种子的 fact 事件),拖真实指针调比例、刷新记忆、重置。
- *
- * 种法全部走隔离 daemon 的公共 RPC(repo.task.create / doc-submit / task-delete 软删),
- * 不碰夹具账本文件;场景结束删掉子任务,不留状态给后续场景。
+/** Real route coverage for page region order and proportional seams. Isolated daemon data,
+ * hidden Electron, actual 1440/1120 content sizes; no production mutations or host focus.
  */
 
 const CHILD_TASK_ID = "task-split-child",
@@ -96,8 +86,15 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   const box = (id) => board.locator(`[data-region="${id}"]`).first().boundingBox();
   const handle = (id) => board.getByTestId(`region-handle-${id}`);
   if (boardId === "task-detail-content-grid") {
-    const geometry = await page.getByTestId("task-detail-panel-scroll").boundingBox();
-    await shot(`${label}-body-${Math.round(geometry.width)}x${Math.round(geometry.height)}`);
+    const geometry = await page.getByTestId("task-detail-panel-scroll").evaluate((node) => {
+      const rect = node.getBoundingClientRect(),
+        style = globalThis.getComputedStyle(node);
+      return {
+        width: rect.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        height: rect.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom),
+      };
+    });
+    await shot(`${label}-usable-${Math.round(geometry.width)}x${Math.round(geometry.height)}`);
   }
   await handle(first).waitFor();
   await board.getByTestId(`${boardId}-controls-row`).click();
@@ -145,8 +142,21 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   assert.ok(Math.abs(cancelled.x - reloaded.x) < 3 && Math.abs(cancelled.y - reloaded.y) < 3, `${label} cancel`);
   await board.getByTestId(`${boardId}-controls-reset`).click();
   await board.getByTestId(`${boardId}-controls-row`).click();
+  await page.waitForFunction(
+    ({ boardId, first, x, y }) => {
+      const rect = globalThis.document
+        .querySelector(`[data-testid="${boardId}"] [data-region="${first}"]`)
+        .getBoundingClientRect();
+      return Math.abs(rect.x - x) < 3 && Math.abs(rect.y - y) < 3;
+    },
+    { boardId, first, x: initial.x, y: initial.y },
+    { timeout: 5000 },
+  );
   const reset = await box(first);
-  assert.ok(Math.abs(reset.x - initial.x) < 3 && Math.abs(reset.y - initial.y) < 3, `${label} reset`);
+  assert.ok(
+    Math.abs(reset.x - initial.x) < 3 && Math.abs(reset.y - initial.y) < 3,
+    `${label} reset: initial=${JSON.stringify(initial)} actual=${JSON.stringify(reset)} storage=${await page.evaluate(() => globalThis.localStorage.getItem("harness:gui:split-layout"))}`,
+  );
   await handle(first).press("ArrowRight");
   const keyboard = await box(first);
   assert.ok(Math.abs(keyboard.x - reset.x) > 3 || Math.abs(keyboard.y - reset.y) > 3, `${label} keyboard move`);
@@ -165,6 +175,20 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   await board.getByTestId(`${boardId}-controls-column`).click();
   await shot(`${label}-column`);
   await board.getByTestId(`${boardId}-controls-reset`).click();
+  await assertUnscrolledLayout(board);
+  const contained = await board.evaluate((node) => {
+    const outer = node.getBoundingClientRect();
+    return [...node.querySelectorAll("[data-region]")].every((region) => {
+      const box = region.getBoundingClientRect();
+      return (
+        box.left >= outer.left - 1 &&
+        box.right <= outer.right + 1 &&
+        box.top >= outer.top - 1 &&
+        box.bottom <= outer.bottom + 1
+      );
+    });
+  });
+  assert.ok(contained, `${label} all regions remain inside the page`);
   await shot(`${label}-reset`);
 }
 
@@ -173,7 +197,7 @@ export default {
   feature: "split-layout",
   lane: "isolated",
   description:
-    "Task detail and work overview panes resize by real drag with clamped ratios, keyboard steps, reload persistence, collapse and reset.",
+    "Overview, work and nested task regions move by title drag and keyboard, resize, persist, cancel and reset in hidden Electron.",
   async run({ page, app, shot, fixture, runRoot }) {
     const { endpoint, repoId, rootDir } = fixture;
     let cleanupError;
@@ -264,6 +288,27 @@ export default {
       assert.equal(started.ok, true, JSON.stringify(started));
     }
 
+    // Distinct real executions produce a long lifecycle timeline through the public write path.
+    for (const taskId of [CHILD_TASK_ID, "task-gui-smoke"]) {
+      for (let index = 0; index < 12; index += 1) {
+        for (const action of [
+          { kind: "task-release", taskId, reason: "Layout fixture execution cycle" },
+          { kind: "task-start", taskId, executionId: `execution-layout-${taskId}-${index}` },
+        ]) {
+          const receipt = await requestDaemonJsonRpcAt(
+            endpoint,
+            "repo.task.run",
+            {
+              repo: { repoId },
+              payload: { action },
+            },
+            1000,
+            30000,
+          );
+          assert.equal(receipt.ok, true, JSON.stringify(receipt));
+        }
+      }
+    }
     try {
       await resize(1440, 900);
       await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
@@ -289,6 +334,17 @@ export default {
       await page.getByTestId("task-detail-content-grid-expand").click();
       await page.getByTestId("task-document-tree").waitFor();
       await checkLayout(page, shot, "task-overview-tab", "plan", "progress", "task-plan-wide");
+      const timelineScroll = await page
+        .getByTestId("task-progress-timeline")
+        .locator("[data-region-scroll]")
+        .evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+          return { client: node.clientHeight, scroll: node.scrollHeight, top: node.scrollTop };
+        });
+      assert.ok(
+        timelineScroll.scroll > timelineScroll.client && timelineScroll.top > 0,
+        `long timeline scrolls internally: ${JSON.stringify(timelineScroll)}`,
+      );
       await resize(1120, 800);
       await checkLayout(page, shot, "task-detail-content-grid", "files", "content", "task-narrow");
       await shot("task-plan-narrow");
@@ -327,7 +383,6 @@ export default {
         node.style.width = "";
       });
       writeFileSync(path.join(runRoot, "work-graph-layout.json"), `${JSON.stringify(graphLayouts, null, 2)}\n`);
-
 
       await page.getByRole("button", { name: /^(?:总览|Overview)$/u }).click();
       await page.getByTestId("overview-board").waitFor();

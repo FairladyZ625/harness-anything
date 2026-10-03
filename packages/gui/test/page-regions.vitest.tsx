@@ -88,3 +88,42 @@ it("persists order through remount and isolates connection, repository and page 
   render();
   expect(order()).toEqual(["progress", "plan", "files"]);
 });
+it("keeps the original navigation region collapsible after movement and does not activate its body from controls", () => {
+  let opened = 0;
+  const items = regions.map((region) => ({
+    ...region,
+    content: (
+      <section
+        onClick={() => {
+          opened += 1;
+        }}
+      >
+        <RegionDragHandle />
+        <RegionLayoutControls />
+        <p>{region.id}</p>
+      </section>
+    ),
+  }));
+  act(() =>
+    root.render(
+      <PageRegions
+        connectionId="local"
+        repoId="repo"
+        slot="docs"
+        collapsible
+        regions={items}
+        columns={[["plan"], ["progress", "files"]]}
+        testId="board"
+      />,
+    ),
+  );
+  key("plan", "ArrowRight");
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="board-controls-collapse"]')!.click());
+  expect(order()).toEqual(["progress", "files"]);
+  expect(opened).toBe(0);
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="board-expand"]')!.click());
+  expect(order()).toEqual(["progress", "plan", "files"]);
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="board-controls-reset"]')!.click());
+  expect(order()).toEqual(["plan", "progress", "files"]);
+  expect(opened).toBe(0);
+});
