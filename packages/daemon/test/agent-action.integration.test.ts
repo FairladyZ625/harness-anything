@@ -255,7 +255,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
       refusedSquad = await cell.run(deleteSquad, unauthorized);
     assert.equal(refusedSquad.outcome, "op_rejected", JSON.stringify(refusedSquad));
     assert.equal(refusedSquad.authorizationDecision?.outcome, "denied", JSON.stringify(refusedSquad));
-    assert.equal(refusedSquad.authorizationDecision?.policyRef, "default@5");
+    assert.equal(refusedSquad.authorizationDecision?.policyRef, "keycloak-policy@1");
     const deletedSquad = await cell.run(deleteSquad, binding);
     assert.equal(deletedSquad.outcome, "applied", JSON.stringify(deletedSquad));
     assert.deepEqual(deletedSquad.effects, ["entity-event/entity_deleted"]);
@@ -273,7 +273,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
       refusedAgent = await cell.run(deleteAgent, unauthorized);
     assert.equal(refusedAgent.outcome, "op_rejected", JSON.stringify(refusedAgent));
     assert.equal(refusedAgent.authorizationDecision?.outcome, "denied", JSON.stringify(refusedAgent));
-    assert.equal(refusedAgent.authorizationDecision?.policyRef, "default@5");
+    assert.equal(refusedAgent.authorizationDecision?.policyRef, "keycloak-policy@1");
     const deleted = await cell.run(deleteAgent, binding);
     assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
     assert.deepEqual(deleted.effects, ["entity-event/entity_deleted"]);

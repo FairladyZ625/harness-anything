@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -45,6 +46,7 @@ async function withAcpDaemon(
   writeFileSync(capture, "");
   initIngressRepo(root, uid);
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   const installation = {
       installationId: "installation-devin",
       kindId: "devin" as const,

@@ -28,7 +28,10 @@ import {
   type RepoCellRuntimeContext,
 } from "./repo-cell-action-context.ts";
 import { createRepoCellApi, repoCellSynchronousRead, type RepoCellApiContext } from "./repo-cell-api.ts";
-import { preparePersonActionExplanationBinding } from "./task-action-explanation-read.ts";
+import {
+  explainAuthenticationRequired,
+  preparePersonActionExplanationBinding,
+} from "./task-action-explanation-read.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import { executeRepoReadAction } from "./repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
@@ -425,6 +428,15 @@ export async function openRepoCellProxy(
           }).guiTasks(taskListQuery(payload)),
         ) as never;
       if (method === "repo.entity.actions.explain") {
+        const verifiedBinding = query(
+          (projection) =>
+            bindVerifiedExecutorClaim({
+              action: { kind: "entity-action-explain", executor: payload.executor },
+              binding: binding ?? explainAuthenticationRequired(),
+              projection,
+              now: readRuntime(projection).actionContext.now(),
+            }).binding,
+        );
         const prepared = await preparePersonActionExplanationBinding(
           {
             store: readCurrentLedger((store) => store),
@@ -433,7 +445,7 @@ export async function openRepoCellProxy(
               const value = input.now?.() ?? new Date();
               return typeof value === "string" ? value : value.toISOString();
             },
-            binding,
+            binding: verifiedBinding,
           },
           payload,
         );

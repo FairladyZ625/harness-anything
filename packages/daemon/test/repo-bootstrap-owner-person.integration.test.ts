@@ -8,7 +8,7 @@ import test from "node:test";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openFencedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
@@ -30,7 +30,7 @@ test("the bootstrap owner is a Person a review awaits edge can target in a fresh
         source: "local" as const,
         authorizationBindingMode: "declared" as const,
       },
-      "contributor",
+      "admin",
     ),
     reviewer = withPolicyGroup(
       { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
@@ -49,10 +49,14 @@ test("the bootstrap owner is a Person a review awaits edge can target in a fresh
       repoId,
       rootDir: canonicalRoot(rootDir),
       ownerId: "bootstrap-owner-person-test",
-      bootstrap: resolveRepoBootstrap(
-        { rootDir, repoId: "bootstrap-owner-person", personId: "person-owner", displayName: "Owner" },
-        auth,
-      ),
+      bootstrap: {
+        ...resolveRepoBootstrap(
+          { rootDir, repoId: "bootstrap-owner-person", personId: "person-owner", displayName: "Owner" },
+          auth,
+        ),
+        actor: owner.actor,
+        keycloakAuthorization: owner.keycloakAuthorization,
+      },
       defaultWriterEpochFence: {
         schema: "harness-writer-epoch-fence/v1",
         stateRoot,

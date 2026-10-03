@@ -555,7 +555,7 @@ test("one person gets one answer for one action on one object, through a local s
       ["a repository-level contributor action", { kind: "task-create" }, "allowed"],
       ["a maintainer action on the one task granted", { kind: "task-complete", taskId: "task-owned" }, "allowed"],
       ["the same maintainer action on another task", { kind: "task-complete", taskId: "task-other" }, "denied"],
-      ["an administrator action", { kind: "people-add" }, "denied"],
+      ["an administrator action", { kind: "people-delegate" }, "denied"],
     ],
     table: Record<string, string[]> = {};
   for (const [label, action, expected] of cases) {
@@ -624,8 +624,8 @@ test("an actor reported by the assignment or the frame never reaches the decisio
   assert.deepEqual(claimed, plain);
   assert.deepEqual(claimed.actor, { principal: { personId: "alice" }, executor: null });
   // root-admin holds the action; the node's owner does not, and the claim does not lend it to her.
-  assert.equal(await evaluate(entries("root-admin")["edge-a"]!, { kind: "people-add" }), "allowed");
-  assert.equal(await evaluate(claimed, { kind: "people-add" }), "denied");
+  assert.equal(await evaluate(entries("root-admin")["edge-a"]!, { kind: "people-delegate" }), "allowed");
+  assert.equal(await evaluate(claimed, { kind: "people-delegate" }), "denied");
   // A frame whose node has no registered owner is not carried by a claim either.
   await assert.rejects(
     deriveBinding(root, {

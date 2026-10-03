@@ -7,6 +7,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { runDaemonControl } from "@harness-anything/cli/internal/daemon/control";
 import { registerDaemonRepo } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
@@ -37,6 +38,8 @@ test(
         path.join(parent, "codex-stub.mjs"),
         "if (process.argv[2] === '--version') console.log('codex-stub 1.0.0');\n",
       );
+    signInPolicyTestUser(userRootA, "owner", [repoId], "admin");
+    signInPolicyTestUser(userRootB, "owner", [repoId], "admin");
     initRepo(repoRoot, repoId, uid);
     registerBootstrappedDaemonRepo({
       canonicalRoot: repoRoot,

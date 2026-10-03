@@ -13,7 +13,7 @@ import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "../src/writer-epoch.ts";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { initHarnessRepo } from "./schedule-actions.fixtures.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
   builtinLedgerBackupScheduleId,
   scheduledLedgerBackupRoot,
@@ -27,6 +27,7 @@ const binding = withPolicyGroup(
 
 async function openFixture(root: string) {
   const repoId = workspaceId("backup-queue");
+  provisionPolicyTestRepository(repoId);
   initHarnessRepo(root, repoId);
   const stateRoot = path.join(root, ".epoch"),
     authority = openPersistentWriterEpoch({ stateRoot, holderId: "backup-test" }),

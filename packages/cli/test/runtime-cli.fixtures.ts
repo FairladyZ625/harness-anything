@@ -1,14 +1,26 @@
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { type TestContext } from "node:test";
+import { after, type TestContext } from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
+
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "owner" });
+await realm.control({
+  op: "permit",
+  personId: "owner",
+  resource: "runtime-cli",
+  actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+});
 
 export const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -154,6 +166,8 @@ export function createRuntimeFixture(context: TestContext) {
     runMaybe(root, env, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });
   });
+  realm.bind(userRoot);
+  signInAt(userRoot, "owner");
   assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
   run(root, env, ["init", "--repo-id", "runtime-cli", "--person-id", "owner", "--display-name", "Owner"]);
   run(root, env, [

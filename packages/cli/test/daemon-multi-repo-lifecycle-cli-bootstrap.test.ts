@@ -30,8 +30,8 @@ import {
   stop,
   waitForRun,
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
-test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", () => {
-  const fixture = setupEmpty();
+test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", async () => {
+  const fixture = await setupEmpty();
   try {
     assert.equal(existsSync(path.join(fixture.repo, "harness")), false);
     // No explicit daemon was started: init must auto-start the resident daemon
@@ -53,7 +53,6 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.match(String(initialized.commit), /^[0-9a-f]{40}$/u);
     assert.deepEqual(initialized.created, [
       "harness/harness.yaml",
-      "harness/people.yaml",
       "package.json",
       "harness/context/README.md",
       "harness/context/architecture/README.md",
@@ -103,7 +102,6 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       assert.equal(existsSync(path.join(fixture.repo, target)), true, target);
     const ledgerRoot = path.join(fixture.repo, "harness"),
       defaultConfig = readFileSync(path.join(fixture.repo, "harness/harness.yaml"), "utf8"),
-      people = readFileSync(path.join(fixture.repo, "harness/people.yaml"), "utf8"),
       architecture = readFileSync(path.join(fixture.repo, "harness/context/architecture/README.md"), "utf8");
     assert.match(defaultConfig, /contextRoot: harness\/context\n  governanceRoot: harness\/governance\nsettings:/u);
     assert.match(
@@ -133,7 +131,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       `${JSON.stringify({ private: true, scripts: { "harness-anything": "harness-anything", ha: "ha", "harness-anything:check": "harness-anything check" } }, null, 2)}\n`,
     );
     assert.equal(existsSync(path.join(fixture.repo, "harness/persons.yaml")), false);
-    assert.equal(git(ledgerRoot, "show", `${String(initialized.commit)}:people.yaml`), people.trim());
+    assert.equal(existsSync(path.join(ledgerRoot, "people.yaml")), false);
     assert.equal(initialized.summary, "initialized harness at harness/harness.yaml");
     assert.deepEqual((initialized.configureVerify as { ok: boolean; steps: string[] }).steps, [
       "publication-readback",
@@ -156,15 +154,18 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
         .some((target) => target.startsWith("tasks/")),
       false,
     );
-    // Fresh init also claims the people.yaml it created, so the owner is a canonical Person from the first event.
-    assert.equal(stream.revision, 4);
+    // Person identity belongs to Keycloak; init publishes only settings, vertical and scaffold.
+    assert.equal(stream.revision, 5);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
     assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
-    assert.equal(stream.events[2]?.schema, "people-event/v1");
+    assert.equal(
+      stream.events.some((event) => event.schema === "people-event/v1"),
+      false,
+    );
     // The scaffold init wrote under the authored root is published as ledger documents by one event.
     assert.deepEqual(
-      stream.events[3]?.schema === "doc-event/v1"
-        ? stream.events[3].payload.changes.map((change) => change.path)
+      stream.events[2]?.schema === "doc-event/v1"
+        ? stream.events[2].payload.changes.map((change) => change.path)
         : null,
       (initialized.created as string[])
         .filter((target) => target.startsWith("harness/") && !/^harness\/(?:harness|people)\.yaml$/u.test(target))
@@ -177,6 +178,8 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       repositorySettings(settingsRead),
       stream.events[0]?.schema === "settings-event/v1" ? stream.events[0].payload.settings : null,
     );
+    for (const event of stream.events) settleFollower(fixture.repo, fixture.userRoot, { opId: event.opId });
+    const beforeRepeat = git(ledgerRoot, "rev-list", "--count", "HEAD");
     const repeated = run(fixture.repo, fixture.userRoot, [
       "init",
       "--repo-id",
@@ -192,7 +195,8 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.deepEqual(repeated.created, []);
     assert.deepEqual(repeated.updated, []);
     assert.deepEqual(repeated.preserved, initialized.created);
-    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "3");
+    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), beforeRepeat);
+    assert.equal(makeTaskEventStore({ rootDir: fixture.repo, repoId: "fresh" }).read().revision, stream.revision);
     const walls = spawnSync(process.execPath, [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")], {
       cwd: fixture.repo,
       encoding: "utf8",
@@ -240,7 +244,17 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     const reports = readdirSync(reportsRoot, { withFileTypes: true });
     assert.equal(reports.length, 1);
     assert.equal(reports[0]?.isFile(), true);
-    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "3");
+    assert.equal(
+      git(ledgerRoot, "rev-list", "--count", "HEAD"),
+      beforeRepeat,
+      JSON.stringify({
+        log: git(ledgerRoot, "log", "--oneline", "-8"),
+        latest: git(ledgerRoot, "show", "--stat", "HEAD"),
+        events: makeTaskEventStore({ rootDir: fixture.repo, repoId: "fresh" })
+          .read()
+          .events.map((event) => ({ type: event.type, opId: event.opId })),
+      }),
+    );
     const textReceipt = spawnSync(
       process.execPath,
       [
@@ -321,8 +335,8 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
   }
 });
 
-test("local init isolates the ledger from later project commits and removes tracked runtime paths", (context) => {
-  const fixture = setupEmpty();
+test("local init isolates the ledger from later project commits and removes tracked runtime paths", async (context) => {
+  const fixture = await setupEmpty("local");
   try {
     git(fixture.repo, "init", "--quiet");
     git(fixture.repo, "config", "user.name", "Project Owner");
@@ -390,7 +404,7 @@ test("local init isolates the ledger from later project commits and removes trac
 });
 
 test("center registration keeps an external ledger repository readable and writable", async (context) => {
-  const fixture = setup();
+  const fixture = await setup();
   try {
     assert.equal(existsSync(path.join(fixture.alpha, "harness/.git")), false);
     const documentBody = readFileSync(path.join(fixture.alpha, "harness/harness.yaml"), "utf8"),
@@ -453,8 +467,8 @@ test("center registration keeps an external ledger repository readable and writa
   }
 });
 
-test("REQ-CLI-016 adds only missing npm script keys while preserving existing package bytes", () => {
-  const fixture = setup(),
+test("REQ-CLI-016 adds only missing npm script keys while preserving existing package bytes", async () => {
+  const fixture = await setup(),
     packagePath = path.join(fixture.alpha, "package.json"),
     original =
       '{\n\t"name": "project-owned",\n\t"scripts": {\n\t\t"test": "node --test",\n\t\t"ha": "project-ha"\n\t},\n\t"marker": "keep exactly"\n}\n';
@@ -497,8 +511,8 @@ test("REQ-CLI-016 adds only missing npm script keys while preserving existing pa
   }
 });
 
-test("init at a configured authored root writes the machine documents where every reader resolves them", () => {
-  const fixture = setupEmpty(),
+test("init at a configured authored root writes the machine documents where every reader resolves them", async () => {
+  const fixture = await setupEmpty("configured"),
     // The declaration has to sit at the fixed discovery anchor: `layout.authoredRoot` cannot be
     // read from a file whose own path depends on it. It names the authored root and nothing else.
     declarationPath = path.join(fixture.repo, "harness/harness.yaml"),
@@ -522,7 +536,8 @@ test("init at a configured authored root writes the machine documents where ever
     // repo-cell-settings-state, the Settings write authorization, the WIP settings and the
     // migration contract compiler all resolve the machine documents under the authored root.
     // Init publishing them at the default spelling is what left the Settings write without a base.
-    assert.deepEqual((initialized.created as string[]).slice(0, 2), ["ledger/harness.yaml", "ledger/people.yaml"]);
+    assert.equal((initialized.created as string[])[0], "ledger/harness.yaml");
+    assert.equal(existsSync(path.join(ledgerRoot, "people.yaml")), false);
     assert.equal(existsSync(path.join(fixture.repo, "harness/people.yaml")), false);
     assert.deepEqual(readdirSync(path.join(fixture.repo, "harness")), ["harness.yaml"]);
     // The declaration is the seed, not a second layout: the published document repeats it verbatim.
@@ -530,7 +545,7 @@ test("init at a configured authored root writes the machine documents where ever
     assert.equal(readFileSync(path.join(ledgerRoot, "harness.yaml"), "utf8"), declaration);
     const tracked = git(ledgerRoot, "ls-tree", "-r", "--name-only", "HEAD").split("\n");
     assert.equal(tracked.includes("harness.yaml"), true);
-    assert.equal(tracked.includes("people.yaml"), true);
+    assert.equal(tracked.includes("people.yaml"), false);
     const verify = initialized.configureVerify as {
       ok: boolean;
       steps: readonly string[];
@@ -567,7 +582,7 @@ test("init at a configured authored root writes the machine documents where ever
 });
 
 test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCell produce", async () => {
-  const fixture = setup(),
+  const fixture = await setup(),
     source = makeCanary(fixture.root);
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
@@ -672,7 +687,7 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
 });
 
 test("hard daemon crash projects an admitted child to outcome_unknown without respawn", async () => {
-  const fixture = setup(),
+  const fixture = await setup(),
     source = makeCanary(fixture.root, "setTimeout(() => process.exit(0), 2_000);", []);
   try {
     run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]);
@@ -713,7 +728,7 @@ test("hard daemon crash projects an admitted child to outcome_unknown without re
 });
 
 test("one RepoCell lock failure closes only that repo admission", async () => {
-  const fixture = setup();
+  const fixture = await setup();
   let held: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     held = await openRepoCell({
@@ -757,7 +772,7 @@ test("one RepoCell lock failure closes only that repo admission", async () => {
 });
 
 test("one invalid registry entry stays visible and removable without blocking healthy repos", async () => {
-  const fixture = setup();
+  const fixture = await setup();
   try {
     run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]);
     await register(fixture.alpha, fixture.userRoot, "alpha");

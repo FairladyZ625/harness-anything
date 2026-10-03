@@ -8,7 +8,7 @@ import test from "node:test";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { resolveRepoBootstrap, type RepoBootstrapRequest } from "../src/repo-bootstrap.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openFencedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
@@ -20,7 +20,7 @@ const auth = {
 } as unknown as DaemonAuthenticationContext;
 const workerBinding = withPolicyGroup(
   { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
-  "contributor",
+  "admin",
 );
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
@@ -63,7 +63,11 @@ test("the ledger commit guard protects the ledger repository and leaves the proj
       repoId: normalizedRepoId,
       rootDir: canonicalRoot(rootDir),
       ownerId: "ledger-guard-test",
-      bootstrap: resolveRepoBootstrap(request, auth),
+      bootstrap: {
+        ...resolveRepoBootstrap(request, auth),
+        actor: workerBinding.actor,
+        keycloakAuthorization: workerBinding.keycloakAuthorization,
+      },
       defaultWriterEpochFence: writerEpochFence,
     });
     assert.match(

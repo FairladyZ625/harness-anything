@@ -36,20 +36,6 @@ test("respond-review and override-review read their packet from --from-file like
     ownerId: "decision-review-packet-file-test",
   });
   try {
-    const ownerAdded = await cell.run(
-      {
-        kind: "people-add",
-        personId: proposer.actor.principal.personId,
-        displayName: "Proposal Owner",
-        role: "administrator",
-        commandClass: ["admin"],
-        credentialKind: "email-address",
-        credentialIssuer: "example.invalid",
-        credentialSubject: "proposal-owner@example.invalid",
-      },
-      withPolicyGroup(proposer, "admin"),
-    );
-    assert.equal(ownerAdded.outcome, "applied", JSON.stringify(ownerAdded));
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
       digest = (

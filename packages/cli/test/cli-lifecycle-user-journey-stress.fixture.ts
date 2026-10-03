@@ -1,11 +1,14 @@
 // harness-test-tier: integration
+import { after } from "node:test";
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 
 import { execFileSync, spawn } from "node:child_process";
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 
 import path from "node:path";
 
@@ -16,6 +19,17 @@ import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 const cli = path.resolve("packages/cli/src/index.ts"),
   clientCount = 8,
   chainsPerClient = 3;
+
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "owner" });
+for (let index = 0; index < 14; index++)
+  await realm.control({
+    op: "permit",
+    personId: "owner",
+    resource: `cli-stress-repo-${index}`,
+    actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+  });
 
 type Fixture = {
   readonly parent: string;
@@ -235,23 +249,8 @@ function setup(index: number): Fixture {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "README.md"), "# CLI lifecycle stress fixture\n");
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n");
-  const roster = [
-    "schema: harness-people/v1",
-    "people:",
-    "  - personId: owner",
-    "    displayName: Owner",
-    "    primaryEmail: owner@example.test",
-    "    roles: [owner]",
-    "    credentials:",
-    "      - kind: unix-socket-owner-boundary",
-    `        issuer: host:${hostname()}`,
-    `        subject: ${process.getuid?.() ?? 0}`,
-    "roles:",
-    "  - roleId: owner",
-    "    commandClasses: [admin, repo-write, repo-read, arbiter]",
-    "",
-  ].join("\n");
-  writeFileSync(path.join(root, "harness/people.yaml"), roster);
+  realm.bind(userRoot);
+  signInAt(userRoot, "owner");
   git(root, "init", "--quiet");
   git(root, "config", "user.name", "CLI lifecycle stress");
   git(root, "config", "user.email", "cli-lifecycle-stress@example.test");
@@ -458,7 +457,6 @@ export {
   readdirSync,
   rmSync,
   writeFileSync,
-  hostname,
   tmpdir,
   path,
   seedSettingsEvent,

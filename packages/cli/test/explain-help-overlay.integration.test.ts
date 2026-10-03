@@ -1,15 +1,27 @@
 // harness-test-tier: integration
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { openBootstrappedRepoCell as openRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "owner" });
+await realm.control({
+  op: "permit",
+  personId: "owner",
+  resource: "explain-help-overlay",
+  actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+});
 
 const cli = path.resolve("packages/cli/src/index.ts"),
   repoId = "explain-help-overlay";
@@ -20,6 +32,8 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
     userRoot = path.join(parent, "user");
   try {
     initialize(root);
+    realm.bind(userRoot);
+    signInAt(userRoot, "owner");
     const seeded = await seedTasks(root);
     startDaemon(root, userRoot);
     assert.equal(
@@ -126,6 +140,8 @@ test("ha explain reports submit availability for the same actor that can submit"
     actorId = "agent:submit-actor";
   try {
     initialize(root);
+    realm.bind(userRoot);
+    signInAt(userRoot, "owner");
     // Prepare the caller-owned Git cut before any asynchronous ledger follower exists.
     writeFileSync(path.join(root, "README.md"), "# Explain fixture\n\nSubmit actor delivery.\n", "utf8");
     git(root, "add", "README.md");
@@ -240,24 +256,7 @@ function initialize(root: string): void {
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
     "utf8",
   );
-  writeFileSync(
-    path.join(root, "harness/people.yaml"),
-    `schema: harness-people/v1
-people:
-  - personId: owner
-    displayName: Owner
-    primaryEmail: owner@example.test
-    roles: [owner]
-    credentials:
-      - kind: unix-socket-owner-boundary
-        issuer: host:${hostname()}
-        subject: ${process.getuid?.() ?? 0}
-roles:
-  - roleId: owner
-    commandClasses: [admin, repo-write, repo-read, arbiter]
-`,
-    "utf8",
-  );
+
   git(root, "init", "--quiet");
   git(root, "config", "user.name", "Explain Test");
   git(root, "config", "user.email", "explain@example.test");

@@ -25,7 +25,7 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { withPolicyGroup, signInPolicyTestUser, provisionPolicyTestRepository } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -64,8 +64,8 @@ const repoWriteBinding = withPolicyGroup(
 test("projection rebuild repairs a repository that has no authored settings document", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-projection-rebuild-bare-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
-    initRepo(rootDir); cell = await openProductRepoCell({ repoId: workspaceId("projection-rebuild-bare"), rootDir: canonicalRoot(rootDir), ownerId: "projection-rebuild-bare" });
-    const repaired = await cell.run({ kind: "projection-rebuild" }, repoWriteBinding) as Record<string, unknown>;
+    initRepo(rootDir); provisionPolicyTestRepository("projection-rebuild-bare"); cell = await openProductRepoCell({ repoId: workspaceId("projection-rebuild-bare"), rootDir: canonicalRoot(rootDir), ownerId: "projection-rebuild-bare" });
+    const repaired = await cell.run({ kind: "projection-rebuild" }, withPolicyGroup(repoWriteBinding, "admin")) as Record<string, unknown>;
     assert.equal(repaired.outcome, "applied", JSON.stringify(repaired)); assert.equal(repaired.revision, 0); assert.deepEqual(makeTaskEventReader({ repoId: "projection-rebuild-bare", rootDir }).read().events, []);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
@@ -191,7 +191,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     const assertCut = async (receipt: Record<string, unknown>, type: string, paths: readonly string[]) => { assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.status, "accepted_durable"); assert.equal(receipt.taskId, taskId); assert.equal(receipt.executionId, executionId); assert.deepEqual(receipt.changedPaths, paths); assert.equal(typeof receipt.cut, "object"); assert.equal(typeof receipt.transition, "object"); assert.equal(Array.isArray(receipt.next), true); const event = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(receipt.opId)); assert.equal(event?.type, type); if (event?.schema !== "task-event/v1") throw new Error("lifecycle receipt requires a TaskEvent"); assert.deepEqual(event.payload.documentClaims?.map((claim) => claim.path), paths); const visible = await waitForAcceptedReceipt(cell!, receipt as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); for (const target of paths) assert.equal(existsSync(path.join(rootDir, "harness", target)), true, target); };
     const indexPath = `${packagePath}/INDEX.md`, executionPath = `${packagePath}/executions/${executionId}.md`, reviewPath = `${packagePath}/reviews/review-life.md`, codeDocPath = `${packagePath}/code-doc-anchors.json`;
     const started = await cell.run({ kind: "task-start", taskId, executionId }, binding) as unknown as Record<string, unknown>; await assertCut(started, "execution_started", [indexPath, executionPath]); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: active/u);
-    assert.equal((started.authorizationDecision as Record<string, unknown>).policyRef, "default@5");
+    assert.equal((started.authorizationDecision as Record<string, unknown>).policyRef, "keycloak-policy@1");
     assert.equal((started.authorizationDecision as Record<string, unknown>).outcome, "allowed");
     const beforeInvalidSubmit = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision;
     writeFileSync(path.join(rootDir, "harness", packagePath, "closeout.md"), "# Closeout\n\n## Summary\n\nIncomplete.\n");
@@ -212,11 +212,11 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] })); const reviewBinding = withPolicyGroup({ actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } }, source: "local" as const }, "maintainer");
     const reviewReportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports"); mkdirSync(reviewReportDir, { recursive: true }); writeFileSync(path.join(reviewReportDir, "life.md"), "# Review life\n\nPhysical review findings.\n");
     const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-life", fromFile: "review.json" }, reviewBinding) as unknown as Record<string, unknown>; await assertCut(reviewed, "review_recorded", [indexPath, executionPath, reviewPath]); assert.equal(reviewed.reviewId, "review-life"); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Verdict: approved[\s\S]*Consent: pending/u);
-    assert.equal((reviewed.authorizationDecision as Record<string, unknown>).policyRef, "default@5");
+    assert.equal((reviewed.authorizationDecision as Record<string, unknown>).policyRef, "keycloak-policy@1");
     assert.equal((reviewed.authorizationDecision as Record<string, unknown>).outcome, "allowed");
     const reviewEvent = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(reviewed.opId)); if (reviewEvent?.type !== "review_recorded") throw new Error("review event missing"); assert.equal(reviewed.reviewDigest, reviewDigest(reviewEvent.payload.review)); assert.equal(reviewed.contentDigest, reviewEvent.payload.review.contentDigest);
     const consented = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-life" }, binding) as unknown as Record<string, unknown>; await assertCut(consented, "review_consent_recorded", [indexPath, executionPath, reviewPath]); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Consent: consent-[0-9a-f]+[\s\S]*Consent actor: person-owner/u);
-    assert.equal((consented.authorizationDecision as Record<string, unknown>).policyRef, "default@5");
+    assert.equal((consented.authorizationDecision as Record<string, unknown>).policyRef, "keycloak-policy@1");
     assert.equal((consented.authorizationDecision as Record<string, unknown>).outcome, "allowed");
     const witnessedPath = "README.md", beforeInvalidWitness = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision; assert.equal((await cell.run({ kind: "task-code-doc-reconcile", taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath] }, binding)).outcome, "op_rejected"); assert.equal(makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, beforeInvalidWitness); const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: [witnessedPath] }, binding) as unknown as Record<string, unknown>; await assertCut(reconciled, "code_doc_reconciled", [indexPath, executionPath, codeDocPath]); assert.deepEqual(JSON.parse(readFileSync(path.join(rootDir, "harness", codeDocPath), "utf8")), { schema: "code-doc-witness/v1", witnessId: String((makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { payload: { witness: { witnessId: string } } }).payload.witness.witnessId), taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath], actor, source: "local", reconciledAt: (makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { occurredAt: string }).occurredAt });
     const lookedUp = await cell.run({ kind: "receipt-show", opId: reconciled.opId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ taskId: lookedUp.taskId, executionId: lookedUp.executionId, transition: lookedUp.transition, changedPaths: lookedUp.changedPaths }, { taskId, executionId, transition: reconciled.transition, changedPaths: reconciled.changedPaths });
@@ -372,10 +372,11 @@ test("bootstrap concurrent writer admission commits one complete workspace", asy
   const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-writer-")), rootDir = path.join(parent, "repo");
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0,
     source: "unix-socket-filesystem-owner-boundary" } } as const;
+  for (const daemonId of ["one", "two"]) signInPolicyTestUser(path.join(parent, daemonId), "owner", ["fresh"], "admin");
   const hosts = await Promise.all(["one", "two"].map((daemonId) => openDaemonHost({ daemonId, userRoot: path.join(parent, daemonId) })));
   try { const results = await Promise.allSettled(hosts.map((host) => host.bootstrap({ rootDir, repoId: "fresh", personId: "owner", displayName: "Owner" }, auth)));
     assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1); assert.equal(results.filter(({ status }) => status === "rejected").length, 1);
-    const ledgerRoot = path.join(rootDir, "harness"); assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "2"); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
+    assert.deepEqual(makeTaskEventReader({rootDir, repoId: "fresh"}).read().events.map((event) => event.type), ["settings_changed", "vertical_declared", "documents_written", "schedule_created", "schedule_created"]); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
   finally { await Promise.all(hosts.map((host) => host.close())); rmSync(parent, { recursive: true, force: true }); }
 });
 // prettier-ignore
@@ -386,9 +387,10 @@ test("bootstrap binds the ledger repository branch independently of the project 
     source: "unix-socket-filesystem-owner-boundary" } } as const;
   mkdirSync(rootDir, { recursive: true }); initRepo(rootDir); git(rootDir, "branch", "feature"); git(rootDir, "checkout", "--quiet", "feature");
   git(rootDir, "update-ref", "refs/remotes/origin/main", "refs/heads/main"); git(rootDir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+  signInPolicyTestUser(userRoot, "owner", ["branch-bound"], "admin");
   let host = await openDaemonHost({ daemonId: "bootstrap-one", userRoot });
   try {
-    const initialized = await host.bootstrap({ rootDir, repoId: "branch-bound", personId: "owner", displayName: "Owner" }, auth); assert.equal(initialized.outcome, "applied");
+    const initialized = await host.bootstrap({ rootDir, repoId: "branch-bound", personId: "owner", displayName: "Owner" }, auth); assert.equal(initialized.outcome, "applied", JSON.stringify(initialized));
     const ledgerRoot = path.join(rootDir, "harness"), registered = readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "branch-bound"), ledgerBranch = git(ledgerRoot, "branch", "--show-current"); assert.equal(registered?.authoredBranch, ledgerBranch);
     assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
     await host.close(); host = await openDaemonHost({ daemonId: "bootstrap-two", userRoot }); await host.attachmentsSettled();

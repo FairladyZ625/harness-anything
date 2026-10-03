@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { spawnSync } from "node:child_process";
@@ -61,7 +63,7 @@ test("a startup-failed repo self-heals on the next command and reports honest st
   registerDaemonRepo({ canonicalRoot: root, repoId: "host-heal", userRoot, createConvenienceLinks: false });
   let clock = "2026-08-18T00:00:00.000Z";
   writeFileSync(lockPath, `${process.pid}\n`); // a live lock holder: the startup open must fail
-  const host = await openDaemonHost({ daemonId: "host-heal", userRoot, now: () => clock });
+  const host = await openSignedInHost({ daemonId: "host-heal", userRoot, now: () => clock });
   await host.attachmentsSettled();
   try {
     const latched = host.status().repos.find((repo) => repo.repoId === "host-heal");
@@ -118,7 +120,7 @@ test("startup retires a registered root that no longer exists and records the at
     createConvenienceLinks: false,
   }).repo;
   rmSync(dead, { recursive: true, force: true });
-  const host = await openDaemonHost({
+  const host = await openSignedInHost({
     daemonId: "host-lifecycle",
     userRoot,
     recordLifecycle: (record) => records.push(record),
@@ -165,7 +167,7 @@ test("a request arriving while a registered repo warms parks until background at
     userRoot = path.join(parent, "user");
   rosterRepo(rootDir, "host-warming");
   registerDaemonRepo({ canonicalRoot: rootDir, repoId: "host-warming", userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId: "host-warming", userRoot });
+  const host = await openSignedInHost({ daemonId: "host-warming", userRoot });
   try {
     assert.equal(host.status().repos.find((repo) => repo.repoId === "host-warming")?.state, "warming");
     const receipt = await host.run("host-warming", { kind: "task-list" }, auth);
@@ -225,7 +227,7 @@ test("daemon status exposes the writer phase and progress while a repository att
         },
       });
     },
-    host = await openDaemonHost({ daemonId: "host-attach-progress", userRoot, openCell }),
+    host = await openSignedInHost({ daemonId: "host-attach-progress", userRoot, openCell }),
     attachments = host.attachmentsSettled();
   await progressPublished;
   try {
@@ -272,7 +274,7 @@ test("a failed Git follower stays observable without rejecting later SQLite writ
   assert.equal(bootstrapEvents[1]?.type, "vertical_declared");
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   let failGit = true;
-  const host = await openDaemonHost({
+  const host = await openSignedInHost({
     daemonId: "host-git-follower",
     userRoot,
     openCell: (cellInput) =>
@@ -351,7 +353,7 @@ test("a request parked behind a non-settling initial attachment times out as rep
     userRoot,
     createConvenienceLinks: false,
   });
-  const host = await openDaemonHost({ daemonId: "host-warming-timeout", userRoot, shutdownRequested: () => true });
+  const host = await openSignedInHost({ daemonId: "host-warming-timeout", userRoot, shutdownRequested: () => true });
   try {
     const started = performance.now(),
       receipt = await host.run("host-warming-timeout", { kind: "task-list" }, auth),
@@ -378,7 +380,7 @@ test("a missing-root repository can be unbound through daemon-level local author
     createConvenienceLinks: false,
   });
   rmSync(rootDir, { recursive: true, force: true });
-  const host = await openDaemonHost({ daemonId: "host-unregister-warming", userRoot });
+  const host = await openSignedInHost({ daemonId: "host-unregister-warming", userRoot });
   try {
     const receipt = await host.admin({ kind: "unbind", repoId: "host-unregister-warming" }, auth);
     assert.equal(receipt.outcome, "applied");
@@ -401,7 +403,7 @@ test("cache purge removes only derived local state and unbinds the repository", 
     repoId = "host-cache-purge";
   rosterRepo(rootDir, repoId);
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId: repoId, userRoot });
+  const host = await openSignedInHost({ daemonId: repoId, userRoot });
   await host.attachmentsSettled();
   const derived = ["cache", "adopt-claims", "runtime/dispatches", "presets"];
   for (const relative of derived) {
@@ -442,7 +444,7 @@ test("all purge backs up and drills before deleting, then restores and rebinds w
   writeFileSync(path.join(rootDir, "project.txt"), "project data\n");
   writeFileSync(path.join(rootDir, ".gitignore"), "/harness/\n/.harness/\nuser-rule\n");
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId: repoId, userRoot });
+  const host = await openSignedInHost({ daemonId: repoId, userRoot });
   await host.attachmentsSettled();
   try {
     const created = await host.run(
@@ -559,7 +561,7 @@ test("daemon backup and restore drill leave the runtime HOME and daemon user roo
   rosterRepo(rootDir, repoId);
   mkdirSync(runtimeHome);
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId: repoId, userRoot });
+  const host = await openSignedInHost({ daemonId: repoId, userRoot });
   await host.attachmentsSettled();
   const snapshot = (directory: string) =>
     readdirSync(directory, { recursive: true, encoding: "utf8" }).map(String).sort();
@@ -588,7 +590,7 @@ test("a corrupted purge backup fails its drill without deleting source data", as
     repoId = "host-all-purge-drill";
   rosterRepo(rootDir, repoId);
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId: repoId, userRoot });
+  const host = await openSignedInHost({ daemonId: repoId, userRoot });
   await host.attachmentsSettled();
   try {
     const registration = readDaemonRegistry({ userRoot }).repos[0]!,
@@ -639,7 +641,7 @@ test("unbind rejects an active task lease without changing registry or repositor
   }
   await store.drain();
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId: repoId, userRoot });
+  const host = await openSignedInHost({ daemonId: repoId, userRoot });
   await host.attachmentsSettled();
   try {
     assert.equal(host.status().repos.find((repo) => repo.repoId === repoId)?.state, "attached");
@@ -688,7 +690,7 @@ test("an unactivated repository is unavailable while an activated peer attaches 
     createConvenienceLinks: false,
   });
   registerDaemonRepo({ canonicalRoot: active, repoId: "active", userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId: "host-unactivated", userRoot });
+  const host = await openSignedInHost({ daemonId: "host-unactivated", userRoot });
   try {
     await host.attachmentsSettled();
     const inactiveStatus = host.status().repos.find((repo) => repo.repoId === "inactive")!;
@@ -712,7 +714,7 @@ test("the host-level re-probe is throttled to one attempt per interval", async (
   registerDaemonRepo({ canonicalRoot: root, repoId: "host-throttle", userRoot, createConvenienceLinks: false });
   let clock = "2026-08-18T00:00:00.000Z";
   writeFileSync(lockPath, `${process.pid}\n`);
-  const host = await openDaemonHost({ daemonId: "host-throttle", userRoot, now: () => clock });
+  const host = await openSignedInHost({ daemonId: "host-throttle", userRoot, now: () => clock });
   await host.attachmentsSettled();
   try {
     const rejected = await host.run("host-throttle", { kind: "task-list" }, auth); // probe 1 fails on the live lock
@@ -748,7 +750,7 @@ test("repository modes close local, center-assignment, and edge command families
       createConvenienceLinks: false,
     });
   }
-  const host = await openDaemonHost({ daemonId: "host-modes", userRoot }),
+  const host = await openSignedInHost({ daemonId: "host-modes", userRoot }),
     owners = await fleetNodeOwners({ userRoot, owners: { "node-mode": "writer" }, repoIds: ["local", "center"] });
   await host.attachmentsSettled();
   const assignment = (repoId: string) =>
@@ -801,15 +803,20 @@ test("repository modes close local, center-assignment, and edge command families
         .outcome,
       "applied",
     );
+    signOutAt(userRoot);
     const mismatchedLocalAuth = {
       ...auth,
       unixSocketOwnerBoundary: { ...auth.unixSocketOwnerBoundary, ownerUid: (process.getuid?.() ?? 0) + 1_000 },
     };
-    assert.equal((await host.run("center", { kind: "task-list" }, mismatchedLocalAuth)).code, "credential_unknown");
+    assert.equal(
+      (await host.run("center", { kind: "task-list" }, mismatchedLocalAuth)).code,
+      "authentication_required",
+    );
     assert.equal(
       (await host.run("center", { kind: "projection-rebuild" }, mismatchedLocalAuth)).code,
-      "credential_unknown",
+      "authentication_required",
     );
+    signInAt(userRoot, "writer");
     assert.equal((await host.run("center", { kind: "projection-rebuild" }, auth)).outcome, "applied");
     assert.equal(
       (await host.run("center", { kind: "task-create", taskId: "task-center", title: "Center" }, assignment("center")))
@@ -841,7 +848,7 @@ test("registry mode is authoritative before refresh and refresh replaces a drift
     userRoot,
     createConvenienceLinks: false,
   });
-  const host = await openDaemonHost({ daemonId: "mode-refresh", userRoot });
+  const host = await openSignedInHost({ daemonId: "mode-refresh", userRoot });
   await host.attachmentsSettled();
   try {
     const generation = host.status().repos[0]?.generation;
@@ -925,7 +932,7 @@ test("daemon admission rejects a mismatched kernel projection schema and recover
   db.exec("UPDATE projection_meta SET schema_version = 999 WHERE singleton = 1;");
   db.close();
   let clock = "2026-08-18T00:00:00.000Z";
-  const host = await openDaemonHost({ daemonId: "schema-admission", userRoot, now: () => clock });
+  const host = await openSignedInHost({ daemonId: "schema-admission", userRoot, now: () => clock });
   await host.attachmentsSettled();
   try {
     const unavailable = host.status().repos.find((repo) => repo.repoId === "schema-admission")!;
@@ -962,7 +969,7 @@ test("daemon status exposes an ahead projection cache without letting rebuild di
   projection.close();
   const retained = readFileSync(projection.path);
   registerDaemonRepo({ canonicalRoot: rootDir, repoId: "ahead-projection", userRoot, createConvenienceLinks: false });
-  const host = await openDaemonHost({ daemonId: "ahead-projection", userRoot });
+  const host = await openSignedInHost({ daemonId: "ahead-projection", userRoot });
   await host.attachmentsSettled();
   try {
     const unavailable = host.status().repos.find((repo) => repo.repoId === "ahead-projection")!;
@@ -994,20 +1001,22 @@ test("a host-rejected preset run keeps its coded message as the receipt explanat
   assert.equal(receipt.rejectionExplanation, message);
 });
 
-test("local system binding uses the stable owner fallback when no POSIX UID exists", () => {
+test("local system binding identifies the socket owner without repository authority", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-daemon-binding-fallback-"));
   try {
     const binding = localSystemBinding(rootDir),
       ownerUid = process.getuid?.() ?? 0;
     assert.equal(binding.source, "local");
-    assert.equal(binding.authorizationBindingMode, "default");
+    assert.equal(binding.authorizationBindingMode, undefined);
+    assert.equal(binding.daemonSocketOwner, true);
+    assert.equal(binding.keycloakAuthorization, undefined);
     assert.equal(binding.actor.principal.personId, `local-user-${ownerUid}`);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("Windows binding simulates a missing process.getuid without changing G2 authorization mode", () => {
+test("Windows socket-owner identity does not install repository authorization", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-daemon-binding-win32-")),
     originalGetuid = Object.getOwnPropertyDescriptor(process, "getuid"),
     originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
@@ -1017,7 +1026,9 @@ test("Windows binding simulates a missing process.getuid without changing G2 aut
     const binding = localSystemBinding(rootDir);
     assert.equal(binding.actor.principal.personId, "local-user-0");
     assert.equal(binding.source, "local");
-    assert.equal(binding.authorizationBindingMode, "default");
+    assert.equal(binding.authorizationBindingMode, undefined);
+    assert.equal(binding.daemonSocketOwner, true);
+    assert.equal(binding.keycloakAuthorization, undefined);
   } finally {
     if (originalGetuid === undefined) delete process.getuid;
     else Object.defineProperty(process, "getuid", originalGetuid);
@@ -1054,4 +1065,14 @@ async function waitForRepoMaterialization(
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
   assert.fail(`repo ${repoId} materialization did not reach ${state}`);
+}
+
+async function openSignedInHost(input: Parameters<typeof openDaemonHost>[0]) {
+  signInPolicyTestUser(
+    input.userRoot!,
+    "writer",
+    readDaemonRegistry({ userRoot: input.userRoot }).repos.map((repo) => repo.repoId),
+    "admin",
+  );
+  return openDaemonHost(input);
 }

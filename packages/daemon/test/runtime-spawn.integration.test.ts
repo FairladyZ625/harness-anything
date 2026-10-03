@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -852,6 +852,7 @@ test("Agent skill is really read by the provider from the absolute path in its f
       observedAt: "2026-08-20T00:00:00.000Z",
     };
   initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   mkdirSync(path.join(root, "harness", "skills", "provider-witness"), {
     recursive: true,
   });

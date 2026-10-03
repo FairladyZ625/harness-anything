@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, type DaemonRepoMode } from "@harness-anything/kernel";
-import { localScheduleBinding } from "../src/daemon-host-binding.ts";
+import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
@@ -70,6 +70,7 @@ async function fireDueOccurrences(mode: DaemonRepoMode) {
     userRoot: path.join(parent, "user"),
     createConvenienceLinks: false,
   });
+  signInPolicyTestUser(path.join(parent, "user"), "writer", ["repo"], "admin");
   const host = await openDaemonHost({
     daemonId: `center-builtin-${mode}`,
     userRoot: path.join(parent, "user"),
@@ -80,6 +81,13 @@ async function fireDueOccurrences(mode: DaemonRepoMode) {
     list = async () => (await run({ kind: "schedule-list" })).schedules ?? [];
   try {
     await host.attachmentsSettled();
+    await seedBuiltinSchedules({
+      cell: { run: (action) => run(action) },
+      binding: withPolicyGroup(
+        { actor: { principal: { personId: "writer" }, executor: null }, source: "local" as const },
+        "admin",
+      ),
+    });
     const seeded = await list();
     assert.equal((await run(agentSchedule("agent-probe"))).outcome, "applied");
     clock.value = "2026-10-02T03:17:00.500Z";
@@ -92,6 +100,10 @@ async function fireDueOccurrences(mode: DaemonRepoMode) {
       await new Promise((resolve) => setTimeout(resolve, 50));
       rows = await list();
     }
+    const events = await scheduleEvents("repo", rootDir),
+      backups = existsSync(path.join(rootDir, scheduledLedgerBackupRoot))
+        ? readdirSync(path.join(rootDir, scheduledLedgerBackupRoot))
+        : [];
     const manual = await run({
       kind: "schedule-run-now",
       scheduleId: builtinLedgerBackupScheduleId,
@@ -101,10 +113,8 @@ async function fireDueOccurrences(mode: DaemonRepoMode) {
       seeded: seeded.map(({ scheduleId, state, spec }) => [scheduleId, state, spec.target.kind]),
       rows: new Map(rows.map((row) => [row.scheduleId, row])),
       manual,
-      events: await scheduleEvents("repo", rootDir),
-      backups: existsSync(path.join(rootDir, scheduledLedgerBackupRoot))
-        ? readdirSync(path.join(rootDir, scheduledLedgerBackupRoot))
-        : [],
+      events,
+      backups,
     };
   } finally {
     await host.close();
@@ -131,7 +141,7 @@ test(
       ["schedule_created", "schedule_occurrence_claimed", "schedule_run_settled"].map((type) => [
         type,
         builtinLedgerBackupScheduleId,
-        "system:daemon-scheduler",
+        "writer",
         "local",
       ]),
     );
@@ -142,7 +152,7 @@ test(
       ["schedule_created"],
     );
     assert.equal(center.rows.get("agent-probe")?.status.activeRun, null);
-    // No person on the center gains a run-now entrance, not even for the builtin Schedule.
+    // Host-level manual execution remains restricted to the assignment entrance.
     assert.equal(center.manual.outcome, "op_rejected");
     assert.equal(center.manual.code, "repo_mode_requires_center_ingress");
   },
@@ -171,7 +181,10 @@ test("a remote-center cell admits the daemon scheduler only on builtin occurrenc
       mode: "remote-center",
       runtimeInstances: () => [],
     });
-    const scheduler = localScheduleBinding(),
+    const scheduler = withPolicyGroup(
+        { actor: { principal: { personId: "writer" }, executor: null }, source: "local" as const },
+        "admin",
+      ),
       run = (action: Readonly<Record<string, unknown>>, binding = scheduler) =>
         cell!.run(action as never, binding) as Promise<Receipt>,
       show = async (scheduleId: string) =>

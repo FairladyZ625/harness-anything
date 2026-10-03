@@ -4,11 +4,23 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
+import { spawnKeycloak, signInAt } from "../packages/daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const demoScript = path.join(repoRoot, "scripts/quickstart-demo.mjs");
 const cliEntry = path.join(repoRoot, "packages/cli/src/index.ts");
+
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "quickstart-owner" });
+await realm.control({
+  op: "permit",
+  personId: "quickstart-owner",
+  resource: "quickstart",
+  actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+});
 
 test("quickstart demo runs daemon init to task to event-backed Fact show", () => {
   withTempRoot((rootDir) => {
@@ -49,6 +61,8 @@ test("quickstart demo fails closed when a middle step is deliberately broken", (
 function withTempRoot(fn) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-quickstart-test-"));
   try {
+    realm.bind(path.join(rootDir, ".daemon-user"));
+    signInAt(path.join(rootDir, ".daemon-user"), "quickstart-owner");
     fn(rootDir);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -60,3 +74,20 @@ function parseLastJsonObject(output) {
   assert.notEqual(start, -1, output);
   return JSON.parse(output.slice(start));
 }
+
+test("quickstart without a Keycloak session gives bootstrap guidance before init", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-quickstart-signed-out-"));
+  try {
+    const result = spawnSync(process.execPath, [demoScript, "--cli", cliEntry, "--root", rootDir], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    assert.notEqual(result.status, 0);
+    const failure = parseLastJsonObject(result.stderr);
+    assert.equal(failure.step, "Keycloak sign-in");
+    assert.match(failure.error, /ha bootstrap.*ha bootstrap --operation login/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

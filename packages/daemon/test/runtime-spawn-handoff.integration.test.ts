@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,6 +39,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
     ingressInstallation = { ...installation, executablePath };
   let launchCount = 0;
   const exitListeners: ((code: number | null) => void)[] = [];
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
   const host = await openDaemonHost({
     daemonId: "runtime-spawn-handoff",
     userRoot,

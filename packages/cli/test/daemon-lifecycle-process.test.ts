@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { pathToFileURL } from "node:url";
 import {
   readDaemonStartProgress,
@@ -20,6 +22,18 @@ import { registerBootstrappedDaemonRepo, seedSettingsEvent } from "../../daemon/
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { daemonServeEntry } from "../src/daemon/client.ts";
 import { withAutostart } from "../src/daemon/with-autostart.ts";
+
+const realm = await spawnKeycloak();
+after(() => realm.close());
+await realm.control({ op: "account", personId: "owner" });
+await realm.control({ op: "account", personId: "writer" });
+for (const resource of ["singleton-race", "singleton-import"])
+  await realm.control({
+    op: "permit",
+    personId: "owner",
+    resource,
+    actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+  });
 
 const cli = path.resolve("packages/cli/src/index.ts"),
   repoRoot = path.resolve("."),
@@ -127,8 +141,8 @@ test("platform stop during a long migration replay exits the daemon in bounded t
       [cli, "--root", fixture.root, "--json", "migrate", "import", "--source", legacyRoot],
       { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) },
     );
-    // Attach seeds two system preset schedules (revisions 1-2); wait for two accepted migration writes past them.
-    await waitForImportProgress(fixture.root, 4);
+    // Observe actual migration progress rather than counting initialization events.
+    await waitForImportProgress(fixture.root);
     const pid = readDaemonPid(fixture.userRoot, "default");
     assert.ok(pid, "a resident daemon pid file must exist mid-replay");
     const stopAt = Date.now();
@@ -578,9 +592,14 @@ async function residentPid(userRoot: string): Promise<number> {
   }
   throw new Error("no resident daemon pid appeared");
 }
-async function waitForImportProgress(root: string, minimumRevisions: number): Promise<void> {
+async function waitForImportProgress(root: string): Promise<void> {
   for (let attempt = 0; attempt < 12_000; attempt += 1) {
-    if (makeTaskEventReader({ rootDir: root, repoId: "singleton-import" }).read().revision >= minimumRevisions) return;
+    if (
+      makeTaskEventReader({ rootDir: root, repoId: "singleton-import" })
+        .read()
+        .events.some((event) => event.type === "entity_migrated")
+    )
+      return;
     await delay(5);
   }
   throw new Error("migration replay did not make SQLite-accepted progress");
@@ -633,16 +652,14 @@ function setup(): { parent: string; root: string; userRoot: string } {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "README.md"), "# Fixture\n", "utf8");
   writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
-  writeFileSync(
-    path.join(root, "harness/people.yaml"),
-    `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`,
-    "utf8",
-  );
+
   git(root, "init", "--quiet");
   git(root, "config", "user.name", "Singleton Test");
   git(root, "config", "user.email", "singleton@example.test");
-  git(root, "add", "README.md", "harness/harness.yaml", "harness/people.yaml");
+  git(root, "add", "README.md", "harness/harness.yaml");
   git(root, "commit", "--quiet", "-m", "fixture");
+  realm.bind(userRoot);
+  signInAt(userRoot, "owner");
   return { parent, root, userRoot };
 }
 function legacyFixture(root: string, taskCount: number): void {
@@ -1002,7 +1019,15 @@ async function spawnDrainingDaemon(daemonId: string, closeDelayMs: number): Prom
     script = path.join(parent, "draining-daemon.mjs"),
     launcher = path.join(parent, "launcher.mjs"),
     endpoint = localUserDaemonEndpoint(userRoot, daemonId);
-  rosterRepo(rootDir, daemonId);
+  initializeRepo(rootDir, daemonId);
+  await realm.control({
+    op: "permit",
+    personId: "writer",
+    resource: daemonId,
+    actions: effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+  });
+  realm.bind(userRoot);
+  signInAt(userRoot, "writer");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId: daemonId, userRoot, createConvenienceLinks: false });
   writeFileSync(script, DRAINING_DAEMON, "utf8");
   // The resident daemon is orphaned by a launcher that exits, exactly as `daemon start --service`
@@ -1112,7 +1137,7 @@ function runCli(fixture: DrainFixture, args: readonly string[], target: "flags" 
   });
 }
 
-function rosterRepo(rootDir: string, repoId: string): void {
+function initializeRepo(rootDir: string, repoId: string): void {
   mkdirSync(rootDir, { recursive: true });
   for (const args of [
     ["init", "--quiet"],
@@ -1127,33 +1152,9 @@ function rosterRepo(rootDir: string, repoId: string): void {
     path.join(rootDir, "harness/harness.yaml"),
     `schema: harness-anything/v1\nname: ${repoId}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
   );
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify(
-      {
-        schema: "harness-people/v1",
-        people: [
-          {
-            personId: "writer",
-            displayName: "writer",
-            roles: ["writer"],
-            credentials: [
-              {
-                kind: "unix-socket-owner-boundary",
-                issuer: `host:${hostname()}`,
-                subject: String(process.getuid?.() ?? 0),
-              },
-            ],
-          },
-        ],
-        roles: [{ roleId: "writer", commandClasses: ["repo-read", "repo-write", "admin"] }],
-      },
-      null,
-      2,
-    )}\n`,
-  );
+
   execFileSync("git", ["-C", rootDir, "add", "harness"], { encoding: "utf8" });
-  execFileSync("git", ["-C", rootDir, "commit", "--quiet", "-m", "add roster fixture"], { encoding: "utf8" });
+  execFileSync("git", ["-C", rootDir, "commit", "--quiet", "-m", "add repository fixture"], { encoding: "utf8" });
 }
 
 async function drainCleanup(fixture: Fixture): Promise<void> {

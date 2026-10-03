@@ -13,7 +13,7 @@ import {
 import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
-import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -126,8 +126,9 @@ export async function dispatchDecisionReview(
         `Write the report to harness/decisions/decision-${decisionId}/artifacts/reports/${ids.dispatchId}.md.`,
       ].join("\n"),
     },
-    authorizationDecision = authorizeRepoCellAction({
+    authorizationDecision = await evaluateRepoCellAction({
       action: { kind: "runtime-spawn", ...payload },
+      repoId: cell.input.repoId,
       binding,
       actionId: ids.dispatchOpId,
       revision,
@@ -333,8 +334,9 @@ export async function spawnCutReviewDispatch(
         ),
       }),
     },
-    authorizationDecision = authorizeRepoCellAction({
+    authorizationDecision = await evaluateRepoCellAction({
       action: { kind: "runtime-spawn", ...payload },
+      repoId: cell.input.repoId,
       binding: input.binding,
       actionId: ids.dispatchOpId,
       revision: input.revision,
@@ -552,8 +554,9 @@ export async function dispatchTaskReview(
           gates: completionGateIds(snapshot.task!.completionGateIds, execution.submission),
         }),
       },
-      authorizationDecision = authorizeRepoCellAction({
+      authorizationDecision = await evaluateRepoCellAction({
         action: { kind: "runtime-spawn", ...payload },
+        repoId: cell.input.repoId,
         binding,
         actionId: ids.dispatchOpId,
         revision,

@@ -5,7 +5,7 @@ import {
   type ActorIdentity,
   type BasePolicyGroupId,
 } from "@harness-anything/kernel";
-import { serveKeycloak } from "./keycloak.fixtures.ts";
+import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 
 // Business suites explicitly provision people and Base groups in this test-file realm. The
 // production adapter still performs HTTP evaluation for each action/resource; no decision is
@@ -71,4 +71,20 @@ export function revokeTestPolicyGroup(personId: string, group: BasePolicyGroupId
     realm.keycloak.revoke(personId, repoId, effectivePolicyGroupScopes(groups, "admin"));
     for (const held of person.groups) realm.keycloak.permit(personId, repoId, effectivePolicyGroupScopes(groups, held));
   }
+}
+
+export function signInPolicyTestUser(
+  userRoot: string,
+  personId: string,
+  repoIds: readonly string[],
+  group: BasePolicyGroupId,
+): void {
+  for (const repoId of repoIds) provisionPolicyTestRepository(repoId);
+  withPolicyGroup({ actor: { principal: { personId }, executor: null } }, group);
+  realm.bind(userRoot);
+  signInAt(userRoot, personId);
+}
+
+export function revokeTestPolicyActions(personId: string, repoId: string, actions: readonly string[]): void {
+  realm.keycloak.revoke(personId, repoId, actions);
 }

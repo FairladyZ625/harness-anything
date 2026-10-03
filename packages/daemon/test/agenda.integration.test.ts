@@ -954,21 +954,6 @@ test("terminal task transitions clear pins without changing unpinned task outcom
 
 test("an awaits relation lists in the reader's agenda, holds its task, and retires with the answer", async () => {
   await withCell("agenda-awaits", async (cell, rootDir) => {
-    const added = await cell.run(
-      {
-        kind: "people-add",
-        personId: "person-agenda",
-        displayName: "Agenda Owner",
-        role: "administrator",
-        commandClass: ["admin"],
-        credentialKind: "email-address",
-        credentialIssuer: "example.invalid",
-        credentialSubject: "agenda@example.invalid",
-      },
-      binding,
-    );
-    assert.equal(added.outcome, "applied", JSON.stringify(added));
-    await waitForFixturePublication(cell, added.opId, binding);
     const created = await cell.run({ kind: "task-create", taskId: "task_held", title: "Held for acceptance" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await waitForFixturePublication(cell, created.opId, binding);
@@ -1078,21 +1063,6 @@ test("an awaits relation lists in the reader's agenda, holds its task, and retir
 
 test("an answered awaits lists for the source owner until the source is written again", async () => {
   await withCell("agenda-answered", async (cell) => {
-    const added = await cell.run(
-      {
-        kind: "people-add",
-        personId: "person-agenda",
-        displayName: "Agenda Owner",
-        role: "administrator",
-        commandClass: ["admin"],
-        credentialKind: "email-address",
-        credentialIssuer: "example.invalid",
-        credentialSubject: "agenda@example.invalid",
-      },
-      binding,
-    );
-    assert.equal(added.outcome, "applied", JSON.stringify(added));
-    await waitForFixturePublication(cell, added.opId, binding);
     const created = await cell.run({ kind: "task-create", taskId: "task_asked", title: "Asked task" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await waitForFixturePublication(cell, created.opId, binding);
@@ -1193,21 +1163,6 @@ test("an answered awaits lists for the source owner until the source is written 
 
 test("an answered awaits is asked again by relating the same endpoints at its retired revision", async () => {
   await withCell("agenda-reask", async (cell, rootDir) => {
-    const added = await cell.run(
-      {
-        kind: "people-add",
-        personId: "person-agenda",
-        displayName: "Agenda Owner",
-        role: "administrator",
-        commandClass: ["admin"],
-        credentialKind: "email-address",
-        credentialIssuer: "example.invalid",
-        credentialSubject: "agenda@example.invalid",
-      },
-      binding,
-    );
-    assert.equal(added.outcome, "applied", JSON.stringify(added));
-    await waitForFixturePublication(cell, added.opId, binding);
     const created = await cell.run({ kind: "task-create", taskId: "task_reasked", title: "Reasked task" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await waitForFixturePublication(cell, created.opId, binding);

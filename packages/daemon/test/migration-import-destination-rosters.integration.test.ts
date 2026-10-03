@@ -18,13 +18,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "@harness-anything/kernel";
-import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, openFencedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 import {
   actor,
-  bootstrapPerson,
   bootstrapRoster,
   coverageCompleteFixture,
   git,
@@ -462,8 +460,8 @@ import {
 // repo-cell fixture.
 {
   const openRepoCell = openBootstrappedRepoCell;
-  test("a destination roster and a source roster both survive the migration without an operator decision", async () => {
-    const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-union-")),
+  test("migration excludes retired people authority and preserves destination audit bytes", async () => {
+    const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-retired-")),
       source = path.join(scratch, "legacy"),
       destination = path.join(scratch, "new");
     let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -471,146 +469,35 @@ import {
       unfamiliarDocumentFixture(source);
       writeFileSync(path.join(source, "harness/people.yaml"), legacyRoster);
       initRepo(destination);
-      cell = await openRepoCell({
-        repoId: workspaceId("migration-people-union"),
-        rootDir: canonicalRoot(destination),
-        ownerId: "migration-daemon",
-        now: () => "2026-06-01T00:00:00.000Z",
-      });
-      const result = (await cell.run(
-        { kind: "migrate-import", sourceRoots: sources(source) },
-        withPolicyGroup({ actor, source: "local" }, "admin"),
-      )) as Record<string, unknown>;
-      assert.equal(result.exitCode, 0, JSON.stringify(result));
-      assert.equal(result.outcome, "applied");
-      await cell.settlePendingMaterialization("inspect imported roster");
-      assert.match(
-        String(result.summary),
-        /\| people-registry \| migrated \| 1 \| PASS \| unioned both rosters into the destination: 2 people \(1 carried from the source: person_dingwen, 1 enriched in place: person_zeyu\), 1 roles \(0 carried from the source\) \|/u,
-      );
-      const roster = peopleRosterFromDocument(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"));
-      assert.deepEqual(
-        roster.people.map(({ personId }) => personId),
-        ["person_zeyu", "person_dingwen"],
-      );
-      assert.equal(roster.people[0]!.primaryEmail, "lizeyu990625@gmail.com");
-      assert.deepEqual([...roster.people[0]!.credentials], [...bootstrapPerson.credentials]);
-      await cell.close();
-      cell = undefined;
-      const event = makeTaskEventReader({
-        repoId: "migration-people-union",
-        rootDir: destination,
-      })
-        .read()
-        .events.find((candidate) => candidate.schema === "people-event/v1")!;
-      assert.equal(event.schema, "people-event/v1");
-      if (event.schema === "people-event/v1") {
-        assert.equal(event.payload.action, "people-reconcile");
-        assert.equal(event.payload.baseDocumentSha256, sha256Text(bootstrapRoster()));
-      }
-    } finally {
-      await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
-    }
-  });
-
-  test("a roster the destination already covers is reported as covered rather than rewritten", async () => {
-    const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-covered-")),
-      source = path.join(scratch, "legacy"),
-      destination = path.join(scratch, "new");
-    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-    try {
-      unfamiliarDocumentFixture(source);
-      writeFileSync(path.join(source, "harness/people.yaml"), legacyRoster.replace(/^ +primaryEmail:.*\n/mu, ""));
-      initRepo(
-        destination,
-        bootstrapRoster([
-          bootstrapPerson,
-          {
-            personId: "person_dingwen",
-            displayName: "Dingwen",
-            roles: ["owner"],
-            credentials: [
-              {
-                kind: "email-address",
-                issuer: "example.invalid",
-                subject: "dingwen@example.invalid",
-              },
-            ],
-          },
-        ]),
-      );
       const before = readFileSync(path.join(destination, "harness/people.yaml"), "utf8");
       cell = await openRepoCell({
-        repoId: workspaceId("migration-people-covered"),
+        repoId: workspaceId("migration-people-retired"),
         rootDir: canonicalRoot(destination),
         ownerId: "migration-daemon",
         now: () => "2026-06-01T00:00:00.000Z",
       });
-      const result = (await cell.run(
+      const result = await cell.run(
         { kind: "migrate-import", sourceRoots: sources(source) },
         withPolicyGroup({ actor, source: "local" }, "admin"),
-      )) as Record<string, unknown>;
-      assert.equal(result.exitCode, 0, JSON.stringify(result));
-      assert.match(
-        String(result.summary),
-        /\| people-registry \| excluded \| 1 \| PASS \| the destination roster already contains every source entry/u,
       );
+      assert.equal(result.outcome, "applied", JSON.stringify(result));
+      await cell.settlePendingMaterialization("inspect retired authority exclusion");
       assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), before);
+      const events = makeTaskEventReader({ repoId: "migration-people-retired", rootDir: destination }).read().events;
       assert.equal(
-        makeTaskEventReader({
-          repoId: "migration-people-covered",
-          rootDir: destination,
-        })
-          .read()
-          .events.some((event) => event.schema === "people-event/v1"),
+        events.some((event) => event.schema === "people-event/v1"),
         false,
       );
-    } finally {
-      await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
-    }
-  });
-
-  test("rosters that genuinely contradict still stop, name the contradiction, and keep the explicit resolution", async () => {
-    const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-people-contradiction-")),
-      source = path.join(scratch, "legacy"),
-      destination = path.join(scratch, "new");
-    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-    try {
-      unfamiliarDocumentFixture(source);
-      writeFileSync(
-        path.join(source, "harness/people.yaml"),
-        legacyRoster.replace('displayName: "Zeyu Li"\n    primaryEmail', 'displayName: "Li Zeyu"\n    primaryEmail'),
+      assert.equal(
+        events.some(
+          (event) => event.schema === "migration-import-event/v1" && event.payload.migratedFrom === "people.yaml",
+        ),
+        false,
       );
-      initRepo(destination);
-      cell = await openRepoCell({
-        repoId: workspaceId("migration-people-contradiction"),
-        rootDir: canonicalRoot(destination),
-        ownerId: "migration-daemon",
-        now: () => "2026-06-01T00:00:00.000Z",
-      });
-      const blocked = (await cell.run(
-        { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
-        withPolicyGroup({ actor, source: "local" }, "admin"),
-      )) as Record<string, unknown>;
-      assert.equal(blocked.exitCode, 1, JSON.stringify(blocked));
-      assert.match(String(blocked.summary), /REQUIRED people\.yaml/u);
-      assert.match(
-        String(blocked.summary),
-        /the two rosters cannot be unioned: person person_zeyu declares a different displayName on each side.*resolve with --resolve harness\/people\.yaml=destination\|source/u,
+      assert.equal(
+        readFileSync(path.join(destination, "harness/field-notes/2024/xyz.md"), "utf8"),
+        "# Field observation\n\nUnknown directories are ordinary authored content.\n",
       );
-      const resolved = (await cell.run(
-        {
-          kind: "migrate-import",
-          sourceRoots: sources(source),
-          resolutions: ["harness/people.yaml=destination"],
-        },
-        withPolicyGroup({ actor, source: "local" }, "admin"),
-      )) as Record<string, unknown>;
-      assert.equal(resolved.exitCode, 0, JSON.stringify(resolved));
-      await cell.settlePendingMaterialization("inspect resolved roster");
-      assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), bootstrapRoster());
     } finally {
       await cell?.close();
       rmSync(scratch, { recursive: true, force: true });
@@ -696,19 +583,12 @@ import {
           ),
         true,
       );
-      const roster = peopleRosterFromDocument(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"));
-      assert.deepEqual(
-        roster.people.map(({ personId }) => personId),
-        ["person_zeyu", "person_alpha", "person_beta"],
-      );
+      assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), bootstrapRoster());
       assert.equal(
-        makeTaskEventReader({
-          repoId: "migration-multi-source-target",
-          rootDir: destination,
-        })
+        makeTaskEventReader({ repoId: "migration-multi-source-target", rootDir: destination })
           .read()
           .events.filter((event) => event.schema === "people-event/v1").length,
-        2,
+        0,
       );
       const revision = result.revision,
         repeated = (await cell.run(

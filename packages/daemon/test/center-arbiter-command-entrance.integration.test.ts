@@ -24,6 +24,7 @@ import {
   writeCloseout,
   writeSettingsFixture,
 } from "./review-independence.fixtures.ts";
+import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 type Receipt = {
@@ -147,21 +148,7 @@ test("a center-local arbiter reviews, overrides and rejects a Decision while its
           reportRef,
         };
       };
-    // A changes_requested review files its ask on the proposal owner, who must be a rostered person.
-    const rostered = await run(
-      {
-        kind: "people-add",
-        personId: proposer.actor.principal.personId,
-        displayName: "Proposal Owner",
-        role: "administrator",
-        commandClass: ["admin"],
-        credentialKind: "email-address",
-        credentialIssuer: "example.invalid",
-        credentialSubject: "proposal-owner@example.invalid",
-      },
-      withPolicyGroup(proposer, "admin"),
-    );
-    assert.equal(rostered.outcome, "applied", JSON.stringify(rostered));
+    // The proposer already exists in the fixture Keycloak realm.
     const { decisionId, digest } = await propose("Center adjudication");
 
     // Independence is the domain's own check: the center entrance does not let an author review itself.
@@ -345,6 +332,7 @@ test("the center admits no unauthenticated arbiter and the edge admits no local 
       repoIds: ["center"],
       grantAll: false,
     });
+  signInAt(userRoot, "writer");
   try {
     await host.attachmentsSettled();
     const digest = `sha256:${"0".repeat(64)}`,
@@ -385,10 +373,12 @@ test("the center admits no unauthenticated arbiter and the edge admits no local 
     for (const action of commands) {
       const onEdge = (await host.run("edge", action as never, auth)) as Receipt;
       assert.deepEqual([onEdge.outcome, onEdge.code], ["op_rejected", "repo_mode_read_only"], action.kind);
+      signOutAt(userRoot);
       const unknown = (await host.run("center", action as never, stranger)) as Receipt;
-      assert.deepEqual([unknown.outcome, unknown.code], ["op_rejected", "credential_unknown"], action.kind);
-      // The roster principal holds no arbiter command class: the center now reaches the same
+      assert.deepEqual([unknown.outcome, unknown.code], ["op_rejected", "authentication_required"], action.kind);
+      // The signed-in principal holds no review scope: the center reaches the same
       // authorization evaluation every other write gets, and that evaluation refuses it.
+      signInAt(userRoot, "writer");
       const unprivileged = (await host.run("center", action as never, auth)) as Receipt;
       assert.deepEqual(
         [unprivileged.outcome, unprivileged.code],

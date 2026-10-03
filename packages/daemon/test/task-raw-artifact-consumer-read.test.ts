@@ -251,7 +251,7 @@ test("an edited canonical binary serves the live worktree bytes and digest", asy
   initRepo(rootDir);
   const repoId = workspaceId("raw-consumer-live"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "raw-consumer-live" }),
-    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   try {
     const created = (await cell.run({ kind: "task-create", taskId: "task-live", title: "Live" }, binding)) as Record<
       string,

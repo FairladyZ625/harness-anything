@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { signInAt } from "./keycloak.fixtures.ts";
 import { classifyTextualArtifactPath, documentPath, makeTaskEventReader } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -175,7 +177,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
     const first = await fixture.cell.run(firstAction, binding);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     await waitForWorktree(fixture.cell, first, binding);
-    assert.equal(first.authorizationDecision?.policyRef, "default@5");
+    assert.equal(first.authorizationDecision?.policyRef, "keycloak-policy@1");
     assert.equal(first.authorizationDecision?.outcome, "allowed");
     const retried = await fixture.cell.run(firstAction, binding);
     assert.equal(retried.outcome, "no_changes");
@@ -285,13 +287,22 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
   } finally {
     authority.close();
   }
+  for (const [personId, group] of [
+    ["admin", "admin"],
+    ["writer", "contributor"],
+    ["otherWriter", "contributor"],
+    ["reader", "viewer"],
+  ] as const)
+    await signInPolicyTestUser(fixture.userRoot, personId, ["rbac"], group);
   const host = await openDaemonHost({ daemonId: "doc-rbac", userRoot: fixture.userRoot });
   await host.attachmentsSettled();
-  const auth = (ownerUid: number) =>
-    ({
+  const auth = (ownerUid: number) => {
+    signInAt(fixture.userRoot, Object.entries(fixture.ids).find(([, uid]) => uid === ownerUid)![0]);
+    return {
       transportKind: "unix-socket",
       unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" },
-    }) as const;
+    } as const;
+  };
   try {
     await host.admin({ kind: "register", rootDir: fixture.rootDir, repoId: "rbac" }, auth(fixture.ids.admin));
     const created = await host.run(
@@ -830,21 +841,6 @@ function rbacFixture() {
   writeFileSync(
     path.join(rootDir, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: rbac\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-  const people = Object.entries(ids).map(([role, uid]) => ({
-    personId: role,
-    displayName: role,
-    roles: [role === "writer" || role === "otherWriter" ? "repo-write" : role],
-    credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(uid) }],
-  }));
-  const roles = [
-    { roleId: "reader", commandClasses: ["repo-read"] },
-    { roleId: "repo-write", commandClasses: ["repo-write", "repo-read"] },
-    { roleId: "admin", commandClasses: ["admin"] },
-  ];
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people, roles }, null, 2)}\n`,
   );
   git(rootDir, "add", "harness");
   git(rootDir, "commit", "--quiet", "-m", "rbac");

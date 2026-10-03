@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -94,7 +95,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       ],
     }),
   );
-  const host = await openDaemonHost({ daemonId: "doctor-host", userRoot, runtimeFile });
+  const host = await openSignedInHost({ daemonId: "doctor-host", userRoot, runtimeFile });
   await host.attachmentsSettled();
   try {
     for (const [disk, expected] of [
@@ -214,3 +215,13 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
     await removeTemporaryDirectory(rootDir);
   }
 });
+
+async function openSignedInHost(input: Parameters<typeof openDaemonHost>[0]) {
+  signInPolicyTestUser(
+    input.userRoot!,
+    "writer",
+    readDaemonRegistry({ userRoot: input.userRoot }).repos.map((repo) => repo.repoId),
+    "admin",
+  );
+  return openDaemonHost(input);
+}

@@ -543,7 +543,7 @@ test("Deleting an entity is refused for a caller with no repository write role",
     assert.equal(refused.authorizationDecision?.outcome, "denied", JSON.stringify(refused.authorizationDecision));
     assert.equal(
       refused.authorizationDecision?.policyRef,
-      "default@5",
+      "keycloak-policy@1",
       "the refusal must come from the declared policy, not from an ad hoc check",
     );
     assert.equal(

@@ -1,5 +1,5 @@
 import {
-  hasOnlyFields,
+  hasContractFields,
   isRecord,
   validateEventEnvelopeIdentity,
   type ActorIdentity,
@@ -15,27 +15,29 @@ export type ExecutionDelegationEventV1 = EventEnvelope<
 >;
 
 export function validateExecutionDelegationEvent(value: unknown): readonly string[] {
+  return validateFields(value, true);
+}
+
+export function validateCurrentExecutionDelegationEvent(value: unknown): readonly string[] {
+  return validateFields(value, false);
+}
+
+function validateFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
   if (
     !isRecord(value) ||
-    !hasOnlyFields(value, [
-      "schema",
-      "type",
-      "eventId",
-      "opId",
-      "workspaceRevision",
-      "actor",
-      "source",
-      "occurredAt",
-      "payload",
-    ]) ||
+    !hasContractFields(
+      value,
+      ["schema", "type", "eventId", "opId", "workspaceRevision", "actor", "source", "occurredAt", "payload"],
+      allowUnknownFields,
+    ) ||
     value.schema !== "execution-delegation-event/v1" ||
     value.type !== "execution_delegation_changed" ||
     !isRecord(value.payload) ||
-    !hasOnlyFields(value.payload, ["tokenId", "operation"]) ||
+    !hasContractFields(value.payload, ["tokenId", "operation"], allowUnknownFields) ||
     typeof value.payload.tokenId !== "string" ||
     !/^det_[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$/u.test(value.payload.tokenId) ||
     (value.payload.operation !== "issue" && value.payload.operation !== "revoke")
   )
     return ["Invalid execution delegation audit event"];
-  return validateEventEnvelopeIdentity(value);
+  return validateEventEnvelopeIdentity(value, allowUnknownFields);
 }
