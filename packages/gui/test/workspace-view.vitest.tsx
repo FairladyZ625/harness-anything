@@ -849,7 +849,8 @@ describe("layout adapts without guessed viewport constants(原则 9)", () => {
     expect(scroll.className).toContain("min-h-0");
     expect(scroll.className).toContain("flex-1");
     // 画布宽度跟随容器,不再有横向滚动容器与 52rem 下限。
-    expect(scroll.className).not.toContain("overflow-x-auto");
+    // Real canvas geometry and scrollbar behavior: page-split-layout Electron scenario.
+    expect(scroll.className).toContain("overflow-hidden");
     const canvas = host.querySelector('[data-testid="workspace-graph-canvas"]')!;
     expect(canvas.className).toContain("h-full");
     expect(canvas.className).not.toMatch(/calc\(100vh|min-w-\[/u);

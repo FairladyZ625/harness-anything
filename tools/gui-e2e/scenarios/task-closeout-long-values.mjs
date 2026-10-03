@@ -97,6 +97,8 @@ export default {
         10_000,
       );
       receipts[payload.kind] = receipt;
+      assert.equal(receipt.ok, true, `${payload.kind}: ${JSON.stringify(receipt)}`);
+      assert.equal(receipt.outcome, "applied", `${payload.kind} must create this scenario's execution`);
     }
     const read = await requestDaemonJsonRpcAt(
       fixture.endpoint,
@@ -161,6 +163,18 @@ export default {
     await page.getByTestId("task-detail-view").waitFor();
     await page.getByRole("tab", { name: /收口与门|Closeout|收口/u }).click();
     await page.getByTestId("task-closeout-tab").waitFor();
+    // Capture the requested copy in this renderer; never read or overwrite the
+    // user's system clipboard during a hidden acceptance run.
+    await page.evaluate(() => {
+      Object.defineProperty(globalThis.navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text) => {
+            globalThis.__guiE2eCopiedText = text;
+          },
+        },
+      });
+    });
 
     // DecisionReviewTab's supported metadata shape: timestamp + dispatch id + three actions.
     // Test visibility as well as overflow: the old auto track made the identity zero-width.
@@ -337,18 +351,13 @@ export default {
       path.join(runRoot, "task-closeout-long-values-measurements.json"),
       `${JSON.stringify({ windowContentSize, executionNarrow, witnessNarrow }, null, 2)}\n`,
     );
-    // 复制动作在行的动作位(不在文字上叠按钮)。投影里 witness 行会随 submit 的
-    // 异步证据步骤继续到达(行序在变),点击与断言都在同一个已解析的 DOM 节点上
-    // 同步完成,不做二次定位——剪贴板拿到的必须正是这一行的完整记录引用。
-    // 复制动作在行的动作位(不在文字上叠按钮)。剪贴板写入是 renderer 侧异步
-    // promise,「已复制」态在写入完成后才置位——以它为完成信号再读剪贴板,
-    // 不与系统剪贴板的上一轮内容竞态;期望值取该行展示叶悬停的完整 ID。
+    // Wait for the asynchronous copy completion, then compare the captured
+    // renderer request with this row's full record reference (simulated clipboard).
     await witnessRow.getByRole("button", { name: /^复制$|^Copy$/u }).click();
     await witnessRow.getByRole("button", { name: /已复制|Copied/u }).waitFor();
     const leafTitle = await witnessRow.locator("span[title]").first().getAttribute("title");
     assert.ok(leafTitle !== null);
-    // renderer 的 clipboard.readText 受权限门,经主进程 electron.clipboard 读回。
-    const copied = await app.evaluate(({ clipboard }) => clipboard.readText());
+    const copied = await page.evaluate(() => globalThis.__guiE2eCopiedText);
     assert.equal(copied, `witness/${leafTitle}`);
 
     assert.equal(

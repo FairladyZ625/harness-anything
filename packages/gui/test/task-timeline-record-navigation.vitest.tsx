@@ -9,6 +9,7 @@ import {
   flushEffects,
   installBridge,
   mount,
+  mounted,
   prepareDetailEnvironment,
   task as baseTask,
 } from "./task-detail.fixtures.ts";
@@ -155,6 +156,43 @@ describe("任务详情概况时间线:实体引用可导航", () => {
       expect(scrollIntoView).toHaveBeenCalledTimes(1);
     } finally {
       scrollIntoView.mockRestore();
+    }
+  });
+
+  it("completion read arriving after navigation positions the focused row only after layout is ready", async () => {
+    const bridge = installBridge();
+    const response = await bridge.getTaskCompletion({ taskId: baseTask.taskId });
+    let release!: (value: typeof response) => void;
+    bridge.getTaskCompletion.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => undefined);
+    try {
+      await mount({ task: taskWithTimelineRefs });
+      await act(async () => {
+        timelineTail("execution-w3").click();
+      });
+      await flushEffects();
+      expect(scroll).not.toHaveBeenCalled();
+      expect(document.querySelector('[data-testid="task-completion-next"]')).toBeNull();
+      await act(async () => {
+        release(response);
+      });
+      await flushEffects();
+      expect(document.querySelector('[data-testid="task-completion-next"]')).not.toBeNull();
+      expect(scroll).toHaveBeenCalledTimes(1);
+      expect(scroll.mock.instances.at(-1)).toBe(document.getElementById("closeout-record-execution-execution-w3"));
+      // An unrelated query refresh with the same data must not steal the user's scroll.
+      await act(async () => {
+        mounted.at(-1)!.client.setQueryData(["tasks", "repo-a", baseTask.taskId, "completion"], response);
+      });
+      await flushEffects();
+      expect(scroll).toHaveBeenCalledTimes(1);
+    } finally {
+      scroll.mockRestore();
     }
   });
 });

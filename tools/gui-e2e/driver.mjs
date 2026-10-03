@@ -1,12 +1,13 @@
 import { once } from "node:events";
-import { existsSync, mkdirSync } from "node:fs";
+import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import electronPath from "electron";
 import { _electron as electron } from "playwright-core";
 
 export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, headless = true }) {
-  const profile = path.join(runRoot, "profile");
-  mkdirSync(profile, { recursive: true, mode: 0o700 });
+  const profile = mkdtempSync(path.join(tmpdir(), "hg-profile-"));
   const consoleFailures = [];
   const args = [path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts"), `--user-data-dir=${profile}`];
   if (headless) args.push("--no-sandbox", "--headless", "--disable-gpu", "--disable-dev-shm-usage");
@@ -23,10 +24,20 @@ export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, hea
   });
   page.on("pageerror", (error) => consoleFailures.push(error.message));
   await page.waitForLoadState("domcontentloaded");
+  const assertBackground = async () => {
+    if (!headless) return;
+    const windows = await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().map((window) => ({ visible: window.isVisible(), focused: window.isFocused() })),
+    );
+    writeFileSync(path.join(runRoot, "window-state.json"), `${JSON.stringify(windows)}\n`);
+    assert.ok(windows.length > 0 && windows.every((window) => !window.visible && !window.focused));
+  };
+  await assertBackground();
   return {
     app,
     page,
     consoleFailures,
+    assertBackground,
     async nav(label) {
       await page.getByRole("button", { name: label, exact: true }).click();
     },
@@ -41,10 +52,12 @@ export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, hea
     },
     async close() {
       const child = app.process();
-      if (child.exitCode !== null || child.signalCode !== null) return;
-      const exited = once(child, "exit");
-      child.kill("SIGKILL");
-      await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, "exit");
+        child.kill("SIGKILL");
+        await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
+      }
+      rmSync(profile, { recursive: true, force: true });
     },
   };
 }
@@ -54,6 +67,7 @@ export async function runScenario(driver, scenario, { shots }) {
   const consoleOffset = driver.consoleFailures.length;
   try {
     await scenario.run(driver);
+    await driver.assertBackground();
     driver.assertConsoleClean(consoleOffset);
     if (shots) await driver.shot(scenario.id);
     return {

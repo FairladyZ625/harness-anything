@@ -88,15 +88,16 @@ export function TaskCloseoutTab({
     [task],
   );
   // 引用对象的聚焦落点:时间线/预览抽屉点开的记录行滚入视野;行本体带选中
-  // 高亮,落点可见。effect 只随引用变化重跑,且不设"已处理"标记——StrictMode
+  // 高亮,落点可见。completion 读会在记录前插入内容,等读完成再定位一次。
+  // 不设"已处理"标记——StrictMode
   // 重放会取消首帧再重排一遍,标记若在帧执行前置位,重排那一遍会短路掉滚动。
   useEffect(() => {
-    if (focusedRecordRef === null) return;
+    if (focusedRecordRef === null || completion.isPending) return;
     const frame = requestAnimationFrame(() => {
       document.getElementById(closeoutRecordDomId(focusedRecordRef))?.scrollIntoView({ block: "center" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [focusedRecordRef]);
+  }, [focusedRecordRef, completion.isPending, completion.data]);
   return (
     <section data-testid="task-closeout-tab">
       <Section title="收口与门" note="后端 closeoutAssessment、snapshot witness 与 execution 输出回执的原样展示">

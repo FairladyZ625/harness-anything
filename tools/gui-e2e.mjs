@@ -30,19 +30,23 @@ export async function runGuiE2E(options = {}) {
   for (const lane of lanes) {
     const laneRoot = path.join(runRoot, lane);
     mkdirSync(laneRoot, { recursive: true, mode: 0o700 });
-    const active = await openLane({
-      lane,
-      workspaceRoot,
-      env: process.env,
-      runRoot: laneRoot,
-      startDriver: startGuiDriver,
-    });
-    try {
-      for (const scenario of selected.filter((item) => item.lane === lane || item.lane === "both")) {
+    for (const scenario of selected.filter((item) => item.lane === lane || item.lane === "both")) {
+      // A scenario owns its writable ledger, window and preferences. Reusing a lane
+      // fixture makes task-start reuse another scenario's active execution.
+      const scenarioRoot = path.join(laneRoot, scenario.id);
+      mkdirSync(scenarioRoot, { recursive: true, mode: 0o700 });
+      const active = await openLane({
+        lane,
+        workspaceRoot,
+        env: process.env,
+        runRoot: scenarioRoot,
+        startDriver: startGuiDriver,
+      });
+      try {
         results.push(await runScenario(active.driver, { ...scenario, lane }, { shots: options.shots }));
+      } finally {
+        await active.close();
       }
-    } finally {
-      await active.close();
     }
   }
   const failed = results.find((result) => result.outcome === "failed");
