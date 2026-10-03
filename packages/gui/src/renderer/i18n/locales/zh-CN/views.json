@@ -1610,5 +1610,8 @@
   "views.settingsView.listStyleDescription": "列表行尾显示相对时间还是绝对时间；悬停始终给绝对时间",
   "views.settingsView.listStyleRelative": "相对时间",
   "views.settingsView.listStyleAbsolute": "绝对时间",
-  "views.settingsView.timePreviewLabel": "预览"
+  "views.settingsView.timePreviewLabel": "预览",
+  "views.taskDetailView.splitDividerLabel": "调整任务文件与正文的分隔",
+  "views.taskDetailView.expandFileTree": "展开文件树",
+  "views.workspace.splitDividerLabel": "调整主区与最近进展的分隔"
 }

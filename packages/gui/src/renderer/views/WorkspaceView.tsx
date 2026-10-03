@@ -368,6 +368,7 @@ export function WorkspaceView({
 
           {tab === "overview" ? (
             <WorkOverview
+              repoId={repoId}
               submitted={submitted}
               stalled={stalled}
               leaves={leafRows}

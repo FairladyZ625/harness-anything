@@ -378,6 +378,61 @@ describe("overview narrative", () => {
     expect(running.querySelector('[data-task-row="task_solo"]')).toBeNull();
   });
 
+  // task_fb3ba20d66…:概况板主区|最近进展分割。默认自适应(无内联模板、无分隔条);
+  // 显式左右排列后固定两窗(默认 60/40,同自适应的 3fr/2fr),分隔条插在时间线前;
+  // 重置回自适应。持久化按仓+页面槽在 split-layout.vitest 里守。
+  it("hands the overview board to the explicit split with a divider before the timeline", async () => {
+    const host = await mount(
+      <WorkspaceView
+        scope={{
+          ...baseScope,
+          eventSummaries: [
+            {
+              eventId: "e1",
+              schema: "task-event/v1",
+              type: "execution_started",
+              occurredAt: "2026-09-30T02:05:00.000Z",
+              workspaceRevision: 1,
+              taskId: "task_solo",
+              payload: {},
+            },
+          ],
+        }}
+        repoId="repo"
+        projectName="Harness"
+        tasks={[row("task_wait", { coordinationStatus: "submitted", parentTaskId: "task_root" })]}
+        onOpenTask={() => {}}
+      />,
+    );
+    const board = host.querySelector<HTMLElement>('[data-testid="work-overview-board"]')!;
+    expect(board.style.gridTemplateColumns).toBe("");
+    expect(host.querySelector('[data-testid="work-overview-split-divider"]')).toBeNull();
+    const controls = host.querySelector<HTMLElement>('[data-testid="work-overview-split-controls"]')!;
+    const controlButton = (suffix: string) =>
+      controls.querySelector<HTMLButtonElement>(`[data-testid="work-overview-split-controls-${suffix}"]`)!;
+
+    await act(async () => {
+      controlButton("row").click();
+    });
+    expect(board.style.gridTemplateColumns).toBe("minmax(0,60.00fr) 0.375rem minmax(0,40.00fr)");
+    const divider = host.querySelector<HTMLElement>('[data-testid="work-overview-split-divider"]')!;
+    expect(divider.getAttribute("role")).toBe("separator");
+    // 分隔条轨道(含手柄)插在时间线之前,时间线仍是板最后一个子元素。
+    const track = host.querySelector<HTMLElement>('[data-testid="work-overview-split-divider-track"]')!;
+    expect(host.querySelector('[data-testid="work-timeline"]')!.previousElementSibling).toBe(track);
+    expect(board.lastElementChild).toBe(host.querySelector('[data-testid="work-timeline"]'));
+    // 主区恒为一列内滚(显式比例管的是主区整体,不再展开 ≥1400px 多列)。
+    expect(host.querySelector<HTMLElement>('[data-testid="work-overview-main"]')!.className).not.toContain(
+      "@[1400px]:contents",
+    );
+
+    await act(async () => {
+      controlButton("reset").click();
+    });
+    expect(board.style.gridTemplateColumns).toBe("");
+    expect(host.querySelector('[data-testid="work-overview-split-divider"]')).toBeNull();
+  });
+
   it("drops empty regions instead of leaving empty frames", async () => {
     const host = await mount(<WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />);
     const keys = [...host.querySelectorAll<HTMLElement>("[data-region]")].map((region) => region.dataset.region);
