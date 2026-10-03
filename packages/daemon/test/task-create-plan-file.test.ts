@@ -72,8 +72,22 @@ test("create rejects a plan file missing a template section", async () => {
     );
     assert.equal(created.outcome, "op_rejected", JSON.stringify(created));
     assert.equal(created.code, "plan_placeholder");
-    assert.equal(created.diagnostic?.kind, "missing-sections");
-    assert.match(JSON.stringify(created.diagnostic ?? {}), /Verification/u);
+    assert.equal(created.diagnostic?.kind, "validation");
+    assert.equal(created.diagnostic?.field, "planFile");
+    assert.equal(created.diagnostic?.actual, "plans/incomplete.md");
+    assert.match(String(created.diagnostic?.expectation), /Verification/u);
+    assert.match(String(created.diagnostic?.expectation), /rerun ha task create/u);
+    assert.doesNotMatch(String(created.diagnostic?.expectation), /ha doc sync/u);
+    const missing = await cell.run({ kind: "task-show", taskId: "task-plan-gap" }, binding);
+    assert.equal(missing.outcome, "op_rejected");
+    const inline = await cell.run(
+      { kind: "task-create", taskId: "task-plan-gap-inline", title: "Inline Gap", plan: incomplete },
+      binding,
+    );
+    assert.equal(inline.code, "plan_placeholder");
+    assert.equal(inline.diagnostic?.field, "plan");
+    assert.match(String(inline.diagnostic?.expectation), /Edit the supplied plan body.*rerun ha task create/u);
+    assert.doesNotMatch(String(inline.diagnostic?.expectation), /ha doc sync/u);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

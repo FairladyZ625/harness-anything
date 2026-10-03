@@ -200,7 +200,9 @@ export function prepareTaskCreateAt(
   const currentRevision = cell.store.readHead()?.revision ?? 0,
     workspaceRevision = assigned?.workspaceRevision ?? currentRevision + 1,
     eventId = `event-${createHash("sha256").update(opId).digest("hex")}`,
-    occurredAt = cell.now(),
+    occurredAt = cell.now();
+  let baseCompiled: ReturnType<typeof compileRepoTaskBootstrap>;
+  try {
     baseCompiled = compileRepoTaskBootstrap({
       rootDir: cell.rootDir,
       settings: cell.settings.read(),
@@ -212,8 +214,23 @@ export function prepareTaskCreateAt(
       eventId,
       opId,
       occurredAt,
-    }),
-    event = {
+    });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "plan_placeholder") {
+      const source = typeof action.planFile === "string" ? action.planFile : "the supplied plan body";
+      Object.assign(error, {
+        diagnostic: {
+          kind: "validation",
+          entity: "task create",
+          field: typeof action.planFile === "string" ? "planFile" : "plan",
+          actual: source,
+          expectation: `Edit ${source}, then rerun ha task create with the same inputs; no task was created. ${error.message}`,
+        },
+      });
+    }
+    throw error;
+  }
+  const event = {
       ...baseCompiled.event,
       payload: {
         ...baseCompiled.event.payload,

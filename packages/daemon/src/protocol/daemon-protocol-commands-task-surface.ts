@@ -546,7 +546,8 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary:
       "Render the read-only causal tree for one Task, Decision, Fact, or work/task slug: " +
       "declared relations in both directions plus task parent/child structure, with cycles, " +
-      "repeats, and truncated frontiers marked.",
+      "repeats, and truncated frontiers marked. --depth is 1–16 (default 4); each relation neighborhood " +
+      "has a fixed 500-node budget. On budget rejection use --depth 1 or a narrower task, decision anchor, or fact ref.",
     method: "repo.task.read",
     inputs: [
       cliInput(

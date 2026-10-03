@@ -30,17 +30,30 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
     root = resolveGraphRoot(cell, rawRef, initialCut),
     // Relation edges hang off decision claim/choice anchors, never the bare decision ref, so a
     // decision root expands to one neighborhood read per anchor and merges them at the same cut.
-    neighborhood = (seed: string) =>
-      cell.queryRead().relationGraphNeighborhood({
-        seed,
-        direction: "both",
-        relationTypes: [...relationTypes],
-        // One extra level beyond the rendered window lets each frontier node say truthfully
-        // whether it still has unexpanded incident edges.
-        maxDepth: depth + 1,
-        maxNodes: GRAPH_NODE_BUDGET,
-        allowTruncation: true,
-      }),
+    neighborhood = (seed: string) => {
+      try {
+        return cell.queryRead().relationGraphNeighborhood({
+          seed,
+          direction: "both",
+          relationTypes: [...relationTypes],
+          // One extra level beyond the rendered window lets each frontier node say truthfully
+          // whether it still has unexpanded incident edges.
+          maxDepth: depth + 1,
+          maxNodes: GRAPH_NODE_BUDGET,
+          allowTruncation: true,
+        });
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === `relation neighborhood node budget ${GRAPH_NODE_BUDGET} exceeded`
+        )
+          throw cell.cellCodedError(
+            "service_rejected",
+            `${error.message}. Use ha graph ${root.ref} --depth 1 or choose a narrower task, decision anchor, or fact ref.`,
+          );
+        throw error;
+      }
+    },
     reads = [root.ref, ...root.anchors].slice(0, GRAPH_SEED_BUDGET).map(neighborhood),
     edges = new Map(reads.flatMap((entry) => entry.edges.map((edge) => [edge.relationId, edge] as const))),
     taskIndex = cell.projection.readTaskIndex({}),
