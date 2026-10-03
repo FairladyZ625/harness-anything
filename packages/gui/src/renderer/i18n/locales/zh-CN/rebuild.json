@@ -22,6 +22,7 @@
   "identityAccess.currentIdentity": "当前身份",
   "identityAccess.signedInAs": "已登录 · {personId}",
   "identityAccess.signedOut": "尚未登录",
+  "identityAccess.cancelLogin": "取消登录",
   "identityAccess.signIn": "使用 Keycloak 登录",
   "identityAccess.signOut": "退出登录",
   "identityAccess.signInDisabled": "绑定并连接 Keycloak 后才能登录",

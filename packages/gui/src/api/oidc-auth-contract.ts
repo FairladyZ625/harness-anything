@@ -1,3 +1,5 @@
+export const OIDC_LOGIN_URL_CHANNEL = "harness:auth:login-url";
+export const OIDC_CANCEL_LOGIN_CHANNEL = "harness:auth:cancel-login";
 export const OIDC_LOGIN_CHANNEL = "harness:auth:login";
 export const OIDC_LOGOUT_CHANNEL = "harness:auth:logout";
 export const OIDC_STATUS_CHANNEL = "harness:auth:status";
@@ -26,7 +28,8 @@ export interface BootstrapAdminInput {
 }
 
 export interface OidcAuthApi {
-  readonly login: (repoId?: string) => Promise<unknown>;
+  readonly login: (repoId: string | undefined, openBrowser: (url: string) => void) => Promise<unknown>;
+  readonly cancelLogin: () => Promise<unknown>;
   readonly logout: (repoId?: string) => Promise<unknown>;
   readonly status: (repoId?: string) => Promise<unknown>;
   readonly bindingStatus: (repoId?: string) => Promise<unknown>;

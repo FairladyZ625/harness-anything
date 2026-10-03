@@ -22,6 +22,7 @@
   "identityAccess.currentIdentity": "Current identity",
   "identityAccess.signedInAs": "Signed in · {personId}",
   "identityAccess.signedOut": "Not signed in",
+  "identityAccess.cancelLogin": "Cancel sign-in",
   "identityAccess.signIn": "Sign in with Keycloak",
   "identityAccess.signOut": "Sign out",
   "identityAccess.signInDisabled": "Bind and connect Keycloak before signing in",

@@ -80,9 +80,8 @@ export function AppSidebar({
   identityTarget.current = activeRepoId;
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [identity, setIdentity] = useState<{ readonly authenticated: boolean; readonly personId?: string }>({
-      authenticated: false,
-    }),
-    [bindingReady, setBindingReady] = useState(false);
+    authenticated: false,
+  });
   const authCandidate = guiHostBridge()?.auth,
     auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined;
   const refreshIdentity = () => {
@@ -101,17 +100,8 @@ export function AppSidebar({
     refreshIdentity();
   }, [activeRepoId]);
   useEffect(() => {
-    if (!auth) return;
-    setBindingReady(false);
-    void auth.bindingStatus(activeRepoId ?? undefined).then(
-      (value) => {
-        if (identityTarget.current === activeRepoId)
-          setBindingReady((value as { readonly ready?: boolean }).ready === true);
-      },
-      () => {
-        if (identityTarget.current === activeRepoId) setBindingReady(false);
-      },
-    );
+    window.addEventListener("harness-auth-changed", refreshIdentity);
+    return () => window.removeEventListener("harness-auth-changed", refreshIdentity);
   }, [activeRepoId]);
   // 当前仓的模式徽标与端点(PLT-EdgeGUI-W3,设计稿 §3.4):端点来自连接表,
   // local 仓挂在隐含本机连接下、无端点,不显示端点行。
@@ -290,20 +280,9 @@ export function AppSidebar({
       />
       <div className="hidden shrink-0 border-t border-border px-3 py-2.5 md:block">
         <button
-          disabled={!auth || (!identity.authenticated && !bindingReady)}
-          title={
-            identity.authenticated
-              ? t("identityAccess.signOut")
-              : bindingReady
-                ? t("identityAccess.signIn")
-                : t("identityAccess.signInDisabled")
-          }
-          onClick={() => {
-            if (!auth) return;
-            void (
-              identity.authenticated ? auth.logout(activeRepoId ?? undefined) : auth.login(activeRepoId ?? undefined)
-            ).then(refreshIdentity, consumeKnownError);
-          }}
+          data-testid="sidebar-account"
+          title={t("identityAccess.title")}
+          onClick={() => onNavigate("identityAccess")}
           className="flex w-full items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-70"
         >
           <span

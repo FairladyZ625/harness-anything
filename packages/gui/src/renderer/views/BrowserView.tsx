@@ -16,7 +16,15 @@ const initialState: BrowserShellState = {
   error: null,
 };
 
-export function BrowserView({ initialUrl }: { readonly initialUrl?: string | null }) {
+export function BrowserView({
+  initialUrl,
+  onLoadError,
+}: {
+  readonly initialUrl?: string | null;
+  readonly onLoadError?: (description: string) => void;
+}) {
+  const errorHandler = useRef(onLoadError);
+  errorHandler.current = onLoadError;
   const hostRef = useRef<HTMLDivElement>(null);
   const shellRef = useRef<BrowserShell | null>(null);
   const [state, setState] = useState(initialState);
@@ -39,6 +47,7 @@ export function BrowserView({ initialUrl }: { readonly initialUrl?: string | nul
     host.replaceChildren(webview);
     const shell = createBrowserShell(webview, (next) => {
       setState(next);
+      if (next.error) errorHandler.current?.(next.error.description);
       if (next.url) setAddress(next.url);
     });
     shellRef.current = shell;

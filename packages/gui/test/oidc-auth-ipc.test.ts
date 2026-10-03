@@ -1,15 +1,18 @@
 // harness-test-tier: fast
+import { EventEmitter } from "node:events";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
   normalizeBindingStatusReply,
   requireSuccessfulAuthReply,
-  systemBrowserLogin,
+  embeddedBrowserLogin,
   registerOidcAuthIpc,
 } from "../src/main/oidc-auth-ipc.ts";
 import type { IpcMainInvokeEvent } from "electron";
 import {
   OIDC_LOGIN_CHANNEL,
+  OIDC_LOGIN_URL_CHANNEL,
+  OIDC_CANCEL_LOGIN_CHANNEL,
   OIDC_STATUS_CHANNEL,
   OIDC_LOGOUT_CHANNEL,
   OIDC_BOOTSTRAP_STATUS_CHANNEL,
@@ -54,7 +57,17 @@ test("a local repository keeps the original socket bootstrap status and a target
 test("auth IPC pins login completion to its initial repository and scopes status/logout", async () => {
   const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>(),
     calls: Record<string, unknown>[] = [];
-  const event = { sender: { id: 7 }, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent;
+  const event = {
+    sender: Object.assign(new EventEmitter(), {
+      id: 7,
+      send: async (channel: string, url: string) => {
+        assert.equal(channel, OIDC_LOGIN_URL_CHANNEL);
+        target.repoId = "server-b";
+        assert.equal((await fetch(url)).status, 200);
+      },
+    }),
+    senderFrame: { url: "file:///renderer/index.html" },
+  } as IpcMainInvokeEvent;
   const target = { repoId: "server-a" };
   registerOidcAuthIpc(
     {
@@ -73,9 +86,8 @@ test("auth IPC pins login completion to its initial repository and scopes status
           ? { authorizationUrl: `${String(params.redirectUri)}?code=code&state=state` }
           : { ok: true };
       },
-      openExternal: async (url) => {
-        target.repoId = "server-b";
-        assert.equal((await fetch(url)).status, 200);
+      openExternal: async () => {
+        assert.fail("login must remain embedded");
       },
     },
   );
@@ -175,9 +187,9 @@ test("binding IPC forwards the selected edge and preserves center metadata and d
   });
 });
 
-test("system-browser login opens only after the loopback callback is listening", async () => {
+test("embedded-browser login opens only after the loopback callback is listening", async () => {
   const calls: Record<string, unknown>[] = [];
-  const result = await systemBrowserLogin({
+  const result = await embeddedBrowserLogin({
     daemonRequest: async (params) => {
       calls.push(params);
       if (params.operation === "login-begin") {
@@ -186,7 +198,8 @@ test("system-browser login opens only after the loopback callback is listening",
       }
       return { ok: true, authenticated: true, personId: "person-zeyu" };
     },
-    openExternal: async (url) => {
+    signal: new AbortController().signal,
+    openBrowser: async (url) => {
       const response = await fetch(url);
       assert.equal(response.status, 200);
     },
@@ -200,3 +213,124 @@ test("system-browser login opens only after the loopback callback is listening",
     state: "state-from-keycloak",
   });
 });
+
+test("cancel during begin never opens a page or completes; a later login can succeed", async () => {
+  const controller = new AbortController();
+  const operations: unknown[] = [];
+  await assert.rejects(
+    embeddedBrowserLogin({
+      signal: controller.signal,
+      daemonRequest: async (params) => {
+        operations.push(params.operation);
+        controller.abort(new Error("cancelled during begin"));
+        return { authorizationUrl: "https://example.com" };
+      },
+      openBrowser: () => assert.fail("cancelled login opened a page"),
+    }),
+    /cancelled during begin/u,
+  );
+  assert.deepEqual(operations, ["login-begin"]);
+});
+
+test("cancel after navigation closes the callback listener without exchanging a code", async () => {
+  const controller = new AbortController();
+  let redirect = "";
+  const operations: unknown[] = [];
+  await assert.rejects(
+    embeddedBrowserLogin({
+      signal: controller.signal,
+      daemonRequest: async (params) => {
+        operations.push(params.operation);
+        redirect = String(params.redirectUri);
+        return { authorizationUrl: "https://example.com" };
+      },
+      openBrowser: () => controller.abort(),
+    }),
+    /cancelled/u,
+  );
+  assert.deepEqual(operations, ["login-begin"]);
+  await assert.rejects(fetch(redirect));
+});
+
+test("incomplete and provider-error callbacks end login without completing", async () => {
+  for (const query of ["?state=only-state", "?error=access_denied&state=state"]) {
+    await assert.rejects(
+      embeddedBrowserLogin({
+        signal: new AbortController().signal,
+        daemonRequest: async (params) => {
+          assert.equal(params.operation, "login-begin");
+          return { authorizationUrl: `${String(params.redirectUri)}${query}` };
+        },
+        openBrowser: async (url) => {
+          assert.equal((await fetch(url)).status, 400);
+        },
+      }),
+      /omitted code or state/u,
+    );
+  }
+});
+
+test("guest senders cannot start or cancel the trusted window login", async () => {
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
+  registerOidcAuthIpc(
+    {
+      handle: (name, handler) => {
+        handlers.set(name, handler);
+      },
+    },
+    {
+      isTrustedWebContentsId: (id) => id === 7,
+      rendererUrl: { packagedRendererUrl: "file:///renderer/index.html" },
+    },
+    { daemonRequest: async () => assert.fail("guest reached daemon"), openExternal: async () => undefined },
+  );
+  const guest = { sender: { id: 8 }, senderFrame: { url: "https://identity.example" } } as IpcMainInvokeEvent;
+  await assert.rejects(handlers.get(OIDC_LOGIN_CHANNEL)!(guest));
+  await assert.rejects(handlers.get(OIDC_CANCEL_LOGIN_CHANNEL)!(guest));
+});
+
+for (const termination of ["cancel", "destroyed"] as const) {
+  test(`${termination} releases the window's login slot and permits a fresh attempt`, async () => {
+    const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
+    let opened!: (url: string) => void;
+    let navigation = new Promise<string>((resolve) => {
+      opened = resolve;
+    });
+    const sender = Object.assign(new EventEmitter(), { id: 7, send: (_channel: string, url: string) => opened(url) });
+    const event = { sender, senderFrame: { url: "file:///renderer/index.html" } } as unknown as IpcMainInvokeEvent;
+    registerOidcAuthIpc(
+      {
+        handle: (name, handler) => {
+          handlers.set(name, handler);
+        },
+      },
+      {
+        isTrustedWebContentsId: (id) => id === 7 || id === 9,
+        rendererUrl: { packagedRendererUrl: "file:///renderer/index.html" },
+      },
+      {
+        daemonRequest: async (params) =>
+          params.operation === "login-begin"
+            ? { authorizationUrl: `${String(params.redirectUri)}?code=code&state=state` }
+            : { ok: true },
+        openExternal: async () => assert.fail("login must remain embedded"),
+      },
+    );
+    const pending = handlers.get(OIDC_LOGIN_CHANNEL)!(event);
+    const rejected = assert.rejects(pending, /cancelled/u);
+    const url = await navigation;
+    await assert.rejects(handlers.get(OIDC_LOGIN_CHANNEL)!(event), /already in progress/u);
+    await handlers.get(OIDC_CANCEL_LOGIN_CHANNEL)!({ ...event, sender: { id: 9 } } as IpcMainInvokeEvent);
+    if (termination === "cancel") await handlers.get(OIDC_CANCEL_LOGIN_CHANNEL)!(event);
+    else sender.emit("destroyed");
+    await rejected;
+    await assert.rejects(fetch(url));
+    assert.equal(sender.listenerCount("destroyed"), 0);
+    navigation = new Promise<string>((resolve) => {
+      opened = resolve;
+    });
+    const retry = handlers.get(OIDC_LOGIN_CHANNEL)!(event);
+    assert.equal((await fetch(await navigation)).status, 200);
+    assert.deepEqual(await retry, { ok: true });
+  });
+}

@@ -55,7 +55,8 @@ function mountSidebar(
   pinnedWork: readonly { readonly taskId: string; readonly title: string }[],
   works: WorkIndexRead = WORKS,
 ) {
-  const onUnpinWork = vi.fn(),
+  const onNavigate = vi.fn(),
+    onUnpinWork = vi.fn(),
     onOpenPinned = vi.fn(),
     host = document.createElement("div"),
     root = createRoot(host),
@@ -63,6 +64,7 @@ function mountSidebar(
   // 工作索引走 App 已挂载的同一查询键:预置缓存,侧栏不依赖 daemon 就能判工作根。
   client.setQueryData(taskQueryKeys.works("repo"), works);
   return {
+    onNavigate,
     onUnpinWork,
     onOpenPinned,
     host,
@@ -81,7 +83,7 @@ function mountSidebar(
               onProjectSwitcherToggle={() => {}}
               onOpenProject={() => {}}
               onOpenProjectManager={() => {}}
-              onNavigate={() => {}}
+              onNavigate={onNavigate}
               pinnedWork={pinnedWork}
               onOpenPinned={onOpenPinned}
               onUnpinWork={onUnpinWork}
@@ -217,4 +219,34 @@ it("标题行可收起:收起后列表不占位", async () => {
   await act(async () => toggle.click());
   expect(host.querySelector('[data-testid="sidebar-pinned-list"]')!.className).toContain("hidden");
   unmount();
+});
+
+it("account entry navigates without signing in or out, even when the binding is unavailable", async () => {
+  const login = vi.fn(async () => ({})),
+    logout = vi.fn(async () => ({}));
+  Object.defineProperty(window, "harness", {
+    configurable: true,
+    value: {
+      auth: {
+        status: async () => ({ authenticated: true, personId: "person-fixture" }),
+        bindingStatus: async () => ({ ready: false }),
+        login,
+        logout,
+      },
+    },
+  });
+  const { host, render, unmount, onNavigate } = mountSidebar([]);
+  try {
+    await render();
+    const account = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("person-fixture"),
+    )!;
+    await act(async () => account.click());
+    expect(onNavigate).toHaveBeenCalledWith("identityAccess");
+    expect(login).not.toHaveBeenCalled();
+    expect(logout).not.toHaveBeenCalled();
+  } finally {
+    unmount();
+    Reflect.deleteProperty(window, "harness");
+  }
 });

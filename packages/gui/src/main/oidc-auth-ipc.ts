@@ -7,6 +7,8 @@ import {
   OIDC_BOOTSTRAP_STATUS_CHANNEL,
   OIDC_CONFIGURE_CHANNEL,
   OIDC_LOGIN_CHANNEL,
+  OIDC_LOGIN_URL_CHANNEL,
+  OIDC_CANCEL_LOGIN_CHANNEL,
   OIDC_LOGOUT_CHANNEL,
   OIDC_OPEN_CONSOLE_CHANNEL,
   OIDC_STATUS_CHANNEL,
@@ -32,6 +34,7 @@ export function registerOidcAuthIpc(
     readonly openExternal: (url: string) => Promise<void>;
   },
 ): void {
+  const logins = new Map<number, AbortController>();
   const daemonRequest = async (params: JsonObject) => requireSuccessfulAuthReply(await ports.daemonRequest(params));
   registrar.handle(OIDC_STATUS_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
@@ -44,7 +47,26 @@ export function registerOidcAuthIpc(
   registrar.handle(OIDC_LOGIN_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
     const target = authTarget(input);
-    return systemBrowserLogin({ ...ports, daemonRequest: (params) => daemonRequest({ ...params, ...target }) });
+    if (logins.has(event.sender.id)) throw new Error("A sign-in is already in progress.");
+    const controller = new AbortController();
+    const cancel = () => controller.abort(new Error("Sign-in cancelled."));
+    logins.set(event.sender.id, controller);
+    event.sender.once("destroyed", cancel);
+    try {
+      return await embeddedBrowserLogin({
+        daemonRequest: (params) => daemonRequest({ ...params, ...target }),
+        openBrowser: (url) => event.sender.send(OIDC_LOGIN_URL_CHANNEL, url),
+        signal: controller.signal,
+      });
+    } finally {
+      event.sender.removeListener("destroyed", cancel);
+      logins.delete(event.sender.id);
+    }
+  });
+  registrar.handle(OIDC_CANCEL_LOGIN_CHANNEL, async (event) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    logins.get(event.sender.id)?.abort(new Error("Sign-in cancelled."));
+    return { ok: true };
   });
   registrar.handle(OIDC_BINDING_STATUS_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
@@ -127,14 +149,15 @@ export function normalizeBindingStatusReply(reply: JsonObject): JsonObject {
     : requireSuccessfulAuthReply(reply);
 }
 
-export async function systemBrowserLogin(ports: {
+export async function embeddedBrowserLogin(ports: {
   readonly daemonRequest: (params: JsonObject) => Promise<JsonObject>;
-  readonly openExternal: (url: string) => Promise<void>;
+  readonly openBrowser: (url: string) => void;
+  readonly signal: AbortSignal;
 }): Promise<unknown> {
-  let settle!: (value: { readonly code: string; readonly state: string }) => void, reject!: (error: Error) => void;
-  const callback = new Promise<{ readonly code: string; readonly state: string }>((resolve, rejectPromise) => {
+  type CallbackResult = { readonly code: string; readonly state: string } | Error;
+  let settle!: (value: CallbackResult) => void;
+  const callback = new Promise<CallbackResult>((resolve) => {
       settle = resolve;
-      reject = rejectPromise;
     }),
     server = createServer((request, response) => {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -146,12 +169,10 @@ export async function systemBrowserLogin(ports: {
         state = url.searchParams.get("state");
       if (!code || !state) {
         response.writeHead(400, { "content-type": "text/plain" }).end("Harness sign-in callback is incomplete.");
-        reject(Object.assign(new Error("OIDC callback omitted code or state."), { code: "oidc_callback_invalid" }));
+        settle(Object.assign(new Error("OIDC callback omitted code or state."), { code: "oidc_callback_invalid" }));
         return;
       }
-      response
-        .writeHead(200, { "content-type": "text/plain" })
-        .end("Harness sign-in complete. You can close this tab.");
+      response.writeHead(200, { "content-type": "text/plain" }).end("Completing Harness sign-in…");
       settle({ code, state });
     });
   // The callback is listening before the browser can navigate back, so a fast provider cannot race initialization.
@@ -159,26 +180,24 @@ export async function systemBrowserLogin(ports: {
     server.once("error", rejectListen);
     server.listen(0, "127.0.0.1", resolve);
   });
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const cancelled = () => settle(new Error("Sign-in cancelled."));
+  ports.signal.addEventListener("abort", cancelled, { once: true });
+  const timeout = setTimeout(() => settle(new Error("OIDC callback timed out.")), 300_000);
   try {
+    ports.signal.throwIfAborted();
     const address = server.address() as AddressInfo,
       redirectUri = `http://127.0.0.1:${address.port}/oidc/callback`,
       begun = requireSuccessfulAuthReply(await ports.daemonRequest({ operation: "login-begin", redirectUri }));
     if (typeof begun.authorizationUrl !== "string") throw new Error("Daemon did not return an OIDC authorization URL.");
-    await ports.openExternal(begun.authorizationUrl);
-    const result = await Promise.race([
-      callback,
-      new Promise<never>(
-        (_resolve, rejectTimeout) =>
-          (timeout = setTimeout(
-            () => rejectTimeout(Object.assign(new Error("OIDC callback timed out."), { code: "oidc_timeout" })),
-            300_000,
-          )),
-      ),
-    ]);
+    ports.signal.throwIfAborted();
+    ports.openBrowser(begun.authorizationUrl);
+    const result = await callback;
+    if (result instanceof Error) throw result;
+    ports.signal.throwIfAborted();
     return requireSuccessfulAuthReply(await ports.daemonRequest({ operation: "login-complete", ...result }));
   } finally {
-    if (timeout) clearTimeout(timeout);
+    clearTimeout(timeout);
+    ports.signal.removeEventListener("abort", cancelled);
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
