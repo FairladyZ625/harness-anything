@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { assertUnscrolledLayout } from "./helpers.mjs";
@@ -274,6 +275,24 @@ export default {
     );
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 
+    // The isolated repository starts without a commit. Seed a real delivery like work-progress-chain.
+    writeFileSync(path.join(rootDir, "layout-fixture.txt"), "Isolated page layout delivery fixture.\n");
+    execFileSync("git", ["-C", rootDir, "add", "layout-fixture.txt"], { stdio: "pipe" });
+    execFileSync(
+      "git",
+      [
+        "-C",
+        rootDir,
+        "-c",
+        "user.name=gui-e2e",
+        "-c",
+        "user.email=gui-e2e@local",
+        "commit",
+        "-m",
+        "test: seed layout fixture",
+      ],
+      { stdio: "pipe" },
+    );
     for (const taskId of [CHILD_TASK_ID, "task-gui-smoke"]) {
       const started = await requestDaemonJsonRpcAt(
         endpoint,
@@ -288,20 +307,59 @@ export default {
       assert.equal(started.ok, true, JSON.stringify(started));
     }
 
-    // Distinct real executions produce a long lifecycle timeline through the public write path.
-    for (const taskId of [CHILD_TASK_ID, "task-gui-smoke"]) {
-      for (let index = 0; index < 12; index += 1) {
+    writeFileSync(path.join(rootDir, "layout-fixture.txt"), "Isolated page layout delivery with history.\n");
+    execFileSync("git", ["-C", rootDir, "add", "layout-fixture.txt"], { stdio: "pipe" });
+    execFileSync(
+      "git",
+      [
+        "-C",
+        rootDir,
+        "-c",
+        "user.name=gui-e2e",
+        "-c",
+        "user.email=gui-e2e@local",
+        "commit",
+        "-m",
+        "test: deliver layout fixture",
+      ],
+      { stdio: "pipe" },
+    );
+    const commitSha = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    // Submit/return creates real lifecycle history; releasing a lease does not end an execution.
+    for (const [taskId, taskPackage] of [
+      [CHILD_TASK_ID, packagePath],
+      ["task-gui-smoke", "tasks/task-gui-smoke"],
+    ]) {
+      const closeoutPath = `${taskPackage}/closeout.md`;
+      writeFileSync(
+        path.join(rootDir, "harness", closeoutPath),
+        "# Closeout\n\n## Summary\n\nIsolated GUI layout fixture round, with no production changes.\n\n## Verification\n\nThe fixture validates public lifecycle receipts before rendering history.\n\n## Residual Risk\n\nSynthetic fixture content is only used for layout verification.\n\n## Same Mechanism Elsewhere\n\nRegion overflow is shared by the task and work timeline views.\n",
+      );
+      const authored = await requestDaemonJsonRpcAt(
+        endpoint,
+        "repo.task.run",
+        { repo: { repoId }, payload: { action: { kind: "doc-submit", paths: [closeoutPath] } } },
+        1000,
+        30000,
+      );
+      assert.equal(authored.ok, true, JSON.stringify(authored));
+      for (let index = 0; index < 3; index += 1) {
+        const executionId = index === 0 ? `execution-layout-${taskId}` : `execution-layout-${taskId}-${index - 1}`;
         for (const action of [
-          { kind: "task-release", taskId, reason: "Layout fixture execution cycle" },
+          { kind: "task-submit", taskId, executionId, commitSha },
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId,
+            return: true,
+            reason: "Continue the isolated layout fixture round",
+          },
           { kind: "task-start", taskId, executionId: `execution-layout-${taskId}-${index}` },
         ]) {
           const receipt = await requestDaemonJsonRpcAt(
             endpoint,
             "repo.task.run",
-            {
-              repo: { repoId },
-              payload: { action },
-            },
+            { repo: { repoId }, payload: { action } },
             1000,
             30000,
           );
@@ -345,6 +403,7 @@ export default {
         timelineScroll.scroll > timelineScroll.client && timelineScroll.top > 0,
         `long timeline scrolls internally: ${JSON.stringify(timelineScroll)}`,
       );
+      await page.getByTestId("task-overview-tab-controls-reset").click();
       await resize(1120, 800);
       await checkLayout(page, shot, "task-detail-content-grid", "files", "content", "task-narrow");
       await shot("task-plan-narrow");
@@ -398,6 +457,18 @@ export default {
       await page.reload();
       await page.getByTestId("overview-board").waitFor();
       await shot("overview-en");
+      await page.evaluate(() => globalThis.localStorage.setItem("harness-theme", "light"));
+      await page.reload();
+      await page.getByTestId("overview-board").waitFor();
+      await assertUnscrolledLayout(page.getByTestId("overview-board"));
+      await shot("overview-light");
+      const finalWindows = await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().map((window) => ({ visible: window.isVisible(), focused: window.isFocused() })),
+      );
+      assert.ok(
+        finalWindows.every((window) => !window.visible && !window.focused),
+        JSON.stringify(finalWindows),
+      );
     } finally {
       // ---- 清理:软删子任务(soft 需要 reason),不留工作根结构给同轮后续场景;
       //      清理失败不吞原始错误,挪到 finally 之外抛。 ----
