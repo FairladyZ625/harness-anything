@@ -10,6 +10,7 @@ import { PageEntryBoundary } from "../src/renderer/components/primitives/EntryBo
 import { WorkspaceView } from "../src/renderer/views/WorkspaceView.tsx";
 import { combineWorkspaceScopePages } from "../src/renderer/workspace-scope-data.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
+import { readSplitPreferences } from "../src/renderer/split-layout-preferences.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import type { WorkspaceScopeRead } from "../src/api/renderer-dto.ts";
@@ -28,6 +29,8 @@ vi.mock("motion", async (original) => ({
  * 主区「等你裁决 → 阻塞与异常 → 进行中 → 接下来 → 结构与统计」各一个区域框,右列是
  * 按天收束的时间线区域;原始事件流只在检修页;实体细节进右侧抽屉。
  */
+
+const SPLIT_STORAGE_KEY = "harness:gui:split-layout";
 
 const scopeRow = (taskId: string, patch: Partial<WorkspaceScopeRead["tasks"][number]> = {}) =>
   ({
@@ -376,6 +379,117 @@ describe("overview narrative", () => {
     const running = host.querySelector('[data-testid="work-running"]')!;
     expect(running.querySelector('[data-task-row="task_run"]')!.textContent).toContain("执行者 person_x");
     expect(running.querySelector('[data-task-row="task_solo"]')).toBeNull();
+  });
+
+  // task_fb3ba20d66…:概况板主区|最近进展分割。默认自适应(无内联模板、无分隔条);
+  // 显式左右排列后固定两窗(默认 60/40,同自适应的 3fr/2fr),分隔条插在时间线前;
+  // 重置回自适应。持久化按仓+页面槽在 split-layout.vitest 里守。
+  it("hands the overview board to the explicit split with a divider before the timeline", async () => {
+    const host = await mount(
+      <WorkspaceView
+        scope={{
+          ...baseScope,
+          eventSummaries: [
+            {
+              eventId: "e1",
+              schema: "task-event/v1",
+              type: "execution_started",
+              occurredAt: "2026-09-30T02:05:00.000Z",
+              workspaceRevision: 1,
+              taskId: "task_solo",
+              payload: {},
+            },
+          ],
+        }}
+        repoId="repo"
+        projectName="Harness"
+        tasks={[row("task_wait", { coordinationStatus: "submitted", parentTaskId: "task_root" })]}
+        onOpenTask={() => {}}
+      />,
+    );
+    const board = host.querySelector<HTMLElement>('[data-testid="work-overview-board"]')!;
+    expect(board.style.gridTemplateColumns).toBe("");
+    expect(host.querySelector('[data-testid="work-overview-split-divider"]')).toBeNull();
+    const controls = host.querySelector<HTMLElement>('[data-testid="work-overview-split-controls"]')!;
+    const controlButton = (suffix: string) =>
+      controls.querySelector<HTMLButtonElement>(`[data-testid="work-overview-split-controls-${suffix}"]`)!;
+
+    await act(async () => {
+      controlButton("row").click();
+    });
+    expect(board.style.gridTemplateColumns).toBe("minmax(0,60.00fr) 0.375rem minmax(0,40.00fr)");
+    const divider = host.querySelector<HTMLElement>('[data-testid="work-overview-split-divider"]')!;
+    expect(divider.getAttribute("role")).toBe("separator");
+    // 分隔条轨道(含手柄)插在时间线之前,时间线仍是板最后一个子元素。
+    const track = host.querySelector<HTMLElement>('[data-testid="work-overview-split-divider-track"]')!;
+    expect(host.querySelector('[data-testid="work-timeline"]')!.previousElementSibling).toBe(track);
+    expect(board.lastElementChild).toBe(host.querySelector('[data-testid="work-timeline"]'));
+    // 主区恒为一列内滚(显式比例管的是主区整体,不再展开 ≥1400px 多列)。
+    expect(host.querySelector<HTMLElement>('[data-testid="work-overview-main"]')!.className).not.toContain(
+      "@[1400px]:contents",
+    );
+
+    await act(async () => {
+      controlButton("reset").click();
+    });
+    expect(board.style.gridTemplateColumns).toBe("");
+    expect(host.querySelector('[data-testid="work-overview-split-divider"]')).toBeNull();
+  });
+
+  // task_fb3ba20d66…(返工):分割偏好按连接+仓隔离。App 传的是 system status 仓行的
+  // connectionId;同 repoId 的两个连接(如 remote-proxy 改挂)读写/重置互不串用。
+  it("addresses overview split preferences by the live connection so same-repo connections stay isolated", async () => {
+    localStorage.removeItem(SPLIT_STORAGE_KEY);
+    const mountOverview = (connectionId: string) =>
+      mount(
+        <WorkspaceView
+          scope={{
+            ...baseScope,
+            eventSummaries: [
+              {
+                eventId: "e1",
+                schema: "task-event/v1",
+                type: "execution_started",
+                occurredAt: "2026-09-30T02:05:00.000Z",
+                workspaceRevision: 1,
+                taskId: "task_solo",
+                payload: {},
+              },
+            ],
+          }}
+          repoId="repo"
+          connectionId={connectionId}
+          projectName="Harness"
+          tasks={[row("task_wait", { coordinationStatus: "submitted", parentTaskId: "task_root" })]}
+          onOpenTask={() => {}}
+        />,
+      );
+    const remote = await mountOverview("remote-abc123def456");
+    await act(async () => {
+      remote.querySelector<HTMLButtonElement>('[data-testid="work-overview-split-controls-row"]')!.click();
+    });
+    expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toEqual({
+      orientation: "row",
+    });
+    // 同 repoId 换连接:不沿用上一连接的排列,后续写动也不覆盖它。
+    const local = await mountOverview("local");
+    expect(local.querySelector('[data-testid="work-overview-split-divider"]')).toBeNull();
+    await act(async () => {
+      local.querySelector<HTMLButtonElement>('[data-testid="work-overview-split-controls-column"]')!.click();
+    });
+    expect(readSplitPreferences(localStorage, "local", "repo")["work-overview"]).toEqual({ orientation: "column" });
+    expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toEqual({
+      orientation: "row",
+    });
+    // 重置只清当前连接的槽。
+    await act(async () => {
+      local.querySelector<HTMLButtonElement>('[data-testid="work-overview-split-controls-reset"]')!.click();
+    });
+    expect(readSplitPreferences(localStorage, "local", "repo")).toEqual({});
+    expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toEqual({
+      orientation: "row",
+    });
+    localStorage.removeItem(SPLIT_STORAGE_KEY);
   });
 
   it("drops empty regions instead of leaving empty frames", async () => {

@@ -1612,5 +1612,8 @@
   "views.settingsView.listStyleDescription": "Relative or absolute time at list row ends; hover always shows absolute",
   "views.settingsView.listStyleRelative": "Relative",
   "views.settingsView.listStyleAbsolute": "Absolute",
-  "views.settingsView.timePreviewLabel": "Preview"
+  "views.settingsView.timePreviewLabel": "Preview",
+  "views.taskDetailView.splitDividerLabel": "Resize the task files and document divider",
+  "views.taskDetailView.expandFileTree": "Expand file tree",
+  "views.workspace.splitDividerLabel": "Resize the overview and timeline divider"
 }
