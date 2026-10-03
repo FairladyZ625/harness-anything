@@ -12,11 +12,13 @@ test("every production local binding is covered by a request or cell-default wri
     counts = new Map<string, number>();
   for (const use of uses) counts.set(use.file, (counts.get(use.file) ?? 0) + 1);
 
+  // dec_D60FAA451F24160E970323B6F3 CH1/CH4: retire roster authority, retain writer leases.
+  // Owner-confirmed inventory; the fence assertions below independently protect writes.
   assert.deepEqual(
     [...counts].sort(([left], [right]) => left.localeCompare(right)),
     [
-      ["daemon-host-binding.ts", 4],
-      ["host-action-authorization.ts", 1],
+      ["daemon-host-binding.ts", 2],
+      ["daemon-host-open.ts", 1],
       ["repo-cell-bootstrap-ledger.ts", 1],
     ],
     `unclassified production source:local use:\n${uses.map((use) => `${use.file}:${use.line}`).join("\n")}`,
@@ -37,12 +39,20 @@ test("every production local binding is covered by a request or cell-default wri
     source("daemon-host-open.ts"),
     /return writerRepoId \? daemonWriterBinding\(writerRepoId, base\) : base/u,
   );
-  // CEO R7: the explicit daemon Schedule principal is a new local binding construction;
-  // both seeding and occurrence writes must still enter the daemon writer fence.
-  assert.match(source("daemon-host-open.ts"), /binding: daemonWriterBinding\(repoId, localScheduleBinding\(\)\)/u);
+  const host = source("daemon-host-open.ts");
+  assert.match(host, /return withDaemonWriterEpochFence\(base, writerEpochFence\(repoId\)\)/u);
+  // Schedule reads use system authority; occurrence writes use the canonical creator
+  // and Keycloak authorization, with a request fence for that repository.
+  assert.match(host, /if \(action\.kind === "schedule-list"\) return system/u);
+  assert.match(host, /cell\.run\(\{ kind: "schedule-show", scheduleId: action\.scheduleId \}, system\)/u);
+  assert.match(host, /if \(!schedule \|\| validateScheduleV1\(schedule\)\.length\)\s*throw hostCodedError/u);
   assert.match(
-    source("daemon-host-open.ts"),
-    /const base = localScheduleBinding\(\);[\s\S]*?daemonWriterBinding\(repoId, base\)/u,
+    host,
+    /return daemonWriterBinding\(repoId, \{\s*actor: \{ principal: schedule\.createdBy\.principal, executor: null \},\s*source: "local",\s*keycloakAuthorization: \{ center: await keycloakCenter\(\) \},\s*\}\)/u,
+  );
+  assert.match(
+    source("daemon-host-binding.ts"),
+    /writerEpoch: descriptor\.epoch,[\s\S]*?withWriterEpochFence: <T>\(operation: \(\) => T\) => withWriterEpochFenceDescriptor\(descriptor, operation\),\s*writerEpochFence: descriptor/u,
   );
   assert.match(
     source("daemon-host-registry.ts"),
@@ -54,11 +64,6 @@ test("every production local binding is covered by a request or cell-default wri
   );
   assert.match(source("writer-supervisor.ts"), /defaultWriterEpochFence: input\.defaultWriterEpochFence/u);
 
-  assert.match(
-    source("host-action-authorization.ts"),
-    /defaultBinding:\s*\{\s*principalPersonId:[\s\S]*?source: "local" as const/u,
-    "socket owner binding remains a host authorization context, not a write binding",
-  );
   assert.doesNotMatch(
     source("repo-cell-authorization.ts"),
     /defaultBinding:/u,
