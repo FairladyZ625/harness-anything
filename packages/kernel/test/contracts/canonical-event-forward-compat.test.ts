@@ -10,6 +10,9 @@ import {
   parseCanonicalEvent,
   validateCurrentCanonicalEvent,
 } from "../../src/domain/doc-sync.contract.ts";
+import { eventShapeMigrations, type EventShapeCut } from "../../src/store/event-shape-migration.ts";
+import { ownedContentForDeclarationEvent, type EntityUpsertEventV1 } from "../../src/domain/entity-event.ts";
+import type { CanonicalEventV1 } from "../../src/domain/doc-sync-types.ts";
 import { validateTaskV2 } from "../../src/domain/task.ts";
 import { sameActorIdentity, sameWriteSource, serializeEventEnvelope } from "../../src/domain/write-chain.contract.ts";
 
@@ -202,6 +205,22 @@ test("historical entity ownership gaps remain readable but cannot become current
   assert.equal(original.payload.ownedContent, undefined);
   assert.deepEqual(parseCanonicalEvent(raw), original);
   assert.notEqual(validateCurrentCanonicalEvent(original).length, 0);
+  const historical = original as EntityUpsertEventV1;
+  const migration = eventShapeMigrations["entity-owned-content-manifests-migrate"];
+  const rewrite = migration.rewrite(historical as unknown as CanonicalEventV1, {} as EventShapeCut)!;
+  assert.deepEqual(rewrite.event.payload.ownedContent, ownedContentForDeclarationEvent(historical));
+  assert.deepEqual(rewrite.event.payload.declarationDocumentClaim, historical.payload.declarationDocumentClaim);
+  assert.deepEqual(validateCurrentCanonicalEvent(rewrite.event), []);
+  assert.equal(migration.rewrite(rewrite.event, {} as EventShapeCut), null);
+  for (const type of ["entity_content_observed", "entity_updated"]) {
+    assert.equal(migration.rewrite({ ...historical, type } as unknown as CanonicalEventV1, {} as EventShapeCut), null);
+  }
+  const invalid = {
+    ...historical,
+    payload: { ...historical.payload, ownedContent: null },
+  } as unknown as CanonicalEventV1;
+  assert.equal(migration.rewrite(invalid, {} as EventShapeCut), null);
+  assert.notEqual(validateCurrentCanonicalEvent(invalid).length, 0);
 });
 
 test("historical artifact contract snapshots remain readable without inventing a current pin", () => {

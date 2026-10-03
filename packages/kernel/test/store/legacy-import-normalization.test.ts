@@ -172,6 +172,7 @@ function task(pinned = true, metadata: Readonly<Record<string, unknown>> | undef
     completionGateIds: [],
     presetSnapshotDigest: snapshotDigest,
     pinned,
+    packageDisposition: "active",
     ...(metadata === undefined ? {} : { metadata }),
   } as TaskV2;
 }
@@ -403,4 +404,23 @@ function legacyDocEvent(): CanonicalEventV1 {
       ],
     },
   } as CanonicalEventV1;
+}
+
+for (const disposition of [undefined, "active", "archived", "tombstoned"] as const) {
+  test(`embedded task normalization preserves disposition ${disposition ?? "missing"}`, () => {
+    for (const event of [taskBootstrapEvent(true), migrationTaskEvent(currentMetadata)]) {
+      const embedded = event.payload.task ?? event.payload.entity.task;
+      if (disposition === undefined) delete embedded.packageDisposition;
+      else embedded.packageDisposition = disposition;
+      const rewrite = migration().rewrite(event, cut());
+      if (disposition !== undefined) assert.equal(rewrite, null);
+      const normalized = rewrite?.event ?? event;
+      assert.equal(
+        (normalized.payload.task ?? normalized.payload.entity.task).packageDisposition,
+        disposition ?? "active",
+      );
+      assert.deepEqual(validateCurrentCanonicalEvent(normalized), []);
+      assert.equal(migration().rewrite(normalized, cut()), null);
+    }
+  });
 }
