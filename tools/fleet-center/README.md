@@ -60,10 +60,8 @@ the repository, TLS material, roster, and replica state for audit/recovery.
 After a host reboot, log in and run `up`; the daemon and Fleet listener are
 both process-owned and must be re-established.
 
-The restored ledger carries the source machine's local Unix-socket credential,
-which does not bind on the center host. Human identity and repository
-permissions come from Keycloak; a repository `people.yaml` does not grant
-access. The deployment does not admit local repository writes to the remote
+Human identity and repository permissions come from Keycloak; a restored
+repository's `people.yaml` does not grant access. The deployment does not admit local repository writes to the remote
 center: writes arrive from Fleet edges with node credentials, and a person
 signs in through the desktop app connected to this daemon.
 
@@ -83,9 +81,10 @@ kept at `~/harness-center/rbac-bootstrap.json`.
 
 Everything after that needs a person and is not run by the script:
 
-1. Create the first administrator and sign in. This version offers both only
-   through the desktop app connected to this daemon; a server without one has
-   no entry for either (tracked as `task_8352efd2f05ab2eda87b724761`).
+1. Create the first administrator through the desktop app or
+   `ha bootstrap --operation bootstrap-admin` with the required identity fields
+   and `--password-file` (see `ha bootstrap --help`). Sign in through the app or
+   `ha bootstrap --operation login`, which uses device login without a local browser.
 2. Give the node's owner an account and grant that person
    `daemon-fleet-edge-sync` on the repository.
 3. Register the node, signed in as an administrator holding `access-admin`.

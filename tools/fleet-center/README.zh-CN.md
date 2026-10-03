@@ -48,8 +48,7 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 `down` 只停止本部署的隔离 daemon，有意保留仓库、TLS 物料、名册与副本状态以备审计/恢复。
 主机重启后登录并执行 `up`；daemon 与 Fleet 监听器都是进程持有的，需要重新建立。
 
-恢复出的台账带着源机器的本地 Unix-socket 凭据，在中心主机上不会命中。人的身份与仓库权限
-来自 Keycloak；仓库中的 `people.yaml` 不授予访问权限。本部署不向 remote center 放行本地仓库写入：
+人的身份与仓库权限来自 Keycloak；恢复出的仓库中的 `people.yaml` 不授予访问权限。本部署不向 remote center 放行本地仓库写入：
 写入来自持有节点凭据的 Fleet 边缘，而人通过连接到该 daemon 的桌面应用登录。
 
 ## 名册与节点
@@ -65,8 +64,9 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 
 之后的每一步都需要一个人完成，脚本不会代做：
 
-1. 创建首位管理员并登录。本版本两者都只能通过连接到该 daemon 的桌面应用完成；没有桌面
-   入口的服务器两者都无从谈起（跟踪于 `task_8352efd2f05ab2eda87b724761`）。
+1. 通过桌面应用或 `ha bootstrap --operation bootstrap-admin` 创建首位管理员；CLI 需提供
+   身份字段与 `--password-file`（见 `ha bootstrap --help`）。通过应用或
+   `ha bootstrap --operation login` 登录；后者使用设备登录，不需要本地浏览器。
 2. 给节点属主开账号，并授予该人仓库上的 `daemon-fleet-edge-sync`。
 3. 由持有 `access-admin` 的管理员登录后注册节点。
 

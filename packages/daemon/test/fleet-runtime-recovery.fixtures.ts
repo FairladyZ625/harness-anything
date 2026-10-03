@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { type TestContext } from "node:test";
 import { connect, type TLSSocket } from "node:tls";
@@ -17,6 +17,7 @@ import {
   fleetNodeOwners,
   waitForFleetPublication,
 } from "./fleet-store.fixture.ts";
+import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 
@@ -68,7 +69,6 @@ export async function fleetFixture(
     path.join(repo, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
-  writePeopleFixture(repo);
   git(repo, "add", "harness");
   git(repo, "commit", "-qm", "harness");
   registerDaemonRepo({ canonicalRoot: repo, repoId: "fleet-repo", mode, userRoot, createConvenienceLinks: false });
@@ -117,6 +117,7 @@ export async function fleetFixture(
       }
     }
   });
+  signInAt(userRoot, "person-owner");
   await host.attachmentsSettled();
   const assignment: FleetAssignmentRecord = {
       nodeId: "node-one",
@@ -270,13 +271,6 @@ export function git(rootDir: string, ...args: string[]): string {
   delete env.GIT_COMMITTER_NAME;
   delete env.GIT_COMMITTER_EMAIL;
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", env }).trim();
-}
-export function writePeopleFixture(rootDir: string): void {
-  const ownerUid = process.getuid?.() ?? 0;
-  writeFileSync(
-    path.join(rootDir, "harness/people.yaml"),
-    `${JSON.stringify({ schema: "harness-people/v1", people: [{ personId: "fleet-fixture", displayName: "Fleet Fixture", roles: ["owner"], credentials: [{ kind: "unix-socket-owner-boundary", issuer: `host:${hostname()}`, subject: String(ownerUid) }] }], roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }] }, null, 2)}\n`,
-  );
 }
 export function localAuthFixture() {
   return {
