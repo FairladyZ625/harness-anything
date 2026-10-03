@@ -14,6 +14,7 @@ import { t } from "../i18n/index.tsx";
 import { mainCiFailingJobs } from "./overview-model.ts";
 import { buildOverviewRegions, type OverviewRegionSpec } from "./overview-regions.tsx";
 import { layoutRegions, regionNeed, regionNeedRelaxed, type RegionKey } from "./overview-layout.ts";
+import { wipVisibleEntries, type WipFilter } from "./OverviewTaskWip.tsx";
 import { regionMinimumHeight } from "../components/primitives/region-minimum.ts";
 
 /**
@@ -72,6 +73,9 @@ export function OverviewView({
   // 本实例是观察者,台账切面前进由既有失效扇出更新,不建第二份快照。
   const wipQuery = useTaskWipQuery(repoId, true);
   const wipErrorText = wipQuery.error instanceof Error ? wipQuery.error.message : null;
+  // WIP 放大层的分组/搜索过滤态放在这里:FocusLayer 的 ↑↓ 只在可见集合里移动,itemIds
+  // 与名单渲染必须出自同一份 wipVisibleEntries,组件内部各持一份会各自漂移。
+  const [wipFilter, setWipFilter] = useState<WipFilter>({ group: "all", search: "" });
   // 年龄随读面刷新重算:agenda/works/ci 任一前进都给一帧新时钟,不立单独计时器。
   const now = useMemo(() => new Date().toISOString(), [agenda, works, ciQuery.data, runtimeQuery.data]);
 
@@ -86,6 +90,8 @@ export function OverviewView({
         wip: wipQuery.data,
         wipLoading: wipQuery.isPending,
         wipError: wipErrorText,
+        wipFilter,
+        onWipFilterChange: setWipFilter,
         events: eventsQuery.data ?? [],
         now,
         onAnswer: (subject) => {
@@ -115,6 +121,7 @@ export function OverviewView({
       wipQuery.data,
       wipQuery.isPending,
       wipErrorText,
+      wipFilter,
       eventsQuery.data,
       now,
       onNavigateEntity,
@@ -205,7 +212,16 @@ export function OverviewView({
   );
 
   const focusSpec: OverviewRegionSpec | undefined = focus === null ? undefined : regions[focus];
-  const focusSelected = focus === null ? null : (selected[focus] ?? regions[focus]?.rowIds[0] ?? null);
+  // 键盘导航的可选中集合:WIP 用当前过滤后的可见名单(过滤隐藏的行不可被 ↑↓ 选中),
+  // 其余区域仍是各自的全量 rowIds。选中行被过滤隐藏时收敛到首个可见行,详情同源。
+  const focusIds: readonly string[] =
+    focus === null
+      ? []
+      : focus === "wip"
+        ? wipVisibleEntries(wipQuery.data?.counted, wipFilter).map(({ taskId }) => taskId)
+        : (regions[focus]?.rowIds ?? []);
+  const focusSelected =
+    focus === null ? null : focusIds.includes(selected[focus] ?? "") ? selected[focus]! : (focusIds[0] ?? null);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="overview-view">
@@ -318,7 +334,7 @@ export function OverviewView({
           tag={focusSpec.tag}
           big={focusSpec.big}
           bigTone={focusSpec.bigTone}
-          itemIds={focusSpec.rowIds}
+          itemIds={focusIds}
           selectedId={focusSelected}
           onSelect={(id) => setSelected((current) => ({ ...current, [focus]: id }))}
           onClose={() => setFocus(null)}

@@ -771,7 +771,7 @@ describe("总览 WIP 区域接线(常驻观察面)", () => {
     await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
     const region = container.querySelector('[data-testid="overview-region-wip"]')!;
     const rows = [...region.querySelectorAll("[data-dense-row]")];
-    // 条面没有过滤控件;行主点击面(冒泡到区域)打开放大层(与其它区域同一整块入口)。
+    // 条面没有过滤控件;行主点击面打开放大层(行自己的落点,不冒泡成区域级首行默认)。
     expect(region.querySelector("[data-testid='overview-task-wip-search']")).toBeNull();
     act(() => (rows[29]!.querySelectorAll("button")[0] as HTMLButtonElement).click());
     const dialog = document.body.querySelector('[role="dialog"]');
@@ -798,5 +798,94 @@ describe("总览 WIP 区域接线(常驻观察面)", () => {
     expect(onOpenTask).toHaveBeenLastCalledWith("task_wip29");
     act(() => root?.unmount());
     restore();
+  });
+
+  it("条面点第 N 行进放大层并保持该行选中:点击不再冒泡成首行(修复返工 2 第 1 点)", async () => {
+    const restore = stubWipBridge(wipSnapshot());
+    const container = mount();
+    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
+    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
+    const rows = [...region.querySelectorAll("[data-dense-row]")];
+    // 点第 6 行(既不是首行也不是末行):放大层打开时选中的就是它。
+    act(() => (rows[5]!.querySelectorAll("button")[0] as HTMLButtonElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const focusRows = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")];
+    expect(focusRows[5]!.hasAttribute("data-selected")).toBe(true);
+    expect(focusRows[0]!.hasAttribute("data-selected")).toBe(false);
+    // 详情与选中同源:第 6 行的标题,不是首行也不是末行。
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip05");
+    act(() => root?.unmount());
+    restore();
+  });
+
+  it("放大层过滤后键盘只在可见集合移动:搜索/分组隐藏的行不可被 ↑↓ 选中(修复返工 2 第 2 点)", async () => {
+    const restore = stubWipBridge(wipSnapshot());
+    const container = mount();
+    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
+    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
+    const firstTileRow = region.querySelectorAll("[data-dense-row]")[0]! as HTMLElement;
+    act(() => (firstTileRow.querySelectorAll("button")[0] as HTMLButtonElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const type = (value: string) => {
+      const input = dialog.querySelector("[data-testid='overview-task-wip-search']") as HTMLInputElement;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    const arrow = (key: "ArrowDown" | "ArrowUp") =>
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
+      });
+    // 搜索 "wip2" 只留 task_wip20..29(10 行):键盘从首个可见行出发只能在这 10 行里移动。
+    type("wip2");
+    expect(dialog.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
+    // 搜索前选中的 task_wip00 被隐藏:选中收敛到首个可见行 task_wip20。
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip20");
+    arrow("ArrowDown");
+    arrow("ArrowDown");
+    // 两次 ↓ 后是第三个可见行 task_wip22,绝不是被隐藏的 task_wip02。
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip22");
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).not.toContain("task_wip02");
+    const visibleSelected = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")].filter((row) =>
+      row.hasAttribute("data-selected"),
+    );
+    expect(visibleSelected).toHaveLength(1);
+    expect(visibleSelected[0]!.querySelector("button[title*='task/task_wip22']")).not.toBeNull();
+    // ↑ 回到上一个可见行;清空搜索恢复全量后,键盘在全量集合里继续。
+    arrow("ArrowUp");
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip21");
+    type("");
+    arrow("ArrowDown");
+    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip22");
+    act(() => root?.unmount());
+    restore();
+  });
+
+  it("共享修复回归(所有 DenseRow 区域):点区域行进放大层且保持该行选中,点区域其余部分仍开首行", () => {
+    // mine 用两条可区分的行:点第二条,放大层选中的就是第二条而非首行。
+    const input = agenda();
+    const second = { ...input.attentionItems[1]!, ref: "task/task_mine_second", region: "mine" as const };
+    const container = mount({
+      agenda: agenda({ attentionItems: [input.attentionItems[0]!, second] }),
+    });
+    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
+    const rows = [...mine.querySelectorAll("[data-dense-row]")];
+    expect(rows).toHaveLength(2);
+    // mine 的行没有右侧动作:整行就是主点击面(DenseRow 无 action 的 button 形态)。
+    act(() => (rows[1] as HTMLButtonElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const focusRows = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")];
+    expect(focusRows[1]!.hasAttribute("data-selected")).toBe(true);
+    expect(focusRows[0]!.hasAttribute("data-selected")).toBe(false);
+    // 区域其余部分(标题行/留白)仍是区域级入口:开放大层落选首行。
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    act(() => (container.querySelector('[data-testid="overview-region-mine"] section > div') as HTMLElement).click());
+    const reopened = document.body.querySelector('[role="dialog"]')!;
+    const reopenedRows = [...reopened.querySelectorAll("[data-focus-list] [data-dense-row]")];
+    expect(reopenedRows[0]!.hasAttribute("data-selected")).toBe(true);
+    act(() => root?.unmount());
   });
 });
