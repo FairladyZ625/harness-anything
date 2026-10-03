@@ -577,6 +577,8 @@ function AppShell() {
                     onOpenTask={openTaskDetail}
                     onOpenSearch={() => setPaletteOpen(true)}
                     onOpenSessions={() => goto("sessions")}
+                    onOpenWorks={() => goto("work")}
+                    onOpenTasks={() => goto("board")}
                     onUnpin={(taskId) => handleSetPin({ taskId }, false)}
                   />
                 ) : (

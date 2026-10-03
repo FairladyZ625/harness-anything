@@ -7,8 +7,9 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { prefersReducedMotion } from "motion/react";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import {
-  attentionEntries,
-  ATTENTION_META,
+  decisionRows,
+  followUpRows,
+  watchedWorks,
   workRows,
   reviewRows,
   reviewCounts,
@@ -16,13 +17,15 @@ import {
 import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
+import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { AgendaAwaitsRow, TaskWipRead, WorkIndexRead, WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
 import type { RuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 
 /**
- * 总览(S3 区域板,dec_B3D40712 CH1)的行为面:区域由 S1 权重落位、等我处理/阻塞与停滞
- * 的行取 attentionItems、CI 绿不出区域红时压左上、点区域原位放大并给真实动作、Esc 收回、
- * 顶栏只放系统状态与全局搜索。布局算法本身在 overview-layout.vitest.ts 单测。
+ * 总览(2026-10-04 注意力优先重构)的行为面:首块只列真实待人事项并给真实动作;主区
+ * 关注的工作(置顶优先,零置顶回退活跃工作);WIP/评审执行/跟进返工/置顶承诺收成紧凑
+ * 下钻入口且列表可达;系统状态弱化、异常(daemon/CI/投影)提升。旧九区瀑布板与
+ * overview-layout 已删除,布局断言不再适用;注意力派生的纯函数另测。
  */
 
 const AT = "2026-09-29T01:00:00.000Z";
@@ -46,7 +49,6 @@ beforeAll(() => {
       }) as unknown as typeof matchMedia,
   );
   prefersReducedMotion.current = true;
-  // 板尺寸观察者:挂上即报一次 1200×700,区域随后落位。
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -69,7 +71,7 @@ beforeAll(() => {
       disconnect(): void {}
     },
   );
-  // 测试不接 daemon:三条自持读面走确定性失败(error 态),总览按「无数据」渲染。
+  // 测试不接 daemon:自持读面走确定性失败(error 态),总览按「无数据」渲染。
   vi.stubGlobal("harness", {
     request: () => Promise.reject(new Error("no bridge in test")),
   });
@@ -80,6 +82,11 @@ const HEALTH: RuntimeHealth = {
   cell: { state: "mounted", queueDepth: 0, problem: null },
   projection: { lag: 0, status: "ready" },
   ledgerChange: { at: AT, ageSec: 60 },
+};
+
+const HEALTH_DOWN: RuntimeHealth = {
+  ...HEALTH,
+  daemon: { state: "unresponsive", observedAgeSec: 90, uptimeMs: 1000 },
 };
 
 const SUMMARY = {
@@ -100,7 +107,7 @@ const SUMMARY = {
 const awaitsRow = (relationId: string): AgendaAwaitsRow => ({
   relationId,
   relationRevision: 1,
-  sourceRef: "task/task_9",
+  sourceRef: "task/task_w1",
   title: `提案 ${relationId}`,
   status: "active",
   personId: "person_me",
@@ -109,6 +116,58 @@ const awaitsRow = (relationId: string): AgendaAwaitsRow => ({
   askedAt: AT,
   askedBy: "person_worker",
 });
+
+const WORKS: WorkIndexRead = {
+  schema: "daemon.work-index/v1",
+  ok: true,
+  status: "ready",
+  works: [
+    {
+      taskId: "task_w1",
+      title: "代码质量长期检验",
+      status: "active",
+      root: "declared",
+      parentTaskId: null,
+      taskCount: 3,
+      counts: { done: 2, executing: 1, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
+      lastActivityAt: "2026-09-28T00:00:00.000Z",
+      memberTaskIds: ["task_m1"],
+    },
+    {
+      taskId: "task_w2",
+      title: "网关读面加缓存",
+      status: "active",
+      root: "derived",
+      parentTaskId: null,
+      taskCount: 3,
+      counts: { done: 0, executing: 0, pending: 0, blocked: 1, planned: 2, cancelled: 0 },
+      lastActivityAt: "2026-09-20T00:00:00.000Z",
+      memberTaskIds: [],
+    },
+    {
+      taskId: "task_w_done",
+      title: "已收尾的工作",
+      status: "done",
+      root: "declared",
+      parentTaskId: null,
+      taskCount: 1,
+      counts: { done: 1, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
+      lastActivityAt: "2026-09-30T00:00:00.000Z",
+      memberTaskIds: [],
+    },
+  ],
+  watermark: 7,
+  sourceRevision: 7,
+  warnings: [],
+};
+
+const WORKS_EMPTY: WorkIndexRead = { ...WORKS, works: [] };
+
+const TITLES = new Map([
+  ["task/task_w1", "代码质量长期检验"],
+  ["task/task_m1", "总览首块的成员任务"],
+  ["task/task_other", "不属于关注工作的任务"],
+]);
 
 const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess =>
   ({
@@ -132,12 +191,36 @@ const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess =>
         },
       },
       {
+        ref: "execution/exec_1",
+        title: "总览重构的提交",
+        kind: "adjudication",
+        region: "mine",
+        workTaskId: "task_w1",
+        attention: { score: 90, reasons: [{ label: "待裁决", contribution: 60 }] },
+      },
+      {
+        ref: "decision/dec_1",
+        title: "是否冻结旧投影字段",
+        kind: "decision",
+        region: "mine",
+        workTaskId: null,
+        attention: { score: 70, reasons: [{ label: "决策待点头", contribution: 50 }] },
+      },
+      {
+        ref: "task/task_blk",
+        title: "被阻塞的成员任务",
+        kind: "blocked",
+        region: "stuck",
+        workTaskId: "task_w2",
+        attention: { score: 48, reasons: [{ label: "阻塞", contribution: 45 }] },
+      },
+      {
         ref: "task/task_stuck",
         title: "PLT-Observability-Eval",
         kind: "stalled",
         region: "stuck",
         workTaskId: null,
-        attention: { score: 48, reasons: [{ label: "进行中停滞", contribution: 40 }] },
+        attention: { score: 40, reasons: [{ label: "进行中停滞", contribution: 40 }] },
       },
     ],
     regionWeights: { mine: 15.4, stuck: 4, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
@@ -157,12 +240,36 @@ const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess =>
       },
     ],
     awaitingRework: [],
-    awaitingAdjudication: [],
+    awaitingAdjudication: [
+      {
+        taskId: "task_m1",
+        title: "总览重构的提交",
+        work: { taskId: "task_w1", title: "代码质量长期检验" },
+        pinned: false,
+        executionId: "exec_1",
+        submittedAt: AT,
+        blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+      },
+    ],
     underReview: [],
     decisionReviewInProgress: [],
     awaitingDecisionReview: [],
-    awaitingDecision: [],
-    waitingOnOthers: [],
+    awaitingDecision: [
+      { decisionId: "dec_1", title: "是否冻结旧投影字段", riskTier: "high", urgency: "high", proposedAt: AT },
+    ],
+    waitingOnOthers: [
+      {
+        taskId: "task_blk",
+        title: "被阻塞的成员任务",
+        work: { taskId: "task_w2", title: "网关读面加缓存" },
+        status: "blocked",
+        pinned: false,
+        updatedAt: AT,
+        leaseExecutionId: null,
+        activeExecutionIds: [],
+        blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+      },
+    ],
     dispatchable: [],
     summary: "",
     page: { sourceLimit: 100, cursor: null, nextCursor: null },
@@ -171,38 +278,7 @@ const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess =>
     ...patch,
   }) as AgendaSuccess;
 
-const WORKS: WorkIndexRead = {
-  schema: "daemon.work-index/v1",
-  ok: true,
-  status: "ready",
-  works: [
-    {
-      taskId: "task_w1",
-      title: "代码质量长期检验",
-      status: "active",
-      root: "declared",
-      parentTaskId: null,
-      taskCount: 3,
-      counts: { done: 2, executing: 1, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
-      lastActivityAt: AT,
-      memberTaskIds: [],
-    },
-  ],
-  watermark: 7,
-  sourceRevision: 7,
-  warnings: [],
-};
-
-const WORKS_EMPTY: WorkIndexRead = { ...WORKS, works: [] };
-
-const TITLES = new Map([
-  ["task/task_w1", "代码质量长期检验"],
-  ["task/task_r1", "网关读面加缓存"],
-  ["task/task_r2", "修复 401 重定向循环"],
-]);
-
 let root: Root | null = null;
-let host: HTMLElement | null = null;
 
 /** 每个用例一个干净 client:上一例的 error 态不能泄进下一例的读面。 */
 function mount(props: Partial<Parameters<typeof OverviewView>[0]> = {}): HTMLElement {
@@ -231,6 +307,8 @@ function mount(props: Partial<Parameters<typeof OverviewView>[0]> = {}): HTMLEle
             onOpenTask: noop,
             onOpenSearch: noop,
             onOpenSessions: noop,
+            onOpenWorks: noop,
+            onOpenTasks: noop,
             onUnpin: noop,
             ...props,
           }),
@@ -238,7 +316,6 @@ function mount(props: Partial<Parameters<typeof OverviewView>[0]> = {}): HTMLEle
       ),
     ),
   );
-  host = container;
   return container;
 }
 
@@ -254,229 +331,225 @@ async function flushUntil(predicate: () => boolean, rounds = 200): Promise<void>
   }
 }
 
-describe("总览区域板(S3)", () => {
-  it("待跟进保留计数、读面顺序与答复者，使用琥珀色", () => {
-    const input = agenda();
-    const item = { ...input.attentionItems[0]!, ref: "relation/follow", kind: "answered" as const };
-    const read = {
-      ...input,
-      attentionItems: [item, input.attentionItems[0]!],
+const unmount = () => act(() => root?.unmount());
+
+describe("总览:首块「需要你处理」", () => {
+  it("只列真实待人事项,并区分出不冒充需要用户的三类", () => {
+    const read = agenda({
       answeredForYou: [
         {
           relationId: "follow",
-          sourceRef: "task/source",
-          title: item.title,
-          askKind: "question" as const,
-          question: "下一步？",
+          sourceRef: "task/task_w1",
+          title: "已答复的跟进项",
+          status: "active",
+          personId: "person_worker",
+          askKind: "question",
+          question: "下一步?",
           answer: "继续",
           answeredAt: AT,
           answeredBy: "答复人甲",
         },
       ],
-    } as AgendaSuccess;
-    expect(attentionEntries(read, "mine").map(({ item }) => item.ref)).toEqual([
-      "relation/follow",
-      input.attentionItems[0]!.ref,
-    ]);
-    expect(ATTENTION_META.answered.tone).toBe("wait");
+      awaitingRework: [
+        {
+          taskId: "task_rew",
+          title: "返工中的任务",
+          work: { taskId: "task_w1", title: "代码质量长期检验" },
+          status: "active",
+          pinned: false,
+          updatedAt: AT,
+          leaseExecutionId: null,
+          activeExecutionIds: [],
+          blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+        },
+      ],
+      attentionItems: [
+        ...agenda().attentionItems,
+        {
+          ref: "relation/follow",
+          title: "已答复的跟进项",
+          kind: "answered",
+          region: "mine",
+          workTaskId: "task_w1",
+          attention: { score: 30, reasons: [] },
+        },
+        {
+          ref: "task/task_rew",
+          title: "返工中的任务",
+          kind: "rework",
+          region: "mine",
+          workTaskId: "task_w1",
+          attention: { score: 70, reasons: [] },
+        },
+      ],
+    });
     const container = mount({ agenda: read });
-    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
-    expect(textOf(mine)).toContain("待跟进");
-    expect(textOf(mine)).toContain("答复人甲");
-    expect(mine.querySelector('[data-status-tone="wait"]')?.textContent).toBe("待跟进");
-    expect(attentionEntries(read, "mine")).toHaveLength(2);
-    act(() => root?.unmount());
+    const decisions = container.querySelector('[data-testid="overview-region-decisions"]')!;
+    expect(textOf(decisions)).toContain("边缘 RBAC 设计裁决");
+    expect(textOf(decisions)).toContain("总览重构的提交");
+    expect(textOf(decisions)).toContain("是否冻结旧投影字段");
+    // 三类不进首块:待跟进/返工在「跟进与返工」入口,阻塞在工作卡点。
+    expect(textOf(decisions)).not.toContain("已答复的跟进项");
+    expect(textOf(decisions)).not.toContain("返工中的任务");
+    expect(textOf(decisions)).not.toContain("被阻塞的成员任务");
+    unmount();
   });
 
-  it("顶栏只放系统状态与全局搜索:状态点 + ⌘K 搜索入口,无仓库名大标题", () => {
+  it("每条说明问题、受影响工作与推荐(未提供不造假)", () => {
     const container = mount();
-    const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
-    expect(textOf(topbar)).toContain("daemon 正常");
-    expect(textOf(topbar)).toContain("main CI 绿");
-    expect(textOf(topbar)).toContain("agent 在跑");
-    expect(textOf(topbar)).toContain("进行中 2");
-    const search = topbar.querySelector('[data-testid="overview-global-search"]')! as HTMLButtonElement;
-    expect(textOf(search)).toContain("⌘K");
-    expect(host?.querySelector("h1")).toBeNull();
-    act(() => root?.unmount());
+    const decisions = container.querySelector('[data-testid="overview-region-decisions"]')!;
+    // 问题:awaits 的问句原话。
+    expect(textOf(decisions)).toContain("接口要不要兼容旧字段?");
+    // 受影响工作:工作索引的标题。
+    expect(textOf(decisions)).toContain("代码质量长期检验");
+    // 决策行如实写「未归属工作」;三类各带一条「推荐:未提供」。
+    expect(textOf(decisions)).toContain("未归属工作");
+    expect(textOf(decisions).split("推荐:未提供").length - 1).toBe(3);
+    unmount();
   });
 
-  it("全局搜索入口接真实动作(打开 ⌘K 命令面板)", () => {
-    const onOpenSearch = vi.fn();
-    const container = mount({ onOpenSearch });
-    act(() => (container.querySelector('[data-testid="overview-global-search"]') as HTMLButtonElement).click());
-    expect(onOpenSearch).toHaveBeenCalledTimes(1);
-    act(() => root?.unmount());
-  });
-
-  it("等我处理/阻塞与停滞的行取 attentionItems,原因与分数进放大层", () => {
-    const container = mount();
-    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
-    expect(textOf(mine)).toContain("边缘 RBAC 设计裁决");
-    expect(textOf(mine)).toContain("1 件急");
-    // 原因行(所属工作)与等待时长来自源行/工作索引
-    expect(textOf(mine)).toContain("代码质量长期检验");
-    const stuck = container.querySelector('[data-testid="overview-region-stuck"]')!;
-    expect(textOf(stuck)).toContain("PLT-Observability-Eval");
-    expect(textOf(stuck)).toContain("停滞 1");
-    act(() => root?.unmount());
-  });
-
-  it("点区域原位放大:左列表右详情,Esc 或点背景收回", () => {
-    const container = mount();
-    act(() => (container.querySelector('[data-testid="overview-region-mine"] section') as HTMLElement).click());
-    const dialog = document.body.querySelector('[role="dialog"]');
-    expect(dialog).not.toBeNull();
-    expect(textOf(dialog)).toContain("边缘 RBAC 设计裁决");
-    expect(textOf(dialog)).toContain("为什么排在这里");
-    expect(textOf(dialog)).toContain("注意力分");
-    expect(textOf(dialog)).toContain("132");
-    expect(document.body.querySelector("[data-focus-list]")?.className).toContain("flex-col");
+  it("动作接真实落点:答复开面板,初审/裁决走实体导航", () => {
+    const onNavigateEntity = vi.fn();
+    const container = mount({ onNavigateEntity });
+    const decisions = container.querySelector('[data-testid="overview-region-decisions"]')!;
+    const answer = [...decisions.querySelectorAll("button")].find((button) => textOf(button) === "答复");
+    expect(answer).toBeDefined();
+    act(() => answer!.click());
+    expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).not.toBeNull();
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
-    act(() => root?.unmount());
+    expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).toBeNull();
+    const initialReview = [...decisions.querySelectorAll("button")].find((button) => textOf(button) === "去初审");
+    act(() => initialReview!.click());
+    expect(onNavigateEntity).toHaveBeenCalledWith("taskreview/task_m1");
+    const adjudicate = [...decisions.querySelectorAll("button")].find((button) => textOf(button) === "去裁决");
+    act(() => adjudicate!.click());
+    expect(onNavigateEntity).toHaveBeenCalledWith("decision/dec_1");
+    unmount();
   });
 
-  it("放大层的答复按钮接真实动作:关闭放大层并打开 awaits 答复面板", () => {
-    const container = mount();
-    act(() => (container.querySelector('[data-testid="overview-region-mine"] section') as HTMLElement).click());
-    const answer = [...document.body.querySelectorAll("button")].find((button) => textOf(button) === "答复");
-    expect(answer).toBeDefined();
-    act(() => answer!.click());
-    // 答复面板自己也带 role=dialog,聚焦层以其列表特征断言收回。
-    expect(document.body.querySelector("[data-focus-list]")).toBeNull();
-    expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).not.toBeNull();
-    act(() => root?.unmount());
-  });
-
-  it("等我处理为空:区域显示「清空」且不再列行(空了就收)", () => {
+  it("空态是正向信息:没有等你处理的事项", () => {
     const container = mount({
       agenda: agenda({
-        attentionItems: [],
-        regionWeights: { mine: 1.5, stuck: 3, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
-        awaitingYou: [],
-      }),
-    });
-    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
-    expect(textOf(mine)).toContain("清空");
-    expect(textOf(mine)).not.toContain("边缘 RBAC");
-    act(() => root?.unmount());
-  });
-
-  it("置顶待派为空时区域不落位(权重 0 → 不渲染)", () => {
-    const container = mount();
-    expect(container.querySelector('[data-testid="overview-region-queue"]')).toBeNull();
-    expect(container.querySelector('[data-testid="overview-region-ci"]')).toBeNull();
-    act(() => root?.unmount());
-  });
-
-  it("置顶区列全部置顶的非工作任务:可派的在前、工作根不重复列、每行可取消置顶", () => {
-    const onUnpin = vi.fn();
-    const container = mount({
-      onUnpin,
-      agenda: agenda({
-        pinnedEntities: [
-          { ref: "task/task_pin_active", kind: "task", title: "在跑的置顶任务", status: "active", pinnedAt: AT },
-          // 工作根也置顶了:它住侧栏置顶块,总览置顶区不重复列。
-          { ref: "task/task_w1", kind: "task", title: "代码质量长期检验", status: "active", pinnedAt: AT },
-          { ref: "task/task_pin_go", kind: "task", title: "可派的置顶承诺", status: "planned", pinnedAt: AT },
-          { ref: "decision/dec_pin", kind: "decision", title: "置顶的决策", status: "proposed", pinnedAt: AT },
-        ],
-        dispatchable: [
+        attentionItems: [
           {
-            taskId: "task_pin_go",
-            title: "可派的置顶承诺",
-            work: null,
-            status: "planned",
-            pinned: true,
-            updatedAt: AT,
-            leaseExecutionId: null,
-            activeExecutionIds: [],
-            blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+            ref: "task/task_blk",
+            title: "被阻塞的成员任务",
+            kind: "blocked",
+            region: "stuck",
+            workTaskId: "task_w2",
+            attention: { score: 48, reasons: [] },
           },
         ],
-        // 有置顶实体时读面给的 queue 权重(daemon/GUI 合并同一公式:置顶数 > 0 → 3.5)。
-        regionWeights: { mine: 15.4, stuck: 4, run: 3, review: 3, queue: 3.5, recent: 4, works: 8 },
-      }),
-    });
-    const queue = container.querySelector('[data-testid="overview-region-queue"]')!;
-    expect(textOf(queue)).toContain("可派的置顶承诺");
-    expect(textOf(queue)).toContain("在跑的置顶任务");
-    // 可派行保留「计划中」档与更新年龄;非可派行按状态标签显示。状态标签的文案在
-    // STATUS_META 里按导入时 locale 固化(badges.tsx 的 spread 调用 getter),这里断
-    // tone 通道而非文案,不随运行环境语言漂移。
-    expect(textOf(queue)).toContain("计划中");
-    expect(queue.querySelector('[data-dense-row] [data-status-tone="active"]')).not.toBeNull();
-    expect(textOf(queue)).not.toContain("代码质量长期检验");
-    expect(textOf(queue)).not.toContain("置顶的决策");
-    // 可派的在前(读面序内分两组,组间稳定排序)。
-    const rows = [...queue.querySelectorAll("[data-dense-row]")].map((row) => textOf(row));
-    expect(rows[0]).toContain("可派的置顶承诺");
-    expect(rows[1]).toContain("在跑的置顶任务");
-    // 每行可取消置顶,接真实 pin 写通道;点击不冒泡成选中。
-    const unpin = queue.querySelector<HTMLButtonElement>('[data-testid="overview-unpin-task_pin_active"]')!;
-    expect(unpin.getAttribute("aria-label")).toContain("解除置顶");
-    act(() => unpin.click());
-    expect(onUnpin).toHaveBeenCalledWith("task_pin_active");
-    act(() => root?.unmount());
-  });
-
-  it("工作区域的行按注意力排,mine 计数与进度来自工作索引", () => {
-    const container = mount();
-    const works = container.querySelector('[data-testid="overview-region-works"]')!;
-    expect(textOf(works)).toContain("代码质量长期检验");
-    expect(textOf(works)).toContain("1 个有事等你");
-    act(() => root?.unmount());
-  });
-
-  it("空了就消失:行数为 0 的区域即使 daemon 给了最小权重也不落位(返工 1 第 3 点)", () => {
-    // daemon 的 attentionRegionWeights 对空区域也给最小权重(mine 1.5、stuck 3、run 3、
-    // review 3、works 8…)——透传会让「工作 0」「阻塞与停滞 0」占成大框;视图层必须归 0。
-    const container = mount({
-      agenda: agenda({
-        attentionItems: [agenda().attentionItems[0]!], // 只留 mine 行,stuck 行清空
-        stalled: [],
-        regionWeights: { mine: 15.4, stuck: 3, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
-      }),
-      works: WORKS_EMPTY,
-    });
-    expect(container.querySelector('[data-testid="overview-region-stuck"]')).toBeNull();
-    expect(container.querySelector('[data-testid="overview-region-run"]')).toBeNull();
-    expect(container.querySelector('[data-testid="overview-region-review"]')).toBeNull();
-    expect(container.querySelector('[data-testid="overview-region-recent"]')).toBeNull();
-    expect(container.querySelector('[data-testid="overview-region-works"]')).toBeNull();
-    // 有内容的区域不受影响:mine 还有一行,照常落位。
-    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
-    expect(textOf(mine)).toContain("边缘 RBAC 设计裁决");
-    act(() => root?.unmount());
-  });
-
-  it("空行区域不可放大成空壳:点 slim 的等我处理不打开放大层(返工 1 第 4 点)", () => {
-    const container = mount({
-      agenda: agenda({
-        attentionItems: [],
         awaitingYou: [],
-        regionWeights: { mine: 1.5, stuck: 3, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
+        awaitingAdjudication: [],
+        awaitingDecision: [],
       }),
-      works: WORKS_EMPTY,
     });
-    // mine 空集收成一行「清空」(原型 v4 slim 样张,「一切正常」的唯一保留形态)。
-    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
-    expect(textOf(mine)).toContain("清空");
-    act(() => (mine.querySelector("section") as HTMLElement).click());
-    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
-    act(() => root?.unmount());
+    const decisions = container.querySelector('[data-testid="overview-region-decisions"]')!;
+    expect(textOf(decisions)).toContain("没有等你处理的事项");
+    expect(textOf(decisions)).not.toContain("边缘 RBAC");
+    unmount();
+  });
+});
+
+describe("总览:主区「关注的工作」", () => {
+  it("置顶的非终态工作优先,来源如实标示;已收尾的置顶工作只计数", () => {
+    const container = mount({
+      agenda: agenda({
+        pinnedEntities: [
+          { ref: "task/task_w1", kind: "task", title: "代码质量长期检验", status: "active", pinnedAt: AT },
+          { ref: "task/task_w_done", kind: "task", title: "已收尾的工作", status: "done", pinnedAt: AT },
+        ],
+      }),
+    });
+    const works = container.querySelector('[data-testid="overview-region-works"]')!;
+    expect(textOf(works)).toContain("置顶 1 项");
+    expect(textOf(works)).toContain("代码质量长期检验");
+    expect(textOf(works)).toContain("1 项置顶工作已收尾");
+    // 置顶模式下列活跃的置顶工作,不把全部工作铺开。
+    expect(textOf(works)).not.toContain("网关读面加缓存");
+    unmount();
   });
 
-  it("最近变化与工作页同一派生:按任务收束成一行,原始事件类型名不进总览(返工 1 第 2 点)", async () => {
+  it("零置顶回退活跃工作并给选择入口,不取最旧冒充承诺", () => {
+    const onOpenWorks = vi.fn();
+    const container = mount({ onOpenWorks });
+    const works = container.querySelector('[data-testid="overview-region-works"]')!;
+    expect(textOf(works)).toContain("没有置顶的工作");
+    expect(textOf(works)).toContain("去工作页选择关注");
+    // 活跃工作都在(注意力序:w1 有 mine 项在前),已收尾的不进列表。
+    const cards = [...works.querySelectorAll("[data-work-card]")].map((card) => card.getAttribute("data-work-card"));
+    expect(cards).toEqual(["task_w1", "task_w2"]);
+    expect(textOf(works)).not.toContain("已收尾的工作");
+    const pick = [...works.querySelectorAll("button")].find((button) => textOf(button).includes("去工作页选择关注"));
+    act(() => pick!.click());
+    expect(onOpenWorks).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("工作卡给出阶段/交付/还差/卡点/处理者,完成度只是辅助", async () => {
+    vi.stubGlobal("harness", {
+      request: (method: string) =>
+        method === "getAgentRuntimeOverview"
+          ? Promise.resolve({
+              ok: true,
+              status: "ready",
+              installations: [],
+              instances: [],
+              sessions: [
+                {
+                  runtimeSessionId: "rs_1",
+                  kindId: "codex",
+                  liveness: "live",
+                  definitionSnapshot: { model: "glm-5.3" },
+                  associations: [{ taskId: "task_m1" }],
+                  activity: { lastObservedAt: AT },
+                },
+              ],
+              watermark: 7,
+              sourceRevision: 7,
+            } as unknown as AgentRuntimeOverviewResult)
+          : Promise.reject(new Error("no bridge in test")),
+    });
+    const onOpenTask = vi.fn();
+    const container = mount({ onOpenTask });
+    await flushUntil(
+      () => container.querySelector("[data-work-card='task_w1']")?.textContent?.includes("codex") === true,
+    );
+    const card = container.querySelector("[data-work-card='task_w1']")!;
+    const text = textOf(card);
+    // 阶段与交付来自工作索引计数;完成度百分比只是行尾辅助。
+    expect(text).toContain("已交付 2/3");
+    expect(text).toContain("还差 1");
+    expect(text).toMatch(/\d+%/);
+    // 卡点行点名该工作上的注意力项,可点。
+    expect(text).toContain("卡点");
+    expect(text).toContain("边缘 RBAC 设计裁决");
+    // 处理者来自 runtime overview 的 live 会话(who = kind · model)。
+    expect(text).toContain("codex · glm-5.3");
+    act(() => (card.querySelector("button") as HTMLButtonElement).click());
+    expect(onOpenTask).toHaveBeenCalledWith("task_w1");
+    unmount();
+    // 还原默认桥:后续用例的 runtime 读面回到确定性失败。
+    vi.stubGlobal("harness", { request: () => Promise.reject(new Error("no bridge in test")) });
+  });
+
+  it("在飞但无 agent 的工作卡如实标注", () => {
+    const container = mount();
+    const card = container.querySelector("[data-work-card='task_w1']")!;
+    expect(textOf(card)).toContain("在飞任务无 agent 在跑");
+    unmount();
+  });
+
+  it("近期变化限关注工作:别人的任务不进工作卡", async () => {
     const item = (patch: Record<string, unknown>) => ({
       eventId: `evt-${Math.random().toString(36).slice(2, 8)}`,
       occurredAt: "2026-09-29T10:00:00.000Z",
       workspaceRevision: 1,
       type: "execution_started",
-      taskId: "task_r1",
+      taskId: "task_m1",
       payload: {},
       ...patch,
     });
@@ -493,17 +566,9 @@ describe("总览区域板(S3)", () => {
               direction: "history",
               status: "ready",
               items: [
-                // runtime_* / documents_written 这类内部事件不产步骤,不进总览。
-                item({ type: "runtime_session_started", taskId: "task_r1" }),
-                item({ type: "documents_written", taskId: "task_r1", payload: { documentClaims: [] } }),
-                item({ type: "execution_started", occurredAt: "2026-09-29T10:05:00.000Z" }),
-                item({ type: "execution_submitted", occurredAt: "2026-09-29T10:20:00.000Z" }),
-                item({
-                  type: "review_recorded",
-                  occurredAt: "2026-09-29T10:30:00.000Z",
-                  payload: { review: { verdict: "approved" } },
-                }),
-                item({ type: "task_completed", taskId: "task_r2", occurredAt: "2026-09-29T10:40:00.000Z" }),
+                item({ type: "execution_started", taskId: "task_m1", occurredAt: "2026-09-29T10:05:00.000Z" }),
+                item({ type: "execution_submitted", taskId: "task_m1", occurredAt: "2026-09-29T10:20:00.000Z" }),
+                item({ type: "task_completed", taskId: "task_other", occurredAt: "2026-09-29T10:40:00.000Z" }),
               ],
               historyCursor: null,
               liveCursor: null,
@@ -512,23 +577,283 @@ describe("总览区域板(S3)", () => {
             })
           : Promise.reject(new Error("no bridge in test")),
     });
-    const container = mount({ works: WORKS_EMPTY });
-    await flushUntil(() => container.querySelector('[data-testid="overview-region-recent"]') !== null);
-    const recent = container.querySelector('[data-testid="overview-region-recent"]')!;
-    // 按任务收束成一行:任务标题 + 箭头串起的步骤(与工作页 DayDigest 同一派生)。
-    expect(textOf(recent)).toContain("网关读面加缓存");
-    expect(textOf(recent)).toContain("提交");
-    expect(textOf(recent)).toContain("评审通过");
-    expect(textOf(recent)).toContain("修复 401 重定向循环");
-    expect(textOf(recent)).toContain("完成");
-    // 原始事件类型名(标准 §8 反例)一个都不出现。
-    for (const raw of ["runtime_session_started", "documents_written", "execution_submitted", "review_recorded"]) {
-      expect(textOf(recent)).not.toContain(raw);
-    }
-    act(() => root?.unmount());
+    const container = mount();
+    await flushUntil(
+      () => container.querySelector("[data-work-card='task_w1']")?.textContent?.includes("最近") === true,
+    );
+    const card = container.querySelector("[data-work-card='task_w1']")!;
+    expect(textOf(card)).toContain("最近");
+    expect(textOf(card)).toContain("开始");
+    expect(textOf(card)).toContain("提交评审");
+    // 不属于任何关注工作的任务事件不进总览。
+    expect(textOf(card)).not.toContain("不属于关注工作的任务");
+    unmount();
+    vi.stubGlobal("harness", { request: () => Promise.reject(new Error("no bridge in test")) });
   });
 
-  it("main CI 红:CI 区域出现并压在最前(左上),顶栏点名红", async () => {
+  it("没有任何工作时给「去工作页」入口而不是空壳", () => {
+    const onOpenWorks = vi.fn();
+    const container = mount({ works: WORKS_EMPTY, onOpenWorks });
+    const works = container.querySelector('[data-testid="overview-region-works"]')!;
+    expect(textOf(works)).toContain("没有可关注的工作");
+    const open = [...works.querySelectorAll("button")].find((button) => textOf(button).includes("去工作页"));
+    act(() => open!.click());
+    expect(onOpenWorks).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+});
+
+describe("总览:执行与下钻", () => {
+  type WipEntry = TaskWipRead["counted"][number];
+
+  function wipSnapshot(counted: readonly WipEntry[], limit = 30): TaskWipRead {
+    return {
+      ok: true,
+      limit,
+      limitLabel: "settings.tasks.wipLimit",
+      counted: [...counted],
+      roots: [
+        { taskId: "task_root_declared", reason: "declared", directChildCount: 5, threshold: 3 },
+        { taskId: "task_root_derived", reason: "derived", directChildCount: 4, threshold: 3 },
+      ],
+      threshold: 3,
+    };
+  }
+
+  const defaultCounted = (): WipEntry[] =>
+    ["active", "submitted", "in_review", "blocked"].flatMap(
+      (status, group) =>
+        Array.from({ length: group + 1 }, (_, n) => ({
+          taskId: `task_wip${status}${n}`,
+          status,
+          title: `占位任务 ${status}${n}`,
+        })) as WipEntry[],
+    );
+
+  /** 只给 repo.tasks.wip 注入 fixture,其余桥方法保持确定性失败;返回还原函数。 */
+  function stubBridge(handlers: Record<string, () => unknown>): () => void {
+    const previous = (globalThis as { harness?: unknown }).harness;
+    vi.stubGlobal("harness", {
+      request: (method: string) =>
+        method in handlers ? Promise.resolve(handlers[method]!()) : Promise.reject(new Error("no bridge in test")),
+    });
+    return () => vi.stubGlobal("harness", previous);
+  }
+
+  it("WIP 收成紧凑入口:占用在入口行,名单在放大层且全量可达", async () => {
+    const snapshot = wipSnapshot(defaultCounted(), 10);
+    const restore = stubBridge({ getTaskWip: () => snapshot });
+    const container = mount();
+    await flushUntil(
+      () => container.querySelector('[data-testid="overview-region-drill"]')?.textContent?.includes("10/10") === true,
+    );
+    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
+    // 条面只有入口行:30 条名单不在总览首屏铺开。
+    expect(textOf(drill)).toContain("进行中的任务(WIP)");
+    expect(textOf(drill)).toContain("满额");
+    expect(drill.querySelectorAll("[data-dense-row][data-testid='overview-task-wip-list']")).toHaveLength(0);
+    const entry = [...drill.querySelectorAll("[data-dense-row]")].find((row) => textOf(row).includes("进行中的任务"));
+    act(() => (entry as HTMLElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog!.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
+    expect(dialog!.querySelector("[data-testid='overview-task-wip-search']")).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    unmount();
+    restore();
+  });
+
+  it("评审执行入口:三组计数分明,放大层给收口/决策落点", () => {
+    const read = agenda({
+      underReview: [
+        {
+          taskId: "task_rev",
+          title: "评审中的任务",
+          work: null,
+          pinned: false,
+          executionId: "exec_rev",
+          submittedAt: AT,
+          blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+        },
+      ],
+      awaitingDecisionReview: [
+        { decisionId: "dec_nr", title: "待派审的决策", riskTier: "high", urgency: "low", proposedAt: AT },
+      ],
+      decisionReviewInProgress: [],
+    });
+    const onNavigateEntity = vi.fn();
+    const container = mount({ agenda: read, onNavigateEntity });
+    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
+    expect(textOf(drill)).toContain("评审执行");
+    expect(textOf(drill)).toContain("任务评审中 1");
+    expect(textOf(drill)).toContain("决策待派审 1");
+    const entry = [...drill.querySelectorAll("[data-dense-row]")].find((row) => textOf(row).includes("评审执行"));
+    act(() => (entry as HTMLElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    expect(textOf(dialog)).toContain("评审中的任务");
+    const closeout = [...dialog.querySelectorAll("button")].find((button) => textOf(button) === "打开收口");
+    act(() => closeout!.click());
+    expect(onNavigateEntity).toHaveBeenCalledWith("taskreview/task_rev");
+    unmount();
+  });
+
+  it("跟进与返工入口:四类分开计数,放大层不亮红不冒充需要用户", () => {
+    const read = agenda({
+      answeredForYou: [
+        {
+          relationId: "follow",
+          sourceRef: "task/task_w1",
+          title: "已答复的跟进项",
+          status: "active",
+          personId: "person_worker",
+          askKind: "question",
+          question: "下一步?",
+          answer: "继续",
+          answeredAt: AT,
+          answeredBy: "答复人甲",
+        },
+      ],
+      attentionItems: [
+        ...agenda().attentionItems,
+        {
+          ref: "relation/follow",
+          title: "已答复的跟进项",
+          kind: "answered",
+          region: "mine",
+          workTaskId: "task_w1",
+          attention: { score: 30, reasons: [] },
+        },
+      ],
+    });
+    const container = mount({ agenda: read });
+    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
+    expect(textOf(drill)).toContain("跟进与返工");
+    expect(textOf(drill)).toContain("待跟进 1");
+    expect(textOf(drill)).toContain("阻塞 1");
+    expect(textOf(drill)).toContain("停滞 1");
+    const entry = [...drill.querySelectorAll("[data-dense-row]")].find((row) => textOf(row).includes("跟进与返工"));
+    act(() => (entry as HTMLElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    expect(textOf(dialog)).toContain("已答复的跟进项");
+    expect(textOf(dialog)).toContain("已答复:继续");
+    expect(textOf(dialog)).toContain("被阻塞的成员任务");
+    // 不冒充需要用户:整层没有红档(bad)状态标签。
+    expect(dialog!.querySelectorAll('[data-status-tone="bad"]')).toHaveLength(0);
+    unmount();
+  });
+
+  it("置顶承诺入口:可派在前,行上就地取消置顶接真实 pin 通道", () => {
+    const onUnpin = vi.fn();
+    const container = mount({
+      onUnpin,
+      agenda: agenda({
+        pinnedEntities: [
+          { ref: "task/task_pin_go", kind: "task", title: "可派的置顶承诺", status: "planned", pinnedAt: AT },
+          { ref: "task/task_pin_active", kind: "task", title: "在跑的置顶任务", status: "active", pinnedAt: AT },
+        ],
+        dispatchable: [
+          {
+            taskId: "task_pin_go",
+            title: "可派的置顶承诺",
+            work: null,
+            status: "planned",
+            pinned: true,
+            updatedAt: AT,
+            leaseExecutionId: null,
+            activeExecutionIds: [],
+            blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+          },
+        ],
+      }),
+    });
+    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
+    expect(textOf(drill)).toContain("置顶承诺");
+    const entry = [...drill.querySelectorAll("[data-dense-row]")].find((row) => textOf(row).includes("置顶承诺"));
+    act(() => (entry as HTMLElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const rows = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")].map((row) => textOf(row));
+    expect(rows[0]).toContain("可派的置顶承诺");
+    expect(rows[1]).toContain("在跑的置顶任务");
+    const unpin = dialog.querySelector<HTMLButtonElement>('[data-testid="overview-unpin-task_pin_active"]')!;
+    act(() => unpin.click());
+    expect(onUnpin).toHaveBeenCalledWith("task_pin_active");
+    unmount();
+  });
+
+  it("全部工作/全部任务/会话入口接真实回调", () => {
+    const onOpenWorks = vi.fn();
+    const onOpenTasks = vi.fn();
+    const onOpenSessions = vi.fn();
+    const container = mount({ onOpenWorks, onOpenTasks, onOpenSessions });
+    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
+    act(() =>
+      ([...drill.querySelectorAll("button")].find((b) => textOf(b) === "全部工作") as HTMLButtonElement).click(),
+    );
+    act(() =>
+      ([...drill.querySelectorAll("button")].find((b) => textOf(b) === "全部任务") as HTMLButtonElement).click(),
+    );
+    act(() =>
+      ([...drill.querySelectorAll("button")].find((b) => textOf(b) === "查看会话") as HTMLButtonElement).click(),
+    );
+    expect(onOpenWorks).toHaveBeenCalledTimes(1);
+    expect(onOpenTasks).toHaveBeenCalledTimes(1);
+    expect(onOpenSessions).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+});
+
+describe("总览:系统状态弱化与异常提升", () => {
+  it("正常状态收成一行小字,不再铺状态卡片", async () => {
+    // CI 读面给一个绿窗:安静小字只在真实读到「绿」后出现(读不到时是「未知」降级提示)。
+    const previous = (globalThis as { harness?: unknown }).harness;
+    vi.stubGlobal("harness", {
+      request: (method: string) =>
+        method === "getCiObservatory"
+          ? Promise.resolve({
+              schema: "daemon.ci-observatory/v1",
+              ok: true,
+              status: "ready",
+              window: 30,
+              flakes: [],
+              shardDurations: [],
+              gateTrends: [],
+              l0MedianMs: null,
+              runs: [
+                {
+                  runId: "run-green",
+                  sha: "850840cdffffffffffffffffffffffffffffffff",
+                  branch: "main",
+                  prNumber: null,
+                  job: "integration-shard-6",
+                  wallclockMs: 600000,
+                  runner: "ubuntu",
+                  occurredAt: "2026-09-29T07:18:00.000Z",
+                  pass: true,
+                  testCount: 10,
+                  gateCount: 2,
+                },
+              ],
+              watermark: 7,
+              sourceRevision: 7,
+            })
+          : Promise.reject(new Error("no bridge in test")),
+    });
+    const container = mount();
+    await flushUntil(
+      () => container.querySelector('[data-testid="overview-topbar"]')?.textContent?.includes("daemon 正常") === true,
+    );
+    const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
+    expect(textOf(topbar)).toContain("daemon 正常 · main CI 绿");
+    expect(textOf(topbar)).toContain("进行中 2");
+    expect(topbar.querySelector('[data-testid="overview-ci-alert"]')).toBeNull();
+    unmount();
+    vi.stubGlobal("harness", previous);
+  });
+
+  it("daemon 无响应与投影落后升成显眼状态点;CI 红可点开失败名单", async () => {
+    const restore = (globalThis as { harness?: unknown }).harness;
     vi.stubGlobal("harness", {
       request: (method: string) =>
         method === "getCiObservatory"
@@ -555,7 +880,6 @@ describe("总览区域板(S3)", () => {
                   testCount: 10,
                   gateCount: 2,
                 },
-                // 同一 job 在 PR 上跑过 → 它挡合入,main 上失败才算 main 红。
                 {
                   runId: "run-pr",
                   sha: "aaaaaaaaffffffffffffffffffffffffffffffff",
@@ -569,40 +893,103 @@ describe("总览区域板(S3)", () => {
                   testCount: 10,
                   gateCount: 2,
                 },
-                // 只在 main 上跑的夜间 job(Windows 矩阵,永不 required)失败,不算 main 红,也不进区域。
-                ...[1, 2, 3].map((index) => ({
-                  runId: `run-win-${index}`,
-                  sha: "e82729a4ffffffffffffffffffffffffffffffff",
-                  branch: "main",
-                  prNumber: null,
-                  job: "windows-integration-shard (6)",
-                  wallclockMs: 600000,
-                  runner: "windows",
-                  occurredAt: `2026-09-29T08:0${index}:00.000Z`,
-                  pass: false,
-                  testCount: 10,
-                  gateCount: 2,
-                })),
               ],
               watermark: 7,
               sourceRevision: 7,
             })
           : Promise.reject(new Error("no bridge in test")),
     });
-    const container = mount();
-    // CI 读面异步落定后区域才落位:等到 CI 区域出现再断言落位顺序。
-    await flushUntil(() => container.querySelector('[data-testid="overview-region-ci"]') !== null);
-    const board = container.querySelector('[data-testid="overview-board"]')!;
-    expect((board.querySelector("[data-region]") as HTMLElement).dataset.region).toBe("ci");
-    const ci = container.querySelector('[data-testid="overview-region-ci"]')!;
-    expect(textOf(ci)).toContain("阻断合入");
-    expect(textOf(ci)).toContain("integration-shard-6");
-    expect(textOf(ci)).not.toContain("windows-integration-shard");
-    expect(textOf(container.querySelector('[data-testid="overview-topbar"]'))).toContain("main CI 红");
-    act(() => root?.unmount());
+    const container = mount({
+      health: {
+        ...HEALTH_DOWN,
+        projection: { lag: 3, status: "ready" },
+      },
+    });
+    await flushUntil(() => container.querySelector('[data-testid="overview-ci-alert"]') !== null);
+    const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
+    expect(textOf(topbar)).toContain("daemon 无响应");
+    expect(textOf(topbar)).toContain("投影落后 3");
+    expect(textOf(topbar)).toContain("main CI 红 · 1 个 job 失败");
+    // 正常小字被异常替代,不再同时出现。
+    expect(textOf(topbar)).not.toContain("daemon 正常");
+    act(() => (container.querySelector('[data-testid="overview-ci-alert"]') as HTMLButtonElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(textOf(dialog)).toContain("integration-shard-6");
+    unmount();
+    vi.stubGlobal("harness", restore);
   });
 
-  it("工作区域:已完成/已取消的工作沉底,不按最近活动插进活跃工作之间", () => {
+  it("全局搜索入口接真实动作(打开 ⌘K 命令面板)", () => {
+    const onOpenSearch = vi.fn();
+    const container = mount({ onOpenSearch });
+    act(() => (container.querySelector('[data-testid="overview-global-search"]') as HTMLButtonElement).click());
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+});
+
+describe("总览派生(纯函数)", () => {
+  it("decisionRows 只收三类,followUpRows 收其余四类", () => {
+    const read = agenda({
+      answeredForYou: [
+        {
+          relationId: "follow",
+          sourceRef: "task/task_w1",
+          title: "已答复的跟进项",
+          status: "active",
+          personId: "person_worker",
+          askKind: "question",
+          question: "下一步?",
+          answer: "继续",
+          answeredAt: AT,
+          answeredBy: "答复人甲",
+        },
+      ],
+      attentionItems: [
+        ...agenda().attentionItems,
+        {
+          ref: "relation/follow",
+          title: "已答复的跟进项",
+          kind: "answered",
+          region: "mine",
+          workTaskId: "task_w1",
+          attention: { score: 30, reasons: [] },
+        },
+      ],
+    });
+    expect(
+      decisionRows(read)
+        .map(({ kind }) => kind)
+        .sort(),
+    ).toEqual(["adjudication", "awaiting-you", "decision"]);
+    expect(
+      followUpRows(read)
+        .map(({ kind }) => kind)
+        .sort(),
+    ).toEqual(["answered", "blocked", "stalled"]);
+  });
+
+  it("watchedWorks:置顶优先、终态置顶只计数;零置顶回退全部活跃工作", () => {
+    const base = agenda();
+    const pinned = watchedWorks(WORKS, {
+      ...base,
+      pinnedEntities: [
+        { ref: "task/task_w1", kind: "task", title: "代码质量长期检验", status: "active", pinnedAt: AT },
+      ],
+    });
+    expect(pinned.watched.map(({ work }) => work.taskId)).toEqual(["task_w1"]);
+    expect(pinned.watched.every(({ source }) => source === "pinned")).toBe(true);
+    const closed = watchedWorks(WORKS, {
+      ...base,
+      pinnedEntities: [{ ref: "task/task_w_done", kind: "task", title: "已收尾的工作", status: "done", pinnedAt: AT }],
+    });
+    expect(closed.pinnedClosed).toBe(1);
+    expect(closed.watched.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2"]);
+    expect(closed.watched.every(({ source }) => source === "active")).toBe(true);
+  });
+
+  it("工作行排序:已收尾沉底;注意力优先于最近活动", () => {
     const base = WORKS.works[0]!;
     const rows = workRows(
       {
@@ -617,10 +1004,8 @@ describe("总览区域板(S3)", () => {
     );
     expect(rows.map((row) => row.taskId)).toEqual(["task_live", "task_done", "task_cancel"]);
   });
-});
 
-describe("decision review queue visibility", () => {
-  it("keeps decisions needing dispatch visible without labeling them as already in review or ready for judgment", () => {
+  it("评审与合并的行分组保持可分辨:待派审不算已在评审也不算待点头", () => {
     const rows = reviewRows(
       agenda({
         awaitingDecisionReview: [
@@ -641,251 +1026,5 @@ describe("decision review queue visibility", () => {
     expect(reviewCounts(rows).decisionNeedsReview).toBe(1);
     expect(reviewCounts(rows).decisionReviewing).toBe(0);
     expect(reviewCounts(rows).decisionPending).toBe(0);
-  });
-});
-
-describe("总览 WIP 区域接线(常驻观察面)", () => {
-  type WipEntry = TaskWipRead["counted"][number];
-
-  /** 30 条占位跨 4 状态(8/6/9/7),根容器两条(声明/派生各一)不进 counted;末条带可搜标题。 */
-  function wipSnapshot(counted: readonly WipEntry[] = defaultCounted(), limit = 30): TaskWipRead {
-    return {
-      ok: true,
-      limit,
-      limitLabel: "settings.tasks.wipLimit",
-      counted: [...counted],
-      roots: [
-        { taskId: "task_root_declared", reason: "declared", directChildCount: 5, threshold: 3 },
-        { taskId: "task_root_derived", reason: "derived", directChildCount: 4, threshold: 3 },
-      ],
-      threshold: 3,
-    };
-  }
-
-  function defaultCounted(): WipEntry[] {
-    const plan: ReadonlyArray<[WipEntry["status"], number]> = [
-      ["active", 8],
-      ["submitted", 6],
-      ["in_review", 9],
-      ["blocked", 7],
-    ];
-    const counted: WipEntry[] = [];
-    let index = 0;
-    for (const [status, count] of plan) {
-      for (let n = 0; n < count; n += 1) {
-        counted.push({ taskId: `task_wip${String(index).padStart(2, "0")}`, status, title: `占位任务 ${index}` });
-        index += 1;
-      }
-    }
-    counted[counted.length - 1] = { ...counted[counted.length - 1]!, title: "末尾的长标题占位任务" };
-    return counted;
-  }
-
-  /** 只给 repo.tasks.wip 注入 fixture,其余桥方法保持确定性失败;返回还原函数。 */
-  function stubWipBridge(snapshot: TaskWipRead | undefined): () => void {
-    const previous = (globalThis as { harness?: unknown }).harness;
-    vi.stubGlobal("harness", {
-      request: (method: string) =>
-        method === "getTaskWip"
-          ? snapshot === undefined
-            ? Promise.reject(new Error("wip bridge down"))
-            : Promise.resolve(snapshot)
-          : Promise.reject(new Error("no bridge in test")),
-    });
-    return () => vi.stubGlobal("harness", previous);
-  }
-
-  it("区域落位:占用/上限在标题行,满额显形,30 条全量名单,根容器只在页脚排除说明", async () => {
-    const restore = stubWipBridge(wipSnapshot());
-    const container = mount();
-    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
-    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
-    expect(region).not.toBeNull();
-    // 占用/上限来自同一条快照;根容器两条不进分母(30 不是 32)。
-    expect(textOf(region.querySelector("section"))).toContain("30/30");
-    expect(textOf(region)).toContain("满额");
-    expect(region.querySelectorAll("[data-testid='overview-task-wip-list'] [data-dense-row]")).toHaveLength(30);
-    const ids = [...region.querySelectorAll("[data-testid='overview-task-wip-list'] [data-dense-row]")].map((row) => {
-      const ref = row.querySelector("button[title*='task/']") as HTMLButtonElement | null;
-      const title = ref?.title ?? "";
-      return title.slice(title.lastIndexOf("task/") + "task/".length);
-    });
-    expect(ids).not.toContain("task_root_declared");
-    expect(ids).not.toContain("task_root_derived");
-    // 页脚给排除说明,悬停可达根容器清单与上限来源。
-    const footer = [...region.querySelectorAll("section > div")].at(-1)!;
-    expect(textOf(footer)).toContain("根容器 2");
-    const footerTip = footer.querySelector("span")!;
-    expect(footerTip.getAttribute("title")).toContain("settings.tasks.wipLimit");
-    expect(footerTip.getAttribute("title")).toContain("task_root_declared");
-    act(() => root?.unmount());
-    restore();
-  });
-
-  it("0 占位常驻:区域仍落位并如实显示 0/上限与空态,不写死 30,不可放大成空壳", async () => {
-    const restore = stubWipBridge(wipSnapshot([], 12));
-    const container = mount();
-    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-empty']") !== null);
-    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
-    expect(region).not.toBeNull();
-    expect(textOf(region.querySelector("section"))).toContain("0/12");
-    expect(textOf(region)).toContain("工作台空闲");
-    expect(textOf(region)).toContain("当前上限 12");
-    // 上限不是写死的 30:整个区域不出现 30,也不出现名单。
-    expect(textOf(region)).not.toContain("30");
-    expect(region.querySelector("[data-testid='overview-task-wip-list']")).toBeNull();
-    // 没有行的区域不可放大(与 slim 的 mine 同一守卫)。
-    act(() => (region.querySelector("section") as HTMLElement).click());
-    expect(document.body.querySelector("[data-focus-list]")).toBeNull();
-    act(() => root?.unmount());
-    restore();
-  });
-
-  it("读取失败是失败面不冒充 0;恢复供数后区域随同一条查询更新", async () => {
-    const restore = stubWipBridge(undefined);
-    const container = mount();
-    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-error']") !== null);
-    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
-    // 区域常驻落位:占用给破折号(快照未到时不是 0),失败面显形。
-    expect(region).not.toBeNull();
-    expect(textOf(region.querySelector("section"))).toContain("—");
-    expect(textOf(region.querySelector("[data-testid='overview-task-wip-error']"))).toContain("wip bridge down");
-    expect(textOf(region.querySelector("section"))).not.toContain("0/");
-    act(() => root?.unmount());
-    restore();
-
-    // 同一条查询在桥恢复供数后给出真实名单(不是组件自己造的第二份状态)。
-    const restore2 = stubWipBridge(wipSnapshot(defaultCounted().slice(0, 3), 30));
-    const container2 = mount();
-    await flushUntil(() => container2.querySelector("[data-testid='overview-task-wip-list']") !== null);
-    expect(container2.querySelectorAll("[data-testid='overview-task-wip-list'] [data-dense-row]")).toHaveLength(3);
-    expect(textOf(container2.querySelector('[data-testid="overview-region-wip"] section'))).toContain("3/30");
-    act(() => root?.unmount());
-    restore2();
-  });
-
-  it("行点击打开放大层,放大层给分组/搜索;详情与实体引用都接真实 onOpenTask 回调", async () => {
-    const onOpenTask = vi.fn();
-    const restore = stubWipBridge(wipSnapshot());
-    const container = mount({ onOpenTask });
-    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
-    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
-    const rows = [...region.querySelectorAll("[data-dense-row]")];
-    // 条面没有过滤控件;行主点击面打开放大层(行自己的落点,不冒泡成区域级首行默认)。
-    expect(region.querySelector("[data-testid='overview-task-wip-search']")).toBeNull();
-    act(() => (rows[29]!.querySelectorAll("button")[0] as HTMLButtonElement).click());
-    const dialog = document.body.querySelector('[role="dialog"]');
-    expect(dialog).not.toBeNull();
-    // 放大层展面:分组按钮与搜索接管过滤,30 条名单全量可达。
-    expect(dialog!.querySelector("[data-testid='overview-task-wip-search']")).not.toBeNull();
-    expect(textOf(dialog!)).toContain("全部 30");
-    expect(dialog!.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(30);
-    // 放大层里点末尾第 30 条:选中该行,详情给占用上下文与真实导航动作。
-    const focusRows = [...dialog!.querySelectorAll("[data-focus-list] [data-dense-row]")];
-    expect(focusRows[29]!.querySelector("button[title*='task/task_wip29']")).not.toBeNull();
-    act(() => (focusRows[29]!.querySelectorAll("button")[0] as HTMLButtonElement).click());
-    const detail = dialog!.querySelector("[data-focus-detail]")!;
-    expect(textOf(detail)).toContain("末尾的长标题占位任务");
-    expect(textOf(detail)).toContain("task_wip29");
-    expect(textOf(detail)).toContain("占用 30/30");
-    const open = [...detail.querySelectorAll("button")].find((button) => textOf(button) === "打开任务");
-    expect(open).toBeDefined();
-    act(() => open!.click());
-    expect(onOpenTask).toHaveBeenCalledWith("task_wip29");
-    // 条面行右侧实体引用是第二条直接导航路(不经放大层)。
-    act(() => (rows[29]!.querySelector("button[title*='task/task_wip29']") as HTMLButtonElement).click());
-    expect(onOpenTask).toHaveBeenCalledTimes(2);
-    expect(onOpenTask).toHaveBeenLastCalledWith("task_wip29");
-    act(() => root?.unmount());
-    restore();
-  });
-
-  it("条面点第 N 行进放大层并保持该行选中:点击不再冒泡成首行(修复返工 2 第 1 点)", async () => {
-    const restore = stubWipBridge(wipSnapshot());
-    const container = mount();
-    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
-    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
-    const rows = [...region.querySelectorAll("[data-dense-row]")];
-    // 点第 6 行(既不是首行也不是末行):放大层打开时选中的就是它。
-    act(() => (rows[5]!.querySelectorAll("button")[0] as HTMLButtonElement).click());
-    const dialog = document.body.querySelector('[role="dialog"]')!;
-    const focusRows = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")];
-    expect(focusRows[5]!.hasAttribute("data-selected")).toBe(true);
-    expect(focusRows[0]!.hasAttribute("data-selected")).toBe(false);
-    // 详情与选中同源:第 6 行的标题,不是首行也不是末行。
-    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip05");
-    act(() => root?.unmount());
-    restore();
-  });
-
-  it("放大层过滤后键盘只在可见集合移动:搜索/分组隐藏的行不可被 ↑↓ 选中(修复返工 2 第 2 点)", async () => {
-    const restore = stubWipBridge(wipSnapshot());
-    const container = mount();
-    await flushUntil(() => container.querySelector("[data-testid='overview-task-wip-list']") !== null);
-    const region = container.querySelector('[data-testid="overview-region-wip"]')!;
-    const firstTileRow = region.querySelectorAll("[data-dense-row]")[0]! as HTMLElement;
-    act(() => (firstTileRow.querySelectorAll("button")[0] as HTMLButtonElement).click());
-    const dialog = document.body.querySelector('[role="dialog"]')!;
-    const type = (value: string) => {
-      const input = dialog.querySelector("[data-testid='overview-task-wip-search']") as HTMLInputElement;
-      act(() => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-    };
-    const arrow = (key: "ArrowDown" | "ArrowUp") =>
-      act(() => {
-        window.dispatchEvent(new KeyboardEvent("keydown", { key }));
-      });
-    // 搜索 "wip2" 只留 task_wip20..29(10 行):键盘从首个可见行出发只能在这 10 行里移动。
-    type("wip2");
-    expect(dialog.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
-    // 搜索前选中的 task_wip00 被隐藏:选中收敛到首个可见行 task_wip20。
-    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip20");
-    arrow("ArrowDown");
-    arrow("ArrowDown");
-    // 两次 ↓ 后是第三个可见行 task_wip22,绝不是被隐藏的 task_wip02。
-    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip22");
-    expect(textOf(dialog.querySelector("[data-focus-detail]"))).not.toContain("task_wip02");
-    const visibleSelected = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")].filter((row) =>
-      row.hasAttribute("data-selected"),
-    );
-    expect(visibleSelected).toHaveLength(1);
-    expect(visibleSelected[0]!.querySelector("button[title*='task/task_wip22']")).not.toBeNull();
-    // ↑ 回到上一个可见行;清空搜索恢复全量后,键盘在全量集合里继续。
-    arrow("ArrowUp");
-    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip21");
-    type("");
-    arrow("ArrowDown");
-    expect(textOf(dialog.querySelector("[data-focus-detail]"))).toContain("task_wip22");
-    act(() => root?.unmount());
-    restore();
-  });
-
-  it("共享修复回归(所有 DenseRow 区域):点区域行进放大层且保持该行选中,点区域其余部分仍开首行", () => {
-    // mine 用两条可区分的行:点第二条,放大层选中的就是第二条而非首行。
-    const input = agenda();
-    const second = { ...input.attentionItems[1]!, ref: "task/task_mine_second", region: "mine" as const };
-    const container = mount({
-      agenda: agenda({ attentionItems: [input.attentionItems[0]!, second] }),
-    });
-    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
-    const rows = [...mine.querySelectorAll("[data-dense-row]")];
-    expect(rows).toHaveLength(2);
-    // mine 的行没有右侧动作:整行就是主点击面(DenseRow 无 action 的 button 形态)。
-    act(() => (rows[1] as HTMLButtonElement).click());
-    const dialog = document.body.querySelector('[role="dialog"]')!;
-    const focusRows = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")];
-    expect(focusRows[1]!.hasAttribute("data-selected")).toBe(true);
-    expect(focusRows[0]!.hasAttribute("data-selected")).toBe(false);
-    // 区域其余部分(标题行/留白)仍是区域级入口:开放大层落选首行。
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    });
-    act(() => (container.querySelector('[data-testid="overview-region-mine"] section > div') as HTMLElement).click());
-    const reopened = document.body.querySelector('[role="dialog"]')!;
-    const reopenedRows = [...reopened.querySelectorAll("[data-focus-list] [data-dense-row]")];
-    expect(reopenedRows[0]!.hasAttribute("data-selected")).toBe(true);
-    act(() => root?.unmount());
   });
 });
