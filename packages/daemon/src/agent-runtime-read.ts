@@ -30,7 +30,7 @@ import { runtimeKindForInstallation } from "./runtime-inventory.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
-import type { RuntimeSessionActivityEvidence } from "./dispatch-read.ts";
+import { readRuntimeSessionActivityEvidence, type RuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
@@ -234,10 +234,9 @@ export function makeAgentRuntimeReadModel(input: {
             session,
             installationsById.get(session.installationId),
             definitionFor(session, dispatchEventFor(session)),
-            // Exited sessions get nothing from the stream read but a lastObservedAt bump and
-            // metrics: their liveness is final and their metrics render through the per-session
-            // read. Skipping it keeps the overview proportional to live sessions, not history.
-            session.liveness === "exited" ? undefined : activityEvidenceFor(session, dispatchEventFor(session)),
+            // Canonically settled sessions already have their final outcome. An exit without
+            // that outcome still needs stream evidence when settlement publication was denied.
+            session.outcome !== null ? undefined : activityEvidenceFor(session, dispatchEventFor(session)),
           ),
         ),
         ...(paged === null
@@ -274,7 +273,7 @@ export function makeAgentRuntimeReadModel(input: {
       const sessions = input.projection
           .readRuntimeSessions()
           .map((session) =>
-            session.liveness === "exited"
+            session.outcome !== null
               ? session
               : sessionWithActivityEvidence(session, activityEvidenceFor(session, dispatchEventFor(session))),
           )
@@ -327,14 +326,18 @@ export function makeAgentRuntimeReadModel(input: {
             ? `Runtime dispatch ${target.dispatchId} for task ${target.taskId} has no projected session.`
             : `Runtime session ${runtimeSessionIdValue} was not found.`,
         );
-      const dto = sessionDto(
+      const evidence = activityEvidenceFor(session),
+        dto = sessionDto(
           session,
           input.projection.readRuntimeInstallation(session.installationId),
           definitionFor(session),
-          activityEvidenceFor(session),
+          evidence,
           true,
         ),
-        result = resultFor(session);
+        result =
+          session.outcome === null && session.resultRef === null && evidence?.terminalOutcome
+            ? { ref: evidence.terminalOutcome.payload.resultRef, text: evidence.terminalOutcome.body }
+            : resultFor(session);
       return {
         ok: true,
         status: cut.status,
@@ -386,14 +389,43 @@ export function makeAgentRuntimeReadModel(input: {
   }
 }
 
-function sessionWithActivityEvidence(
+export function readObservedRuntimeSession(
+  projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch">,
+  rootDir: string,
+  runtimeSessionId: string,
+): RuntimeSession | null {
+  const session = projection.readRuntimeSession(runtimeSessionId);
+  if (!session) return null;
+  const dispatch = projection.readRuntimeDispatch(runtimeSessionId, session.definitionSnapshotRef);
+  return sessionWithActivityEvidence(
+    session,
+    dispatch ? readRuntimeSessionActivityEvidence(rootDir, dispatch.payload.dispatchId) : undefined,
+  );
+}
+
+export function sessionWithActivityEvidence(
   session: RuntimeSession,
   evidence: RuntimeSessionActivityEvidence | undefined,
 ): RuntimeSession {
   if (!evidence) return session;
   const lastObservedAt = latestRuntimeActivityAt([session.lastObservedAt, evidence.lastObservedAt]);
-  if (session.liveness === "exited" || session.liveness === "live" || session.outcome !== null)
-    return { ...session, lastObservedAt };
+  if (session.outcome !== null) return { ...session, lastObservedAt };
+  // Process exit and locally persisted settlement remain observable even if canonical writes
+  // are denied. This read does not release a lease or authorize any business operation.
+  if (evidence.terminalOutcome || evidence.process?.exited) {
+    const terminal = evidence.terminalOutcome?.payload;
+    return {
+      ...session,
+      liveness: "exited",
+      attachable: false,
+      outcome: terminal?.outcome ?? null,
+      exitCode: terminal?.exitCode ?? evidence.process?.exitCode ?? null,
+      resultRef: terminal?.resultRef ?? null,
+      ...(terminal?.reasonCode ? { reasonCode: terminal.reasonCode } : {}),
+      lastObservedAt,
+    };
+  }
+  if (session.liveness === "exited" || session.liveness === "live") return { ...session, lastObservedAt };
   if (!evidence.workerHostAlive) return { ...session, lastObservedAt };
   return {
     ...session,
