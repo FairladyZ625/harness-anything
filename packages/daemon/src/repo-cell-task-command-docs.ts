@@ -11,6 +11,7 @@ import {
   parseDocWriteIntent,
   reduceTaskEvent,
   serializeEventHead,
+  serializePersistedCanonicalEvent,
   sha256Text,
   type DocClaimRef,
   type DocEventChange,
@@ -73,16 +74,24 @@ export async function runTaskCommandWithDocs(
     if (decision.blocker && decision.blocker.code !== "closeout_placeholder")
       return cell.completionStopped(opId, current.snapshot, decision.executionId ?? "", decision.blocker, []);
   }
-  // The mirror gate names the exact cut identity: revision AND head digest.
-  // A rolled-back or same-revision-rewritten center can never pass on
-  // numbers alone.
-  if (
-    mirrorBaseCut !== undefined &&
-    (mirrorBaseCut.revision !== headRevision ||
-      head === null ||
-      mirrorBaseCut.headDigest !== `sha256:${sha256Text(serializeEventHead(head))}`)
-  ) {
-    return cell.rejected(opId, "mirror_behind_center");
+  // A carried base must be a real cut in this center's history. Unrelated
+  // events may advance the head; the document adjudication below compares
+  // each carried path's base against its current blob in the same queue turn.
+  if (mirrorBaseCut !== undefined) {
+    const baseEvent = cell.store.readEventAtRevision?.(mirrorBaseCut.revision);
+    if (
+      mirrorBaseCut.revision > headRevision ||
+      !baseEvent ||
+      mirrorBaseCut.headDigest !==
+        `sha256:${sha256Text(
+          serializeEventHead({
+            revision: baseEvent.workspaceRevision,
+            opId: baseEvent.opId,
+            eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(baseEvent))}`,
+          }),
+        )}`
+    )
+      return cell.rejected(opId, "mirror_behind_center");
   }
   const lease = cell.projection.currentLease(taskId, cell.now());
   const intent = parseDocWriteIntent(

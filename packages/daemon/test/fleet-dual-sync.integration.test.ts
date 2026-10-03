@@ -56,12 +56,47 @@ test(
       planPath,
       `${original}\n## Edge owner notes\n\nEdited on the edge before starting the task.\n`,
     );
+    const observed: unknown[] = [];
+    const originalRun = fixture.host.run.bind(fixture.host);
+    t.mock.method(fixture.host, "run", async (...args: Parameters<typeof fixture.host.run>) => {
+      if (args[1].kind === "task-start") observed.push(args[1]);
+      return originalRun(...args);
+    });
+    const base = fixture.view("node-one")!;
+    const installation = await fixture.host.runtimeIngress(
+      "dual-repo",
+      {
+        kind: "event",
+        type: "runtime_installation_observed",
+        opId: "unrelated-installation",
+        payload: {
+          installationId: "unrelated-installation",
+          kindId: "codex",
+          protocolFamily: "app-server",
+          hostRef: "host:edge",
+          version: "1",
+          discoverySource: "wrapper",
+          capabilities: [],
+        },
+      },
+      fixture.owners.auth(fixture.byId.get("assignment-node-one")!),
+    );
+    assert.equal(installation.outcome, "applied", JSON.stringify(installation));
+    const unrelated = await fixture.centerRun({ kind: "task-create", taskId: "task-unrelated", title: "Unrelated" });
+    assert.equal(unrelated.outcome, "applied", JSON.stringify(unrelated));
+    t.diagnostic(JSON.stringify({ mirrorBase: base.revision, centerRevision: ledgerRevision(fixture), planPath }));
     const started = await fixture.edgeTask("node-one", {
       kind: "task-start",
       taskId: created.taskId,
       executionId: "exe-a-carry",
     });
     assert.equal(started.ok, true, JSON.stringify(started).slice(0, 500));
+    assert.equal(observed.length, 1, "one TLS task command reaches the center without a sync retry");
+    assert.deepEqual((observed[0] as { mirrorBaseCut: unknown }).mirrorBaseCut, {
+      revision: base.revision,
+      headDigest: base.headDigest,
+    });
+    t.diagnostic(JSON.stringify({ centerReceived: observed[0] }));
     assert.equal(
       (started as { readonly docSync?: { readonly outcome?: string } }).docSync?.outcome,
       "applied",
@@ -166,10 +201,7 @@ test(
       executionId: "exe-a-conflict",
     });
     assert.equal(started.ok, false, "a base conflict must void the whole command");
-    assert.ok(
-      ["mirror_behind_center", "base_blob_changed"].includes(String((started as { readonly code?: string }).code)),
-      `a conflict code was expected, saw ${String((started as { readonly code?: string }).code)}`,
-    );
+    assert.equal(started.code, "base_blob_changed", "the authentic old cut reaches per-document conflict adjudication");
     // The transition did NOT happen: the task still has no lease at the center.
     const leases = fixture.center.status().leases.leases.filter((row) => row.taskId === created.taskId);
     assert.equal(leases.length, 0, "the center state must not transition on a conflicted bundle");
@@ -244,7 +276,7 @@ test(
 );
 
 test(
-  "class A: a stale mirror cut is refused, then the same command applies after a sync",
+  "class A: unrelated document events do not reject an authentic historical mirror cut",
   { timeout: 60_000 },
   async (t) => {
     const fixture: Fixture = await dualSyncFixture();
@@ -253,33 +285,18 @@ test(
     const planPath = `${created.packagePath}/task_plan.md`,
       original = readFileSync(fixture.worktree("node-one", planPath), "utf8");
     // The center advances on a path this edge does not touch, so only the mirror
-    // base cut is stale — the gate must still refuse to carry documents on it.
+    // base cut is old while every carried document base remains current.
     await fixture.rawWrite("node-two", [
       { path: "context/shared-notes.md", body: "# Shared\n\nFirst center version.\n" },
     ]);
     fixture.writeWorktree("node-one", planPath, `${original}\n## Local plan edit\n\nBased on the previous cut.\n`);
-    const refused = await fixture.edgeTask("node-one", {
+    const started = await fixture.edgeTask("node-one", {
       kind: "task-start",
       taskId: created.taskId,
       executionId: "exe-a-gate",
     });
-    assert.equal(refused.ok, false);
-    assert.equal((refused as { readonly code?: string }).code, "mirror_behind_center");
-    assert.equal(
-      fixture.center.status().leases.leases.filter((row) => row.taskId === created.taskId).length,
-      0,
-      "the transition must not apply behind the gate",
-    );
-    // The explicit sync round refreshes the mirror; the retried command applies.
-    const synced = await fixture.edgeDocSync("node-one");
-    assert.equal(synced.ok, true, JSON.stringify(synced).slice(0, 400));
-    const retried = await fixture.edgeTask("node-one", {
-      kind: "task-start",
-      taskId: created.taskId,
-      executionId: "exe-a-gate",
-    });
-    assert.equal(retried.ok, true, JSON.stringify(retried).slice(0, 500));
-    assert.equal((retried as { readonly docSync?: { readonly outcome?: string } }).docSync?.outcome, "applied");
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal((started as { readonly docSync?: { readonly outcome?: string } }).docSync?.outcome, "applied");
     assert.match(readFileSync(fixture.worktree("node-one", planPath), "utf8"), /Local plan edit/u);
   },
 );

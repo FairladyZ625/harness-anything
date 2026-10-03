@@ -415,6 +415,34 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
     );
     assert.equal(rolled.outcome, "op_rejected");
     assert.equal(rolled.code, "mirror_behind_center");
+    const unrelated = await cell.run(
+      { kind: "task-create", taskId: "task-unrelated-fence", title: "Unrelated" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
+    );
+    assert.equal(unrelated.outcome, "applied");
+    for (const invalidBase of [
+      { ...base, headDigest: `sha256:${"0".repeat(64)}` },
+      { ...base, revision: Number(unrelated.revision) + 100 },
+    ]) {
+      const refused = await cell.run(
+        {
+          kind: "task-start",
+          taskId: "task-fence",
+          executionId: "exe-fence",
+          mirrorBaseCut: invalidBase,
+          docChanges: [
+            {
+              path: logical,
+              baseBlobSha256: sha(original),
+              policyId,
+              candidate: docClaim(root, `f8-invalid-${invalidBase.revision}`, realizedTaskPlan("Fence")),
+            },
+          ],
+        },
+        binding,
+      );
+      assert.equal(refused.code, "mirror_behind_center", "altered history and rolled-back center remain rejected");
+    }
     const exact = await cell.run(
       {
         kind: "task-start",

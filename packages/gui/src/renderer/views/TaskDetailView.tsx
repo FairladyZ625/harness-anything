@@ -167,8 +167,7 @@ export function TaskDetailView({
   const childTotal = Object.values(childCounts).reduce((sum, count) => sum + count, 0);
   const gatesPassed = task.gates.filter((gate) => gate.ok === true).length;
 
-  // 文件树|正文 分割(task_fb3ba20d66…):默认自适应(<1100px 树在上、≥1100px 树在左 14rem),
-  // 用户在树头部选了排列/拖过比例后由显式两窗比例接管;偏好按连接+仓记忆,重置回自适应。
+  // 默认按容器宽度自适应方向,文件树与正文始终可拖;重置清除用户比例与方向。
   const split = useSplitLayout({
     connectionId,
     repoId: task.projectId,
@@ -182,9 +181,7 @@ export function TaskDetailView({
   });
   const splitStyle = split.collapsed
     ? collapsedGridTemplate(split.effectiveOrientation)
-    : split.mode === "auto"
-      ? undefined
-      : splitGridTemplate(split.mode, split.ratio);
+    : splitGridTemplate(split.effectiveOrientation, split.ratio);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg" data-testid="task-detail-view">
@@ -420,21 +417,13 @@ export function TaskDetailView({
         <AwaitsAskStrip repoId={repoId} sourceRef={`task/${task.taskId}`} onNavigateEntity={onNavigateEntity} />
       ) : null}
 
-      {/* 宽屏自适应:main 是容器量尺(内容盒宽 = 卡片宽),卡片铺满可用宽度。
-          断带:容器 <1100px 单栏叠放(文件树横排在上,量高 18rem 内滚,不挤死正文);
-          ≥1100px 文件树收窄为 14rem 侧栏。
-          分割(task_fb3ba20d66…):auto 之外用户显式排列/比例用内联模板接管同样的两窗,
-          中间是可拖分隔条;树可折叠(恢复条召回),重置回上面的自适应断带。 */}
+      {/* 自动按容器选择方向,默认即用可拖分区;首次调整记住当前方向与比例。 */}
       <main className="@container min-h-0 flex-1 overflow-hidden px-3 py-2 sm:px-4">
         <div
           ref={split.containerRef}
           data-testid="task-detail-content-grid"
           style={splitStyle}
-          className={[
-            "h-full w-full overflow-hidden rounded-sm border border-border bg-bg",
-            "grid grid-cols-1 grid-rows-[auto_minmax(0,1fr)]",
-            "@min-[1100px]:grid-cols-[14rem_minmax(0,1fr)] @min-[1100px]:grid-rows-1",
-          ].join(" ")}
+          className={["h-full w-full overflow-hidden rounded-sm border border-border bg-bg", "grid"].join(" ")}
         >
           {split.collapsed ? (
             <SplitExpandStrip
@@ -452,7 +441,7 @@ export function TaskDetailView({
               headerExtra={<SplitLayoutControls {...split.controlsProps} testId="task-doc-split-controls" />}
             />
           )}
-          {split.mode !== "auto" && !split.collapsed ? (
+          {!split.collapsed ? (
             <SplitDivider
               {...split.dividerProps}
               label={t("views.taskDetailView.splitDividerLabel")}

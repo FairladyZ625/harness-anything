@@ -387,12 +387,13 @@ describe("Task detail expression", () => {
     const scrollPanel = byTestId("task-detail-panel-scroll");
     const card = scrollPanel.parentElement!;
     expect(card.className).not.toMatch(/max-w-|mx-auto/u);
-    expect(card.className).toContain("grid-cols-1");
-    expect(card.className).toContain("@min-[1100px]:grid-cols-[14rem_minmax(0,1fr)]");
+    expect(card.style.gridTemplateColumns).toBe("minmax(0,1fr)");
+    expect(card.style.gridTemplateRows).toContain("40.00fr");
     expect(scrollPanel.closest("main")?.className).toContain("@container");
     // 叠放文件树使用共享比例上限并内部滚动，不能用固定18rem或无限撑高挤走正文。
     // 头部行不随树滚动(分割控件常驻),树体在自己的滚动区里滚。
-    expect(byTestId("task-document-tree").className).toContain("@max-[1100px]:max-h-[var(--long-content-cap)]");
+    expect(byTestId("task-document-tree").className).toContain("min-h-0");
+    expect(card.className).toContain("h-full");
     expect(byTestId("task-document-tree-scroll").className).toContain("overflow-y-auto");
 
     // 概况是区域板(标准 §2.1):面板自己是板的容器量尺,板上每块都是 Region。
@@ -489,18 +490,13 @@ describe("Task detail expression", () => {
     expect(webview.classList.contains("html-artifact-webview")).toBe(true);
   });
 
-  // task_fb3ba20d66…:文件树|正文分割。默认自适应(无分隔条、无内联模板);显式排列后
-  // 内联两窗模板接管;树可折叠/召回;重置回自适应。偏好持久化(按仓 task.projectId +
-  // 页面槽)在 split-layout.vitest 里守——本 fixture 的 window 是无 localStorage 的桥接
-  // 桩,存储层在这里按设计降级为会话内态;happy-dom 无布局,比例换算同样在彼处守。
-  it("keeps the responsive default, then takes over the document grid with an explicit split", async () => {
+  it("keeps a draggable divider in automatic and explicitly selected document layouts", async () => {
     installBridge();
     await mount();
     const card = byTestId("task-detail-content-grid");
-    // 自适应默认:类名断带生效,无内联模板、无分隔条;控件组在树头部,常驻可读。
-    expect(card.className).toContain("@min-[1100px]:grid-cols-[14rem_minmax(0,1fr)]");
-    expect(card.style.gridTemplateColumns).toBe("");
-    expect(document.querySelector('[data-testid="task-doc-split-divider"]')).toBeNull();
+    // 自适应默认:按容器方向使用比例模板、分隔条常驻;控件组在树头部,常驻可读。
+    expect(card.style.gridTemplateRows).toBe("minmax(0,40.00fr) 6px minmax(0,60.00fr)");
+    expect(document.querySelector('[data-testid="task-doc-split-divider"]')).not.toBeNull();
     const controls = byTestId("task-doc-split-controls");
     expect(controls.closest('[data-testid="task-document-tree"]')).not.toBeNull();
     // 每次现查:折叠后控件随树卸载,召回时是新节点,旧引用点不动。
@@ -536,12 +532,12 @@ describe("Task detail expression", () => {
     });
     expect(document.querySelector('[data-testid="task-document-tree"]')).not.toBeNull();
 
-    // 重置:回自适应,无内联模板、无分隔条。
+    // 重置:回自适应,分隔条仍可操作。
     await act(async () => {
       controlButton("reset").click();
     });
-    expect(card.style.gridTemplateColumns).toBe("");
-    expect(card.style.gridTemplateRows).toBe("");
-    expect(document.querySelector('[data-testid="task-doc-split-divider"]')).toBeNull();
+    expect(card.style.gridTemplateColumns).toBe("minmax(0,1fr)");
+    expect(card.style.gridTemplateRows).toBe("minmax(0,40.00fr) 6px minmax(0,60.00fr)");
+    expect(document.querySelector('[data-testid="task-doc-split-divider"]')).not.toBeNull();
   });
 });
