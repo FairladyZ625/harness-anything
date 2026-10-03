@@ -23,6 +23,7 @@ import {
 beforeAll(prepareDetailEnvironment);
 
 afterEach(cleanupMountedDetail);
+afterEach(() => vi.restoreAllMocks());
 
 describe("Task detail expression", () => {
   it("submits the authored closeout without a packet form", async () => {
@@ -385,15 +386,15 @@ describe("Task detail expression", () => {
 
     // 详情卡铺满可用宽度:不再有 max-w 居中收口;main 是容器量尺,断带挂在卡片网格上。
     const scrollPanel = byTestId("task-detail-panel-scroll");
-    const card = scrollPanel.parentElement!;
+    const card = byTestId("task-detail-content-grid").lastElementChild as HTMLElement;
     expect(card.className).not.toMatch(/max-w-|mx-auto/u);
     expect(card.style.gridTemplateColumns).toBe("minmax(0,1fr)");
-    expect(card.style.gridTemplateRows).toContain("40.00fr");
+    expect(card.style.gridTemplateRows).toContain("22.00fr");
     expect(scrollPanel.closest("main")?.className).toContain("@container");
     // 叠放文件树使用共享比例上限并内部滚动，不能用固定18rem或无限撑高挤走正文。
     // 头部行不随树滚动(分割控件常驻),树体在自己的滚动区里滚。
     expect(byTestId("task-document-tree").className).toContain("min-h-0");
-    expect(card.className).toContain("h-full");
+    expect(card.className).toContain("flex-1");
     expect(byTestId("task-document-tree-scroll").className).toContain("overflow-y-auto");
 
     // 概况是区域板(标准 §2.1):面板自己是板的容器量尺,板上每块都是 Region。
@@ -402,21 +403,23 @@ describe("Task detail expression", () => {
     const regions = [...overview.querySelectorAll<HTMLElement>("[data-region]")];
     expect(regions.map((region) => region.dataset.region)).toEqual(["mine", "plan", "progress"]);
     for (const region of regions) {
-      const section = region.querySelector(":scope > section.glass")!;
+      const section = region.querySelector(":scope > section[data-entry-region]")!;
       expect(section.querySelector("h2")).not.toBeNull();
       expect(section.children[1]!.firstElementChild!.className).toContain("overflow-y-auto");
     }
     // 没有散排:标题、行、按天进展、计划正文都在某个区域框里;旧的 aside 右栏已删除。
     for (const element of overview.querySelectorAll("h2, [data-dense-row], [data-day], .prose-harness"))
-      expect(element.closest("section.glass")).not.toBeNull();
+      expect(element.closest("section[data-entry-region]")).not.toBeNull();
     expect(overview.querySelector("aside")).toBeNull();
     // 时间线是板上独立的最后一列,不混在主区里。
     const timeline = byTestId("task-progress-timeline");
-    expect(timeline.parentElement).toBe(overview);
-    expect(overview.lastElementChild).toBe(timeline);
+    expect(timeline.parentElement).toBe(overview.firstElementChild);
+    expect(timeline.parentElement!.lastElementChild).toBe(timeline);
+    expect(timeline.querySelector('[data-testid="region-handle-progress"]')).not.toBeNull();
     // 任务计划是整篇文档:占满主区剩余高度(不按「三条」量下限),正文带边距并在区内滚动。
     const plan = byTestId("task-overview-plan");
-    expect(plan.className).toContain("@[900px]:flex-[1_1_100%]");
+    expect(plan.className).toContain("min-h-0");
+    expect(plan.parentElement!.style.gridTemplateRows).toBe("minmax(0,20.00fr) 4px minmax(0,80.00fr)");
     expect(plan.style.minHeight).toBe("");
     expect(plan.querySelector("h2")?.textContent).toBe("任务计划");
     expect(plan.textContent).toContain("目标、验收与边界的完整原文");
@@ -427,8 +430,8 @@ describe("Task detail expression", () => {
     const go = [...hero.querySelectorAll("button")].find((button) => button.textContent === "去处理")!;
     expect(go.closest("section")!.lastElementChild!.contains(go)).toBe(true);
     // 主内容外衬收窄:正文更早进入首屏。
-    expect(scrollPanel.className).toContain("py-4");
-    expect(scrollPanel.closest("main")?.className).toContain("py-2");
+    expect(scrollPanel.className).toContain("p-1");
+    expect(scrollPanel.closest("main")?.className).toContain("p-1");
 
     // 阅读栏数默认「自适应」:容器查询驱动(styles.css 的 .doc-flow),无需点击。
     const toolbar = byTestId("reader-floating-toolbar");
@@ -491,44 +494,67 @@ describe("Task detail expression", () => {
   });
 
   it("keeps a draggable divider in automatic and explicitly selected document layouts", async () => {
+    // happy-dom has no layout engine; supply the measured split container size.
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(804);
+    const eventWindow = window;
     installBridge();
+    // This fixture normally stubs window listeners; resizing needs the real event target.
+    vi.stubGlobal("window", {
+      ...window,
+      addEventListener: eventWindow.addEventListener.bind(eventWindow),
+      removeEventListener: eventWindow.removeEventListener.bind(eventWindow),
+      dispatchEvent: eventWindow.dispatchEvent.bind(eventWindow),
+    });
     await mount();
-    const card = byTestId("task-detail-content-grid");
+    const card = () => byTestId("task-detail-content-grid").lastElementChild as HTMLElement;
     // 自适应默认:按容器方向使用比例模板、分隔条常驻;控件组在树头部,常驻可读。
-    expect(card.style.gridTemplateRows).toBe("minmax(0,40.00fr) 6px minmax(0,60.00fr)");
-    expect(document.querySelector('[data-testid="task-doc-split-divider"]')).not.toBeNull();
-    const controls = byTestId("task-doc-split-controls");
+    expect(card().style.gridTemplateRows).toBe("minmax(0,22.00fr) 4px minmax(0,78.00fr)");
+    expect(document.querySelector('[data-testid="task-detail-content-grid-divider"]')).not.toBeNull();
+    const controls = byTestId("task-detail-content-grid-controls");
     expect(controls.closest('[data-testid="task-document-tree"]')).not.toBeNull();
     // 每次现查:折叠后控件随树卸载,召回时是新节点,旧引用点不动。
     const controlButton = (suffix: string) =>
-      document.querySelector<HTMLButtonElement>(`[data-testid="task-doc-split-controls-${suffix}"]`)!;
+      document.querySelector<HTMLButtonElement>(`[data-testid="task-detail-content-grid-controls-${suffix}"]`)!;
 
-    // 左右排列:显式模板(默认比例 0.22)+ 分隔条出现。
+    // Auto is operable before choosing a direction: 800px remainder, 176 + 80 = 256px.
+    const automaticDivider = byTestId("task-detail-content-grid-divider");
+    expect(automaticDivider.getAttribute("aria-orientation")).toBe("horizontal");
+    await act(async () => {
+      automaticDivider.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientY: 100 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { clientY: 180 }));
+      window.dispatchEvent(new PointerEvent("pointerup"));
+    });
+    expect(card().style.gridTemplateRows).toBe("minmax(0,32.00fr) 4px minmax(0,68.00fr)");
+    await act(async () => controlButton("reset").click());
+
+    // 左右排列:显式模板与可访问分隔方向一起换轴。
     await act(async () => {
       controlButton("row").click();
     });
-    expect(card.style.gridTemplateColumns).toBe("minmax(0,22.00fr) 6px minmax(0,78.00fr)");
-    const divider = document.querySelector<HTMLElement>('[data-testid="task-doc-split-divider"]')!;
+    expect(card().style.gridTemplateColumns).toBe("minmax(0,22.00fr) 4px minmax(0,78.00fr)");
+    const divider = document.querySelector<HTMLElement>('[data-testid="task-detail-content-grid-divider"]')!;
     expect(divider.getAttribute("role")).toBe("separator");
+    expect(divider.getAttribute("aria-orientation")).toBe("vertical");
 
     // 上下排列:模板换轴,分隔条随之横置。
     await act(async () => {
       controlButton("column").click();
     });
-    expect(card.style.gridTemplateRows).toBe("minmax(0,40.00fr) 6px minmax(0,60.00fr)");
-    expect(card.style.gridTemplateColumns).toBe("minmax(0,1fr)");
-    expect(document.querySelector<HTMLElement>('[data-testid="task-doc-split-divider-track"]')!.className).toContain(
-      "h-[0.375rem]",
-    );
+    expect(card().style.gridTemplateRows).toBe("minmax(0,22.00fr) 4px minmax(0,78.00fr)");
+    expect(card().style.gridTemplateColumns).toBe("minmax(0,1fr)");
+    expect(
+      document.querySelector<HTMLElement>('[data-testid="task-detail-content-grid-divider-track"]')!.className,
+    ).toContain("h-1");
 
     // 折叠文件树:树整块换成恢复条,正文占满;召回后树与分隔条回来。
     await act(async () => {
       controlButton("collapse").click();
     });
     expect(document.querySelector('[data-testid="task-document-tree"]')).toBeNull();
-    expect(card.style.gridTemplateRows).toBe("1.5rem minmax(0,1fr)");
+    expect(card().style.gridTemplateRows).toBe("1.5rem minmax(0,1fr)");
     await act(async () => {
-      byTestId("task-doc-split-expand").click();
+      byTestId("task-detail-content-grid-expand").click();
     });
     expect(document.querySelector('[data-testid="task-document-tree"]')).not.toBeNull();
 
@@ -536,8 +562,8 @@ describe("Task detail expression", () => {
     await act(async () => {
       controlButton("reset").click();
     });
-    expect(card.style.gridTemplateColumns).toBe("minmax(0,1fr)");
-    expect(card.style.gridTemplateRows).toBe("minmax(0,40.00fr) 6px minmax(0,60.00fr)");
-    expect(document.querySelector('[data-testid="task-doc-split-divider"]')).not.toBeNull();
+    expect(card().style.gridTemplateColumns).toBe("minmax(0,1fr)");
+    expect(card().style.gridTemplateRows).toBe("minmax(0,22.00fr) 4px minmax(0,78.00fr)");
+    expect(document.querySelector('[data-testid="task-detail-content-grid-divider"]')).not.toBeNull();
   });
 });
