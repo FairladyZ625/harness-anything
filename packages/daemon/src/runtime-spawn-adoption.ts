@@ -21,11 +21,15 @@ import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 
-export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<void> {
+export async function adoptRuntimes(
+  context: RuntimeSpawnerContext,
+  onProgress?: (completed: number) => void,
+): Promise<void> {
   const sessions = context.input.remote
     ? await context.input.remote.readRuntimeSessions()
     : context.requiredRuntimeProjection(context.input).readRuntimeSessions();
   const byId = new Map(sessions.map((session) => [session.runtimeSessionId, session]));
+  let completed = 0;
   for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
     if (context.processes.has(header.runtimeSessionId) || context.exiting.has(header.runtimeSessionId)) continue;
     const metadata = adoptableMetadata(header);
@@ -139,14 +143,14 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
           });
         await consumeDurableOutput(context, active);
         await context.publishExit(active, active.lossExitCode, session.liveness === "exited");
-        continue;
-      }
-      if (fullStream) attachActiveRuntime(context, active);
+      } else if (fullStream) attachActiveRuntime(context, active);
     } catch (error) {
       if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
       throw error;
     }
+    // Settlement must finish before it can renew the startup inactivity budget.
+    onProgress?.(++completed);
   }
 }
 
