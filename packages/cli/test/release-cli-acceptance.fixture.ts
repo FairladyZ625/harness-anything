@@ -22,7 +22,15 @@ const realm = await spawnKeycloak();
 after(() => realm.close());
 for (const personId of ["owner", "reviewer"]) {
   await realm.control({ op: "account", personId });
-  for (const resource of ["release-acc-chain", "release-acc-rework", "release-acc-artifacts", "release-acc-entity"])
+  for (const resource of [
+    "release-acc-chain",
+    "release-acc-rework",
+    "release-acc-artifacts",
+    "release-acc-entity",
+    "browser-e2e",
+    "browser-write-first",
+    "browser-write-second",
+  ])
     await realm.control({
       op: "permit",
       personId,
