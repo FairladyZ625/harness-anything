@@ -1,3 +1,5 @@
+import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
+import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { isSquadControlResult } from "../squad-control-result.ts";
 import {
@@ -149,6 +151,44 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     now,
     env: process.env,
     auth: writerAuth,
+    prepareTaskSubmit: async (assignment, action) => {
+      try {
+        if (assignment.scope.kind !== "task" || assignment.scope.taskId !== action.taskId)
+          throw new FleetFault("assignment_scope_mismatch", "Delivery belongs to the assigned task.");
+        const taskId = String(action.taskId),
+          auth = await writerAuth(assignment),
+          shown = await options.host.run(assignment.repoId, { kind: "task-show", taskId }, auth);
+        if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
+          throw new FleetFault("task_read_failed", "Cannot read the current delivery task.");
+        const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
+        if (snapshot.workspace?.kind !== "worktree") return action;
+        if (
+          !snapshot.lease &&
+          snapshot.executions.some(
+            (execution) => execution.iteration === snapshot.task?.iteration && execution.submission !== null,
+          )
+        )
+          return action; // Existing submit resumption verifies the original source and frozen packet.
+        const executionId = assertFleetDeliveryHolder(snapshot, {
+          ...assignment,
+          executionId: assignment.scope.executionId,
+        });
+        if (action.executionId !== undefined && action.executionId !== executionId)
+          throw new FleetFault("assignment_scope_mismatch", "Delivery belongs to the assigned execution.");
+        const root = options.host
+          .status()
+          .repos.find((repo) => repo.repoId === assignment.repoId && repo.state === "attached")?.rootDir;
+        if (!root) throw new FleetFault("repo_unavailable", "Delivery repository is unavailable.");
+        const commitSha = await fetchWorkerDelivery(
+          root,
+          taskId,
+          typeof action.commitSha === "string" ? action.commitSha : undefined,
+        );
+        return { ...action, executionId, commitSha };
+      } catch (error) {
+        throw new FleetFault(runtimeErrorCode(error) ?? "delivery_fetch_failed", runtimeErrorMessage(error));
+      }
+    },
   });
   function brokerHost(host: FleetCenterOptions["host"]): FleetCenterOptions["host"] {
     return brokerHostImpl(extracted, host);

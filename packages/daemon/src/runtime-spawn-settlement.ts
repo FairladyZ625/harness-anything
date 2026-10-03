@@ -109,10 +109,16 @@ export async function publishExit(
         : false;
     // Squad children deliver local commits for Commander integration; leaders own publication.
     // Keep leader control JSON and child delivery text intact. Direct dispatches retain auto-push.
-    if (active.task && outcome === "succeeded" && active.publicationOwner !== "commander" && !squadLeaderControl) {
+    if (
+      active.task &&
+      context.input.projection &&
+      outcome === "succeeded" &&
+      active.publicationOwner !== "commander" &&
+      !squadLeaderControl
+    ) {
       try {
-        // An edge holds no projection to read a submitted commit from: its settlement publishes the branch head.
-        const projection = context.input.projection ? context.requiredRuntimeProjection(context.input) : null,
+        // Edge publication belongs to submit preparation; settlement must never replace its accepted cut.
+        const projection = context.requiredRuntimeProjection(context.input),
           submittedCommitSha = projection
             ?.read(active.task.taskId)
             .snapshot.executions.find((execution) => execution.executionId === active.task?.executionId)

@@ -15,6 +15,7 @@ import {
   submissionDigest,
   sameWriteSource,
   type SubmissionV1,
+  type WriteSource,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -52,6 +53,7 @@ export function deriveCloseoutSubmission(
   snapshot: Snapshot,
   bodyOverrides?: ReadonlyMap<string, string>,
   requestedCommit?: string,
+  source?: WriteSource,
 ): SubmissionV1 {
   const document = readTaskTransitionDocument({
       projection: cell.projection,
@@ -190,12 +192,15 @@ export function deriveCloseoutSubmission(
       outputs: artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`),
     };
   }
+  // An assignment's checkout belongs to its node. Its delivery was fetched from the
+  // center's configured origin before enqueue; a leftover center checkout is not that node's HEAD.
+  const remoteDelivery = typeof source === "object" && source.kind === "assignment";
   const dispatches = cell.projection
       .readRuntimeDispatchesByTaskExecution(taskId, executionId)
       .map(({ event }) => event.payload)
       .filter((dispatch) => dispatch.role !== "reviewer" && dispatch.cwd),
     binding = taskWorktreeBinding(snapshot.task, readPresetSnapshot),
-    taskRoot = binding ? path.join(cell.rootDir, binding.path) : null,
+    taskRoot = binding && !remoteDelivery ? path.join(cell.rootDir, binding.path) : null,
     git = makeGitReadinessSource(),
     // Only the bound task worktree names a delivery implicitly: a dispatch cwd may be any checkout,
     // canonical included, so it only locates an explicitly requested commit below.
@@ -203,7 +208,9 @@ export function deriveCloseoutSubmission(
     boundHead = taskRoot ? git.run(taskRoot, ["rev-parse", "--show-toplevel", "HEAD"]) : null,
     [boundTop, boundSha] = boundHead?.ok ? boundHead.stdout.split("\n") : [],
     bound = boundTop && boundSha && realpathSync(boundTop) === realpathSync(taskRoot!) ? boundSha : undefined,
-    uniqueDirectories = [...new Set([...(taskRoot ? [taskRoot] : []), ...dispatches.map((dispatch) => dispatch.cwd!)])],
+    uniqueDirectories = remoteDelivery
+      ? [cell.rootDir]
+      : [...new Set([...(taskRoot ? [taskRoot] : []), ...dispatches.map((dispatch) => dispatch.cwd!)])],
     namedCommit = requestedCommit ?? bound;
   if (!namedCommit)
     throw cell.cellCodedError(
@@ -503,6 +510,7 @@ export async function submitTask(
       fresh.snapshot,
       undefined,
       typeof action.commitSha === "string" ? action.commitSha : undefined,
+      binding.source,
     );
   if (!derived.ok)
     return submissionStopped(

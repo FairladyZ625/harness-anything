@@ -481,7 +481,7 @@ test("terminal settlement publishes the submitted commit when worker HEAD advanc
   assert.equal(git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(), submittedCommitSha);
 });
 
-test("an edge settlement, which holds no projection, publishes the worker branch head", async (context) => {
+test("an edge settlement cannot overwrite the submit cut with a later worker HEAD", async (context) => {
   const fixture = workerGitFixture(context, "settle-edge", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
     outcomeBodies: string[] = [],
@@ -493,6 +493,9 @@ test("an edge settlement, which holds no projection, publishes the worker branch
       }
       return {};
     });
+  const accepted = git(fixture.worker, "rev-parse", "HEAD").trim();
+  git(fixture.worker, "push", "--quiet", "origin", `HEAD:refs/heads/${fixtureTaskId}`);
+  git(fixture.worker, "commit", "--allow-empty", "-qm", "later unsubmitted work");
   await publishExit(
     {
       ...settleContext,
@@ -507,12 +510,10 @@ test("an edge settlement, which holds no projection, publishes the worker branch
     runtime,
     0,
   );
-  const head = git(fixture.worker, "rev-parse", "HEAD").trim();
-  assert.deepEqual(outcomeBodies, [
-    `worker delivery\n\nWorker branch pushed at settlement: ${fixtureTaskId} @ ${head}`,
-  ]);
+  assert.notEqual(git(fixture.worker, "rev-parse", "HEAD").trim(), accepted);
+  assert.deepEqual(outcomeBodies, ["worker delivery"]);
   assert.equal(outcomes[0]?.outcome, "succeeded");
-  assert.equal(git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(), head);
+  assert.equal(git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(), accepted);
 });
 
 test("terminal settlement tells the owner when a delivered closeout is not submitted", async (context) => {
