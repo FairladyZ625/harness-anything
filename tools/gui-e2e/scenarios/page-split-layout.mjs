@@ -269,6 +269,77 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen, { 
   await shot(`${label}-reset`);
 }
 
+/**
+ * 总览(2026-10-04 注意力返工后)是单列注意力漏斗:「关注的工作」(主体,weight 6)叠在
+ * 「执行与下钻」(紧凑工具带,weight 1.5)上。区域权重跟着区域走:标题拖拽交换的是堆叠
+ * 顺序,不交换像素位置——所以这里断言顺序交换、重载保持、取消不动、重置回位、键盘搬
+ * 移与列高拖拽,而不是 checkLayout 的精确位置互换(那只对等权重区域对成立)。内层列
+ * 分割的把手 id 是 overview-0-divider(单列没有外层左右分割)。
+ */
+async function checkOverviewColumn(page, shot, label) {
+  const board = page.getByTestId("overview-board");
+  const box = (id) => board.locator(`[data-region="${id}"]`).first().boundingBox();
+  const handle = (id) => board.getByTestId(`region-handle-${id}`);
+  const worksFirst = async () => {
+    const [works, drill] = await Promise.all([box("works"), box("drill")]);
+    assert.ok(works && drill, `${label} both overview regions must exist`);
+    return works.y < drill.y;
+  };
+  const dragHandle = async (from, to) => {
+    const source = await handle(from).boundingBox(),
+      target = await handle(to).boundingBox();
+    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 12 });
+  };
+  await handle("works").waitFor();
+  await board.getByTestId("overview-board-controls-row").click();
+  assert.ok(await worksFirst(), `${label} works starts above the drill strip`);
+  await shot(`${label}-before`);
+  await dragHandle("works", "drill");
+  await board.locator('[data-drop-preview="true"]').first().waitFor();
+  await shot(`${label}-preview`);
+  await page.mouse.up();
+  await page.waitForFunction(() => {
+    const boardNode = globalThis.document.querySelector('[data-testid="overview-board"]');
+    const works = boardNode?.querySelector('[data-region="works"]');
+    const drill = boardNode?.querySelector('[data-region="drill"]');
+    return works !== null && drill !== null && drill.getBoundingClientRect().y < works.getBoundingClientRect().y;
+  });
+  await shot(`${label}-moved`);
+  await page.reload();
+  await handle("works").waitFor({ timeout: 30000 });
+  assert.ok(!(await worksFirst()), `${label} reload preserves the moved order`);
+  await shot(`${label}-reloaded`);
+  // 取消路径:再次拖拽中按 Esc,顺序保持搬移后的样子。
+  await dragHandle("works", "drill");
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  assert.ok(!(await worksFirst()), `${label} cancel keeps the moved order`);
+  await board.getByTestId("overview-board-controls-reset").click();
+  await page.waitForFunction(() => {
+    const boardNode = globalThis.document.querySelector('[data-testid="overview-board"]');
+    const works = boardNode?.querySelector('[data-region="works"]');
+    const drill = boardNode?.querySelector('[data-region="drill"]');
+    return works !== null && drill !== null && works.getBoundingClientRect().y < drill.getBoundingClientRect().y;
+  });
+  assert.ok(await worksFirst(), `${label} reset restores works above the drill strip`);
+  await handle("works").press("ArrowDown");
+  assert.ok(!(await worksFirst()), `${label} keyboard move flips the stacking order`);
+  await board.getByTestId("overview-board-controls-reset").click();
+  await board.getByTestId("overview-board-controls-row").click();
+  const worksBefore = await box("works");
+  const columnDivider = board.getByTestId("overview-0-divider");
+  if (await columnDivider.count()) {
+    await columnDivider.press("ArrowDown");
+    const worksAfter = await box("works");
+    assert.ok(Math.abs(worksAfter.height - worksBefore.height) > 5, `${label} keyboard column resize`);
+  }
+  await board.getByTestId("overview-board-controls-reset").click();
+  await assertUnscrolledLayout(board);
+  await shot(`${label}-reset`);
+}
+
 export default {
   id: "page-split-layout",
   feature: "split-layout",
@@ -526,14 +597,9 @@ export default {
         .locator("[data-region]")
         .evaluateAll((nodes) => nodes.map((node) => node.dataset.region));
       assert.ok(overviewIds.length >= 2, `overview fixture needs multiple regions: ${overviewIds}`);
-      // 总览板区域非等高(瀑布列内纵向堆叠),换位断言走次序而非几何互换。
-      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-wide", null, {
-        orderBased: true,
-      });
+      await checkOverviewColumn(page, shot, "overview-wide");
       await resize(1120, 800);
-      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-narrow", null, {
-        orderBased: true,
-      });
+      await checkOverviewColumn(page, shot, "overview-narrow");
       await page.evaluate(() => globalThis.localStorage.setItem("harness-locale", "en-US"));
       await page.reload();
       await page.getByTestId("overview-board").waitFor();

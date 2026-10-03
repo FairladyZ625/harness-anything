@@ -3,9 +3,9 @@ import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/loca
 import { createRealizedTaskPlanFixture } from "../../fixtures/task-plan.mjs";
 import { nav } from "./helpers.mjs";
 
-// The WIP drill entry collapses to one compact row on the overview board; the full
-// list lives in the focus layer. Dialog detachment precedes the entry's return to
-// the compact row — wait for actual projection transforms to settle before measuring.
+// The WIP drill entry collapses to one compact chip on the overview tool strip; the full
+// list lives in the focus layer. Dialog detachment precedes the entry's return to the
+// compact chip — wait for actual projection transforms to settle before measuring.
 export async function settledWipGeometry(page) {
   await page.waitForFunction(() => {
     const drill = globalThis.document.querySelector('[data-testid="overview-region-drill"]');
@@ -23,14 +23,14 @@ export async function settledWipGeometry(page) {
     };
     const section = region.querySelector("section");
     const title = section.querySelector("h2");
-    const entry = [...region.querySelectorAll("[data-dense-row]")].find((row) => row.textContent.includes("WIP"));
+    const entry = region.querySelector('[data-testid="overview-drill-wip"]');
     return {
       viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight },
       region: box(region),
       section: box(section),
       title: box(title),
       titleFits: title.scrollWidth <= title.clientWidth,
-      entry: entry === undefined ? null : box(entry),
+      entry: entry === null ? null : box(entry),
       scrollLefts: [...region.querySelectorAll("section, section > div, [data-region-scroll]")].map(
         (node) => node.scrollLeft,
       ),
@@ -55,17 +55,17 @@ export function assertWipGeometry(geometry) {
 }
 
 /**
- * #task_fa84b041ed175ce8e81160eea1 总览 WIP 常驻观察面(2026-10-04 重构后):占用/上限
- * 收成紧凑下钻入口,名单与分组/搜索住在放大层;占用数、上限、名单长度全部从 daemon
- * 快照读出,不在场景里写死。夹具任务经 repo.task.start 真实写路占位(planned 不占位,
- * 先启动)。
+ * #task_fa84b041ed175ce8e81160eea1 总览 WIP 常驻观察面(2026-10-04 视觉返工后):占用/上限
+ * 收成底部工具带的紧凑芯片,名单与分组/搜索住在放大层;占用数、上限、名单长度全部从
+ * daemon 快照读出,不在场景里写死。夹具任务经 repo.task.start 真实写路占位(planned 不
+ * 占位,先启动)。
  */
 export default {
   id: "overview-wip-region",
   feature: "overview",
   lane: "isolated",
   description:
-    "The compact WIP drill entry shows the daemon occupancy, the focus layer lists every counted task id-by-id, " +
+    "The compact WIP drill chip shows the daemon occupancy, the focus layer lists every counted task id-by-id, " +
     "keeps arrow-key navigation inside the filtered visible set, and navigates a row to task detail.",
   async run({ page, fixture, shot }) {
     const started = await requestDaemonJsonRpcAt(
@@ -122,17 +122,22 @@ export default {
       2_000,
       10_000,
     );
-    await drill
-      .locator("section", { hasText: "WIP" })
-      .filter({ hasText: `${snapshot.counted.length}/${snapshot.limit}` })
-      .first()
-      .waitFor({ timeout: 10_000 });
+    const wipChip = drill.getByTestId("overview-drill-wip");
+    await wipChip.waitFor({ timeout: 10_000 });
+    // 芯片上的占用数必须来自 daemon 快照,不写死。
+    await page.waitForFunction(
+      ([count, limit]) => {
+        const chip = globalThis.document.querySelector('[data-testid="overview-drill-wip"]');
+        return chip !== null && chip.textContent.includes(`${count}/${limit}`);
+      },
+      [snapshot.counted.length, snapshot.limit],
+      { timeout: 10_000 },
+    );
 
-    // The board stays compact: no dense WIP rows on the first screen; the entry carries occupancy.
+    // The board stays compact: no dense WIP rows on the first screen; the chip carries occupancy.
     const boardRows = await drill.locator("[data-testid='overview-task-wip-list'] [data-dense-row]").count();
     assert.equal(boardRows, 0, "the WIP list must live in the focus layer, not on the board");
-    const entry = drill.locator("[data-dense-row]", { hasText: "WIP" }).first();
-    await entry.click();
+    await wipChip.click();
     const dialog = page.locator('[role="dialog"]');
     await dialog.waitFor();
     const list = dialog.getByTestId("overview-task-wip-list");

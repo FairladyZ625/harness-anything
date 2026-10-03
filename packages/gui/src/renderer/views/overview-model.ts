@@ -30,7 +30,7 @@ export const ATTENTION_META: Readonly<
 > = {
   "awaiting-you": { tone: "bad", rank: 1 },
   rework: { tone: "bad", rank: 2 },
-  adjudication: { tone: "bad", rank: 3 },
+  adjudication: { tone: "wait", rank: 3 },
   decision: { tone: "wait", rank: 4 },
   blocked: { tone: "bad", rank: 5 },
   stalled: { tone: "wait", rank: 6 },
@@ -99,11 +99,13 @@ export function attentionEntries(
 }
 
 /**
- * 首块「需要你处理」的三类:真实要本人动手的 awaits 边、已提交待初审的 execution、
- * 待点头的 decision。已答复跟进(answered)、内部评审返工(rework)与机器/他人可处理
- * 阻塞(blocked/stalled)不进首块——它们不冒充需要用户,住「跟进与返工」下钻入口。
+ * 首块「需要你处理」的两类:真实要本人动手的 awaits 边(question/acceptance/consent/
+ * reopen 问的人)与待点头的 decision(裁决带人工同意通道)。待初审的 execution 不在此:
+ * `ha task adjudicate --forward/--return` 是 owning CEO 的机器双闸(CLI 帮助原文),不是
+ * 用户动作,住「跟进与返工」。已答复跟进(answered)、评审打回(rework)与阻塞/停滞
+ * (blocked/stalled)同样不冒充需要用户。
  */
-export type DecisionKind = "awaiting-you" | "adjudication" | "decision";
+export type DecisionKind = "awaiting-you" | "decision";
 
 export interface DecisionRow {
   /** attentionItem 的 ref(relation/<id> · execution/<id> · decision/<id>)。 */
@@ -124,7 +126,7 @@ export interface DecisionRow {
 }
 
 const isDecisionKind = (kind: AgendaAttentionItem["kind"]): kind is DecisionKind =>
-  kind === "awaiting-you" || kind === "adjudication" || kind === "decision";
+  kind === "awaiting-you" || kind === "decision";
 
 export function decisionRows(agenda: AgendaSuccess | undefined): readonly DecisionRow[] {
   if (agenda === undefined) return [];
@@ -148,10 +150,11 @@ export function decisionRows(agenda: AgendaSuccess | undefined): readonly Decisi
 }
 
 /**
- * 「跟进与返工」下钻入口的行:不需要本人动手的四类。tone 一律 wait/neutral——机器可
- * 处理的阻塞不亮红,避免视觉上冒充需要用户。
+ * 「跟进与返工」下钻入口的行:不需要本人动手的五类。tone 一律 wait/neutral——机器/
+ * owning CEO 可处理的阻塞与初审不亮红,避免视觉上冒充需要用户;返工的文案只陈述事实
+ * (评审打回、待返工),不断言归属,是否需要人由看的人判断。
  */
-export type FollowUpKind = "answered" | "rework" | "blocked" | "stalled";
+export type FollowUpKind = "answered" | "adjudication" | "rework" | "blocked" | "stalled";
 
 export interface FollowUpRow {
   readonly id: string;
@@ -163,7 +166,7 @@ export interface FollowUpRow {
 }
 
 const isFollowUpKind = (kind: AgendaAttentionItem["kind"]): kind is FollowUpKind =>
-  kind === "answered" || kind === "rework" || kind === "blocked" || kind === "stalled";
+  kind === "answered" || kind === "adjudication" || kind === "rework" || kind === "blocked" || kind === "stalled";
 
 export function followUpRows(agenda: AgendaSuccess | undefined): readonly FollowUpRow[] {
   if (agenda === undefined) return [];

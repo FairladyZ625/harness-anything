@@ -28,10 +28,9 @@ import {
 import {
   CiFocusDetail,
   CiFocusList,
-  decisionsUrgentCount,
   FollowUpsFocusDetail,
   FollowUpsFocusList,
-  OverviewDecisionsBody,
+  OverviewDecisionsBand,
   OverviewDrillBody,
   OverviewWorksBody,
   PinnedFocusDetail,
@@ -47,10 +46,12 @@ import {
 import { wipVisibleEntries, type WipFilter } from "./OverviewTaskWip.tsx";
 
 /**
- * 总览(2026-10-04 重构,注意力优先):首块只放真实要本人动手的 awaits/初审/决策,主区
- * 放关注的工作(置顶非终态;零置顶回退活跃工作并给选择入口),WIP/评审执行/跟进返工/
- * 置顶承诺收成紧凑下钻入口(列表在放大层,全部占位任务仍可达)。系统状态弱化成一行小
- * 字,只有影响当前工作的异常(daemon 无响应、main CI 红、投影落后)才升成显眼状态点。
+ * 总览(2026-10-04 视觉返工,注意力优先):页面顶部是紧凑决策带——只放真实要本人动手
+ * 的 awaits 问句与待点头决策,默认三条、其余一键展开,不按条数瓜分首屏;待初审的
+ * execution 是 owning CEO 的机器双闸,收进「跟进与返工」。首屏主体是关注的工作(置顶
+ * 非终态;零置顶回退活跃工作并给选择入口)。WIP/评审执行/跟进返工/置顶承诺收成底部
+ * 一条紧凑工具带(单列布局,不再给下钻留整列空容器)。系统状态弱化成一行小字,只有
+ * 影响当前工作的异常(daemon 无响应、main CI 红、投影落后)才升成显眼状态点。
  * 数据全部来自已挂载读面:agenda(attentionItems 与各分组)、工作索引、runtime overview、
  * CI 观察窗、事件一页(overview-data)与工作台占用(repo.tasks.wip,与看板共用
  * useTaskWipQuery),页面不另发请求;注意力/排序只透传 daemon 的分数与已有 Pin,不建
@@ -117,7 +118,6 @@ export function OverviewView({
     [works],
   );
   const decisions = useMemo(() => decisionRows(agenda), [agenda]);
-  const decisionsUrgent = decisionsUrgentCount(decisions);
   const followUps = useMemo(() => followUpRows(agenda), [agenda]);
   const reviews = useMemo(() => reviewRows(agenda), [agenda]);
   const reviewDrill = useMemo(() => reviewDrillRows(reviews), [reviews]);
@@ -257,46 +257,18 @@ export function OverviewView({
         </button>
       </header>
 
-      <div className="flex min-h-0 flex-1 p-1" data-testid="overview-scroll">
+      {/* 单列注意力漏斗:紧凑决策带 → 关注工作主体 → 底部下钻工具带。决策带是内容定高
+          的普通条(不进区域板,比例偏好不可能把它撑成大半屏);下钻与工作同列,不再出现
+          只有几行却占整列的空容器。 */}
+      <div className="flex min-h-0 flex-1 flex-col gap-1 p-1" data-testid="overview-scroll">
+        <OverviewDecisionsBand rows={decisions} deps={deps} />
         <PageRegions
           connectionId={connectionId}
           repoId={repoId}
           slot="overview"
           testId="overview-board"
-          defaultRatio={0.64}
-          columns={[["decisions", "works"], ["drill"]]}
+          columns={[["works", "drill"]]}
           regions={[
-            {
-              id: "decisions",
-              title: t("views.overviewView.regionDecisions"),
-              weight: decisions.length * 2 + 2,
-              testId: "overview-region-decisions",
-              content: (
-                <div className="grid min-h-0 min-w-0">
-                  <Region
-                    title={t("views.overviewView.regionDecisions")}
-                    tag={
-                      <StatusTag
-                        tone={decisions.length === 0 ? "done" : decisionsUrgent > 0 ? "bad" : "wait"}
-                        label={
-                          decisions.length === 0
-                            ? t("views.overviewView.mineClear")
-                            : decisionsUrgent > 0
-                              ? t("views.overviewView.mineUrgent", { count: decisionsUrgent })
-                              : t("views.overviewView.decisionsPending")
-                        }
-                      />
-                    }
-                    big={decisions.length}
-                    bigTone={decisions.length === 0 ? "done" : decisionsUrgent > 0 ? "bad" : "wait"}
-                    edge={decisions.length === 0 ? "done" : decisionsUrgent > 0 ? "bad" : "wait"}
-                    footer={t("views.overviewView.decisionsFooter")}
-                  >
-                    <OverviewDecisionsBody rows={decisions} deps={deps} />
-                  </Region>
-                </div>
-              ),
-            },
             {
               id: "works",
               title: t("views.overviewView.regionWatched"),
@@ -329,7 +301,7 @@ export function OverviewView({
             {
               id: "drill",
               title: t("views.overviewView.regionDrill"),
-              weight: 2,
+              weight: 1.5,
               testId: "overview-region-drill",
               content: (
                 <div className="grid min-h-0 min-w-0">

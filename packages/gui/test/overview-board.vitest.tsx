@@ -333,8 +333,8 @@ async function flushUntil(predicate: () => boolean, rounds = 200): Promise<void>
 
 const unmount = () => act(() => root?.unmount());
 
-describe("总览:首块「需要你处理」", () => {
-  it("只列真实待人事项,并区分出不冒充需要用户的三类", () => {
+describe("总览:顶部「需要你处理」紧凑决策带", () => {
+  it("只列真实待人事项,并区分出不冒充需要用户的四类", () => {
     const read = agenda({
       answeredForYou: [
         {
@@ -384,11 +384,11 @@ describe("总览:首块「需要你处理」", () => {
       ],
     });
     const container = mount({ agenda: read });
-    const decisions = container.querySelector('[data-testid="overview-region-decisions"]')!;
+    const decisions = container.querySelector('[data-testid="overview-decisions-band"]')!;
     expect(textOf(decisions)).toContain("边缘 RBAC 设计裁决");
-    expect(textOf(decisions)).toContain("总览重构的提交");
     expect(textOf(decisions)).toContain("是否冻结旧投影字段");
-    // 三类不进首块:待跟进/返工在「跟进与返工」入口,阻塞在工作卡点。
+    // 四类不进决策带:待初审是 owning CEO 的机器双闸,待跟进/返工/阻塞同样不冒充需要用户。
+    expect(textOf(decisions)).not.toContain("总览重构的提交");
     expect(textOf(decisions)).not.toContain("已答复的跟进项");
     expect(textOf(decisions)).not.toContain("返工中的任务");
     expect(textOf(decisions)).not.toContain("被阻塞的成员任务");
@@ -397,21 +397,21 @@ describe("总览:首块「需要你处理」", () => {
 
   it("每条说明问题、受影响工作与推荐(未提供不造假)", () => {
     const container = mount();
-    const decisions = container.querySelector('[data-testid="overview-region-decisions"]')!;
+    const decisions = container.querySelector('[data-testid="overview-decisions-band"]')!;
     // 问题:awaits 的问句原话。
     expect(textOf(decisions)).toContain("接口要不要兼容旧字段?");
     // 受影响工作:工作索引的标题。
     expect(textOf(decisions)).toContain("代码质量长期检验");
-    // 决策行如实写「未归属工作」;三类各带一条「推荐:未提供」。
+    // 决策行如实写「未归属工作」;两类各带一条「推荐:未提供」。
     expect(textOf(decisions)).toContain("未归属工作");
-    expect(textOf(decisions).split("推荐:未提供").length - 1).toBe(3);
+    expect(textOf(decisions).split("推荐:未提供").length - 1).toBe(2);
     unmount();
   });
 
-  it("动作接真实落点:答复开面板,初审/裁决走实体导航", () => {
+  it("动作接真实落点:答复开面板,裁决走实体导航,待初审在跟进入口给收口落点", () => {
     const onNavigateEntity = vi.fn();
     const container = mount({ onNavigateEntity });
-    const decisions = container.querySelector('[data-testid="overview-region-decisions"]')!;
+    const decisions = container.querySelector('[data-testid="overview-decisions-band"]')!;
     const answer = [...decisions.querySelectorAll("button")].find((button) => textOf(button) === "答复");
     expect(answer).toBeDefined();
     act(() => answer!.click());
@@ -420,12 +420,52 @@ describe("总览:首块「需要你处理」", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
     expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).toBeNull();
-    const initialReview = [...decisions.querySelectorAll("button")].find((button) => textOf(button) === "去初审");
-    act(() => initialReview!.click());
-    expect(onNavigateEntity).toHaveBeenCalledWith("taskreview/task_m1");
     const adjudicate = [...decisions.querySelectorAll("button")].find((button) => textOf(button) === "去裁决");
     act(() => adjudicate!.click());
     expect(onNavigateEntity).toHaveBeenCalledWith("decision/dec_1");
+    // 待初审(execution)住「跟进与返工」:放大层首行即它,详情给「打开收口」的真实落点。
+    act(() => (container.querySelector('[data-testid="overview-drill-followups"]') as HTMLButtonElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    expect(textOf(dialog)).toContain("总览重构的提交");
+    expect(textOf(dialog)).toContain("待初审");
+    const closeout = [...dialog.querySelectorAll("button")].find((button) => textOf(button) === "打开收口");
+    act(() => closeout!.click());
+    expect(onNavigateEntity).toHaveBeenCalledWith("taskreview/task_m1");
+    unmount();
+  });
+
+  it("默认只铺三条,其余一键展开;展开可收起", () => {
+    const extraDecisions = Array.from({ length: 4 }, (_, index) => ({
+      decisionId: `dec_more_${index}`,
+      title: `追加决策 ${index}`,
+      riskTier: "low" as const,
+      urgency: "low" as const,
+      proposedAt: AT,
+    }));
+    const read = agenda({
+      awaitingDecision: [...agenda().awaitingDecision, ...extraDecisions],
+      attentionItems: [
+        ...agenda().attentionItems,
+        ...extraDecisions.map(({ decisionId }, index) => ({
+          ref: `decision/${decisionId}`,
+          title: `追加决策 ${index}`,
+          kind: "decision",
+          region: "mine",
+          workTaskId: null,
+          attention: { score: 10 * (4 - index), reasons: [] },
+        })),
+      ],
+    });
+    const container = mount({ agenda: read });
+    const band = container.querySelector('[data-testid="overview-decisions-band"]')!;
+    expect(band.querySelectorAll("[data-decision]")).toHaveLength(3);
+    expect(band.querySelector('[data-testid="overview-decisions-expand"]')).not.toBeNull();
+    expect(textOf(band)).toContain("还有 3 项");
+    act(() => (band.querySelector('[data-testid="overview-decisions-expand"]') as HTMLButtonElement).click());
+    expect(band.querySelectorAll("[data-decision]")).toHaveLength(6);
+    expect(textOf(band)).toContain("追加决策 3");
+    act(() => (band.querySelector('[data-testid="overview-decisions-collapse"]') as HTMLButtonElement).click());
+    expect(band.querySelectorAll("[data-decision]")).toHaveLength(3);
     unmount();
   });
 
@@ -447,7 +487,7 @@ describe("总览:首块「需要你处理」", () => {
         awaitingDecision: [],
       }),
     });
-    const decisions = container.querySelector('[data-testid="overview-region-decisions"]')!;
+    const decisions = container.querySelector('[data-testid="overview-decisions-band"]')!;
     expect(textOf(decisions)).toContain("没有等你处理的事项");
     expect(textOf(decisions)).not.toContain("边缘 RBAC");
     unmount();
@@ -520,10 +560,15 @@ describe("总览:主区「关注的工作」", () => {
     );
     const card = container.querySelector("[data-work-card='task_w1']")!;
     const text = textOf(card);
-    // 阶段与交付来自工作索引计数;完成度百分比只是行尾辅助。
-    expect(text).toContain("已交付 2/3");
-    expect(text).toContain("还差 1");
+    // 阶段计数来自工作索引;子任务 done 计数如实称「子任务完成」,不冒充可用交付;
+    // 完成度百分比只是行尾辅助。
+    expect(text).toContain("子任务完成 2/3");
+    expect(text).toContain("未完成 1");
     expect(text).toMatch(/\d+%/);
+    // 可用交付与阶段摘要:投影没有就如实说明,不编造。
+    expect(textOf(container.querySelector('[data-testid="overview-region-works"]')!)).toContain(
+      "可用交付与阶段摘要当前投影未提供",
+    );
     // 卡点行点名该工作上的注意力项,可点。
     expect(text).toContain("卡点");
     expect(text).toContain("边缘 RBAC 设计裁决");
@@ -640,7 +685,7 @@ describe("总览:执行与下钻", () => {
     return () => vi.stubGlobal("harness", previous);
   }
 
-  it("WIP 收成紧凑入口:占用在入口行,名单在放大层且全量可达", async () => {
+  it("WIP 收成紧凑芯片:占用在入口,名单在放大层且全量可达", async () => {
     const snapshot = wipSnapshot(defaultCounted(), 10);
     const restore = stubBridge({ getTaskWip: () => snapshot });
     const container = mount();
@@ -648,12 +693,13 @@ describe("总览:执行与下钻", () => {
       () => container.querySelector('[data-testid="overview-region-drill"]')?.textContent?.includes("10/10") === true,
     );
     const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    // 条面只有入口行:30 条名单不在总览首屏铺开。
+    // 工具区只有入口芯片:30 条名单不在总览首屏铺开;满额以警示点标在芯片上。
     expect(textOf(drill)).toContain("进行中的任务(WIP)");
-    expect(textOf(drill)).toContain("满额");
+    const wipEntry = drill.querySelector('[data-testid="overview-drill-wip"]')!;
+    expect(textOf(wipEntry)).toContain("10/10");
+    expect(wipEntry.hasAttribute("data-drill-alert")).toBe(true);
     expect(drill.querySelectorAll("[data-dense-row][data-testid='overview-task-wip-list']")).toHaveLength(0);
-    const entry = [...drill.querySelectorAll("[data-dense-row]")].find((row) => textOf(row).includes("进行中的任务"));
-    act(() => (entry as HTMLElement).click());
+    act(() => (wipEntry as HTMLElement).click());
     const dialog = document.body.querySelector('[role="dialog"]');
     expect(dialog).not.toBeNull();
     expect(dialog!.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
@@ -665,7 +711,7 @@ describe("总览:执行与下钻", () => {
     restore();
   });
 
-  it("评审执行入口:三组计数分明,放大层给收口/决策落点", () => {
+  it("评审执行入口:计数与分组明细分明,放大层给收口/决策落点", () => {
     const read = agenda({
       underReview: [
         {
@@ -686,11 +732,13 @@ describe("总览:执行与下钻", () => {
     const onNavigateEntity = vi.fn();
     const container = mount({ agenda: read, onNavigateEntity });
     const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    expect(textOf(drill)).toContain("评审执行");
-    expect(textOf(drill)).toContain("任务评审中 1");
-    expect(textOf(drill)).toContain("决策待派审 1");
-    const entry = [...drill.querySelectorAll("[data-dense-row]")].find((row) => textOf(row).includes("评审执行"));
-    act(() => (entry as HTMLElement).click());
+    const reviewEntry = drill.querySelector('[data-testid="overview-drill-review"]')!;
+    expect(textOf(reviewEntry)).toContain("评审执行");
+    expect(textOf(reviewEntry)).toContain("2");
+    // 分组明细挂在芯片悬停说明上,不占条面。
+    expect(reviewEntry.getAttribute("title")).toContain("任务评审中 1");
+    expect(reviewEntry.getAttribute("title")).toContain("决策待派审 1");
+    act(() => (reviewEntry as HTMLElement).click());
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(textOf(dialog)).toContain("评审中的任务");
     const closeout = [...dialog.querySelectorAll("button")].find((button) => textOf(button) === "打开收口");
@@ -699,7 +747,7 @@ describe("总览:执行与下钻", () => {
     unmount();
   });
 
-  it("跟进与返工入口:四类分开计数,放大层不亮红不冒充需要用户", () => {
+  it("跟进与返工入口:五类分开计数,放大层不亮红不冒充需要用户", () => {
     const read = agenda({
       answeredForYou: [
         {
@@ -729,18 +777,29 @@ describe("总览:执行与下钻", () => {
     });
     const container = mount({ agenda: read });
     const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    expect(textOf(drill)).toContain("跟进与返工");
-    expect(textOf(drill)).toContain("待跟进 1");
-    expect(textOf(drill)).toContain("阻塞 1");
-    expect(textOf(drill)).toContain("停滞 1");
-    const entry = [...drill.querySelectorAll("[data-dense-row]")].find((row) => textOf(row).includes("跟进与返工"));
-    act(() => (entry as HTMLElement).click());
+    const followEntry = drill.querySelector('[data-testid="overview-drill-followups"]')!;
+    expect(textOf(followEntry)).toContain("跟进与返工");
+    const breakdown = followEntry.getAttribute("title")!;
+    expect(breakdown).toContain("待跟进 1");
+    expect(breakdown).toContain("待初审 1");
+    expect(breakdown).toContain("阻塞 1");
+    expect(breakdown).toContain("停滞 1");
+    act(() => (followEntry as HTMLElement).click());
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(textOf(dialog)).toContain("已答复的跟进项");
-    expect(textOf(dialog)).toContain("已答复:继续");
     expect(textOf(dialog)).toContain("被阻塞的成员任务");
+    expect(textOf(dialog)).toContain("总览重构的提交");
+    // 首行是分数最高的待初审行;点选已答复行后详情给答复原文与答复人。
+    const answeredRow = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")].find((row) =>
+      textOf(row).includes("已答复的跟进项"),
+    );
+    act(() => (answeredRow as HTMLElement).click());
+    expect(textOf(dialog)).toContain("已答复:继续");
     // 不冒充需要用户:整层没有红档(bad)状态标签。
     expect(dialog!.querySelectorAll('[data-status-tone="bad"]')).toHaveLength(0);
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
     unmount();
   });
 
@@ -770,8 +829,8 @@ describe("总览:执行与下钻", () => {
     });
     const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
     expect(textOf(drill)).toContain("置顶承诺");
-    const entry = [...drill.querySelectorAll("[data-dense-row]")].find((row) => textOf(row).includes("置顶承诺"));
-    act(() => (entry as HTMLElement).click());
+    const pinnedEntry = drill.querySelector('[data-testid="overview-drill-pinned"]')!;
+    act(() => (pinnedEntry as HTMLElement).click());
     const dialog = document.body.querySelector('[role="dialog"]')!;
     const rows = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")].map((row) => textOf(row));
     expect(rows[0]).toContain("可派的置顶承诺");
@@ -930,7 +989,7 @@ describe("总览:系统状态弱化与异常提升", () => {
 });
 
 describe("总览派生(纯函数)", () => {
-  it("decisionRows 只收三类,followUpRows 收其余四类", () => {
+  it("decisionRows 只收真实待人两类,followUpRows 收其余五类(含 owning CEO 的待初审)", () => {
     const read = agenda({
       answeredForYou: [
         {
@@ -962,12 +1021,12 @@ describe("总览派生(纯函数)", () => {
       decisionRows(read)
         .map(({ kind }) => kind)
         .sort(),
-    ).toEqual(["adjudication", "awaiting-you", "decision"]);
+    ).toEqual(["awaiting-you", "decision"]);
     expect(
       followUpRows(read)
         .map(({ kind }) => kind)
         .sort(),
-    ).toEqual(["answered", "blocked", "stalled"]);
+    ).toEqual(["adjudication", "answered", "blocked", "stalled"]);
   });
 
   it("watchedWorks:置顶优先、终态置顶只计数;零置顶回退全部活跃工作", () => {
