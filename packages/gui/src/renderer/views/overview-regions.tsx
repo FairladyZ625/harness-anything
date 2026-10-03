@@ -18,7 +18,7 @@ import { taskReviewRef } from "../navigation/entityRoutes.ts";
 import type { CiObservatoryRead, TaskWipRead, WorkIndexRead } from "../../api/renderer-dto.ts";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { RegionKey } from "./overview-layout.ts";
-import { OverviewTaskWipBody } from "./OverviewTaskWip.tsx";
+import { OverviewTaskWipBody, type WipFilter } from "./OverviewTaskWip.tsx";
 import { DaySummary, STEP_META } from "./workspace/WorkOverview.tsx";
 import {
   ATTENTION_META,
@@ -96,6 +96,9 @@ export interface OverviewRegionDeps {
   readonly wipLoading: boolean;
   /** WIP 取数失败的可读信息;有旧快照时名单保留并显形失败,不冒充 0。 */
   readonly wipError: string | null;
+  /** 放大层的分组+搜索过滤态(宿主持有):名单渲染与键盘导航的可见集合同源。 */
+  readonly wipFilter: WipFilter;
+  readonly onWipFilterChange: (filter: WipFilter) => void;
   /** observe.tail 一页事件(升序);最近变化区域与工作页共用 workDayGroups 收束。 */
   readonly events: readonly CadenceFeedEvent[];
   /** `task/<id>` → 标题(App 常驻任务列表投影);路径行显示任务标题而非裸 id。 */
@@ -783,6 +786,8 @@ function wipRegion(
         onSelect={onSelect}
         onOpenTask={deps.onOpenTask}
         inFocus={inFocus}
+        filter={deps.wipFilter}
+        onFilterChange={deps.onWipFilterChange}
       />
     ),
     renderRow: () => null,

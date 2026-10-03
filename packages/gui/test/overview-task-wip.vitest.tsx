@@ -3,7 +3,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { OverviewTaskWipBody } from "../src/renderer/views/OverviewTaskWip.tsx";
+import { OverviewTaskWipBody, wipVisibleEntries, type WipFilter } from "../src/renderer/views/OverviewTaskWip.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { TaskWipRead } from "../src/api/renderer-dto.ts";
 
@@ -64,22 +64,31 @@ function fullSnapshot(): TaskWipRead {
 
 let root: Root | null = null;
 
+/** 过滤态由宿主持有(键盘导航与名单渲染同源):测试里用闭包模拟一个最小的宿主状态。 */
 function mount(props: Partial<Parameters<typeof OverviewTaskWipBody>[0]> = {}): HTMLElement {
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   const onSelect = vi.fn();
   const onOpenTask = vi.fn();
-  act(() =>
-    root!.render(
-      createElement(OverviewTaskWipBody, {
-        snapshot: fullSnapshot(),
-        onSelect,
-        onOpenTask,
-        ...props,
-      }),
-    ),
-  );
+  let filter: WipFilter = { group: "all", search: "" };
+  const render = () =>
+    act(() =>
+      root!.render(
+        createElement(OverviewTaskWipBody, {
+          snapshot: fullSnapshot(),
+          onSelect,
+          onOpenTask,
+          filter,
+          onFilterChange: (next) => {
+            filter = next;
+            render();
+          },
+          ...props,
+        }),
+      ),
+    );
+  render();
   return container;
 }
 
@@ -192,6 +201,14 @@ describe("总览 WIP 区域行体", () => {
     unmount();
   });
 
+  it("过滤不遗留到条面:放大层带着搜索关层,条面仍渲染全量名单", () => {
+    // 宿主状态里 filter 还留着搜索词(关层不清态):条面(inFocus=false)不受它影响。
+    const host = mount({ inFocus: false, filter: { group: "blocked", search: "末尾" } });
+    expect(rowIds(host)).toHaveLength(30);
+    expect(host.querySelector("[data-testid='overview-task-wip-empty']")).toBeNull();
+    unmount();
+  });
+
   it("loading 是真实的 pending 面,不冒充 0", () => {
     const host = mount({ snapshot: undefined, loading: true });
     expect(textOf(host.querySelector("[data-testid='overview-task-wip-loading']"))).toContain("正在读取");
@@ -243,6 +260,20 @@ describe("总览 WIP 区域行体", () => {
     const list = host.querySelector("[data-testid='overview-task-wip-list']")!;
     expect(textOf(list)).toContain("该状态下没有占位任务");
     unmount();
+  });
+
+  it("wipVisibleEntries 是名单与键盘导航共用的可见集合:分组/搜索叠加,隐藏行不在集合内", () => {
+    const counted = fullSnapshot().counted;
+    expect(wipVisibleEntries(counted, { group: "all", search: "" })).toHaveLength(30);
+    expect(
+      wipVisibleEntries(counted, { group: "blocked", search: "" }).every((entry) => entry.status === "blocked"),
+    ).toBe(true);
+    expect(wipVisibleEntries(counted, { group: "active", search: "wip05" }).map(({ taskId }) => taskId)).toEqual([
+      "task_wip05",
+    ]);
+    // 组外命中不出现(分组先收窄,搜索在其内匹配);无命中给空集合(键盘导航随之停)。
+    expect(wipVisibleEntries(counted, { group: "blocked", search: "wip05" })).toEqual([]);
+    expect(wipVisibleEntries(counted, { group: "all", search: "不存在的关键词" })).toEqual([]);
   });
 
   it("成员集钉死线上词表:WIP_STATUS_ORDER 与 counted 的状态词一致(防 kernel 漂移)", () => {

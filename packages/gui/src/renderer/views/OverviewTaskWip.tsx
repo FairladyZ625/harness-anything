@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { TaskWipRead } from "../../api/renderer-dto.ts";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { STATUS_META } from "../components/badges";
@@ -23,16 +23,35 @@ const WIP_STATUS_ORDER = ["active", "submitted", "in_review", "blocked"] as cons
 
 type WipGroup = "all" | TaskWipStatus;
 
-function statusRank(status: TaskWipStatus): number {
-  return WIP_STATUS_ORDER.indexOf(status);
+/** 放大层的过滤态:分组 + 搜索。由宿主持有——键盘导航的可见集合必须与它是同一份。 */
+export interface WipFilter {
+  readonly group: WipGroup;
+  readonly search: string;
+}
+
+/**
+ * 过滤后的可见占位集合(名单渲染与键盘导航共用):分组命中的状态、标题/ID 命中搜索词,
+ * 按状态生命周期序排列。抽成纯函数是为了让 FocusLayer 的 ↑↓ 只在「当前真正可见的行」
+ * 里移动——itemIds 用全量 counted 时,被过滤隐藏的行仍可被键盘选中。
+ */
+export function wipVisibleEntries(counted: readonly TaskWipEntry[] | undefined, filter: WipFilter): TaskWipEntry[] {
+  const needle = filter.search.trim().toLowerCase();
+  return (counted ?? [])
+    .filter(
+      (entry) =>
+        (filter.group === "all" || entry.status === filter.group) &&
+        (needle === "" || entry.title.toLowerCase().includes(needle) || entry.taskId.toLowerCase().includes(needle)),
+    )
+    .sort((left, right) => WIP_STATUS_ORDER.indexOf(left.status) - WIP_STATUS_ORDER.indexOf(right.status));
 }
 
 /**
  * 总览「进行中的任务 / WIP」区域行体:占用数/上限在区域标题行(Region 的 big),根容器
- * 排除说明在区域页脚,本组件只装行体并拥有状态分组/搜索的本地过滤态。数据只有一份——
- * 宿主把 `repo.tasks.wip` 的同一条快照连 loading/error 状态一起喂进来(总览/看板共用
- * `useTaskWipQuery`,台账切面前进时由既有失效扇出更新),组件不另发第二个查询、不在
- * GUI 侧重算准入:
+ * 排除说明在区域页脚,本组件只装行体。数据只有一份——宿主把 `repo.tasks.wip` 的同一条
+ * 快照连 loading/error 状态一起喂进来(总览/看板共用 `useTaskWipQuery`,台账切面前进时
+ * 由既有失效扇出更新),组件不另发第二个查询、不在 GUI 侧重算准入。分组/搜索的过滤态也
+ * 由宿主持有并经 `filter`/`onFilterChange` 传入:放大层的键盘导航按 `wipVisibleEntries`
+ * 的可见集合移动,名单渲染与 itemIds 必须出自同一份过滤态:
  *
  * - 条面(inFocus=false):四个占位状态各计数(与评审区的分组计数条同构)+ 全量名单,
  *   行点击进放大层;根容器(declared/derived)与 planned 不占位,不进名单;
@@ -50,6 +69,8 @@ export function OverviewTaskWipBody({
   onSelect,
   onOpenTask,
   inFocus = false,
+  filter,
+  onFilterChange,
 }: {
   /** `repo.tasks.wip` 的当前快照;数量与列表全部由它派生。 */
   readonly snapshot: TaskWipRead | undefined;
@@ -57,7 +78,7 @@ export function OverviewTaskWipBody({
   readonly loading?: boolean;
   /** 取数失败的可读信息(宿主传 `query.error?.message ?? null`)。 */
   readonly error?: string | null;
-  /** 放大层里的选中行(条面恒 null);由宿主持有,↑↓ 键移动。 */
+  /** 放大层里的选中行(条面恒 null);由宿主持有,↑↓ 键在可见集合中移动。 */
   readonly selectedId?: string | null;
   /** 行主点击面:条面打开放大层并选中该行,放大层里更新选中。 */
   readonly onSelect: (taskId: string) => void;
@@ -65,9 +86,10 @@ export function OverviewTaskWipBody({
   readonly onOpenTask: (taskId: string) => void;
   /** 放大层展面:控制行(分组/搜索)替换条面的计数带。 */
   readonly inFocus?: boolean;
+  /** 分组+搜索的过滤态(宿主持有):名单渲染与键盘导航的可见集合必须是同一份。 */
+  readonly filter: WipFilter;
+  readonly onFilterChange: (filter: WipFilter) => void;
 }) {
-  const [group, setGroup] = useState<WipGroup>("all");
-  const [search, setSearch] = useState("");
   const counted = snapshot?.counted;
 
   const counts = useMemo(() => {
@@ -76,16 +98,12 @@ export function OverviewTaskWipBody({
     return byStatus;
   }, [counted]);
 
-  const rows = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return (counted ?? [])
-      .filter(
-        (entry) =>
-          (group === "all" || entry.status === group) &&
-          (needle === "" || entry.title.toLowerCase().includes(needle) || entry.taskId.toLowerCase().includes(needle)),
-      )
-      .sort((left, right) => statusRank(left.status) - statusRank(right.status));
-  }, [counted, group, search]);
+  // 条面永远是全量名单(任务契约):过滤是放大层控制行的能力,关层不把过滤遗留到条面——
+  // 否则条面显示不出为什么少了几行,看起来像数据丢了。
+  const rows = useMemo(
+    () => wipVisibleEntries(counted, inFocus ? filter : { group: "all", search: "" }),
+    [counted, inFocus, filter],
+  );
 
   const total = counted?.length ?? 0;
 
@@ -116,8 +134,8 @@ export function OverviewTaskWipBody({
           {inFocus ? (
             <div className="flex flex-none flex-wrap items-center gap-2 border-b border-border px-3.5 pb-2 pt-1">
               <SegCtl
-                value={group}
-                onChange={setGroup}
+                value={filter.group}
+                onChange={(group) => onFilterChange({ ...filter, group })}
                 label={t("views.overviewTaskWip.filterLabel")}
                 options={[
                   { value: "all" as const, label: `${t("views.overviewTaskWip.filterAll")} ${total}` },
@@ -128,8 +146,8 @@ export function OverviewTaskWipBody({
                 ]}
               />
               <TextInput
-                value={search}
-                onChange={setSearch}
+                value={filter.search}
+                onChange={(search) => onFilterChange({ ...filter, search })}
                 label={t("views.overviewTaskWip.searchLabel")}
                 placeholder={t("views.overviewTaskWip.searchPlaceholder")}
                 testId="overview-task-wip-search"
@@ -152,8 +170,8 @@ export function OverviewTaskWipBody({
             {rows.length === 0 ? (
               <div className="px-3.5 py-2">
                 <Empty>
-                  {search.trim() !== ""
-                    ? t("views.overviewTaskWip.emptySearch", { query: search.trim() })
+                  {filter.search.trim() !== ""
+                    ? t("views.overviewTaskWip.emptySearch", { query: filter.search.trim() })
                     : t("views.overviewTaskWip.emptyFilter")}
                 </Empty>
               </div>

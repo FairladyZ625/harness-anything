@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { RegionDragHandle, RegionLayoutControls } from "./page-regions.tsx";
 import { motion } from "motion/react";
 import { TONE_COLOR, type StatusTone } from "./StatusTag";
@@ -45,12 +45,18 @@ export function Region({
   // 没有 focusId 的区域不参与任何布局过渡;有的,内容层只跟随外框位置、不随它缩放。
   const handle = RegionDragHandle();
   const content = focusId === undefined ? undefined : "position";
+  // 行有自己的落点(条面点行带着该行进放大层):命中行的点击不冒泡解释为区域级
+  // 打开,否则行选会被首行默认值覆盖。区域其余部分(标题行/留白/页脚)仍整块可点。
+  const openUnlessRow = (event: MouseEvent<HTMLElement>) => {
+    if ((event.target as HTMLElement).closest("[data-dense-row]") !== null) return;
+    onOpen?.();
+  };
   return (
     <motion.section
       data-entry-region
       layoutId={focusId}
       layoutDependency={focusOpen}
-      onClick={onOpen}
+      onClick={onOpen === undefined ? undefined : openUnlessRow}
       className={`${handle === null ? "glass" : "border border-border bg-surface"} status-edge relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-sm ${
         onOpen === undefined ? "" : "cursor-zoom-in"
       }`}
