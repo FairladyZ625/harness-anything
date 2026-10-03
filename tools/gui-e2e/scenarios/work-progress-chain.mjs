@@ -214,7 +214,7 @@ export default {
     assert.equal(afterWheel.selected, 0, "scrolling must not select the row");
 
     // ——— 键盘可达:溢出链是原生可焦点 scroll region,方向键平移且不误选行 ———
-    // 行本身是 button、链在行内:从行头 button 用真实 Tab 走进去,证明嵌套行内的链
+    // 标题按钮与链是兄弟元素:从标题用真实 Tab 进入链，验证独立焦点
     // 可键盘到达(Chromium 行为,不以另一详情页替代)。
     const hintCount = await longChain.evaluate(
       (node) => node.parentElement.querySelectorAll(":scope > [data-chain-hint]").length,
@@ -222,14 +222,14 @@ export default {
     assert.equal(hintCount, 1, "an overflowing chain must show the right-edge overflow hint");
     await longChain.evaluate((node) => {
       node.scrollLeft = 0;
-      node.closest("button").focus();
+      node.closest("[data-day-path]").querySelector("button").focus();
     });
     let stripFocused = false;
     for (let step = 0; step < 8 && !stripFocused; step += 1) {
       await page.keyboard.press("Tab");
       stripFocused = await longChain.evaluate((node) => globalThis.document.activeElement === node);
     }
-    assert.ok(stripFocused, "Tab must reach the overflowing chain inside the row button");
+    assert.ok(stripFocused, "Tab must reach the overflowing chain after the title button");
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight");
     const afterArrows = await longChain.evaluate((node) => ({
@@ -238,6 +238,14 @@ export default {
     }));
     assert.ok(afterArrows.scrollLeft > 0, "ArrowRight on the focused chain must scroll it in place");
     assert.equal(afterArrows.selected, 0, "keyboard scrolling must not select the row");
+    await page.keyboard.press("Space");
+    assert.equal(
+      await longChain.evaluate(
+        (node) => node.closest("[data-testid='overview-region-recent']").querySelectorAll("[data-selected]").length,
+      ),
+      0,
+      "Space in the scroll region must not activate the title",
+    );
     await page.keyboard.press("End");
     const endReached = await longChain.evaluate((node) => {
       const tags = [...node.querySelectorAll("[data-status-tone]")];
@@ -276,7 +284,7 @@ export default {
     await shot("work-progress-chain-wide");
 
     // 滚动后点击仍能选行:选中态会随放大层迁出原区域元素,全局断言。
-    await longChain.click();
+    await longChain.locator("xpath=ancestor::*[@data-day-path]").locator("button").first().click();
     await page.locator("[data-selected]").first().waitFor();
 
     // ——— 窄面板:重载关掉放大层,区域容器收到 260px,标题/状态链转上下两行 ———

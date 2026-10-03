@@ -8,8 +8,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
  * 键盘与提示(视觉规范 v2 整改):溢出时滚动区变为原生可焦点 scroll region
  * (tabindex=0 + role=group,焦点 ring 走全局 :focus-visible),并渲染右缘可见溢出
  * 提示(›,aria-hidden);不溢出时不进 tab 序、不出提示,不给短链增加噪音。
- * 方向键/Home/End 的平移由组件显式承担:Chromium 对焦点滚动区(尤其行按钮内的)
- * 不保证默认平移,实测不动;仅链自身聚焦时处理这四个键,不拦截其它键。横向滚轮
+ * 方向键/Home/End 的横向平移由组件承担；标题按钮应放在滚动区之外，
+ * 避免空格键触发祖先按钮。横向滚轮
  * 同理由链消费(Chromium 滚轮锁存会停在链内 overflow:hidden 的行内子项上,实测
  * 链接上滚不动),纵向滚轮不拦、继续冒泡给外层纵滚面。
  * 子项由调用方给 flex-none/不换行,溢出才成立。
