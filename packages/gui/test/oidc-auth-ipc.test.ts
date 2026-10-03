@@ -334,3 +334,86 @@ for (const termination of ["cancel", "destroyed"] as const) {
     assert.deepEqual(await retry, { ok: true });
   });
 }
+
+for (const termination of ["cancel", "destroyed"] as const) {
+  for (const lateReply of ["resolve", "reject"] as const) {
+    test(`${termination} ends pending begin and isolates its late ${lateReply} from a retry`, async () => {
+      const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
+      const begin = Promise.withResolvers<Record<string, string>>();
+      const started = Promise.withResolvers<string>();
+      const navigation = Promise.withResolvers<string>();
+      const urls: string[] = [];
+      const operations: unknown[] = [];
+      const sender = Object.assign(new EventEmitter(), {
+        id: 7,
+        send: (_channel: string, url: string) => {
+          urls.push(url);
+          navigation.resolve(url);
+        },
+      });
+      const event = { sender, senderFrame: { url: "file:///renderer/index.html" } } as unknown as IpcMainInvokeEvent;
+      registerOidcAuthIpc(
+        {
+          handle: (name, handler) => {
+            handlers.set(name, handler);
+          },
+        },
+        {
+          isTrustedWebContentsId: (id) => id === 7,
+          rendererUrl: { packagedRendererUrl: "file:///renderer/index.html" },
+        },
+        {
+          daemonRequest: async (params) => {
+            operations.push(params.operation);
+            assert.equal(params.repoId, "remote-repo");
+            if (params.operation === "login-begin") {
+              if (operations.length === 1) {
+                started.resolve(String(params.redirectUri));
+                return begin.promise;
+              }
+              return { authorizationUrl: `${String(params.redirectUri)}?code=fresh&state=fresh-state` };
+            }
+            assert.equal(params.code, "fresh");
+            assert.equal(params.state, "fresh-state");
+            return { ok: true };
+          },
+          openExternal: async () => assert.fail("login must remain embedded"),
+        },
+      );
+      const pending = handlers.get(OIDC_LOGIN_CHANNEL)!(event, { repoId: "remote-repo" });
+      const outcome = pending.then(
+        () => "resolved",
+        (error: Error) => error.message,
+      );
+      const redirect = await started.promise;
+      try {
+        if (termination === "cancel") await handlers.get(OIDC_CANCEL_LOGIN_CHANNEL)!(event);
+        else sender.emit("destroyed");
+        // One event-loop turn is a scheduling barrier, not a wall-clock delay.
+        assert.equal(
+          await Promise.race([outcome, new Promise<string>((resolve) => setImmediate(() => resolve("pending")))]),
+          "Sign-in cancelled.",
+        );
+        await assert.rejects(fetch(redirect));
+        assert.equal(sender.listenerCount("destroyed"), 0);
+        assert.deepEqual(urls, []);
+        const retry = handlers.get(OIDC_LOGIN_CHANNEL)!(event, { repoId: "remote-repo" });
+        const url = await navigation.promise;
+        if (lateReply === "resolve") begin.resolve({ authorizationUrl: "https://stale.example/login" });
+        else begin.reject(new Error("late begin failure"));
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.deepEqual(urls, [url]);
+        assert.deepEqual(operations, ["login-begin", "login-begin"]);
+        await assert.rejects(handlers.get(OIDC_LOGIN_CHANNEL)!(event), /already in progress/u);
+        assert.equal((await fetch(url)).status, 200);
+        assert.deepEqual(await retry, { ok: true });
+        assert.deepEqual(operations, ["login-begin", "login-begin", "login-complete"]);
+        assert.equal(sender.listenerCount("destroyed"), 0);
+      } finally {
+        begin.resolve({ authorizationUrl: "https://stale.example/login" });
+        await handlers.get(OIDC_CANCEL_LOGIN_CHANNEL)!(event);
+        await outcome;
+      }
+    });
+  }
+}

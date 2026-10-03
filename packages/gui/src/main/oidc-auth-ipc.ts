@@ -180,21 +180,26 @@ export async function embeddedBrowserLogin(ports: {
     server.once("error", rejectListen);
     server.listen(0, "127.0.0.1", resolve);
   });
-  const cancelled = () => settle(new Error("Sign-in cancelled."));
+  const interrupted = Promise.withResolvers<never>();
+  const cancelled = () => interrupted.reject(new Error("Sign-in cancelled."));
   ports.signal.addEventListener("abort", cancelled, { once: true });
-  const timeout = setTimeout(() => settle(new Error("OIDC callback timed out.")), 300_000);
+  const timeout = setTimeout(() => interrupted.reject(new Error("OIDC callback timed out.")), 300_000);
   try {
     ports.signal.throwIfAborted();
     const address = server.address() as AddressInfo,
       redirectUri = `http://127.0.0.1:${address.port}/oidc/callback`,
-      begun = requireSuccessfulAuthReply(await ports.daemonRequest({ operation: "login-begin", redirectUri }));
+      begun = requireSuccessfulAuthReply(
+        await Promise.race([ports.daemonRequest({ operation: "login-begin", redirectUri }), interrupted.promise]),
+      );
     if (typeof begun.authorizationUrl !== "string") throw new Error("Daemon did not return an OIDC authorization URL.");
     ports.signal.throwIfAborted();
     ports.openBrowser(begun.authorizationUrl);
-    const result = await callback;
+    const result = await Promise.race([callback, interrupted.promise]);
     if (result instanceof Error) throw result;
     ports.signal.throwIfAborted();
-    return requireSuccessfulAuthReply(await ports.daemonRequest({ operation: "login-complete", ...result }));
+    return requireSuccessfulAuthReply(
+      await Promise.race([ports.daemonRequest({ operation: "login-complete", ...result }), interrupted.promise]),
+    );
   } finally {
     clearTimeout(timeout);
     ports.signal.removeEventListener("abort", cancelled);
