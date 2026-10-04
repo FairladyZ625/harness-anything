@@ -26,6 +26,7 @@ import { bridgeReady } from "./helpers.mjs";
  * show/focus。
  */
 const TASK_ID = "task-gui-smoke";
+const TASK_TITLE = "Render the real triadic projection";
 const EXECUTION_ID = "execution-gui-closeout-long-values-narrow-container-acceptance-probe-20261002";
 
 export default {
@@ -154,7 +155,9 @@ export default {
 
     await bridgeReady(page);
     await page.getByRole("button", { name: /^(?:看板|Board)$/u }).click();
-    await page.getByTestId("board-task-card").first().click();
+    // sessions 夹具向孤立仓注入了额外任务卡(看板按 lastKnownAt 降序,首卡不固定):
+    // 按夹具任务标题精确选卡,不盲用 .first()。
+    await page.getByTestId("board-task-card").filter({ hasText: TASK_TITLE }).first().click();
     await page
       .locator('aside [title^="task_"]')
       .or(page.getByRole("button", { name: /打开完整详情|Open full details/u }))
