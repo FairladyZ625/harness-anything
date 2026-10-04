@@ -203,9 +203,9 @@ function taskSnapshot(t) {
   return root;
 }
 
-test("G0-2 traces all 138 declared writes, including queued task catalog ingress", () => {
+test("G0-2 traces all 141 declared writes, including queued task catalog ingress", () => {
   const result = auditDurableActionAuthorization(repoRoot);
-  assert.equal(result.rows.length, 138); // dec_CDDCFA8BB91A47BCE07B229E93 CH2: assign and unassign.
+  assert.equal(result.rows.length, 141); // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: handoff export, claim, and revoke.
   assert.deepEqual(result.findings, []);
   assert.ok(result.rows.every((row) => row.receiptAuthorizationDecision));
 });
