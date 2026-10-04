@@ -18,11 +18,31 @@ import {
   sha256Text,
   type DocEventV1,
   type ReplicaProjectionBasis,
+  artifactEntityContractSnapshot,
+  canonicalSourceIdentity,
+  compileVerticalContract,
+  deriveArtifactContentVersion,
+  mintArtifactEntityId,
+  ARTIFACT_ENTITY_ID_BYTES,
+  artifactObservationId,
+  artifactImportOperationId,
+  type EntityStoreKindContract,
+  compileEntityUpsert,
+  compileEntityDeleted,
+  compileEntityContentObserved,
+  compileEntityUpdated,
+  compileScheduleDefinitionEvent,
+  createScheduleV1,
+  compileFactWrite,
+  compileFactArchiveWrite,
+  type FactEventDraftV1,
+  artifactMutationOperationId,
 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
+import { compileScheduleDeletedEvent } from "@harness-anything/kernel/internal/domain/schedule-event";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 test("activation bootstraps one repo cut from the exact L2 manifest and reads content from L1 CAS", () => {
@@ -768,6 +788,403 @@ test("a canonical document deletion removes retained and fresh replica entries",
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("entity deletion, schedule deletion and fact archive retire canonical replica documents", async () => {
+  const actor = { principal: { personId: "person-replica" }, executor: null } as const,
+    envelope = (revision: number) => ({
+      eventId: `event-retirement-${revision}`,
+      opId: `op-retirement-${revision}`,
+      workspaceRevision: revision,
+      actor,
+      source: "local" as const,
+      occurredAt: "2026-08-26T10:00:00.000Z",
+    }),
+    entity = compileEntityUpsert({
+      ...envelope(1),
+      entityKind: "agent",
+      entity: {
+        schema: "agent-declaration/v1",
+        id: "replica-worker",
+        name: "Replica Worker",
+        instructions: "Replica fixture agent.",
+        runtimes: [{ type: "claude" }],
+      },
+    }),
+    entityDelete = compileEntityDeleted({
+      ...envelope(2),
+      entityKind: "agent",
+      entityId: "replica-worker",
+      baseBlobSha256: entity.blobs[0].sha256,
+      reason: "Retired fixture agent",
+    }),
+    schedule = createScheduleV1({
+      scheduleId: "schedule-replica",
+      name: "Replica fixture",
+      mode: "detect",
+      spec: {
+        trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-26T10:00:00.000Z" },
+        target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+        mission: "Check replica.",
+      },
+      actor,
+      occurredAt: envelope(1).occurredAt,
+    }),
+    scheduleCreate = compileScheduleDefinitionEvent({ ...envelope(1), type: "schedule_created", schedule }),
+    scheduleDelete = compileScheduleDeletedEvent({
+      ...envelope(2),
+      type: "schedule_deleted",
+      schedule,
+      baseBlobSha256: scheduleCreate.blobs[0].sha256,
+      reason: "Retired fixture schedule",
+    }),
+    factDraft = (revision: number, type: "fact_recorded" | "fact_archived"): FactEventDraftV1 => ({
+      schema: "fact-event/v1",
+      ...envelope(revision),
+      taskId: "task-replica",
+      factId: "F-ABCDEFGH",
+      type,
+      payload: {
+        statement: "Replica fixture fact.",
+        evidenceSource: "replica test",
+        observedAt: envelope(revision).occurredAt,
+        confidence: "high",
+        memoryClass: "semantic",
+        memoryTags: [],
+        provenance: [{ runtime: "human", sessionId: "replica-fixture", boundAt: envelope(1).occurredAt }],
+        ...(type === "fact_archived" ? { archiveReason: "Retired fixture fact" } : {}),
+      },
+    }),
+    fact = compileFactWrite({ event: factDraft(1, "fact_recorded") }),
+    factArchive = compileFactArchiveWrite({
+      event: factDraft(2, "fact_archived"),
+      retiredDocumentSha256: fact.blobs[0].sha256,
+    });
+  for (const [name, created, retired, bytes, itemPath] of [
+    [
+      "entity",
+      entity.event,
+      entityDelete.event,
+      Buffer.from(entity.blobs[0].body),
+      entity.event.payload.declarationDocumentClaim.path,
+    ],
+    [
+      "schedule",
+      scheduleCreate.event,
+      scheduleDelete.event,
+      Buffer.from(scheduleCreate.blobs[0].body),
+      scheduleCreate.event.payload.declarationDocumentClaim.path,
+    ],
+    ["fact", fact.event, factArchive.event, Buffer.from(fact.blobs[0].body), fact.path],
+  ] as const) {
+    await verifyCanonicalRetirement(name, created, retired, bytes, itemPath);
+  }
+});
+
+test("entity update drops its old source file while putting its revised declaration", async () => {
+  const vertical = JSON.parse(
+      readFileSync(new URL("../../kernel/fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),
+    ) as Record<string, unknown> & { entityKinds: unknown[]; projectionSchemas: unknown[] },
+    artifact = compileVerticalContract({
+      ...vertical,
+      id: "custom/engineering",
+      entityKinds: [
+        ...vertical.entityKinds,
+        {
+          kindId: "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+          id: "architecture-decision-record",
+          entityType: "artifact",
+          schemaVersions: [{ version: 1, attributes: {} }],
+          idPrefix: "ADR",
+          display: { singular: "ADR", plural: "ADRs" },
+          descriptorSchemaRef: "schema://artifact-descriptor",
+          store: { pathTemplate: "entities/adrs/{id}.json" },
+          locatorKinds: ["repository-path", "url", "external-key"],
+          relations: [],
+        },
+      ],
+      projectionSchemas: [
+        ...vertical.projectionSchemas,
+        { id: "artifact-descriptor", schemaRef: "schema://artifact-descriptor" },
+      ],
+    }).artifactKinds[0]!,
+    contract = artifact.entityKindContract as EntityStoreKindContract,
+    snapshot = artifactEntityContractSnapshot({ ...artifact, kindVersion: 1 }),
+    source = canonicalSourceIdentity({ kind: "repository-path", repositoryId: "canonical", path: "docs/adr.md" }),
+    descriptor = {
+      schema: "schema://artifact-descriptor" as const,
+      typeIdentity: artifact.typeIdentity,
+      kindVersion: 1,
+      entityId: mintArtifactEntityId({
+        idPrefix: artifact.declaration.idPrefix,
+        randomBytes: new Uint8Array(ARTIFACT_ENTITY_ID_BYTES).fill(7),
+      }),
+      title: "ADR One",
+      locator: { kind: "repository-path" as const, value: "docs/adr.md" },
+      contentVersion: deriveArtifactContentVersion({ kind: "content", content: "# ADR One\n" }),
+      attributes: {},
+      source,
+    },
+    actor = { principal: { personId: "person-replica" }, executor: null } as const,
+    oldFile = Buffer.from("Old source file"),
+    oldFileClaim = {
+      relativePath: "notes/old.md",
+      sha256: sha256Bytes(oldFile),
+      size: oldFile.byteLength,
+      mediaType: "text/markdown",
+      policyId: "markdown-body-replaceable/v1",
+      body: oldFile,
+    },
+    observed = compileEntityContentObserved({
+      contract,
+      contractSnapshot: snapshot,
+      descriptor,
+      resolver: "repository:canonical",
+      observationId: artifactObservationId({
+        entityId: descriptor.entityId,
+        locator: descriptor.locator,
+        resolution: descriptor.contentVersion,
+      }),
+      sourceContent: [oldFileClaim],
+      eventId: "event-replica-observed",
+      opId: artifactImportOperationId({
+        entityKind: descriptor.typeIdentity,
+        sourceIdentity: descriptor.source,
+        locator: descriptor.locator,
+        resolution: descriptor.contentVersion,
+      }),
+      workspaceRevision: 1,
+      actor,
+      source: "local",
+      occurredAt: "2026-09-02T00:00:00.000Z",
+    }),
+    oldPath = observed.event.payload.ownedContent.bindings.find(({ path: target }) =>
+      target.endsWith("notes/old.md"),
+    )!.path,
+    updated = compileEntityUpdated({
+      contract,
+      contractSnapshot: snapshot,
+      descriptor: { ...descriptor, title: "ADR One revised" },
+      retirements: [{ path: oldPath, baseBlobSha256: oldFileClaim.sha256 }],
+      eventId: "event-replica-updated",
+      opId: artifactMutationOperationId({
+        mutation: "update",
+        entityId: descriptor.entityId,
+        expectedVersion: 1,
+        request: { entityKind: descriptor.typeIdentity, title: "ADR One revised" },
+      }),
+      workspaceRevision: 2,
+      actor,
+      source: "local",
+      occurredAt: "2026-09-02T00:01:00.000Z",
+    }),
+    root = mkdtempSync(path.join(tmpdir(), "ha-replica-entity-update-")),
+    events = [observed.event, updated.event],
+    historicalBytes = events.map(serializeCanonicalEvent),
+    blobs = new Map([
+      ...observed.blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)] as const),
+      ...updated.blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)] as const),
+    ]);
+  let revision = 1;
+  const projection = makeTaskProjection({
+      rootDir: root,
+      eventStore: {
+        readHead: () => ({ revision }),
+        readContentBlob: (sha) => blobs.get(sha) ?? null,
+        readBatch: (cursor) => {
+          const selected = events.slice(cursor === null ? 0 : Number(cursor), revision);
+          return {
+            sourceRevision: revision,
+            events: selected,
+            cursor: String(revision),
+            done: true,
+            accessedItems: selected.length,
+            prefetchContent: () => blobs,
+          };
+        },
+      },
+    }),
+    retained = openReplicaCutSource({
+      repoId: "retained",
+      localRoot: root,
+      readBasis: (after) =>
+        revision === 1
+          ? {
+              watermark: 1,
+              sourceRevision: 1,
+              headEvent: observed.event,
+              events: [],
+              documents: [
+                {
+                  path: observed.event.payload.declarationDocumentClaim.path,
+                  blobSha256: observed.blobs[0].sha256,
+                  size: observed.blobs[0].size,
+                  mediaType: "application/json",
+                },
+                {
+                  path: oldPath,
+                  blobSha256: oldFileClaim.sha256,
+                  size: oldFileClaim.size,
+                  mediaType: oldFileClaim.mediaType,
+                },
+              ],
+            }
+          : projection.readReplicaBasis(after),
+      readContentBlob: (sha) => blobs.get(sha) ?? null,
+    }),
+    fresh = openReplicaCutSource({
+      repoId: "fresh",
+      localRoot: root,
+      readBasis: projection.readReplicaBasis,
+      readContentBlob: (sha) => blobs.get(sha) ?? null,
+    });
+  try {
+    assert.equal(projection.rebuild().watermark, 1);
+    assert.deepEqual(
+      projection.readReplicaBasis(null).documents.map(({ path: target }) => target),
+      [observed.event.payload.declarationDocumentClaim.path],
+    );
+    assert.equal(retained.activate()?.manifest.entryCount, 2);
+    revision = 2;
+    assert.equal(projection.rebuild().watermark, 2);
+    const next = [
+        {
+          path: updated.event.payload.declarationDocumentClaim.path,
+          blob: {
+            sha256: updated.blobs[0].sha256,
+            size: updated.blobs[0].size,
+            mediaType: "application/json",
+          },
+        },
+      ],
+      changes = [
+        { op: "put" as const, ...next[0] },
+        { op: "delete" as const, path: oldPath },
+      ].sort((a, b) => a.path.localeCompare(b.path));
+    assert.deepEqual(
+      projection.readReplicaBasis(null).documents.map(({ path: target }) => target),
+      [next[0].path],
+    );
+    retained.kick();
+    const cut = await retained.waitForCut(2);
+    assert.deepEqual(retained.manifest(2), next);
+    assert.deepEqual(retained.changes(1, 2), changes);
+    assert.deepEqual(
+      retained.changeLog().map(({ change }) => change),
+      changes,
+    );
+    assert.equal(fresh.activate()?.manifest.digest, cut.manifest.digest);
+    assert.deepEqual(fresh.manifest(2), next);
+    retained.close();
+    const reopened = openReplicaCutSource({
+      repoId: "retained",
+      localRoot: root,
+      readBasis: projection.readReplicaBasis,
+      readContentBlob: (sha) => blobs.get(sha) ?? null,
+    });
+    assert.deepEqual(reopened.manifest(2), next);
+    assert.deepEqual(reopened.changes(1, 2), changes);
+    reopened.close();
+    assert.deepEqual(events.map(serializeCanonicalEvent), historicalBytes);
+  } finally {
+    retained.close();
+    fresh.close();
+    projection.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+async function verifyCanonicalRetirement(
+  name: string,
+  created: Parameters<typeof serializeCanonicalEvent>[0],
+  retired: Parameters<typeof serializeCanonicalEvent>[0],
+  bytes: Buffer,
+  itemPath: string,
+): Promise<void> {
+  const root = mkdtempSync(path.join(tmpdir(), `ha-replica-${name}-`)),
+    events = [created, retired],
+    historicalBytes = events.map(serializeCanonicalEvent);
+  let revision = 1;
+  const projection = makeTaskProjection({
+      rootDir: root,
+      eventStore: {
+        readHead: () => ({ revision }),
+        readContentBlob: (sha) => (sha === sha256Bytes(bytes) ? bytes : null),
+        readBatch: (cursor) => {
+          const start = cursor === null ? 0 : Number(cursor),
+            selected = events.slice(start, revision);
+          return {
+            sourceRevision: revision,
+            events: selected,
+            cursor: String(revision),
+            done: true,
+            accessedItems: selected.length,
+            prefetchContent: () => new Map([[sha256Bytes(bytes), bytes]]),
+          };
+        },
+      },
+    }),
+    retained = openReplicaCutSource({
+      repoId: "retained",
+      localRoot: root,
+      readBasis: projection.readReplicaBasis,
+      readContentBlob: (sha) => (sha === sha256Bytes(bytes) ? bytes : null),
+    }),
+    fresh = openReplicaCutSource({
+      repoId: "fresh",
+      localRoot: root,
+      readBasis: projection.readReplicaBasis,
+      readContentBlob: (sha) => (sha === sha256Bytes(bytes) ? bytes : null),
+    });
+  try {
+    assert.equal(projection.rebuild().watermark, 1, name);
+    const before = [
+      {
+        path: itemPath,
+        blob: {
+          sha256: sha256Bytes(bytes),
+          size: bytes.byteLength,
+          mediaType: name === "entity" || name === "schedule" ? "application/json" : "text/markdown",
+        },
+      },
+    ];
+    assert.deepEqual(
+      projection.readReplicaBasis(null).documents.map(({ path: target }) => target),
+      [itemPath],
+      name,
+    );
+    assert.deepEqual(retained.manifest(retained.activate()!.revision), before, name);
+    revision = 2;
+    assert.equal(projection.rebuild().watermark, 2, name);
+    assert.deepEqual(projection.readReplicaBasis(null).documents, [], name);
+    retained.kick();
+    const cut = await retained.waitForCut(2);
+    assert.deepEqual(retained.manifest(2), [], name);
+    assert.deepEqual(retained.changes(1, 2), [{ op: "delete", path: itemPath }], name);
+    assert.deepEqual(
+      retained.changeLog(),
+      [{ fromRevision: 1, toRevision: 2, change: { op: "delete", path: itemPath } }],
+      name,
+    );
+    assert.equal(fresh.activate()?.manifest.digest, cut.manifest.digest, name);
+    assert.deepEqual(fresh.manifest(2), [], name);
+    retained.close();
+    const reopened = openReplicaCutSource({
+      repoId: "retained",
+      localRoot: root,
+      readBasis: projection.readReplicaBasis,
+      readContentBlob: (sha) => (sha === sha256Bytes(bytes) ? bytes : null),
+    });
+    assert.deepEqual(reopened.manifest(2), [], name);
+    assert.deepEqual(reopened.changes(1, 2), [{ op: "delete", path: itemPath }], name);
+    reopened.close();
+    assert.deepEqual(events.map(serializeCanonicalEvent), historicalBytes, name);
+  } finally {
+    retained.close();
+    fresh.close();
+    projection.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
 
 function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer | null, body: Buffer | null): DocEventV1 {
   const actor = { principal: { personId: "person-one" }, executor: null },
