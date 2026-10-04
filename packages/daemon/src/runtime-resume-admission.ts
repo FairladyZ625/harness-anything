@@ -261,3 +261,28 @@ export function resolveRuntimeResume(
     throw runtimeSpawnError("runtime_handoff_ineligible", "Opt in only when creating a new task-bound session.");
   return { requestedDispatchId, resumed, inherited, handoffEnabled };
 }
+
+/** Handoff opt-in and native version admission belong to the same resume boundary. */
+export function assertRuntimeHandoffLaunch(
+  enabled: boolean | undefined,
+  checkpoint: import("./runtime-handoff-store.ts").RuntimeHandoffCheckpoint | undefined,
+  launch: {
+    taskId: string | null;
+    agentId: string | undefined;
+    role: string | undefined;
+    trustedSchedule: import("./runtime-spawn-types.ts").TrustedScheduleRuntime | undefined;
+  },
+  kindId: string,
+  version: string,
+): void {
+  if (
+    enabled &&
+    (!launch.taskId || kindId !== "codex" || !launch.agentId || launch.role === "reviewer" || launch.trustedSchedule)
+  )
+    throw runtimeSpawnError("runtime_handoff_ineligible", "Handoff is limited to task-bound Codex agent sessions.");
+  if (checkpoint && !/^codex-cli 0\.159\.(?:1|3)$/u.test(version))
+    throw runtimeSpawnError(
+      "runtime_handoff_version_unsupported",
+      "Target Codex version has not been verified for native handoff.",
+    );
+}

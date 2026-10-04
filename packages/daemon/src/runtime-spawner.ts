@@ -1,5 +1,3 @@
-import { prepareBoundRuntimeLaunch } from "./runtime-spawn-context.ts";
-import { verifyHandoffWorktree } from "./task-worktree.ts";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -90,7 +88,7 @@ import type {
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
-import { bindRuntimeWorkerEnvironment, prepareTaskWorkerGitEnvironment } from "./runtime-spawn-context.ts";
+import { prepareBoundRuntimeLaunch, prepareTaskWorkerGitEnvironment } from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
@@ -98,12 +96,13 @@ import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from
 import {
   resolveRuntimeResume,
   assertNativeResumeNotExported,
+  assertRuntimeHandoffLaunch,
   assertResumeAgent,
   prepareDispatchWorktree,
   projectedWorktreeBinding,
   resolveDispatchCwd,
 } from "./runtime-resume-admission.ts";
-import { taskWorktreeCheckoutNote, type TaskWorktreeCheckout } from "./task-worktree.ts";
+import { taskWorktreeCheckoutNote, verifyHandoffWorktree, type TaskWorktreeCheckout } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
@@ -582,16 +581,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       }));
-    if (
-      handoffEnabled &&
-      (!taskId || definition.kindId !== "codex" || !agentId || role === "reviewer" || trustedSchedule)
-    )
-      throw runtimeSpawnError("runtime_handoff_ineligible", "Handoff is limited to task-bound Codex agent sessions.");
-    if (handoff && !/^codex-cli 0\.159\.(?:1|3)$/u.test(installation.version))
-      throw runtimeSpawnError(
-        "runtime_handoff_version_unsupported",
-        "Target Codex version has not been verified for native handoff.",
-      );
+    assertRuntimeHandoffLaunch(
+      handoffEnabled,
+      handoff,
+      { taskId, agentId, role, trustedSchedule },
+      definition.kindId,
+      installation.version,
+    );
     const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
       process?.terminate();
       process?.release?.();

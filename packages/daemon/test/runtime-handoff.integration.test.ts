@@ -118,6 +118,20 @@ test(
     ] as const)
       await runFleetRuntimeEventClient({ ...peer(), eventType, payload, opId: eventType });
     const exportAction = { kind: "runtime-handoff-export", dispatchId, commit: "a".repeat(40) };
+    // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6 grants three distinct scopes, never ownership alone.
+    const handoffScopes = ["runtime-handoff-export", "runtime-handoff-claim", "runtime-handoff-revoke"];
+    f.owners.keycloak.revoke("person-owner", source.repoId, handoffScopes);
+    for (const kind of handoffScopes) {
+      const denied = await command(
+        source.nodeId,
+        kind === exportAction.kind ? exportAction : { kind, dispatchId },
+        kind === exportAction.kind ? body : undefined,
+      );
+      assert.equal(denied.receipt?.code, "authorization_denied", JSON.stringify(denied));
+      assert.equal(denied.receipt?.authorizationDecision?.outcome, "denied");
+    }
+    assert.equal(existsSync(path.join(f.repo, ".harness/runtime-handoffs", dispatchId)), false);
+    f.owners.keycloak.permit("person-owner", source.repoId, handoffScopes);
     const active = await command(source.nodeId, exportAction, body);
     assert.equal(active.receipt?.code, "runtime_handoff_ineligible", JSON.stringify(active));
     await runFleetRuntimeEventClient({
