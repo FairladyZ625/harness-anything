@@ -685,7 +685,91 @@ test("retired audit documents survive cold replay for both retained cuts and fre
   }
 });
 
-function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer | null, body: Buffer): DocEventV1 {
+test("a canonical document deletion removes retained and fresh replica entries", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-replica-delete-")),
+    itemPath = "context/retired.md",
+    body = Buffer.from("retired"),
+    create = docEvent(1, itemPath, null, body),
+    retire = docEvent(2, itemPath, body, null),
+    events = [create, retire],
+    original = events.map((event) => JSON.stringify(event)),
+    projection = makeTaskProjection({
+      rootDir: root,
+      eventStore: {
+        readHead: () => ({ revision: 2 }),
+        readContentBlob: (sha) => (sha === sha256Bytes(body) ? body : null),
+        readBatch: (cursor) => ({
+          sourceRevision: 2,
+          events: cursor === "2" ? [] : events,
+          cursor: "2",
+          done: true,
+          accessedItems: cursor === "2" ? 0 : events.length,
+          prefetchContent: () => new Map([[sha256Bytes(body), body]]),
+        }),
+      },
+    });
+  const firstBasis: ReplicaProjectionBasis = {
+    watermark: 1,
+    sourceRevision: 1,
+    headEvent: create,
+    events: [],
+    documents: [{ path: itemPath, blobSha256: sha256Bytes(body), size: body.byteLength, mediaType: "text/plain" }],
+  };
+  let current = false;
+  const retained = openReplicaCutSource({
+      repoId: "retained",
+      localRoot: root,
+      readBasis: (after) => (current ? projection.readReplicaBasis(after) : firstBasis),
+      readContentBlob: () => body,
+    }),
+    fresh = openReplicaCutSource({
+      repoId: "fresh",
+      localRoot: root,
+      readBasis: projection.readReplicaBasis,
+      readContentBlob: () => body,
+    });
+  try {
+    assert.deepEqual(retained.manifest(retained.activate()!.revision), [
+      {
+        path: itemPath,
+        blob: { sha256: sha256Bytes(body), size: body.byteLength, mediaType: "text/plain" },
+      },
+    ]);
+    assert.equal(projection.rebuild().watermark, 2);
+    assert.deepEqual(projection.readReplicaBasis(null).documents, []);
+    current = true;
+    retained.kick();
+    const cut = await retained.waitForCut(2);
+    assert.deepEqual(retained.manifest(2), []);
+    assert.deepEqual(retained.changes(1, 2), [{ op: "delete", path: itemPath }]);
+    assert.deepEqual(retained.changeLog(), [
+      { fromRevision: 1, toRevision: 2, change: { op: "delete", path: itemPath } },
+    ]);
+    assert.equal(fresh.activate()?.manifest.digest, cut.manifest.digest);
+    assert.deepEqual(fresh.manifest(2), []);
+    assert.deepEqual(
+      events.map((event) => JSON.stringify(event)),
+      original,
+    );
+    retained.close();
+    const reopened = openReplicaCutSource({
+      repoId: "retained",
+      localRoot: root,
+      readBasis: projection.readReplicaBasis,
+      readContentBlob: () => body,
+    });
+    assert.deepEqual(reopened.manifest(2), []);
+    assert.deepEqual(reopened.changes(1, 2), [{ op: "delete", path: itemPath }]);
+    reopened.close();
+  } finally {
+    retained.close();
+    fresh.close();
+    projection.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer | null, body: Buffer | null): DocEventV1 {
   const actor = { principal: { personId: "person-one" }, executor: null },
     baseBlobSha256 = prior === null ? null : sha256Bytes(prior),
     baseLedgerSha = {
@@ -703,12 +787,15 @@ function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer | n
             path: itemPath,
             baseBlobSha256,
             policyId: DOC_POLICY_ID,
-            candidate: {
-              ref: `doc-sync-claims/${sha256Bytes(body)}`,
-              sha256: sha256Bytes(body),
-              size: body.byteLength,
-              mediaType: "text/plain",
-            },
+            candidate:
+              body === null
+                ? null
+                : {
+                    ref: `doc-sync-claims/${sha256Bytes(body)}`,
+                    sha256: sha256Bytes(body),
+                    size: body.byteLength,
+                    mediaType: "text/plain",
+                  },
           },
         ],
       },
@@ -733,14 +820,15 @@ function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer | n
                 path: intent.changes[0]!.path,
                 blobSha256: baseBlobSha256,
                 body: prior.toString(),
-                size: intent.changes[0]!.candidate!.size,
+                size: prior.byteLength,
                 mediaType: "text/plain",
                 policyId: DOC_POLICY_ID,
                 workspaceRevision: workspaceRevision - 1,
               },
             ],
-      claims: [body],
+      claims: body === null ? [] : [body],
       resolvedTaskIds: [null],
+      ...(body === null ? { retirementReason: "Retired document" } : {}),
     });
   if (!decision.accepted) throw new Error(decision.code);
   return decision.event;
