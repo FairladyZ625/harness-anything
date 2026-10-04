@@ -131,6 +131,66 @@ async function expandSeedTree(page) {
   throw new Error("seeded 120-file tree never stays expanded long enough to measure");
 }
 
+/** 折叠/恢复(返工验证):整块收起后区域从几何里消失、邻居吃满余量;收起不卸载——
+ * 恢复回到同一 DOM 节点、同一宽度与同一阅读位置;折叠随布局快照持久化,重载后召回条
+ * 仍在,展开回原几何。不依赖 dockview 的 maximize(隐藏窗口下不可靠)。 */
+async function checkCollapseRestore(page, shot, boardId, regionId, scrollSelector) {
+  const board = page.getByTestId(boardId);
+  const region = () => board.locator(`[data-region="${regionId}"]`).first();
+  const before = await region().boundingBox();
+  assert.ok(before && before.width > 0, `collapse: ${regionId} starts visible`);
+  await region().evaluate((node) => node.setAttribute("data-e2e-collapse-marker", "kept"));
+  let scrollTop = 0;
+  if (scrollSelector !== undefined) {
+    scrollTop = await region()
+      .locator(scrollSelector)
+      .evaluate((node) => {
+        node.scrollTop = Math.floor(node.scrollHeight / 2);
+        return node.scrollTop;
+      });
+    assert.ok(scrollTop > 0, `collapse: ${scrollSelector} should be scrollable for the marker`);
+  }
+  await board.getByTestId(`region-collapse-${regionId}`).click();
+  // 折叠的几何事实是宽度归零(dockview 给不可见视图 width:0,boundingBox 不返回 null)。
+  const collapsedBox = await region().boundingBox();
+  assert.ok(collapsedBox === null || collapsedBox.width <= 1, `collapse: ${regionId} leaves geometry`);
+  await board.getByTestId(`${boardId}-collapsed`).waitFor();
+  await shot(`collapse-${boardId}-${regionId}`);
+  // 恢复:同一 DOM 节点(标记还在)、缓存的宽度、同一阅读位置;召回条收起。
+  await board.getByTestId(`${boardId}-expand-${regionId}`).click();
+  const restored = await region().boundingBox();
+  assert.ok(restored, `expand: ${regionId} back in geometry`);
+  assert.ok(
+    Math.abs(restored.width - before.width) <= 8,
+    `expand returns the cached width: ${restored.width} vs ${before.width}`,
+  );
+  assert.equal(
+    await region().evaluate((node) => node.getAttribute("data-e2e-collapse-marker")),
+    "kept",
+    "expand: same DOM node, no remount",
+  );
+  if (scrollSelector !== undefined) {
+    const topAfter = await region()
+      .locator(scrollSelector)
+      .evaluate((node) => node.scrollTop);
+    assert.ok(Math.abs(topAfter - scrollTop) <= 1, `expand keeps the reading position: ${topAfter} vs ${scrollTop}`);
+  }
+  assert.equal(await board.getByTestId(`${boardId}-collapsed`).count(), 0, "expand: strip is gone");
+  // 折叠随快照持久化:重载后仍是收起态(宽度归零、召回条在),展开回原宽。
+  await board.getByTestId(`region-collapse-${regionId}`).click();
+  await page.reload();
+  await board.getByTestId(`${boardId}-collapsed`).waitFor({ timeout: 30000 });
+  const reloadedHidden = await region().boundingBox();
+  assert.ok(reloadedHidden === null || reloadedHidden.width <= 1, `collapse persists through reload`);
+  await board.getByTestId(`${boardId}-expand-${regionId}`).click();
+  const reloadedWidth = await region().boundingBox();
+  assert.ok(
+    reloadedWidth && Math.abs(reloadedWidth.width - before.width) <= 8,
+    `expand after reload returns the cached width: ${JSON.stringify(reloadedWidth)}`,
+  );
+  await shot(`expand-${boardId}-${regionId}`);
+}
+
 async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   const board = page.getByTestId(boardId);
   const box = (id) => board.locator(`[data-region="${id}"]`).first().boundingBox();
@@ -152,17 +212,23 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   assert.ok(initial && targetBefore && initial.width > 0 && initial.height > 0, label);
   await shot(`${label}-before`);
   // 停靠:拖 source 到 target 的右半区,放下后两块各占 target 原宽的一半且相邻。
+  // 返工收严:同向多兄弟分支也由源/目标双方显式钉半宽,不再给加权板 ±35% 谷差。
   await dockRegion(page, boardId, first, second, { x: 0.75, y: 0.5 });
   const docked = await box(first),
     targetAfter = await box(second);
   assert.ok(docked && targetAfter, `${label} docked boxes`);
-  // 落位语义:source 拿走 target 停靠前宽度的一半。任务详情页(两三块)按 ±8px 精确断言;
-  // 多区域板(工作概况/总览)上 dockview 会按兄弟最小宽度再平摊,放宽到 ±35% 比例带。
+  // 落位语义:源与目标各占「目标空间」的一半。源整列消失时目标支吸收源列变宽,两块
+  // 平分的是加宽后的空间(仍 ≥ 原目标一半,无空洞);目标空间未变时即原宽一半。装不下
+  // 两块最小宽的方向在预览与放下都被拒绝,不会出现挤出来的比例。
   const half = targetBefore.width / 2,
-    tolerance = boardId === "task-detail-content-grid" ? 8 : half * 0.35;
+    tolerance = 8;
   assert.ok(
-    Math.abs(docked.width - half) <= tolerance,
-    `${label} source takes half of target: ${docked.width} vs ${half}`,
+    Math.abs(docked.width - targetAfter.width) <= tolerance,
+    `${label} halves are equal: ${docked.width} vs ${targetAfter.width}`,
+  );
+  assert.ok(
+    docked.width >= half - tolerance,
+    `${label} source gets at least half of the target's original width: ${docked.width} vs ${half}`,
   );
   assert.ok(
     targetAfter.width >= half - tolerance,
@@ -177,7 +243,7 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   await page.reload();
   if (reopen) await reopen();
   await handle(first).waitFor({ timeout: 30000 });
-  // 快照恢复等区域集稳定后去抖应用(约 250ms),等区域真的回到停靠位置再量。
+  // 快照恢复由声明区域集协调(面板到位或读面就绪),等区域真的回到停靠位置再量。
   await page
     .waitForFunction(
       ({ boardId, first, x, y }) => {
@@ -204,18 +270,41 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
     Math.abs(cancelled.x - reloaded.x) < 6 && Math.abs(cancelled.y - reloaded.y) < 6,
     `${label} cancel: ${JSON.stringify(cancelled)} vs ${JSON.stringify(reloaded)}`,
   );
-  // 键盘停靠:方向键把本区域停到该方向的相邻区域(source 停靠后在最右,向左有邻居)。
+  // 键盘停靠:方向键把本区域停到该方向的相邻区域;目标装不下两块最小宽(200px×2)时
+  // 停靠被诚实地拒绝、布局不动——与拖拽的预览/拒绝同一规则。可行才验「动了」并撤销。
+  const leftNeighborWidth = await board.evaluate((node, sourceId) => {
+    const regions = [...node.querySelectorAll("[data-region]")].map((element) => ({
+      id: element.dataset.region,
+      r: element.getBoundingClientRect(),
+    }));
+    const me = regions.find((entry) => entry.id === sourceId);
+    if (me === undefined) return null;
+    const neighbors = regions.filter(
+      (entry) =>
+        entry.id !== sourceId &&
+        entry.r.right <= me.r.left + 1 &&
+        entry.r.top < me.r.bottom &&
+        entry.r.bottom > me.r.top,
+    );
+    neighbors.sort((a, b) => b.r.right - a.r.right);
+    return neighbors[0]?.r.width ?? null;
+  }, first);
   await handle(first).press("ArrowLeft");
   const keyboard = await box(first);
-  assert.ok(Math.abs(keyboard.x - cancelled.x) > 3 || Math.abs(keyboard.y - cancelled.y) > 3, `${label} keyboard dock`);
+  const keyboardMoved = Math.abs(keyboard.x - cancelled.x) > 3 || Math.abs(keyboard.y - cancelled.y) > 3;
+  if (leftNeighborWidth !== null && leftNeighborWidth >= 400)
+    assert.ok(keyboardMoved, `${label} keyboard dock toward ${leftNeighborWidth}px neighbour`);
+  else assert.ok(!keyboardMoved, `${label} keyboard dock refused for a sub-minimum target (${leftNeighborWidth}px)`);
   await shot(`${label}-keyboard`);
   // 撤销上一步停靠,再重置回默认布局。
-  await board.getByTestId(`${boardId}-controls-undo`).click();
-  const undone = await box(first);
-  assert.ok(
-    Math.abs(undone.x - cancelled.x) < 3,
-    `${label} undo: ${JSON.stringify(undone)} vs ${JSON.stringify(cancelled)}`,
-  );
+  if (keyboardMoved) {
+    await board.getByTestId(`${boardId}-controls-undo`).click();
+    const undone = await box(first);
+    assert.ok(
+      Math.abs(undone.x - cancelled.x) < 3,
+      `${label} undo: ${JSON.stringify(undone)} vs ${JSON.stringify(cancelled)}`,
+    );
+  }
   await board.getByTestId(`${boardId}-controls-reset`).click();
   // 任务详情按调用方固定 columns,精确回位;加权板(工作概况/总览)的默认列宽每次由
   // daemon 权重现算,只验「回到默认列结构 + 槽位清空」:source 不再贴在 target 右侧。
@@ -504,6 +593,14 @@ export default {
       assert.ok(
         timelineScroll.scroll > timelineScroll.client && timelineScroll.top > 0,
         `long timeline scrolls internally: ${JSON.stringify(timelineScroll)}`,
+      );
+      // 整块收起/恢复:文件树收起后区域消失、恢复回同一节点与阅读位置,折叠跨重载持久。
+      await checkCollapseRestore(
+        page,
+        shot,
+        "task-detail-content-grid",
+        "files",
+        '[data-testid="task-document-tree-scroll"]',
       );
       await page.getByTestId("task-overview-tab-controls-reset").click();
       await resize(1120, 800);

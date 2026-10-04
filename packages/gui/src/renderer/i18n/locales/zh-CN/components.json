@@ -308,5 +308,8 @@
   "components.pageRegions.layoutGroup": "页面区域布局",
   "components.pageRegions.undoDock": "撤销上一步停靠",
   "components.pageRegions.undoDockTitle": "把上一步停靠的区域停回原位",
-  "components.pageRegions.timeline": "进展时间线"
+  "components.pageRegions.timeline": "进展时间线",
+  "components.pageRegions.collapse": "收起{title}",
+  "components.pageRegions.expand": "展开{title}",
+  "components.pageRegions.expandGroup": "已收起的页面区域"
 }

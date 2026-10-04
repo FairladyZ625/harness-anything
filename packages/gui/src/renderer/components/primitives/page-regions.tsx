@@ -23,11 +23,15 @@ import { t } from "../../i18n/index.tsx";
 
 /**
  * 页面区域停靠分屏(任务 task_033760e2…):拖区域标题把手到另一区域的四边半区,预览遮罩
- * 指示落位,放下按该方向二分(初始各占目标原空间一半),源位置由布局树自动合并填满。布局
- * 树、分隔条拖拽与空容器清理全部复用 dockview(与终端分屏同一裁剪:隐藏 group header、
- * 关掉 dockview 自带 DnD/浮动组,一个 group 恒定一个区域),不再有 swap 排列的第二套树。
- * 偏好仍是连接+仓+页面槽的本地 localStorage,存整棵布局快照;键盘路径(方向键停靠、
- * Alt+方向键调缝)、单步撤销与重置在把手与控件组上。
+ * 指示落位,放下按该方向二分——源与目标各占目标原空间的一半(两块 group 都显式设半宽,
+ * 同向多兄弟分支也不把差额摊给无关邻居),源位置由布局树自动合并填满。布局树、分隔条
+ * 拖拽与空容器清理全部复用 dockview(与终端分屏同一裁剪:隐藏 group header、关掉 dockview
+ * 自带 DnD/浮动组,一个 group 恒定一个区域),停靠/重排/折叠全部走 group 级操作,DOM 节点
+ * 原地搬家、内容不重挂。折叠/恢复走 dockview 的 grid 可见性(group.setVisible,不用不可靠
+ * 的 maximize):折叠区域 DOM 保留、恢复回原尺寸。快照恢复由调用方声明的区域集协调
+ * (settled 或快照面板全部到位),不靠定时器猜数据到齐;未动过的布局随调用方列序增量
+ * 重排(group 级 moveTo,不整树重建)。偏好仍是连接+仓+页面槽的本地 localStorage,存
+ * 整棵布局快照;键盘路径(方向键停靠、Alt+方向键调缝)、单步撤销与重置在把手与控件组上。
  */
 
 /** 组件注册表必须稳定,否则 dockview 每次渲染都会重建面板渲染器。 */
@@ -36,6 +40,7 @@ const components = { [regionPanelComponent]: RegionPanel };
 /** 区域最小可用尺寸(px):分隔条与键盘调缝都按它夹住,两侧不会被拖成不可用。 */
 const REGION_MIN_WIDTH = 200,
   REGION_MIN_HEIGHT = 120;
+const REGION_MIN: Record<"width" | "height", number> = { width: REGION_MIN_WIDTH, height: REGION_MIN_HEIGHT };
 
 export type PageRegion = PageRegionSpec;
 export function RegionDragHandle() {
@@ -51,36 +56,73 @@ interface Scope {
   readonly slot: string;
 }
 
+interface SerializedLeaf {
+  readonly type?: string;
+  readonly data?: { readonly views?: string[] };
+  readonly size?: number;
+  readonly visible?: boolean;
+}
+interface SerializedBranch {
+  readonly type?: string;
+  readonly data?: readonly unknown[];
+}
+
+function asBranch(node: unknown): SerializedBranch | null {
+  const record = node as SerializedBranch;
+  return record?.type === "branch" ? record : null;
+}
+function leafView(node: unknown): string | undefined {
+  return (node as SerializedLeaf)?.data?.views?.[0];
+}
+
 /** 序列化树的叶子深度优先序(= 布局顺序)。 */
 function flatLeafOrder(root: unknown): string[] {
   const order: string[] = [];
   const flatten = (node: unknown): void => {
-    const record = node as { type?: string; data?: unknown };
-    if (record?.type === "branch") {
-      for (const child of (record.data as unknown[]) ?? []) flatten(child);
+    const branch = asBranch(node);
+    if (branch !== null) {
+      for (const child of branch.data ?? []) flatten(child);
       return;
     }
-    const view = (record?.data as { views?: string[] })?.views?.[0];
+    const view = leafView(node);
     if (view !== undefined) order.push(view);
   };
   flatten(root);
   return order;
 }
 
+/** 序列化树里被折叠(visible:false)的叶子集合:折叠状态以序列化为唯一事实源。 */
+function invisibleLeaves(root: unknown): ReadonlySet<string> {
+  const hidden = new Set<string>();
+  const walk = (node: unknown): void => {
+    const branch = asBranch(node);
+    if (branch !== null) {
+      for (const child of branch.data ?? []) walk(child);
+      return;
+    }
+    const leaf = node as SerializedLeaf;
+    if (leaf?.visible === false) {
+      const view = leafView(node);
+      if (view !== undefined) hidden.add(view);
+    }
+  };
+  walk(root);
+  return hidden;
+}
+
 /** 把序列化布局树里不在保留集中的叶子剪掉,空枝收敛;返回 null 表示一棵不剩。
- * 用于快照恢复:恢复时只保留当前区域集里已有的面板,投影没追平的区域不提前占位。 */
+ * 只在恢复条件成立(快照面板全部到位或调用方声明区域集就绪)时调用:剪掉的是本页确实
+ * 不再显示的面板,未到位的面板不会被提前从布局里删掉。 */
 function pruneSnapshot(node: unknown, keep: ReadonlySet<string>): unknown | null {
-  const record = node as { type?: string; data?: unknown };
-  if (record?.type !== "branch") {
-    const view = (record?.data as { views?: string[] })?.views?.[0];
+  const branch = asBranch(node);
+  if (branch === null) {
+    const view = leafView(node);
     return view !== undefined && keep.has(view) ? node : null;
   }
-  const children = ((record.data as unknown[]) ?? [])
-    .map((child) => pruneSnapshot(child, keep))
-    .filter((child) => child !== null);
+  const children = (branch.data ?? []).map((child) => pruneSnapshot(child, keep)).filter((child) => child !== null);
   if (children.length === 0) return null;
   if (children.length === 1) return children[0];
-  return { ...record, data: children };
+  return { ...branch, data: children };
 }
 
 /** 单步撤销的逆操作:把 source 停回原邻居旁,并恢复它沿原轴的尺寸。 */
@@ -97,14 +139,18 @@ export function PageRegions(
     readonly columns: readonly (readonly string[])[];
     readonly testId: string;
     readonly defaultRatio?: number;
+    /** 区域集是否已就绪(投影/查询全部落定);分批到位的调用方传 false 直到就绪。
+     * 默认 true:区域集在渲染时已完整的页面(任务详情、区域板)不用声明。 */
+    readonly settled?: boolean;
   },
 ) {
   const [reset, setReset] = useState(0);
-  const { connectionId, repoId, slot } = props;
+  const { connectionId, repoId, slot, settled = true } = props;
   return (
     <PageRegionsHost
       key={`${connectionId}:${repoId}:${slot}:${reset}`}
       {...props}
+      settled={settled}
       onReset={() => {
         if (connectionId !== null) {
           const storage = splitPreferenceStorage();
@@ -123,6 +169,7 @@ function PageRegionsHost({
   columns,
   testId,
   defaultRatio,
+  settled = true,
   onReset,
   ...scope
 }: Scope & {
@@ -130,6 +177,7 @@ function PageRegionsHost({
   readonly columns: readonly (readonly string[])[];
   readonly testId: string;
   readonly defaultRatio?: number;
+  readonly settled: boolean;
   readonly onReset: () => void;
 }) {
   const { connectionId, repoId, slot } = scope;
@@ -141,10 +189,11 @@ function PageRegionsHost({
   const touchedRef = useRef(false);
   // 从快照恢复过:此后调用方的列序不再是布局权威,区域增减走增量。
   const restoredRef = useRef(false);
-  // 待恢复的布局快照:等首个非空区域集到来时剪枝应用。
+  // 待恢复的布局快照:恢复条件成立(快照面板全部到位或 settled)前只做成员增减。
   const pendingSnapshotRef = useRef<unknown>(undefined);
   const [ready, setReady] = useState(false);
   const [undoable, setUndoable] = useState(false);
+  const [collapsedIds, setCollapsedIds] = useState<readonly string[]>([]);
   const registry = useMemo(() => new Map(regions.map((region) => [region.id, region])), [regions]);
   const available = useMemo(() => columns.flat().filter((id) => registry.has(id)), [columns, registry]);
 
@@ -158,6 +207,25 @@ function PageRegionsHost({
     },
     [connectionId, repoId, slot],
   );
+
+  /** 从序列化树同步折叠集合(恢复/增减后调用;折叠状态不单独存第二份)。 */
+  const syncCollapsed = useCallback(() => {
+    const api = apiRef.current;
+    if (api === null) return;
+    setCollapsedIds((current) => {
+      const next = [...invisibleLeaves(api.toJSON().grid.root)].filter((id) => registry.has(id));
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }, [registry]);
+
+  /** 强制网格按宿主尺寸重排一遍:结构操作后各层 splitview 的数值总量只有经过 layout
+   * 级联才收敛(真实窗口里观察器会做,这里保证显式钉过的尺寸立即成立)。 */
+  const relayout = useCallback(() => {
+    const host = hostRef.current,
+      api = apiRef.current;
+    if (host !== null && api !== null && host.clientWidth > 0 && host.clientHeight > 0)
+      api.layout(host.clientWidth, host.clientHeight);
+  }, []);
 
   /** 撤销按叶子深度优先序找 source 的前后邻居。 */
   const neighborOf = useCallback((id: string): { prev?: string; next?: string } | null => {
@@ -200,27 +268,58 @@ function PageRegionsHost({
     [neighborOf],
   );
 
-  /** 停靠:moveTo 挪的是 dockview group(DOM 原地搬家,内容不重挂);再统一收敛为各占目标原空间一半。 */
+  /** 停靠可行:目标未折叠,且原空间至少装得下两块最小尺寸。装不下就拒绝该方向(遮罩
+   * 也不给),不用最小尺寸把「二分」挤成别的比例。无几何环境(测试)只挡折叠目标。 */
+  const dockable = useCallback(
+    (target: string, zone: RegionDockZone): boolean => {
+      const api = apiRef.current,
+        group = api?.getPanel(target)?.api.group;
+      if (api === null || group === undefined || collapsedIds.includes(target)) return false;
+      const axis = zone === "left" || zone === "right" ? "width" : "height";
+      const size = group.element.getBoundingClientRect()[axis];
+      return size === 0 || size >= REGION_MIN[axis] * 2;
+    },
+    [collapsedIds],
+  );
+
+  /** 停靠:group 级 moveTo(DOM 原地搬家,内容不重挂);随后源与目标都显式设为目标原
+   * 空间的一半——同向多兄弟分支里 dockview 会把插入差额摊给邻居,只有把目标也钉在
+   * 半宽上,「各占目标一半」才成立,其余兄弟的尺寸不被这次停靠挪走。 */
   const dock = useCallback(
     (source: string, target: string, zone: RegionDockZone) => {
       const api = apiRef.current,
-        sourcePanel = api?.getPanel(source),
-        targetPanel = api?.getPanel(target);
-      if (api === undefined || sourcePanel === undefined || targetPanel === undefined || source === target) return;
+        sourceGroup = api?.getPanel(source)?.api.group,
+        targetGroup = api?.getPanel(target)?.api.group;
+      if (api === null || sourceGroup === undefined || targetGroup === undefined || source === target) return;
+      if (!dockable(target, zone)) return;
       recordUndo(source);
       touchedRef.current = true;
       const axis = zone === "left" || zone === "right" ? "width" : "height";
-      const targetSize = targetPanel.api.group.element.getBoundingClientRect()[axis];
-      sourcePanel.api.moveTo({
-        group: targetPanel.api.group,
+      const targetSize = targetGroup.element.getBoundingClientRect()[axis];
+      sourceGroup.api.moveTo({
+        group: targetGroup,
         position: zone === "above" ? "top" : zone === "below" ? "bottom" : zone,
+        skipSetActive: true,
       });
-      // 同向同支的停靠走 dockview 的索引快路径(保留旧尺寸),其余情况均分目标;两种都
-      // 收敛到「各占原目标一半」。无真实几何(测试)时跳过,结构仍正确。
-      if (targetSize > 0)
-        sourcePanel.api.group.api.setSize({ [axis]: Math.round(targetSize / 2) } as { [k: string]: number });
+      // 无真实几何(测试)时跳过,结构仍正确。
+      if (targetSize > 0) {
+        sourceGroup.api.setSize({ [axis]: Math.round(targetSize / 2) } as { [k: string]: number });
+        targetGroup.api.setSize({ [axis]: Math.round(targetSize / 2) } as { [k: string]: number });
+        relayout();
+        // 源的旧位被合并吸收后,目标所在支可能整体加宽(级联把余量灌进末位):按收敛后的
+        // 实际支内总量再平分一次,两半严格相等;目标支未加宽时这是无操作。尺寸读序列化
+        // 树的 splitview 数值(同步、不依赖渲染量尺)。
+        const sourceSize = leafSizeOf(api, source),
+          targetSizeNow = leafSizeOf(api, target);
+        if (sourceSize !== null && targetSizeNow !== null && Math.abs(sourceSize - targetSizeNow) > 1) {
+          const even = Math.round((sourceSize + targetSizeNow) / 2);
+          sourceGroup.api.setSize({ [axis]: even } as { [k: string]: number });
+          targetGroup.api.setSize({ [axis]: even } as { [k: string]: number });
+          relayout();
+        }
+      }
     },
-    [recordUndo],
+    [dockable, recordUndo, relayout],
   );
 
   const regionBoxes = useCallback((): readonly PaneBox[] => {
@@ -228,6 +327,8 @@ function PageRegionsHost({
       const panelId = element.dataset.region;
       if (!panelId) return [];
       const rect = element.getBoundingClientRect();
+      // 折叠区域零尺寸:不是任何方向的几何邻居,不参与键盘停靠选邻。
+      if (rect.width <= 0 || rect.height <= 0) return [];
       return [{ panelId, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }];
     });
   }, []);
@@ -252,22 +353,52 @@ function PageRegionsHost({
     group.api.setSize({ [axis]: current + delta * step } as { [k: string]: number });
   }, []);
 
+  /** 折叠/恢复:grid 可见性(不用 maximize)。折叠区域的 DOM 保留(display 收起)、
+   * 尺寸由 grid 缓存,恢复回原尺寸;状态随布局快照持久化。 */
+  const collapse = useCallback(
+    (id: string) => {
+      const group = apiRef.current?.getPanel(id)?.api.group;
+      if (group === undefined || !group.api.isVisible) return;
+      touchedRef.current = true;
+      group.api.setVisible(false);
+      syncCollapsed();
+    },
+    [syncCollapsed],
+  );
+  const expand = useCallback(
+    (id: string) => {
+      const group = apiRef.current?.getPanel(id)?.api.group;
+      if (group === undefined) {
+        // 面板已随区域集消失:只清出折叠条目,不猜测位置。
+        setCollapsedIds((current) => current.filter((item) => item !== id));
+        return;
+      }
+      touchedRef.current = true;
+      group.api.setVisible(true);
+      syncCollapsed();
+    },
+    [syncCollapsed],
+  );
+
   const undo = useCallback(() => {
     const entry = undoRef.current;
     const api = apiRef.current,
-      source = api?.getPanel(entry?.source ?? ""),
-      anchor = api?.getPanel(entry?.anchor ?? "");
-    if (api === undefined || entry === null || source === undefined || anchor === undefined) return;
+      sourceGroup = api?.getPanel(entry?.source ?? "")?.api.group,
+      anchorGroup = api?.getPanel(entry?.anchor ?? "")?.api.group;
+    if (api === undefined || entry === null || sourceGroup === undefined || anchorGroup === undefined) return;
     touchedRef.current = true;
-    source.api.moveTo({
-      group: anchor.api.group,
+    sourceGroup.api.moveTo({
+      group: anchorGroup,
       position: entry.position === "above" ? "top" : entry.position === "below" ? "bottom" : entry.position,
+      skipSetActive: true,
     });
-    if (entry.size !== null)
-      source.api.group.api.setSize({ [entry.size.axis]: entry.size.px } as { [k: string]: number });
+    if (entry.size !== null) {
+      sourceGroup.api.setSize({ [entry.size.axis]: entry.size.px } as { [k: string]: number });
+      relayout();
+    }
     undoRef.current = null;
     setUndoable(false);
-  }, []);
+  }, [relayout]);
 
   const controls = useMemo(
     () => (
@@ -329,11 +460,74 @@ function PageRegionsHost({
     [columns, defaultRatio, registry],
   );
 
+  /** 未动过的默认布局随调用方列序重排:全部走 group 级 moveTo(DOM 不重挂、滚动/阅读
+   * 状态保留)。先把所有 group 按目标序拉成一条水平链(此时所有列头都在根级),在根级
+   * 钉列宽,再逐列向下叠(链头包进纵向分支并继承其根级宽度),最后在纵向支内按权重钉
+   * 行高——与 buildDefault 的尺寸账同一套,只是不销毁重建。 */
+  const arrange = useCallback(
+    (api: DockviewApi) => {
+      const groups = columns
+        .map((column) => column.filter((id) => registry.has(id)))
+        .filter((group) => group.length > 0);
+      const desired = groups.flat();
+      const groupOf = (id: string) => api.getPanel(id)?.api.group;
+      const move = (id: string, reference: string, position: "right" | "bottom") => {
+        const target = groupOf(reference);
+        // 参照面板缺席(区域集竞态)时跳过这一步,下一轮 reconcile 再收敛。
+        if (target === undefined) return;
+        groupOf(id)?.api.moveTo({ group: target, position, skipSetActive: true });
+      };
+      const current = flatLeafOrder(api.toJSON().grid.root);
+      const reorder = desired.length === current.length && desired.some((id, index) => id !== current[index]);
+      if (reorder)
+        for (let index = 1; index < desired.length; index++) move(desired[index]!, desired[index - 1]!, "right");
+      const width = hostRef.current?.clientWidth ?? 0,
+        height = hostRef.current?.clientHeight ?? 0;
+      if (width <= 0 || height <= 0) return;
+      const firstShare =
+        groups.length > 1 && defaultRatio !== undefined ? Math.min(0.8, Math.max(0.2, defaultRatio)) : undefined;
+      const weightOf = (id: string) => registry.get(id)?.weight ?? 1;
+      const hidden = invisibleLeaves(api.toJSON().grid.root);
+      const apply = (id: string, target: number) => {
+        if (hidden.has(id)) return;
+        const size = leafSizeOf(api, id);
+        if (size !== null && Math.abs(size - target) > 8)
+          groupOf(id)?.api.setSize({ width: Math.round(target) } as { [k: string]: number });
+      };
+      // 列宽只在重排发生时钉:此时所有列头都还在水平链上(叶子 size 即列宽)。顺序已经
+      // 正确时,多成员列头在纵向支里、叶子 size 是高度,不能再按宽读写的;首列吃余量,
+      // 其余按占比/均分。
+      if (reorder)
+        groups.forEach((group, groupIndex) => {
+          if (groupIndex > 0 && firstShare !== undefined) {
+            const share = groupIndex === 1 ? 1 - firstShare : (1 - firstShare) / Math.max(1, groups.length - 1);
+            apply(group[0]!, share * width);
+          }
+        });
+      if (reorder)
+        for (const group of groups)
+          for (let index = 1; index < group.length; index++) move(group[index]!, group[index - 1]!, "bottom");
+      // 行高在纵向支内钉(叶子 size 沿父分支方向,此处是高度)。
+      const applyHeight = (id: string, target: number) => {
+        if (hidden.has(id)) return;
+        const size = leafSizeOf(api, id);
+        if (size !== null && Math.abs(size - target) > 8)
+          groupOf(id)?.api.setSize({ height: Math.round(target) } as { [k: string]: number });
+      };
+      groups.forEach((group) => {
+        const totalWeight = group.reduce((sum, id) => sum + weightOf(id), 0);
+        for (let index = 1; index < group.length; index++)
+          applyHeight(group[index]!, (weightOf(group[index]!) / totalWeight) * height);
+      });
+      relayout();
+    },
+    [columns, defaultRatio, registry, relayout],
+  );
+
   const reconcile = useCallback(
     (api: DockviewApi) => {
-      // 有待恢复快照时先不动布局:区域集是投影驱动、陆续到位的,等它稳定(去抖)后
-      // 一次性剪枝恢复,而不是按首个非空集合剪、再把后到的区域追加到末尾。
-      if (pendingSnapshotRef.current !== undefined) return;
+      // 有待恢复快照时只做成员增减(页面先按默认布局活起来),顺序重排等恢复后归零重算。
+      const pending = pendingSnapshotRef.current !== undefined;
       const wanted = regions.map((region) => region.id);
       // 区域集增减是数据驱动(投影追平有时差),不算用户改动:不置 touched,重载后由
       // 快照+reconcile 重新收敛,而不是把「暂时缺席的区域被移除」当成布局写进偏好。
@@ -341,17 +535,6 @@ function PageRegionsHost({
       if (api.panels.length === 0) {
         buildDefault(api);
         return;
-      }
-      if (!touchedRef.current && !restoredRef.current) {
-        // 用户未动过且无快照:调用方的列序是布局权威(总览按 daemon 权重落位),
-        // 区域集或次序变了就按新默认重建;一旦动过/恢复过,布局只归增量 reconcile。
-        const desired = columns.flat().filter((id) => registry.has(id));
-        const current = flatLeafOrder(api.toJSON().grid.root);
-        if (desired.length !== current.length || desired.some((id, index) => id !== current[index])) {
-          api.clear();
-          buildDefault(api);
-          return;
-        }
       }
       let last = api.panels[api.panels.length - 1]?.id;
       for (const id of wanted)
@@ -366,8 +549,13 @@ function PageRegionsHost({
           });
           last = id;
         }
+      if (!pending && !touchedRef.current && !restoredRef.current) {
+        // 用户未动过且无快照:调用方的列序是布局权威(总览按 daemon 权重落位),区域集或
+        // 次序变了就按新默认重排(group 级移动,面板不重挂);一旦动过/恢复过,布局只归用户。
+        arrange(api);
+      }
     },
-    [buildDefault, columns, regions, registry],
+    [arrange, buildDefault, regions],
   );
 
   const onReady = useCallback(
@@ -382,8 +570,8 @@ function PageRegionsHost({
       const host = hostRef.current;
       if (host !== null && host.clientWidth > 0 && host.clientHeight > 0)
         api.layout(host.clientWidth, host.clientHeight);
-      // 快照不立即恢复:区域集是投影驱动的,首次非空集合稳定后再按已知面板剪枝恢复,
-      // 否则「还没到的区域」会在恢复后被当成多余面板移除、再被追加到末尾,毁掉停靠。
+      // 快照不立即恢复:由声明区域集协调(快照面板全部到位或调用方 settled),恢复条件
+      // 不成立时先按默认布局渲染,条件成立那一刻再整棵换回停靠布局。
       pendingSnapshotRef.current =
         connectionId === null
           ? undefined
@@ -402,37 +590,46 @@ function PageRegionsHost({
   useEffect(() => {
     // 区域集在挂载后变化(时间线出现/总览区域增减):增量补齐或回收,不重建整棵树。
     if (!ready || apiRef.current === null) return;
-    if (pendingSnapshotRef.current !== undefined) {
-      // 去抖等投影追平:区域集最后一次变化后 250ms 才恢复快照。
-      const snapshot = pendingSnapshotRef.current;
-      const timer = setTimeout(() => {
-        const api = apiRef.current;
-        if (api === null) return;
-        pendingSnapshotRef.current = undefined;
-        const pruned = pruneSnapshot(
-          (snapshot as { grid?: { root?: unknown } })?.grid?.root,
-          new Set(regions.map((region) => region.id)),
-        );
-        if (pruned !== null) {
-          try {
-            api.clear();
-            api.fromJSON({
-              ...(snapshot as object),
-              grid: { ...(snapshot as { grid?: object }).grid, root: pruned },
-            } as SerializedDockview);
-            restoredRef.current = true;
-          } catch (cause) {
-            // 快照与当前面板集不匹配等损坏:回落默认布局,不静默吞。
-            consumeKnownError(cause);
-            api.clear();
-          }
-        }
+    const api = apiRef.current;
+    const pending = pendingSnapshotRef.current;
+    if (pending !== undefined) {
+      // 恢复条件:快照里的面板全部到位(无损恢复,一个不剪),或调用方声明区域集就绪
+      // (仍缺席的面板是本页确实不再显示的,剪掉不算提前删快照)。
+      const present = new Set(regions.map((region) => region.id));
+      const lossless = flatLeafOrder((pending as { grid?: { root?: unknown } })?.grid?.root).every((id) =>
+        present.has(id),
+      );
+      if (!lossless && settled !== true) {
         reconcile(api);
-      }, 250);
-      return () => clearTimeout(timer);
+        return;
+      }
+      pendingSnapshotRef.current = undefined;
+      const pruned = pruneSnapshot(
+        (pending as { grid?: { root?: unknown } })?.grid?.root,
+        new Set(regions.map((region) => region.id)),
+      );
+      if (pruned !== null) {
+        try {
+          api.clear();
+          api.fromJSON({
+            ...(pending as object),
+            grid: { ...(pending as { grid?: object }).grid, root: pruned },
+          } as SerializedDockview);
+          restoredRef.current = true;
+        } catch (cause) {
+          // 快照与当前面板集不匹配等损坏:回落默认布局,不静默吞。
+          consumeKnownError(cause);
+          api.clear();
+        }
+      }
+      syncCollapsed();
+      relayout();
+      reconcile(api);
+      return;
     }
-    reconcile(apiRef.current);
-  }, [ready, reconcile, regions]);
+    reconcile(api);
+    syncCollapsed();
+  }, [ready, reconcile, regions, relayout, settled, syncCollapsed]);
 
   useEffect(
     () => () => {
@@ -448,8 +645,11 @@ function PageRegionsHost({
       dock,
       dockKeyboard,
       resizeSeam,
+      dockable,
+      collapse,
+      expand,
     }),
-    [available, controls, dock, dockKeyboard, registry, resizeSeam],
+    [available, collapse, controls, dock, dockKeyboard, dockable, expand, registry, resizeSeam],
   );
 
   if (regions.length === 0) return <div data-testid={testId} className="min-h-0 min-w-0 flex-1" />;
@@ -468,6 +668,9 @@ function PageRegionsHost({
           } as CSSProperties
         }
       >
+        {collapsedIds.length > 0 && (
+          <CollapsedStrip testId={testId} ids={collapsedIds} titles={registry} onExpand={expand} />
+        )}
         <DockviewReact
           components={components}
           onReady={onReady}
@@ -478,6 +681,22 @@ function PageRegionsHost({
       </div>
     </PageRegionHostContext.Provider>
   );
+}
+
+/** 序列化树叶子的当前尺寸(splitview 数值,不依赖 DOM 量尺;测试环境也可靠)。
+ * 叶子 size 沿父分支方向:水平支里是宽、纵向支里是高,调用方按自己所处的阶段取义。 */
+function leafSizeOf(api: DockviewApi, id: string): number | null {
+  let found: number | null = null;
+  const walk = (node: unknown): void => {
+    const branch = asBranch(node);
+    if (branch !== null) {
+      for (const child of branch.data ?? []) walk(child);
+      return;
+    }
+    if (leafView(node) === id) found = (node as SerializedLeaf).size ?? null;
+  };
+  walk(api.toJSON().grid.root);
+  return found;
 }
 
 const CONTROL_BUTTON =
@@ -528,6 +747,42 @@ function RegionLayoutControlsGroup({
       >
         <ArrowCounterClockwise weight="bold" className="ui-meta" />
       </button>
+    </div>
+  );
+}
+
+/** 折叠区域召回条:被折叠区域的 DOM 已收起(把手不可达),召回入口只能由宿主常驻提供。 */
+function CollapsedStrip({
+  testId,
+  ids,
+  titles,
+  onExpand,
+}: {
+  readonly testId: string;
+  readonly ids: readonly string[];
+  readonly titles: ReadonlyMap<string, PageRegionSpec>;
+  readonly onExpand: (id: string) => void;
+}) {
+  return (
+    <div
+      className="flex flex-none flex-wrap items-center gap-1"
+      role="group"
+      aria-label={t("components.pageRegions.expandGroup")}
+      data-testid={`${testId}-collapsed`}
+    >
+      {ids.map((id) => (
+        <button
+          key={id}
+          type="button"
+          aria-label={t("components.pageRegions.expand", { title: titles.get(id)?.title ?? id })}
+          title={t("components.pageRegions.expand", { title: titles.get(id)?.title ?? id })}
+          onClick={onExpand.bind(null, id)}
+          data-testid={`${testId}-expand-${id}`}
+          className="flex h-6 shrink-0 items-center gap-1 rounded-sm border border-border px-1.5 text-text-faint ui-meta hover:border-border-strong hover:bg-surface-raised hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          {titles.get(id)?.title ?? id}
+        </button>
+      ))}
     </div>
   );
 }

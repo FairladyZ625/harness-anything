@@ -22,6 +22,12 @@ export interface PageRegionHostActions {
   readonly dockKeyboard: (id: string, direction: PaneDirection) => void;
   /** 键盘调缝:沿该方向增/减本区域在该轴上的尺寸(拖分隔条的键盘替代)。 */
   readonly resizeSeam: (id: string, direction: PaneDirection, delta: number) => void;
+  /** 停靠是否可行(目标未折叠且原空间装得下两块最小尺寸):遮罩只给可行的半区。 */
+  readonly dockable: (target: string, zone: RegionDockZone) => boolean;
+  /** 折叠本区域(grid 可见性:DOM 保留、尺寸缓存,恢复回原位原尺寸)。 */
+  readonly collapse: (id: string) => void;
+  /** 恢复折叠的区域;召回入口由宿主的折叠条常驻提供。 */
+  readonly expand: (id: string) => void;
 }
 
 export interface PageRegionSpec {

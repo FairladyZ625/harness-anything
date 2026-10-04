@@ -308,5 +308,8 @@
   "components.pageRegions.layoutGroup": "Page region layout",
   "components.pageRegions.undoDock": "Undo last dock",
   "components.pageRegions.undoDockTitle": "Move the last docked region back to where it was",
-  "components.pageRegions.timeline": "Progress timeline"
+  "components.pageRegions.timeline": "Progress timeline",
+  "components.pageRegions.collapse": "Collapse {title}",
+  "components.pageRegions.expand": "Expand {title}",
+  "components.pageRegions.expandGroup": "Collapsed page regions"
 }

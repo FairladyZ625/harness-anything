@@ -1,6 +1,6 @@
 import { useState, type DragEvent } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
-import { DotsSixVertical } from "@phosphor-icons/react";
+import { CaretLeft, DotsSixVertical } from "@phosphor-icons/react";
 import {
   RegionControlsContext,
   RegionHandleContext,
@@ -12,9 +12,10 @@ import { t } from "../../i18n/index.tsx";
 
 /**
  * 一个页面区域的 dockview 面板:整张卡是停靠落点,把手在区域头里(经 RegionDragHandle
- * 注入),按指针离哪条边最近分四个半区,预览遮罩与放下后的落位一致。交互与终端分屏的
- * TerminalPaneCard 同一模式:HTML5 拖拽 + 模块级 drag 标记(happy-dom 里也能驱动),
- * 正文文本选取/表单不触发——只有把手可拖。
+ * 注入),按指针离哪条边最近分四个半区,预览遮罩与放下后的落位一致;装不下两块最小尺寸
+ * 的方向连遮罩都不给(预览即真实可行性)。交互与终端分屏的 TerminalPaneCard 同一模式:
+ * HTML5 拖拽 + 模块级 drag 标记(happy-dom 里也能驱动),正文文本选取/表单不触发——
+ * 只有把手可拖。区域头把手簇自带折叠按钮(收起本区域,DOM 保留)。
  */
 
 /** 正在被拖的区域;一个页面同一时刻只有一场拖拽。cancel 清掉当前悬停目标的半区高亮
@@ -62,8 +63,16 @@ export function RegionPanel(props: IDockviewPanelProps<{ readonly id: string }>)
       data-zone={zone ?? undefined}
       onDragOver={(event) => {
         if (!drag.regionId || drag.regionId === id) return;
+        const next = zoneOf(event);
+        // 不可行的方向不 preventDefault:放下不会被接受,遮罩也不亮(预览不说谎)。
+        if (!host.dockable(id, next)) {
+          drag.cancel?.();
+          drag.cancel = null;
+          setZone(null);
+          return;
+        }
         event.preventDefault();
-        setZone(zoneOf(event));
+        setZone(next);
         drag.cancel = () => setZone(null);
       }}
       onDragLeave={(event) => {
@@ -88,14 +97,15 @@ export function RegionPanel(props: IDockviewPanelProps<{ readonly id: string }>)
           className={`pointer-events-none absolute z-10 border-2 border-accent bg-accent/20 ${zoneClassName[zone]}`}
         />
       )}
-      <RegionHandleContext.Provider value={<RegionHandle id={id} title={region.title} />}>
+      <RegionHandleContext.Provider value={<RegionHandleCluster id={id} title={region.title} />}>
         <RegionControlsContext.Provider value={host.controls(id)}>{region.content}</RegionControlsContext.Provider>
       </RegionHandleContext.Provider>
     </div>
   );
 }
 
-function RegionHandle({ id, title }: { readonly id: string; readonly title: string }) {
+/** 区域头把手簇:拖拽把手(移动/停靠)+ 折叠按钮(收起本区域)。 */
+function RegionHandleCluster({ id, title }: { readonly id: string; readonly title: string }) {
   const host = usePageRegionHost();
   const label = t("components.pageRegions.move", { title });
   const arrowOf: Partial<Record<string, PaneDirection>> = {
@@ -105,38 +115,54 @@ function RegionHandle({ id, title }: { readonly id: string; readonly title: stri
     ArrowDown: "down",
   };
   return (
-    <button
-      type="button"
-      draggable
-      aria-label={label}
-      title={label}
-      data-testid={`region-handle-${id}`}
-      data-control-size="sm"
-      onDragStart={(event) => {
-        drag.regionId = id;
-        if (event.dataTransfer) {
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData("text/plain", id);
-        }
-      }}
-      onDragEnd={() => {
-        drag.regionId = null;
-        drag.cancel?.();
-        drag.cancel = null;
-      }}
-      onKeyDown={(event) => {
-        const direction = arrowOf[event.key];
-        if (direction === undefined) return;
-        event.preventDefault();
-        event.stopPropagation();
-        // Alt+方向键调缝(本区域沿该轴增/减);纯方向键把本区域停靠到该方向的相邻区域。
-        if (event.altKey) host.resizeSeam(id, direction, direction === "left" || direction === "up" ? -1 : 1);
-        else host.dockKeyboard(id, direction);
-      }}
-      onClick={(event) => event.stopPropagation()}
-      className="ui-control grid size-6 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-text-faint hover:bg-surface-raised hover:text-text focus-visible:outline-2 focus-visible:outline-accent active:cursor-grabbing"
-    >
-      <DotsSixVertical aria-hidden="true" />
-    </button>
+    <>
+      <button
+        type="button"
+        draggable
+        aria-label={label}
+        title={label}
+        data-testid={`region-handle-${id}`}
+        data-control-size="sm"
+        onDragStart={(event) => {
+          drag.regionId = id;
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", id);
+          }
+        }}
+        onDragEnd={() => {
+          drag.regionId = null;
+          drag.cancel?.();
+          drag.cancel = null;
+        }}
+        onKeyDown={(event) => {
+          const direction = arrowOf[event.key];
+          if (direction === undefined) return;
+          event.preventDefault();
+          event.stopPropagation();
+          // Alt+方向键调缝(本区域沿该轴增/减);纯方向键把本区域停靠到该方向的相邻区域。
+          if (event.altKey) host.resizeSeam(id, direction, direction === "left" || direction === "up" ? -1 : 1);
+          else host.dockKeyboard(id, direction);
+        }}
+        onClick={(event) => event.stopPropagation()}
+        className="ui-control grid size-6 shrink-0 cursor-grab touch-none place-items-center rounded-sm text-text-faint hover:bg-surface-raised hover:text-text focus-visible:outline-2 focus-visible:outline-accent active:cursor-grabbing"
+      >
+        <DotsSixVertical aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        aria-label={t("components.pageRegions.collapse", { title })}
+        title={t("components.pageRegions.collapse", { title })}
+        data-testid={`region-collapse-${id}`}
+        data-control-size="sm"
+        onClick={(event) => {
+          event.stopPropagation();
+          host.collapse(id);
+        }}
+        className="ui-control grid size-6 shrink-0 place-items-center rounded-sm text-text-faint hover:bg-surface-raised hover:text-text focus-visible:outline-2 focus-visible:outline-accent"
+      >
+        <CaretLeft aria-hidden="true" />
+      </button>
+    </>
   );
 }
