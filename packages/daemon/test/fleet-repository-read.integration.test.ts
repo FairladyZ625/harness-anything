@@ -175,6 +175,16 @@ test(
       });
       assert.match(JSON.stringify(response), code);
     };
+    const rereadCatalog = async () =>
+      rpc.handle({
+        jsonrpc: "2.0",
+        id: 7,
+        method: "repo.gui.catalog.reread",
+        params: { repo: { repoId: "lease-repo" }, payload: {} },
+      });
+    const refusedCatalogReread = async (code: RegExp) => {
+      assert.match(JSON.stringify(await rereadCatalog()), code);
+    };
     const first = await read("lease-repo", "repo.tasks.list", { limit: 50 }, auth);
     assert.equal(first.rows.length, 50, "GUI host read must reach the center rather than the empty edge projection");
     assert.ok(first.watermark > 0);
@@ -288,6 +298,9 @@ test(
     assert.equal(f.eventCount(), before, "reads append no canonical event");
     const initialCatalog = await read("lease-repo", "repo.gui.catalog.snapshot", {}, auth);
     assert.equal(initialCatalog.defaults.presetId, "standard-task");
+    const initialReread = await rereadCatalog();
+    assert.ok(initialReread && !Array.isArray(initialReread) && "result" in initialReread);
+    assert.equal((initialReread.result as { outcome?: string }).outcome, "applied");
     const presetChange = await f.host.run(
       "lease-repo",
       { kind: "settings-update", defaultPreset: "docs-task", idempotencyKey: "catalog-preset-change" },
@@ -296,6 +309,12 @@ test(
     assert.equal(presetChange.outcome, "applied", JSON.stringify(presetChange));
     const changedCatalog = await read("lease-repo", "repo.gui.catalog.snapshot", {}, auth);
     assert.equal(changedCatalog.defaults.presetId, "docs-task");
+    const changedReread = await rereadCatalog();
+    assert.ok(changedReread && !Array.isArray(changedReread) && "result" in changedReread);
+    assert.equal((changedReread.result as { outcome?: string }).outcome, "applied");
+    const refreshedCatalog = await read("lease-repo", "repo.gui.catalog.snapshot", {}, auth);
+    assert.equal(refreshedCatalog.defaults.presetId, "docs-task");
+    assert.equal((changedReread.result as { afterDigest?: string }).afterDigest, refreshedCatalog.catalogDigest);
     assert.deepEqual(changedCatalog.adapters, initialCatalog.adapters);
     assert.deepEqual(catalogWithNodeAdapters({ ...changedCatalog, adapters: [] }).adapters, changedCatalog.adapters);
     const preset = await read("lease-repo", "repo.gui.catalog.preset.read", { presetId: "docs-task" }, auth);
@@ -383,6 +402,7 @@ test(
     f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
     await refusedRead(/authorization_denied/);
     await refusedCatalogRead(/authorization_denied/);
+    await refusedCatalogReread(/authorization_denied/);
     const revokedCli = await runFleetEdgeTask(
       { payload: { ...config, workspaceRoot: edgeRoot, action: { kind: "task-list" } } },
       async () => longToken,
@@ -399,5 +419,6 @@ test(
     await f.center.close();
     await refusedRead(/ECONNREFUSED|closed|connect/);
     await refusedCatalogRead(/ECONNREFUSED|closed|connect/);
+    await refusedCatalogReread(/ECONNREFUSED|closed|connect/);
   },
 );
