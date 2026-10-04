@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AccessReceipt, AccessRejection } from "../../../api/access-admin-contract.ts";
-import { isRejection, receiptTitle, rejectionText } from "../../access-model.ts";
+import { isPermissionRefusal, isRejection, receiptTitle, rejectionText } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { Button } from "../primitives/Button.tsx";
@@ -48,12 +48,18 @@ export function useAccessRead<T>(read: (() => Promise<AccessReply<T>>) | undefin
 }
 
 export function AccessNotice({ rejection, testId }: { readonly rejection: AccessRejection; readonly testId?: string }) {
+  // A legal lack of role is a permission note; every other refusal still reads as a failure.
+  const permission = isPermissionRefusal(rejection);
   return (
     <p
-      role="alert"
+      role={permission ? "status" : "alert"}
       data-testid={testId}
       data-code={rejection.code}
-      className="border-l-2 border-status-blocked bg-status-blocked/5 px-3 py-2 text-status-blocked ui-meta"
+      className={
+        permission
+          ? "border-l-2 border-border px-3 py-2 text-text-muted ui-meta"
+          : "border-l-2 border-status-blocked bg-status-blocked/5 px-3 py-2 text-status-blocked ui-meta"
+      }
     >
       {rejectionText(rejection)}
     </p>

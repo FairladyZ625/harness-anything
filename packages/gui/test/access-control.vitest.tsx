@@ -13,11 +13,18 @@ import { createJsonRpcProtocolServer } from "../../daemon/src/protocol/json-rpc-
 import { currentDaemonProtocolVersion } from "../../daemon/src/protocol/version.ts";
 import { evaluateRepoCellAction } from "../../daemon/src/repo-cell-authorization.ts";
 import type { RepoTaskAction } from "../../daemon/src/repo-cell-types.ts";
-import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "../../daemon/test/keycloak.fixtures.ts";
+import {
+  fakeKeycloak,
+  keycloakRealm,
+  keycloakUrl,
+  keycloakUserRoot,
+  signOutAt,
+} from "../../daemon/test/keycloak.fixtures.ts";
 import type { AccessAdminApi } from "../src/api/access-admin-contract.ts";
 import type { OidcAuthApi } from "../src/api/oidc-auth-contract.ts";
 import { registerAccessAdminIpc } from "../src/main/access-admin-ipc.ts";
 import { accessAdminPreloadApi } from "../src/preload/access-admin-preload.ts";
+import type { RepoMode } from "../src/renderer/components/RepoModeBadge.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { IdentityAccessView } from "../src/renderer/views/IdentityAccessView.tsx";
 
@@ -160,12 +167,16 @@ async function type(element: HTMLInputElement | HTMLSelectElement, value: string
   });
 }
 
-async function openTab(access: AccessAdminApi, name: string) {
+async function openTab(
+  access: AccessAdminApi,
+  name: string,
+  repos: readonly { readonly repoId: string; readonly displayName: string; readonly mode?: RepoMode }[] = [
+    { repoId: "repo-a", displayName: "Repo A" },
+  ],
+) {
   if (!container.firstChild) {
     Object.defineProperty(window, "harness", { configurable: true, value: { auth, access } });
-    await act(async () =>
-      root.render(createElement(IdentityAccessView, { repos: [{ repoId: "repo-a", displayName: "Repo A" }] })),
-    );
+    await act(async () => root.render(createElement(IdentityAccessView, { repos })));
     await settle();
   }
   await click([...container.querySelectorAll<HTMLElement>('[role="tab"]')].find((tab) => tab.textContent === name)!);
@@ -362,6 +373,67 @@ describe("账号与访问控制页", () => {
     await click(byTestId("access-lifetime-save"));
     expect(byTestId("access-lifetime-refusal").dataset.code).toBe("session_lifetime_invalid");
     expect(keycloak.realm.ssoSessionIdleTimeout).toBe(3_600);
+  });
+
+  it("reads an ordinary signed-in account's legal denial as a permission note, not a failure", async () => {
+    const { access, signIn } = await stack();
+    signIn("alice", []);
+    await openTab(access, "授权服务");
+    // The service is healthy and the account is signed in; only the administration read is refused.
+    const denied = byTestId("access-lifetime-unavailable");
+    expect(denied.dataset.code).toBe("authorization_denied");
+    expect(denied.getAttribute("role")).toBe("status");
+    expect(denied.className).not.toContain("status-blocked");
+    expect(denied.textContent).toContain("不是访问管理员");
+    expect(byTestId("identity-session").textContent).toContain("已登录");
+    expect(byTestId("access-service-card").textContent).toContain("正常");
+  });
+
+  it("keeps a session that is no longer authenticated red instead of reading it as a permission note", async () => {
+    const { access, root: userRoot } = await stack();
+    signOutAt(userRoot);
+    await openTab(access, "授权服务");
+    const expired = byTestId("access-lifetime-unavailable");
+    expect(expired.dataset.code).toBe("authentication_required");
+    expect(expired.getAttribute("role")).toBe("alert");
+    expect(expired.className).toContain("status-blocked");
+  });
+
+  it("offers the binding form only where the daemon accepts binding writes, and says where it is managed elsewhere", async () => {
+    const { access } = await stack();
+    // Local repository: the daemon owner configures the binding here.
+    await openTab(access, "授权服务", [{ repoId: "repo-a", displayName: "Repo A", mode: "local" }]);
+    expect(byTestId("external-binding-form")).toBeTruthy();
+    expect(container.querySelector('[data-testid="binding-managed-elsewhere"]')).toBeNull();
+
+    // remote-proxy: the daemon refuses binding writes (local_transport_required), so the page reads only.
+    const render = async (repoId: string, mode: RepoMode) => {
+      await act(async () => {
+        root.render(
+          createElement(IdentityAccessView, {
+            repoId,
+            repos: [{ repoId, displayName: repoId, mode }],
+          }),
+        );
+      });
+      await settle();
+    };
+    await render("repo-proxy", "remote-proxy");
+    expect(container.querySelector('[data-testid="external-binding-form"]')).toBeNull();
+    expect(byTestId("binding-managed-elsewhere").textContent).toContain("此处仅读取");
+
+    // remote-edge: the binding card already reads the center's authority (source fleet-center).
+    auth.bindingStatus.mockImplementationOnce(async () => ({
+      ok: true,
+      source: "fleet-center",
+      mode: "external",
+      ready: true,
+      url: keycloakUrl,
+      realm: keycloakRealm,
+    }));
+    await render("repo-edge", "remote-edge");
+    expect(container.querySelector('[data-testid="external-binding-form"]')).toBeNull();
+    expect(byTestId("binding-managed-elsewhere").textContent).toContain("此处仅读取");
   });
 
   it("renders every tab in English without a Chinese string left behind", async () => {

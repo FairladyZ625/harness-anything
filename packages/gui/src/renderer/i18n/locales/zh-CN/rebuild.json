@@ -28,6 +28,7 @@
   "identityAccess.signInDisabled": "绑定并连接 Keycloak 后才能登录",
   "identityAccess.keycloakIdentity": "Keycloak 身份",
   "identityAccess.bindingTitle": "Keycloak 绑定",
+  "identityAccess.bindingManagedAtCenter": "绑定由中心管理员在中心的原始本地会话中配置；此处仅读取。",
   "identityAccess.unbound": "尚未绑定 Keycloak",
   "identityAccess.unboundNextStep": "请安装托管 Keycloak，或在下方改接外部 Keycloak。",
   "identityAccess.loading": "正在读取绑定状态…",

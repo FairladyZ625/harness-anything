@@ -119,3 +119,12 @@ export function receiptTitle(receipt: AccessReceipt): string {
 export function isRejection(reply: { readonly ok: boolean }): reply is AccessRejection {
   return reply.ok === false;
 }
+
+/**
+ * The access system answering as designed: the signed-in account simply lacks a role. Such a
+ * refusal is information about who may act here, not a service or connection failure, so it reads
+ * as a permission note instead of a red alert.
+ */
+export function isPermissionRefusal(rejection: AccessRejection): boolean {
+  return rejection.code === "authorization_denied";
+}
