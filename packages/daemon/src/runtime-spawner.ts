@@ -534,13 +534,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         executionId: taskBinding?.executionId ?? null,
         ...(decisionReviewTarget
           ? { reviewTarget: decisionReviewTarget }
-          : reviewerBinding && taskBinding && reviewTarget?.submission
+          : reviewerBinding && taskBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
             ? {
                 reviewTarget: {
                   kind: "task" as const,
                   taskId: taskBinding.taskId,
                   executionId: taskBinding.executionId,
-                  digest: submissionDigest(reviewTarget.submission),
+                  digest: submissionDigest((reviewTarget?.submission ?? remoteTask?.reviewerSubmission)!),
                 },
               }
             : {}),
@@ -621,7 +621,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId,
         trustedSchedule,
         reviewerBinding: Boolean(reviewerBinding),
-        ...(taskId && !input.remote
+        ...(taskId
           ? {
               execution: {
                 repoId: input.repoId,
@@ -630,7 +630,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 runtimeSessionId,
                 dispatchId: newDispatchId,
                 taskId,
-                executionId: reviewerBinding ? reviewTarget!.executionId : lease!.executionId,
+                executionId: taskBinding!.executionId,
                 role: reviewerBinding ? "reviewer" : "implementation",
               },
             }
@@ -705,7 +705,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             cwd,
             ...(role ? { role } : {}),
             ...(decisionReviewTarget ? { decisionReviewTarget } : {}),
-            ...(reviewerBinding && reviewTarget?.submission ? { reviewerSubmission: reviewTarget.submission } : {}),
+            ...(reviewerBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
+              ? { reviewerSubmission: (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)! }
+              : {}),
           },
         ),
         dispatchOpId,

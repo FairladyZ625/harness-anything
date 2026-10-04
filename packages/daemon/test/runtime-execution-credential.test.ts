@@ -135,3 +135,68 @@ test("the writer rejects expired credentials, stopped or superseded dispatches, 
     { code: "execution_credential_rejected" },
   );
 });
+
+test("queued node executions recheck current Keycloak node ownership", async () => {
+  const realm = fakeKeycloak();
+  realm.node("edge-one", "person-worker");
+  const p = { ...principal(), source: { kind: "node" as const, nodeId: "edge-one" } };
+  await issueRuntimeExecutionCredential(center, p, realm.fetch);
+  await verifyRuntimeExecutionPrincipal(center, p, realm.fetch);
+  realm.node("edge-one", "person-other");
+  await assert.rejects(verifyRuntimeExecutionPrincipal(center, p, realm.fetch), {
+    code: "execution_credential_rejected",
+  });
+});
+
+test("edge settlement accepts its released lease but rejects cancellation, expiry and a foreign source", () => {
+  const source = { kind: "node" as const, nodeId: "edge-one" };
+  const p = { ...principal(), source },
+    actor = { principal: { personId: p.personId }, executor: null };
+  let outcome: string | null = null,
+    phase = "held",
+    submitted = false;
+  const input = {
+    action: {
+      kind: "runtime-run",
+      executionRuntimeIngress: {
+        kind: "event",
+        type: "runtime_session_outcome_observed",
+        payload: { runtimeSessionId: p.runtimeSessionId, taskId: p.taskId, executionId: p.executionId },
+      },
+    },
+    binding: { executionPrincipal: p, actor, source },
+    now: new Date().toISOString(),
+    projection: {
+      readRuntimeSession: () => ({
+        liveness: "exited",
+        outcome,
+        taskBindings: [{ taskId: p.taskId, executionId: p.executionId }],
+      }),
+      readRuntimeDispatch: () => ({ actor, source, payload: { dispatchId: p.dispatchId } }),
+      currentLease: () => (phase === "held" ? { phase, actor, source, executionId: p.executionId } : null),
+      read: () => ({
+        snapshot: {
+          lease: { phase, actor, source, executionId: p.executionId },
+          executions: submitted ? [{ executionId: p.executionId, submission: {} }] : [],
+        },
+      }),
+    } as never,
+  };
+  assert.doesNotThrow(() => requireCurrentExecutionScope(input));
+  phase = "released";
+  assert.doesNotThrow(() => requireCurrentExecutionScope(input));
+  phase = "expired";
+  assert.throws(() => requireCurrentExecutionScope(input), { code: "execution_credential_rejected" });
+  submitted = true;
+  assert.doesNotThrow(() => requireCurrentExecutionScope(input));
+  assert.throws(
+    () =>
+      requireCurrentExecutionScope({
+        ...input,
+        binding: { ...input.binding, source: { kind: "node", nodeId: "edge-two" } },
+      }),
+    { code: "execution_credential_rejected" },
+  );
+  outcome = "cancelled";
+  assert.throws(() => requireCurrentExecutionScope(input), { code: "execution_credential_rejected" });
+});

@@ -137,7 +137,7 @@ export async function fleetTaskRoute(
     !("inputs" in descriptor) ||
     descriptor.method !== command.method ||
     descriptor.admission["remote-edge"] !== "via-center-forward" ||
-    descriptor.path[0] === "doc" ||
+    (descriptor.path[0] === "doc" && typeof command.action.taskId !== "string") ||
     descriptor.path[0] === "schedule"
   )
     return null;
@@ -184,6 +184,8 @@ export async function fleetTaskRoute(
       );
     }
   }
+  if (actionKind === "task-artifact-add" && typeof action.source === "string")
+    action.source = path.resolve(command.rootDir, action.source);
   const payload: Record<string, unknown> = {
     host: config.host,
     port: config.port,

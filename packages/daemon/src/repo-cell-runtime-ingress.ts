@@ -6,6 +6,7 @@ import {
   isSamePerson,
   runtimeEventContentClaims,
   stableStringify,
+  submissionDigest,
   type AgentRuntimeEventV1,
 } from "@harness-anything/kernel";
 import { archiveRuntimeDispatch } from "./doc-sync-actions.ts";
@@ -70,6 +71,7 @@ export function appendAuxiliaryRuntimeIngress(
     const dispatch = action.dispatchContext;
     if (remote && dispatch) {
       if (
+        dispatch.role !== (action.payload.role ?? null) ||
         dispatch.taskId !== (action.payload.taskId ?? null) ||
         dispatch.executionId !== (action.payload.executionId ?? null)
       )
@@ -81,7 +83,19 @@ export function appendAuxiliaryRuntimeIngress(
           "remote runtime dispatch",
         ).snapshot;
         if (dispatch.role === "reviewer") {
-          if (!currentSubmittedExecutions(snapshot).some((execution) => execution.executionId === dispatch.executionId))
+          if (
+            !currentSubmittedExecutions(snapshot).some(
+              (execution) =>
+                execution.executionId === dispatch.executionId &&
+                stableStringify(action.payload.reviewTarget) ===
+                  stableStringify({
+                    kind: "task",
+                    taskId: dispatch.taskId,
+                    executionId: dispatch.executionId,
+                    digest: submissionDigest(execution.submission!),
+                  }),
+            )
+          )
             throw cell.cellCodedError(
               "task_not_submitted",
               "Reviewer dispatch requires the current submitted execution.",

@@ -197,7 +197,7 @@ export async function fleetFixture(
     },
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
     runtimeArchiveReceipts,
-    center: (port?: number) =>
+    center: (port?: number, loginAuthorityUrl = owners.url) =>
       owned.hold(
         listenFleetTls({
           host: {
@@ -237,6 +237,11 @@ export async function fleetFixture(
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) =>
             [subject.nodeId, slowSubject.nodeId].includes(nodeId) && credential === "machine-secret",
+          loginAuthority: (nodeId) => ({
+            url: loginAuthorityUrl,
+            realm: "harness",
+            clientId: `harness-node-${nodeId}`,
+          }),
           nodeOwner: async (nodeId) => {
             if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
             return owners.nodeOwner(nodeId);

@@ -1,3 +1,8 @@
+import {
+  authenticateRuntimeExecutionCredential,
+  executionCredentialRejected,
+  runtimeExecutionActor,
+} from "./runtime-execution-credential.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
 import {
@@ -220,26 +225,31 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     keycloakCenter: KeycloakCenterAuthority = async () => ({ ...(await oidc.center()), clientId: "harness-center" }),
     hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
-      if (auth.executionPrincipal) {
-        const execution = auth.executionPrincipal,
-          cell = cells.get(execution.repoId);
+      const execution = auth.executionCredential
+        ? await authenticateRuntimeExecutionCredential(await keycloakCenter(), auth.executionCredential)
+        : auth.executionPrincipal;
+      if (execution) {
+        if (
+          auth.nodePrincipal &&
+          (typeof execution.source !== "object" ||
+            execution.source.kind !== "node" ||
+            execution.source.nodeId !== auth.nodePrincipal.nodeId ||
+            execution.personId !== auth.nodePrincipal.personId)
+        )
+          throw executionCredentialRejected();
+        const cell = cells.get(execution.repoId);
         if (!cell || path.resolve(cell.status().rootDir) !== path.resolve(rootDir))
           throw hostCodedError(
             "execution_credential_rejected",
             "Execution credential belongs to a different repository.",
           );
-        const observed = await cell.read("repo.agentRuntime.sessions.read", {
-          runtimeSessionId: execution.runtimeSessionId,
-        });
-        if (!observed.ok || observed.session.liveness === "exited")
-          throw hostCodedError("execution_credential_rejected", "Execution has stopped.");
         const base = {
-          actor: {
-            principal: { personId: execution.personId },
-            executor: { kind: "agent" as const, id: `runtime-session:${execution.runtimeSessionId}` },
-          },
+          actor: runtimeExecutionActor(execution),
           source: execution.source,
           executionPrincipal: execution,
+          writerEpoch: auth.writerEpoch,
+          withWriterEpochFence: auth.withWriterEpochFence,
+          writerEpochFence: auth.writerEpochFence,
           keycloakAuthorization: { center: await keycloakCenter() },
         };
         return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;

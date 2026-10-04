@@ -8,7 +8,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient, runFleetTaskCommandClient } from "../src/fleet/edge.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
@@ -53,6 +53,7 @@ for (const distinctNode of [false, true])
         const sequence: string[] = [];
         const counts = new Map<string, { archive: number; release: number; terminal: number }>();
         const terminals = new Map<string, () => void>();
+        const credentials = new Map<string, string>();
         const settled = new Map<string, () => void>();
         const completion = [fixture.subject, second].map(
           (subject) =>
@@ -130,6 +131,8 @@ for (const distinctNode of [false, true])
             ports: scheduleRuntimePorts(),
             launch: (prepared) => {
               const taskId = path.basename(prepared.cwd);
+              assert.ok(prepared.env.HARNESS_EXECUTION_CREDENTIAL);
+              credentials.set(taskId, prepared.env.HARNESS_EXECUTION_CREDENTIAL);
               let output: ((chunk: string) => void) | undefined;
               return {
                 pid: taskId === fixture.subject.taskId ? 81234 : 81235,
@@ -215,6 +218,38 @@ for (const distinctNode of [false, true])
         });
         assert.equal(b.outcome, "applied", JSON.stringify(b));
         sessionTasks.set(String(b.runtimeSessionId), second.taskId);
+        assert.notEqual(credentials.get(fixture.subject.taskId), credentials.get(second.taskId));
+        for (const [subject, foreign] of [
+          [fixture.subject, second],
+          [second, fixture.subject],
+        ]) {
+          const own = await runFleetTaskCommandClient({
+            port: center.port,
+            ca: fixture.cert,
+            nodeId: subject!.nodeId,
+            credential: "machine-secret",
+            repoId: subject!.repoId,
+            executionCredential: credentials.get(subject!.taskId)!,
+            opId: `own-${subject!.taskId}`,
+            taskId: subject!.taskId,
+            action: { kind: "task-show", taskId: subject!.taskId },
+            waitMs: 0,
+          });
+          assert.equal(own.outcome, "applied");
+          const crossed = await runFleetTaskCommandClient({
+            port: center.port,
+            ca: fixture.cert,
+            nodeId: subject!.nodeId,
+            credential: "machine-secret",
+            repoId: subject!.repoId,
+            executionCredential: credentials.get(foreign!.taskId)!,
+            opId: `cross-${subject!.taskId}`,
+            taskId: subject!.taskId,
+            action: { kind: "task-show", taskId: subject!.taskId },
+            waitMs: 0,
+          });
+          assert.equal(crossed.code, "execution_credential_rejected");
+        }
         terminals.get(fixture.subject.taskId)!();
         await completion[0];
         if (distinctNode) {

@@ -220,6 +220,7 @@ test(
     assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, edgeUserRoot);
     assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "fleet-runtime-edge");
     assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, fixture.subject.repoId);
+    assert.ok(launchedEnv?.HARNESS_EXECUTION_CREDENTIAL, "edge task worker requires its dispatch credential");
     assert.deepEqual(readDispatchStream(edgeRoot, String(receipt.dispatchId))?.header.binding?.source, {
       kind: "node",
       nodeId: fixture.subject.nodeId,
@@ -426,13 +427,14 @@ test(
           );
       assert.equal(events.length, 2);
       for (const event of events) {
-        const rejected = await fixture.host.runtimeIngress(
-          fixture.subject.repoId,
-          { kind: "event", type: event.type, payload: event.payload, opId: event.opId },
-          fixture.owners.auth(foreignSubject),
+        await assert.rejects(
+          fixture.host.runtimeIngress(
+            fixture.subject.repoId,
+            { kind: "event", type: event.type, payload: event.payload, opId: event.opId },
+            fixture.owners.auth(foreignSubject),
+          ),
+          { code: "execution_credential_rejected" },
         );
-        assert.equal(rejected.outcome, "op_rejected");
-        assert.equal(rejected.code, "execution_scope_mismatch");
       }
     });
     await runFleetReplicaPullClient({
