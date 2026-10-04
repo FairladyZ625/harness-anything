@@ -436,6 +436,8 @@ test(
                 idempotencyKey,
                 dispatchId: `dispatch_${hash.slice(0, 24)}`,
                 runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
+                // Match the admission envelope so this probe reaches the submitted-execution check.
+                role,
                 taskId: assignment.taskId,
                 executionId: assignment.executionId,
               },
