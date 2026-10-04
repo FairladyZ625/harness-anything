@@ -342,6 +342,7 @@ export {
   ownedContentForDeclarationEvent,
 } from "./entity-event.ts";
 export {
+  ENTITY_CONTENT_POLICY_ID,
   MAX_ENTITY_CONTENT_OBJECT_BYTES,
   entityDirectoryFootprint,
   entityOwnedDirectories,

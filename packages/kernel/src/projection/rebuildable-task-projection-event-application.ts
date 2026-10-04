@@ -28,7 +28,14 @@ import {
   runtimeExecutionLinkForEvent,
   runtimeSessionId,
 } from "../domain/agent-runtime.ts";
-import { contractForDeclarationEvent, isEntityDeclarationEvent, isEntityEvent } from "../domain/entity-event.ts";
+import {
+  contractForDeclarationEvent,
+  isEntityDeclarationEvent,
+  isEntityEvent,
+  ownedContentForDeclarationEvent,
+} from "../domain/entity-event.ts";
+import { ENTITY_CONTENT_POLICY_ID, entityOwnedDocumentClaims } from "../domain/entity-owned-content.ts";
+import { canonicalDocumentRetirements } from "../composition/index.ts";
 import { interpretEntityValue, type InterpretedEntityValue } from "../domain/entity-kind-projection.ts";
 import { EntitySchemaContractError } from "../domain/entity-json-schema.ts";
 import { consumeKnownError } from "../error-consumption.ts";
@@ -213,6 +220,8 @@ export function applyEvent(
     return;
   }
   if (isEntityEvent(event)) {
+    for (const retirement of canonicalDocumentRetirements(event))
+      runSql(db, "DELETE FROM document WHERE path = ?", retirement.path);
     if (!isEntityDeclarationEvent(event)) {
       runSql(
         db,
@@ -222,8 +231,6 @@ export function applyEvent(
         eventJson,
       );
       if (event.type === "entity_deleted") {
-        for (const retirement of event.payload.ownedContent.retirements)
-          runSql(db, "DELETE FROM document WHERE path = ?", retirement.path);
         deleteEntityProjectionRow(db, event.payload.entityKind, event.payload.entityId);
       } else markEntityProjectionMissing(db, event.payload.entityKind, event.payload.entityId, event.workspaceRevision);
       return;
@@ -244,6 +251,38 @@ export function applyEvent(
     } catch {
       throw new Error(`entity declaration blob ${claim.sha256} is not JSON`);
     }
+    for (const owned of entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event))) {
+      if (owned.path === claim.path) continue;
+      const content = readBlob(owned.sha256);
+      if (!content || content.byteLength !== owned.size)
+        throw new Error(`entity owned document blob ${owned.sha256} is unavailable`);
+      const document: DocumentState = {
+        path: owned.path as DocumentState["path"],
+        blobSha256: owned.sha256,
+        // Raw artifacts and imported entity content are bytes, not text; only their claim is projected.
+        body:
+          owned.policyId === RAW_ARTIFACT_POLICY_ID || owned.policyId === ENTITY_CONTENT_POLICY_ID
+            ? ""
+            : new TextDecoder("utf-8", { fatal: true, ignoreBOM: owned.policyId === OPAQUE_TEXTUAL_POLICY_ID }).decode(
+                content,
+              ),
+        size: docByteLength(owned.size),
+        mediaType: owned.mediaType,
+        policyId: owned.policyId,
+        workspaceRevision: event.workspaceRevision,
+      };
+      runSql(db, UPSERT_DOCUMENT_SQL, owned.path, event.workspaceRevision, canonicalJson(document));
+      if (owned.policyId === "markdown-body-replaceable/v1") refreshDecisionDocumentSearch(db, document);
+    }
+    const document: DocumentState = {
+      path: claim.path as DocumentState["path"],
+      blobSha256: claim.sha256,
+      body,
+      size: docByteLength(claim.size),
+      mediaType: claim.mediaType,
+      policyId: claim.policyId,
+      workspaceRevision: event.workspaceRevision,
+    };
     const contract = contractForDeclarationEvent(event);
     let entity: InterpretedEntityValue;
     try {
@@ -256,15 +295,6 @@ export function applyEvent(
       // (missing blob, non-UTF-8, non-JSON, identity mismatch) keeps failing the rebuild loudly.
       if (!(error instanceof EntitySchemaContractError)) throw error;
       consumeKnownError(error);
-      const degraded: DocumentState = {
-        path: claim.path as DocumentState["path"],
-        blobSha256: claim.sha256,
-        body,
-        size: docByteLength(claim.size),
-        mediaType: claim.mediaType,
-        policyId: claim.policyId,
-        workspaceRevision: event.workspaceRevision,
-      };
       runSql(
         db,
         "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
@@ -272,7 +302,7 @@ export function applyEvent(
         event.workspaceRevision,
         eventJson,
       );
-      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(degraded));
+      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
       markEntityProjectionUninterpretable(db, contract.kind, event.payload.entityId, event.workspaceRevision, value);
       return;
     }
@@ -280,15 +310,6 @@ export function applyEvent(
     if (contractErrors.length) throw new Error(contractErrors.join("; "));
     if (entity.id !== event.payload.entityId)
       throw new Error(`entity declaration blob ${claim.sha256} identity mismatch`);
-    const document: DocumentState = {
-      path: claim.path as DocumentState["path"],
-      blobSha256: claim.sha256,
-      body,
-      size: docByteLength(claim.size),
-      mediaType: claim.mediaType,
-      policyId: claim.policyId,
-      workspaceRevision: event.workspaceRevision,
-    };
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",

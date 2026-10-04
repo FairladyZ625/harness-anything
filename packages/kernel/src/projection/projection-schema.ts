@@ -4,4 +4,5 @@
 // Version 24 replays Settings snapshots into the symmetric roles matrix.
 // Version 25 rebuilds Schedule run views without retired assignment authority evidence.
 // Version 26 retains canonical retired People audit documents in replica manifests without restoring authority.
-export const taskProjectionSchemaVersion = 26;
+// Version 27 replays entity owned documents and retirements into the canonical document read model.
+export const taskProjectionSchemaVersion = 27;

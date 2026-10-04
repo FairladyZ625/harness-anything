@@ -279,6 +279,7 @@ export {
 } from "./schemas/vertical-definition.ts";
 export {
   canonicalDocumentClaims,
+  canonicalDocumentRetirements,
   canonicalEventCut,
   canonicalEventWritePlan,
   createLedgerBackup,
