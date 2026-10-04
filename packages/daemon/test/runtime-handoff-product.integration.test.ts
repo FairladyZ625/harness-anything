@@ -286,32 +286,25 @@ for (const row of [{type:'thread.started',thread_id:id},
       "succeeded",
       JSON.stringify(readDispatchStream(sourceRoot, dispatchId)?.terminalOutcome),
     );
+    const sourceSessions = path.join(source.userRoot, "runtime-instances", instance.instanceId, "home/.codex/sessions");
+    const sourceFiles = globSync(`**/rollout-*-${nativeId}.jsonl`, { cwd: sourceSessions });
+    assert.equal(sourceFiles.length, 1);
+    const sourceNative = readFileSync(path.join(sourceSessions, sourceFiles[0]!));
     if (liveCodex) {
-      const sessions = path.join(source.userRoot, "runtime-instances", instance.instanceId, "home/.codex/sessions");
-      const files = globSync(`**/rollout-*-${nativeId}.jsonl`, { cwd: sessions });
-      const rows = readFileSync(path.join(sessions, files[0]!), "utf8")
+      const sourceRows = sourceNative
+        .toString("utf8")
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line));
-      t.diagnostic(
-        JSON.stringify({
-          nativeSchema: [...new Set(rows.map((row) => row.type))],
-          tools: rows
-            .filter((row) => row.payload?.name)
-            .map((row) => ({ type: row.payload.type, name: row.payload.name })),
-          worldStateFields: rows
-            .filter((row) => row.type === "world_state")
-            .map((row) => Object.keys(row.payload?.state ?? {})),
-          unknownRecords: rows
-            .filter(
-              (row) => !["session_meta", "response_item", "event_msg", "turn_context", "compacted"].includes(row.type),
-            )
-            .map((row) => ({
-              type: row.type,
-              fields: Object.keys(row),
-              payloadFields: Object.keys(row.payload ?? {}),
-            })),
-        }),
+      const toolOutputs = sourceRows.filter(
+        (row) =>
+          row.type === "response_item" &&
+          ["function_call_output", "custom_tool_call_output"].includes(row.payload?.type),
+      );
+      t.diagnostic(JSON.stringify({ stage: "source", nativeId, phrase, toolOutputs }));
+      assert.ok(
+        toolOutputs.some((row) => JSON.stringify(row.payload.output ?? "").includes(phrase)),
+        "source fixture must actually read the token before handoff",
       );
     }
     const commit = git(sourceWorktree, "rev-parse", "HEAD");
@@ -340,6 +333,9 @@ for (const row of [{type:'thread.started',thread_id:id},
       }),
     );
     assert.equal((exported.checkpoint as JsonObject).commit, commit);
+    const exportedNative = readFileSync(path.join(f.repo, ".harness/runtime-handoffs", dispatchId, "rollout.jsonl"));
+    assert.deepEqual(exportedNative, sourceNative, "export preserves the settled source bytes");
+    assert.equal(Number(((exported.checkpoint as JsonObject).blob as JsonObject).size), exportedNative.length);
     const started = await f.host.run(
       repoId,
       { kind: "task-start", taskId },
@@ -374,10 +370,6 @@ for (const row of [{type:'thread.started',thread_id:id},
     await waitForOutcome(String(resumed.runtimeSessionId));
     assert.ok(readDispatchStream(targetRoot, targetDispatch)?.terminalOutcome);
     assert.equal(readDispatchStream(targetRoot, targetDispatch)?.providerSessionId, nativeId);
-    assert.ok(
-      readDispatchStream(targetRoot, targetDispatch)?.terminalOutcome?.body.includes(phrase),
-      JSON.stringify(readDispatchStream(targetRoot, targetDispatch)?.terminalOutcome),
-    );
     assert.equal(readDispatchStream(targetRoot, targetDispatch)?.header.cwd, targetWorktree);
     const nativeFiles = globSync(`**/rollout-*-${nativeId}.jsonl`, {
       cwd: path.join(target.userRoot, "runtime-instances", instance.instanceId, "home/.codex/sessions"),
@@ -387,11 +379,16 @@ for (const row of [{type:'thread.started',thread_id:id},
       path.basename(nativeFiles[0]!),
       /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-[a-zA-Z0-9_-]+\.jsonl$/u,
     );
-    if (liveCodex) {
+    {
       const native = readFileSync(
         path.join(target.userRoot, "runtime-instances", instance.instanceId, "home/.codex/sessions", nativeFiles[0]!),
       );
-      const exportedBytes = Number(((exported.checkpoint as JsonObject).blob as JsonObject).size);
+      const exportedBytes = exportedNative.length;
+      assert.deepEqual(
+        native.subarray(0, exportedBytes),
+        exportedNative,
+        "target retains the complete exported history",
+      );
       const resumedRows = native
         .subarray(exportedBytes)
         .toString("utf8")
@@ -399,6 +396,24 @@ for (const row of [{type:'thread.started',thread_id:id},
         .split("\n")
         .filter(Boolean)
         .map((line) => JSON.parse(line));
+      if (liveCodex)
+        t.diagnostic(
+          JSON.stringify({
+            stage: "target",
+            nativeId,
+            commit,
+            sourceBytes: sourceNative.length,
+            exportedBytes,
+            installedPrefixEqual: native.subarray(0, exportedBytes).equals(sourceNative),
+            resumedRows: resumedRows.filter(
+              (row) =>
+                (row.type === "response_item" && row.payload?.role === "assistant") ||
+                (row.type === "event_msg" &&
+                  ["thread_settings_applied", "task_started", "task_complete"].includes(row.payload?.type)),
+            ),
+            terminal: readDispatchStream(targetRoot, targetDispatch)?.terminalOutcome,
+          }),
+        );
       assert.equal(
         resumedRows.filter((row) => ["function_call", "custom_tool_call"].includes(row.payload?.type)).length,
         0,
@@ -444,6 +459,10 @@ for (const row of [{type:'thread.started',thread_id:id},
         }),
       );
     }
+    assert.ok(
+      readDispatchStream(targetRoot, targetDispatch)?.terminalOutcome?.body.includes(phrase),
+      JSON.stringify(readDispatchStream(targetRoot, targetDispatch)?.terminalOutcome),
+    );
     const revoked = await source.cli(["runtime", "handoff", "revoke", dispatchId]);
     assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
     assert.equal(existsSync(path.join(f.repo, ".harness/runtime-handoffs", dispatchId, "rollout.jsonl")), false);
