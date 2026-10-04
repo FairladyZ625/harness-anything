@@ -3,6 +3,57 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import { assembleAgentPrompt, assembleUnboundPrompt } from "../src/runtime-spawn-mission.ts";
+import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
+import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
+
+for (const role of ["worker", "reviewer"] as const)
+  test(`${role} assembled prompts route human requests through the owner under execution scope`, () => {
+    const principal = {
+      personId: "person-worker",
+      repoId: "repo",
+      runtimeSessionId: "runtime-worker",
+      dispatchId: "dispatch-worker",
+      taskId: "task-worker",
+      executionId: "execution-worker",
+      role: role === "worker" ? ("implementation" as const) : ("reviewer" as const),
+      source: "local" as const,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    const request = (kind: string) => {
+      const { method } = commandDescriptorForAction(kind);
+      requireExecutionRequestScope(principal, method, {
+        repo: { repoId: principal.repoId },
+        payload:
+          method === "repo.task.run" ? { action: { kind, taskId: principal.taskId } } : { taskId: principal.taskId },
+      });
+    };
+    assert.throws(() => request("relation-relate"), { code: "execution_credential_rejected" });
+    if (role === "worker")
+      for (const kind of ["task-progress-append", "fact-record", "doc-submit"])
+        assert.doesNotThrow(() => request(kind));
+    else assert.doesNotThrow(() => request("task-review-execution"));
+
+    const mission = "Report the exact acceptance request for this task.";
+    const prompts = [
+      assembleAgentPrompt({ id: role, name: role, instructions: "Do the work.", runtimes: [], role }, mission),
+      assembleUnboundPrompt(mission, role),
+    ];
+    for (const prompt of prompts) {
+      assert.doesNotMatch(prompt, /an awaits Relation when the dispatch allows ledger writes/u);
+      assert.match(prompt, /Only when the dispatch explicitly grants relation writes/u);
+      assert.match(prompt, /Ledger, doc, or fact write permission does not grant relation writes/u);
+      assert.match(prompt, /report the exact ask.*task progress, fact, closeout, or review report/su);
+      assert.match(prompt, /owner to register the awaits Relation/u);
+    }
+  });
+
+test("authorized coordinator prompts retain the conditional awaits command", () => {
+  const prompt = assembleUnboundPrompt("Coordinate the task with explicit relation write permission.", "commander");
+  assert.match(prompt, /Only when the dispatch explicitly grants relation writes.*ha relation relate/su);
+  assert.match(prompt, /--source-ref task\/<task-id>.*--target-ref person\/<person-id> --type awaits/su);
+  assert.match(prompt, /--expected-version 0/u);
+  assert.match(prompt, /ha agenda/u);
+});
 
 for (const role of ["worker", "commander", "reviewer"] as const)
   test(`${role} dispatches include the host infrastructure boundary`, () => {

@@ -202,28 +202,18 @@ export async function resolveRuntimeInstanceId(input: {
   return selected;
 }
 
-/**
- * The fixed how-to-look-up guidance every task-bound dispatch carries, filled
- * with the dispatch's own task id so the first `ha graph` line is executable
- * verbatim. It is plain text assembled with the mission — fleet-edge dispatches
- * walk the same assembly — and deliberately not configurable: the causal-context
- * block is empty for tasks without a deriving decision or parent chain, and
- * those are exactly the tasks that must query the graph themselves.
- */
+/** Task-bound dispatches use injected context and reads admitted by their execution credential. */
 export function taskQueryGuidance(taskId: string): string {
   return [
     "# 台账查询引导",
-    "- Fact/Decision 正文直接读文件：harness/facts/F-*.md、harness/decisions/decision-dec_*/decision.md，" +
-      "grep 即可（Markdown 与数据库同步）。",
-    `- 这个任务/决策/事实连着什么、由什么推出、被什么证据支撑，用 ha graph 查：先执行 ha graph ${taskId}，` +
-      "再按需 ha graph <ref> --depth 2。没有语义边时它只显示父子结构，孤任务只有自己一行——那不是命令坏了。",
-    "- 动手改代码前先看一眼图。",
-    "- 工作(Work)＝一个根任务加它的子任务树；下方因果上下文的 Work 行就是本任务所属的工作。看全貌用 " +
-      "ha work show <工作根任务 id>；新拆出的任务用 ha task create --work <工作根任务 id> 挂进同一工作，" +
-      "不带 --work 就是独立任务。",
-    "- 低风险小改(一行声明、错误文本、文档修订)建任务时带 --risk-tier low --profile lightweight：计划与 closeout " +
-      "用精简模板，收口免 review、consent、fact；出代码的小改仍经 PR 的 CI 合入。profile 建任务时定死，" +
-      "哪些 preset 提供它见 ha task create --help 的 Recommended presets。",
+    "- 动手前先读任务包 task_plan.md 与已注入的 Task Causal Context；其中 Work、Parent、Decision、Facts 和 Refs " +
+      "提供本任务的关系背景，不要求先查询全仓图。",
+    `- 本任务阅读集合用 ha task read-set ${taskId} 查；按任务契约、read-set 和注入上下文点名的路径读取资料。`,
+    `- 需要核对本任务状态时用 ha task show ${taskId}；其他命令仅按本次 dispatch 已授权范围调用。`,
+    "- 受限执行凭据绑定本 task/execution，不授予 graph、Work 全貌、跨任务查询或创建任务的权限；" +
+      "不得清除凭据、切换身份或申请扩大权限来执行这些查询。",
+    "- 未注入因果块不表示查询故障，也不要求补查图。资料不足或需要跨任务背景时，向 owner 报告具体缺项，" +
+      "由 owner 按已授权范围提供；不要猜测。",
   ].join("\n");
 }
 

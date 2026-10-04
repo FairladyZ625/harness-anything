@@ -216,6 +216,11 @@ test(
     assert.equal(explicit.outcome, "applied", JSON.stringify(explicit));
     const explicitPrompt = launchedPrompts.at(-1);
     assert.ok(explicitPrompt !== undefined, "the provider launch captured no prompt");
+    assert.doesNotMatch(explicitPrompt, /ha (?:graph|work show|task create)/u);
+    assert.ok(explicitPrompt.includes(`ha task read-set ${fixture.subject.taskId}`));
+    assert.match(explicitPrompt, /已注入的 Task Causal Context/u);
+    assert.match(explicitPrompt, /资料不足[\s\S]*owner/u);
+    assert.ok(explicitPrompt.endsWith("Explicit edge mission."));
     const explicitBlock = causalBlock(explicitPrompt);
     assert.ok(explicitBlock !== null, `no causal block in remote-edge prompt:\n${explicitPrompt}`);
     assert.match(explicitBlock, /CENTERFRESH-ZQ decision/u);
@@ -271,7 +276,11 @@ test(
       localAuth,
     );
     assert.equal(taskBound.outcome, "applied", JSON.stringify(taskBound));
-    const taskBoundBlock = causalBlock(launchedPrompts.at(-1) ?? "");
+    const taskBoundPrompt = launchedPrompts.at(-1) ?? "";
+    assert.doesNotMatch(taskBoundPrompt, /ha (?:graph|work show|task create)/u);
+    assert.ok(taskBoundPrompt.includes(`ha task read-set ${fixture.subject.taskId}`));
+    assert.match(taskBoundPrompt, /资料不足[\s\S]*owner/u);
+    const taskBoundBlock = causalBlock(taskBoundPrompt);
     assert.ok(taskBoundBlock !== null, "task-bound remote-edge dispatch lost the causal block");
     assert.match(taskBoundBlock, /CENTERFRESH-ZQ decision/u);
     // The second dispatch settles against the center too: teardown must not close the center under it.
