@@ -446,7 +446,13 @@ export function TaskDetailView({
                       />
                     ) : activeTab === "dispatch" ? (
                       <>
-                        {!external && <TaskAssignmentPanel key={`${task.projectId}:${task.taskId}`} task={task} />}
+                        {!external && (
+                          <TaskAssignmentPanel
+                            key={`${task.projectId}:${task.taskId}`}
+                            task={task}
+                            onNavigateEntity={onNavigateEntity}
+                          />
+                        )}
                         <TaskDispatchTab
                           task={task}
                           focusedSessionId={focusedSessionId}

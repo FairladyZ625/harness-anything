@@ -10,6 +10,7 @@ import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
 import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
+import { CollaborationView } from "../src/renderer/views/CollaborationView.tsx";
 import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
 import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
@@ -651,6 +652,15 @@ const VIEW_RENDERERS = {
       onToggleFavorite: noop,
       onStartTask: noop,
       mutationFeedback: noop,
+    }),
+  collaboration: () =>
+    createElement(CollaborationView, {
+      repoId: REPO_ID,
+      mode: "remote-center",
+      tasks: FIXTURE_TASKS,
+      ready: true,
+      onOpenTask: noop,
+      onNavigateEntity: noop,
     }),
   graph: () =>
     createElement(EntityWorkspace, {

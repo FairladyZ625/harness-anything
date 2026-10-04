@@ -27,6 +27,7 @@ export type SessionGroupsQuery = {
   readonly squadId?: string;
   /** 状态维度筛选:成员级,与 groupBy/since/query 同一条读的入参,不是第二个读。 */
   readonly status?: readonly AgentRuntimeSessionGroupStatus[];
+  readonly sessionIds?: readonly string[];
   readonly limit?: number;
 };
 /**

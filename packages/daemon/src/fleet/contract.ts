@@ -765,7 +765,10 @@ const schemas: Readonly<Record<string, Check>> = {
         executionCredential: text,
         accessToken: nullable(accessToken),
         method: (method) =>
-          typeof method === "string" && (method === "repo.task.read" || repositoryReadDescriptor(method) !== undefined),
+          typeof method === "string" &&
+          (method === "repo.task.read" ||
+            method === "repo.projection.read" ||
+            repositoryReadDescriptor(method) !== undefined),
         payload: record,
       },
       ["schema", "messageId", "repoId", "accessToken", "method", "payload"],

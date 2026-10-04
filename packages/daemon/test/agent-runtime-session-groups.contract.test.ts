@@ -65,6 +65,8 @@ test("session groups are contracted as a use-case projection with bounded daemon
     [],
   );
   assert.deepEqual(call({ groupBy: "agent", squadId: "core-squad" }), []);
+  assert.deepEqual(call({ groupBy: "agent", sessionIds: ["runtime-a", "runtime-b"] }), []);
+  assert.notDeepEqual(call({ groupBy: "agent", sessionIds: "runtime-a" }), []);
   assert.notDeepEqual(call({ groupBy: "worker" }), []);
   assert.notDeepEqual(call({ since: "yesterday" }), []);
   assert.notDeepEqual(call({ limit: 1_001 }), []);
@@ -74,6 +76,44 @@ test("session groups are contracted as a use-case projection with bounded daemon
   // 状态筛选是同一条读的一个入参,不是第二个读:传输层收数组、拒非数组。
   assert.deepEqual(call({ groupBy: "task", status: ["failed", "lost"] }), []);
   assert.notDeepEqual(call({ status: "failed" }), []);
+});
+
+test("requested lease session identities come from replicated dispatch events across groups and nodes", () => {
+  const live = [
+    runtimeSession("session-one", "shared-instance", "2026-10-04T01:00:00.000Z", "live", null, ["task-one"]),
+    runtimeSession("session-two", "shared-instance", "2026-10-04T01:01:00.000Z", "live", null, ["task-two"]),
+    runtimeSession("session-other", "shared-instance", "2026-10-04T01:02:00.000Z", "live", null, ["task-three"]),
+    runtimeSession("session-bare", "bare-instance", "2026-10-04T01:03:00.000Z", "live", null, ["task-four"]),
+  ];
+  const events = live.map((session, index) => ({
+    ...runtimeDispatch(session),
+    payload: {
+      ...runtimeDispatch(session).payload,
+      ...(index < 2 ? { agentId: "sol", agentName: "Sol" } : index === 2 ? { agentId: "luna" } : {}),
+    },
+  })) as readonly Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>[];
+  const projection = {
+    ...projectionFixture(),
+    readRuntimeSessions: () => live,
+    readRuntimeDispatches: () => events,
+  } as TaskProjection;
+  const reads = makeAgentRuntimeReadModel({
+    projection,
+    store: {} as never,
+    stream: {} as never,
+    now: () => "2026-10-04T02:00:00.000Z",
+    readDispatches: () => [], // remote center has the repository events but no edge-local dispatch files
+  });
+  const result = parseSessionGroupsProjection(
+    reads.sessionGroups({ groupBy: "agent", limit: 1, sessionIds: live.map((session) => session.runtimeSessionId) }),
+  );
+  assert.equal(result.truncated, true);
+  assert.deepEqual(result.sessionAgents, [
+    { runtimeSessionId: "session-one", agentId: "sol", label: "Sol" },
+    { runtimeSessionId: "session-two", agentId: "sol", label: "Sol" },
+    { runtimeSessionId: "session-other", agentId: "luna", label: "luna" },
+  ]);
+  assert.deepEqual(reads.sessionGroups({ groupBy: "task" }).sessionAgents, []);
 });
 
 test("session groups default to active plus 24h and group/filter/limit before returning exact totals", () => {

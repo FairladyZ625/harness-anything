@@ -65,12 +65,14 @@ export function OverviewView({
   titles,
   workspaceSummary,
   health,
+  collaboration,
   onNavigateEntity,
   onOpenTask,
   onOpenSearch,
   onOpenSessions,
   onOpenWorks,
   onOpenTasks,
+  onOpenCollaboration,
   onUnpin,
 }: {
   readonly repoId: string;
@@ -84,6 +86,8 @@ export function OverviewView({
   readonly workspaceSummary: WorkspaceSummaryRead;
   /** 侧栏系统运行区同一份派生(App 折算,见 model/runtime-health.ts);这里喂异常状态点。 */
   readonly health: RuntimeHealth;
+  /** 非纯本地仓的协作摘要(task_1bafbf09);null/undefined = 纯本地,不显示入口。 */
+  readonly collaboration?: { readonly total: number; readonly executing: number } | null;
   readonly onNavigateEntity: (ref: string) => void;
   /** 工作行与任务行的落点:App 按「根任务即工作」分流到工作页或任务详情。 */
   readonly onOpenTask: (taskId: string) => void;
@@ -94,6 +98,8 @@ export function OverviewView({
   readonly onOpenWorks: () => void;
   /** 「全部任务」入口的落点:看板。 */
   readonly onOpenTasks: () => void;
+  /** 紧凑协作入口的落点(总览只给摘要与入口,分工清单在协作页)。 */
+  readonly onOpenCollaboration?: () => void;
   /** 取消置顶(pin 写通道,taskActions.setTaskPin)。 */
   readonly onUnpin: (taskId: string) => void;
 }) {
@@ -228,6 +234,20 @@ export function OverviewView({
         ) : ciQuery.isError ? (
           <StatusPill tone="warn">{t("views.overviewView.topCiUnknown")}</StatusPill>
         ) : null}
+        {collaboration !== null && collaboration !== undefined && onOpenCollaboration !== undefined && (
+          <button
+            type="button"
+            data-testid="overview-collaboration-entry"
+            onClick={onOpenCollaboration}
+            className="glass flex h-6 shrink-0 items-center gap-1.5 rounded-xs px-2.5 text-text-muted ui-meta hover:text-text"
+          >
+            <span className="size-[7px] shrink-0 rounded-full bg-accent" aria-hidden="true" />
+            {t("views.overviewView.collaborationEntry", {
+              total: String(collaboration.total),
+              executing: String(collaboration.executing),
+            })}
+          </button>
+        )}
         {(health.projection.lag ?? 0) > 0 && (
           <StatusPill tone="warn">
             {t("views.overviewView.topProjectionLag", { lag: String(health.projection.lag) })}

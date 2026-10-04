@@ -225,6 +225,12 @@ export type AgentRuntimeSessionGroupsResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly groups: readonly AgentRuntimeSessionGroupDto[];
+  /** Declared identity for the requested lease sessions, from repository runtime dispatch events. */
+  readonly sessionAgents: readonly {
+    readonly runtimeSessionId: string;
+    readonly agentId: string;
+    readonly label: string;
+  }[];
   readonly totals: { readonly groups: number; readonly sessions: number };
   readonly truncated: boolean;
   readonly watermark: number;
@@ -317,6 +323,7 @@ export function validateAgentRuntimeSessionGroups(value: unknown): readonly stri
       "ok",
       "status",
       "groups",
+      "sessionAgents",
       "totals",
       "truncated",
       "watermark",
@@ -326,6 +333,13 @@ export function validateAgentRuntimeSessionGroups(value: unknown): readonly stri
     ["ready", "pending"].includes(String(value.status)) &&
     Array.isArray(value.groups) &&
     value.groups.every(validSessionGroup) &&
+    Array.isArray(value.sessionAgents) &&
+    value.sessionAgents.every(
+      (entry: unknown) =>
+        isAgentRuntimeContractRecord(entry) &&
+        hasExactAgentRuntimeContractFields(entry, ["runtimeSessionId", "agentId", "label"]) &&
+        [entry.runtimeSessionId, entry.agentId, entry.label].every(sessionGroupText),
+    ) &&
     isAgentRuntimeContractRecord(value.totals) &&
     hasExactAgentRuntimeContractFields(value.totals, ["groups", "sessions"]) &&
     [value.totals.groups, value.totals.sessions].every(sessionGroupCount) &&

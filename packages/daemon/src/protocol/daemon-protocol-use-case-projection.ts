@@ -53,6 +53,7 @@ export interface DaemonUseCaseProjectionPayload {
   readonly query?: string;
   /** Session status words the group read narrows to; the daemon owns the vocabulary. */
   readonly status?: readonly string[];
+  readonly sessionIds?: readonly string[];
   readonly limit?: number;
 }
 

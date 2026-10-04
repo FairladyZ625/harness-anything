@@ -692,7 +692,7 @@ export function createDaemonHostRepositoryApi(
       }
     },
     read: async (repoId, method, payload, auth) => {
-      const repositoryRead = repositoryReadDescriptor(method);
+      const repositoryRead = repositoryReadDescriptor(method, payload);
       const edge =
         repositoryRead &&
         readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(

@@ -20,6 +20,7 @@ import {
   writeTriadicLedger,
 } from "../../packages/gui/test-support/triadic-ledger.mjs";
 import { seedGuiE2eRuntimeSessions, seedGuiE2eSessionTasks } from "./scenarios/sessions-grouping.mjs";
+import { seedGuiE2eCollaborationTasks, seedGuiE2eCollaborationLeases } from "./scenarios/collaboration-view.mjs";
 import { warmDaemonProjection } from "../e2e-probe.mjs";
 
 // Long script-free HTML report: tall enough that a 150px-default webview clips after
@@ -139,16 +140,23 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       daemonId: "g",
       repoId: "gui-e2e-catalog",
       task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
+      // 协作种子的指派目标账号(assign RPC 会在目录里核人,不登记则 person_not_found)。
+      keycloakSetup: (keycloak) => {
+        keycloak.account("person-ada");
+        keycloak.account("person-bo");
+      },
       afterRestart: seedTriadicReviewAwait,
       // 层次 fixture 的任务实体要在 daemon 停机前经 repo.task.create 落进投影;
       // 事件与派工归档仍在停机窗口里种(sessions-grouping 场景自持)。
       beforeStop: async (endpoint, repoId) => {
         sessionTaskPackages = await seedGuiE2eSessionTasks(endpoint, repoId);
+        await seedGuiE2eCollaborationTasks(endpoint, repoId);
       },
       beforeRestart: async (rootDir, repoId, writerFence) => {
         await seedTriadicEvents(rootDir, repoId, writerFence);
         await seedSupersedeChain(rootDir, repoId, writerFence);
         await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, sessionTaskPackages);
+        await seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence);
       },
     });
   } finally {
@@ -160,7 +168,10 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
   writeRawArtifact(fixture.rootDir, fixture.packagePath);
   writeSpreadsheetArtifact(fixture.rootDir, fixture.packagePath);
   writeDeclaredEntitySource(fixture.rootDir);
+  // Electron 应用面对的是夹具 daemon:剥掉外层运行时注入的任务执行凭据,否则预载桥
+  // 会把它附到每个请求上而被夹具 daemon 拒绝(canonical lane 面向真实 daemon,不动)。
   const isolatedEnv = { ...env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
+  delete isolatedEnv.HARNESS_EXECUTION_CREDENTIAL;
   const driver = await startDriver({
     workspaceRoot,
     rootDir: fixture.rootDir,

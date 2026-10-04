@@ -311,6 +311,7 @@ export const daemonUseCaseProjectionPayloadShape = shape({
   since: "string?",
   query: "string?",
   status: "array?",
+  sessionIds: "array?",
   limit: "number?",
 });
 

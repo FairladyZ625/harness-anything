@@ -42,6 +42,10 @@ const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`)
   DISPATCH_NOTASK = `dispatch_${identity("no-task").slice(0, 24)}`,
   FIXTURE_TASK = "task-gui-smoke",
   REPO = "gui-e2e-catalog",
+  /** 夹具会话 id 的确定性派生(协作场景按同一公式引用已种会话,见 collaboration-view.mjs)。 */
+  guiE2eRuntimeSessionId = (key) => `runtime_${identity(key).slice(24, 48)}`,
+  /** 夹具派工 id 的确定性派生(dispatch_[a-f0-9]{24},与轮次行同一来源)。 */
+  guiE2eDispatchId = (key) => `dispatch_${identity(key).slice(0, 24)}`,
   /** 层次 fixture:task-e2e-rounds 的 4 轮(数组序=轮次序,第 4 轮最新)。最新轮 failed
    * 留在活跃区,其余终态沉底——夹具 daemon 重启会把停机窗口种的会话标 unknown
    * (markRuntimeSessionsUnknown),live/running 态种不出来;真实运行态由 canonical
@@ -83,6 +87,9 @@ const definitionSnapshot = (instanceId, installationId) => ({
 /** 夹具种子:在 daemon 停机窗口里追加 agent-runtime 事件(lanes.mjs 的 beforeRestart 调用)。
  * taskPackages 是 seedGuiE2eSessionTasks 返回的 taskId → packagePath——派工归档要落
  * 在真实包路径(create 派生目录名),不是 tasks/<taskId>。 */
+/** 协作场景(collaboration-view.mjs)按同一确定性公式引用已种会话与派工 id。 */
+export { guiE2eRuntimeSessionId, guiE2eDispatchId };
+
 export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, taskPackages = {}) {
   const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
     projection = makeTaskProjection({ rootDir, eventStore: store }),
@@ -223,6 +230,11 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
         append("runtime_dispatch_requested", {
           dispatchId,
           runtimeSessionId,
+          ...(row.key === "round-4"
+            ? { agentId: "glm", agentName: "GLM-5.3" }
+            : row.key === "single-1"
+              ? { agentId: "astra", agentName: "Astra" }
+              : {}),
           instanceId,
           installationId,
           kindId: "codex",
@@ -305,8 +317,12 @@ export async function seedGuiE2eSessionTasks(endpoint, repoId) {
   return packagePaths;
 }
 
-/** 派工归档落盘(与 entity-document 事件同字节;任务实体由 seedGuiE2eSessionTasks 先建)。 */
-function writeDispatchArchiveBody(rootDir, packagePath, dispatchId, body) {
+/** 派工归档落盘(与 entity-document 事件同字节;任务实体由 seedGuiE2eSessionTasks 先建)。 */ function writeDispatchArchiveBody(
+  rootDir,
+  packagePath,
+  dispatchId,
+  body,
+) {
   const dispatchesDir = path.join(rootDir, "harness", packagePath, "artifacts", "dispatches");
   mkdirSync(dispatchesDir, { recursive: true });
   writeFileSync(path.join(dispatchesDir, `${dispatchId}.json`), body);
