@@ -34,7 +34,7 @@ import {
   isEntityEvent,
   ownedContentForDeclarationEvent,
 } from "../domain/entity-event.ts";
-import { entityOwnedDocumentClaims } from "../domain/entity-owned-content.ts";
+import { ENTITY_CONTENT_POLICY_ID, entityOwnedDocumentClaims } from "../domain/entity-owned-content.ts";
 import { canonicalDocumentRetirements } from "../composition/index.ts";
 import { interpretEntityValue, type InterpretedEntityValue } from "../domain/entity-kind-projection.ts";
 import { EntitySchemaContractError } from "../domain/entity-json-schema.ts";
@@ -259,8 +259,9 @@ export function applyEvent(
       const document: DocumentState = {
         path: owned.path as DocumentState["path"],
         blobSha256: owned.sha256,
+        // Raw artifacts and imported entity content are bytes, not text; only their claim is projected.
         body:
-          owned.policyId === RAW_ARTIFACT_POLICY_ID
+          owned.policyId === RAW_ARTIFACT_POLICY_ID || owned.policyId === ENTITY_CONTENT_POLICY_ID
             ? ""
             : new TextDecoder("utf-8", { fatal: true, ignoreBOM: owned.policyId === OPAQUE_TEXTUAL_POLICY_ID }).decode(
                 content,
