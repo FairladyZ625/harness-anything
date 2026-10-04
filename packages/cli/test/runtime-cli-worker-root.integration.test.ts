@@ -31,10 +31,11 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
       'if (args[0] === "login" && args[1] === "status") process.exit(0);',
       'const prompt = fs.readFileSync(0, "utf8");',
       'const packageRoot = prompt.split("Task package root: ")[1].split("\\n")[0];',
+      'const taskId = prompt.split("Canonical Task ID: ")[1].split("\\n")[0];',
       'const plan = fs.readFileSync(path.join(packageRoot, "task_plan.md"), "utf8");',
       // The CLI run from the worker root still reaches the registered repository, not the worktree as a repository.
-      `const listed = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "list"], { encoding: "utf8", env: process.env });`,
-      'fs.writeFileSync(path.join(packageRoot, "artifacts", "worker-probe.json"), JSON.stringify({ cwd: process.cwd(), packageRoot, plan, prompt, listed: { status: listed.status, stdout: listed.stdout, stderr: listed.stderr } }));',
+      `const shown = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "show", taskId], { encoding: "utf8", env: process.env });`,
+      'fs.writeFileSync(path.join(packageRoot, "artifacts", "worker-probe.json"), JSON.stringify({ cwd: process.cwd(), packageRoot, plan, prompt, shown: { status: shown.status, stdout: shown.stdout, stderr: shown.stderr } }));',
       'console.log(JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }));',
       'console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "final" } }));',
       'console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));',
@@ -51,14 +52,14 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
     readonly packageRoot: string;
     readonly plan: string;
     readonly prompt: string;
-    readonly listed: { readonly status: number | null; readonly stdout: string; readonly stderr: string };
+    readonly shown: { readonly status: number | null; readonly stdout: string; readonly stderr: string };
   };
 
   assert.equal(probe.cwd, worktree, "the worker process runs in its task worktree");
   assert.equal(probe.packageRoot, path.join(worktree, "harness", task.packagePath));
   assert.equal(probe.plan, readFileSync(path.join(root, "harness", task.packagePath, "task_plan.md"), "utf8"));
-  assert.equal(probe.listed.status, 0, probe.listed.stderr);
-  assert.ok(probe.listed.stdout.includes(task.taskId), probe.listed.stdout);
+  assert.equal(probe.shown.status, 0, probe.shown.stdout + probe.shown.stderr);
+  assert.ok(probe.shown.stdout.includes(task.taskId), probe.shown.stdout);
   assert.match(probe.prompt, new RegExp(`^Worker repository root: ${escapeRegExp(worktree)}$`, "mu"));
   assert.match(
     probe.prompt,
