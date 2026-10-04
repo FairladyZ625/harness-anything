@@ -652,12 +652,12 @@ test(
         { runtimeSessionId: cancelRuntime },
         f.auth,
       );
-      return result.session.liveness === "exited" && result.session.activity.outcome ? result.session : null;
+      return result.session.liveness === "exited" && result.session.activity.resultRef ? result.session : null;
     });
     assert.equal(cancelSettled.liveness, "exited");
     assert.equal(cancelSettled.activity.outcome, "cancelled");
     const cancelledStream = await eventuallyValue(() => readDispatchStream(reviewRoot, cancelDispatch));
-    assert.equal(cancelledStream.terminalOutcome?.payload.outcome, "cancelled");
+    assert.equal(cancelledStream.terminalOutcome?.payload.outcome, "cancelled", JSON.stringify(cancelledStream));
     reviewLive.delete(cancelRuntime);
     assert.deepEqual((await show()).reviews, s1.reviews, "neither stale settlement may register a review");
     for (const dispatchId of [reviewDispatch, cancelDispatch])
