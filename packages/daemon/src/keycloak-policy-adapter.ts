@@ -78,7 +78,9 @@ export class KeycloakPolicyAdapter {
 
   constructor(config: KeycloakPolicyAdapterConfig, fetchPort: FetchPort = fetch) {
     this.#config = config;
-    this.#fetch = fetchPort;
+    // Authorization runs inside the repository write queue, so a Keycloak peer that accepts but
+    // never answers must release that queue within the same 10s bound runtime credentials use.
+    this.#fetch = (input, init) => fetchPort(input, { signal: AbortSignal.timeout(10_000), ...init });
   }
 
   async syncBasePolicy(adminAccessToken: string): Promise<KeycloakPolicySyncReceipt> {

@@ -379,13 +379,22 @@ test("a remote-center that wakes past the admission window records its builtin o
   scheduler.close();
 });
 
-test("rejected missed settlements retry without advancing the cursor and re-arm on recovery", async (t) => {
+test("a rejected missed settlement records its verdict per pass and never blocks the due batch", async (t) => {
+  const rejection = "[schedule-scheduler] missed-rejection/heartbeat missed settlement rejected: authorization_denied.";
   for (const mode of ["local", "remote-edge"] as const)
     for (const wake of ["start", "tick"] as const)
       await t.test(`${mode}/${wake}`, async () => {
         const clock = fakeClock(wake === "start" ? "2026-08-27T10:35:00.000Z" : "2026-08-27T10:00:00.000Z"),
           heartbeat = schedule("heartbeat"),
-          repo = fixtureRepo("missed-rejection", mode, [heartbeat]),
+          healthy = schedule("healthy");
+        // healthy is already evaluated through its 10:10 anchor, so its next occurrence (10:40)
+        // is a clean due wakeup in the same batch as heartbeat's rejected missed interval.
+        healthy.spec = {
+          ...healthy.spec,
+          trigger: { kind: "interval", everyMs: 30 * 60_000, anchorAt: "2026-08-27T10:10:00.000Z" },
+        };
+        healthy.status.automaticEvaluatedThrough = "2026-08-27T10:10:00.000Z";
+        const repo = fixtureRepo("missed-rejection", mode, [heartbeat, healthy]),
           warnings: string[] = [],
           attempts: Readonly<Record<string, unknown>>[] = [],
           originalWarn = console.warn;
@@ -394,8 +403,6 @@ test("rejected missed settlements retry without advancing the cursor and re-arm 
           if (action.kind !== "schedule-missed") return repo.execute(action);
           attempts.push(action);
           if (!reject) return repo.execute(action);
-          // Bound the old implementation's immediate recursion by its own third rejection.
-          if (attempts.length === 3) scheduler.close();
           return {
             ...(mode === "remote-edge" ? { schema: "command-receipt/v2", command: "schedule-missed", ok: false } : {}),
             outcome: "op_rejected",
@@ -413,46 +420,59 @@ test("rejected missed settlements retry without advancing the cursor and re-arm 
           setTimer: clock.setTimer,
           clearTimer: clock.clearTimer,
         });
+        const settled = (attemptCount: number) =>
+          waitUntil(() => attempts.length === attemptCount && clock.liveTimers().length === 1);
         console.warn = (message?: unknown) => warnings.push(String(message));
         try {
           await scheduler.start();
-          if (wake === "tick") {
+          if (wake === "start") {
+            // One verdict per scheduler pass, no 1s retry timer: the due batch arms instead.
+            assert.equal(attempts.length, 1);
+            assert.deepEqual(warnings, [rejection]);
+            assert.equal(clock.liveTimers()[0]!.delayMs, 5 * 60_000);
+          } else {
+            assert.equal(attempts.length, 0);
+            assert.equal(clock.liveTimers()[0]!.delayMs, 30 * 60_000);
             clock.value = "2026-08-27T10:35:00.000Z";
             clock.liveTimers()[0]!.callback();
-            await waitUntil(() => attempts.length >= 3 || clock.liveTimers().length === 1);
+            // The tick pass records its verdict, then its trailing reconcile records one more
+            // while re-arming; no retry timer is ever installed.
+            await settled(2);
+            assert.deepEqual(warnings, [rejection, rejection]);
+            assert.equal(clock.liveTimers()[0]!.delayMs, 5 * 60_000);
+            assert.deepEqual(repo.fired, []);
           }
-          const assertRetry = (count: number) => {
-            assert.equal(attempts.length, count);
-            assert.equal(repo.actions.filter((kind) => kind === "schedule-list").length, count);
-            assert.equal(heartbeat.status.automaticEvaluatedThrough, "2026-08-27T10:00:00.000Z");
-            assert.deepEqual(repo.missed, []);
-            assert.equal(clock.liveTimers().length, 1);
-            assert.equal(clock.liveTimers()[0]!.delayMs, 1_000);
-            assert.deepEqual(
-              warnings,
-              Array(count).fill(
-                "[schedule-scheduler] missed-rejection/heartbeat missed settlement failed: Schedule missed rejected: authorization_denied.",
-              ),
-            );
-          };
-          // Tick has one initial read to arm its occurrence before the late wake.
-          if (wake === "tick") repo.actions.shift();
-          assertRetry(1);
+          assert.equal(heartbeat.status.automaticEvaluatedThrough, "2026-08-27T10:00:00.000Z");
+          assert.deepEqual(repo.missed, []);
+
+          clock.value = "2026-08-27T10:40:00.000Z";
           clock.liveTimers()[0]!.callback();
-          await waitUntil(() => attempts.length >= 3 || clock.liveTimers().length === 1);
-          assertRetry(2);
-          assert.deepEqual(attempts[1], attempts[0]);
+          const firedAt = wake === "start" ? 3 : 4;
+          await settled(firedAt);
+          // The rejected verdict never freezes the due batch: healthy fires on time.
+          assert.deepEqual(repo.fired, ["healthy"]);
+          assert.equal(heartbeat.status.automaticEvaluatedThrough, "2026-08-27T10:00:00.000Z");
+          assert.deepEqual(repo.missed, []);
+          assert.equal(clock.liveTimers()[0]!.delayMs, 30 * 60_000);
+          for (const attempt of attempts.slice(1)) assert.deepEqual(attempt, attempts[0]);
 
           reject = false;
-          clock.liveTimers()[0]!.callback();
-          await waitUntil(() => clock.liveTimers().length === 1);
-          assert.equal(attempts.length, 3);
-          assert.deepEqual(attempts[2], attempts[0]);
+          await scheduler.refresh();
+          // The next evaluation settles the same interval: same idempotency key, cursor advances.
+          assert.equal(attempts.length, firedAt + 1);
           assert.equal(heartbeat.status.automaticEvaluatedThrough, "2026-08-27T10:30:00.000Z");
           assert.equal(heartbeat.status.missedCount, 1);
-          assert.equal(repo.missed.length, 1);
-          assert.deepEqual(repo.fired, []);
-          assert.equal(clock.liveTimers()[0]!.delayMs, 25 * 60_000);
+          assert.deepEqual(repo.missed, [
+            {
+              scheduleId: "heartbeat",
+              from: "2026-08-27T10:30:00.000Z",
+              to: "2026-08-27T10:30:00.000Z",
+              count: 1,
+              reason: "scheduler_unavailable",
+            },
+          ]);
+          assert.equal(clock.liveTimers()[0]!.delayMs, 20 * 60_000);
+          assert.deepEqual(warnings, Array(wake === "start" ? 3 : 4).fill(rejection));
         } finally {
           console.warn = originalWarn;
           scheduler.close();

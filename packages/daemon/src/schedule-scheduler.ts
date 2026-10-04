@@ -97,9 +97,15 @@ export function makeScheduleScheduler(input: {
     timer = null;
     const plan = await evaluationPlan();
     if (plan.missed.length) {
-      if (await applyMissed(plan.missed)) return reconcile();
-      armRetry();
-      return;
+      const settlement = await applyMissed(plan.missed);
+      if (settlement === "transient") {
+        armRetry();
+        return;
+      }
+      // A clean settlement re-evaluates at once. A receipt rejection is the cell's final verdict
+      // on that interval — recorded, never retried on a timer — and the due batch below still
+      // arms, so one repository's verdict cannot freeze every other schedule.
+      if (settlement === "clean") return reconcile();
     }
     if (plan.pending) {
       armRetry();
@@ -130,9 +136,15 @@ export function makeScheduleScheduler(input: {
     if (closed) return;
     const plan = await evaluationPlan();
     if (plan.missed.length) {
-      if (await applyMissed(plan.missed)) await reconcile();
-      else armRetry();
-      return;
+      const settlement = await applyMissed(plan.missed);
+      if (settlement === "transient") {
+        armRetry();
+        return;
+      }
+      if (settlement === "clean") {
+        await reconcile();
+        return;
+      }
     }
     if (plan.pending) {
       armRetry();
@@ -365,7 +377,7 @@ function occurrenceAt(trigger: ScheduleTriggerV1, first: string, offset: number)
   return occurrence;
 }
 
-async function recordMissed(input: MissedOccurrences): Promise<void> {
+async function recordMissed(input: MissedOccurrences): Promise<"settled" | "rejected"> {
   const result = await input.target.execute({
     kind: "schedule-missed",
     scheduleId: input.scheduleId,
@@ -380,22 +392,35 @@ async function recordMissed(input: MissedOccurrences): Promise<void> {
   });
   const receipt = makeDaemonCommandReceipt("schedule-missed", result),
     rejectionCode = daemonCommandReceiptRejectionCode(receipt);
-  if (rejectionCode)
-    throw Object.assign(new Error(`Schedule missed rejected: ${rejectionCode}.`), { code: rejectionCode });
+  if (rejectionCode) {
+    // The cell has ruled on this interval; replaying the identical settlement cannot change the
+    // verdict. Record it and leave the interval to be outgrown by the schedule's own cadence.
+    console.warn(
+      `[schedule-scheduler] ${input.target.repoId}/${input.scheduleId} missed settlement rejected: ${rejectionCode}.`,
+    );
+    return "rejected";
+  }
+  return "settled";
 }
 
-async function applyMissed(inputs: readonly MissedOccurrences[]): Promise<boolean> {
+/** Every missed interval settled, receipt-rejected, or left waiting on a transient failure. */
+type MissedSettlement = "clean" | "rejected" | "transient";
+
+async function applyMissed(inputs: readonly MissedOccurrences[]): Promise<MissedSettlement> {
   const outcomes = await Promise.allSettled(inputs.map(recordMissed));
-  for (const [index, outcome] of outcomes.entries())
-    if (isRejected(outcome)) {
+  let settlement: MissedSettlement = "clean";
+  for (const [index, outcome] of outcomes.entries()) {
+    if (outcome.status === "rejected") {
       consumeKnownError(outcome.reason);
       const input = inputs[index]!;
       console.warn(
         `[schedule-scheduler] ${input.target.repoId}/${input.scheduleId} missed settlement failed: ` +
           errorMessage(outcome.reason),
       );
-    }
-  return !outcomes.some(isRejected);
+      settlement = "transient";
+    } else if (outcome.value === "rejected" && settlement === "clean") settlement = "rejected";
+  }
+  return settlement;
 }
 
 function occurrenceKey(input: DueOccurrence): string {
@@ -404,8 +429,4 @@ function occurrenceKey(input: DueOccurrence): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function isRejected(outcome: PromiseSettledResult<unknown>): outcome is PromiseRejectedResult {
-  return outcome.status === "rejected";
 }
