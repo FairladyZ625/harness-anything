@@ -10,6 +10,7 @@ import {
   type RuntimeInstallationWitness,
 } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
+import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
 import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
@@ -17,6 +18,33 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+
+function assertScopedGuidance(prompt: string, taskId: string): void {
+  assert.doesNotMatch(prompt, /ha (?:graph|work show|task create)/u);
+  assert.match(prompt, new RegExp(`ha task read-set ${taskId}`, "u"));
+  assert.match(prompt, /已注入的 Task Causal Context/u);
+  assert.match(prompt, /资料不足[\s\S]*owner/u);
+  for (const role of ["implementation", "reviewer"] as const) {
+    const principal = {
+      personId: "person-worker",
+      repoId: "repo",
+      runtimeSessionId: "runtime-worker",
+      dispatchId: "dispatch-worker",
+      taskId,
+      executionId: "execution-worker",
+      role,
+      source: "local" as const,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    const request = (kind: string) =>
+      requireExecutionRequestScope(principal, "repo.task.read", {
+        repo: { repoId: principal.repoId },
+        payload: { action: { kind, taskId } },
+      });
+    assert.doesNotThrow(() => request("task-read-set"));
+    assert.throws(() => request("graph"), { code: "execution_credential_rejected" });
+  }
+}
 
 const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" as const }, "contributor"),
   definition: AgentDefinitionSnapshot = {
@@ -244,12 +272,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES, "causal block exceeds the byte budget");
     assert.doesNotMatch(block, /ha graph/u, "the causal block no longer spends budget on a bare command word");
     assert.match(prompt!, /# 台账查询引导/u, "the lookup guidance rides every task-bound mission");
-    assert.match(prompt!, /ha graph task_ctx_leaf/u, "the guidance's first graph command carries this task's id");
-    assert.match(
-      prompt!,
-      /ha task create --work <工作根任务 id>/u,
-      "the guidance tells a worker how to file into its work",
-    );
+    assertScopedGuidance(prompt!, "task_ctx_leaf");
 
     // An explicit prompt on a task-bound dispatch still gets the same block prepended.
     prompt = null;
@@ -266,7 +289,8 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.equal(explicit.outcome, "applied", JSON.stringify(explicit));
     const explicitBlock = causalBlock(prompt!);
     assert.ok(explicitBlock !== null, "explicit-prompt dispatch lost the causal block");
-    assert.match(prompt!, /ha graph task_ctx_explicit/u, "explicit-prompt dispatch keeps the lookup guidance");
+    assertScopedGuidance(prompt!, "task_ctx_explicit");
+    assert.ok(prompt!.endsWith("Finish the leaf task."), "explicit caller text stays intact");
 
     // An agent-bound dispatch (ha agent run shape) assembles the same mission body.
     const installed = await cell.run(
@@ -297,10 +321,10 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.equal(agentRun.outcome, "applied", JSON.stringify(agentRun));
     assert.match(prompt!, /# Agent Identity: Causal Worker/u);
     assert.ok(causalBlock(prompt!) !== null, "agent-bound dispatch lost the causal block");
+    assertScopedGuidance(prompt!, "task_ctx_agent");
 
     // A task with no causal neighborhood injects no causal block, but the fixed
-    // lookup guidance still teaches how to query the graph — those tasks need it
-    // most, because nothing else points them at their surroundings.
+    // guidance still directs the worker to its own read-set and owner for missing context.
     prompt = null;
     const lonely = await cell.spawnRuntime(
       {
@@ -314,7 +338,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.equal(lonely.outcome, "applied", JSON.stringify(lonely));
     assert.equal(causalBlock(prompt!), null, "relation-free task must not carry a fabricated block");
     assert.match(prompt!, /# 台账查询引导/u);
-    assert.match(prompt!, /ha graph task_ctx_lonely/u, "the guidance is filled with the lonely task's own id");
+    assertScopedGuidance(prompt!, "task_ctx_lonely");
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });
@@ -441,7 +465,7 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
     assert.equal(preview.runtimeSessionId, real.runtimeSessionId);
     assert.equal(preview.prompt, prompt, "preview prompt must equal the injected prompt byte-for-byte");
     assert.match(String(preview.mission), /# Task Causal Context/u);
-    assert.match(String(preview.mission), /ha graph task_pv_leaf/u, "preview mission carries the filled guidance");
+    assertScopedGuidance(String(preview.mission), "task_pv_leaf");
 
     // Negative control: changing an injected declaration field must change the preview.
     const updated = await cell.run(

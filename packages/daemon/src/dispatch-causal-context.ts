@@ -21,8 +21,8 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
  * evidence Facts or the work Goal under CJK text. 2 KiB covers the
  * observed maximum with headroom. Canonical refs are never truncated away —
  * the fixed lookup guidance every task-bound mission carries (see
- * taskQueryGuidance) is what tells the worker `ha graph <task-id>` re-queries
- * them; this block no longer spends budget repeating that command.
+ * taskQueryGuidance) directs the worker to task-scoped reads and the owner for
+ * any missing cross-task details; the block does not grant query permissions.
  */
 export const CAUSAL_CONTEXT_MAX_BYTES = 2048;
 
