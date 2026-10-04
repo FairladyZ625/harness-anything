@@ -125,6 +125,8 @@ export interface RepoCellStatus {
   readonly rootDir: string;
   readonly mode: DaemonRepoMode | null;
   readonly state: "warming" | "attached" | "unavailable" | "closed";
+  /** A verified source generation can retain completed reads while writes are latched. */
+  readonly projectionReadable?: boolean;
   readonly generation: number | null;
   readonly queueDepth: number | null;
   readonly projectionWatermark?: number;

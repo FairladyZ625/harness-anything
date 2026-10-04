@@ -49,6 +49,8 @@ test("supersede with a new task accepts both events atomically and retries after
     assert.equal(afterFailure.read().revision, before);
     assert.equal(afterFailure.readCommandOutcome(rolledBack.opId), null);
     await afterFailure.drain();
+    assert.equal(cell.status().state, "unavailable");
+    assert.equal(cell.status().projectionReadable, true);
     const listed = JSON.parse(String((await cell.run({ kind: "task-list" }, binding)).evidence)) as {
       readonly rows: readonly { readonly taskId: string }[];
     };

@@ -240,6 +240,7 @@ test("projection rebuild is executable from a projection latch and settles it", 
     assert.equal(latched.outcome, "op_rejected");
     assert.equal(cell.status().state, "unavailable");
     assert.equal(cell.status().causeClass, "projection");
+    assert.equal(cell.status().projectionReadable, false);
     const blocked = await cell.run({ kind: "task-list" }, binding);
     assert.equal(blocked.code, "repo_unavailable");
     assert.deepEqual(blocked.diagnostic, { kind: "failure", code: "repo_unavailable" });

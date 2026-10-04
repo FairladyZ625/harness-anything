@@ -11,13 +11,19 @@ export function repoCellStatus(context: {
   readonly store: CanonicalEventStore;
   readonly lastError: string | null;
   readonly causeClass: RepoCellStatus["causeClass"];
-  readonly recovery: { readonly elapsedMs: number };
+  readonly recovery: { readonly elapsedMs: number; readonly status: "none" | "indeterminate" };
+  readonly recoveryUncertain: boolean;
 }): RepoCellStatus {
   return {
     repoId: context.input.repoId,
     rootDir: context.rootDir,
     mode: context.mode,
     state: context.state,
+    projectionReadable:
+      (context.state === "attached" || context.state === "unavailable") &&
+      context.recovery.status === "none" &&
+      !context.recoveryUncertain &&
+      context.causeClass !== "projection",
     generation: context.generation,
     queueDepth: context.queueDepth,
     lastError: context.lastError,
