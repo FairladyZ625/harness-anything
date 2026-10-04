@@ -41,6 +41,18 @@ type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
 export async function runDaemonControl(argv: readonly string[], renderReceipt: ReceiptEmitter): Promise<number> {
   const at = firstCliCommandIndex(argv);
+  // A worker's execution authority never includes local service controls or their signal ladder.
+  if (process.env.HARNESS_EXECUTION_CREDENTIAL) {
+    renderReceipt(
+      daemonFailure(
+        `${argv[at]}-${argv[at + 1] ?? "status"}`,
+        "execution_credential_rejected",
+        "Execution credentials are restricted to the dispatched task; use a human session for daemon controls.",
+      ),
+      argv.includes("--json"),
+    );
+    return 1;
+  }
   if (argv[at] === "gui") return runGuiLaunch(argv, {}, renderReceipt);
   const command = argv[at + 1],
     subcommand = argv[at + 2];

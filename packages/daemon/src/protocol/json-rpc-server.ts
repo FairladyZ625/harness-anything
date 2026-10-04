@@ -67,6 +67,12 @@ export function createJsonRpcProtocolServer(options: {
   readonly build: DaemonBuildStamp;
   readonly buildObserver?: DaemonBuildObserver;
   readonly authContext: DaemonAuthenticationContext;
+  /** Authenticate and scope a dispatch credential on every request, independently of interactive login. */
+  readonly executionPrincipal?: (
+    credential: string,
+    method: string,
+    params: JsonObject,
+  ) => Promise<NonNullable<DaemonAuthenticationContext["executionPrincipal"]>>;
   /** The daemon's signed-in OIDC principal as of now; read on every request, not once per connection. */
   readonly sessionPrincipal?: () => Promise<DaemonAuthenticationContext["oidcPrincipal"]>;
   readonly emit: (method: string, params: JsonObject) => Promise<void>;
@@ -81,6 +87,7 @@ export function createJsonRpcProtocolServer(options: {
   readonly onBuildDriftObserved?: () => void;
 }): JsonRpcProtocolServer {
   let handshaken = false;
+  let executionCredential: string | undefined;
   // Every client — CLI, GUI, fleet — converges on this server, and every dispatched response is
   // built by the reply() below, so one hook there observes the whole request surface.
   const connectionId = options.connectionId ?? randomUUID();
@@ -166,6 +173,8 @@ export function createJsonRpcProtocolServer(options: {
         Object.assign(options.authContext, {
           sessionEnvironment: params.sessionEnvironment,
         });
+      executionCredential = params.executionCredential;
+      Reflect.deleteProperty(options.authContext, "executionPrincipal");
       const warning = daemonBuildStaleNotice(options.buildObserver, options.buildDrainStatus);
       if (warning && params.reportStaleBuild) options.onBuildDriftObserved?.();
       handshaken = true;
@@ -178,7 +187,18 @@ export function createJsonRpcProtocolServer(options: {
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
-    if (options.sessionPrincipal) {
+    if (executionCredential !== undefined) {
+      try {
+        if (!options.executionPrincipal)
+          throw Object.assign(new Error("Execution authentication is unavailable."), {
+            code: "authentication_required",
+          });
+        const principal = await options.executionPrincipal(executionCredential, method, params as JsonObject);
+        Object.assign(options.authContext, { executionPrincipal: principal, oidcPrincipal: undefined });
+      } catch (error) {
+        return reply(method, protocolFailure(method, error));
+      }
+    } else if (options.sessionPrincipal) {
       // A connection outlives access tokens: each request carries the session as it is now, renewed or ended.
       try {
         Object.assign(options.authContext, { oidcPrincipal: await options.sessionPrincipal() });

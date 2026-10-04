@@ -307,6 +307,7 @@ export interface RuntimeSpawnerInput {
       readonly permissionMode?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
+  readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
   readonly resolveAgent?: (agentId: string) => RuntimeAgent;
   readonly resolveSquadDispatch?: (

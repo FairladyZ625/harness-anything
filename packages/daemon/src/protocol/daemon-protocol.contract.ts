@@ -64,6 +64,7 @@ export const daemonProtocolMethods = Object.freeze([
     params: shape({
       protocolVersion: shape({ major: "number", minor: "number" }),
       sessionEnvironment: "json?",
+      executionCredential: "string?",
       reportStaleBuild: "boolean?",
     }),
   },
@@ -505,6 +506,7 @@ type DaemonRpcParamOverrides = {
   readonly "protocol.hello": {
     readonly protocolVersion: ContractVersion;
     readonly sessionEnvironment?: DaemonSessionEnvironment;
+    readonly executionCredential?: string;
     /** A receipt-rendering caller asks the daemon to begin its cooperative build drain. */
     readonly reportStaleBuild?: boolean;
   };

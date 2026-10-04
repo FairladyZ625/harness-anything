@@ -309,6 +309,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         {
           ...launchedEnv,
           HARNESS_ACTOR: undefined,
+          HARNESS_EXECUTION_CREDENTIAL: undefined,
+          HARNESS_EXECUTION_EXPIRES_AT: undefined,
           HARNESS_DAEMON_ENDPOINT: endpoint,
           HARNESS_DAEMON_RELAY: undefined,
         },

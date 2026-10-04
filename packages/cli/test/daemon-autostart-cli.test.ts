@@ -57,14 +57,18 @@ const {
   writeFileSync,
 } = shared;
 
-test("resident daemon autostart strips the worker callback relay marker", () => {
-  const previous = process.env.HARNESS_DAEMON_RELAY;
-  process.env.HARNESS_DAEMON_RELAY = "1";
+test("resident daemon autostart strips worker routing and execution credentials", () => {
+  const keys = ["HARNESS_DAEMON_RELAY", "HARNESS_EXECUTION_CREDENTIAL", "HARNESS_EXECUTION_EXPIRES_AT"],
+    previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   try {
-    assert.equal(cliDaemonServeLaunch("/daemon-user", "worker").env.HARNESS_DAEMON_RELAY, undefined);
+    for (const key of keys) process.env[key] = "worker-only";
+    const launch = cliDaemonServeLaunch("/daemon-user", "worker");
+    for (const key of keys) assert.equal(launch.env[key], undefined, key);
   } finally {
-    if (previous === undefined) delete process.env.HARNESS_DAEMON_RELAY;
-    else process.env.HARNESS_DAEMON_RELAY = previous;
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
   }
 });
 

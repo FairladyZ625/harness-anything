@@ -192,7 +192,8 @@ for (const restart of [false, true])
     `targeted task publishes while same-squad child stays local (restart=${restart})`,
     { timeout: 30_000 },
     async (t) => {
-      const fixture = await openFixture(t, "publication-owner");
+      // Each independent repository has its own identity in the shared fixture realm.
+      const fixture = await openFixture(t, `publication-owner-${restart}`);
       await fixture.plan(["a.txt"], ["b.txt"]);
       const running = await fixture.waitStatus(
         (state) => state.workers.length === 2 && state.workers.every((w) => w.runtimeSessionId),

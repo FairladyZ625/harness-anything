@@ -130,7 +130,7 @@ for (const forceTerminate of [false, true])
           { rootDir: root, dispatchId, callbackRelay: spec },
         );
         await eventuallyRelay(() => existsSync(marker) && existsSync(spec.path));
-        assert.deepEqual(JSON.parse(readFileSync(marker, "utf8")), { endpoint: spec.path });
+        assert.deepEqual(JSON.parse(readFileSync(marker, "utf8")), { endpoint: spec.path, userRoot, daemonId });
         runtime.release?.();
         assert.equal(existsSync(spec.path), true);
         const adopted = adoptNativeProcess(root, dispatchId, runtime.pid);

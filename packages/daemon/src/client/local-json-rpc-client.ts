@@ -105,6 +105,7 @@ export async function openDaemonJsonRpcClientAt(
       "protocol.hello",
       {
         protocolVersion: currentDaemonProtocolVersion,
+        ...executionCredentialParams(),
         ...(sessionEnvironment && Object.keys(sessionEnvironment).length > 0
           ? { sessionEnvironment: sessionEnvironment as JsonObject }
           : {}),
@@ -248,6 +249,7 @@ async function requestWithSocket(
       "protocol.hello",
       {
         protocolVersion: currentDaemonProtocolVersion,
+        ...executionCredentialParams(),
         ...(sessionEnvironment && Object.keys(sessionEnvironment).length > 0
           ? { sessionEnvironment: sessionEnvironment as JsonObject }
           : {}),
@@ -361,4 +363,9 @@ export function jsonRpcRecord(value: unknown): value is JsonObject {
 
 function daemonClosedError(id: number): Error & { readonly code: string } {
   return Object.assign(new Error(`daemon closed before JSON-RPC response ${id}`), { code: "daemon_closed" });
+}
+
+/** All local hello producers must carry the worker credential, including streams and shutdown. */
+export function executionCredentialParams(env: NodeJS.ProcessEnv = process.env): JsonObject {
+  return env.HARNESS_EXECUTION_CREDENTIAL ? { executionCredential: env.HARNESS_EXECUTION_CREDENTIAL } : {};
 }

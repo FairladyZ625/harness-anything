@@ -51,12 +51,8 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     // This host owns the provider's lifetime. WINDSURF_EXT_HOST_PID comes from the editor terminal that started
     // the daemon, and devin's ACP server exits 0 as soon as that editor process is gone.
     const { WINDSURF_EXT_HOST_PID: _editorHostPid, ...hostEnvironment } = manifest.env,
-      {
-        HARNESS_DAEMON_USER_ROOT: _daemonUserRoot,
-        HARNESS_DAEMON_ID: _daemonId,
-        ...providerEnvironment
-      } = hostEnvironment,
-      providerEnv = relay ? { ...providerEnvironment, HARNESS_DAEMON_ENDPOINT: relay.endpoint } : hostEnvironment;
+      // The callback route is provenance, not authority. The CLI still needs its registry namespace.
+      providerEnv = relay ? { ...hostEnvironment, HARNESS_DAEMON_ENDPOINT: relay.endpoint } : hostEnvironment;
     child = spawn(manifest.executablePath, [...manifest.args], {
       cwd: manifest.cwd,
       env: providerEnv,

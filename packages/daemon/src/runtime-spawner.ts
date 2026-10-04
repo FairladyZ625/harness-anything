@@ -1,3 +1,4 @@
+import { prepareBoundRuntimeLaunch } from "./runtime-spawn-context.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
@@ -533,40 +534,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       (lease?.phase !== "held" || lease.actor.executor?.id !== `runtime-session:${runtimeSessionId}`)
     )
       throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId, lease));
-    // Enforced runtimes replace HOME and TMPDIR, so a task worker needs the daemon's sealed callback
-    // route as well as its own executor identity.
-    const workerLaunch =
-      (taskId || trustedSchedule || reviewerBinding) && daemonRoute
-        ? {
-            ...prepared,
-            env: {
-              ...prepared.env,
-              ...workerGitEnvironment,
-              ...workerIdentityEnvironment,
-              HARNESS_CANONICAL_ROOT: input.rootDir,
-              PATH: [
-                path.join(input.rootDir, "tools", "git-hooks"),
-                prepared.env.PATH ?? globalThis.process?.env.PATH ?? "",
-              ]
-                .filter(Boolean)
-                .join(path.delimiter),
-              HARNESS_DAEMON_USER_ROOT: daemonRoute.userRoot,
-              HARNESS_DAEMON_ID: daemonRoute.daemonId,
-              HARNESS_DAEMON_ENDPOINT: callbackRelay?.path ?? daemonRoute.endpoint,
-              HARNESS_DAEMON_RELAY: callbackRelay ? "1" : undefined,
-              HARNESS_DAEMON_REPO_ID: input.repoId,
-              HARNESS_ACTOR: runtimeActor,
-              ...(taskId ? { HARNESS_TASK_BOUND: "1" } : {}),
-              ...(trustedSchedule
-                ? {
-                    HARNESS_SCHEDULE_ID: trustedSchedule.scheduleId,
-                    HARNESS_SCHEDULE_CLAIM_FENCE: trustedSchedule.claimFence,
-                    HARNESS_SCHEDULE_MODE: trustedSchedule.mode,
-                  }
-                : {}),
-            },
-          }
-        : prepared;
     const taskBinding = taskId
         ? {
             taskId,
@@ -650,8 +617,34 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const cleanupCallbackRelay = (): void => {
       if (callbackRelay) removeRuntimeCallbackRelay(input.rootDir, newDispatchId);
     };
-    const launchPreparedProcess = () =>
-      launchRuntimeProcess(
+    const launchPreparedProcess = async () => {
+      const workerLaunch = await prepareBoundRuntimeLaunch({
+        input,
+        prepared,
+        daemonRoute,
+        callbackRelay,
+        workerGitEnvironment,
+        workerIdentityEnvironment,
+        runtimeActor,
+        taskId,
+        trustedSchedule,
+        reviewerBinding: Boolean(reviewerBinding),
+        ...(taskId && !input.remote
+          ? {
+              execution: {
+                repoId: input.repoId,
+                personId: activeBinding.actor.principal.personId,
+                source: activeBinding.source,
+                runtimeSessionId,
+                dispatchId: newDispatchId,
+                taskId,
+                executionId: reviewerBinding ? reviewTarget!.executionId : lease!.executionId,
+                role: reviewerBinding ? "reviewer" : "implementation",
+              },
+            }
+          : {}),
+      });
+      return launchRuntimeProcess(
         launch,
         workerLaunch,
         {
@@ -661,6 +654,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         },
         providerSessionId,
       );
+    };
     // Remote resumes must first win center admission, just like fresh provider launches.
     if (providerSessionId && !input.remote)
       try {

@@ -478,11 +478,17 @@ test(
       assert.equal(unreadable.receipt.code, "authorization_denied", "sync permission does not grant repository reads");
 
       // 5. A wrong credential for the now-registered node is refused by the center with the credential code.
+      const loginCount = (await logins()).length;
       const wrong = sync(`${credential}-wrong`);
       assert.equal(wrong.status, 1);
       assert.equal(wrong.receipt.code, "authentication_failed");
       assert.equal(JSON.stringify(wrong).includes(credential), false);
-      assert.deepEqual((await logins()).at(-1), { clientId: "harness-node-edge-one", ok: false });
+      // A later valid sync also logs in; the last global entry does not identify the wrong request.
+      assert.equal(sync(credential).status, 0);
+      assert.deepEqual(
+        (await logins()).slice(loginCount).filter((login) => !login.ok),
+        [{ clientId: "harness-node-edge-one", ok: false }],
+      );
     } finally {
       try {
         stop(fixture, "center");

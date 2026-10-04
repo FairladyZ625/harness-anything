@@ -1,3 +1,5 @@
+import { authenticateRuntimeExecutionCredential } from "./runtime-execution-credential.ts";
+import { requireExecutionRequestScope } from "./runtime-execution-scope.ts";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -173,6 +175,12 @@ export async function startDaemon(input: {
           build,
           buildObserver,
           authContext: { ...authContext, connectionSignal: signal },
+          executionPrincipal: async (credential, method, params) => {
+            const center = { ...(await oidc.center()), clientId: "harness-center" },
+              principal = await authenticateRuntimeExecutionCredential(center, credential);
+            requireExecutionRequestScope(principal, method, params);
+            return principal;
+          },
           sessionPrincipal: async () => (await oidc.bind({ transportKind: authContext.transportKind })).oidcPrincipal,
           emit,
           connectionId: connLog.connectionOpened(connectionId, authContext.transportKind),
