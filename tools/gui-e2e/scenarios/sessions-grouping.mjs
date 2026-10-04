@@ -230,6 +230,11 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
         append("runtime_dispatch_requested", {
           dispatchId,
           runtimeSessionId,
+          ...(row.key === "round-4"
+            ? { agentId: "glm", agentName: "GLM-5.3" }
+            : row.key === "single-1"
+              ? { agentId: "astra", agentName: "Astra" }
+              : {}),
           instanceId,
           installationId,
           kindId: "codex",

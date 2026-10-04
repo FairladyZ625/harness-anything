@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import path from "node:path";
 import {
   compileTaskLifecycleWrite,
   lifecycleDocumentFetchPaths,
@@ -10,7 +8,7 @@ import {
   reduceTaskEvent,
 } from "../../../packages/kernel/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { guiE2eDispatchId, guiE2eRuntimeSessionId } from "./sessions-grouping.mjs";
+import { guiE2eRuntimeSessionId } from "./sessions-grouping.mjs";
 import { bridgeReady, nav } from "./helpers.mjs";
 
 /**
@@ -20,12 +18,11 @@ import { bridgeReady, nav } from "./helpers.mjs";
  * sessions-grouping 同一条夹具路),执行会话直接复用它种下的会话与派工行:
  *
  *   task-collab-helm   指派 person-ada;lease held,person-ada +
- *                      runtime-session:<round-4 会话>(glm 的最新轮,groupBy=agent
- *                      投影映射得到声明 Agent),来源节点是超长 id 的 edge-alpha。
+ *                      runtime-session:<round-4 会话>(仓库派工事件声明 glm),来源节点是超长 id 的 edge-alpha。
  *   task-collab-relay  指派 person-bo;lease held,person-bo + <single-1 会话>
- *                      (astra 的最新轮),来源节点 edge-beta。
+ *                      (仓库派工事件声明 astra),来源节点 edge-beta。
  *   task-collab-signal 指派 person-ada;lease orphaned,person-ada + <free 会话>
- *                      (无派工行,投影映射不上 → 行内「Agent 未提供」),本机通道。
+ *                      (无声明 Agent,行内「Agent 未提供」),本机通道。
  *
  * 场景先在默认 local 模式断言入口隐藏,再经 daemon.repo.update 切 remote-center
  * 验证单执行节点的中心仓也能看到协作页(不以节点数量判),跑筛选/跳转/长 ID/宽窄
@@ -88,40 +85,6 @@ export async function seedGuiE2eCollaborationTasks(endpoint, repoId) {
  * actor(executor=runtime-session)/source(node)/phase。事件只过 replay 的 schema 校验,
  * 与 sessions-grouping 的 agent-runtime 种子同一 append 通道。 */
 export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence) {
-  // 派工流头:runtime 写侧每次派工都会落 .harness/runtime/dispatches/<id>.jsonl,
-  // groupBy=agent 的权威 agentId 绑定就在这个头里(sessions-grouping 只种事件与归档,
-  // 不对流头,它的组因此全是 Direct)。给两个被引用的轮次补上真实形状的流头,
-  // 使 lease 执行会话能映射到声明 Agent;无流头的 free 会话保持未映射。
-  const dispatchesRoot = path.join(rootDir, ".harness", "runtime", "dispatches");
-  mkdirSync(dispatchesRoot, { recursive: true });
-  for (const [key, taskId, instanceId, startedAt, executionId, agentId, agentName] of [
-    ["round-4", "task-e2e-rounds", "instance-e2e-rounds", "2026-10-02T13:30:00.000Z", "exe-round-4", "glm", "GLM-5.3"],
-    [
-      "single-1",
-      "task-e2e-single",
-      "instance-e2e-single",
-      "2026-10-02T11:00:00.000Z",
-      "exe-single-1",
-      "astra",
-      "Astra",
-    ],
-  ]) {
-    const dispatchId = guiE2eDispatchId(key),
-      header = {
-        schema: "runtime-dispatch-stream/v1",
-        kind: "dispatch",
-        dispatchId,
-        taskId,
-        executionId,
-        runtimeSessionId: guiE2eRuntimeSessionId(key),
-        instanceId,
-        startedAt,
-        eventStreamRef: `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
-        agentId,
-        agentName,
-      };
-    writeFileSync(path.join(dispatchesRoot, `${dispatchId}.jsonl`), `${JSON.stringify(header)}\n`);
-  }
   const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
     projection = makeTaskProjection({ rootDir, eventStore: store }),
     leases = [

@@ -25,28 +25,23 @@ export interface CollaborationAgent {
 }
 
 /**
- * lease 执行会话 → 声明 Agent 的索引。投影每组只暴露 latestRound 的
- * runtimeSessionId,所以映射按读面天然是部分的:没映射上的会话如实显示
- * 「未提供」,不把未知冒充成 Agent。truncated = 组读面被 limit 截断,映射
- * 可能进一步缺组。
+ * lease 执行会话 → 声明 Agent 的索引。只包含本次请求且有派工声明的会话。
  */
 export interface SessionAgentIndex {
   readonly agentOfSession: ReadonlyMap<string, CollaborationAgent>;
-  readonly truncated: boolean;
 }
 
-export const EMPTY_SESSION_AGENT_INDEX: SessionAgentIndex = { agentOfSession: new Map(), truncated: false };
+export const EMPTY_SESSION_AGENT_INDEX: SessionAgentIndex = { agentOfSession: new Map() };
 
-/** 从 runtime-session-groups(groupBy=agent)结果建会话→Agent 索引;无 agentId 的组(Direct/未归属)不进。 */
+/** 从仓库派工事件对 lease 会话的声明建索引；与组分页无关。 */
 export function agentIndexOfSessionGroups(
-  result: Pick<AgentRuntimeSessionGroupsResult, "groups" | "truncated">,
+  result: Pick<AgentRuntimeSessionGroupsResult, "sessionAgents">,
 ): SessionAgentIndex {
   const agentOfSession = new Map<string, CollaborationAgent>();
-  for (const group of result.groups) {
-    if (group.agentId === undefined || group.latestRound === null) continue;
-    agentOfSession.set(group.latestRound.runtimeSessionId, { agentId: group.agentId, label: group.label });
+  for (const entry of result.sessionAgents) {
+    agentOfSession.set(entry.runtimeSessionId, { agentId: entry.agentId, label: entry.label });
   }
-  return { agentOfSession, truncated: result.truncated };
+  return { agentOfSession };
 }
 
 export interface CollaborationFilters {

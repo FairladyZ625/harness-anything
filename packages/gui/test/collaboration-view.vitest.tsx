@@ -37,33 +37,13 @@ const HELD_LEASE = {
   leaseExpiresAt: "2026-10-05T00:00:00.000Z",
 };
 
-/** groupBy=agent 读面的最小组形状(只填索引消费的字段)。 */
-function agentGroup(agentId: string, label: string, sessionId: string) {
-  return {
-    key: agentId,
-    kind: "agent" as const,
-    label,
-    agentId,
-    latestStatus: "running" as const,
-    latestActivityAt: "2026-10-02T13:30:00.000Z",
-    runningCount: 1,
-    sessionCount: 1,
-    roundCount: 1,
-    latestRound: {
-      runtimeSessionId: sessionId,
-      dispatchId: `dispatch_${agentId}`,
-      agentName: label,
-      instanceId: `instance-${agentId}`,
-      status: "running" as const,
-      classification: null,
-      reason: null,
-      startedAt: "2026-10-02T13:30:00.000Z",
-    },
-  };
+/** Repository dispatch event identity projected for one running session. */
+function declaredSessionAgent(agentId: string, label: string, runtimeSessionId: string) {
+  return { runtimeSessionId, agentId, label };
 }
 
-const agentIndex = (groups: readonly ReturnType<typeof agentGroup>[], truncated = false): SessionAgentIndex =>
-  agentIndexOfSessionGroups({ groups, truncated });
+const agentIndex = (sessionAgents: readonly ReturnType<typeof declaredSessionAgent>[]): SessionAgentIndex =>
+  agentIndexOfSessionGroups({ sessionAgents });
 
 /** FilterChips 的计数渲染在 chip 内的 <b> 里;取它做精确断言,不受标签文字干扰。 */
 function chipCount(chip: HTMLButtonElement): string {
@@ -187,7 +167,7 @@ describe("协作页内容契约", () => {
           leasePhase: "held",
         }),
       ],
-      agents: agentIndex([agentGroup("glm", "GLM-5.3", "runtime_b1")]),
+      agents: agentIndex([declaredSessionAgent("glm", "GLM-5.3", "runtime_b1")]),
     });
     expect(view.rows().map((row) => row.getAttribute("data-task-id"))).toEqual(["task-ana", "task-bob"]);
     const personChips = () => [
@@ -318,10 +298,10 @@ describe("review be577 四个反例的修后视图行为", () => {
     act(() => view.root.unmount());
   });
 
-  it("同一会话跨 task 的 lease 聚合进同一 Agent 筛选值;同 Agent 旧轮会话未映射不冒充", () => {
+  it("同一 Agent 的两个在飞会话跨 task 聚合到一个筛选值", () => {
     const view = renderView({
       tasks: [
-        // glm 的最新轮会话 runtime_aaa 同时是两个 task 的 lease executor——聚合为一个 Agent 值。
+        // runtime_aaa 同时是两个 task 的 lease executor——聚合为一个 Agent 值。
         task("task-a", {
           leaseActor: {
             principal: { personId: "person_zeyu" },
@@ -336,7 +316,7 @@ describe("review be577 四个反例的修后视图行为", () => {
           },
           leasePhase: "held",
         }),
-        // glm 的更早轮会话 runtime_bbb:投影组只暴露 latestRound,映射不上 → 未提供。
+        // 另一在飞会话 runtime_bbb 同样由仓库派工事件声明为 glm。
         task("task-old-round", {
           leaseActor: {
             principal: { personId: "person_zeyu" },
@@ -345,23 +325,26 @@ describe("review be577 四个反例的修后视图行为", () => {
           leasePhase: "held",
         }),
       ],
-      agents: agentIndex([agentGroup("glm", "GLM-5.3", "runtime_aaa")]),
+      agents: agentIndex([
+        declaredSessionAgent("glm", "GLM-5.3", "runtime_aaa"),
+        declaredSessionAgent("glm", "GLM-5.3", "runtime_bbb"),
+      ]),
     });
     const agentDimension = view.host.querySelector('[data-testid="collaboration-filter-agent"]')!;
     expect(agentDimension.textContent).toContain("Agent");
     const glmChip = view.host
       .querySelector('[data-testid="collaboration-filter-agent"] span[title="glm"]')
       ?.closest("button") as HTMLButtonElement;
-    expect(chipCount(glmChip)).toBe("2");
+    expect(chipCount(glmChip)).toBe("3");
     act(() => glmChip.click());
-    expect(view.rows().map((row) => row.getAttribute("data-task-id"))).toEqual(["task-a", "task-a2"]);
-    // 未映射行:筛 glm 不命中它,但它的会话跳转仍在。回「全部」恢复全量行。
+    expect(view.rows().map((row) => row.getAttribute("data-task-id"))).toEqual(["task-a", "task-a2", "task-old-round"]);
+    // 同 Agent 的另一会话在筛选后仍保留会话跳转。
     const agentAll = view.host
       .querySelector('[data-testid="collaboration-filter-agent"]')!
       .querySelector<HTMLButtonElement>("button")!;
     act(() => agentAll.click());
     const oldRow = view.rows().find((row) => row.getAttribute("data-task-id") === "task-old-round")!;
-    expect(oldRow.textContent).toContain("Agent 未提供");
+    expect(oldRow.textContent).toContain("GLM-5.3");
     const sessionLink = oldRow.querySelector<HTMLButtonElement>('button[title*="runtime_bbb"]');
     expect(sessionLink).not.toBeNull();
     act(() => sessionLink!.click());
@@ -404,7 +387,7 @@ describe("review be577 四个反例的修后视图行为", () => {
   it("映射上的执行会话:行内给声明 Agent 名与 agent 实体跳转", () => {
     const view = renderView({
       tasks: [task("task-glm", HELD_LEASE)],
-      agents: agentIndex([agentGroup("glm", "GLM-5.3", "runtime_a520047968e6")]),
+      agents: agentIndex([declaredSessionAgent("glm", "GLM-5.3", "runtime_a520047968e6")]),
     });
     const row = view.rows()[0]!;
     expect(row.textContent).toContain("GLM-5.3");

@@ -126,7 +126,6 @@ export function CollaborationView({
               testId="collaboration-filter-agent"
               label={t("collaboration.filterAgent")}
               total={tasks.length}
-              labelTitle={agents.truncated ? t("collaboration.agentTruncated") : undefined}
               options={options.agents.map(({ id, label, count }) => ({
                 key: id,
                 label: <span title={id}>{label}</span>,

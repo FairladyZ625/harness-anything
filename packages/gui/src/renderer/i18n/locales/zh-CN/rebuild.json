@@ -209,7 +209,6 @@
   "collaboration.filterPerson": "人",
   "collaboration.filterAgent": "Agent",
   "collaboration.agentNotProvided": "Agent 未提供",
-  "collaboration.agentTruncated": "Agent 组读面被截断，会话映射可能缺组",
   "collaboration.filterNode": "节点",
   "collaboration.filterAll": "全部",
   "collaboration.filterEmpty": "没有符合筛选的任务。",

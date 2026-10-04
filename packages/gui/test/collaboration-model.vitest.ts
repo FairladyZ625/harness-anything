@@ -216,32 +216,15 @@ describe("review be577 四个反例的修后行为", () => {
 
   it("同 Agent 多会话聚合:两个 task 各持不同会话但索引同指一个 agentId,收进同一筛选值", () => {
     const index = agentIndexOfSessionGroups({
-      groups: [
-        {
-          key: "glm",
-          kind: "agent",
-          label: "GLM-5.3",
-          agentId: "glm",
-          latestStatus: "running",
-          latestActivityAt: "2026-10-02T13:30:00.000Z",
-          runningCount: 1,
-          sessionCount: 2,
-          roundCount: 2,
-          latestRound: {
-            runtimeSessionId: "runtime_aaa",
-            dispatchId: "dispatch_aaa",
-            agentName: "GLM-5.3",
-            instanceId: "instance-a",
-            status: "running",
-            classification: null,
-            reason: null,
-            startedAt: "2026-10-02T13:30:00.000Z",
-          },
-        },
+      sessionAgents: [
+        { runtimeSessionId: "runtime_aaa", agentId: "glm", label: "GLM-5.3" },
+        { runtimeSessionId: "runtime_bbb", agentId: "glm", label: "GLM-5.3" },
       ],
-      truncated: false,
     });
-    expect([...index.agentOfSession]).toEqual([["runtime_aaa", { agentId: "glm", label: "GLM-5.3" }]]);
+    expect([...index.agentOfSession]).toEqual([
+      ["runtime_aaa", { agentId: "glm", label: "GLM-5.3" }],
+      ["runtime_bbb", { agentId: "glm", label: "GLM-5.3" }],
+    ]);
 
     const tasks = [
       task("session-a", {
@@ -254,13 +237,13 @@ describe("review be577 四个反例的修后行为", () => {
       task("session-aaa-same-agent", {
         leaseActor: {
           principal: { personId: "person_zeyu" },
-          executor: { kind: "agent", id: "runtime-session:runtime_aaa" },
+          executor: { kind: "agent", id: "runtime-session:runtime_bbb" },
         },
         leasePhase: "held",
       }),
     ];
     const { agents, persons } = collaborationFilterOptions(tasks, index);
-    // 只映射上的会话产 Agent 条目;一个 task 一票,同会话跨 task 才累加。
+    // 两个不同在飞会话属于同一 Agent,两个 task 分别计一票。
     expect(agents).toEqual([{ id: "glm", label: "GLM-5.3", count: 2 }]);
     expect(persons).toEqual([{ id: "person_zeyu", count: 2 }]);
     expect(
@@ -268,68 +251,12 @@ describe("review be577 四个反例的修后行为", () => {
     ).toEqual(["session-a", "session-aaa-same-agent"]);
   });
 
-  it("索引缺映射的会话不产生 Agent 条目,不从未知冒充;Direct/无派工组不进索引;截断如实透传", () => {
+  it("无声明的 bare runtime 不产生 Agent 条目,不从会话或实例名猜", () => {
     const index = agentIndexOfSessionGroups({
-      groups: [
-        {
-          key: "instance:instance-direct",
-          kind: "agent",
-          label: "Direct (instance-direct)",
-          latestStatus: "running",
-          latestActivityAt: "2026-10-02T13:30:00.000Z",
-          runningCount: 1,
-          sessionCount: 1,
-          roundCount: 0,
-          latestRound: {
-            runtimeSessionId: "runtime_direct",
-            dispatchId: null,
-            agentName: null,
-            instanceId: "instance-direct",
-            status: "running",
-            classification: null,
-            reason: null,
-            startedAt: "2026-10-02T13:30:00.000Z",
-          },
-        },
-        {
-          key: "glm",
-          kind: "agent",
-          label: "GLM-5.3",
-          agentId: "glm",
-          latestStatus: "running",
-          latestActivityAt: "2026-10-02T13:00:00.000Z",
-          runningCount: 0,
-          sessionCount: 1,
-          roundCount: 1,
-          latestRound: {
-            runtimeSessionId: "runtime_glm",
-            dispatchId: "dispatch_glm",
-            agentName: "GLM-5.3",
-            instanceId: "instance-glm",
-            status: "succeeded",
-            classification: null,
-            reason: null,
-            startedAt: "2026-10-02T13:00:00.000Z",
-          },
-        },
-        {
-          key: "task-x",
-          kind: "task",
-          label: "task-x",
-          taskId: "task-x",
-          latestStatus: "succeeded",
-          latestActivityAt: "2026-10-02T12:00:00.000Z",
-          runningCount: 0,
-          sessionCount: 1,
-          roundCount: 1,
-          latestRound: null,
-        },
-      ],
-      truncated: true,
+      sessionAgents: [{ runtimeSessionId: "runtime_glm", agentId: "glm", label: "GLM-5.3" }],
     });
-    // 只有带 agentId 的组进映射;Direct 组没有声明 agentId,不进。
+    // 只有事件里带 agentId 的在飞会话进映射。
     expect([...index.agentOfSession.keys()]).toEqual(["runtime_glm"]);
-    expect(index.truncated).toBe(true);
 
     const tasks = [
       task("unmapped", {
@@ -356,51 +283,10 @@ describe("review be577 四个反例的修后行为", () => {
 
   it("计数不变量:每个维度值的 count 严格等于该维度单独筛选命中的 task 数", () => {
     const index = agentIndexOfSessionGroups({
-      groups: [
-        {
-          key: "glm",
-          kind: "agent",
-          label: "GLM-5.3",
-          agentId: "glm",
-          latestStatus: "running",
-          latestActivityAt: "2026-10-02T13:30:00.000Z",
-          runningCount: 1,
-          sessionCount: 1,
-          roundCount: 1,
-          latestRound: {
-            runtimeSessionId: "runtime_aaa",
-            dispatchId: "dispatch_aaa",
-            agentName: "GLM-5.3",
-            instanceId: "instance-a",
-            status: "running",
-            classification: null,
-            reason: null,
-            startedAt: "2026-10-02T13:30:00.000Z",
-          },
-        },
-        {
-          key: "astra",
-          kind: "agent",
-          label: "Astra",
-          agentId: "astra",
-          latestStatus: "running",
-          latestActivityAt: "2026-10-02T11:00:00.000Z",
-          runningCount: 1,
-          sessionCount: 1,
-          roundCount: 1,
-          latestRound: {
-            runtimeSessionId: "runtime_bbb",
-            dispatchId: "dispatch_bbb",
-            agentName: "Astra",
-            instanceId: "instance-b",
-            status: "running",
-            classification: null,
-            reason: null,
-            startedAt: "2026-10-02T11:00:00.000Z",
-          },
-        },
+      sessionAgents: [
+        { runtimeSessionId: "runtime_aaa", agentId: "glm", label: "GLM-5.3" },
+        { runtimeSessionId: "runtime_bbb", agentId: "astra", label: "Astra" },
       ],
-      truncated: false,
     });
     const mixed = [
       task("t1", {

@@ -306,6 +306,7 @@ export function makeAgentRuntimeReadModel(input: {
       return buildAgentRuntimeSessionGroups({
         sessions,
         dispatches,
+        dispatchEvents: windowedDispatchEvents,
         dispatchStartedAt,
         taskLabels,
         entityLabel,
@@ -480,6 +481,7 @@ function sessionGroupsQuery(
   readonly agentId: string | null;
   readonly squadId: string | null;
   readonly status: readonly AgentRuntimeSessionGroupStatus[];
+  readonly sessionIds: readonly string[];
   readonly limit: number;
 } {
   const keys = Object.keys(payload),
@@ -489,15 +491,20 @@ function sessionGroupsQuery(
     agentId = payload.agentId,
     squadId = payload.squadId,
     status = payload.status,
+    sessionIds = payload.sessionIds,
     limit = payload.limit;
   if (
-    keys.some((key) => !["groupBy", "since", "query", "agentId", "squadId", "status", "limit"].includes(key)) ||
+    keys.some(
+      (key) => !["groupBy", "since", "query", "agentId", "squadId", "status", "sessionIds", "limit"].includes(key),
+    ) ||
     (groupBy !== undefined && !["task", "squad", "agent", "day"].includes(String(groupBy))) ||
     (since !== undefined && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) ||
     (query !== undefined && typeof query !== "string") ||
     (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
     (squadId !== undefined && (typeof squadId !== "string" || !squadId)) ||
     (status !== undefined && !isSessionGroupStatusSelection(status)) ||
+    (sessionIds !== undefined &&
+      (!Array.isArray(sessionIds) || sessionIds.some((id) => typeof id !== "string" || !id))) ||
     (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000)) ||
     !Number.isFinite(Date.parse(now))
   )
@@ -516,6 +523,7 @@ function sessionGroupsQuery(
     agentId: typeof agentId === "string" ? agentId : null,
     squadId: typeof squadId === "string" ? squadId : null,
     status: status === undefined ? [] : (status as readonly AgentRuntimeSessionGroupStatus[]),
+    sessionIds: sessionIds === undefined ? [] : [...new Set(sessionIds as readonly string[])],
     limit: typeof limit === "number" ? limit : 200,
   };
 }

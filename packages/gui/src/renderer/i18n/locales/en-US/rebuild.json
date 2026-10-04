@@ -209,7 +209,6 @@
   "collaboration.filterPerson": "Person",
   "collaboration.filterAgent": "Agent",
   "collaboration.agentNotProvided": "agent not provided",
-  "collaboration.agentTruncated": "agent group read was truncated; the session-to-agent mapping may miss groups",
   "collaboration.filterNode": "Node",
   "collaboration.filterAll": "All",
   "collaboration.filterEmpty": "No tasks match the filters.",

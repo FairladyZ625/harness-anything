@@ -3,6 +3,7 @@ import {
   latestRuntimeActivityAt,
   runtimeSessionIsRunning,
   runtimeSessionSemanticState,
+  type AgentRuntimeEventV1,
   type RuntimeSession,
 } from "@harness-anything/kernel";
 import {
@@ -27,12 +28,15 @@ interface AgentRuntimeSessionGroupsQuery {
    * `latestStatus` 上——后者会把「含 failed 成员但最新是 succeeded」的组整个滤掉。
    */
   readonly status: readonly AgentRuntimeSessionGroupStatus[];
+  /** Lease executor session IDs supplied by the repository task projection. */
+  readonly sessionIds: readonly string[];
   readonly limit: number;
 }
 
 export function buildAgentRuntimeSessionGroups(input: {
   readonly sessions: readonly RuntimeSession[];
   readonly dispatches: readonly TaskDispatchRow[];
+  readonly dispatchEvents: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   readonly dispatchStartedAt: ReadonlyMap<string, string>;
   readonly taskLabels: ReadonlyMap<string, string>;
   readonly entityLabel: (kind: "agent" | "squad", id: string) => string | null;
@@ -77,11 +81,33 @@ export function buildAgentRuntimeSessionGroups(input: {
     ok: true,
     status: input.cut.status,
     groups: selected,
+    sessionAgents: requestedSessionAgents(input),
     totals: { groups: allGroups.length, sessions: matchingSessions.size },
     truncated: selected.length < allGroups.length,
     watermark: input.cut.watermark,
     sourceRevision: input.cut.sourceRevision,
   };
+}
+
+function requestedSessionAgents(input: Parameters<typeof buildAgentRuntimeSessionGroups>[0]) {
+  if (input.query.sessionIds.length === 0) return [];
+  const latestDispatch = new Map<string, (typeof input.dispatchEvents)[number]>();
+  for (const event of input.dispatchEvents) {
+    const previous = latestDispatch.get(event.payload.runtimeSessionId);
+    if (!previous || Date.parse(event.occurredAt) >= Date.parse(previous.occurredAt))
+      latestDispatch.set(event.payload.runtimeSessionId, event);
+  }
+  return input.query.sessionIds.flatMap((runtimeSessionId) => {
+    const dispatch = latestDispatch.get(runtimeSessionId)?.payload;
+    if (!dispatch?.agentId) return [];
+    return [
+      {
+        runtimeSessionId,
+        agentId: dispatch.agentId,
+        label: dispatch.agentName ?? input.entityLabel("agent", dispatch.agentId) ?? dispatch.agentId,
+      },
+    ];
+  });
 }
 
 type GroupIdentity = Pick<AgentRuntimeSessionGroupDto, "key" | "kind" | "label"> &

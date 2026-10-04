@@ -232,6 +232,7 @@ function AppShell() {
   const collaborationAgentIndex = useCollaborationAgentIndex(
     activeRepoId,
     view === "collaboration" && (activeRepo?.mode ?? "local") !== "local",
+    tasks,
   );
   const project = adaptRepoProject(
     projectId,
