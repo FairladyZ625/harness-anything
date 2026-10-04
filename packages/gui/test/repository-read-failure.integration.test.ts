@@ -59,6 +59,7 @@ test("CLI query-only task list and GUI reads reject an unavailable canonical rep
     const cli = await taskList(fixture.rootDir, { ...process.env });
     const status = await requestDaemonJsonRpcAt(fixture.endpoint, "daemon.status", {});
     assert.equal((status.repos as { state: string }[])[0]!.state, "unavailable");
+    assert.equal((status.repos as { projectionReadable: boolean }[])[0]!.projectionReadable, false);
     assert.notEqual(cli.exit, 0, JSON.stringify(cli.receipt));
     assert.equal(cli.receipt.ok, false);
     assert.equal(cli.receipt.code, "repo_unavailable");

@@ -162,9 +162,9 @@ export async function openRepoCellProxy(
   const query = <T>(read: (projection: TaskProjectionQueries) => T): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
     const status = supervisor.status();
-    if (!writerAttached(status))
+    if (!writerAttached(status) && !(status.state === "unavailable" && status.projectionReadable === true))
       throw cellCodedError("repo_unavailable", status.lastError ?? "RepoWriterCell is not ready.");
-    // Serving reads use the attached writer's completed cut without advancing or repairing it.
+    // A write latch does not revoke a verified generation's completed cut. Reads never repair it.
     return reader.withSession(read);
   };
   const latched = (): string => {
