@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -15,7 +15,10 @@ import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { signInAt } from "./keycloak.fixtures.ts";
+import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
+import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
+import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { runFleetRepositoryReadClient, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
@@ -29,8 +32,12 @@ test(
       await edge?.close();
       edge = undefined;
     });
-    const f = await fleetNodeClaimFixture(t, undefined, (input) =>
-      new OidcSessionService(path.join(f.root, "user")).bind(input),
+    const f = await fleetNodeClaimFixture(
+      t,
+      undefined,
+      (input) => new OidcSessionService(path.join(f.root, "user")).bind(input),
+      undefined,
+      (nodeId) => ({ url: "https://keycloak.example", realm: "harness", clientId: `harness-node-${nodeId}` }),
     );
     const vertical = await f.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, auth);
     assert.equal(vertical.outcome, "applied", JSON.stringify(vertical));
@@ -82,8 +89,19 @@ test(
       mode: "remote-edge",
       createConvenienceLinks: false,
     });
-    f.owners.bind(edgeUser);
-    signInAt(edgeUser, "person-one", []);
+    managedRbacSessionStore(edgeUser).write(
+      JSON.stringify({
+        schema: "harness-oidc-session/v2",
+        accessToken: "token-person-one",
+        subject: "person-one",
+        personId: "person-one",
+        expiresAt: Date.now() + 3_600_000,
+        roles: [],
+        loginTarget: edgeRoot,
+      }),
+    );
+    assert.equal(existsSync(path.join(edgeUser, "rbac/config.json")), false);
+    assert.equal(existsSync(path.join(edgeUser, "rbac/center-client-secret")), false);
     f.owners.keycloak.interactiveSession("person-one", "node-one", f.owners.url);
     const config = {
       schema: "fleet-edge-config/v1",
@@ -99,7 +117,11 @@ test(
       waitTimeoutMs: 2000,
     };
     writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
-    edge = await openDaemonHost({ daemonId: "read-edge", userRoot: edgeUser });
+    edge = await openDaemonHost({
+      daemonId: "read-edge",
+      userRoot: edgeUser,
+      oidc: new OidcSessionService(edgeUser, { fetch: f.owners.keycloak.fetch }),
+    });
     await edge.attachmentsSettled();
     const local = makeTaskProjectionReader({ rootDir: edgeRoot });
     assert.equal(
@@ -107,14 +129,74 @@ test(
       0,
       "the edge SQL projection has never received a task",
     );
-    const first = await edge.read("lease-repo", "repo.tasks.list", { limit: 50 }, auth);
+    const rpc = createJsonRpcProtocolServer({
+      host: edge,
+      build: { commit: null },
+      authContext: auth,
+      emit: async () => undefined,
+    });
+    t.after(() => rpc.close());
+    await rpc.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion },
+    });
+    const read: typeof edge.read = async (repoId, method, payload) => {
+      const response = await rpc.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method,
+        params: { repo: { repoId }, ...(daemonMethodAcceptsPayload(method) ? { payload } : {}) },
+      });
+      assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
+      assert.notEqual((response.result as { ok?: boolean }).ok, false, JSON.stringify(response));
+      return response.result as never;
+    };
+    const refusedRead = async (code: RegExp) => {
+      const response = await rpc.handle({
+        jsonrpc: "2.0",
+        id: 5,
+        method: "repo.tasks.list",
+        params: { repo: { repoId: "lease-repo" }, payload: {} },
+      });
+      assert.ok(response && !Array.isArray(response) && "result" in response);
+      assert.equal((response.result as { ok?: boolean }).ok, false);
+      assert.match(JSON.stringify(response.result), code);
+    };
+    const first = await read("lease-repo", "repo.tasks.list", { limit: 50 }, auth);
     assert.equal(first.rows.length, 50, "GUI host read must reach the center rather than the empty edge projection");
     assert.ok(first.watermark > 0);
     assert.ok(first.page.nextCursor);
-    const tail = await edge.read("lease-repo", "repo.tasks.list", { cursor: first.page.nextCursor }, auth);
+    const tail = await read("lease-repo", "repo.tasks.list", { cursor: first.page.nextCursor }, auth);
     assert.equal(tail.rows.length, 3);
     assert.equal(tail.page.nextCursor, null);
     assert.equal(tail.watermark, first.watermark);
+    const bootstrap = await rpc.handle({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "daemon.rbac.manage",
+      params: { operation: "bootstrap-status", repoId: "lease-repo" },
+    });
+    assert.ok(bootstrap && !Array.isArray(bootstrap) && "result" in bootstrap, JSON.stringify(bootstrap));
+    assert.deepEqual(bootstrap.result, {
+      source: "fleet-center",
+      mode: "external",
+      ok: true,
+      ready: true,
+      url: "https://keycloak.example",
+      realm: "harness",
+      clientId: "harness-node-node-one",
+      status: 200,
+      required: false,
+    });
+    const lifetime = await rpc.handle({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "daemon.rbac.manage",
+      params: { operation: "session-lifetime", repoId: "lease-repo" },
+    });
+    assert.match(JSON.stringify(lifetime), /authorization_denied/);
     const before = f.eventCount();
     for (const nodeId of ["node-one", "node-two"]) {
       const result = await runFleetRepositoryReadClient({ ...f.peer(nodeId), method: "repo.tasks.list", payload: {} });
@@ -132,18 +214,15 @@ test(
       "repo.entity.kinds.read",
       "repo.vertical.declaration.read",
     ] as const) {
-      assert.deepEqual(
-        await edge.read("lease-repo", method, {}, auth),
-        await f.host.read("lease-repo", method, {}, auth),
-      );
+      assert.deepEqual(await read("lease-repo", method, {}, auth), await f.host.read("lease-repo", method, {}, auth));
     }
     for (const method of ["repo.tasks.documents.list", "repo.tasks.completion.read"] as const) {
       assert.deepEqual(
-        await edge.read("lease-repo", method, { taskId: "task-read-000" }, auth),
+        await read("lease-repo", method, { taskId: "task-read-000" }, auth),
         await f.host.read("lease-repo", method, { taskId: "task-read-000" }, auth),
       );
     }
-    const explanation = await edge.read(
+    const explanation = await read(
       "lease-repo",
       "repo.entity.actions.explain",
       {
@@ -158,7 +237,7 @@ test(
     assert.ok(explanation.subjects[0]!.actions.length > 0);
     const content = { entityKind: "task", entityId: "task-read-000" };
     assert.deepEqual(
-      await edge.read("lease-repo", "repo.entity.content.read", content, auth),
+      await read("lease-repo", "repo.entity.content.read", content, auth),
       await f.host.read("lease-repo", "repo.entity.content.read", content, auth),
     );
     for (const kind of ["work-list", "work-show"] as const) {
@@ -168,7 +247,7 @@ test(
       );
     }
     assert.deepEqual(
-      await edge.read("lease-repo", "repo.workspace.scope.read", { rootTaskId: "task-read-000" }, auth),
+      await read("lease-repo", "repo.workspace.scope.read", { rootTaskId: "task-read-000" }, auth),
       await f.host.read("lease-repo", "repo.workspace.scope.read", { rootTaskId: "task-read-000" }, auth),
     );
     const longToken = [
@@ -197,7 +276,7 @@ test(
     assert.ok(chunks > 1, "a complete query page may span several Fleet frames");
     assert.equal(f.eventCount(), before, "reads append no canonical event");
     assert.equal((await f.command("center-node", { kind: "task-start", taskId: "task-read-000" })).outcome, "applied");
-    const updated = await edge.read("lease-repo", "repo.tasks.list", {}, auth);
+    const updated = await read("lease-repo", "repo.tasks.list", {}, auth);
     assert.ok(updated.watermark > first.watermark);
     const changed = updated.rows.find((row) => row.taskId === "task-read-000")!;
     const detail = JSON.parse(
@@ -277,7 +356,7 @@ test(
     );
     f.owners.keycloak.node("node-two", "person-one");
     f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
-    await assert.rejects(edge.read("lease-repo", "repo.tasks.list", {}, auth), { code: "authorization_denied" });
+    await refusedRead(/authorization_denied/);
     const revokedCli = await runFleetEdgeTask(
       { payload: { ...config, workspaceRoot: edgeRoot, action: { kind: "task-list" } } },
       async () => longToken,
@@ -290,8 +369,8 @@ test(
     );
     f.owners.keycloak.permit("person-one", "lease-repo", ["repository-read"]);
     f.owners.keycloak.nodeClients.delete("harness-node-node-one");
-    await assert.rejects(edge.read("lease-repo", "repo.tasks.list", {}, auth), { code: "node_owner_unregistered" });
+    await refusedRead(/node_owner_unregistered/);
     await f.center.close();
-    await assert.rejects(edge.read("lease-repo", "repo.tasks.list", {}, auth), /ECONNREFUSED|closed|connect/);
+    await refusedRead(/ECONNREFUSED|closed|connect/);
   },
 );

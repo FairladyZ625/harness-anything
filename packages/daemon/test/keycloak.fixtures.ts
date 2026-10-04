@@ -93,6 +93,7 @@ export function fakeKeycloak() {
       body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : undefined,
       bearer = new Headers(init?.headers).get("authorization")?.replace("Bearer ", "");
     if (url.pathname.endsWith("/protocol/openid-connect/revoke")) return new Response(null, { status: 204 });
+    if (method === "GET" && url.pathname === `/realms/${keycloakRealm}`) return json({ realm: keycloakRealm });
     if (url.pathname.endsWith("/protocol/openid-connect/token/introspect")) {
       const token = (init?.body as URLSearchParams).get("token") ?? "",
         session = interactiveSessions.get(token);
