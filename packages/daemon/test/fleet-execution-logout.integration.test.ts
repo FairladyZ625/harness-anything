@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { startDaemon } from "../src/runtime.ts";
@@ -427,6 +428,11 @@ test(
           },
         },
       });
+    const cancelSpawn = await spawnReviewer("edge-review-s1-cancel");
+    assert.equal(cancelSpawn.outcome, "applied", JSON.stringify(cancelSpawn));
+    const cancelRuntime = String(cancelSpawn.runtimeSessionId),
+      cancelDispatch = String(cancelSpawn.dispatchId);
+    reviewLive.add(cancelRuntime);
     const reviewSpawn = await spawnReviewer("edge-review-s1");
     assert.equal(reviewSpawn.outcome, "applied", JSON.stringify(reviewSpawn));
     let reviewRuntime = String(reviewSpawn.runtimeSessionId),
@@ -572,12 +578,96 @@ test(
       existsSync(path.join(f.repo, `harness/tasks/task-fleet-fleet/artifacts/reports/${reviewDispatch}.md`)),
       false,
     );
+    await assert.rejects(
+      runFleetRuntimeEventClient({
+        ...peer,
+        nodeId: "node-slow",
+        opId: "stale-success-terminal",
+        eventType: "runtime_session_outcome_observed",
+        payload: {
+          runtimeSessionId: reviewRuntime,
+          outcome: "succeeded",
+          exitCode: 0,
+          result: null,
+          resultRef: "artifact:stale-success",
+        },
+      }),
+      { code: "execution_credential_rejected" },
+    );
+    await assert.rejects(
+      runFleetRuntimeEventClient({
+        ...peer,
+        opId: "foreign-stale-exit",
+        eventType: "runtime_session_exited",
+        payload: { runtimeSessionId: reviewRuntime },
+      }),
+      { code: "execution_credential_rejected" },
+    );
+    const beforeStaleExit = await f.host.read(
+      repoId,
+      "repo.agentRuntime.sessions.read",
+      { runtimeSessionId: reviewRuntime },
+      f.auth,
+    );
+    assert.notEqual(beforeStaleExit.session.liveness, "exited");
+    assert.equal(beforeStaleExit.session.activity.outcome, null);
     t.diagnostic("S1 reviewer read and fixed receipt rejected; canonical reviews unchanged and report absent.");
     assert.equal(s2.task.status, "in_review", "amend preserves the already forwarded review stage");
     f.owners.keycloak.interactiveSession("person-owner", "node-slow", loginAuthorityUrl);
     managedRbacSessionStore(reviewUser).write(JSON.stringify({ ...ownerSession, loginTarget: reviewRoot }));
     writeFileSync(path.join(f.root, `${reviewRuntime}.finish`), "finish");
+    const staleSettled = await eventuallyValue(async () => {
+      const result = await f.host.read(
+        repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: reviewRuntime },
+        f.auth,
+      );
+      return result.session.activity.outcome ? result.session : null;
+    });
+    assert.equal(staleSettled.activity.outcome, "failed", JSON.stringify(f.runtimeArchiveReceipts));
+    assert.equal(staleSettled.liveness, "exited");
+    const staleStream = await eventuallyValue(() => readDispatchStream(reviewRoot, reviewDispatch));
+    assert.equal(staleStream?.terminalOutcome?.payload.reasonCode, "runtime_archive_failed");
+    assert.match(staleStream?.terminalOutcome?.body ?? "", /execution_credential_rejected/u);
     reviewLive.delete(reviewRuntime);
+    const cancelled = await reviewRpc("daemon.fleet.task.run", {
+      payload: {
+        ...reviewRoute,
+        workspaceRoot: reviewRoot,
+        action: {
+          kind: "fleet-runtime",
+          method: "repo.agentRuntime.cancel",
+          payload: { runtimeSessionId: cancelRuntime },
+        },
+      },
+    });
+    assert.equal(cancelled.outcome, "applied", JSON.stringify(cancelled));
+    // Cancellation acknowledgement can race the provider exit callback. Observe the
+    // canonical exit as well as cancellation before inspecting completed settlement.
+    const cancelSettled = await eventuallyValue(async () => {
+      const result = await f.host.read(
+        repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: cancelRuntime },
+        f.auth,
+      );
+      return result.session.liveness === "exited" && result.session.activity.outcome ? result.session : null;
+    });
+    assert.equal(cancelSettled.liveness, "exited");
+    assert.equal(cancelSettled.activity.outcome, "cancelled");
+    const cancelledStream = await eventuallyValue(() => readDispatchStream(reviewRoot, cancelDispatch));
+    assert.equal(cancelledStream.terminalOutcome?.payload.outcome, "cancelled");
+    reviewLive.delete(cancelRuntime);
+    assert.deepEqual((await show()).reviews, s1.reviews, "neither stale settlement may register a review");
+    for (const dispatchId of [reviewDispatch, cancelDispatch])
+      assert.equal(
+        existsSync(path.join(f.repo, `harness/tasks/task-fleet-fleet/artifacts/reports/${dispatchId}.md`)),
+        false,
+      );
+    t.diagnostic(
+      "Stale S1 natural exit and owner cancel reached canonical failed/cancelled terminals without reviews.",
+    );
     await runFleetReplicaPullClient({
       ...peer,
       nodeId: "node-slow",

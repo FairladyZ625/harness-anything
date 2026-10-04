@@ -77,6 +77,13 @@ export function requireCurrentExecutionScope(input: {
   } else requireExecutionActionScope(p, input.action);
   const terminal = ingress?.type === "runtime_session_exited" || ingress?.type === "runtime_session_outcome_observed";
   const settling = ingress?.kind === "archive" || terminal;
+  // A node may retire its own stale reviewer without restoring business access.
+  // Archive and successful outcomes still require the current submission cut.
+  const negativeTerminal =
+    ingress?.type === "runtime_session_exited" ||
+    (ingress?.type === "runtime_session_outcome_observed" &&
+      isJsonObject(ingress.payload) &&
+      (ingress.payload.outcome === "failed" || ingress.payload.outcome === "cancelled"));
   const session = input.projection.readRuntimeSession(p.runtimeSessionId),
     dispatch = input.projection.readRuntimeDispatch(p.runtimeSessionId),
     actor = runtimeExecutionActor(p);
@@ -98,7 +105,7 @@ export function requireCurrentExecutionScope(input: {
     !session ||
     (session.liveness === "exited" && !settling) ||
     (session.outcome !== null && !settling) ||
-    session.outcome === "cancelled" ||
+    (session.outcome === "cancelled" && !negativeTerminal) ||
     dispatch?.payload.dispatchId !== p.dispatchId ||
     dispatch.actor.principal.personId !== p.personId ||
     stableStringify(dispatch.source) !== stableStringify(p.source) ||
@@ -115,7 +122,7 @@ export function requireCurrentExecutionScope(input: {
       target.taskId !== p.taskId ||
       target.executionId !== p.executionId ||
       !execution?.submission ||
-      target.digest !== submissionDigest(execution.submission)
+      (!negativeTerminal && target.digest !== submissionDigest(execution.submission))
     )
       throw executionCredentialRejected();
     if (input.action.kind === "task-review-execution") {

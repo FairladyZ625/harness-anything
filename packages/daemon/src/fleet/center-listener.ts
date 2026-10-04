@@ -668,14 +668,21 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "Runtime archive repository must match the authenticated node request.",
         );
       assertFrameEpoch(a.repoId, frame.writerEpoch);
-      const receipt = await options.host.runtimeIngress(
-        a.repoId,
-        {
-          kind: "archive",
-          archive: frame.archive as unknown as import("../doc-sync-actions.ts").RuntimeDispatchArchive,
-        },
-        await auth(a),
-      );
+      let receipt;
+      try {
+        receipt = await options.host.runtimeIngress(
+          a.repoId,
+          {
+            kind: "archive",
+            archive: frame.archive as unknown as import("../doc-sync-actions.ts").RuntimeDispatchArchive,
+          },
+          await auth(a),
+        );
+      } catch (error) {
+        const code = runtimeErrorCode(error);
+        if (code) throw new FleetFault(code, runtimeErrorMessage(error));
+        throw error;
+      }
       return immediate({
         schema: "fleet.runtime.archive.result/v1",
         messageId: mid(frame.messageId, "runtime-archive"),
