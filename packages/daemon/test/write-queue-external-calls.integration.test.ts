@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type AddressInfo } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -195,6 +196,67 @@ test(
     }
   },
 );
+
+test("a Keycloak authorization that never answers times out and releases the repository write queue", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-keycloak-hang-")),
+    rootDir = path.join(parent, "repo"),
+    // A Keycloak that accepts the connection and never answers, like a wedged reverse proxy.
+    hanging = createServer(() => {});
+  let connections = 0;
+  hanging.on("connection", () => {
+    connections += 1;
+  });
+  await new Promise<void>((resolve) => hanging.listen(0, "127.0.0.1", resolve));
+  const hangUrl = `http://127.0.0.1:${(hanging.address() as AddressInfo).port}`,
+    authorized = withPolicyGroup(
+      { actor: { principal: { personId: "person-keycloak-hang" }, executor: null }, source: "local" as const },
+      "contributor",
+    ),
+    hungBinding = {
+      ...authorized,
+      keycloakAuthorization: {
+        session: { ...authorized.keycloakAuthorization.session, url: hangUrl },
+        center: { ...authorized.keycloakAuthorization.center, url: hangUrl },
+      },
+    };
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    mkdirSync(rootDir);
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("keycloak-hang"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "keycloak-hang-center",
+      now: () => "2026-09-11T02:00:00.000Z",
+    });
+    const startedAt = performance.now(),
+      write = cell.run(
+        { kind: "task-create", taskId: "keycloak-hang-write", title: "Hanging authorization" },
+        hungBinding,
+      );
+    const receipt = await settlesWithin(
+      write,
+      15_000,
+      "the write queue was held by the unanswered Keycloak authorization",
+    );
+    const elapsedMs = performance.now() - startedAt;
+    assert.ok(connections >= 1, "the authorization never reached the hanging Keycloak");
+    assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+    assert.equal(receipt.code, "service_rejected", JSON.stringify(receipt));
+    assert.ok(elapsedMs >= 9_000, `the timeout bound was not applied: ${elapsedMs.toFixed(1)}ms`);
+    const after = await settlesWithin(
+      cell.run({ kind: "task-create", taskId: "keycloak-after-hang", title: "After the timeout" }, binding),
+      5_000,
+      "the write queue stayed held after the Keycloak timeout",
+    );
+    assert.equal(after.outcome, "applied", JSON.stringify(after));
+  } finally {
+    hanging.closeAllConnections();
+    hanging.close();
+    await cell?.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
 
 test("a credential lookup nobody answers fails the spawn and releases the repository write queue", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-credential-queue-")),
