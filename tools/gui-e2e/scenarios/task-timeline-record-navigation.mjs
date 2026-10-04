@@ -15,6 +15,7 @@ import { bridgeReady } from "./helpers.mjs";
  * 钉住 effect 重放下滚动不丢(review R1)。
  */
 const TASK_ID = "task-gui-smoke";
+const TASK_TITLE = "Render the real triadic projection";
 const EXECUTION_ID = "execution-gui-timeline-e2e";
 const PANEL_SCROLL_TESTID = "task-detail-panel-scroll";
 
@@ -63,7 +64,9 @@ export default {
 
     await bridgeReady(page);
     await page.getByRole("button", { name: /^(?:看板|Board)$/u }).click();
-    await page.getByTestId("board-task-card").first().click();
+    // sessions 夹具向孤立仓注入了额外任务卡(看板按 lastKnownAt 降序,首卡不固定):
+    // 按夹具任务标题精确选卡,不盲用 .first()。
+    await page.getByTestId("board-task-card").filter({ hasText: TASK_TITLE }).first().click();
     await page
       .locator('aside [title^="task_"]')
       .or(page.getByRole("button", { name: /打开完整详情|Open full details/u }))
@@ -71,11 +74,22 @@ export default {
       .click();
     await page.getByTestId("task-detail-view").waitFor();
 
-    // 矮视口:约束详情滚动区高度,引用行的自然位置必然在可视范围外——
-    // 「滚入视野」断言才有分辨力,不是本来就可见。
-    await page.getByTestId(PANEL_SCROLL_TESTID).evaluate((node) => {
-      node.style.height = "360px";
-    });
+    // 矮视口:引用行的自然位置必须落在可视范围外,「滚入视野」断言才有分辨力。
+    // 两点实测修正:(1)收口页各空记录段的实际高度随构建演进(写死 360px 会失效);
+    // (2)滚动区是 flex-1(flex-basis 0%),style.height 不参与主轴尺寸,必须用
+    // maxHeight 才真的收窄。先开收口页签量引用行距滚动区顶部的自然偏移,以
+    // 偏移减 48px 设 maxHeight,回概况后再走导航。
+    await page.getByRole("tab", { name: /收口与门|Closeout|收口/u }).click();
+    await page.getByTestId("task-closeout-tab").waitFor();
+    await page.getByTestId(`task-execution-${EXECUTION_ID}`).waitFor();
+    await page.getByTestId(PANEL_SCROLL_TESTID).evaluate((node, rowTestId) => {
+      const row = globalThis.document.querySelector(`[data-testid="${rowTestId}"]`);
+      if (row === null) throw new Error(`closeout row ${rowTestId} is not mounted for the short-viewport measurement`);
+      const offset = row.getBoundingClientRect().top - node.getBoundingClientRect().top + node.scrollTop;
+      node.style.maxHeight = `${Math.max(160, Math.round(offset) - 48)}px`;
+    }, `task-execution-${EXECUTION_ID}`);
+    await page.getByRole("tab", { name: /概况|Overview/u }).click();
+    await page.getByTestId("task-progress-timeline").waitFor();
 
     // 时间线行尾的 execution 编号是可激活路径(EntityRefLink 原生 button)。
     const refLink = page.locator('[data-testid="task-progress-timeline"] button', { hasText: EXECUTION_ID }).first();

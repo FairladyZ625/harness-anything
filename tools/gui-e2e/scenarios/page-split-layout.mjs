@@ -82,10 +82,28 @@ async function expandSeedTree(page) {
   throw new Error("seeded 120-file tree never stays expanded long enough to measure");
 }
 
-async function checkLayout(page, shot, boardId, first, second, label, reopen) {
+/** 区域换位/持久化/取消/重置/键盘与分隔条验收。等高双面板板(orderBased=false,
+ * 任务详情/任务概况/工作概况)断言两框几何互换;非等高多区域板(orderBased=true,
+ * 总览板)断言区域次序交换与位置变化,reload 持久性同断言次序。 */
+async function checkLayout(page, shot, boardId, first, second, label, reopen, { orderBased = false } = {}) {
   const board = page.getByTestId(boardId);
   const box = (id) => board.locator(`[data-region="${id}"]`).first().boundingBox();
   const handle = (id) => board.getByTestId(`region-handle-${id}`);
+  // 总览板是多列纵向堆叠的非等高多区域板:换位后两框不互换几何,只断言区域次序
+  // ([data-region] 的 DOM 序列即扁平 order)与相对位置变化,reload 持久性同此。
+  const readOrder = () =>
+    board.locator("[data-region]").evaluateAll((nodes) => nodes.map((node) => node.dataset.region));
+  const orderIs = (expected) =>
+    page.waitForFunction(
+      ({ boardId, expected }) => {
+        const nodes = globalThis.document.querySelectorAll(`[data-testid="${boardId}"] [data-region]`);
+        return (
+          nodes.length === expected.length && [...nodes].every((node, index) => node.dataset.region === expected[index])
+        );
+      },
+      { boardId, expected },
+      { timeout: 5_000 },
+    );
   if (boardId === "task-detail-content-grid") {
     const geometry = await page.getByTestId("task-detail-panel-scroll").evaluate((node) => {
       const rect = node.getBoundingClientRect(),
@@ -100,8 +118,18 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   await handle(first).waitFor();
   await board.getByTestId(`${boardId}-controls-row`).click();
   const initial = await box(first),
-    other = await box(second);
+    other = await box(second),
+    initialOrder = await readOrder(),
+    firstIndex = initialOrder.indexOf(first),
+    secondIndex = initialOrder.indexOf(second),
+    swappedOrder =
+      firstIndex >= 0 && secondIndex >= 0 && firstIndex !== secondIndex
+        ? initialOrder.map((id, index) =>
+            index === firstIndex ? initialOrder[secondIndex] : index === secondIndex ? initialOrder[firstIndex] : id,
+          )
+        : null;
   assert.ok(initial && other && initial.width > 0 && initial.height > 0, label);
+  assert.ok(swappedOrder !== null, `${label} board must list both regions: ${JSON.stringify(initialOrder)}`);
   await shot(`${label}-before`);
   const source = await handle(first).boundingBox(),
     target = await handle(second).boundingBox();
@@ -111,25 +139,36 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   await board.locator('[data-drop-preview="true"]').first().waitFor();
   await shot(`${label}-preview`);
   await page.mouse.up();
-  await page.waitForFunction(
-    ({ boardId, first, x, y }) => {
-      const rect = globalThis.document
-        .querySelector(`[data-testid="${boardId}"] [data-region="${first}"]`)
-        .getBoundingClientRect();
-      return Math.abs(rect.x - x) < 3 && Math.abs(rect.y - y) < 3;
-    },
-    { boardId, first, x: other.x, y: other.y },
-  );
+  if (orderBased) {
+    await orderIs(swappedOrder);
+    const moved = await box(first);
+    assert.ok(
+      Math.abs(moved.x - initial.x) > 3 || Math.abs(moved.y - initial.y) > 3,
+      `${label} swap must move the region: initial=${JSON.stringify(initial)} moved=${JSON.stringify(moved)}`,
+    );
+  } else {
+    await page.waitForFunction(
+      ({ boardId, first, x, y }) => {
+        const rect = globalThis.document
+          .querySelector(`[data-testid="${boardId}"] [data-region="${first}"]`)
+          .getBoundingClientRect();
+        return Math.abs(rect.x - x) < 3 && Math.abs(rect.y - y) < 3;
+      },
+      { boardId, first, x: other.x, y: other.y },
+    );
+  }
   await shot(`${label}-moved`);
   // Reload preserves actual placement, not just a serialized preference.
   await page.reload();
   if (reopen) await reopen();
   await handle(first).waitFor({ timeout: 30000 });
   const reloaded = await box(first);
-  assert.ok(
-    Math.abs(reloaded.x - other.x) < 3 && Math.abs(reloaded.y - other.y) < 3,
-    `${label} reload ${JSON.stringify(reloaded)}`,
-  );
+  if (orderBased) assert.deepEqual(await readOrder(), swappedOrder, `${label} reload order`);
+  else
+    assert.ok(
+      Math.abs(reloaded.x - other.x) < 3 && Math.abs(reloaded.y - other.y) < 3,
+      `${label} reload ${JSON.stringify(reloaded)}`,
+    );
   await shot(`${label}-reloaded`);
   // Cancellation cannot commit a new order.
   const cancelFrom = await handle(first).boundingBox(),
@@ -139,8 +178,11 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   await page.mouse.move(cancelTo.x + 12, cancelTo.y + 12, { steps: 8 });
   await page.keyboard.press("Escape");
   await page.mouse.up();
-  const cancelled = await box(first);
-  assert.ok(Math.abs(cancelled.x - reloaded.x) < 3 && Math.abs(cancelled.y - reloaded.y) < 3, `${label} cancel`);
+  if (orderBased) assert.deepEqual(await readOrder(), swappedOrder, `${label} cancel`);
+  else {
+    const cancelled = await box(first);
+    assert.ok(Math.abs(cancelled.x - reloaded.x) < 3 && Math.abs(cancelled.y - reloaded.y) < 3, `${label} cancel`);
+  }
   // dnd-kit detaches its document click blocker asynchronously after Escape.
   // Observe propagation recovery before another button activation (Enter also synthesizes click).
   await page.waitForFunction(
@@ -159,24 +201,42 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   );
   await board.getByTestId(`${boardId}-controls-reset`).click();
   await board.getByTestId(`${boardId}-controls-row`).click();
-  await page.waitForFunction(
-    ({ boardId, first, x, y }) => {
-      const rect = globalThis.document
-        .querySelector(`[data-testid="${boardId}"] [data-region="${first}"]`)
-        .getBoundingClientRect();
-      return Math.abs(rect.x - x) < 3 && Math.abs(rect.y - y) < 3;
-    },
-    { boardId, first, x: initial.x, y: initial.y },
-    { timeout: 5000 },
-  );
+  if (orderBased) {
+    await orderIs(initialOrder);
+    assert.deepEqual(await readOrder(), initialOrder, `${label} reset order`);
+  } else {
+    await page.waitForFunction(
+      ({ boardId, first, x, y }) => {
+        const rect = globalThis.document
+          .querySelector(`[data-testid="${boardId}"] [data-region="${first}"]`)
+          .getBoundingClientRect();
+        return Math.abs(rect.x - x) < 3 && Math.abs(rect.y - y) < 3;
+      },
+      { boardId, first, x: initial.x, y: initial.y },
+      { timeout: 5000 },
+    );
+  }
   const reset = await box(first);
-  assert.ok(
-    Math.abs(reset.x - initial.x) < 3 && Math.abs(reset.y - initial.y) < 3,
-    `${label} reset: initial=${JSON.stringify(initial)} actual=${JSON.stringify(reset)} storage=${await page.evaluate(() => globalThis.localStorage.getItem("harness:gui:split-layout"))}`,
-  );
+  if (!orderBased)
+    assert.ok(
+      Math.abs(reset.x - initial.x) < 3 && Math.abs(reset.y - initial.y) < 3,
+      `${label} reset: initial=${JSON.stringify(initial)} actual=${JSON.stringify(reset)} storage=${await page.evaluate(() => globalThis.localStorage.getItem("harness:gui:split-layout"))}`,
+    );
   await handle(first).press("ArrowRight");
-  const keyboard = await box(first);
-  assert.ok(Math.abs(keyboard.x - reset.x) > 3 || Math.abs(keyboard.y - reset.y) > 3, `${label} keyboard move`);
+  if (orderBased) {
+    await page.waitForFunction(
+      ({ boardId, id, from }) => {
+        const nodes = globalThis.document.querySelectorAll(`[data-testid="${boardId}"] [data-region]`);
+        const index = [...nodes].findIndex((node) => node.dataset.region === id);
+        return index >= 0 && index !== from;
+      },
+      { boardId, id: first, from: firstIndex },
+      { timeout: 5000 },
+    );
+  } else {
+    const keyboard = await box(first);
+    assert.ok(Math.abs(keyboard.x - reset.x) > 3 || Math.abs(keyboard.y - reset.y) > 3, `${label} keyboard move`);
+  }
   await board.getByTestId(`${boardId}-controls-reset`).click();
   await board.getByTestId(`${boardId}-controls-row`).click();
   const divider = board.getByTestId(`${boardId}-divider`);
@@ -466,9 +526,14 @@ export default {
         .locator("[data-region]")
         .evaluateAll((nodes) => nodes.map((node) => node.dataset.region));
       assert.ok(overviewIds.length >= 2, `overview fixture needs multiple regions: ${overviewIds}`);
-      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-wide");
+      // 总览板区域非等高(瀑布列内纵向堆叠),换位断言走次序而非几何互换。
+      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-wide", null, {
+        orderBased: true,
+      });
       await resize(1120, 800);
-      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-narrow");
+      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-narrow", null, {
+        orderBased: true,
+      });
       await page.evaluate(() => globalThis.localStorage.setItem("harness-locale", "en-US"));
       await page.reload();
       await page.getByTestId("overview-board").waitFor();
