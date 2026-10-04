@@ -782,6 +782,7 @@ export const daemonGuiReadMethods = Object.freeze([
     serviceMethod: "getCatalogSnapshot",
     auth: "local-session-token",
     commandClass: "repo-read",
+    repositoryRead: true,
   },
   {
     id: "gui.catalog.preset.read",
@@ -805,6 +806,7 @@ export const daemonGuiReadMethods = Object.freeze([
     serviceMethod: "getCatalogPreset",
     auth: "local-session-token",
     commandClass: "repo-read",
+    repositoryRead: true,
   },
   {
     id: "terminal.sessions.list",

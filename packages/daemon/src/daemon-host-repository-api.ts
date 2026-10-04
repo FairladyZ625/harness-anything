@@ -1,5 +1,6 @@
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
 import { repositoryReadDescriptor } from "./repository-read-contract.ts";
+import { catalogWithNodeAdapters } from "./gui-catalog.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { runFleetRepositoryReadClient } from "./fleet/edge.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
@@ -705,21 +706,22 @@ export function createDaemonHostRepositoryApi(
             "fleet_edge_config_invalid",
             `Repository ${repoId} has no matching Fleet center configuration.`,
           );
+        const result = await runFleetRepositoryReadClient({
+          hostname: config.host,
+          port: config.port,
+          ca: readFileSync(config.caPath),
+          servername: config.servername,
+          nodeId: config.nodeId,
+          credential: config.credential,
+          repoId,
+          timeoutMs: config.waitTimeoutMs,
+          method,
+          payload,
+          accessToken: principal.keycloakAuthorization?.session?.accessToken,
+        });
         return parseDaemonGuiReadResult(
           method,
-          await runFleetRepositoryReadClient({
-            hostname: config.host,
-            port: config.port,
-            ca: readFileSync(config.caPath),
-            servername: config.servername,
-            nodeId: config.nodeId,
-            credential: config.credential,
-            repoId,
-            timeoutMs: config.waitTimeoutMs,
-            method,
-            payload,
-            accessToken: principal.keycloakAuthorization?.session?.accessToken,
-          }),
+          method === "repo.gui.catalog.snapshot" && isJsonObject(result) ? catalogWithNodeAdapters(result) : result,
         );
       }
       context.requireHostMode(repoId, repoReadCommandTopology, auth);

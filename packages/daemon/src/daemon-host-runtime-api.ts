@@ -1,6 +1,7 @@
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { readDaemonRegistry } from "@harness-anything/kernel";
+import { catalogRereadReceipt } from "./gui-catalog.ts";
 import {
   ledgerWriteCommandTopology,
   repoReadCommandTopology,
@@ -125,6 +126,22 @@ export function createDaemonHostRuntimeApi(
       return cell.terminal.attach(sessionId, afterSeq);
     },
     terminalAction: async (repoId, method, payload, auth) => {
+      if (
+        method === "repo.gui.catalog.reread" &&
+        readDaemonRegistry({ userRoot: context.input.userRoot }).repos.some(
+          (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
+        )
+      ) {
+        const snapshot = await context.host.read(repoId, "repo.gui.catalog.snapshot", {}, auth);
+        const digest = snapshot.catalogDigest as string;
+        return catalogRereadReceipt({
+          repoId,
+          beforeDigest: digest,
+          afterDigest: digest,
+          observedAt: new Date().toISOString(),
+          rejected: typeof payload.expectedDigest === "string" && payload.expectedDigest !== digest,
+        }) as JsonObject;
+      }
       const commandTopology =
         method === "repo.gui.catalog.reread" || method === "repo.terminal.detach"
           ? repoReadCommandTopology
