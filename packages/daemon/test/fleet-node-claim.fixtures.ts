@@ -26,6 +26,7 @@ export async function fleetNodeClaimFixture(
   wrapRun?: (run: DaemonHost["run"]) => DaemonHost["run"],
   verifyHuman?: Parameters<typeof listenFleetTls>[0]["verifyHuman"],
   now?: () => string,
+  loginAuthority?: Parameters<typeof listenFleetTls>[0]["loginAuthority"],
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
@@ -90,6 +91,7 @@ export async function fleetNodeClaimFixture(
       authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
       nodeOwner: owners.nodeOwner,
       ...(verifyHuman ? { verifyHuman } : {}),
+      ...(loginAuthority ? { loginAuthority } : {}),
     });
     centers.push(center);
     return center;

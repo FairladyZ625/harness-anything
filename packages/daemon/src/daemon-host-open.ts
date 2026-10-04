@@ -245,10 +245,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
       }
       const principal = await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor),
-        base = {
-          ...principal,
-          keycloakAuthorization: { ...principal.keycloakAuthorization, center: await keycloakCenter() },
-        };
+        edge = readDaemonRegistry({ userRoot: input.userRoot }).repos.some(
+          (repo) => repo.canonicalRoot === rootDir && repo.mode === "remote-edge",
+        ),
+        base = edge
+          ? principal
+          : {
+              ...principal,
+              keycloakAuthorization: { ...principal.keycloakAuthorization, center: await keycloakCenter() },
+            };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     },
     closeDaemonWriterEpoch = () => {
@@ -656,8 +661,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           : undefined);
       if (request.repoId && !loginTarget)
         throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
-      if (request.operation === "health" && loginTarget && readFleetEdgeConfig(loginTarget))
-        return oidc.bindingHealth(loginTarget);
+      if (
+        (request.operation === "health" || request.operation === "bootstrap-status") &&
+        loginTarget &&
+        readFleetEdgeConfig(loginTarget)
+      )
+        return oidc
+          .bindingHealth(loginTarget)
+          .then((health) => (request.operation === "bootstrap-status" ? { ...health, required: false } : health));
       if (request.operation === "login") return oidc.beginDevice(loginTarget);
       if (request.operation === "login-poll") return oidc.pollDevice();
       if (request.operation === "login-begin") {

@@ -155,6 +155,11 @@ test("edge binding health reads the selected login authority through fleet disco
   assert.equal(JSON.stringify(binding).includes("secret"), false);
   assert.equal("clientSecret" in binding || "accessToken" in binding || "refreshToken" in binding, false);
   assert.equal(existsSync(path.join(userRoot, "rbac", "config.json")), false);
+  assert.deepEqual(await request({ operation: "bootstrap-status", repoId: "node-one" }), {
+    ...binding,
+    required: false,
+  });
+  assert.equal((await request({ operation: "session-lifetime", repoId: "node-one" })).code, "authorization_denied");
   session = undefined;
   assert.equal((await request({ operation: "session" })).authenticated, false);
   assert.equal((await request({ operation: "health", repoId: "node-two" })).realm, "node-two");
@@ -165,6 +170,10 @@ test("edge binding health reads the selected login authority through fleet disco
   const unhealthy = await request({ operation: "health", repoId: "node-one" });
   assert.equal(unhealthy.ready, false);
   assert.equal(unhealthy.ok, false);
+  assert.deepEqual(await request({ operation: "bootstrap-status", repoId: "node-one" }), {
+    ...unhealthy,
+    required: false,
+  });
   for (const invalid of ["missing", "invalid"]) {
     discovery = invalid;
     const refused = await request({ operation: "health", repoId: "node-one" });
@@ -176,6 +185,9 @@ test("edge binding health reads the selected login authority through fleet disco
   assert.equal(unavailable.ok, false);
   assert.notEqual(unavailable.code, "rbac_not_configured");
   assert.equal(unavailable.ready, undefined);
+  const bootstrapUnavailable = await request({ operation: "bootstrap-status", repoId: "node-one" });
+  assert.equal(bootstrapUnavailable.ok, false);
+  assert.notEqual(bootstrapUnavailable.code, "rbac_not_configured");
 });
 
 test("local and center repository health still reads the daemon's managed RBAC binding", async (t) => {
