@@ -615,6 +615,7 @@ async function uploadFleetChange(
   return uploaded.descriptor;
 }
 export interface FleetTaskCommandClientOptions extends FleetPeerOptions {
+  readonly privatePayload?: Uint8Array;
   readonly accessToken?: string;
   readonly opId: string;
   readonly repoId: string;
@@ -649,6 +650,13 @@ export async function runFleetTaskCommandClient(
     const writerEpoch =
       options.writerEpoch ??
       (assigned as Extract<FleetFrameV1, { schema: "fleet.repo.metadata.result/v1" }>).writerEpoch;
+    const candidate = options.privatePayload
+      ? await uploadFleetChange(session, options.repoId, {
+          path: "rollout.jsonl",
+          body: Buffer.from(options.privatePayload),
+          mediaType: "application/x-ndjson",
+        })
+      : null;
     let result: FleetFrameV1;
     try {
       result = await session.request({
@@ -658,7 +666,7 @@ export async function runFleetTaskCommandClient(
         opId: options.opId,
         repoId: options.repoId,
         taskId: options.taskId,
-        action: options.action,
+        action: { ...options.action, ...(candidate ? { candidate } : {}) },
         docChanges: options.docChanges ?? null,
         mirrorBaseCut: options.mirrorBaseCut ?? null,
         ...(options.accessToken ? { accessToken: options.accessToken } : {}),

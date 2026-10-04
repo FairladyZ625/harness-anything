@@ -471,6 +471,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       if (frame.docChanges !== null) verifyOwnedClaims(nodeId, a.repoId, frame.docChanges);
       let command = frame.action;
+      if (command.kind === "runtime-handoff-export") {
+        const candidate = command.candidate as import("./contract.ts").FleetDescriptor;
+        if (!candidate || !findOwnedClaim(nodeId, a.repoId, candidate))
+          throw new FleetFault(
+            "claim_not_owned",
+            "Native checkpoint upload must belong to the authenticated source node.",
+          );
+      }
       try {
         if (command.kind === "task-submit" && typeof command.taskId === "string") {
           const shown = await options.host.run(
@@ -520,6 +528,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         receipt: receipt as unknown as Readonly<Record<string, unknown>>,
       };
       if (receipt.outcome === "applied" && frame.docChanges) discardOwnedClaims(nodeId, a.repoId, frame.docChanges);
+      if (command.kind === "runtime-handoff-export" && command.candidate)
+        discardOwnedClaims(nodeId, a.repoId, [
+          { candidate: command.candidate as import("./contract.ts").FleetDescriptor },
+        ]);
       return immediate({
         schema: "fleet.task.result/v1",
         messageId: mid(frame.messageId, "task"),

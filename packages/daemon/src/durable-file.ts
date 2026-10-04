@@ -71,3 +71,9 @@ export function readFileWindow(file: string, offset: number, length: number): Bu
     closeSync(descriptor);
   }
 }
+
+/** Delete one private object and durably publish the directory entry change. */
+export function removeFileDurably(file: string): void {
+  rmSync(file, { force: true });
+  syncDirectory(path.dirname(file));
+}

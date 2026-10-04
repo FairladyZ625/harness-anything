@@ -433,9 +433,13 @@ test("capabilities is an exact-set projection of the command contract", () => {
     receipt: ["receipt-show"],
     relation: ["relation-list", "relation-reconfirm", "relation-relate", "relation-triples", "relation-unrelate"],
     restore: ["ledger-restore-drill", "ledger-restore-offline"],
+    // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: exact handoff command inventory.
     runtime: [
       "runtime-batch",
       "runtime-cancel",
+      "runtime-handoff-claim",
+      "runtime-handoff-export",
+      "runtime-handoff-revoke",
       "runtime-instance-create",
       "runtime-instance-delete",
       "runtime-instance-github-credential-set",

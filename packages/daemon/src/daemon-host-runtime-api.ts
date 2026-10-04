@@ -34,6 +34,7 @@ export function createDaemonHostRuntimeApi(
   | "attach"
   | "spawnRuntime"
   | "cancelRuntime"
+  | "handoffRuntime"
   | "batchRuntime"
   | "awaitRuntimeSessions"
   | "runtimeIngress"
@@ -79,6 +80,12 @@ export function createDaemonHostRuntimeApi(
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       return cell.cancelRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
+    },
+    handoffRuntime: async (repoId, payload, auth) => {
+      context.requireHostMode(repoId, commandDescriptorForAction(`runtime-handoff-${String(payload.operation)}`), auth);
+      await context.attemptHostRecovery(repoId);
+      const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      return cell.handoffRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
     },
     batchRuntime: async (repoId, payload, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-batch"), auth);

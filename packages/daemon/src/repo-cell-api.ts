@@ -1,3 +1,8 @@
+import { randomUUID } from "node:crypto";
+import path from "node:path";
+import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import { writeFileDurably, removeFileDurably } from "./durable-file.ts";
+import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { executeBuiltinScheduleOccurrence } from "./schedule-builtin-executor.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
@@ -698,6 +703,41 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       (authorizedBinding) => context.runtimeSpawner.spawn(spawn, authorizedBinding, worktree),
     );
   };
+  const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding) =>
+    runRuntimeHandoff({
+      rootDir: context.rootDir,
+      userRoot: context.extracted.input.runtimeDaemonRoute!.userRoot,
+      payload,
+      command: async (action, body) => {
+        let candidate;
+        if (body) {
+          const ref = `doc-sync-claims/handoff_${randomUUID()}`;
+          writeFileDurably(path.join(resolveHarnessLayout(context.rootDir).localRoot, ref), body, 0o600);
+          candidate = { ref, size: body.byteLength, sha256: sha256Bytes(body), mediaType: "application/x-ndjson" };
+        }
+        try {
+          return (await run(
+            { ...action, ...(candidate ? { candidate } : {}) } as RepoTaskAction,
+            binding,
+          )) as unknown as JsonObject;
+        } finally {
+          if (candidate) removeFileDurably(path.join(resolveHarnessLayout(context.rootDir).localRoot, candidate.ref));
+        }
+      },
+      spawn: async (checkpoint, spawn) => {
+        const worktree = await context.runtimeSpawner.prepareWorktree({
+          taskId: checkpoint.taskId,
+          acceptedCommit: checkpoint.commit,
+        });
+        return enqueueRuntimePublication(
+          context,
+          "runtime-handoff-claim",
+          { kind: "runtime-handoff-claim", dispatchId: checkpoint.dispatchId },
+          binding,
+          (authorized) => context.runtimeSpawner.spawnHandoff(checkpoint, spawn, authorized, worktree),
+        );
+      },
+    });
   const cancelRuntime: RepoCell["cancelRuntime"] = async (payload, binding) => {
     const { executor: _claim, ...cancel } = payload;
     return enqueueRuntimePublication(
@@ -816,6 +856,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     presetRun,
     spawnRuntime,
     cancelRuntime,
+    handoffRuntime,
     awaitRuntimeOutcome: context.awaitRuntimeOutcome,
     awaitRuntimeSignal: context.awaitRuntimeSignal,
     runtimeIngress,

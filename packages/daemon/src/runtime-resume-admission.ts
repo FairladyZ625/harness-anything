@@ -1,8 +1,10 @@
+import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
+import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import path from "node:path";
 import type { SettingsV1, TaskProjection, TaskWorktreeBindingV1 } from "@harness-anything/kernel";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
+import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
 import { requiredRuntimeProjection } from "./runtime-spawn-process.ts";
 import {
@@ -20,6 +22,11 @@ export function admitRuntimeResume(
 ) {
   const resumed = dispatchId ? readDispatchStream(rootDir, dispatchId) : null;
   if (!dispatchId) return resumed;
+  if (readHandoffCheckpoint(rootDir, dispatchId))
+    throw runtimeSpawnError(
+      "runtime_handoff_source_exported",
+      "This dispatch was exported; use the target handoff claim action.",
+    );
   // On an edge the center checks consumption atomically when accepting the dispatch.
   const resumedDispatch = projection?.().readRuntimeDispatchByResumeSource(dispatchId);
   const admission = runtimeResumeAdmission({
@@ -107,6 +114,7 @@ export async function prepareDispatchWorktree(
     readonly dryRun?: unknown;
     readonly dispatchId?: unknown;
     readonly taskId?: unknown;
+    readonly acceptedCommit?: string;
   },
   bindingFor: (taskId: string) => TaskWorktreeBindingV1 | null,
 ): Promise<TaskWorktreeCheckout | null> {
@@ -120,12 +128,20 @@ export async function prepareDispatchWorktree(
       payload.dryRun !== true
         ? bindingFor(taskId)
         : null;
-  if (!taskId || !binding) return null;
+  if (!taskId || !binding) {
+    if (payload.acceptedCommit !== undefined)
+      throw runtimeSpawnError(
+        "runtime_handoff_workspace_missing",
+        "The target task must have a managed worktree binding.",
+      );
+    return null;
+  }
   const checkout = await checkoutTaskWorktree(
     input.rootDir,
     taskId,
     binding,
     input.readSettings?.().worktree.setup ?? [],
+    payload.acceptedCommit,
   );
   if (checkout && !checkout.setup.ok)
     throw runtimeSpawnError(
@@ -165,4 +181,108 @@ export function resolveDispatchCwd(
     ),
     worktree,
   };
+}
+
+/** Bare native-session resumes must obey the same export boundary as dispatch resumes. */
+export function assertNativeResumeNotExported(
+  rootDir: string,
+  providerSessionId: string,
+  projection: TaskProjection,
+): void {
+  for (const session of projection.readRuntimeSessions()) {
+    if (session.providerSessionId !== providerSessionId) continue;
+    const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId);
+    if (dispatch && readHandoffCheckpoint(rootDir, dispatch.payload.dispatchId))
+      throw runtimeSpawnError(
+        "runtime_handoff_source_exported",
+        "Use the target handoff claim for this exported native session.",
+      );
+  }
+}
+
+/** Select trusted checkpoint inheritance or ordinary local resume before assembling a launch. */
+export function resolveRuntimeResume(
+  input: import("./runtime-spawn-types.ts").RuntimeSpawnerInput,
+  payload: import("./protocol/json-rpc-types.ts").JsonObject,
+  handoff?: import("./runtime-handoff-store.ts").RuntimeHandoffCheckpoint,
+) {
+  const allowed = [
+      "handoffEnabled",
+      "runtimeInstanceId",
+      "dispatchId",
+      "agentId",
+      "targetAgentId",
+      "squadId",
+      "role",
+      "model",
+      "effort",
+      "fast",
+      "permissionMode",
+      "cwd",
+      "prompt",
+      "promptSource",
+      "missionName",
+      "onExitCommand",
+      "taskId",
+      "executionId",
+      "reviewTarget",
+      "idempotencyKey",
+      "providerSessionId",
+      "dryRun",
+    ],
+    unknownField = unknownFieldViolation(payload, allowed);
+  if (unknownField)
+    throw runtimeSpawnError("invalid_runtime_spawn", `Runtime spawn payload contains an ${unknownField}`);
+  const requestedDispatchId =
+      payload.dispatchId === undefined ? undefined : requiredRuntimeSpawnText(payload.dispatchId, "dispatchId"),
+    resumed = handoff
+      ? null
+      : admitRuntimeResume(
+          input.rootDir,
+          requestedDispatchId,
+          input.remote ? null : () => requiredRuntimeProjection(input),
+        );
+  const inherited = handoff
+    ? {
+        taskId: handoff.taskId,
+        agentId: handoff.agentId,
+        model: handoff.model,
+        instanceId: undefined,
+        permissionMode: undefined,
+        cwd: undefined,
+      }
+    : resumed?.header;
+  const handoffEnabled =
+    handoff !== undefined || payload.handoffEnabled === true || resumed?.header.handoffEnabled === true;
+  if (
+    payload.handoffEnabled !== undefined &&
+    (typeof payload.handoffEnabled !== "boolean" || requestedDispatchId || payload.providerSessionId !== undefined)
+  )
+    throw runtimeSpawnError("runtime_handoff_ineligible", "Opt in only when creating a new task-bound session.");
+  return { requestedDispatchId, resumed, inherited, handoffEnabled };
+}
+
+/** Handoff opt-in and native version admission belong to the same resume boundary. */
+export function assertRuntimeHandoffLaunch(
+  enabled: boolean | undefined,
+  checkpoint: import("./runtime-handoff-store.ts").RuntimeHandoffCheckpoint | undefined,
+  launch: {
+    taskId: string | null;
+    agentId: string | undefined;
+    role: string | undefined;
+    trustedSchedule: import("./runtime-spawn-types.ts").TrustedScheduleRuntime | undefined;
+  },
+  kindId: string,
+  version: string,
+): void {
+  if (
+    enabled &&
+    (!launch.taskId || kindId !== "codex" || !launch.agentId || launch.role === "reviewer" || launch.trustedSchedule)
+  )
+    throw runtimeSpawnError("runtime_handoff_ineligible", "Handoff is limited to task-bound Codex agent sessions.");
+  if (checkpoint && !/^codex-cli 0\.159\.(?:1|3)$/u.test(version))
+    throw runtimeSpawnError(
+      "runtime_handoff_version_unsupported",
+      "Target Codex version has not been verified for native handoff.",
+    );
 }

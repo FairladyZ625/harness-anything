@@ -1,3 +1,4 @@
+import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -57,6 +58,7 @@ export interface FleetEdgeRuntimeRequest {
     readonly method:
       | "repo.agentRuntime.spawn"
       | "repo.agentRuntime.cancel"
+      | "repo.agentRuntime.handoff"
       | "repo.agentRuntime.overview"
       | "repo.agentRuntime.sessions.await"
       | "repo.agentRuntime.sessions.read"
@@ -415,6 +417,25 @@ export function openFleetEdgeRuntime(input: {
     ): Promise<JsonObject> => {
       await ensureReady();
       if (method === "repo.schedule.run") return runSchedule(action);
+      if (method === "repo.agentRuntime.handoff")
+        return runRuntimeHandoff({
+          rootDir: request.workspaceRoot,
+          userRoot: input.daemonRoute.userRoot,
+          payload: action,
+          command: async (command, body) => {
+            const result = await runFleetTaskCommandClient({
+              ...peer,
+              repoId: request.repoId,
+              taskId: null,
+              opId: `handoff_${Date.now()}`,
+              waitMs: 0,
+              action: command as { kind: string },
+              ...(body ? { privatePayload: body } : {}),
+            });
+            return result.receipt as JsonObject;
+          },
+          spawn: (checkpoint, spawn) => spawner.spawnHandoff(checkpoint, spawn, edgeBinding(request)),
+        });
       return method === "repo.agentRuntime.spawn"
         ? spawner.spawn(action, edgeBinding(request))
         : method === "repo.agentRuntime.cancel"

@@ -44,6 +44,22 @@ function settingsActionRpcRule(field: GeneratedSettingsActionInputField): RpcSha
 }
 
 export const daemonGuiActionMethods = Object.freeze([
+  guiS3Action(
+    "agentRuntime.handoff",
+    "repo.agentRuntime.handoff",
+    "runtime-handoff-claim",
+    shape({
+      operation: "string",
+      dispatchId: "string",
+      runtimeInstanceId: "string?",
+      prompt: "string?",
+      idempotencyKey: "string?",
+    }),
+    "handoffAgentRuntime",
+    "/api/agent-runtime/handoff",
+    "repo-write",
+    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
+  ),
   {
     id: "gui.control.request",
     phase: "W5-GUI-S3",
@@ -332,6 +348,7 @@ export const daemonGuiActionMethods = Object.freeze([
       missionName: "string?",
       onExitCommand: "string?",
       taskId: "string-null?",
+      handoffEnabled: "boolean?",
       idempotencyKey: "string",
       providerSessionId: "string?",
       executor: "json?",

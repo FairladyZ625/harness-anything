@@ -1,3 +1,4 @@
+import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
 import taskAssignment from "./scenarios/task-assignment.mjs";
 import workTeams from "./scenarios/work-teams.mjs";
@@ -32,6 +33,7 @@ import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
 import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
 
 export const catalog = [
+  runtimeHandoff,
   accountLogin,
   taskAssignment,
   workTeams,
