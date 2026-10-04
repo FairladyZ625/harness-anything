@@ -123,7 +123,7 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
         );
     };
 
-  if (rejection) return <AccessNotice rejection={rejection} testId="access-groups-unavailable" />;
+  if (rejection) return <AccessNotice rejection={rejection} origin="read" testId="access-groups-unavailable" />;
   if (!data) return <p className="text-text-muted ui-meta">{t("accessControl.loading")}</p>;
 
   const inherited = inheritedScopes(groups, draft.composites),
@@ -196,7 +196,7 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
                   </div>
                 ) : refusal ? (
                   <div className="sticky top-0 z-10 bg-surface">
-                    <AccessNotice rejection={refusal} testId="access-group-refusal" />
+                    <AccessNotice rejection={refusal} origin="write" testId="access-group-refusal" />
                   </div>
                 ) : null}
                 {readOnly && (

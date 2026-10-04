@@ -275,10 +275,10 @@ function SessionLifetime({ access }: { readonly access: AccessAdminApi }) {
   return (
     <Region title={t("accessControl.lifetime.title")} padded>
       {rejection ? (
-        <AccessNotice rejection={rejection} testId="access-lifetime-unavailable" />
+        <AccessNotice rejection={rejection} origin="read" testId="access-lifetime-unavailable" />
       ) : data ? (
         <div className="flex flex-col gap-2">
-          {refusal && <AccessNotice rejection={refusal} testId="access-lifetime-refusal" />}
+          {refusal && <AccessNotice rejection={refusal} origin="write" testId="access-lifetime-refusal" />}
           <label className="flex flex-col gap-1 ui-meta text-text-muted">
             {t("accessControl.lifetime.label")}
             <span className="flex flex-wrap items-center gap-2">

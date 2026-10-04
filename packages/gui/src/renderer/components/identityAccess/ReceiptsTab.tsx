@@ -23,7 +23,7 @@ export function ReceiptsTab({ access }: { readonly access: AccessAdminApi }) {
     await reload();
     setBusy(false);
   };
-  if (rejection) return <AccessNotice rejection={rejection} testId="access-receipts-unavailable" />;
+  if (rejection) return <AccessNotice rejection={rejection} origin="read" testId="access-receipts-unavailable" />;
   if (!data) return <p className="text-text-muted ui-meta">{t("accessControl.loading")}</p>;
   const unsettled = data.receipts.filter((receipt) => receipt.phase === "intent").length;
   return (
@@ -41,7 +41,7 @@ export function ReceiptsTab({ access }: { readonly access: AccessAdminApi }) {
                   : t("accessControl.receipts.footer")
               }
             >
-              {refusal && <AccessNotice rejection={refusal} testId="access-receipt-refusal" />}
+              {refusal && <AccessNotice rejection={refusal} origin="write" testId="access-receipt-refusal" />}
               <ReceiptRows receipts={data.receipts} busy={busy} onReconcile={(id) => void reconcile(id)} />
             </Region>
           </BoardRegion>

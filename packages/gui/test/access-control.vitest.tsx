@@ -249,11 +249,19 @@ describe("账号与访问控制页", () => {
     const writes = keycloak.writes.length;
     signIn("alice", []);
     await click(find('[data-testid^="access-revoke-"]'));
-    expect(byTestId("access-grant-refusal").dataset.code).toBe("authorization_denied");
+    const refusal = byTestId("access-grant-refusal");
+    expect(refusal.dataset.code).toBe("authorization_denied");
+    // The person asked for this write and it failed, so it stays a clear error — never a gray note.
+    expect(refusal.getAttribute("role")).toBe("alert");
+    expect(refusal.className).toContain("status-blocked");
     expect(keycloak.writes.length).toBe(writes);
     expect(await evaluate("alice", "repo-a", { kind: "task-create" })).toBe("allowed");
     await openTab(access, "策略组");
-    expect(byTestId("access-groups-unavailable").textContent).toContain("不是访问管理员");
+    const unavailable = byTestId("access-groups-unavailable");
+    expect(unavailable.textContent).toContain("不是访问管理员");
+    // The page's own read of the same lack of role, by contrast, reads as a permission note.
+    expect(unavailable.getAttribute("role")).toBe("status");
+    expect(unavailable.className).not.toContain("status-blocked");
   });
 
   it("shows a Base group with every editing control disabled, and the daemon refuses the same write", async () => {

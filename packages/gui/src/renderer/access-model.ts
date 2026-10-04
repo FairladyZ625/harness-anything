@@ -121,9 +121,10 @@ export function isRejection(reply: { readonly ok: boolean }): reply is AccessRej
 }
 
 /**
- * The access system answering as designed: the signed-in account simply lacks a role. Such a
- * refusal is information about who may act here, not a service or connection failure, so it reads
- * as a permission note instead of a red alert.
+ * The access system answering as designed: the signed-in account simply lacks a role. Whether that
+ * may read as information is decided by the caller from the real operation origin — a read the page
+ * made on its own is a permission note, while a write the person asked for keeps its error feedback.
+ * This check only names the code; it does not infer what kind of operation met it.
  */
 export function isPermissionRefusal(rejection: AccessRejection): boolean {
   return rejection.code === "authorization_denied";

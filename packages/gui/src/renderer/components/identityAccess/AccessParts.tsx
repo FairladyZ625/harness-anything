@@ -47,9 +47,21 @@ export function useAccessRead<T>(read: (() => Promise<AccessReply<T>>) | undefin
   return { ...state, reload };
 }
 
-export function AccessNotice({ rejection, testId }: { readonly rejection: AccessRejection; readonly testId?: string }) {
-  // A legal lack of role is a permission note; every other refusal still reads as a failure.
-  const permission = isPermissionRefusal(rejection);
+/** Where a refusal came from: a read the page made on its own, or a write the person asked for. */
+export type RefusalOrigin = "read" | "write";
+
+export function AccessNotice({
+  rejection,
+  origin,
+  testId,
+}: {
+  readonly rejection: AccessRejection;
+  readonly origin: RefusalOrigin;
+  readonly testId?: string;
+}) {
+  // Only a read the page made may render its legal lack of role as information; a write the person
+  // asked for keeps clear error feedback, and every other refusal still reads as a failure.
+  const permission = origin === "read" && isPermissionRefusal(rejection);
   return (
     <p
       role={permission ? "status" : "alert"}
