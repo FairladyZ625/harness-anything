@@ -427,6 +427,7 @@
   "views.overviewView.searchPlaceholder": "搜索任务、工作、决策、事件…",
   "views.overviewView.topDaemonDown": "daemon 无响应",
   "views.overviewView.topCiUnknown": "main CI 未知",
+  "views.overviewView.collaborationEntry": "协作 {total} · 执行中 {executing}",
   "views.overviewView.topProjectionLag": "投影落后 {lag}",
   "views.overviewView.regionCi": "main CI 失败",
   "views.overviewView.ciBlocking": "阻断合入",

@@ -226,3 +226,44 @@ describe("activation and empty state", () => {
     }
   });
 });
+
+describe("in-place collaboration hint (task_1bafbf09 rework)", () => {
+  it("appends compact assignee/holder segments after the task id from structural fields", async () => {
+    const view = await mountList([
+      makeTask({
+        taskId: "task_fleet",
+        title: "Fleet task",
+        assignment: {
+          assignee: { kind: "person", personId: "person_ada", nodeId: "edge-alpha" },
+          expiresAt: "2026-10-02T00:00:00.000Z",
+        },
+        leaseActor: { principal: { personId: "person_bo" }, executor: null },
+        leaseSource: { kind: "node", nodeId: "edge-beta" },
+        leasePhase: "held",
+        leaseExpiresAt: "2026-10-05T00:00:00.000Z",
+      }),
+    ]);
+    try {
+      const row = view.container.querySelector('[data-testid="task-row-task_fleet"]')!;
+      expect(row.textContent).toContain("task_fleet");
+      expect(row.textContent).toContain("Assigned person_ada@edge-alpha");
+      expect(row.textContent).toContain("Executing person_bo@edge-beta");
+    } finally {
+      await unmount(view);
+    }
+  });
+
+  it("keeps the bare id when the task has no assignment and no lease", async () => {
+    const view = await mountList([makeTask({ taskId: "task_bare", title: "Bare" })]);
+    try {
+      const row = view.container.querySelector('[data-testid="task-row-task_bare"]')!;
+      expect(row.textContent).toContain("task_bare");
+      expect(row.textContent).not.toContain("Assigned");
+      expect(row.textContent).not.toContain("Executing");
+      // 原始机器串在 DenseRow 的悬停全文上(hoverTitle)
+      expect(row.querySelector("[data-dense-row]")!.getAttribute("title")).toBe("task_bare");
+    } finally {
+      await unmount(view);
+    }
+  });
+});

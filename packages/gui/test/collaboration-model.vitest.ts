@@ -1,9 +1,11 @@
 // harness-test-tier: fast
 import { describe, expect, it } from "vitest";
 import {
+  agentIndexOfSessionGroups,
   applyCollaborationFilters,
   assignmentStateOf,
   collaborationFilterOptions,
+  EMPTY_SESSION_AGENT_INDEX,
   hasCollaborationFilters,
   isExecutingLeasePhase,
   leaseNodeIdOf,
@@ -115,9 +117,10 @@ describe("collaborationFilterOptions(按实际数据提供筛选)", () => {
     expect(persons[0]?.count).toBe(2); // held + released 两条 lease 的 principal
   });
 
-  it("会话维度只在有 executor 时出现", () => {
-    const { sessions } = collaborationFilterOptions(tasks);
-    expect(sessions).toEqual([{ id: "runtime-session:runtime_a520047968e6", count: 1 }]);
+  it("Agent 维度只在索引映射上执行会话时出现(空索引=维度缺席)", () => {
+    const { agents } = collaborationFilterOptions(tasks);
+    expect(agents).toEqual([]);
+    expect(collaborationFilterOptions(tasks, EMPTY_SESSION_AGENT_INDEX).agents).toEqual([]);
   });
 
   it("节点汇总:count 是筛选命中数(lease 节点或指派节点),executing 只计 held/reserving,assigned 来自指派 nodeId", () => {
@@ -127,7 +130,7 @@ describe("collaborationFilterOptions(按实际数据提供筛选)", () => {
   });
 
   it("无 lease 无指派的任务不产生任何筛选维度条目", () => {
-    expect(collaborationFilterOptions([task("bare")])).toEqual({ persons: [], sessions: [], nodes: [] });
+    expect(collaborationFilterOptions([task("bare")])).toEqual({ persons: [], agents: [], nodes: [] });
   });
 });
 
@@ -211,8 +214,36 @@ describe("review be577 四个反例的修后行为", () => {
     expect(nodes).toContainEqual({ nodeId: "edge-live", count: 1, executing: 1, assigned: 0 });
   });
 
-  it("同一 principal 的多个 runtime-session 是多个会话筛选值,不冒充聚合后的 Agent", () => {
-    const { sessions, persons } = collaborationFilterOptions([
+  it("同 Agent 多会话聚合:两个 task 各持不同会话但索引同指一个 agentId,收进同一筛选值", () => {
+    const index = agentIndexOfSessionGroups({
+      groups: [
+        {
+          key: "glm",
+          kind: "agent",
+          label: "GLM-5.3",
+          agentId: "glm",
+          latestStatus: "running",
+          latestActivityAt: "2026-10-02T13:30:00.000Z",
+          runningCount: 1,
+          sessionCount: 2,
+          roundCount: 2,
+          latestRound: {
+            runtimeSessionId: "runtime_aaa",
+            dispatchId: "dispatch_aaa",
+            agentName: "GLM-5.3",
+            instanceId: "instance-a",
+            status: "running",
+            classification: null,
+            reason: null,
+            startedAt: "2026-10-02T13:30:00.000Z",
+          },
+        },
+      ],
+      truncated: false,
+    });
+    expect([...index.agentOfSession]).toEqual([["runtime_aaa", { agentId: "glm", label: "GLM-5.3" }]]);
+
+    const tasks = [
       task("session-a", {
         leaseActor: {
           principal: { personId: "person_zeyu" },
@@ -220,22 +251,157 @@ describe("review be577 四个反例的修后行为", () => {
         },
         leasePhase: "held",
       }),
-      task("session-b", {
+      task("session-aaa-same-agent", {
         leaseActor: {
           principal: { personId: "person_zeyu" },
-          executor: { kind: "agent", id: "runtime-session:runtime_bbb" },
+          executor: { kind: "agent", id: "runtime-session:runtime_aaa" },
         },
         leasePhase: "held",
       }),
-    ]);
-    expect(sessions).toEqual([
-      { id: "runtime-session:runtime_aaa", count: 1 },
-      { id: "runtime-session:runtime_bbb", count: 1 },
-    ]);
+    ];
+    const { agents, persons } = collaborationFilterOptions(tasks, index);
+    // 只映射上的会话产 Agent 条目;一个 task 一票,同会话跨 task 才累加。
+    expect(agents).toEqual([{ id: "glm", label: "GLM-5.3", count: 2 }]);
     expect(persons).toEqual([{ id: "person_zeyu", count: 2 }]);
+    expect(
+      applyCollaborationFilters(tasks, { ...NO_COLLABORATION_FILTERS, agent: "glm" }, index).map((t) => t.taskId),
+    ).toEqual(["session-a", "session-aaa-same-agent"]);
+  });
+
+  it("索引缺映射的会话不产生 Agent 条目,不从未知冒充;Direct/无派工组不进索引;截断如实透传", () => {
+    const index = agentIndexOfSessionGroups({
+      groups: [
+        {
+          key: "instance:instance-direct",
+          kind: "agent",
+          label: "Direct (instance-direct)",
+          latestStatus: "running",
+          latestActivityAt: "2026-10-02T13:30:00.000Z",
+          runningCount: 1,
+          sessionCount: 1,
+          roundCount: 0,
+          latestRound: {
+            runtimeSessionId: "runtime_direct",
+            dispatchId: null,
+            agentName: null,
+            instanceId: "instance-direct",
+            status: "running",
+            classification: null,
+            reason: null,
+            startedAt: "2026-10-02T13:30:00.000Z",
+          },
+        },
+        {
+          key: "glm",
+          kind: "agent",
+          label: "GLM-5.3",
+          agentId: "glm",
+          latestStatus: "running",
+          latestActivityAt: "2026-10-02T13:00:00.000Z",
+          runningCount: 0,
+          sessionCount: 1,
+          roundCount: 1,
+          latestRound: {
+            runtimeSessionId: "runtime_glm",
+            dispatchId: "dispatch_glm",
+            agentName: "GLM-5.3",
+            instanceId: "instance-glm",
+            status: "succeeded",
+            classification: null,
+            reason: null,
+            startedAt: "2026-10-02T13:00:00.000Z",
+          },
+        },
+        {
+          key: "task-x",
+          kind: "task",
+          label: "task-x",
+          taskId: "task-x",
+          latestStatus: "succeeded",
+          latestActivityAt: "2026-10-02T12:00:00.000Z",
+          runningCount: 0,
+          sessionCount: 1,
+          roundCount: 1,
+          latestRound: null,
+        },
+      ],
+      truncated: true,
+    });
+    // 只有带 agentId 的组进映射;Direct 组没有声明 agentId,不进。
+    expect([...index.agentOfSession.keys()]).toEqual(["runtime_glm"]);
+    expect(index.truncated).toBe(true);
+
+    const tasks = [
+      task("unmapped", {
+        leaseActor: {
+          principal: { personId: "person_zeyu" },
+          executor: { kind: "agent", id: "runtime-session:runtime_direct" },
+        },
+        leasePhase: "held",
+      }),
+      task("mapped", {
+        leaseActor: {
+          principal: { personId: "person_zeyu" },
+          executor: { kind: "agent", id: "runtime-session:runtime_glm" },
+        },
+        leasePhase: "held",
+      }),
+    ];
+    const { agents } = collaborationFilterOptions(tasks, index);
+    expect(agents).toEqual([{ id: "glm", label: "GLM-5.3", count: 1 }]);
+    expect(
+      applyCollaborationFilters(tasks, { ...NO_COLLABORATION_FILTERS, agent: "glm" }, index).map((t) => t.taskId),
+    ).toEqual(["mapped"]);
   });
 
   it("计数不变量:每个维度值的 count 严格等于该维度单独筛选命中的 task 数", () => {
+    const index = agentIndexOfSessionGroups({
+      groups: [
+        {
+          key: "glm",
+          kind: "agent",
+          label: "GLM-5.3",
+          agentId: "glm",
+          latestStatus: "running",
+          latestActivityAt: "2026-10-02T13:30:00.000Z",
+          runningCount: 1,
+          sessionCount: 1,
+          roundCount: 1,
+          latestRound: {
+            runtimeSessionId: "runtime_aaa",
+            dispatchId: "dispatch_aaa",
+            agentName: "GLM-5.3",
+            instanceId: "instance-a",
+            status: "running",
+            classification: null,
+            reason: null,
+            startedAt: "2026-10-02T13:30:00.000Z",
+          },
+        },
+        {
+          key: "astra",
+          kind: "agent",
+          label: "Astra",
+          agentId: "astra",
+          latestStatus: "running",
+          latestActivityAt: "2026-10-02T11:00:00.000Z",
+          runningCount: 1,
+          sessionCount: 1,
+          roundCount: 1,
+          latestRound: {
+            runtimeSessionId: "runtime_bbb",
+            dispatchId: "dispatch_bbb",
+            agentName: "Astra",
+            instanceId: "instance-b",
+            status: "running",
+            classification: null,
+            reason: null,
+            startedAt: "2026-10-02T11:00:00.000Z",
+          },
+        },
+      ],
+      truncated: false,
+    });
     const mixed = [
       task("t1", {
         assignment: {
@@ -267,15 +433,17 @@ describe("review be577 四个反例的修后行为", () => {
         assignment: { assignee: { kind: "team", teamId: "team-1" }, expiresAt: "2026-10-02T00:00:00Z" },
       }),
     ];
-    const options = collaborationFilterOptions(mixed);
+    const options = collaborationFilterOptions(mixed, index);
     for (const { id, count } of options.persons) {
-      expect(applyCollaborationFilters(mixed, { ...NO_COLLABORATION_FILTERS, person: id })).toHaveLength(count);
+      expect(applyCollaborationFilters(mixed, { ...NO_COLLABORATION_FILTERS, person: id }, index)).toHaveLength(count);
     }
-    for (const { id, count } of options.sessions) {
-      expect(applyCollaborationFilters(mixed, { ...NO_COLLABORATION_FILTERS, session: id })).toHaveLength(count);
+    for (const { id, count } of options.agents) {
+      expect(applyCollaborationFilters(mixed, { ...NO_COLLABORATION_FILTERS, agent: id }, index)).toHaveLength(count);
     }
     for (const { nodeId, count } of options.nodes) {
-      expect(applyCollaborationFilters(mixed, { ...NO_COLLABORATION_FILTERS, node: nodeId })).toHaveLength(count);
+      expect(applyCollaborationFilters(mixed, { ...NO_COLLABORATION_FILTERS, node: nodeId }, index)).toHaveLength(
+        count,
+      );
     }
   });
 });
@@ -315,12 +483,6 @@ describe("applyCollaborationFilters", () => {
 
   it("会话与节点筛选只认结构字段(lease executor / 来源节点或指派节点)", () => {
     expect(
-      applyCollaborationFilters(tasks, {
-        ...NO_COLLABORATION_FILTERS,
-        session: "runtime-session:runtime_a520047968e6",
-      }).map((t) => t.taskId),
-    ).toEqual(["held"]);
-    expect(
       applyCollaborationFilters(tasks, { ...NO_COLLABORATION_FILTERS, node: "edge-b" }).map((t) => t.taskId),
     ).toEqual(["held"]);
   });
@@ -329,7 +491,6 @@ describe("applyCollaborationFilters", () => {
     expect(
       applyCollaborationFilters(tasks, {
         person: "person_zeyu",
-        session: "runtime-session:runtime_a520047968e6",
         node: "edge-b",
       }).map((t) => t.taskId),
     ).toEqual(["held"]);

@@ -24,6 +24,8 @@ import { SystemView } from "./views/SystemView.tsx";
 import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { CollaborationView } from "./views/CollaborationView.tsx";
+import { useCollaborationAgentIndex } from "./collaboration-data.ts";
+import { isExecutingLeasePhase } from "./model/collaboration.ts";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
@@ -225,6 +227,12 @@ function AppShell() {
     });
   }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data, works]);
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
+  // 协作页(task_1bafbf09)的会话→Agent 索引:只在协作页挂载且非纯本地仓时读
+  // (group-by=agent 一条读,sessionGroupsAll 家族共享缓存)。
+  const collaborationAgentIndex = useCollaborationAgentIndex(
+    activeRepoId,
+    view === "collaboration" && (activeRepo?.mode ?? "local") !== "local",
+  );
   const project = adaptRepoProject(
     projectId,
     activeRepo,
@@ -237,6 +245,15 @@ function AppShell() {
   const { openLocalDocument } = useLocalDocOpener();
 
   const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
+  // 总览紧凑协作入口的摘要(task_1bafbf09 返工):纯本地不给入口(fleetOnly 同源),
+  // 非纯本地仓从已挂载的任务切面折算,不另发请求。
+  const collaborationSummary = useMemo(() => {
+    if (activeRepo === undefined || activeRepo.mode === "local") return null;
+    return {
+      total: projectTasks.length,
+      executing: projectTasks.filter((task) => isExecutingLeasePhase(task.leasePhase)).length,
+    };
+  }, [activeRepo, projectTasks]);
   /** task 详情「打开终端」→ 终端页进页即建绑定会话;requestId 让同一请求只消费一次。 */
   const [terminalLaunch, setTerminalLaunch] = useState<TerminalLaunchTask | null>(null);
   // 预览抽屉点开的收口记录(execution/review/…):一次性聚焦意图,随任务详情
@@ -574,12 +591,14 @@ function AppShell() {
                     titles={taskTitles}
                     workspaceSummary={workspaceSummaryQuery.data}
                     health={runtimeHealth}
+                    collaboration={collaborationSummary}
                     onNavigateEntity={navigateToEntity}
                     onOpenTask={openTaskDetail}
                     onOpenSearch={() => setPaletteOpen(true)}
                     onOpenSessions={() => goto("sessions")}
                     onOpenWorks={() => goto("work")}
                     onOpenTasks={() => goto("board")}
+                    onOpenCollaboration={() => goto("collaboration")}
                     onUnpin={(taskId) => handleSetPin({ taskId }, false)}
                   />
                 ) : (
@@ -666,6 +685,7 @@ function AppShell() {
                   mode={activeRepo?.mode ?? "local"}
                   tasks={projectTasks}
                   ready={tasksQuery.data?.status === "ready"}
+                  agents={collaborationAgentIndex}
                   onOpenTask={openTaskDetail}
                   onNavigateEntity={navigateToEntity}
                 />

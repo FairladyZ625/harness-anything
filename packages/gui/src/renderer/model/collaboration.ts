@@ -1,3 +1,4 @@
+import type { AgentRuntimeSessionGroupsResult } from "@harness-anything/daemon/protocol";
 import type { TaskRow } from "./types.ts";
 
 /**
@@ -7,7 +8,9 @@ import type { TaskRow } from "./types.ts";
  * - assignee(task/v2.assignment)是**资格限制**,expiresAt 过期只是资格放开;
  * - 实际执行者来自 lease(lease/v1),phase 词表 held/reserving/orphaned/released;
  *   「执行中」只认 phase(held/reserving),持有人还在但 orphaned/released 不算执行中;
- *   executor id 是 daemon 写侧的 runtime-session 执行会话,不是 Agent 声明;
+ * - executor id 是 daemon 写侧的 runtime-session 执行会话;Agent 身份来自
+ *   runtime-session-groups 投影的权威绑定(dispatch 行的 agentId,见
+ *   daemon agent-runtime-session-groups.ts),不从 model/instance/session 字符串猜;
  * - 指派过期不打断已持有的 lease——执行侧以 lease 为准,资格侧只如实标注过期;
  * - 节点观察仅汇总数据里出现的 nodeId,在线状态本读面不提供,不推断。
  *
@@ -15,19 +18,50 @@ import type { TaskRow } from "./types.ts";
  * leaseHolder 显示串反解析。
  */
 
+/** sessionGroups 投影里声明过的 Agent:agentId 权威,label 是显示名。 */
+export interface CollaborationAgent {
+  readonly agentId: string;
+  readonly label: string;
+}
+
+/**
+ * lease 执行会话 → 声明 Agent 的索引。投影每组只暴露 latestRound 的
+ * runtimeSessionId,所以映射按读面天然是部分的:没映射上的会话如实显示
+ * 「未提供」,不把未知冒充成 Agent。truncated = 组读面被 limit 截断,映射
+ * 可能进一步缺组。
+ */
+export interface SessionAgentIndex {
+  readonly agentOfSession: ReadonlyMap<string, CollaborationAgent>;
+  readonly truncated: boolean;
+}
+
+export const EMPTY_SESSION_AGENT_INDEX: SessionAgentIndex = { agentOfSession: new Map(), truncated: false };
+
+/** 从 runtime-session-groups(groupBy=agent)结果建会话→Agent 索引;无 agentId 的组(Direct/未归属)不进。 */
+export function agentIndexOfSessionGroups(
+  result: Pick<AgentRuntimeSessionGroupsResult, "groups" | "truncated">,
+): SessionAgentIndex {
+  const agentOfSession = new Map<string, CollaborationAgent>();
+  for (const group of result.groups) {
+    if (group.agentId === undefined || group.latestRound === null) continue;
+    agentOfSession.set(group.latestRound.runtimeSessionId, { agentId: group.agentId, label: group.label });
+  }
+  return { agentOfSession, truncated: result.truncated };
+}
+
 export interface CollaborationFilters {
   /** personId:命中指派人或 lease principal 任一;null = 不筛。 */
   readonly person: string | null;
-  /** lease executor 的完整 id(执行会话,不是 Agent 声明);null = 不筛。 */
-  readonly session: string | null;
+  /** 声明 Agent 的 agentId(映射自 lease 执行会话);null = 不筛。 */
+  readonly agent: string | null;
   /** nodeId:命中 lease 来源节点或指派节点任一;null = 不筛。 */
   readonly node: string | null;
 }
 
-export const NO_COLLABORATION_FILTERS: CollaborationFilters = { person: null, session: null, node: null };
+export const NO_COLLABORATION_FILTERS: CollaborationFilters = { person: null, agent: null, node: null };
 
 export const hasCollaborationFilters = (filters: CollaborationFilters): boolean =>
-  filters.person !== null || filters.session !== null || filters.node !== null;
+  filters.person !== null || filters.agent !== null || filters.node !== null;
 
 /** daemon 写侧的 executor id 格式 `runtime-session:<sessionId>`(agent-runtime-stream);剥出会话 id 供跳转,不匹配则无链接。 */
 export function leaseRuntimeSessionIdOf(leaseActor: TaskRow["leaseActor"]): string | null {
@@ -68,9 +102,10 @@ interface PersonDimension {
   readonly id: string;
   readonly count: number;
 }
-interface SessionDimension {
-  /** lease executor 的完整 id(筛选与悬停用)。 */
+interface AgentDimension {
+  /** 声明 Agent 的 agentId(筛选值与实体跳转用)。 */
   readonly id: string;
+  readonly label: string;
   readonly count: number;
 }
 export interface CollaborationNodeSummary {
@@ -85,7 +120,7 @@ export interface CollaborationNodeSummary {
 
 export interface CollaborationFilterOptions {
   readonly persons: readonly PersonDimension[];
-  readonly sessions: readonly SessionDimension[];
+  readonly agents: readonly AgentDimension[];
   readonly nodes: readonly CollaborationNodeSummary[];
 }
 
@@ -96,15 +131,18 @@ export const isExecutingLeasePhase = (phase: string | undefined): boolean =>
   phase !== undefined && ACTIVE_LEASE_PHASES.has(phase);
 
 /**
- * 按人/执行会话/节点三个维度汇总实际出现过的筛选值,各带计数;维度无数据时为空数组(不提供该筛选)。
+ * 按人/Agent/节点三个维度汇总实际出现过的筛选值,各带计数;维度无数据时为空数组(不提供该筛选)。
  * 计数不变量:每个维度值的 count 严格等于该维度单独筛选命中的 task 数——同一 task 里
  * 指派人与 lease principal 是同一人、或 lease 节点与指派节点是同一节点,都只计一次。
- * 会话维度按 lease executor.id 分组;当前 executor id 是 daemon 写侧的 runtime-session
- * 执行会话,不是 Agent 声明,同一 Agent 的多个会话就是多个筛选值,不做冒名聚合。
+ * Agent 维度按会话→Agent 索引聚合:同一 Agent 的多个 lease 会话收进同一个筛选值;
+ * 索引映射不上的会话不产生 Agent 筛选值(行内如实显示「未提供」)。
  */
-export function collaborationFilterOptions(tasks: readonly CollaborationTask[]): CollaborationFilterOptions {
+export function collaborationFilterOptions(
+  tasks: readonly CollaborationTask[],
+  agents: SessionAgentIndex = EMPTY_SESSION_AGENT_INDEX,
+): CollaborationFilterOptions {
   const persons = new Map<string, number>();
-  const sessions = new Map<string, number>();
+  const agentCounts = new Map<string, { label: string; count: number }>();
   // 汇总期可变,输出时收成 readonly 行。
   const nodes = new Map<string, { nodeId: string; count: number; executing: number; assigned: number }>();
   const nodeOf = (nodeId: string) => {
@@ -130,8 +168,13 @@ export function collaborationFilterOptions(tasks: readonly CollaborationTask[]):
     const leaseActor = task.leaseActor;
     if (leaseActor !== undefined) {
       taskPersons.add(leaseActor.principal.personId);
-      if (leaseActor.executor !== null)
-        sessions.set(leaseActor.executor.id, (sessions.get(leaseActor.executor.id) ?? 0) + 1);
+      const runtimeSessionId = leaseRuntimeSessionIdOf(leaseActor),
+        agent = runtimeSessionId === null ? undefined : agents.agentOfSession.get(runtimeSessionId);
+      if (agent !== undefined) {
+        const known = agentCounts.get(agent.agentId) ?? { label: agent.label, count: 0 };
+        known.count += 1;
+        agentCounts.set(agent.agentId, known);
+      }
       const nodeId = leaseNodeIdOf(task.leaseSource);
       if (nodeId !== null) {
         taskNodes.add(nodeId);
@@ -145,20 +188,28 @@ export function collaborationFilterOptions(tasks: readonly CollaborationTask[]):
     right.count - left.count || left.id.localeCompare(right.id);
   return {
     persons: [...persons.entries()].map(([id, count]) => ({ id, count })).sort(byCountThenId),
-    sessions: [...sessions.entries()].map(([id, count]) => ({ id, count })).sort(byCountThenId),
+    agents: [...agentCounts.entries()].map(([id, { label, count }]) => ({ id, label, count })).sort(byCountThenId),
     nodes: [...nodes.values()].sort(
       (left, right) => right.executing - left.executing || left.nodeId.localeCompare(right.nodeId),
     ),
   };
 }
 
-function matchesCollaborationTask(task: CollaborationTask, filters: CollaborationFilters): boolean {
+function matchesCollaborationTask(
+  task: CollaborationTask,
+  filters: CollaborationFilters,
+  agents: SessionAgentIndex,
+): boolean {
   if (filters.person !== null) {
     const assignee = task.assignment?.assignee;
     const assignedTo = assignee?.kind === "person" && assignee.personId === filters.person;
     if (!assignedTo && task.leaseActor?.principal.personId !== filters.person) return false;
   }
-  if (filters.session !== null && task.leaseActor?.executor?.id !== filters.session) return false;
+  if (filters.agent !== null) {
+    const runtimeSessionId = task.leaseActor === undefined ? null : leaseRuntimeSessionIdOf(task.leaseActor);
+    if (runtimeSessionId === null || agents.agentOfSession.get(runtimeSessionId)?.agentId !== filters.agent)
+      return false;
+  }
   if (filters.node !== null) {
     const leaseNode = leaseNodeIdOf(task.leaseSource) === filters.node;
     const assignee = task.assignment?.assignee;
@@ -175,9 +226,10 @@ function matchesCollaborationTask(task: CollaborationTask, filters: Collaboratio
 export function applyCollaborationFilters(
   tasks: readonly CollaborationTask[],
   filters: CollaborationFilters,
+  agents: SessionAgentIndex = EMPTY_SESSION_AGENT_INDEX,
 ): readonly CollaborationTask[] {
   return [...tasks]
     .sort((left, right) => right.lastKnownAt.localeCompare(left.lastKnownAt))
-    .filter((task) => matchesCollaborationTask(task, filters))
+    .filter((task) => matchesCollaborationTask(task, filters, agents))
     .sort((left, right) => left.board.rank - right.board.rank);
 }

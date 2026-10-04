@@ -1087,3 +1087,23 @@ describe("总览派生(纯函数)", () => {
     expect(reviewCounts(rows).decisionPending).toBe(0);
   });
 });
+describe("总览紧凑协作入口(task_1bafbf09 返工)", () => {
+  it("非纯本地仓给真实摘要入口,点击落到协作页;纯本地(null)不渲染入口", () => {
+    const opened: string[] = [];
+    const center = mount({
+      collaboration: { total: 8, executing: 2 },
+      onOpenCollaboration: () => opened.push("collaboration"),
+    });
+    const entry = center.querySelector<HTMLButtonElement>('[data-testid="overview-collaboration-entry"]');
+    expect(entry).not.toBeNull();
+    expect(entry!.textContent).toContain("8");
+    expect(entry!.textContent).toContain("2");
+    act(() => entry!.click());
+    expect(opened).toEqual(["collaboration"]);
+    act(() => root?.unmount());
+
+    const local = mount({ collaboration: null });
+    expect(local.querySelector('[data-testid="overview-collaboration-entry"]')).toBeNull();
+    act(() => root?.unmount());
+  });
+});

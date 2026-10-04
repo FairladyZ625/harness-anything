@@ -13,6 +13,7 @@ export async function startGuiResidentDaemonFixture({
   daemonId = "gui-integration",
   repoId = "gui-test",
   task,
+  keycloakSetup,
   beforeStop,
   beforeRestart,
   afterRestart,
@@ -37,6 +38,13 @@ export async function startGuiResidentDaemonFixture({
   realm.keycloak.permit("person-gui", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
   realm.bind(userRoot);
   signInAt(userRoot, "person-gui");
+  // 场景自备的额外账号/节点(如协作种子的指派对象)在 daemon 起来前登记。
+  if (keycloakSetup) keycloakSetup(realm.keycloak);
+  // 夹具是封闭的抛弃型 daemon:外层运行时注入的任务执行凭据与本夹具无关,留着会被
+  // executionCredentialParams 附到每个请求上,被夹具 daemon 按「超出派工作用域」拒绝
+  // (bootstrap 即 execution_credential_rejected)。夹具存续期间摘掉,stop 时恢复。
+  const ambientExecutionCredential = process.env.HARNESS_EXECUTION_CREDENTIAL;
+  delete process.env.HARNESS_EXECUTION_CREDENTIAL;
   let daemon = await startDaemon({ daemonId, userRoot, runtimeDiscover }).catch(async (error) => {
     await realm.close();
     throw error;
@@ -62,6 +70,7 @@ export async function startGuiResidentDaemonFixture({
     await daemon.stop();
     await realm.close();
     rmSync(parent, { recursive: true, force: true });
+    if (ambientExecutionCredential !== undefined) process.env.HARNESS_EXECUTION_CREDENTIAL = ambientExecutionCredential;
   };
   try {
     const bootstrapped = await requestDaemonJsonRpcAt(

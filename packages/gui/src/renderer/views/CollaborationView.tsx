@@ -4,13 +4,16 @@ import {
   applyCollaborationFilters,
   assignmentStateOf,
   collaborationFilterOptions,
+  EMPTY_SESSION_AGENT_INDEX,
   hasCollaborationFilters,
   isExecutingLeasePhase,
   leaseNodeIdOf,
   leaseRuntimeSessionIdOf,
   NO_COLLABORATION_FILTERS,
+  type CollaborationAgent,
   type CollaborationFilters,
   type CollaborationTask,
+  type SessionAgentIndex,
 } from "../model/collaboration.ts";
 import { actorDisplayName } from "../model/actor-name.ts";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
@@ -25,8 +28,9 @@ import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.t
 
 /**
  * 协作页(task_1bafbf09):本仓任务分工清单——每行同时回答「指派给谁(资格)」与
- * 「谁在实际执行(lease)」,两者不混为一个状态。数据全部来自 App 已读出的任务切面
- * (repo.tasks.list),本页不自建读面、不判能力、不显示可抢语义。
+ * 「谁在实际执行(lease)」,两者不混为一个状态。数据来自 App 已读出的任务切面
+ * (repo.tasks.list)与会话→Agent 索引(runtime-session-groups groupBy=agent),
+ * 本页不自建读面、不判能力、不显示可抢语义。
  *
  * 入口按仓库模式显隐(纯本地无多节点面,见 navConfig fleetOnly);直接落到本页的
  * 纯本地会话给如实提示。节点汇总只列数据中出现过的 nodeId,在线状态本读面不提供。
@@ -49,21 +53,12 @@ const LEASE_SOURCE_LABEL_KEY: Readonly<Record<string, MessageKey>> = {
   remote_direct: "collaboration.source.remoteDirect",
 };
 
-/**
- * 执行会话 chip 里区分多个同 kind 会话的短 token:最后一段冒号后的 id,
- * 剥掉 runtime_ 命名空间取头 8 位;完整 executor id 在 chip 悬停里。
- */
-function shortExecutorRef(id: string): string {
-  const tail = id.split(":").at(-1) ?? id;
-  const body = tail.startsWith("runtime_") ? tail.slice("runtime_".length) : tail;
-  return body.length > 8 ? `${body.slice(0, 8)}…` : body;
-}
-
 export function CollaborationView({
   repoId,
   mode,
   tasks,
   ready,
+  agents = EMPTY_SESSION_AGENT_INDEX,
   onOpenTask,
   onNavigateEntity,
   now = new Date().toISOString(),
@@ -74,6 +69,8 @@ export function CollaborationView({
   readonly tasks: readonly CollaborationTask[];
   /** 任务切面是否已读完(App 的 repo.tasks.list status);未完时行集渐进成形。 */
   readonly ready: boolean;
+  /** 会话→声明 Agent 索引(App 从 runtime-session-groups groupBy=agent 读面折算);缺省空 = Agent 维度缺席。 */
+  readonly agents?: SessionAgentIndex;
   readonly onOpenTask: (taskId: string) => void;
   /** 会话等可寻址实体的统一出口(session/<id> 落会话页)。 */
   readonly onNavigateEntity: (ref: string) => void;
@@ -81,8 +78,8 @@ export function CollaborationView({
   readonly now?: string;
 }) {
   const [filters, setFilters] = useState<CollaborationFilters>(NO_COLLABORATION_FILTERS);
-  const options = useMemo(() => collaborationFilterOptions(tasks), [tasks]);
-  const rows = useMemo(() => applyCollaborationFilters(tasks, filters), [tasks, filters]);
+  const options = useMemo(() => collaborationFilterOptions(tasks, agents), [tasks, agents]);
+  const rows = useMemo(() => applyCollaborationFilters(tasks, filters, agents), [tasks, filters, agents]);
   // 页头「执行中」与行内 phase 同源:只认 held/reserving;orphaned/released 是持有人在
   // 但不在执行,actor 存在不等于执行中。
   const executing = useMemo(() => tasks.filter((task) => isExecutingLeasePhase(task.leasePhase)).length, [tasks]);
@@ -105,51 +102,54 @@ export function CollaborationView({
           {t("collaboration.localNotice")}
         </Notice>
       ) : null}
-      {options.persons.length > 0 || options.sessions.length > 0 || options.nodes.length > 0 ? (
+      {options.persons.length > 0 || options.agents.length > 0 || options.nodes.length > 0 ? (
         <div
           data-testid="collaboration-filters"
           className="flex shrink-0 flex-wrap items-start gap-x-5 gap-y-1.5 border-b border-border px-5 py-1.5"
         >
-          <FilterDimension
-            testId="collaboration-filter-person"
-            label={t("collaboration.filterPerson")}
-            total={tasks.length}
-            options={options.persons.map(({ id, count }) => ({
-              key: id,
-              label: <span title={id}>{actorDisplayName(id).name}</span>,
-              count,
-            }))}
-            value={filters.person}
-            onChange={(person) => setFilters((current) => ({ ...current, person }))}
-          />
-          <FilterDimension
-            testId="collaboration-filter-session"
-            label={t("collaboration.filterSession")}
-            total={tasks.length}
-            options={options.sessions.map(({ id, count }) => ({
-              key: id,
-              label: (
-                <span title={id}>
-                  {actorDisplayName(id).name} <span className="font-mono">{shortExecutorRef(id)}</span>
-                </span>
-              ),
-              count,
-            }))}
-            value={filters.session}
-            onChange={(session) => setFilters((current) => ({ ...current, session }))}
-          />
-          <FilterDimension
-            testId="collaboration-filter-node"
-            label={t("collaboration.filterNode")}
-            total={tasks.length}
-            options={options.nodes.map(({ nodeId, count }) => ({
-              key: nodeId,
-              label: <span title={nodeId}>{nodeId}</span>,
-              count,
-            }))}
-            value={filters.node}
-            onChange={(node) => setFilters((current) => ({ ...current, node }))}
-          />
+          {options.persons.length > 0 ? (
+            <FilterDimension
+              testId="collaboration-filter-person"
+              label={t("collaboration.filterPerson")}
+              total={tasks.length}
+              options={options.persons.map(({ id, count }) => ({
+                key: id,
+                label: <span title={id}>{actorDisplayName(id).name}</span>,
+                count,
+              }))}
+              value={filters.person}
+              onChange={(person) => setFilters((current) => ({ ...current, person }))}
+            />
+          ) : null}
+          {options.agents.length > 0 ? (
+            <FilterDimension
+              testId="collaboration-filter-agent"
+              label={t("collaboration.filterAgent")}
+              total={tasks.length}
+              labelTitle={agents.truncated ? t("collaboration.agentTruncated") : undefined}
+              options={options.agents.map(({ id, label, count }) => ({
+                key: id,
+                label: <span title={id}>{label}</span>,
+                count,
+              }))}
+              value={filters.agent}
+              onChange={(agent) => setFilters((current) => ({ ...current, agent }))}
+            />
+          ) : null}
+          {options.nodes.length > 0 ? (
+            <FilterDimension
+              testId="collaboration-filter-node"
+              label={t("collaboration.filterNode")}
+              total={tasks.length}
+              options={options.nodes.map(({ nodeId, count }) => ({
+                key: nodeId,
+                label: <span title={nodeId}>{nodeId}</span>,
+                count,
+              }))}
+              value={filters.node}
+              onChange={(node) => setFilters((current) => ({ ...current, node }))}
+            />
+          ) : null}
         </div>
       ) : null}
       {options.nodes.length > 0 ? (
@@ -195,6 +195,7 @@ export function CollaborationView({
               key={task.taskId}
               task={task}
               now={now}
+              agents={agents}
               onOpenTask={onOpenTask}
               onNavigateEntity={onNavigateEntity}
             />
@@ -209,6 +210,7 @@ export function CollaborationView({
 function FilterDimension({
   testId,
   label,
+  labelTitle,
   total,
   options,
   value,
@@ -216,6 +218,8 @@ function FilterDimension({
 }: {
   readonly testId: string;
   readonly label: string;
+  /** 维度名上的悬停说明(如 Agent 读面被截断时点名映射可能缺组)。 */
+  readonly labelTitle?: string;
   readonly total: number;
   readonly options: readonly { readonly key: string; readonly label: ReactNode; readonly count: number }[];
   readonly value: string | null;
@@ -223,7 +227,9 @@ function FilterDimension({
 }) {
   return (
     <div data-testid={testId} className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <span className="text-text-faint ui-meta">{label}</span>
+      <span className="text-text-faint ui-meta" title={labelTitle}>
+        {label}
+      </span>
       <FilterChips
         chips={[
           { key: "__all__", label: t("collaboration.filterAll"), count: total },
@@ -243,11 +249,13 @@ function FilterDimension({
 function CollaborationRow({
   task,
   now,
+  agents,
   onOpenTask,
   onNavigateEntity,
 }: {
   readonly task: CollaborationTask;
   readonly now: string;
+  readonly agents: SessionAgentIndex;
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
@@ -256,6 +264,10 @@ function CollaborationRow({
   const leaseActor = task.leaseActor;
   const leaseNodeId = leaseNodeIdOf(task.leaseSource);
   const runtimeSessionId = leaseRuntimeSessionIdOf(leaseActor);
+  // Agent 只认索引映射(投影里 dispatch 行 agentId 的权威绑定);映射不上如实
+  // 「未提供」,不拿会话/实例字符串冒充。
+  const agent: CollaborationAgent | undefined =
+    runtimeSessionId === null ? undefined : agents.agentOfSession.get(runtimeSessionId);
   const phase = task.leasePhase;
   const principal = leaseActor === undefined ? null : actorDisplayName(leaseActor.principal.personId);
   return (
@@ -308,6 +320,18 @@ function CollaborationRow({
           ) : (
             <>
               <span title={principal!.full}>{principal!.name}</span>
+              {agent !== undefined ? (
+                <EntityRefLink
+                  entityRef={`agent/${agent.agentId}`}
+                  onNavigate={onNavigateEntity}
+                  title={agent.agentId}
+                  className="text-text-muted"
+                >
+                  {agent.label}
+                </EntityRefLink>
+              ) : runtimeSessionId !== null ? (
+                <span className="text-text-faint">{t("collaboration.agentNotProvided")}</span>
+              ) : null}
               {runtimeSessionId !== null ? (
                 <EntityRefLink
                   entityRef={`session/${runtimeSessionId}`}

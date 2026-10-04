@@ -1,8 +1,9 @@
-import { memo, useMemo, useRef } from "react";
+import { memo, useMemo, useRef, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow } from "../model/types";
 import { isExternal, isTerminal } from "../model/types";
+import { leaseNodeIdOf } from "../model/collaboration.ts";
 import { StatusTag } from "../components/primitives/StatusTag";
 import { DenseRow, RowTime } from "../components/primitives/DenseRow";
 import { CompletedDivider } from "../components/primitives/CompletedDivider.tsx";
@@ -12,6 +13,40 @@ import { t } from "../i18n/index.tsx";
 /** 列表行 windowing:单行 40px + 分隔线(标准 §3 v2);实测由 measureElement 收敛。 */
 const ROW_ESTIMATE_PX = 41;
 const ROW_OVERSCAN = 12;
+
+/**
+ * 任务行的就地协作字段(task_1bafbf09 返工):ID 之后缀上紧凑的「指派 → 执行」摘要,
+ * 列表页不进协作页也能区分资格与实际持有人;缺哪段就不显示哪段,未指派/无租约不占位。
+ * 全部来自 TaskRow 结构字段(assignment/leaseActor/leaseSource),不反解析显示串。
+ */
+function collaborationHint(task: TaskRow): ReactNode {
+  const assignee = task.assignment?.assignee,
+    assigneeId = assignee?.kind === "team" ? assignee.teamId : assignee?.personId,
+    leaseNode = leaseNodeIdOf(task.leaseSource);
+  if (assigneeId === undefined && task.leaseActor === undefined) return task.taskId;
+  const segments: readonly string[] = [
+    ...(assigneeId !== undefined
+      ? [
+          `${t("collaboration.assigneeLabel")} ${assigneeId}${
+            assignee?.kind === "person" && assignee.nodeId !== undefined ? `@${assignee.nodeId}` : ""
+          }`,
+        ]
+      : []),
+    ...(task.leaseActor !== undefined
+      ? [
+          `${t("collaboration.executorLabel")} ${task.leaseActor.principal.personId}${
+            leaseNode !== null ? `@${leaseNode}` : ""
+          }`,
+        ]
+      : []),
+  ];
+  return (
+    <>
+      {task.taskId}
+      {segments.length > 0 && <span className="text-text-faint"> · {segments.join(" · ")}</span>}
+    </>
+  );
+}
 
 /**
  * 任务列表(标准 §2.4 列表页 v2):回答「我要找某个任务」。搜索与筛选由看板的
@@ -59,7 +94,8 @@ const TaskListRow = memo(function TaskListRow({
         <DenseRow
           tag={<StatusTag status={task.canonicalStatus ?? task.coordinationStatus} />}
           title={task.title}
-          reason={task.taskId}
+          reason={collaborationHint(task)}
+          hoverTitle={task.taskId}
           time={<RowTime at={task.lastKnownAt} />}
         />
       </div>

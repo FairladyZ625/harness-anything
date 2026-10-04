@@ -4,13 +4,31 @@ import { harnessClient } from "../../api-client.ts";
 import { t } from "../../i18n/index.tsx";
 import type { TaskRow } from "../../model/types.ts";
 import { formatTime } from "../../model/time.ts";
+import { leaseNodeIdOf, leaseRuntimeSessionIdOf } from "../../model/collaboration.ts";
 import { settleTaskReceipt } from "../../task-actions.ts";
 import { taskQueryKeys } from "../../task-data.ts";
 import { INPUT } from "../identityAccess/AccessParts.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { IdText } from "../IdText.tsx";
+import { EntityRefLink } from "../EntityRefLink.tsx";
+import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 
-export function TaskAssignmentPanel({ task }: { readonly task: TaskRow }) {
+/** lease phase 词表的标签色调(held/reserving 在执行,orphaned 失联,released 已让出)。 */
+const LEASE_PHASE_TONE: Readonly<Record<string, StatusTone>> = {
+  held: "active",
+  reserving: "wait",
+  orphaned: "bad",
+  released: "neutral",
+};
+
+export function TaskAssignmentPanel({
+  task,
+  onNavigateEntity,
+}: {
+  readonly task: TaskRow;
+  /** 可寻址实体出口(session/<id> 落会话页);缺省时执行会话只显 IdText 不给链接。 */
+  readonly onNavigateEntity?: (ref: string) => void;
+}) {
   const directory = useQuery({
       queryKey: ["task-assignment-directory", task.projectId, task.taskId],
       queryFn: () => harnessClient.getTaskAssignmentDirectory({ repoId: task.projectId, taskId: task.taskId }),
@@ -75,6 +93,43 @@ export function TaskAssignmentPanel({ task }: { readonly task: TaskRow }) {
           t("taskAssignment.none")
         )}
       </div>
+      {/* 当前执行(task_1bafbf09 返工):结构字段直读,普通 viewer 无需指派目录编辑权限
+          也能看到实际持有人/节点/期限;资格与租约独立,到期不构成可抢。 */}
+      <div className="flex flex-wrap items-center gap-2" data-testid="task-assignment-holder">
+        <span className="ui-meta text-text-faint">{t("taskAssignment.holderLabel")}</span>
+        {task.leaseActor === undefined ? (
+          <span className="ui-meta">{t("taskAssignment.holderNone")}</span>
+        ) : (
+          <>
+            <IdText value={task.leaseActor.principal.personId} />
+            {(() => {
+              const runtimeSessionId = leaseRuntimeSessionIdOf(task.leaseActor);
+              if (runtimeSessionId === null) return null;
+              return onNavigateEntity !== undefined ? (
+                <EntityRefLink
+                  entityRef={`session/${runtimeSessionId}`}
+                  onNavigate={onNavigateEntity}
+                  title={task.leaseActor.executor!.id}
+                />
+              ) : (
+                <IdText value={runtimeSessionId} />
+              );
+            })()}
+            {leaseNodeIdOf(task.leaseSource) !== null && (
+              <span className="ui-meta text-text-muted">@{leaseNodeIdOf(task.leaseSource)}</span>
+            )}
+            {task.leasePhase !== undefined && (
+              <StatusTag mono tone={LEASE_PHASE_TONE[task.leasePhase] ?? "neutral"} label={task.leasePhase} />
+            )}
+            {task.leaseExpiresAt !== undefined && (
+              <span className="ui-meta text-text-muted">
+                {formatTime(task.leaseExpiresAt, { style: "month-day-time" })}
+              </span>
+            )}
+          </>
+        )}
+      </div>
+      <p className="ui-meta text-text-muted">{t("taskAssignment.holderNote")}</p>
       {directory.error && <p role="alert">{directory.error.message}</p>}
       <form
         className="flex flex-wrap items-end gap-3"
