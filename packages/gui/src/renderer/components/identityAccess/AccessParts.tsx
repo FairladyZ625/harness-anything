@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AccessReceipt, AccessRejection } from "../../../api/access-admin-contract.ts";
-import { isRejection, receiptTitle, rejectionText } from "../../access-model.ts";
+import { isPermissionRefusal, isRejection, receiptTitle, rejectionText } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { Button } from "../primitives/Button.tsx";
@@ -47,13 +47,31 @@ export function useAccessRead<T>(read: (() => Promise<AccessReply<T>>) | undefin
   return { ...state, reload };
 }
 
-export function AccessNotice({ rejection, testId }: { readonly rejection: AccessRejection; readonly testId?: string }) {
+/** Where a refusal came from: a read the page made on its own, or a write the person asked for. */
+export type RefusalOrigin = "read" | "write";
+
+export function AccessNotice({
+  rejection,
+  origin,
+  testId,
+}: {
+  readonly rejection: AccessRejection;
+  readonly origin: RefusalOrigin;
+  readonly testId?: string;
+}) {
+  // Only a read the page made may render its legal lack of role as information; a write the person
+  // asked for keeps clear error feedback, and every other refusal still reads as a failure.
+  const permission = origin === "read" && isPermissionRefusal(rejection);
   return (
     <p
-      role="alert"
+      role={permission ? "status" : "alert"}
       data-testid={testId}
       data-code={rejection.code}
-      className="border-l-2 border-status-blocked bg-status-blocked/5 px-3 py-2 text-status-blocked ui-meta"
+      className={
+        permission
+          ? "border-l-2 border-border px-3 py-2 text-text-muted ui-meta"
+          : "border-l-2 border-status-blocked bg-status-blocked/5 px-3 py-2 text-status-blocked ui-meta"
+      }
     >
       {rejectionText(rejection)}
     </p>

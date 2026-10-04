@@ -9,6 +9,7 @@ import { isRejection } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { BrowserView } from "../../views/BrowserView.tsx";
 import { DenseRow } from "../primitives/DenseRow.tsx";
+import type { RepoMode } from "../RepoModeBadge.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
@@ -29,9 +30,11 @@ export function AccessServiceTab({
   auth,
   access,
   repoId,
+  repoMode,
 }: {
   readonly auth: OidcAuthApi;
   readonly repoId?: string;
+  readonly repoMode?: RepoMode;
   readonly access: AccessAdminApi | undefined;
 }) {
   const [session, setSession] = useState<RecordValue | null>(null),
@@ -113,7 +116,11 @@ export function AccessServiceTab({
     );
 
   const authenticated = session?.authenticated === true,
-    ready = binding?.ready === true;
+    ready = binding?.ready === true,
+    // An edge reads the center's authority, and a remote-proxy repository's binding writes are
+    // refused at the daemon (local_transport_required); either way the binding is configurable
+    // only at the center's original local session, so this page reads it instead of offering a form.
+    managedElsewhere = binding?.source === "fleet-center" || repoMode === "remote-proxy";
   return (
     <RegionBoard data-testid="access-service-board">
       <BoardMain>
@@ -199,6 +206,14 @@ export function AccessServiceTab({
                         t("identityAccess.unknown"),
                     )}
                   />
+                  {managedElsewhere ? (
+                    <p
+                      data-testid="binding-managed-elsewhere"
+                      className="border-t border-border px-3.5 py-2.5 text-text-muted ui-meta"
+                    >
+                      {t("identityAccess.bindingManagedAtCenter")}
+                    </p>
+                  ) : null}
                 </>
               ) : (
                 <p className="border-t border-border px-3.5 py-2.5 text-text-muted ui-meta">
@@ -214,7 +229,7 @@ export function AccessServiceTab({
           ) : null}
         </BoardColumn>
       </BoardMain>
-      {binding !== undefined && binding?.source !== "fleet-center" ? (
+      {binding !== undefined && !managedElsewhere ? (
         <BoardSide region="binding">
           <Region
             title={t("identityAccess.externalTitle")}
@@ -260,10 +275,10 @@ function SessionLifetime({ access }: { readonly access: AccessAdminApi }) {
   return (
     <Region title={t("accessControl.lifetime.title")} padded>
       {rejection ? (
-        <AccessNotice rejection={rejection} testId="access-lifetime-unavailable" />
+        <AccessNotice rejection={rejection} origin="read" testId="access-lifetime-unavailable" />
       ) : data ? (
         <div className="flex flex-col gap-2">
-          {refusal && <AccessNotice rejection={refusal} testId="access-lifetime-refusal" />}
+          {refusal && <AccessNotice rejection={refusal} origin="write" testId="access-lifetime-refusal" />}
           <label className="flex flex-col gap-1 ui-meta text-text-muted">
             {t("accessControl.lifetime.label")}
             <span className="flex flex-wrap items-center gap-2">

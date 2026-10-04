@@ -28,6 +28,7 @@
   "identityAccess.signInDisabled": "Bind and connect Keycloak before signing in",
   "identityAccess.keycloakIdentity": "Keycloak identity",
   "identityAccess.bindingTitle": "Keycloak binding",
+  "identityAccess.bindingManagedAtCenter": "Center administrators configure the binding at the center's original local session; it is read only here.",
   "identityAccess.unbound": "Keycloak is not bound",
   "identityAccess.unboundNextStep": "Install managed Keycloak or connect an external Keycloak below.",
   "identityAccess.loading": "Loading binding status…",

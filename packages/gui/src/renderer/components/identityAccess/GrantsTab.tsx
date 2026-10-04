@@ -16,7 +16,7 @@ import { PillFlow } from "../primitives/PillFlow.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
 import { Button } from "../primitives/Button.tsx";
-import { AccessNotice, INPUT, ReceiptRows, asRejection, useAccessRead } from "./AccessParts.tsx";
+import { AccessNotice, INPUT, ReceiptRows, asRejection, useAccessRead, type RefusalOrigin } from "./AccessParts.tsx";
 
 type ScopeKind = AccessScope["kind"];
 
@@ -76,7 +76,11 @@ export function GrantsTab({
       entityRef: "",
     }),
     [effective, setEffective] = useState<AccessEffectivePermissionsReply | null>(null),
-    [refusal, setRefusal] = useState<AccessRejection | null>(null),
+    // The same slot answers for two origins: an inspect the page made, and a write the person asked
+    // for. Which one met the refusal decides how it may read, so it travels with the rejection.
+    [refusal, setRefusal] = useState<{ readonly rejection: AccessRejection; readonly origin: RefusalOrigin } | null>(
+      null,
+    ),
     [busy, setBusy] = useState(false);
   const resource = targetResource(target),
     groupName = (id: string) => catalog.data?.groups.find((group) => group.id === id)?.displayName ?? id;
@@ -85,13 +89,13 @@ export function GrantsTab({
   const inspect = async (personId: string, onResource: string) => {
       const reply = await access.effectivePermissions({ personId, resource: onResource }).catch(asRejection);
       setEffective(isRejection(reply) ? null : reply);
-      if (isRejection(reply)) setRefusal(reply);
+      if (isRejection(reply)) setRefusal({ rejection: reply, origin: "read" });
     },
     run = async (operation: () => Promise<{ readonly ok: boolean }>, personId: string, onResource: string) => {
       setBusy(true);
       setRefusal(null);
       const reply = await operation().catch(asRejection);
-      if (isRejection(reply)) setRefusal(reply);
+      if (isRejection(reply)) setRefusal({ rejection: reply, origin: "write" });
       else {
         await held.reload();
         await inspect(personId, onResource);
@@ -111,7 +115,8 @@ export function GrantsTab({
       void inspect(grant.personId, grant.resource);
     };
 
-  if (held.rejection) return <AccessNotice rejection={held.rejection} testId="access-grants-unavailable" />;
+  if (held.rejection)
+    return <AccessNotice rejection={held.rejection} origin="read" testId="access-grants-unavailable" />;
   if (!held.data || !catalog.data) return <p className="text-text-muted ui-meta">{t("accessControl.loading")}</p>;
 
   const allowed = new Set(effective?.actions.map((item) => item.action)),
@@ -120,7 +125,9 @@ export function GrantsTab({
   return (
     <>
       <div className="glass flex flex-none flex-col gap-3 rounded-sm p-3" data-testid="access-grant-form">
-        {refusal && <AccessNotice rejection={refusal} testId="access-grant-refusal" />}
+        {refusal && (
+          <AccessNotice rejection={refusal.rejection} origin={refusal.origin} testId="access-grant-refusal" />
+        )}
         <div className="flex flex-wrap items-end gap-3">
           <label className={field}>
             {t("accessControl.grants.person")}

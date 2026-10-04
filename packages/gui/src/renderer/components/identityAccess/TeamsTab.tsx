@@ -26,7 +26,7 @@ export function TeamsTab({ access }: { readonly access: AccessAdminApi }) {
       setBusy(false);
     }
   }
-  if (rejection) return <AccessNotice rejection={rejection} />;
+  if (rejection) return <AccessNotice rejection={rejection} origin="read" />;
   if (!data) return <p role="status">{t("accessControl.teams.loading")}</p>;
   return (
     <RegionBoard data-testid="access-teams">
@@ -36,7 +36,7 @@ export function TeamsTab({ access }: { readonly access: AccessAdminApi }) {
             <Region title={t("accessControl.teams.members")}>
               <div className="flex flex-col gap-3 p-3">
                 <p className="ui-body text-text-muted">{t("accessControl.teams.rule")}</p>
-                {refusal && <AccessNotice rejection={refusal} testId="access-team-refusal" />}
+                {refusal && <AccessNotice rejection={refusal} origin="write" testId="access-team-refusal" />}
                 <div className="flex flex-wrap items-end gap-2">
                   <label className="flex min-w-0 flex-1 flex-col gap-1 ui-meta">
                     {t("accessControl.teams.name")}
