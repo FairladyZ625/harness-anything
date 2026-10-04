@@ -5,6 +5,7 @@ import {
   assignmentStateOf,
   collaborationFilterOptions,
   hasCollaborationFilters,
+  isExecutingLeasePhase,
   leaseNodeIdOf,
   leaseRuntimeSessionIdOf,
   NO_COLLABORATION_FILTERS,
@@ -32,6 +33,7 @@ function task(
 }
 
 const PERSON_LEASE = { principal: { personId: "person_zeyu" }, executor: null };
+const PERSON_LEASE_X = { principal: { personId: "person_x" }, executor: null };
 const AGENT_LEASE = {
   principal: { personId: "person_zeyu" },
   executor: { kind: "agent" as const, id: "runtime-session:runtime_a520047968e6" },
@@ -113,19 +115,168 @@ describe("collaborationFilterOptions(按实际数据提供筛选)", () => {
     expect(persons[0]?.count).toBe(2); // held + released 两条 lease 的 principal
   });
 
-  it("Agent 维度只在有 executor 时出现", () => {
-    const { agents } = collaborationFilterOptions(tasks);
-    expect(agents).toEqual([{ id: "runtime-session:runtime_a520047968e6", count: 1 }]);
+  it("会话维度只在有 executor 时出现", () => {
+    const { sessions } = collaborationFilterOptions(tasks);
+    expect(sessions).toEqual([{ id: "runtime-session:runtime_a520047968e6", count: 1 }]);
   });
 
-  it("节点汇总:executing 只计 held/reserving,assigned 来自指派 nodeId", () => {
+  it("节点汇总:count 是筛选命中数(lease 节点或指派节点),executing 只计 held/reserving,assigned 来自指派 nodeId", () => {
     const { nodes } = collaborationFilterOptions(tasks);
-    expect(nodes).toContainEqual({ nodeId: "edge-b", executing: 1, assigned: 0 });
-    expect(nodes).toContainEqual({ nodeId: "edge-a", executing: 0, assigned: 1 });
+    expect(nodes).toContainEqual({ nodeId: "edge-b", count: 2, executing: 1, assigned: 0 });
+    expect(nodes).toContainEqual({ nodeId: "edge-a", count: 1, executing: 0, assigned: 1 });
   });
 
   it("无 lease 无指派的任务不产生任何筛选维度条目", () => {
-    expect(collaborationFilterOptions([task("bare")])).toEqual({ persons: [], agents: [], nodes: [] });
+    expect(collaborationFilterOptions([task("bare")])).toEqual({ persons: [], sessions: [], nodes: [] });
+  });
+});
+
+describe("review be577 四个反例的修后行为", () => {
+  it("同一 task 的指派人与 lease principal 是同一人:计数只计一次,跨 task 才累加", () => {
+    const samePersonTwiceInOneTask = collaborationFilterOptions([
+      task("both", {
+        assignment: { assignee: { kind: "person", personId: "person_x" }, expiresAt: "2026-10-02T00:00:00Z" },
+        leaseActor: PERSON_LEASE_X,
+        leasePhase: "held",
+      }),
+    ]);
+    expect(samePersonTwiceInOneTask.persons).toEqual([{ id: "person_x", count: 1 }]);
+
+    const acrossTasks = collaborationFilterOptions([
+      task("assigned", {
+        assignment: { assignee: { kind: "person", personId: "person_x" }, expiresAt: "2026-10-02T00:00:00Z" },
+      }),
+      task("executing", { leaseActor: PERSON_LEASE_X, leasePhase: "held" }),
+    ]);
+    expect(acrossTasks.persons).toEqual([{ id: "person_x", count: 2 }]);
+  });
+
+  it("仅有指派的节点:count 照常计数,executing 为 0,不再出现 0 却筛出任务", () => {
+    const { nodes } = collaborationFilterOptions([
+      task("assigned-1", {
+        assignment: {
+          assignee: { kind: "person", personId: "person_ana", nodeId: "edge-x" },
+          expiresAt: "2026-10-02T00:00:00Z",
+        },
+      }),
+      task("assigned-2", {
+        assignment: {
+          assignee: { kind: "person", personId: "person_bob", nodeId: "edge-x" },
+          expiresAt: "2026-10-02T00:00:00Z",
+        },
+      }),
+    ]);
+    expect(nodes).toEqual([{ nodeId: "edge-x", count: 2, executing: 0, assigned: 2 }]);
+    expect(
+      applyCollaborationFilters(
+        [
+          task("assigned-1", {
+            assignment: {
+              assignee: { kind: "person", personId: "person_ana", nodeId: "edge-x" },
+              expiresAt: "2026-10-02T00:00:00Z",
+            },
+          }),
+          task("assigned-2", {
+            assignment: {
+              assignee: { kind: "person", personId: "person_bob", nodeId: "edge-x" },
+              expiresAt: "2026-10-02T00:00:00Z",
+            },
+          }),
+        ],
+        { ...NO_COLLABORATION_FILTERS, node: "edge-x" },
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("orphaned/held/reserving 区别:执行中只认 phase,orphaned/released 的持有人不计执行中", () => {
+    expect(isExecutingLeasePhase("held")).toBe(true);
+    expect(isExecutingLeasePhase("reserving")).toBe(true);
+    expect(isExecutingLeasePhase("orphaned")).toBe(false);
+    expect(isExecutingLeasePhase("released")).toBe(false);
+    expect(isExecutingLeasePhase(undefined)).toBe(false);
+
+    const { nodes } = collaborationFilterOptions([
+      task("orphaned-node", {
+        leaseActor: AGENT_LEASE,
+        leaseSource: { kind: "node", nodeId: "edge-orphan" },
+        leasePhase: "orphaned",
+      }),
+      task("held-node", {
+        leaseActor: AGENT_LEASE,
+        leaseSource: { kind: "node", nodeId: "edge-live" },
+        leasePhase: "held",
+      }),
+    ]);
+    expect(nodes).toContainEqual({ nodeId: "edge-orphan", count: 1, executing: 0, assigned: 0 });
+    expect(nodes).toContainEqual({ nodeId: "edge-live", count: 1, executing: 1, assigned: 0 });
+  });
+
+  it("同一 principal 的多个 runtime-session 是多个会话筛选值,不冒充聚合后的 Agent", () => {
+    const { sessions, persons } = collaborationFilterOptions([
+      task("session-a", {
+        leaseActor: {
+          principal: { personId: "person_zeyu" },
+          executor: { kind: "agent", id: "runtime-session:runtime_aaa" },
+        },
+        leasePhase: "held",
+      }),
+      task("session-b", {
+        leaseActor: {
+          principal: { personId: "person_zeyu" },
+          executor: { kind: "agent", id: "runtime-session:runtime_bbb" },
+        },
+        leasePhase: "held",
+      }),
+    ]);
+    expect(sessions).toEqual([
+      { id: "runtime-session:runtime_aaa", count: 1 },
+      { id: "runtime-session:runtime_bbb", count: 1 },
+    ]);
+    expect(persons).toEqual([{ id: "person_zeyu", count: 2 }]);
+  });
+
+  it("计数不变量:每个维度值的 count 严格等于该维度单独筛选命中的 task 数", () => {
+    const mixed = [
+      task("t1", {
+        assignment: {
+          assignee: { kind: "person", personId: "person_x", nodeId: "edge-x" },
+          expiresAt: "2026-10-02T00:00:00Z",
+        },
+        leaseActor: {
+          principal: { personId: "person_x" },
+          executor: { kind: "agent", id: "runtime-session:runtime_aaa" },
+        },
+        leaseSource: { kind: "node", nodeId: "edge-x" },
+        leasePhase: "held",
+      }),
+      task("t2", {
+        assignment: { assignee: { kind: "person", personId: "person_x" }, expiresAt: "2026-10-02T00:00:00Z" },
+        leaseActor: {
+          principal: { personId: "person_y" },
+          executor: { kind: "agent", id: "runtime-session:runtime_bbb" },
+        },
+        leaseSource: { kind: "node", nodeId: "edge-y" },
+        leasePhase: "orphaned",
+      }),
+      task("t3", {
+        leaseActor: { principal: { personId: "person_y" }, executor: null },
+        leaseSource: { kind: "node", nodeId: "edge-x" },
+        leasePhase: "released",
+      }),
+      task("t4", {
+        assignment: { assignee: { kind: "team", teamId: "team-1" }, expiresAt: "2026-10-02T00:00:00Z" },
+      }),
+    ];
+    const options = collaborationFilterOptions(mixed);
+    for (const { id, count } of options.persons) {
+      expect(applyCollaborationFilters(mixed, { ...NO_COLLABORATION_FILTERS, person: id })).toHaveLength(count);
+    }
+    for (const { id, count } of options.sessions) {
+      expect(applyCollaborationFilters(mixed, { ...NO_COLLABORATION_FILTERS, session: id })).toHaveLength(count);
+    }
+    for (const { nodeId, count } of options.nodes) {
+      expect(applyCollaborationFilters(mixed, { ...NO_COLLABORATION_FILTERS, node: nodeId })).toHaveLength(count);
+    }
   });
 });
 
@@ -162,11 +313,11 @@ describe("applyCollaborationFilters", () => {
     ).toEqual(["held"]);
   });
 
-  it("Agent 与节点筛选只认结构字段(lease executor / 来源节点或指派节点)", () => {
+  it("会话与节点筛选只认结构字段(lease executor / 来源节点或指派节点)", () => {
     expect(
       applyCollaborationFilters(tasks, {
         ...NO_COLLABORATION_FILTERS,
-        agent: "runtime-session:runtime_a520047968e6",
+        session: "runtime-session:runtime_a520047968e6",
       }).map((t) => t.taskId),
     ).toEqual(["held"]);
     expect(
@@ -178,7 +329,7 @@ describe("applyCollaborationFilters", () => {
     expect(
       applyCollaborationFilters(tasks, {
         person: "person_zeyu",
-        agent: "runtime-session:runtime_a520047968e6",
+        session: "runtime-session:runtime_a520047968e6",
         node: "edge-b",
       }).map((t) => t.taskId),
     ).toEqual(["held"]);

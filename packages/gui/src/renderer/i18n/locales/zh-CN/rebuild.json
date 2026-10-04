@@ -204,7 +204,7 @@
   "collaboration.empty": "本仓还没有任务。",
   "collaboration.localNotice": "纯本地仓库没有多节点协作面；接入中心或边缘连接后，这里显示同一份中心快照的分工。",
   "collaboration.filterPerson": "人",
-  "collaboration.filterAgent": "Agent",
+  "collaboration.filterSession": "执行会话",
   "collaboration.filterNode": "节点",
   "collaboration.filterAll": "全部",
   "collaboration.filterEmpty": "没有符合筛选的任务。",

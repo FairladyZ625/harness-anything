@@ -204,7 +204,7 @@
   "collaboration.empty": "No tasks in this repository yet.",
   "collaboration.localNotice": "A purely local repository has no fleet collaboration surface; connect a center or edge to see the division of labor from the same center snapshot.",
   "collaboration.filterPerson": "Person",
-  "collaboration.filterAgent": "Agent",
+  "collaboration.filterSession": "Execution session",
   "collaboration.filterNode": "Node",
   "collaboration.filterAll": "All",
   "collaboration.filterEmpty": "No tasks match the filters.",

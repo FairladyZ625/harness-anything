@@ -5,6 +5,7 @@ import {
   assignmentStateOf,
   collaborationFilterOptions,
   hasCollaborationFilters,
+  isExecutingLeasePhase,
   leaseNodeIdOf,
   leaseRuntimeSessionIdOf,
   NO_COLLABORATION_FILTERS,
@@ -49,7 +50,7 @@ const LEASE_SOURCE_LABEL_KEY: Readonly<Record<string, MessageKey>> = {
 };
 
 /**
- * Agent 筛选 chip 里区分多个同 kind 会话的短 token:最后一段冒号后的 id,
+ * 执行会话 chip 里区分多个同 kind 会话的短 token:最后一段冒号后的 id,
  * 剥掉 runtime_ 命名空间取头 8 位;完整 executor id 在 chip 悬停里。
  */
 function shortExecutorRef(id: string): string {
@@ -82,7 +83,9 @@ export function CollaborationView({
   const [filters, setFilters] = useState<CollaborationFilters>(NO_COLLABORATION_FILTERS);
   const options = useMemo(() => collaborationFilterOptions(tasks), [tasks]);
   const rows = useMemo(() => applyCollaborationFilters(tasks, filters), [tasks, filters]);
-  const executing = useMemo(() => tasks.filter((task) => task.leaseActor !== undefined).length, [tasks]);
+  // 页头「执行中」与行内 phase 同源:只认 held/reserving;orphaned/released 是持有人在
+  // 但不在执行,actor 存在不等于执行中。
+  const executing = useMemo(() => tasks.filter((task) => isExecutingLeasePhase(task.leasePhase)).length, [tasks]);
   const filtering = hasCollaborationFilters(filters);
 
   return (
@@ -102,7 +105,7 @@ export function CollaborationView({
           {t("collaboration.localNotice")}
         </Notice>
       ) : null}
-      {options.persons.length > 0 || options.agents.length > 0 || options.nodes.length > 0 ? (
+      {options.persons.length > 0 || options.sessions.length > 0 || options.nodes.length > 0 ? (
         <div
           data-testid="collaboration-filters"
           className="flex shrink-0 flex-wrap items-start gap-x-5 gap-y-1.5 border-b border-border px-5 py-1.5"
@@ -120,10 +123,10 @@ export function CollaborationView({
             onChange={(person) => setFilters((current) => ({ ...current, person }))}
           />
           <FilterDimension
-            testId="collaboration-filter-agent"
-            label={t("collaboration.filterAgent")}
+            testId="collaboration-filter-session"
+            label={t("collaboration.filterSession")}
             total={tasks.length}
-            options={options.agents.map(({ id, count }) => ({
+            options={options.sessions.map(({ id, count }) => ({
               key: id,
               label: (
                 <span title={id}>
@@ -132,17 +135,17 @@ export function CollaborationView({
               ),
               count,
             }))}
-            value={filters.agent}
-            onChange={(agent) => setFilters((current) => ({ ...current, agent }))}
+            value={filters.session}
+            onChange={(session) => setFilters((current) => ({ ...current, session }))}
           />
           <FilterDimension
             testId="collaboration-filter-node"
             label={t("collaboration.filterNode")}
             total={tasks.length}
-            options={options.nodes.map(({ nodeId, executing: nodeExecuting }) => ({
+            options={options.nodes.map(({ nodeId, count }) => ({
               key: nodeId,
               label: <span title={nodeId}>{nodeId}</span>,
-              count: nodeExecuting,
+              count,
             }))}
             value={filters.node}
             onChange={(node) => setFilters((current) => ({ ...current, node }))}

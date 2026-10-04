@@ -33,6 +33,11 @@ const HELD_LEASE = {
   leaseExpiresAt: "2026-10-05T00:00:00.000Z",
 };
 
+/** FilterChips 的计数渲染在 chip 内的 <b> 里;取它做精确断言,不受标签文字干扰。 */
+function chipCount(chip: HTMLButtonElement): string {
+  return chip.querySelector("b")?.textContent ?? "";
+}
+
 function renderView(
   overrides: { tasks?: readonly CollaborationTask[]; mode?: "local" | "remote-center"; ready?: boolean } = {},
 ) {
@@ -157,11 +162,11 @@ describe("协作页内容契约", () => {
         .click(),
     );
     expect(view.rows().map((row) => row.getAttribute("data-task-id"))).toEqual(["task-ana"]);
-    // 人=ana 叠加 Agent=runtime_b1(bob 的会话)→ 交集为空:空态 + 清除入口
-    const agentChip = view.host
-      .querySelector('[data-testid="collaboration-filter-agent"] span[title="runtime-session:runtime_b1"]')
+    // 人=ana 叠加 会话=runtime_b1(bob 的会话)→ 交集为空:空态 + 清除入口
+    const sessionChip = view.host
+      .querySelector('[data-testid="collaboration-filter-session"] span[title="runtime-session:runtime_b1"]')
       ?.closest("button") as HTMLButtonElement;
-    act(() => agentChip.click());
+    act(() => sessionChip.click());
     expect(view.rows()).toEqual([]);
     expect(view.host.querySelector('[data-testid="collaboration-filter-empty"]')).not.toBeNull();
     act(() => view.host.querySelector<HTMLButtonElement>('[data-testid="collaboration-filter-clear"]')!.click());
@@ -205,5 +210,107 @@ describe("协作页内容契约", () => {
     const empty = renderView({ tasks: [], ready: true });
     expect(empty.text()).toContain("本仓还没有任务");
     act(() => empty.root.unmount());
+  });
+});
+
+describe("review be577 四个反例的修后视图行为", () => {
+  it("页头「执行中」只计 held/reserving:orphaned 行内显示失联,不计入执行中", () => {
+    const view = renderView({
+      tasks: [
+        task("task-held", HELD_LEASE),
+        task("task-orphaned", {
+          ...HELD_LEASE,
+          leasePhase: "orphaned",
+          leaseSource: { kind: "node" as const, nodeId: "edge-orphan" },
+        }),
+        task("task-bare", {}),
+      ],
+    });
+    // 3 任务,只有 1 个 phase=held:页头不得把 orphaned 计成执行中
+    expect(view.text()).toContain("3 任务 · 1 执行中");
+    const orphanedRow = view.rows().find((row) => row.getAttribute("data-task-id") === "task-orphaned")!;
+    expect(orphanedRow.textContent).toContain("失联");
+    expect(orphanedRow.textContent).not.toContain("执行中");
+    act(() => view.root.unmount());
+  });
+
+  it("仅有被指派任务的节点:chip 计数等于筛选命中行数,不再显示 0 却筛出任务", () => {
+    const view = renderView({
+      tasks: [
+        task("task-1", {
+          assignment: {
+            assignee: { kind: "person", personId: "person_ana", nodeId: "edge-x" },
+            expiresAt: "2026-10-02T00:00:00Z",
+          },
+        }),
+        task("task-2", {
+          assignment: {
+            assignee: { kind: "person", personId: "person_bob", nodeId: "edge-x" },
+            expiresAt: "2026-10-02T00:00:00Z",
+          },
+        }),
+      ],
+    });
+    const nodeChip = view.host
+      .querySelector('[data-testid="collaboration-filter-node"] span[title="edge-x"]')
+      ?.closest("button") as HTMLButtonElement;
+    expect(chipCount(nodeChip)).toBe("2"); // 不是 executing 计数(会是 0),是筛选命中数
+    act(() => nodeChip.click());
+    expect(view.rows().map((row) => row.getAttribute("data-task-id"))).toEqual(["task-1", "task-2"]);
+    act(() => view.root.unmount());
+  });
+
+  it("同一 task 的指派人与 lease principal 相同:人 chip 计数与筛选行数一致(计 1 不计 2)", () => {
+    const view = renderView({
+      tasks: [
+        task("task-both", {
+          assignment: { assignee: { kind: "person", personId: "person_ana" }, expiresAt: "2026-10-02T00:00:00Z" },
+          leaseActor: { principal: { personId: "person_ana" }, executor: null },
+          leasePhase: "held",
+        }),
+      ],
+    });
+    const anaChip = view.host
+      .querySelector('[data-testid="collaboration-filter-person"] span[title="person_ana"]')
+      ?.closest("button") as HTMLButtonElement;
+    expect(chipCount(anaChip)).toBe("1"); // 同 task 双重身份只计一次,筛选也只命中这一行
+    act(() => anaChip.click());
+    expect(view.rows()).toHaveLength(1);
+    act(() => view.root.unmount());
+  });
+
+  it("会话维度如实命名「执行会话」:同一人的两个 runtime-session 是两个值,不冒充 Agent 聚合", () => {
+    const view = renderView({
+      tasks: [
+        task("task-a", {
+          leaseActor: {
+            principal: { personId: "person_zeyu" },
+            executor: { kind: "agent", id: "runtime-session:runtime_aaa" },
+          },
+          leasePhase: "held",
+        }),
+        task("task-b", {
+          leaseActor: {
+            principal: { personId: "person_zeyu" },
+            executor: { kind: "agent", id: "runtime-session:runtime_bbb" },
+          },
+          leasePhase: "held",
+        }),
+      ],
+    });
+    const sessionDimension = view.host.querySelector('[data-testid="collaboration-filter-session"]')!;
+    expect(sessionDimension.textContent).toContain("执行会话");
+    expect(sessionDimension.textContent).not.toContain("Agent");
+    expect(view.host.querySelector('[data-testid="collaboration-filter-agent"]')).toBeNull();
+    const sessionChips = [...sessionDimension.querySelectorAll<HTMLButtonElement>("button")].filter((button) =>
+      button.querySelector('span[title^="runtime-session:"]'),
+    );
+    expect(sessionChips).toHaveLength(2);
+    for (const chip of sessionChips) {
+      expect(chipCount(chip)).toBe("1");
+    }
+    act(() => sessionChips[0]!.click());
+    expect(view.rows()).toHaveLength(1);
+    act(() => view.root.unmount());
   });
 });
