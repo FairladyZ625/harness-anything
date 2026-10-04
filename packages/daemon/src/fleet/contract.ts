@@ -432,6 +432,16 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
         if (typeof value === "string") add({ field, type: "string", required: false, enum: [value] });
     return [...fields.values()].filter((field) => !field.wire?.omit);
   };
+// Declaration-derived patterns are static, so each compiles once per module instance.
+const patternCache = new Map<string, RegExp>();
+const patternMatches = (pattern: string, value: string): boolean => {
+  let compiled = patternCache.get(pattern);
+  if (compiled === undefined) {
+    compiled = new RegExp(pattern, "u");
+    patternCache.set(pattern, compiled);
+  }
+  return compiled.test(value);
+};
 const fieldCheck = (field: EntityActionInputField, value: unknown): boolean => {
   if (field.wire?.nullable && value === null) return true;
   const type = field.type;
@@ -464,7 +474,7 @@ const fieldCheck = (field: EntityActionInputField, value: unknown): boolean => {
     value.length > 0 &&
     value.length <= (field.wire?.maxLength ?? 512) &&
     (!(field.wire?.enum ?? field.enum) || (field.wire?.enum ?? field.enum)!.includes(value)) &&
-    (!(field.wire?.pattern ?? field.regex) || new RegExp((field.wire?.pattern ?? field.regex)!, "u").test(value))
+    (!(field.wire?.pattern ?? field.regex) || patternMatches((field.wire?.pattern ?? field.regex)!, value))
   );
 };
 const checkFields = (fields: readonly EntityActionInputField[], value: RecordValue): boolean =>
