@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
 import { existsSync, globSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -23,14 +22,6 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 // Explicit live acceptance uses the installed macOS Codex and each node's own auth link.
 // CI leaves this unset and runs the deterministic provider subprocess.
 const liveCodex = process.env.HARNESS_HANDOFF_LIVE_CODEX;
-async function eventually(check: () => boolean | Promise<boolean>): Promise<boolean> {
-  const deadline = Date.now() + (liveCodex ? 120_000 : 20_000);
-  do {
-    if (await check()) return true;
-    await delay(25);
-  } while (Date.now() < deadline);
-  return false;
-}
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
 // The provider subprocess is deterministic; TLS, node identity, private transfer, task worktrees,
@@ -262,13 +253,31 @@ for (const row of [{type:'thread.started',thread_id:id},
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     const dispatchId = String(first.dispatchId),
       sourceWorktree = path.join(sourceRoot, ".worktrees", taskId);
-    assert.equal(
-      await eventually(async () => {
-        const stream = readDispatchStream(sourceRoot, dispatchId);
-        return Boolean(stream?.terminalOutcome && stream.process?.exited && !runtimePidIsAlive(stream.process.pid));
-      }),
-      true,
-    );
+    // The center's outcome wait is signalled after the worker's persisted process_exit,
+    // local terminal record and task lease settlement have reached the publication path.
+    const waitForOutcome = async (runtimeSessionId: string) => {
+      const receipt = await f.host.awaitRuntimeSessions(
+        repoId,
+        { runtimeSessionIds: [runtimeSessionId], mode: "all" },
+        { ...localAuth, connectionSignal: t.signal },
+      );
+      assert.equal(receipt.outcome, "succeeded", JSON.stringify(receipt));
+      assert.deepEqual(receipt.unavailable, []);
+      assert.equal(
+        makeTaskEventReader({ rootDir: f.repo, repoId })
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+          ),
+        true,
+      );
+    };
+    await waitForOutcome(String(first.runtimeSessionId));
+    const sourceStream = readDispatchStream(sourceRoot, dispatchId);
+    assert.ok(sourceStream?.terminalOutcome);
+    assert.equal(sourceStream.process?.exited, true);
+    assert.equal(runtimePidIsAlive(sourceStream.process!.pid), false);
     const nativeId = readDispatchStream(sourceRoot, dispatchId)?.providerSessionId;
     assert.ok(nativeId);
     if (!liveCodex) assert.equal(nativeId, fixtureNativeId);
@@ -276,18 +285,6 @@ for (const row of [{type:'thread.started',thread_id:id},
       runtimeSessionOutcomeFromEvidence(readDispatchStream(sourceRoot, dispatchId)!.terminalOutcome!.payload),
       "succeeded",
       JSON.stringify(readDispatchStream(sourceRoot, dispatchId)?.terminalOutcome),
-    );
-    assert.equal(
-      await eventually(async () =>
-        makeTaskEventReader({ rootDir: f.repo, repoId })
-          .read()
-          .events.some(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === first.runtimeSessionId,
-          ),
-      ),
-      true,
     );
     if (liveCodex) {
       const sessions = path.join(source.userRoot, "runtime-instances", instance.instanceId, "home/.codex/sessions");
@@ -374,10 +371,8 @@ for (const row of [{type:'thread.started',thread_id:id},
     const targetDispatch = String(resumed.dispatchId),
       targetWorktree = path.join(targetRoot, ".worktrees", taskId);
     assert.equal(git(targetWorktree, "rev-parse", "HEAD"), commit);
-    assert.equal(
-      await eventually(async () => Boolean(readDispatchStream(targetRoot, targetDispatch)?.terminalOutcome)),
-      true,
-    );
+    await waitForOutcome(String(resumed.runtimeSessionId));
+    assert.ok(readDispatchStream(targetRoot, targetDispatch)?.terminalOutcome);
     assert.equal(readDispatchStream(targetRoot, targetDispatch)?.providerSessionId, nativeId);
     assert.ok(
       readDispatchStream(targetRoot, targetDispatch)?.terminalOutcome?.body.includes(phrase),
@@ -421,18 +416,6 @@ for (const row of [{type:'thread.started',thread_id:id},
         ).isSymbolicLink(),
         true,
       );
-    assert.equal(
-      await eventually(async () =>
-        makeTaskEventReader({ rootDir: f.repo, repoId })
-          .read()
-          .events.some(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === resumed.runtimeSessionId,
-          ),
-      ),
-      true,
-    );
     const replay = await target.run("repo.agentRuntime.handoff", claim);
     assert.equal(replay.dispatchId, resumed.dispatchId, JSON.stringify(replay));
     assert.equal(replay.replayed, true);
@@ -448,28 +431,12 @@ for (const row of [{type:'thread.started',thread_id:id},
         cwd: { scope: "repo-root" },
       });
       assert.equal(negative.outcome, "applied", JSON.stringify(negative));
-      assert.equal(
-        await eventually(async () =>
-          Boolean(readDispatchStream(targetRoot, String(negative.dispatchId))?.terminalOutcome),
-        ),
-        true,
-      );
+      await waitForOutcome(String(negative.runtimeSessionId));
+      assert.ok(readDispatchStream(targetRoot, String(negative.dispatchId))?.terminalOutcome);
       const negativeStream = readDispatchStream(targetRoot, String(negative.dispatchId))!;
       assert.notEqual(negativeStream.providerSessionId, nativeId);
       assert.match(negativeStream.terminalOutcome!.body, /UNKNOWN/u);
       assert.equal(negativeStream.terminalOutcome!.body.includes(phrase), false);
-      assert.equal(
-        await eventually(async () =>
-          makeTaskEventReader({ rootDir: f.repo, repoId })
-            .read()
-            .events.some(
-              (event) =>
-                event.type === "runtime_session_outcome_observed" &&
-                event.payload.runtimeSessionId === negative.runtimeSessionId,
-            ),
-        ),
-        true,
-      );
       t.diagnostic(
         JSON.stringify({
           emptySession: negativeStream.providerSessionId,
