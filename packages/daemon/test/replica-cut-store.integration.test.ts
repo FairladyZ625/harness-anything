@@ -1,15 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import {
   decideDocWrite,
+  makeTaskProjection,
   DOC_POLICY_ID,
   parseDocWriteIntent,
+  parseCanonicalEvent,
   serializeCanonicalEvent,
   serializeEventHead,
   sha256Bytes,
@@ -581,9 +583,111 @@ test("RepoCell wakes a pending replica cut when its projection catches up", { ti
   }
 });
 
-function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer, body: Buffer): DocEventV1 {
+test("retired audit documents survive cold replay for both retained cuts and fresh replicas", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-replica-audit-")),
+    historical = parseCanonicalEvent(
+      readFileSync(
+        new URL("../../kernel/fixtures/canonical-events/people-event-v1/accepted.json", import.meta.url),
+        "utf8",
+      ),
+    );
+  assert.equal(historical.schema, "people-event/v1");
+  const body = Buffer.from(JSON.stringify(historical.payload.roster, null, 2) + "\n"),
+    blob = { sha256: sha256Bytes(body), size: body.byteLength, mediaType: "application/yaml" },
+    audit = {
+      ...historical,
+      workspaceRevision: 1,
+      payload: {
+        ...historical.payload,
+        peopleDocumentClaim: {
+          ...historical.payload.peopleDocumentClaim,
+          ...blob,
+          mediaType: "application/yaml" as const,
+        },
+      },
+    },
+    nextBody = Buffer.from("next"),
+    next = docEvent(2, "context/change.md", null, nextBody),
+    events = [audit, next],
+    serialized = events.map((event) => JSON.stringify(event)),
+    projection = makeTaskProjection({
+      rootDir: root,
+      eventStore: {
+        readHead: () => ({ revision: 2 }),
+        readContentBlob: (sha) => (sha === blob.sha256 ? body : nextBody),
+        readBatch: (cursor) => ({
+          sourceRevision: 2,
+          events: cursor === "2" ? [] : events,
+          cursor: "2",
+          done: true,
+          accessedItems: cursor === "2" ? 0 : events.length,
+          prefetchContent: () =>
+            new Map([
+              [blob.sha256, body],
+              [sha256Bytes(nextBody), nextBody],
+            ]),
+        }),
+      },
+    });
+  const expected = [
+    {
+      path: "context/change.md",
+      blob: { sha256: sha256Bytes(nextBody), size: nextBody.byteLength, mediaType: "text/plain" },
+    },
+    { path: "people.yaml", blob },
+  ];
+  // The retained pre-upgrade cut includes the canonical audit claim, as it did before People retirement.
+  const retained = openReplicaCutSource({
+    repoId: "repo-audit",
+    localRoot: root,
+    readBasis: () => ({
+      watermark: 1,
+      sourceRevision: 1,
+      headEvent: lifecycleFixture().events[0]!,
+      events: [],
+      documents: [{ path: "people.yaml", blobSha256: blob.sha256, size: blob.size, mediaType: blob.mediaType }],
+    }),
+    readContentBlob: () => body,
+  });
+  retained.activate();
+  retained.close();
+  const source = openReplicaCutSource({
+      repoId: "repo-audit",
+      localRoot: root,
+      readBasis: projection.readReplicaBasis,
+      readContentBlob: (sha) => (sha === blob.sha256 ? body : nextBody),
+    }),
+    fresh = openReplicaCutSource({
+      repoId: "repo-fresh",
+      localRoot: root,
+      readBasis: projection.readReplicaBasis,
+      readContentBlob: (sha) => (sha === blob.sha256 ? body : nextBody),
+    });
+  try {
+    assert.equal(projection.rebuild().watermark, 2);
+    source.activate();
+    const cut = await source.waitForCut(2);
+    assert.deepEqual(source.manifest(2), expected);
+    assert.deepEqual(source.changes(1, 2), [{ op: "put", ...expected[0] }]);
+    assert.equal(fresh.activate()?.manifest.digest, cut.manifest.digest);
+    assert.deepEqual(fresh.manifest(2), expected);
+    assert.deepEqual(source.content(blob), body);
+    assert.deepEqual(
+      events.map((event) => JSON.stringify(event)),
+      serialized,
+    );
+    assert.equal(projection.readEntityVersionWitness("person/person-fixture").currentVersion, null);
+  } finally {
+    source.close();
+    fresh.close();
+    projection.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer | null, body: Buffer): DocEventV1 {
   const actor = { principal: { personId: "person-one" }, executor: null },
-    baseBlobSha256 = sha256Bytes(prior),
+    baseBlobSha256 = prior === null ? null : sha256Bytes(prior),
     baseLedgerSha = {
       repoId: "repo-change",
       revision: workspaceRevision - 1,
@@ -621,17 +725,20 @@ function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer, bo
       currentLedgerSha: intent.baseLedgerSha,
       lease: null,
       authorizationDecision: null,
-      documents: [
-        {
-          path: intent.changes[0]!.path,
-          blobSha256: baseBlobSha256,
-          body: prior.toString(),
-          size: intent.changes[0]!.candidate!.size,
-          mediaType: "text/plain",
-          policyId: DOC_POLICY_ID,
-          workspaceRevision: workspaceRevision - 1,
-        },
-      ],
+      documents:
+        prior === null
+          ? [null]
+          : [
+              {
+                path: intent.changes[0]!.path,
+                blobSha256: baseBlobSha256,
+                body: prior.toString(),
+                size: intent.changes[0]!.candidate!.size,
+                mediaType: "text/plain",
+                policyId: DOC_POLICY_ID,
+                workspaceRevision: workspaceRevision - 1,
+              },
+            ],
       claims: [body],
       resolvedTaskIds: [null],
     });

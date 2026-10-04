@@ -432,7 +432,16 @@ export function applyEvent(
       });
     if (canonicalJson(completeSnapshot(snapshot)) !== canonicalJson(completeSnapshot(event.payload.roster)))
       throw new Error(`retired People blob ${claim.sha256} does not match the event roster snapshot`);
-    // Preserve the audit index only; the retired snapshot cannot become a current Person projection.
+    // The canonical document remains part of the replica cut; replaying its bytes grants no Person authority.
+    const document: DocumentState = {
+      path: claim.path as DocumentState["path"],
+      blobSha256: claim.sha256,
+      body,
+      size: docByteLength(claim.size),
+      mediaType: claim.mediaType,
+      policyId: claim.policyId,
+      workspaceRevision: event.workspaceRevision,
+    };
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
@@ -440,6 +449,7 @@ export function applyEvent(
       event.workspaceRevision,
       eventJson,
     );
+    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
     return;
   }
   if (isFactEvent(event)) {
