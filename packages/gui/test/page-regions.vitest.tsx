@@ -251,23 +251,6 @@ it("reconciles region sets without rebuilding the untouched layout", async () =>
   expect(order().sort()).toEqual(["files", "plan", "progress"]);
 });
 
-it("hides the other regions behind the collapse control and brings them back", async () => {
-  render({ collapsible: true, columns: [["plan"], ["progress", "files"]] });
-  // 收起其他区域:把手所在的控件组仍在首个区域头里可点。
-  await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-testid="board-controls-collapse"]')!.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  // 最大化后控件组提升到网格上方,恢复全部区域有路。
-  const topRow = host.querySelector<HTMLElement>('[data-testid="board"] > div')!;
-  expect(topRow.querySelector('[data-testid="board-controls-collapse"]')).not.toBeNull();
-  await act(async () => {
-    topRow.querySelector<HTMLButtonElement>('[data-testid="board-controls-collapse"]')!.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-  expect(layoutTree()).toEqual(["plan", ["progress", "files"]]);
-});
-
 it("keeps body input untouched by drag activation and control clicks", async () => {
   render();
   await act(async () => {

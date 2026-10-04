@@ -308,9 +308,5 @@
   "components.pageRegions.layoutGroup": "页面区域布局",
   "components.pageRegions.undoDock": "撤销上一步停靠",
   "components.pageRegions.undoDockTitle": "把上一步停靠的区域停回原位",
-  "components.pageRegions.hideOthers": "收起其他区域",
-  "components.pageRegions.hideOthersTitle": "只留相邻区域占满页面，其余区域暂时隐藏",
-  "components.pageRegions.showAll": "恢复全部区域",
-  "components.pageRegions.showAllTitle": "退出单区域模式，恢复停靠布局",
   "components.pageRegions.timeline": "进展时间线"
 }

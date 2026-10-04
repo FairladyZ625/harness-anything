@@ -308,9 +308,5 @@
   "components.pageRegions.layoutGroup": "Page region layout",
   "components.pageRegions.undoDock": "Undo last dock",
   "components.pageRegions.undoDockTitle": "Move the last docked region back to where it was",
-  "components.pageRegions.hideOthers": "Hide other regions",
-  "components.pageRegions.hideOthersTitle": "Keep the neighbouring region full-page; other regions stay hidden",
-  "components.pageRegions.showAll": "Show all regions",
-  "components.pageRegions.showAllTitle": "Leave single-region mode and restore the docked layout",
   "components.pageRegions.timeline": "Progress timeline"
 }

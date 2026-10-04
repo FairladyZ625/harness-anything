@@ -408,7 +408,6 @@ export function TaskDetailView({
           repoId={task.projectId}
           slot="task-detail-docs"
           testId="task-detail-content-grid"
-          collapsible
           defaultRatio={0.22}
           columns={[["files"], ["content", "timeline"]]}
           regions={[

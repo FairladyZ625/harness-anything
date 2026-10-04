@@ -5,8 +5,9 @@ import path from "node:path";
 import { assertUnscrolledLayout } from "./helpers.mjs";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 
-/** Real route coverage for page region order and proportional seams. Isolated daemon data,
+/** Real route coverage for page region docking splits (task_033760e2…). Isolated daemon data,
  * hidden Electron, actual 1440/1120 content sizes; no production mutations or host focus.
+ * Docking uses real DragEvents with a DataTransfer (page.mouse cannot start an HTML5 drag).
  */
 
 const CHILD_TASK_ID = "task-split-child",
@@ -28,16 +29,64 @@ async function setSize(app, page, width, height) {
   return { requested: [width, height], actual };
 }
 
-async function dragDivider(page, testId, delta, axis) {
-  const handle = page.locator(`[data-testid="${testId}"]`);
-  await handle.waitFor();
-  const box = await handle.boundingBox();
-  assert.ok(box, `divider ${testId} has no box`);
+/** 把 source 区域拖到 target 的指定半区:dragstart/dragover/drop/dragend 全走 DragEvent。 */
+async function dockRegion(page, boardId, sourceId, targetId, at) {
+  await page.evaluate(
+    ({ boardId, sourceId, targetId, at }) => {
+      const board = globalThis.document.querySelector(`[data-testid="${boardId}"]`);
+      const handle = board.querySelector(`[data-testid="region-handle-${sourceId}"]`);
+      const target = board.querySelector(`[data-region="${targetId}"]`);
+      const dataTransfer = new globalThis.DataTransfer();
+      handle.dispatchEvent(new globalThis.DragEvent("dragstart", { bubbles: true, dataTransfer }));
+      const rect = target.getBoundingClientRect();
+      const point = { clientX: rect.left + rect.width * at.x, clientY: rect.top + rect.height * at.y };
+      target.dispatchEvent(
+        new globalThis.DragEvent("dragover", { bubbles: true, cancelable: true, ...point, dataTransfer }),
+      );
+      target.dispatchEvent(
+        new globalThis.DragEvent("drop", { bubbles: true, cancelable: true, ...point, dataTransfer }),
+      );
+      handle.dispatchEvent(new globalThis.DragEvent("dragend", { bubbles: true, dataTransfer }));
+    },
+    { boardId, sourceId, targetId, at },
+  );
+}
+
+/** 拖一次但不放下(dragend 取消):预览遮罩出现又消失,布局不变。 */
+async function cancelDrag(page, boardId, sourceId, targetId, at) {
+  await page.evaluate(
+    ({ boardId, sourceId, targetId, at }) => {
+      const board = globalThis.document.querySelector(`[data-testid="${boardId}"]`);
+      const handle = board.querySelector(`[data-testid="region-handle-${sourceId}"]`);
+      const target = board.querySelector(`[data-region="${targetId}"]`);
+      const dataTransfer = new globalThis.DataTransfer();
+      handle.dispatchEvent(new globalThis.DragEvent("dragstart", { bubbles: true, dataTransfer }));
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new globalThis.DragEvent("dragover", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + rect.width * at.x,
+          clientY: rect.top + rect.height * at.y,
+          dataTransfer,
+        }),
+      );
+      handle.dispatchEvent(new globalThis.DragEvent("dragend", { bubbles: true, dataTransfer }));
+    },
+    { boardId, sourceId, targetId, at },
+  );
+}
+
+/** dockview 分隔条(sash)是真实 pointer 拖拽:按住中点沿轴走一段。 */
+async function dragSash(page, board, delta, axis) {
+  const sash = board.locator(".dv-sash.dv-enabled, .dv-sash").first();
+  await sash.waitFor();
+  const box = await sash.boundingBox();
+  assert.ok(box, "dv-sash has no box");
   const x = box.x + box.width / 2,
     y = box.y + box.height / 2;
   await page.mouse.move(x, y);
   await page.mouse.down();
-  // 分几步走,模拟真实拖拽的 pointermove 序列。
   const steps = 8;
   for (let index = 1; index <= steps; index += 1) {
     await page.mouse.move(
@@ -82,28 +131,10 @@ async function expandSeedTree(page) {
   throw new Error("seeded 120-file tree never stays expanded long enough to measure");
 }
 
-/** 区域换位/持久化/取消/重置/键盘与分隔条验收。等高双面板板(orderBased=false,
- * 任务详情/任务概况/工作概况)断言两框几何互换;非等高多区域板(orderBased=true,
- * 总览板)断言区域次序交换与位置变化,reload 持久性同断言次序。 */
-async function checkLayout(page, shot, boardId, first, second, label, reopen, { orderBased = false } = {}) {
+async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   const board = page.getByTestId(boardId);
   const box = (id) => board.locator(`[data-region="${id}"]`).first().boundingBox();
   const handle = (id) => board.getByTestId(`region-handle-${id}`);
-  // 总览板是多列纵向堆叠的非等高多区域板:换位后两框不互换几何,只断言区域次序
-  // ([data-region] 的 DOM 序列即扁平 order)与相对位置变化,reload 持久性同此。
-  const readOrder = () =>
-    board.locator("[data-region]").evaluateAll((nodes) => nodes.map((node) => node.dataset.region));
-  const orderIs = (expected) =>
-    page.waitForFunction(
-      ({ boardId, expected }) => {
-        const nodes = globalThis.document.querySelectorAll(`[data-testid="${boardId}"] [data-region]`);
-        return (
-          nodes.length === expected.length && [...nodes].every((node, index) => node.dataset.region === expected[index])
-        );
-      },
-      { boardId, expected },
-      { timeout: 5_000 },
-    );
   if (boardId === "task-detail-content-grid") {
     const geometry = await page.getByTestId("task-detail-panel-scroll").evaluate((node) => {
       const rect = node.getBoundingClientRect(),
@@ -116,141 +147,132 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen, { 
     await shot(`${label}-usable-${Math.round(geometry.width)}x${Math.round(geometry.height)}`);
   }
   await handle(first).waitFor();
-  await board.getByTestId(`${boardId}-controls-row`).click();
   const initial = await box(first),
-    other = await box(second),
-    initialOrder = await readOrder(),
-    firstIndex = initialOrder.indexOf(first),
-    secondIndex = initialOrder.indexOf(second),
-    swappedOrder =
-      firstIndex >= 0 && secondIndex >= 0 && firstIndex !== secondIndex
-        ? initialOrder.map((id, index) =>
-            index === firstIndex ? initialOrder[secondIndex] : index === secondIndex ? initialOrder[firstIndex] : id,
-          )
-        : null;
-  assert.ok(initial && other && initial.width > 0 && initial.height > 0, label);
-  assert.ok(swappedOrder !== null, `${label} board must list both regions: ${JSON.stringify(initialOrder)}`);
+    targetBefore = await box(second);
+  assert.ok(initial && targetBefore && initial.width > 0 && initial.height > 0, label);
   await shot(`${label}-before`);
-  const source = await handle(first).boundingBox(),
-    target = await handle(second).boundingBox();
-  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 12 });
-  await board.locator('[data-drop-preview="true"]').first().waitFor();
-  await shot(`${label}-preview`);
-  await page.mouse.up();
-  if (orderBased) {
-    await orderIs(swappedOrder);
-    const moved = await box(first);
-    assert.ok(
-      Math.abs(moved.x - initial.x) > 3 || Math.abs(moved.y - initial.y) > 3,
-      `${label} swap must move the region: initial=${JSON.stringify(initial)} moved=${JSON.stringify(moved)}`,
-    );
-  } else {
-    await page.waitForFunction(
-      ({ boardId, first, x, y }) => {
-        const rect = globalThis.document
-          .querySelector(`[data-testid="${boardId}"] [data-region="${first}"]`)
-          .getBoundingClientRect();
-        return Math.abs(rect.x - x) < 3 && Math.abs(rect.y - y) < 3;
-      },
-      { boardId, first, x: other.x, y: other.y },
-    );
-  }
-  await shot(`${label}-moved`);
+  // 停靠:拖 source 到 target 的右半区,放下后两块各占 target 原宽的一半且相邻。
+  await dockRegion(page, boardId, first, second, { x: 0.75, y: 0.5 });
+  const docked = await box(first),
+    targetAfter = await box(second);
+  assert.ok(docked && targetAfter, `${label} docked boxes`);
+  // 落位语义:source 拿走 target 停靠前宽度的一半。任务详情页(两三块)按 ±8px 精确断言;
+  // 多区域板(工作概况/总览)上 dockview 会按兄弟最小宽度再平摊,放宽到 ±35% 比例带。
+  const half = targetBefore.width / 2,
+    tolerance = boardId === "task-detail-content-grid" ? 8 : half * 0.35;
+  assert.ok(
+    Math.abs(docked.width - half) <= tolerance,
+    `${label} source takes half of target: ${docked.width} vs ${half}`,
+  );
+  assert.ok(
+    targetAfter.width >= half - tolerance,
+    `${label} target gives up half: before=${targetBefore.width} after=${targetAfter.width}`,
+  );
+  assert.ok(
+    Math.abs(docked.x - (targetAfter.x + targetAfter.width)) < 4,
+    `${label} adjacency: source should sit right of target`,
+  );
+  await shot(`${label}-docked`);
   // Reload preserves actual placement, not just a serialized preference.
   await page.reload();
   if (reopen) await reopen();
   await handle(first).waitFor({ timeout: 30000 });
+  // 快照恢复等区域集稳定后去抖应用(约 250ms),等区域真的回到停靠位置再量。
+  await page
+    .waitForFunction(
+      ({ boardId, first, x, y }) => {
+        const node = globalThis.document.querySelector(`[data-testid="${boardId}"] [data-region="${first}"]`);
+        if (node === null) return false;
+        const rect = node.getBoundingClientRect();
+        return Math.abs(rect.x - x) < 6 && Math.abs(rect.y - y) < 6;
+      },
+      { boardId, first, x: docked.x, y: docked.y },
+      { timeout: 10_000 },
+    )
+    .catch(async (error) => {
+      const reloaded = await box(first);
+      throw new Error(
+        `${label} reload ${JSON.stringify(reloaded)} vs docked ${JSON.stringify(docked)} storage=${await page.evaluate(() => globalThis.localStorage.getItem("harness:gui:split-layout"))}: ${error.message}`,
+      );
+    });
   const reloaded = await box(first);
-  if (orderBased) assert.deepEqual(await readOrder(), swappedOrder, `${label} reload order`);
-  else
-    assert.ok(
-      Math.abs(reloaded.x - other.x) < 3 && Math.abs(reloaded.y - other.y) < 3,
-      `${label} reload ${JSON.stringify(reloaded)}`,
-    );
   await shot(`${label}-reloaded`);
-  // Cancellation cannot commit a new order.
-  const cancelFrom = await handle(first).boundingBox(),
-    cancelTo = await handle(second).boundingBox();
-  await page.mouse.move(cancelFrom.x + 12, cancelFrom.y + 12);
-  await page.mouse.down();
-  await page.mouse.move(cancelTo.x + 12, cancelTo.y + 12, { steps: 8 });
-  await page.keyboard.press("Escape");
-  await page.mouse.up();
-  if (orderBased) assert.deepEqual(await readOrder(), swappedOrder, `${label} cancel`);
-  else {
-    const cancelled = await box(first);
-    assert.ok(Math.abs(cancelled.x - reloaded.x) < 3 && Math.abs(cancelled.y - reloaded.y) < 3, `${label} cancel`);
-  }
-  // dnd-kit detaches its document click blocker asynchronously after Escape.
-  // Observe propagation recovery before another button activation (Enter also synthesizes click).
-  await page.waitForFunction(
-    () => {
-      let propagated = false;
-      const observed = () => {
-        propagated = true;
-      };
-      globalThis.addEventListener("click", observed, { once: true });
-      globalThis.document.dispatchEvent(new globalThis.MouseEvent("click", { bubbles: true }));
-      globalThis.removeEventListener("click", observed);
-      return propagated;
-    },
-    null,
-    { timeout: 1000 },
+  // 取消(dragend 不落):遮罩出现又消失,布局不动。
+  await cancelDrag(page, boardId, first, second, { x: 0.75, y: 0.5 });
+  const cancelled = await box(first);
+  assert.ok(
+    Math.abs(cancelled.x - reloaded.x) < 6 && Math.abs(cancelled.y - reloaded.y) < 6,
+    `${label} cancel: ${JSON.stringify(cancelled)} vs ${JSON.stringify(reloaded)}`,
+  );
+  // 键盘停靠:方向键把本区域停到该方向的相邻区域(source 停靠后在最右,向左有邻居)。
+  await handle(first).press("ArrowLeft");
+  const keyboard = await box(first);
+  assert.ok(Math.abs(keyboard.x - cancelled.x) > 3 || Math.abs(keyboard.y - cancelled.y) > 3, `${label} keyboard dock`);
+  await shot(`${label}-keyboard`);
+  // 撤销上一步停靠,再重置回默认布局。
+  await board.getByTestId(`${boardId}-controls-undo`).click();
+  const undone = await box(first);
+  assert.ok(
+    Math.abs(undone.x - cancelled.x) < 3,
+    `${label} undo: ${JSON.stringify(undone)} vs ${JSON.stringify(cancelled)}`,
   );
   await board.getByTestId(`${boardId}-controls-reset`).click();
-  await board.getByTestId(`${boardId}-controls-row`).click();
-  if (orderBased) {
-    await orderIs(initialOrder);
-    assert.deepEqual(await readOrder(), initialOrder, `${label} reset order`);
-  } else {
+  // 任务详情按调用方固定 columns,精确回位;加权板(工作概况/总览)的默认列宽每次由
+  // daemon 权重现算,只验「回到默认列结构 + 槽位清空」:source 不再贴在 target 右侧。
+  // 清槽后存储可能仍留着空仓壳(connections.repo = {}),验「本页槽位不存在」而非整键为空。
+  const storageCleared = async () =>
+    await page.evaluate(
+      () =>
+        !Object.hasOwn(
+          (JSON.parse(globalThis.localStorage.getItem("harness:gui:split-layout") ?? "{}").connections ?? {}).local?.[
+            "gui-e2e-catalog"
+          ] ?? {},
+          "task-detail-docs",
+        ),
+    );
+  if (boardId === "task-detail-content-grid") {
     await page.waitForFunction(
       ({ boardId, first, x, y }) => {
-        const rect = globalThis.document
-          .querySelector(`[data-testid="${boardId}"] [data-region="${first}"]`)
-          .getBoundingClientRect();
+        const node = globalThis.document.querySelector(`[data-testid="${boardId}"] [data-region="${first}"]`);
+        if (node === null) return false; // 重置换 key 重挂,区域短暂缺席,等它回来。
+        const rect = node.getBoundingClientRect();
         return Math.abs(rect.x - x) < 3 && Math.abs(rect.y - y) < 3;
       },
       { boardId, first, x: initial.x, y: initial.y },
       { timeout: 5000 },
     );
-  }
-  const reset = await box(first);
-  if (!orderBased)
+    const reset = await box(first);
     assert.ok(
       Math.abs(reset.x - initial.x) < 3 && Math.abs(reset.y - initial.y) < 3,
-      `${label} reset: initial=${JSON.stringify(initial)} actual=${JSON.stringify(reset)} storage=${await page.evaluate(() => globalThis.localStorage.getItem("harness:gui:split-layout"))}`,
+      `${label} reset: initial=${JSON.stringify(initial)} actual=${JSON.stringify(reset)}`,
     );
-  await handle(first).press("ArrowRight");
-  if (orderBased) {
-    await page.waitForFunction(
-      ({ boardId, id, from }) => {
-        const nodes = globalThis.document.querySelectorAll(`[data-testid="${boardId}"] [data-region]`);
-        const index = [...nodes].findIndex((node) => node.dataset.region === id);
-        return index >= 0 && index !== from;
-      },
-      { boardId, id: first, from: firstIndex },
-      { timeout: 5000 },
-    );
+    assert.ok(await storageCleared(), `${label} reset should clear the slot`);
   } else {
-    const keyboard = await box(first);
-    assert.ok(Math.abs(keyboard.x - reset.x) > 3 || Math.abs(keyboard.y - reset.y) > 3, `${label} keyboard move`);
+    await handle(first).waitFor({ timeout: 10_000 });
+    const reset = await box(first),
+      targetNow = await box(second);
+    assert.ok(reset && targetNow, `${label} reset boxes`);
+    assert.ok(
+      Math.abs(reset.x - (targetNow.x + targetNow.width)) > 8,
+      `${label} reset should leave the default columns: reset=${JSON.stringify(reset)} target=${JSON.stringify(targetNow)}`,
+    );
+    assert.ok(await storageCleared(), `${label} reset should clear the slot`);
   }
-  await board.getByTestId(`${boardId}-controls-reset`).click();
-  await board.getByTestId(`${boardId}-controls-row`).click();
-  const divider = board.getByTestId(`${boardId}-divider`);
-  if (await divider.count()) {
-    const before = Number(await divider.getAttribute("aria-valuenow"));
-    await divider.press("ArrowRight");
-    assert.equal(Number(await divider.getAttribute("aria-valuenow")), before + 16, `${label} keyboard resize`);
-    const start = await box(first);
-    await dragDivider(page, `${boardId}-divider`, 25, "row");
-    const resized = await box(first);
-    assert.ok(Math.abs(resized.width - start.width) > 10, `${label} pointer resize`);
-  }
-  await board.getByTestId(`${boardId}-controls-column`).click();
-  await shot(`${label}-column`);
+  await shot(`${label}-reset-default`);
+  // 键盘调缝:Alt+方向键沿该轴增/减本区域尺寸(≥16px 步长)。
+  const beforeResize = await box(first);
+  await handle(first).press("Alt+ArrowRight");
+  const keyboardResized = await box(first);
+  assert.ok(
+    Math.abs(keyboardResized.width - beforeResize.width) >= 12,
+    `${label} keyboard seam: ${beforeResize.width} -> ${keyboardResized.width}`,
+  );
+  // 分隔条真实 pointer 拖拽调比例。
+  const start = await box(first);
+  await dragSash(page, board, -30, "row");
+  const resized = await box(first);
+  assert.ok(Math.abs(resized.width - start.width) > 10, `${label} sash resize`);
+  await shot(`${label}-sash`);
   await board.getByTestId(`${boardId}-controls-reset`).click();
   await assertUnscrolledLayout(board);
   const contained = await board.evaluate((node) => {
@@ -265,7 +287,16 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen, { 
       );
     });
   });
-  assert.ok(contained, `${label} all regions remain inside the page`);
+  const containDetail = await board.evaluate((node) =>
+    [...node.querySelectorAll("[data-region]")].map((region) => {
+      const box = region.getBoundingClientRect();
+      return { id: region.dataset.region, x: box.x, y: box.y, right: box.right, bottom: box.bottom };
+    }),
+  );
+  assert.ok(
+    contained,
+    `${label} all regions remain inside the page: outer=${JSON.stringify(await board.boundingBox())} regions=${JSON.stringify(containDetail)}`,
+  );
   await shot(`${label}-reset`);
 }
 
@@ -463,11 +494,6 @@ export default {
         .getByTestId("task-document-tree-scroll")
         .evaluate((node) => ({ height: node.clientHeight, scroll: node.scrollHeight }));
       assert.ok(tree.scroll > tree.height, "long tree scrolls inside its region");
-      await page.getByTestId("task-detail-content-grid-controls-collapse").click();
-      assert.equal(await page.getByTestId("task-document-tree").count(), 0);
-      await page.getByTestId("task-detail-content-grid-expand").click();
-      await page.getByTestId("task-document-tree").waitFor();
-      await checkLayout(page, shot, "task-overview-tab", "plan", "progress", "task-plan-wide");
       const timelineScroll = await page
         .getByTestId("task-progress-timeline")
         .locator("[data-region-scroll]")
@@ -496,9 +522,7 @@ export default {
       await checkLayout(page, shot, "task-detail-content-grid", "files", "content", "root-narrow", () =>
         page.getByRole("tab", { name: /根任务|Root task/u }).click(),
       );
-      await checkLayout(page, shot, "task-overview-tab", "plan", "progress", "root-plan-narrow", () =>
-        page.getByRole("tab", { name: /根任务|Root task/u }).click(),
-      );
+      // 根任务详情的页级三块在窄窗口同样可停靠(上面 root-narrow 已验)。
       await resize(1440, 900);
       await shot("root-wide");
       // The work graph fills its own flex viewport; both narrow and wide
@@ -526,14 +550,13 @@ export default {
         .locator("[data-region]")
         .evaluateAll((nodes) => nodes.map((node) => node.dataset.region));
       assert.ok(overviewIds.length >= 2, `overview fixture needs multiple regions: ${overviewIds}`);
-      // 总览板区域非等高(瀑布列内纵向堆叠),换位断言走次序而非几何互换。
-      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-wide", null, {
-        orderBased: true,
-      });
+      const overviewStorageAfterDock = await page.evaluate(() =>
+        globalThis.localStorage.getItem("harness:gui:split-layout"),
+      );
+      writeFileSync(path.join(runRoot, "overview-storage.json"), `${overviewStorageAfterDock ?? "null"}\n`);
+      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-wide");
       await resize(1120, 800);
-      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-narrow", null, {
-        orderBased: true,
-      });
+      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-narrow");
       await page.evaluate(() => globalThis.localStorage.setItem("harness-locale", "en-US"));
       await page.reload();
       await page.getByTestId("overview-board").waitFor();

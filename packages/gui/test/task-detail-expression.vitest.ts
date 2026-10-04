@@ -549,22 +549,6 @@ describe("Task detail expression", () => {
     expect([...new Set(undone)].sort()).toEqual(["content", "files", "timeline"]);
     expect(undone.indexOf("files")).toBeLessThan(undone.indexOf("content"));
 
-    // 收起其他区域(文件树视角):正文最大化,控件组提升到网格上方,恢复有路。
-    await act(async () => {
-      controlButton("collapse").click();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    const raisedControls = byTestId("task-detail-content-grid-controls");
-    expect(raisedControls.closest('[data-testid="task-document-tree"]')).toBeNull();
-    expect(raisedControls.closest('[data-testid="task-detail-content-grid"]')).not.toBeNull();
-    await act(async () => {
-      raisedControls
-        .querySelector<HTMLButtonElement>('[data-testid="task-detail-content-grid-controls-collapse"]')!
-        .click();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(byTestId("task-detail-content-grid-controls").closest('[data-testid="task-document-tree"]')).not.toBeNull();
-
     // 重置:回默认布局,本页槽位清空。
     await act(async () => {
       controlButton("reset").click();

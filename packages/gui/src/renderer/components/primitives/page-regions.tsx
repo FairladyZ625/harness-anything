@@ -1,7 +1,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type SerializedDockview } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
-import { ArrowCounterClockwise, ArrowUUpLeft, CaretRight } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowUUpLeft } from "@phosphor-icons/react";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { directionalPane, type PaneBox, type PaneDirection } from "../../terminal-pane-focus.ts";
 import {
@@ -67,6 +67,22 @@ function flatLeafOrder(root: unknown): string[] {
   return order;
 }
 
+/** 把序列化布局树里不在保留集中的叶子剪掉,空枝收敛;返回 null 表示一棵不剩。
+ * 用于快照恢复:恢复时只保留当前区域集里已有的面板,投影没追平的区域不提前占位。 */
+function pruneSnapshot(node: unknown, keep: ReadonlySet<string>): unknown | null {
+  const record = node as { type?: string; data?: unknown };
+  if (record?.type !== "branch") {
+    const view = (record?.data as { views?: string[] })?.views?.[0];
+    return view !== undefined && keep.has(view) ? node : null;
+  }
+  const children = ((record.data as unknown[]) ?? [])
+    .map((child) => pruneSnapshot(child, keep))
+    .filter((child) => child !== null);
+  if (children.length === 0) return null;
+  if (children.length === 1) return children[0];
+  return { ...record, data: children };
+}
+
 /** 单步撤销的逆操作:把 source 停回原邻居旁,并恢复它沿原轴的尺寸。 */
 interface UndoEntry {
   readonly source: string;
@@ -81,7 +97,6 @@ export function PageRegions(
     readonly columns: readonly (readonly string[])[];
     readonly testId: string;
     readonly defaultRatio?: number;
-    readonly collapsible?: boolean;
   },
 ) {
   const [reset, setReset] = useState(0);
@@ -108,7 +123,6 @@ function PageRegionsHost({
   columns,
   testId,
   defaultRatio,
-  collapsible = false,
   onReset,
   ...scope
 }: Scope & {
@@ -116,7 +130,6 @@ function PageRegionsHost({
   readonly columns: readonly (readonly string[])[];
   readonly testId: string;
   readonly defaultRatio?: number;
-  readonly collapsible?: boolean;
   readonly onReset: () => void;
 }) {
   const { connectionId, repoId, slot } = scope;
@@ -128,8 +141,9 @@ function PageRegionsHost({
   const touchedRef = useRef(false);
   // 从快照恢复过:此后调用方的列序不再是布局权威,区域增减走增量。
   const restoredRef = useRef(false);
+  // 待恢复的布局快照:等首个非空区域集到来时剪枝应用。
+  const pendingSnapshotRef = useRef<unknown>(undefined);
   const [ready, setReady] = useState(false);
-  const [maximized, setMaximized] = useState(false);
   const [undoable, setUndoable] = useState(false);
   const registry = useMemo(() => new Map(regions.map((region) => [region.id, region])), [regions]);
   const available = useMemo(() => columns.flat().filter((id) => registry.has(id)), [columns, registry]);
@@ -255,34 +269,11 @@ function PageRegionsHost({
     setUndoable(false);
   }, []);
 
-  const toggleMaximize = useCallback(() => {
-    const api = apiRef.current;
-    if (api === null || !collapsible) return;
-    touchedRef.current = true;
-    if (api.hasMaximizedGroup()) api.exitMaximizedGroup();
-    else {
-      // 收起的是首个区域(文件树):放大其相邻区域,其余区域与自身状态保留、仅隐藏。
-      const focus = available[1] ?? available[0];
-      const panel = focus === undefined ? undefined : api.getPanel(focus);
-      if (panel !== undefined) api.maximizeGroup(panel);
-    }
-    // 可见性切换不一定走聚合布局事件,这里同步读回单区域态。
-    setMaximized(api.hasMaximizedGroup());
-  }, [available, collapsible]);
-
   const controls = useMemo(
     () => (
-      <RegionLayoutControlsGroup
-        testId={`${testId}-controls`}
-        collapsible={collapsible && available.length > 1}
-        maximized={maximized}
-        undoable={undoable}
-        onToggleMaximize={toggleMaximize}
-        onUndo={undo}
-        onReset={onReset}
-      />
+      <RegionLayoutControlsGroup testId={`${testId}-controls`} undoable={undoable} onUndo={undo} onReset={onReset} />
     ),
-    [available.length, collapsible, maximized, onReset, testId, toggleMaximize, undo, undoable],
+    [onReset, testId, undo, undoable],
   );
 
   /** 按 columns 搭默认布局:首列占比、列内按权重;两遍加的面板序即布局序。 */
@@ -340,12 +331,13 @@ function PageRegionsHost({
 
   const reconcile = useCallback(
     (api: DockviewApi) => {
+      // 有待恢复快照时先不动布局:区域集是投影驱动、陆续到位的,等它稳定(去抖)后
+      // 一次性剪枝恢复,而不是按首个非空集合剪、再把后到的区域追加到末尾。
+      if (pendingSnapshotRef.current !== undefined) return;
       const wanted = regions.map((region) => region.id);
-      for (const panel of [...api.panels])
-        if (!wanted.includes(panel.id)) {
-          touchedRef.current = true;
-          api.removePanel(panel);
-        }
+      // 区域集增减是数据驱动(投影追平有时差),不算用户改动:不置 touched,重载后由
+      // 快照+reconcile 重新收敛,而不是把「暂时缺席的区域被移除」当成布局写进偏好。
+      for (const panel of [...api.panels]) if (!wanted.includes(panel.id)) api.removePanel(panel);
       if (api.panels.length === 0) {
         buildDefault(api);
         return;
@@ -364,7 +356,6 @@ function PageRegionsHost({
       let last = api.panels[api.panels.length - 1]?.id;
       for (const id of wanted)
         if (api.getPanel(id) === undefined) {
-          touchedRef.current = true;
           api.addPanel({
             id,
             component: regionPanelComponent,
@@ -391,26 +382,16 @@ function PageRegionsHost({
       const host = hostRef.current;
       if (host !== null && host.clientWidth > 0 && host.clientHeight > 0)
         api.layout(host.clientWidth, host.clientHeight);
-      const saved =
+      // 快照不立即恢复:区域集是投影驱动的,首次非空集合稳定后再按已知面板剪枝恢复,
+      // 否则「还没到的区域」会在恢复后被当成多余面板移除、再被追加到末尾,毁掉停靠。
+      pendingSnapshotRef.current =
         connectionId === null
           ? undefined
           : readSplitPreferences(splitPreferenceStorage(), connectionId, repoId)[slot]?.snapshot;
-      if (saved !== undefined) {
-        try {
-          api.fromJSON(saved as SerializedDockview);
-          restoredRef.current = true;
-        } catch (cause) {
-          // 快照与当前面板集不匹配等损坏:回落默认布局,不静默吞。
-          consumeKnownError(cause);
-          api.clear();
-        }
-      }
       api.onDidLayoutChange(() => {
         // 卸载/换页后迟到的布局事件(自适应量尺走 rAF)不再落盘,不覆盖下一页的槽位。
         if (apiRef.current !== api) return;
         if (touchedRef.current) persist(api.toJSON());
-        // 值未变时保持原状态:自适应量尺的迟到事件不触发无谓重渲染。
-        setMaximized((current) => (current === api.hasMaximizedGroup() ? current : api.hasMaximizedGroup()));
       });
       reconcile(api);
       setReady(true);
@@ -420,8 +401,38 @@ function PageRegionsHost({
 
   useEffect(() => {
     // 区域集在挂载后变化(时间线出现/总览区域增减):增量补齐或回收,不重建整棵树。
-    if (ready && apiRef.current !== null) reconcile(apiRef.current);
-  }, [ready, reconcile]);
+    if (!ready || apiRef.current === null) return;
+    if (pendingSnapshotRef.current !== undefined) {
+      // 去抖等投影追平:区域集最后一次变化后 250ms 才恢复快照。
+      const snapshot = pendingSnapshotRef.current;
+      const timer = setTimeout(() => {
+        const api = apiRef.current;
+        if (api === null) return;
+        pendingSnapshotRef.current = undefined;
+        const pruned = pruneSnapshot(
+          (snapshot as { grid?: { root?: unknown } })?.grid?.root,
+          new Set(regions.map((region) => region.id)),
+        );
+        if (pruned !== null) {
+          try {
+            api.clear();
+            api.fromJSON({
+              ...(snapshot as object),
+              grid: { ...(snapshot as { grid?: object }).grid, root: pruned },
+            } as SerializedDockview);
+            restoredRef.current = true;
+          } catch (cause) {
+            // 快照与当前面板集不匹配等损坏:回落默认布局,不静默吞。
+            consumeKnownError(cause);
+            api.clear();
+          }
+        }
+        reconcile(api);
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+    reconcile(apiRef.current);
+  }, [ready, reconcile, regions]);
 
   useEffect(
     () => () => {
@@ -457,8 +468,6 @@ function PageRegionsHost({
           } as CSSProperties
         }
       >
-        {/* 首区域收起(其余区域最大化)后把手不可达,控件组提到网格上方,展开有路。 */}
-        {collapsible && maximized && <div className="flex shrink-0 justify-end">{controls}</div>}
         <DockviewReact
           components={components}
           onReady={onReady}
@@ -478,21 +487,15 @@ const CONTROL_BUTTON =
   "aria-pressed:border-accent/50 aria-pressed:bg-accent/10 aria-pressed:text-accent " +
   "disabled:pointer-events-none disabled:opacity-40";
 
-/** 区域头控件组:收起其他区域(可收起页)、撤销上一步停靠、恢复默认布局。 */
+/** 区域头控件组:撤销上一步停靠、恢复默认布局。 */
 function RegionLayoutControlsGroup({
   testId,
-  collapsible,
-  maximized,
   undoable,
-  onToggleMaximize,
   onUndo,
   onReset,
 }: {
   readonly testId: string;
-  readonly collapsible: boolean;
-  readonly maximized: boolean;
   readonly undoable: boolean;
-  readonly onToggleMaximize: () => void;
   readonly onUndo: () => void;
   readonly onReset: () => void;
 }) {
@@ -504,19 +507,6 @@ function RegionLayoutControlsGroup({
       onClick={(event) => event.stopPropagation()}
       data-testid={testId}
     >
-      {collapsible ? (
-        <button
-          type="button"
-          aria-pressed={maximized}
-          aria-label={maximized ? t("components.pageRegions.showAll") : t("components.pageRegions.hideOthers")}
-          title={maximized ? t("components.pageRegions.showAllTitle") : t("components.pageRegions.hideOthersTitle")}
-          onClick={onToggleMaximize}
-          data-testid={`${testId}-collapse`}
-          className={CONTROL_BUTTON}
-        >
-          <CaretRight weight="bold" className="ui-meta" />
-        </button>
-      ) : null}
       <button
         type="button"
         disabled={!undoable}

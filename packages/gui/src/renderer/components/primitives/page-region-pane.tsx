@@ -78,7 +78,8 @@ export function RegionPanel(props: IDockviewPanelProps<{ readonly id: string }>)
         drag.regionId = null;
         host.dock(source, id, zoneOf(event));
       }}
-      className="relative grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden"
+      // dockview 的 panel 宿主(dv-react-part)是 block 非 flex:必须 h-full 才撑满 pane 高度。
+      className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden"
     >
       {zone && (
         <div

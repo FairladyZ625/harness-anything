@@ -500,8 +500,14 @@ describe("overview narrative", () => {
     const remote = await mountOverview("remote-abc123def456");
     await dockTimeline(remote);
     expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toBeDefined();
-    // 重挂同一连接:停靠布局从快照恢复。
+    // 重挂同一连接:停靠布局从快照恢复(快照等区域集稳定后去抖应用,等它落地)。
     const reloaded = await mountOverview("remote-abc123def456");
+    await act(async () => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if (reloaded.querySelector("[data-region]") !== null) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    });
     const regionsAfterReload = [...reloaded.querySelectorAll<HTMLElement>("[data-region]")].map(
       (n) => n.dataset.region,
     );
