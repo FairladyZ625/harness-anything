@@ -25,6 +25,7 @@ export function auditDurableActionAuthorization(rootDir = process.cwd(), durable
   const authority = authorizationAuthority(rootDir, analysis);
   const receipt = receiptAuthorizationContract(rootDir);
   const taskWrites = taskCatalogAuthorization(rootDir, analysis, authority);
+  const queuedWrites = queuedDispatchAuthorization(rootDir, analysis, authority);
   const rows = kinds.map((kind) => ({
     action: kind,
     authorizationPort:
@@ -32,7 +33,7 @@ export function auditDurableActionAuthorization(rootDir = process.cwd(), durable
         ? bootstrapAuthority(analysis)
         : taskWrites.has(kind)
           ? taskWrites.get(kind)
-          : actionReachesAuthorization(kind, analysis, authority),
+          : actionReachesAuthorization(kind, analysis, authority) || queuedWrites.has(kind),
     receiptAuthorizationDecision: receipt.nonNullable,
   }));
   const findings = [
@@ -450,16 +451,113 @@ function importsBinding(node, module, exported, local) {
   );
 }
 
-function taskCatalogWiring(analysis) {
-  const dispatch = definition(analysis, "repo-cell-action-dispatch", "executeRepoAction"),
-    execute = definition(analysis, "repo-cell-action-dispatch", "executeAction"),
-    catalog = definition(analysis, "entity-action-catalog-executor", "run"),
+// Only direct imported handlers reached through the real RepoCell binding qualify.
+// Literal mentions elsewhere and unrelated functions with the same name prove nothing.
+function queuedDispatchAuthorization(rootDir, analysis, authority) {
+  const rows = new Set(),
+    dispatch = definition(analysis, "repo-cell-action-dispatch", "executeRepoAction"),
+    module = source(analysis, "repo-cell-action-dispatch"),
+    declarationPath = "packages/kernel/src/domain/action-declaration.ts";
+  if (
+    !authority.ok ||
+    !authority.keycloak ||
+    !queuedTaskWrite(analysis) ||
+    !repoActionWiring(analysis) ||
+    !dispatch ||
+    !ts.isBlock(dispatch) ||
+    !module ||
+    !existsSync(path.join(rootDir, declarationPath))
+  )
+    return rows;
+  const inventory = unwrapExpression(
+    findVariable(parseTypeScript(rootDir, declarationPath), "actionDeclarations")?.initializer,
+  );
+  if (!inventory || !ts.isArrayLiteralExpression(inventory)) return rows;
+  for (const statement of dispatch.statements) {
+    if (!ts.isIfStatement(statement)) continue;
+    const condition = statement.expression,
+      route = statement.thenStatement;
+    if (
+      !ts.isCallExpression(condition) ||
+      !ts.isPropertyAccessExpression(condition.expression) ||
+      condition.expression.name.text !== "includes" ||
+      syntax(condition.arguments[0]) !== "action.kind" ||
+      !ts.isArrayLiteralExpression(condition.expression.expression) ||
+      !ts.isReturnStatement(route) ||
+      !route.expression ||
+      !ts.isCallExpression(route.expression)
+    )
+      continue;
+    const call = route.expression;
+    if (!ts.isIdentifier(call.expression) || call.arguments.map(syntax).join(",") !== "cell,action,binding") continue;
+    const imported = module.statements.find(
+      (node) =>
+        ts.isImportDeclaration(node) &&
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        node.moduleSpecifier.text.startsWith("./") &&
+        importsBinding(module, node.moduleSpecifier.text, call.expression.text, call.expression.text),
+    );
+    if (!imported) continue;
+    const file = path.posix.join("packages/daemon/src", imported.moduleSpecifier.text);
+    if (
+      !(analysis.functions.get(call.expression.text) ?? []).some(
+        (entry) =>
+          entry.file === file &&
+          ts.isFunctionDeclaration(entry.body.parent) &&
+          entry.body.parent.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword),
+      )
+    )
+      continue;
+    for (const kind of condition.expression.expression.elements) {
+      if (
+        ts.isStringLiteral(kind) &&
+        inventory.elements.some(
+          (entry) =>
+            ts.isCallExpression(entry) &&
+            entry.expression.getText() === "canonical" &&
+            syntax(entry.arguments[0]) === syntax(kind) &&
+            syntax(entry.arguments[2]) === '"repo-write"',
+        )
+      )
+        rows.add(kind.text);
+    }
+  }
+  return rows;
+}
+
+function repoActionWiring(analysis) {
+  const execute = definition(analysis, "repo-cell-action-dispatch", "executeAction"),
     context = source(analysis, "repo-cell-action-context"),
     open = source(analysis, "repo-cell-open"),
-    api = source(analysis, "repo-cell-api");
-  if (!dispatch || !execute || !catalog || !context || !open || !api) return false;
+    api = source(analysis, "repo-cell-api"),
+    runner = source(analysis, "repo-cell-command-run");
+  return Boolean(
+    execute &&
+      context &&
+      open &&
+      api &&
+      runner &&
+      syntax(execute).includes(
+        "returnapplyTaskWorktreeLifecycle(taskWorktreeInput(cell),action,binding.source,()=>Promise.resolve(executeRepoAction(cell,action,binding)),)",
+      ) &&
+      importsBinding(context, "./repo-cell-action-dispatch.ts", "executeAction", "executeActionImpl") &&
+      syntax(context).includes("executeAction:bind(executeActionImpl)") &&
+      syntax(context).includes("returnimplementation(actionContext.currentasContext,...args)") &&
+      syntax(open).includes("executeAction:extracted.executeAction") &&
+      importsBinding(api, "./repo-cell-command-run.ts", "makeRepoCellCommandRunner", "makeRepoCellCommandRunner") &&
+      syntax(api).includes("run=makeRepoCellCommandRunner(context)") &&
+      importsBinding(runner, "@harness-anything/kernel", "durablePolicyActions", "durablePolicyActions") &&
+      importsBinding(runner, "./repo-cell-authorization.ts", "evaluateRepoCellAction", "evaluateRepoCellAction"),
+  );
+}
+
+function taskCatalogWiring(analysis) {
+  const dispatch = definition(analysis, "repo-cell-action-dispatch", "executeRepoAction"),
+    catalog = definition(analysis, "entity-action-catalog-executor", "run"),
+    context = source(analysis, "repo-cell-action-context");
+  if (!dispatch || !catalog || !context) return false;
   return (
-    calls(execute, "executeRepoAction") &&
+    repoActionWiring(analysis) &&
     syntax(dispatch).includes("actionContract=getExecutableEntityAction(action.kind)") &&
     someNode(
       dispatch,
@@ -480,12 +578,8 @@ function taskCatalogWiring(analysis) {
     ) &&
     syntax(catalog).includes("contract=executableAction(action.kind)") &&
     syntax(catalog).includes("returnruntimes.task(contract,action,binding,opId)") &&
-    importsBinding(context, "./repo-cell-action-dispatch.ts", "executeAction", "executeActionImpl") &&
     importsBinding(context, "./task-action-catalog-runtime.ts", "runTaskActionCatalogRuntime", "lifecycleActionImpl") &&
-    syntax(context).includes("executeAction:bind(executeActionImpl)") &&
-    syntax(context).includes("lifecycleAction:bind(lifecycleActionImpl)") &&
-    syntax(open).includes("executeAction:extracted.executeAction") &&
-    syntax(api).includes("run=makeRepoCellCommandRunner(context)")
+    syntax(context).includes("lifecycleAction:bind(lifecycleActionImpl)")
   );
 }
 
