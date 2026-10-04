@@ -56,6 +56,8 @@ function renderView(
     mode?: "local" | "remote-center";
     ready?: boolean;
     agents?: SessionAgentIndex;
+    agentReadError?: string;
+    agentReadLoading?: boolean;
   } = {},
 ) {
   const host = document.createElement("div");
@@ -70,6 +72,8 @@ function renderView(
         tasks={overrides.tasks ?? []}
         ready={overrides.ready ?? true}
         agents={overrides.agents}
+        agentReadError={overrides.agentReadError}
+        agentReadLoading={overrides.agentReadLoading}
         now="2026-10-01T12:00:00.000Z"
         onOpenTask={(id) => openedTasks.push(id)}
         onNavigateEntity={(ref) => navigatedRefs.push(ref)}
@@ -381,6 +385,21 @@ describe("review be577 四个反例的修后视图行为", () => {
     expect(sessionLink).not.toBeNull();
     act(() => sessionLink!.click());
     expect(view.navigatedRefs).toContain("session/runtime_none");
+    act(() => view.root.unmount());
+  });
+
+  it("Agent 查询失败保留任务行和会话跳转，并区别于成功读取后未声明", () => {
+    const view = renderView({ tasks: [task("task-glm", HELD_LEASE)], agentReadError: "authorization_denied" });
+    expect(view.rows()).toHaveLength(1);
+    expect(view.host.querySelector('[data-testid="collaboration-agent-read-error"]')?.textContent).toContain(
+      "authorization_denied",
+    );
+    expect(view.rows()[0]?.textContent).toContain("Agent 读取失败");
+    expect(view.rows()[0]?.textContent).not.toContain("Agent 未提供");
+    const sessionLink = view.rows()[0]?.querySelector<HTMLButtonElement>('button[title*="runtime_a520047968e6"]');
+    expect(sessionLink).not.toBeNull();
+    act(() => sessionLink!.click());
+    expect(view.navigatedRefs).toContain("session/runtime_a520047968e6");
     act(() => view.root.unmount());
   });
 

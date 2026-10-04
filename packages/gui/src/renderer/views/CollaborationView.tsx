@@ -59,6 +59,8 @@ export function CollaborationView({
   tasks,
   ready,
   agents = EMPTY_SESSION_AGENT_INDEX,
+  agentReadError = null,
+  agentReadLoading = false,
   onOpenTask,
   onNavigateEntity,
   now = new Date().toISOString(),
@@ -71,6 +73,8 @@ export function CollaborationView({
   readonly ready: boolean;
   /** 会话→声明 Agent 索引(App 从 runtime-session-groups groupBy=agent 读面折算);缺省空 = Agent 维度缺席。 */
   readonly agents?: SessionAgentIndex;
+  readonly agentReadError?: string | null;
+  readonly agentReadLoading?: boolean;
   readonly onOpenTask: (taskId: string) => void;
   /** 会话等可寻址实体的统一出口(session/<id> 落会话页)。 */
   readonly onNavigateEntity: (ref: string) => void;
@@ -100,6 +104,11 @@ export function CollaborationView({
       {mode === "local" ? (
         <Notice tone="neutral" variant="strip" testId="collaboration-local-notice">
           {t("collaboration.localNotice")}
+        </Notice>
+      ) : null}
+      {agentReadError !== null ? (
+        <Notice tone="bad" variant="strip" testId="collaboration-agent-read-error">
+          {t("collaboration.agentReadFailed", { error: agentReadError })}
         </Notice>
       ) : null}
       {options.persons.length > 0 || options.agents.length > 0 || options.nodes.length > 0 ? (
@@ -195,6 +204,8 @@ export function CollaborationView({
               task={task}
               now={now}
               agents={agents}
+              agentReadError={agentReadError !== null}
+              agentReadLoading={agentReadLoading}
               onOpenTask={onOpenTask}
               onNavigateEntity={onNavigateEntity}
             />
@@ -249,12 +260,16 @@ function CollaborationRow({
   task,
   now,
   agents,
+  agentReadError,
+  agentReadLoading,
   onOpenTask,
   onNavigateEntity,
 }: {
   readonly task: CollaborationTask;
   readonly now: string;
   readonly agents: SessionAgentIndex;
+  readonly agentReadError: boolean;
+  readonly agentReadLoading: boolean;
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
@@ -329,7 +344,15 @@ function CollaborationRow({
                   {agent.label}
                 </EntityRefLink>
               ) : runtimeSessionId !== null ? (
-                <span className="text-text-faint">{t("collaboration.agentNotProvided")}</span>
+                <span className="text-text-faint">
+                  {t(
+                    agentReadError
+                      ? "collaboration.agentReadFailedShort"
+                      : agentReadLoading
+                        ? "collaboration.agentReading"
+                        : "collaboration.agentNotProvided",
+                  )}
+                </span>
               ) : null}
               {runtimeSessionId !== null ? (
                 <EntityRefLink

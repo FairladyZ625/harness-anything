@@ -686,7 +686,9 @@ function AppShell() {
                   mode={activeRepo?.mode ?? "local"}
                   tasks={projectTasks}
                   ready={tasksQuery.data?.status === "ready"}
-                  agents={collaborationAgentIndex}
+                  agents={collaborationAgentIndex.index}
+                  agentReadError={collaborationAgentIndex.error}
+                  agentReadLoading={collaborationAgentIndex.loading}
                   onOpenTask={openTaskDetail}
                   onNavigateEntity={navigateToEntity}
                 />

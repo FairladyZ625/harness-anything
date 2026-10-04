@@ -21,13 +21,28 @@ test("repository reads accept declared queries and reject writes, unmarked metho
   for (const invalid of [
     { ...frame, method: "repo.task.run" },
     { ...frame, method: "repo.terminal.sessions.list" },
-    { ...frame, method: "repo.projection.read", payload: { name: "runtime-session-groups" } },
+    { ...frame, method: "repo.projection.read", payload: { name: "schedule-plane" } },
+    { ...frame, method: "repo.projection.read", payload: { name: "runtime-session-groups", repoId: "repo-b" } },
+    { ...frame, method: "repo.projection.read", payload: { name: "runtime-session-groups", sessionIds: "bad" } },
     { ...frame, payload: { personId: "person-other" } },
     { ...frame, payload: { repoId: "repo-b" } },
     { ...frame, method: "repo.task.read", payload: { kind: "task-create", title: "no" } },
     { ...frame, method: "repo.task.read", payload: { kind: "task-show", taskId: "task_1", actor: {} } },
   ])
     assert.throws(() => parseFleetFrame(invalid), /closed schema/);
+  assert.deepEqual(
+    parseFleetFrame({
+      ...frame,
+      method: "repo.projection.read",
+      payload: {
+        name: "runtime-session-groups",
+        groupBy: "agent",
+        limit: 1,
+        sessionIds: ["runtime-one", "runtime-two"],
+      },
+    }).payload,
+    { name: "runtime-session-groups", groupBy: "agent", limit: 1, sessionIds: ["runtime-one", "runtime-two"] },
+  );
 });
 
 test("repository read authentication uses the command token UTF-8 byte bound", () => {

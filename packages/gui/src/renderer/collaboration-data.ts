@@ -13,7 +13,7 @@ export function useCollaborationAgentIndex(
   repoId: string | null,
   enabled: boolean,
   tasks: readonly CollaborationTask[],
-): SessionAgentIndex {
+): { readonly index: SessionAgentIndex; readonly error: string | null; readonly loading: boolean } {
   const sessionIds = [
       ...new Set(
         tasks.flatMap((task) => {
@@ -36,5 +36,10 @@ export function useCollaborationAgentIndex(
       enabled: enabled && repoId !== null && sessionIds.length > 0,
       staleTime: 4_000,
     });
-  return query.data === undefined ? EMPTY_SESSION_AGENT_INDEX : agentIndexOfSessionGroups(query.data);
+  return {
+    index:
+      query.isError || query.data === undefined ? EMPTY_SESSION_AGENT_INDEX : agentIndexOfSessionGroups(query.data),
+    error: query.isError ? (query.error instanceof Error ? query.error.message : String(query.error)) : null,
+    loading: query.isPending && query.fetchStatus === "fetching",
+  };
 }

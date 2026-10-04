@@ -166,6 +166,21 @@ test(
       assert.equal((response.result as { ok?: boolean }).ok, false);
       assert.match(JSON.stringify(response.result), code);
     };
+    const agentQuery = {
+      name: "runtime-session-groups",
+      groupBy: "agent",
+      limit: 1,
+      sessionIds: ["runtime-missing"],
+    };
+    const refusedAgentRead = async (code: RegExp) => {
+      const response = await rpc.handle({
+        jsonrpc: "2.0",
+        id: 8,
+        method: "repo.projection.read",
+        params: { repo: { repoId: "lease-repo" }, payload: agentQuery },
+      });
+      assert.match(JSON.stringify(response), code);
+    };
     const refusedCatalogRead = async (code: RegExp) => {
       const response = await rpc.handle({
         jsonrpc: "2.0",
@@ -193,6 +208,17 @@ test(
     assert.equal(tail.rows.length, 3);
     assert.equal(tail.page.nextCursor, null);
     assert.equal(tail.watermark, first.watermark);
+    const centerAgents = await f.host.read("lease-repo", "repo.projection.read", agentQuery, auth);
+    assert.deepEqual(await read("lease-repo", "repo.projection.read", agentQuery, auth), centerAgents);
+    assert.equal(centerAgents.name, "runtime-session-groups");
+    await assert.rejects(
+      runFleetRepositoryReadClient({
+        ...f.peer("node-one"),
+        method: "repo.projection.read",
+        payload: { name: "schedule-plane" },
+      }),
+      /closed schema/,
+    );
     const bootstrap = await rpc.handle({
       jsonrpc: "2.0",
       id: 3,
@@ -369,6 +395,15 @@ test(
       }),
       { code: "authorization_denied" },
     );
+    await assert.rejects(
+      runFleetRepositoryReadClient({
+        ...f.peer("node-two"),
+        repoId: "other-repo",
+        method: "repo.projection.read",
+        payload: agentQuery,
+      }),
+      { code: "authorization_denied" },
+    );
 
     assert.equal(
       local.withSession((projection) => projection.list().rows.length),
@@ -401,6 +436,7 @@ test(
     f.owners.keycloak.node("node-two", "person-one");
     f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
     await refusedRead(/authorization_denied/);
+    await refusedAgentRead(/authorization_denied/);
     await refusedCatalogRead(/authorization_denied/);
     await refusedCatalogReread(/authorization_denied/);
     const revokedCli = await runFleetEdgeTask(
@@ -418,6 +454,7 @@ test(
     await refusedRead(/node_owner_unregistered/);
     await f.center.close();
     await refusedRead(/ECONNREFUSED|closed|connect/);
+    await refusedAgentRead(/ECONNREFUSED|closed|connect/);
     await refusedCatalogRead(/ECONNREFUSED|closed|connect/);
     await refusedCatalogReread(/ECONNREFUSED|closed|connect/);
   },
