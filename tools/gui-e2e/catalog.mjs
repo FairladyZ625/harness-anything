@@ -29,6 +29,7 @@ import cadenceView from "./scenarios/cadence-view.mjs";
 import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
 import pageSplitLayout from "./scenarios/page-split-layout.mjs";
 import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
+import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
 
 export const catalog = [
   accountLogin,
@@ -62,6 +63,7 @@ export const catalog = [
   taskCloseoutLongValues,
   pageSplitLayout,
   overviewWipRegion,
+  overviewAttentionFocus,
 ];
 
 export function selectScenarios({ lane, ids }) {

@@ -8,8 +8,11 @@ import { bridgeReady } from "./helpers.mjs";
 
 /**
  * 最近进展状态链组件内横滚(DayDigest/StepChain 契约):长状态链单行、在链内部横向
- * 滚动,外部行高不随步骤数增长;滚动滚轮不误触行点击;窄面板(<32rem)标题与状态链
+ * 滚动,外部行高不随步骤数增长;滚动滚轮不误触行导航;窄面板(<32rem)标题与状态链
  * 转上下两行,链占满整行;正文页面无横向溢出。
+ * 断言面是工作页「最近进展」时间线:总览 2026-10-04 注意力返工只给每工作一行「最近」
+ * 摘要,详细密度(原总览 DayDigest 区域)住在工作页;夹具让根任务带一个子任务成为
+ * 工作根,工作页才存在。
  * 数据面:真实返工循环——start → submit → adjudicate return 每轮产生
  * start/submit/returned 三个交错步骤(workDayGroups 连续同类收成一步,交错才增长),
  * 全部经 daemon 聚合写口(repo.task.run 的 task-start/task-submit/task-adjudicate),
@@ -103,6 +106,9 @@ export default {
     const created = await repoRpc(fixture.endpoint, fixture.repoId, "repo.task.create", {
       taskId: SHORT_TASK,
       title: "短链对照任务",
+      // 子任务让夹具根任务成为工作根:详细进展密度住在工作页时间线(总览 2026-10-04
+      // 注意力返工后只留每工作一行「最近」摘要,原 DayDigest 区域已删)。
+      parentTaskId: LONG_TASK,
     });
     assert.equal(created.ok, true, `short task create: ${JSON.stringify(created).slice(0, 300)}`);
     // 与 fixture 自建任务同序:等发布落地(worktree 可见、脚手架已写出)再实化计划。
@@ -155,13 +161,25 @@ export default {
       );
     }
 
-    // 种子发生在总览已挂载之后:重载让读面全部重新拉取,不吃 30s stale 缓存。
+    // 种子发生在 GUI 挂载之后:重载让读面全部重新拉取,不吃 30s stale 缓存。
     await page.reload();
     await bridgeReady(page);
 
-    // ——— 断言面:总览「最近变化」里的真实 DayDigest ———
-    const region = page.getByTestId("overview-region-recent");
-    await region.waitFor();
+    // ——— 断言面:工作页「最近进展」里的真实 DayDigest ———
+    // (总览 2026-10-04 注意力返工删掉了首屏 DayDigest 区域;同一原语住在工作页时间线。)
+    const openWorkTimeline = async () => {
+      await page.getByRole("button", { name: /^(?:看板|Board)$/u }).click();
+      const card = page
+        .getByTestId("board-task-card")
+        .filter({ hasText: "Render the real triadic projection" })
+        .first();
+      await card.waitFor({ timeout: 20_000 });
+      // 工作根卡片直接路由进工作页(workspace,根任务详情只是其中一个分区),不走预览抽屉。
+      await card.click();
+      await page.getByTestId("work-timeline").waitFor({ timeout: 20_000 });
+    };
+    await openWorkTimeline();
+    const region = page.getByTestId("work-timeline");
     const longChain = region.getByTestId("step-chain").filter({ hasText: "退回" }).last();
     await longChain.waitFor();
 
@@ -188,7 +206,8 @@ export default {
       `row heights must not grow with step count: ${JSON.stringify(geometry.rows)}`,
     );
 
-    // 滚到末项可达;横向滚轮不误触行选择;滚后点击仍可选行。
+    // 滚到末项可达;横向滚轮不误触行导航;键盘平移同理(工作页行是导航,不是选择)。
+    const onWorkPage = () => page.getByTestId("work-timeline").isVisible();
     const endState = await longChain.evaluate((node) => {
       node.scrollLeft = node.scrollWidth;
       const tags = [...node.querySelectorAll("[data-status-tone]")];
@@ -198,7 +217,6 @@ export default {
       return {
         scrollLeft: node.scrollLeft,
         lastReached: lastBox.right <= chainBox.right + 1,
-        selectedRows: node.closest("[data-testid='overview-region-recent']").querySelectorAll("[data-selected]").length,
       };
     });
     assert.ok(endState.scrollLeft > 0, "chain must be scrollable to the end");
@@ -206,14 +224,11 @@ export default {
     const chainBox = await longChain.boundingBox();
     await page.mouse.move(chainBox.x + chainBox.width / 2, chainBox.y + chainBox.height / 2);
     await page.mouse.wheel(600, 0);
-    const afterWheel = await longChain.evaluate((node) => ({
-      scrollLeft: node.scrollLeft,
-      selected: node.closest("[data-testid='overview-region-recent']").querySelectorAll("[data-selected]").length,
-    }));
+    const afterWheel = await longChain.evaluate((node) => ({ scrollLeft: node.scrollLeft }));
     assert.ok(afterWheel.scrollLeft > 0, "horizontal wheel must scroll the chain");
-    assert.equal(afterWheel.selected, 0, "scrolling must not select the row");
+    assert.ok(await onWorkPage(), "scrolling must not navigate the row");
 
-    // ——— 键盘可达:溢出链是原生可焦点 scroll region,方向键平移且不误选行 ———
+    // ——— 键盘可达:溢出链是原生可焦点 scroll region,方向键平移且不误触导航 ———
     // 标题按钮与链是兄弟元素:从标题用真实 Tab 进入链，验证独立焦点
     // 可键盘到达(Chromium 行为,不以另一详情页替代)。
     const hintCount = await longChain.evaluate(
@@ -232,20 +247,11 @@ export default {
     assert.ok(stripFocused, "Tab must reach the overflowing chain after the title button");
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight");
-    const afterArrows = await longChain.evaluate((node) => ({
-      scrollLeft: node.scrollLeft,
-      selected: node.closest("[data-testid='overview-region-recent']").querySelectorAll("[data-selected]").length,
-    }));
+    const afterArrows = await longChain.evaluate((node) => ({ scrollLeft: node.scrollLeft }));
     assert.ok(afterArrows.scrollLeft > 0, "ArrowRight on the focused chain must scroll it in place");
-    assert.equal(afterArrows.selected, 0, "keyboard scrolling must not select the row");
+    assert.ok(await onWorkPage(), "keyboard scrolling must not navigate the row");
     await page.keyboard.press("Space");
-    assert.equal(
-      await longChain.evaluate(
-        (node) => node.closest("[data-testid='overview-region-recent']").querySelectorAll("[data-selected]").length,
-      ),
-      0,
-      "Space in the scroll region must not activate the title",
-    );
+    assert.ok(await onWorkPage(), "Space in the scroll region must not navigate the row");
     await page.keyboard.press("End");
     const endReached = await longChain.evaluate((node) => {
       const tags = [...node.querySelectorAll("[data-status-tone]")];
@@ -272,7 +278,7 @@ export default {
       }
     }
 
-    // 页面正文不横向溢出(先于任何点击:点行会把区域带进放大层)。
+    // 页面正文不横向溢出(先于任何点击:行点击会导航去任务详情)。
     const pageOverflow = await page.evaluate(() => ({
       scrollWidth: globalThis.document.scrollingElement.scrollWidth,
       clientWidth: globalThis.document.scrollingElement.clientWidth,
@@ -283,14 +289,14 @@ export default {
     );
     await shot("work-progress-chain-wide");
 
-    // 滚动后点击仍能选行:选中态会随放大层迁出原区域元素,全局断言。
+    // 行点击是真实导航:从时间线行进入对应任务详情。
     await longChain.locator("xpath=ancestor::*[@data-day-path]").locator("button").first().click();
-    await page.locator("[data-selected]").first().waitFor();
+    await page.getByTestId("task-detail-view").waitFor();
 
-    // ——— 窄面板:重载关掉放大层,区域容器收到 260px,标题/状态链转上下两行 ———
+    // ——— 窄面板:重载回到工作页时间线,区域容器收到 260px,标题/状态链转上下两行 ———
     await page.reload();
     await bridgeReady(page);
-    await region.waitFor();
+    await openWorkTimeline();
     const narrowChain = region.getByTestId("step-chain").filter({ hasText: "退回" }).last();
     await narrowChain.waitFor();
     await region.evaluate((node) => {

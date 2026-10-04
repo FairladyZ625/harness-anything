@@ -92,6 +92,7 @@ export function DenseRow({
       <div
         data-dense-row
         data-selected={selected || undefined}
+        title={hoverTitle}
         className={`flex w-full items-center gap-2.5 border-t border-border px-3.5 ui-body ${sizeCls} ${stateCls}`}
       >
         {/* 主点击面只包内容列:行右侧动作不落在它里面,选中/悬停态仍整行生效。 */}
