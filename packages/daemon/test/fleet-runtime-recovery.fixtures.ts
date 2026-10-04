@@ -197,7 +197,11 @@ export async function fleetFixture(
     },
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
     runtimeArchiveReceipts,
-    center: (port?: number, loginAuthorityUrl = owners.url) =>
+    center: (
+      port?: number,
+      loginAuthorityUrl = owners.url,
+      verifyHuman?: Parameters<typeof listenFleetTls>[0]["verifyHuman"],
+    ) =>
       owned.hold(
         listenFleetTls({
           host: {
@@ -235,6 +239,7 @@ export async function fleetFixture(
           key,
           cert,
           replicaDiskQuotaBytes: replicaQuota,
+          ...(verifyHuman ? { verifyHuman } : {}),
           authenticate: (nodeId, credential) =>
             [subject.nodeId, slowSubject.nodeId].includes(nodeId) && credential === "machine-secret",
           loginAuthority: (nodeId) => ({

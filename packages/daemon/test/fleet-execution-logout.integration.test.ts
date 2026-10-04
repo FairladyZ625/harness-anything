@@ -34,7 +34,9 @@ test(
         ? f.owners.keycloak.fetch(input, init)
         : networkFetch(input, init);
     });
-    const center = await f.center(undefined, loginAuthorityUrl),
+    const center = await f.center(undefined, loginAuthorityUrl, (auth) =>
+        new OidcSessionService(path.join(f.root, "user")).bind(auth),
+      ),
       repoId = f.subject.repoId,
       taskId = f.subject.taskId;
     const edgeRoot = path.join(f.root, "edge"),
@@ -406,33 +408,36 @@ test(
       ).ok,
       true,
     );
-    const reviewSpawn = await reviewRpc("daemon.fleet.task.run", {
-      payload: {
-        ...reviewRoute,
-        workspaceRoot: reviewRoot,
-        action: {
-          kind: "fleet-runtime",
-          method: "repo.agentRuntime.spawn",
-          payload: {
-            runtimeInstanceId: "edge-worker",
-            taskId,
-            role: "reviewer",
-            cwd: { scope: "repo-root" },
-            prompt: "Review the submitted cut.",
-            idempotencyKey: "edge-review",
+    const spawnReviewer = (idempotencyKey: string) =>
+      reviewRpc("daemon.fleet.task.run", {
+        payload: {
+          ...reviewRoute,
+          workspaceRoot: reviewRoot,
+          action: {
+            kind: "fleet-runtime",
+            method: "repo.agentRuntime.spawn",
+            payload: {
+              runtimeInstanceId: "edge-worker",
+              taskId,
+              role: "reviewer",
+              cwd: { scope: "repo-root" },
+              prompt: "Review the submitted cut.",
+              idempotencyKey,
+            },
           },
         },
-      },
-    });
+      });
+    const reviewSpawn = await spawnReviewer("edge-review-s1");
     assert.equal(reviewSpawn.outcome, "applied", JSON.stringify(reviewSpawn));
-    const reviewRuntime = String(reviewSpawn.runtimeSessionId),
+    let reviewRuntime = String(reviewSpawn.runtimeSessionId),
       reviewDispatch = String(reviewSpawn.dispatchId);
     reviewLive.add(reviewRuntime);
-    const reviewEnv = await eventuallyValue(async () =>
+    let reviewEnv = await eventuallyValue(async () =>
       existsSync(path.join(f.root, `${reviewRuntime}.json`))
         ? (JSON.parse(readFileSync(path.join(f.root, `${reviewRuntime}.json`), "utf8")) as NodeJS.ProcessEnv)
         : null,
     );
+    assert.ok(reviewEnv.HARNESS_EXECUTION_CREDENTIAL);
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, secret);
     assert.equal(existsSync(path.join(reviewUser, "rbac/config.json")), false);
     assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
@@ -464,7 +469,7 @@ test(
     );
     const reportDir = path.join(reviewRoot, "harness/tasks/task-fleet-fleet/artifacts/reports");
     mkdirSync(reportDir, { recursive: true });
-    const packet = `harness/tasks/task-fleet-fleet/artifacts/reports/${reviewDispatch}.json`;
+    let packet = `harness/tasks/task-fleet-fleet/artifacts/reports/${reviewDispatch}.json`;
     writeFileSync(
       path.join(reviewRoot, packet),
       JSON.stringify({ verdict: "approved", reason: "Verified edge execution.", evidenceChecked: ["CLI receipts"] }),
@@ -485,6 +490,127 @@ test(
       packet,
     ]);
     assert.equal(wrongReport.code, "execution_credential_rejected", JSON.stringify(wrongReport));
+    // Amend through the supported owner CLI path while the S1 reviewer remains live.
+    // Only the edge document is edited; Fleet publishes it through the center writer.
+    const show = async () => {
+      const result = await f.host.run(repoId, { kind: "task-show", taskId }, localAuthFixture());
+      assert.equal(result.outcome, "applied", JSON.stringify(result));
+      return JSON.parse(String(result.evidence)) as {
+        task: { status: string };
+        executions: Array<{ executionId: string; submission: unknown }>;
+        reviews: Array<{ reviewId: string }>;
+      };
+    };
+    signInAt(path.join(f.root, "user"), "person-owner");
+    const s1 = await show();
+    assert.ok(Array.isArray(s1.reviews));
+    const ownerSession = {
+      schema: "harness-oidc-session/v2",
+      accessToken: "token-person-owner",
+      subject: "person-owner",
+      personId: "person-owner",
+      expiresAt: Date.now() + 3_600_000,
+      roles: [],
+      loginTarget: edgeRoot,
+    };
+    f.owners.keycloak.interactiveSession("person-owner", f.subject.nodeId, f.owners.url);
+    managedRbacSessionStore(userRoot).write(JSON.stringify(ownerSession));
+    const closeout = path.join(edgeRoot, "harness/tasks/task-fleet-fleet/closeout.md");
+    writeFileSync(
+      closeout,
+      readFileSync(closeout, "utf8").replace(
+        "Edge implementation evidence.",
+        "Amended edge implementation evidence for S2.",
+      ),
+    );
+    const amendedCli = await spawnCli(
+      [
+        "--root",
+        worktree,
+        "--json",
+        "task",
+        "submit",
+        taskId,
+        "--execution-id",
+        f.subject.executionId,
+        "--amend",
+        "--as-owner",
+      ],
+      {
+        ...process.env,
+        ...env,
+        HARNESS_EXECUTION_CREDENTIAL: undefined,
+        HARNESS_ACTOR: undefined,
+        HARNESS_TASK_BOUND: undefined,
+      },
+    );
+    const amended = JSON.parse(amendedCli.stdout) as JsonObject;
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    const s2 = await show();
+    assert.notDeepEqual(
+      s2.executions.find((execution) => execution.executionId === f.subject.executionId)?.submission,
+      s1.executions.find((execution) => execution.executionId === f.subject.executionId)?.submission,
+      "the supported amendment must change the submitted cut",
+    );
+    t.diagnostic("Owner CLI/Fleet TLS amended S1 to a distinct S2 submission.");
+    const staleRead = await reviewCli(["task", "show", taskId]);
+    assert.equal(staleRead.code, "execution_credential_rejected", JSON.stringify(staleRead));
+    const staleReceipt = await reviewCli([
+      "task",
+      "review-execution",
+      taskId,
+      "--execution-id",
+      f.subject.executionId,
+      "--review-id",
+      `review-${reviewDispatch}`,
+      "--from-file",
+      packet,
+    ]);
+    assert.equal(staleReceipt.code, "execution_credential_rejected", JSON.stringify(staleReceipt));
+    assert.deepEqual((await show()).reviews, s1.reviews, "rejected S1 receipt must not create a review");
+    assert.equal(
+      existsSync(path.join(f.repo, `harness/tasks/task-fleet-fleet/artifacts/reports/${reviewDispatch}.md`)),
+      false,
+    );
+    t.diagnostic("S1 reviewer read and fixed receipt rejected; canonical reviews unchanged and report absent.");
+    assert.equal(s2.task.status, "in_review", "amend preserves the already forwarded review stage");
+    f.owners.keycloak.interactiveSession("person-owner", "node-slow", loginAuthorityUrl);
+    managedRbacSessionStore(reviewUser).write(JSON.stringify({ ...ownerSession, loginTarget: reviewRoot }));
+    writeFileSync(path.join(f.root, `${reviewRuntime}.finish`), "finish");
+    reviewLive.delete(reviewRuntime);
+    await runFleetReplicaPullClient({
+      ...peer,
+      nodeId: "node-slow",
+      viewRoot: reviewView,
+      diskQuotaBytes: config.quotaBytes,
+    });
+    applyFleetMirrorCut(reviewView, repoId, reviewRoot, "pull");
+    const fresh = await spawnReviewer("edge-review-s2");
+    assert.equal(fresh.outcome, "applied", JSON.stringify(fresh));
+    reviewRuntime = String(fresh.runtimeSessionId);
+    reviewDispatch = String(fresh.dispatchId);
+    reviewLive.add(reviewRuntime);
+    const oldSecret = reviewEnv.HARNESS_EXECUTION_CREDENTIAL;
+    reviewEnv = await eventuallyValue(async () =>
+      existsSync(path.join(f.root, `${reviewRuntime}.json`))
+        ? (JSON.parse(readFileSync(path.join(f.root, `${reviewRuntime}.json`), "utf8")) as NodeJS.ProcessEnv)
+        : null,
+    );
+    assert.ok(reviewEnv.HARNESS_EXECUTION_CREDENTIAL);
+    assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, oldSecret);
+    assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
+    await new OidcSessionService(path.join(f.root, "user")).logout();
+    assert.equal((await reviewCli(["task", "show", taskId])).outcome, "applied");
+    packet = `harness/tasks/task-fleet-fleet/artifacts/reports/${reviewDispatch}.json`;
+    writeFileSync(
+      path.join(reviewRoot, packet),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Verified amended S2 cut.",
+        evidenceChecked: ["S2 CLI receipts"],
+      }),
+    );
+    writeFileSync(path.join(reportDir, `${reviewDispatch}.md`), "# Review\n\nVerified amended S2 cut.\n");
     const reviewed = await reviewCli([
       "task",
       "review-execution",
@@ -533,6 +659,8 @@ test(
     assert.equal(settled.activity.outcome, "succeeded", JSON.stringify(f.runtimeArchiveReceipts));
     live.delete(runtimeId);
     signInAt(path.join(f.root, "user"), "person-owner");
+    assert.ok((await show()).reviews.some((review) => review.reviewId === `review-${reviewDispatch}`));
+    t.diagnostic("Fresh S2 reviewer read, fixed receipt and natural succeeded settlement passed after logout.");
     const after = await cli(["task", "show", taskId]);
     assert.equal(after.code, "execution_credential_rejected", JSON.stringify(after));
   },
