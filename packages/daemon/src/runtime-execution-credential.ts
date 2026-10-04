@@ -1,3 +1,4 @@
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { stableStringify, type WriteSource } from "@harness-anything/kernel";
 import { randomBytes } from "node:crypto";
 import type { KeycloakCenterCredential } from "./transport/auth-context.ts";
@@ -71,7 +72,7 @@ export async function authenticateRuntimeExecutionCredential(
   if (!response.ok) throw executionCredentialRejected();
   // The token proves client authentication; the center reads the authoritative scope separately.
   await response.arrayBuffer();
-  return readRuntimeExecutionPrincipal(center, match[1]!, fetchPort);
+  return readRuntimeExecutionPrincipal(center, match[1]!.slice(clientPrefix.length), fetchPort);
 }
 
 /** A publication queued before revocation must also observe the current Keycloak client. */
@@ -80,15 +81,16 @@ export async function verifyRuntimeExecutionPrincipal(
   principal: RuntimeExecutionPrincipal,
   fetchPort: typeof fetch = fetch,
 ): Promise<void> {
-  const current = await readRuntimeExecutionPrincipal(center, `${clientPrefix}${principal.dispatchId}`, fetchPort);
+  const current = await readRuntimeExecutionPrincipal(center, principal.dispatchId, fetchPort);
   if (stableStringify(current) !== stableStringify(principal)) throw executionCredentialRejected();
 }
 
-async function readRuntimeExecutionPrincipal(
+export async function readRuntimeExecutionPrincipal(
   center: KeycloakCenterCredential,
-  clientId: string,
-  fetchPort: typeof fetch,
+  dispatchId: string,
+  fetchPort: typeof fetch = fetch,
 ): Promise<RuntimeExecutionPrincipal> {
+  const clientId = `${clientPrefix}${dispatchId}`;
   const clients: unknown = await (
     await adminRequest(center, `/clients?clientId=${encodeURIComponent(clientId)}&max=2`, fetchPort)
   ).json();
@@ -103,6 +105,13 @@ async function readRuntimeExecutionPrincipal(
   const principal: unknown = JSON.parse(client.attributes.harness_execution);
   if (!validPrincipal(principal) || `${clientPrefix}${principal.dispatchId}` !== clientId)
     throw executionCredentialRejected();
+  if (typeof principal.source === "object" && principal.source.kind === "node") {
+    const node = await new KeycloakPolicyAdapter(
+      { url: center.url, realm: center.realm, resourceServerClientId: center.clientId },
+      fetchPort,
+    ).readNode(center.accessToken, principal.source.nodeId);
+    if (node?.personId !== principal.personId) throw executionCredentialRejected();
+  }
   return principal;
 }
 
@@ -146,4 +155,15 @@ async function adminRequest(
   });
   if (!response.ok) throw executionCredentialRejected();
   return response;
+}
+
+/** Preserve the existing node-held lease; local workers hold their runtime's agent lease. */
+export function runtimeExecutionActor(p: RuntimeExecutionPrincipal) {
+  return {
+    principal: { personId: p.personId },
+    executor:
+      p.source !== "local" && p.role === "implementation"
+        ? null
+        : { kind: "agent" as const, id: `runtime-session:${p.runtimeSessionId}` },
+  };
 }

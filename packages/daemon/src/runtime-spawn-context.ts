@@ -114,11 +114,14 @@ export async function prepareBoundRuntimeLaunch(args: {
 }): Promise<PreparedRuntimeLaunch> {
   const { input, prepared, daemonRoute, callbackRelay, taskId, trustedSchedule } = args;
   if (!(taskId || trustedSchedule || args.reviewerBinding) || !daemonRoute) return prepared;
-  const expiresAt = new Date(Date.parse(input.now()) + runtimeExecutionLifetimeMs).toISOString(),
+  const remote =
+    args.execution && input.remote ? input.remote.executionCredential(args.execution.runtimeSessionId) : undefined;
+  const expiresAt = remote?.expiresAt ?? new Date(Date.parse(input.now()) + runtimeExecutionLifetimeMs).toISOString(),
     credential =
-      args.execution && input.keycloakCenter
+      remote?.credential ??
+      (args.execution && input.keycloakCenter
         ? await issueRuntimeExecutionCredential(await input.keycloakCenter(), { ...args.execution, expiresAt })
-        : undefined;
+        : undefined);
   return {
     ...prepared,
     env: {

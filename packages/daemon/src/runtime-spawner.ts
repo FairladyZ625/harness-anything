@@ -85,14 +85,18 @@ import type {
   TrustedScheduleRuntime,
   TrustedScheduleSpawn,
 } from "./runtime-spawn-types.ts";
-import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
 import { prepareBoundRuntimeLaunch, prepareTaskWorkerGitEnvironment } from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
-import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
+import {
+  continuationMission,
+  initialFallbackAttempt,
+  requiredRuntimeFast,
+  settleFallbackAttempt,
+} from "./runtime-spawn-fallback.ts";
 import {
   resolveRuntimeResume,
   assertNativeResumeNotExported,
@@ -534,13 +538,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         executionId: taskBinding?.executionId ?? null,
         ...(decisionReviewTarget
           ? { reviewTarget: decisionReviewTarget }
-          : reviewerBinding && taskBinding && reviewTarget?.submission
+          : reviewerBinding && taskBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
             ? {
                 reviewTarget: {
                   kind: "task" as const,
                   taskId: taskBinding.taskId,
                   executionId: taskBinding.executionId,
-                  digest: submissionDigest(reviewTarget.submission),
+                  digest: submissionDigest((reviewTarget?.submission ?? remoteTask?.reviewerSubmission)!),
                 },
               }
             : {}),
@@ -621,7 +625,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId,
         trustedSchedule,
         reviewerBinding: Boolean(reviewerBinding),
-        ...(taskId && !input.remote
+        ...(taskId
           ? {
               execution: {
                 repoId: input.repoId,
@@ -630,7 +634,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 runtimeSessionId,
                 dispatchId: newDispatchId,
                 taskId,
-                executionId: reviewerBinding ? reviewTarget!.executionId : lease!.executionId,
+                executionId: taskBinding!.executionId,
                 role: reviewerBinding ? "reviewer" : "implementation",
               },
             }
@@ -705,7 +709,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             cwd,
             ...(role ? { role } : {}),
             ...(decisionReviewTarget ? { decisionReviewTarget } : {}),
-            ...(reviewerBinding && reviewTarget?.submission ? { reviewerSubmission: reviewTarget.submission } : {}),
+            ...(reviewerBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
+              ? { reviewerSubmission: (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)! }
+              : {}),
           },
         ),
         dispatchOpId,
@@ -945,34 +951,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     outcome: RuntimeAttemptOutcome,
     terminal: RuntimeAttemptTerminal,
   ): Promise<void> {
-    const fallback = active.fallbackAttempt;
-    if (!isProviderFailureClassification(outcome.classification) || !fallback) {
-      await input.onAttemptTerminal?.(terminal);
-      return;
-    }
-    const nextAttemptIndex = fallback.attemptIndex + 1,
-      exhausted = nextAttemptIndex >= fallback.candidates.length;
-    if (exhausted) {
-      const reason = `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s): ${outcome.reason}`;
-      active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
-      try {
-        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-      } catch (error) {
-        const settlementReason = [
-          "Provider fallback exhaustion could not settle terminal state: ",
-          runtimeErrorMessage(error),
-        ].join("");
-        active.stream.appendFallbackState({ state: "exhausted", reason: settlementReason }, input.now());
-        console.warn(`[runtime-fallback] ${settlementReason}`);
-        throw error;
-      }
-      return;
-    }
-    const next = fallback.candidates[nextAttemptIndex]!,
-      delayMs = Math.min(fallback.backoff.maxMs, fallback.backoff.baseMs * 2 ** fallback.attemptIndex),
-      notBeforeAt = new Date(Date.parse(input.now()) + delayMs).toISOString();
-    active.stream.appendFallbackState({ state: "scheduled", delayMs, notBeforeAt, nextProvider: next }, input.now());
-    reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
+    return settleFallbackAttempt(extracted, active, outcome, terminal);
   }
   function reconcileFallback(stream: ReturnType<typeof readDispatchStream>): void {
     if (

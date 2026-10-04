@@ -1,3 +1,4 @@
+import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import {
@@ -171,10 +172,13 @@ export function createDaemonHostRuntimeApi(
     },
     authorize: async (repoId, kind, auth, target) => {
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      const binding = await context.binding(cell.status().rootDir, auth);
+      if (binding.executionPrincipal)
+        requireExecutionActionScope(binding.executionPrincipal, { kind, taskId: target?.taskId });
       if (target)
         return evaluateRepoCellAction({
           action: { kind, taskId: target.taskId },
-          binding: await context.binding(cell.status().rootDir, auth),
+          binding,
           actionId: `${kind}:${repoId}:${target.taskId}`,
           repoId,
           revision: cell.status().ledgerRevision ?? 0,

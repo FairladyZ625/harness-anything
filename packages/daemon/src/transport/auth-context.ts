@@ -20,6 +20,8 @@ export interface UnixSocketOwnerBoundary {
 
 export interface DaemonAuthenticationContext {
   readonly transportKind: DaemonTransportKind;
+  /** Unverified execution secret carried over Fleet TLS; only the center may authenticate it. */
+  readonly executionCredential?: string;
   /** Keycloak-verified execution identity; never populated from a client claim. */
   readonly executionPrincipal?: import("../runtime-execution-credential.ts").RuntimeExecutionPrincipal;
   /** Transport-owned connection lifetime; never accepted from a client payload. */

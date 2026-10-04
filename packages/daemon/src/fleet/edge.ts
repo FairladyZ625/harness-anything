@@ -49,6 +49,7 @@ export interface FleetEdgeChange {
   readonly mediaType?: string;
 }
 export interface FleetPeerOptions {
+  readonly executionCredential?: string;
   readonly hostname?: string;
   readonly port: number;
   readonly ca: string | Buffer;
@@ -60,6 +61,7 @@ export interface FleetPeerOptions {
   readonly onFrame?: (frame: FleetFrameV1) => void;
 }
 export interface FleetWriteClientOptions extends FleetPeerOptions {
+  readonly taskId?: string;
   readonly changes: readonly FleetEdgeChange[];
   readonly baseLedgerSha?: LedgerCutIdentity;
   readonly executionId?: string | null;
@@ -359,6 +361,8 @@ export async function runFleetWriteClient(options: FleetWriteClientOptions): Pro
     const executionId = options.executionId ?? null;
     const center = await session.request({
       schema: "fleet.doc.submit/v1",
+      ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
+      ...(options.taskId ? { taskId: options.taskId } : {}),
       messageId: session.messageId(),
       repoId: options.repoId,
       executionId,
@@ -405,6 +409,7 @@ export async function readFleetRepositoryMetadataClient(
       schema: "fleet.repo.metadata.get/v1",
       messageId: session.messageId(),
       repoId: options.repoId,
+      ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
       ...(options.actionKind ? { actionKind: options.actionKind } : {}),
       ...(options.taskId ? { taskId: options.taskId } : {}),
     });
@@ -510,6 +515,7 @@ export async function runFleetRepositoryReadClient(
     const messageId = session.messageId();
     session.send({
       schema: "fleet.repository.read/v1",
+      ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
       accessToken: options.accessToken ?? null,
       messageId,
       repoId: options.repoId,
@@ -616,6 +622,7 @@ async function uploadFleetChange(
 }
 export interface FleetTaskCommandClientOptions extends FleetPeerOptions {
   readonly privatePayload?: Uint8Array;
+  readonly artifact?: FleetDescriptor;
   readonly accessToken?: string;
   readonly opId: string;
   readonly repoId: string;
@@ -661,12 +668,14 @@ export async function runFleetTaskCommandClient(
     try {
       result = await session.request({
         schema: "fleet.task.command/v1",
+        ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
         messageId: session.messageId(),
         writerEpoch,
         opId: options.opId,
         repoId: options.repoId,
         taskId: options.taskId,
         action: { ...options.action, ...(candidate ? { candidate } : {}) },
+        ...(options.artifact ? { artifact: options.artifact } : {}),
         docChanges: options.docChanges ?? null,
         mirrorBaseCut: options.mirrorBaseCut ?? null,
         ...(options.accessToken ? { accessToken: options.accessToken } : {}),

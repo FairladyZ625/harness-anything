@@ -137,7 +137,8 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
           event.payload.runtimeSessionId === launched.runtimeSessionId,
       )
       .map((event) => event.payload);
-  assert.equal(((await denial) as { code?: string }).code, "execution_scope_mismatch");
+  // Current node ownership is rejected by the dispatch credential before lease settlement.
+  assert.equal(((await denial) as { code?: string }).code, "execution_credential_rejected");
   assert.deepEqual(outcomes(), [], "the replacement owner cannot publish the original owner's terminal outcome");
   const shown = await fixture.host.run(
     fixture.subject.repoId,
@@ -150,8 +151,16 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   fixture.setOwner("person-owner");
   await runtime.run("repo.agentRuntime.overview", { limit: 1 });
   assert.equal(await eventually(async () => outcomes().length > 0), true);
-  assert.equal(outcomes()[0]?.reasonCode, "runtime_archive_failed", JSON.stringify(outcomes()));
   assert.equal(outcomes()[0]?.outcome, "failed", JSON.stringify(outcomes()));
+  // Ownership is rejected before archive publication. This injected process has no
+  // worker-host record, so restored ownership recovers an explicit lost-session result.
+  const recovered = await runtime.run("repo.agentRuntime.sessions.read", {
+    runtimeSessionId: launched.runtimeSessionId,
+  });
+  assert.deepEqual(recovered.result, {
+    ref: outcomes()[0]?.resultRef,
+    text: "Runtime session lost: runtime process was never recorded before daemon restart.",
+  });
 });
 for (const restart of [false, true])
   test(

@@ -1,5 +1,9 @@
+import { readDispatchStream } from "./dispatch-stream.ts";
+import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
+import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
+import type { ActiveRuntime, RuntimeAttemptTerminal } from "./runtime-spawn-types.ts";
 import { createHash } from "node:crypto";
-import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
+import { runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
@@ -104,4 +108,41 @@ export function continuationMission(outcome: RuntimeAttemptOutcome, originalMiss
     "",
     originalMission,
   ].join("\n");
+}
+
+export async function settleFallbackAttempt(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  outcome: RuntimeAttemptOutcome,
+  terminal: RuntimeAttemptTerminal,
+): Promise<void> {
+  const { input } = context;
+  const fallback = active.fallbackAttempt;
+  if (!isProviderFailureClassification(outcome.classification) || !fallback) {
+    await input.onAttemptTerminal?.(terminal);
+    return;
+  }
+  const nextAttemptIndex = fallback.attemptIndex + 1,
+    exhausted = nextAttemptIndex >= fallback.candidates.length;
+  if (exhausted) {
+    const reason = `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s): ${outcome.reason}`;
+    active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
+    try {
+      await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
+    } catch (error) {
+      const settlementReason = [
+        "Provider fallback exhaustion could not settle terminal state: ",
+        runtimeErrorMessage(error),
+      ].join("");
+      active.stream.appendFallbackState({ state: "exhausted", reason: settlementReason }, input.now());
+      console.warn(`[runtime-fallback] ${settlementReason}`);
+      throw error;
+    }
+    return;
+  }
+  const next = fallback.candidates[nextAttemptIndex]!,
+    delayMs = Math.min(fallback.backoff.maxMs, fallback.backoff.baseMs * 2 ** fallback.attemptIndex),
+    notBeforeAt = new Date(Date.parse(input.now()) + delayMs).toISOString();
+  active.stream.appendFallbackState({ state: "scheduled", delayMs, notBeforeAt, nextProvider: next }, input.now());
+  context.reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
 }
