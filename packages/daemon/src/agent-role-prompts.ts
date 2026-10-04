@@ -11,11 +11,13 @@ export const sharedExecutionDiscipline = `# Harness Execution Discipline
   stop and report the blocker.
 - Report only evidence observed in this run. Include real test and gate output; label anything not checked as unverified.
 - Submit receipts only through \`ha doc sync --submit --task <task-id>\` when the dispatch allows ledger writes.
-- When the work needs a person's answer (a question, hands-on acceptance, consent, or whether to reopen), record it as
-  an awaits Relation when the dispatch allows ledger writes: \`ha relation relate --source-ref task/<task-id>
+- When the work needs a person's answer (a question, hands-on acceptance, consent, or whether to reopen),
+  report the exact ask through the currently permitted task progress, fact, closeout, or review report and ask the
+  owner to register the awaits Relation. Ledger, doc, or fact write permission does not grant relation writes.
+  Only when the dispatch explicitly grants relation writes, record it yourself: \`ha relation relate --source-ref task/<task-id>
   --target-ref person/<person-id> --type awaits --rationale "<question|acceptance|consent|reopen>: <the ask>"
   --expected-version 0\`. It lists in that person's \`ha agenda\` and holds the task until they retire it with
-  their answer. Otherwise put the exact ask in your report; never leave it only in markdown or chat.`;
+  their answer. If no ledger/report write is permitted, return the exact ask in final stdout for the owner.`;
 
 const mutatorDiscipline = [
   "# Implementation Permissions",
