@@ -43,6 +43,28 @@ type PresetEntry = {
   readonly issues: readonly JsonObject[];
   readonly shadows?: { readonly layer: "bundled"; readonly title: string };
 };
+
+function nodeCatalogAdapters() {
+  return [localAdapterProviderMetadata, multicaAdapterProviderMetadata].map((adapter) => ({
+    adapterId: adapter.id,
+    registered: true,
+    capabilities: [...adapter.capabilities],
+    writability: adapter.writable ? "read-write" : adapter.readonly ? "read-only" : "unknown",
+    defaultProvider: "defaultProvider" in adapter ? adapter.defaultProvider : false,
+    unavailableReason: null,
+  }));
+}
+
+export function catalogWithNodeAdapters(center: JsonObject): JsonObject {
+  const snapshot = { ...center, adapters: nodeCatalogAdapters() };
+  const body: Record<string, unknown> = { ...snapshot };
+  for (const key of ["schema", "ok", "status", "repoId", "observedAt", "catalogDigest"]) delete body[key];
+  return {
+    ...snapshot,
+    catalogDigest: `sha256:${createHash("sha256").update(JSON.stringify(body)).digest("hex")}`,
+  };
+}
+
 export function openGuiCatalog(input: {
   readonly repoId: string;
   readonly rootDir: string;
@@ -140,14 +162,7 @@ export function openGuiCatalog(input: {
         governableAdapters: [...governableWitnessAdapterIds],
         internalGateId: CODE_DOC_GATE_ID,
       },
-      adapters: [localAdapterProviderMetadata, multicaAdapterProviderMetadata].map((adapter) => ({
-        adapterId: adapter.id,
-        registered: true,
-        capabilities: [...adapter.capabilities],
-        writability: adapter.writable ? "read-write" : adapter.readonly ? "read-only" : "unknown",
-        defaultProvider: "defaultProvider" in adapter ? adapter.defaultProvider : false,
-        unavailableReason: null,
-      })),
+      adapters: nodeCatalogAdapters(),
     };
     const catalogDigest = `sha256:${createHash("sha256").update(JSON.stringify(body)).digest("hex")}`;
     lastDigest = catalogDigest;
