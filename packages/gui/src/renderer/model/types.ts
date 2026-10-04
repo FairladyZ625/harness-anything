@@ -134,6 +134,16 @@ interface TaskRowFields {
   leaseHolder?: string;
   /** lease/v1.phase;有 lease 字段才有它。 */
   leasePhase?: string;
+  /**
+   * lease/v1.actor 结构原样透传:协作视图按结构消费(人/会话分流、会话跳转),
+   * 不从 leaseHolder 显示串反解析。有 lease 字段才有它。
+   */
+  leaseActor?: NonNullable<TaskSnapshotProjectionRow["snapshot"]["lease"]>["actor"];
+  /**
+   * lease/v1.source 结构原样透传:node 来源携带 nodeId;local/remote_direct 是
+   * 写入通道词,不据此推断节点在线。有 lease 字段才有它。
+   */
+  leaseSource?: NonNullable<TaskSnapshotProjectionRow["snapshot"]["lease"]>["source"];
   events?: readonly EventEntry[];
   /** task_bootstrapped occurredAt; null when the ledger has no reliable creation event. */
   createdAt?: string | null;

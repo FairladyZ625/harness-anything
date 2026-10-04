@@ -110,6 +110,12 @@ export function AppSidebar({
     endpoint = activeRepo
       ? connections.find((connection) => connection.id === activeRepo.connectionId)?.endpoint
       : undefined;
+  // 舰队专用入口(如协作页)只在远端模式显示:纯本地仓没有多节点面,判据是仓库模式
+  // 而不是节点/Agent 数量;未选中仓(home)同样不显示。
+  const navGroups =
+    activeRepo === null || activeRepo.mode === "local"
+      ? NAV_GROUPS.map((group) => ({ ...group, items: group.items.filter((item) => item.fleetOnly !== true) }))
+      : NAV_GROUPS;
   // 置顶块只列工作根:App 传入的是全部置顶任务,这里按 daemon 工作索引
   // (repo.works.index,与总览同一读面、同一 react-query 缓存)筛出「本身是一个工作」
   // 的行;其余置顶任务的去处是总览的置顶区。索引未落地时一块不出现(判不了工作根
@@ -247,7 +253,7 @@ export function AppSidebar({
 
       {/* 导航滚动区:侧栏唯一纵向滚动容器;窗口够高时不出现滚动条。 */}
       <div data-testid="app-sidebar-scroll" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {NAV_GROUPS.map((group, groupIndex) => (
+        {navGroups.map((group, groupIndex) => (
           <div key={group.id}>
             <div
               className={`px-3 font-mono ui-meta uppercase tracking-wide text-text-faint

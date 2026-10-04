@@ -82,6 +82,9 @@ function adaptProjectionRow(
           leaseExpiresAt: row.snapshot.lease.expiresAt,
           leaseHolder: leaseHolderLabel(row.snapshot.lease.actor),
           leasePhase: row.snapshot.lease.phase,
+          // 结构字段原样透传:协作视图按 actor/source 结构消费,不从显示串反解析。
+          leaseActor: row.snapshot.lease.actor,
+          leaseSource: row.snapshot.lease.source,
         }
       : {}),
     createdAt: row.createdAt,

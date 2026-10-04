@@ -23,6 +23,7 @@ import { IdentityAccessView } from "./views/IdentityAccessView.tsx";
 import { SystemView } from "./views/SystemView.tsx";
 import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
+import { CollaborationView } from "./views/CollaborationView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
@@ -656,6 +657,17 @@ function AppShell() {
                   onStartTask={taskActions.startTask}
                   mutationFeedback={feedbackOf}
                   onSetPin={handleSetPin}
+                />
+              ) : view === "collaboration" ? (
+                // 协作页(task_1bafbf09):消费 App 已读出的任务切面,不自建读面;
+                // 入口按仓库模式显隐(见 navConfig fleetOnly),直接落页的纯本地会话由页面给提示。
+                <CollaborationView
+                  repoId={projectId}
+                  mode={activeRepo?.mode ?? "local"}
+                  tasks={projectTasks}
+                  ready={tasksQuery.data?.status === "ready"}
+                  onOpenTask={openTaskDetail}
+                  onNavigateEntity={navigateToEntity}
                 />
               ) : view === "graph" ? (
                 <EntityWorkspace
