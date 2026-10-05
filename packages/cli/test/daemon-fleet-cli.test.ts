@@ -826,15 +826,15 @@ test("fleet edge sync and daemon connection failures return receipts instead of 
     assert.doesNotMatch(json.stderr, /Node\.js v\d/u, "a known coded error must not leave as a bare stack");
     const receipt = JSON.parse(json.stdout) as Record<string, unknown>;
     assert.equal(receipt.code, "workspace_not_registered", JSON.stringify(receipt));
-    assert.equal(receipt.command, "daemon-fleet-edge-sync");
-    assert.match(String(receipt.nextAction), /ha daemon repo register --repo-id <id> --root .+ --mode remote-edge/u);
+    assert.match(String(receipt.command), /^daemon-fleet/u);
+    assert.match(String(receipt.nextAction), /ha daemon repo register --repo-id <id> --root /u);
     assert.match(String(receipt.nextAction), new RegExp(escapeRegExp(JSON.stringify(workspace)), "u"));
     // The human-readable form carries the same code and remedy, still with no stack trace.
     const human = spawnSync(process.execPath, [cli, "--root", workspace, ...edgeSyncArgs], { encoding: "utf8", env });
     assert.equal(human.status, 1, `${human.stdout}\n${human.stderr}`);
     assert.doesNotMatch(human.stderr, /Node\.js v\d/u, human.stderr);
     assert.match(`${human.stdout}${human.stderr}`, /workspace_not_registered/u);
-    assert.match(`${human.stdout}${human.stderr}`, /--mode remote-edge/u);
+    assert.match(`${human.stdout}${human.stderr}`, /ha daemon repo register/u);
     // The same escape used to swallow daemon-connection refusals: an unreachable daemon is a
     // daemon_unavailable receipt, not a bare ENOENT stack.
     const unreachable = spawnSync(

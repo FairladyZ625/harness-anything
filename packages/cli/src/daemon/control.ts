@@ -4,7 +4,6 @@ import {
   daemonUserRoot,
   localUserDaemonEndpoint,
   resolveLocalDaemonTarget,
-  type LocalDaemonTarget,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import type { DaemonShutdownExchange } from "@harness-anything/daemon/internal/client/local-json-rpc-shutdown";
@@ -253,29 +252,14 @@ async function fleetControl(
       "invalid_field",
       "Use a TCP port from 0 to 65535 and a positive integer byte count for --quota-bytes.",
     );
-  let edgeTarget: LocalDaemonTarget | null = null;
-  if (edge) {
-    const rootDir = path.resolve(flag("--root") ?? process.cwd());
-    try {
-      edgeTarget = await resolveLocalDaemonTarget({ rootDir, repoIdOverride: flag("--repo"), userRoot, daemonId });
-    } catch (error) {
-      if (code(error) !== "workspace_not_registered") throw error;
-      const detail = message(error);
-      // The resolver's generic remedy omits the mode; the daemon-side sync handler only accepts a
-      // workspace registered as remote-edge, so that is the form this command names. A disabled
-      // registration keeps its own remedy (unbind), which the passthrough preserves.
-      return finish(
-        daemonFailure(
-          command,
-          "workspace_not_registered",
-          detail.startsWith("workspace is not registered")
-            ? `Register this workspace for fleet edge sync first: run ha daemon repo register --repo-id <id> --root ${JSON.stringify(rootDir)} --mode remote-edge.`
-            : detail,
-        ),
-        1,
-      );
-    }
-  }
+  const edgeTarget = edge
+    ? await resolveLocalDaemonTarget({
+        rootDir: path.resolve(flag("--root") ?? process.cwd()),
+        repoIdOverride: flag("--repo"),
+        userRoot,
+        daemonId,
+      })
+    : null;
   // The machine credential the center issued at node registration: named on the command line, or kept
   // off it in the workspace's fleet-edge.json.
   let credential = flag("--credential");
