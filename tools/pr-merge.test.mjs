@@ -454,52 +454,6 @@ test("refuses a task PR whose current execution has no consented approved review
   assert.equal(existsSync(setup.prWorktree), true);
 });
 
-test("merges a task PR once the ledger shows the consent chain closed", async (t) => {
-  const states = [
-    {
-      label: "consent recorded, completion pending",
-      haState: {
-        receipt: {
-          revision: 1,
-          task: { status: "in_review", taskId: TASK_BRANCH, iteration: 0, completionGateIds: [] },
-          ...snapshotArrays(),
-          completionBlocker: null,
-          completionNext: {
-            action: `ha task complete ${TASK_BRANCH}`,
-            reason: "The completion chain has no remaining blocker.",
-            authority: "person_zeyu",
-            readCut: { revision: 1, iteration: 0, executionId: "exe_test" },
-          },
-        },
-      },
-    },
-    {
-      label: "task done",
-      haState: {
-        receipt: {
-          revision: 2,
-          task: { status: "done", taskId: TASK_BRANCH, iteration: 0, completionGateIds: [] },
-          ...snapshotArrays(),
-          completionBlocker: null,
-          completionNext: null,
-        },
-      },
-    },
-  ];
-  for (const { label, haState } of states) {
-    await t.test(label, (t) => {
-      const setup = fixture(t, { branch: TASK_BRANCH, haState });
-      const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
-
-      assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the review-consent check`, "u"));
-      assert.match(result.stdout, /Local main synchronized/u);
-      assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
-      assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
-      assert.equal(existsSync(setup.prWorktree), false);
-    });
-  }
-});
-
 test("merges a consented task PR whose completion blocker is a merge-only gate (ci_missing)", (t) => {
   // The CEO return's named scenario: consent recorded, but the CI witness exists only on the
   // merged main run, so the ledger's first blocker is ci_missing — the merge must still proceed.
@@ -508,7 +462,6 @@ test("merges a consented task PR whose completion blocker is a merge-only gate (
   const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
 
   assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the review-consent check`, "u"));
-  assert.match(result.stdout, /ci_missing/u);
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
   assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
   assert.equal(existsSync(setup.prWorktree), false);
@@ -538,7 +491,7 @@ test("refuses a task PR whose missing consent is masked by a merge-only gate", a
 
       assert.equal(result.status, 1, result.stdout);
       assert.match(result.stderr, new RegExp(`ha task review-consent ${TASK_BRANCH}`, "u"));
-      assert.match(result.stderr, /ci_missing masks consent/u);
+      assert.match(result.stderr, /no owner-consented approved review for its current execution/u);
       assert.match(result.stderr, /refusing to merge/u);
       assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
       assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);

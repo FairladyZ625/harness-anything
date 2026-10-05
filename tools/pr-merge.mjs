@@ -129,27 +129,10 @@ function preflight(selector) {
   return { mainWorktree, pr, prWorktree };
 }
 
-// Completion steps that can only be satisfied on the merged main run or during the completion
-// ceremony behind it. The completion chain names its FIRST unfinished step, and these precede the
-// review-consent verdict in that order (the kernel suite pins it: "missing CI witness precedes
-// independent review"), so a consented task awaiting merge reports ci_missing — blocker === null
-// would deadlock every merge behind a witness that exists only after merging. When the first
-// blocker is one of these, the review-chain verdict is masked, not absent.
-const MERGE_ONLY_BLOCKER_CODES = new Set([
-  "ci_missing",
-  "code_doc_missing",
-  "gate_witness_missing",
-  "decision_lineage_missing",
-  "fact_missing",
-  "closeout_placeholder",
-  "doc_sync_required",
-  "fact_retirement_undeclared",
-]);
-
-// The merge gate for task-bound PRs: the ledger's own judgments decide whether the task's current
-// execution has an owner-consented approved review. The completion blocker chain answers the
-// lifecycle stages; for the masked case the kernel's digest-pinned judgment answers the review
-// chain itself. The consent matching stays in the kernel — this tool only consumes the verdicts.
+// The merge gate for task-bound PRs: the kernel's own judgment over the task-show lifecycle snapshot
+// decides whether the task's current execution has an owner-consented approved review. The completion
+// blocker chain is not consulted: it names only the first unfinished step, and CI witnessing (which
+// exists only after merging) precedes the review chain in it.
 function readTaskReviewConsent(taskId, root) {
   let receipt;
   try {
@@ -170,11 +153,8 @@ function readTaskReviewConsent(taskId, root) {
   } catch {
     throw new Error(`Harness task show for ${taskId} returned a malformed receipt; refusing to merge (fail closed).`);
   }
-  const status = evidence?.task?.status;
   if (
-    typeof status !== "string" ||
-    !("completionBlocker" in evidence) ||
-    typeof evidence.task !== "object" ||
+    typeof evidence?.task?.status !== "string" ||
     evidence.task === null ||
     !["executions", "reviews", "consents", "codeDocWitnesses", "gateWitnesses"].every((field) =>
       Array.isArray(evidence[field]),
@@ -184,12 +164,7 @@ function readTaskReviewConsent(taskId, root) {
       `Harness task show for ${taskId} returned no completion judgment; refusing to merge (fail closed).`,
     );
   }
-  return {
-    status,
-    blocker: evidence.completionBlocker ?? null,
-    next: evidence.completionNext ?? null,
-    evidence,
-  };
+  return evidence;
 }
 
 // The kernel's own digest-pinned judgment over the receipt's lifecycle snapshot answers the one
@@ -231,32 +206,13 @@ function requireReviewConsent(pr, root) {
     return;
   }
   const taskId = pr.headRefName,
-    { status, blocker, next, evidence } = readTaskReviewConsent(taskId, root);
-  if (blocker === null) {
-    console.log(`Task ${taskId} passed the review-consent check (status=${status}).`);
-    return;
-  }
-  const code = typeof blocker.code === "string" ? blocker.code : "unknown";
-  if (MERGE_ONLY_BLOCKER_CODES.has(code)) {
-    if (reviewChainClosed(taskId, evidence)) {
-      console.log(
-        `Task ${taskId} passed the review-consent check (status=${status}; ` +
-          `completion blocker ${code} is satisfiable only after merge).`,
-      );
-      return;
-    }
+    evidence = readTaskReviewConsent(taskId, root);
+  if (!reviewChainClosed(taskId, evidence))
     throw new Error(
-      `Task ${taskId} (status=${status}) has no owner-consented approved review for its current execution ` +
-        `(completion blocker ${code} masks consent); refusing to merge. ` +
-        `Next: ha task review-consent ${taskId}`,
+      `Task ${taskId} (status=${evidence.task.status}) has no owner-consented approved review for its ` +
+        `current execution; refusing to merge. Next: ha task review-consent ${taskId}`,
     );
-  }
-  const action = typeof next?.action === "string" ? next.action : `ha task show ${taskId}`;
-  const reason = typeof next?.reason === "string" ? ` — ${next.reason}` : "";
-  throw new Error(
-    `Task ${taskId} (status=${status}) has no owner-consented approved review for its current execution ` +
-      `(blocker=${code}); refusing to merge. Next: ${action}${reason}`,
-  );
+  console.log(`Task ${taskId} passed the review-consent check (status=${evidence.task.status}).`);
 }
 
 function mergeOpenPr(pr, root) {
@@ -334,10 +290,8 @@ function printHelp() {
       "From the local main worktree: merge the PR after required checks pass, delete its",
       "origin branch, remove its clean local worktree/branch, and fast-forward local main.",
       "A PR whose head branch is a task id must first have the owner-consented review of its",
-      "current execution recorded in the harness ledger (ha task show). Completion steps that",
-      "can only be satisfied after the merge (the CI witness on the main run, code-doc",
-      "reconciliation, closeout ceremony) do not block it; the check fails closed when the",
-      "ledger is unreachable or its judgment cannot be read.",
+      "current execution recorded in the harness ledger (ha task show); the check fails closed",
+      "when the ledger is unreachable or its judgment cannot be read.",
       "This helper never pulls the private harness ledger repository.",
     ].join("\n"),
   );
