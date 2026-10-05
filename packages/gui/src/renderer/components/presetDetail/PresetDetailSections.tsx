@@ -261,11 +261,11 @@ export function PresetDocumentSidebar({
   );
 }
 
-/** 包内容正文:markdown 走 DocReader,纯文本按原样呈现。 */
+/** 包内容正文:markdown 走 DocReader,纯文本按原样呈现。正文撑满面板剩余高度,面板内单滚动。 */
 export function PresetDocumentPanel({ document }: { readonly document: CatalogPresetDocument }) {
   return (
-    <section className="min-w-0" data-testid="preset-document-panel">
-      <div className="mb-4 flex flex-wrap items-center gap-1.5 border-b border-border pb-3">
+    <section className="flex h-full min-h-0 min-w-0 flex-col" data-testid="preset-document-panel">
+      <div className="mb-4 flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border pb-3">
         <span className="font-mono ui-micro text-text-faint">{document.slot}</span>
         <span className="font-mono ui-micro text-text-faint">→</span>
         <span className="font-mono ui-micro text-text-muted">{document.path}</span>
@@ -274,11 +274,13 @@ export function PresetDocumentPanel({ document }: { readonly document: CatalogPr
         <PresetBadge value={`${t("views.presetDetailView.owner")}: ${document.owner}`} />
       </div>
       {document.mediaType === "text/markdown" ? (
-        <DocReader content={document.body} />
+        <div className="min-h-0 flex-1">
+          <DocReader content={document.body} />
+        </div>
       ) : (
         <pre
           className={[
-            "overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface p-4",
+            "min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface p-4",
             "font-mono ui-meta leading-5 text-text-muted",
           ].join(" ")}
         >

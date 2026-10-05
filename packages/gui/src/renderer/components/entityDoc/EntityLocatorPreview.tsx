@@ -46,7 +46,7 @@ export function EntityLocatorPreview({
       </div>
     );
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto" data-testid="entity-locator-markdown">
+    <div className="min-h-0 flex-1" data-testid="entity-locator-markdown">
       <DocReader content={content.content ?? ""} />
     </div>
   );

@@ -55,7 +55,7 @@ export function DispatchPreviewModal({
         </b>
         <p
           data-testid="dispatch-preview-prompt"
-          className="mt-1 bounded-content [overflow-wrap:anywhere] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-surface px-2 py-1.5 font-mono ui-micro text-text"
+          className="mt-1 [overflow-wrap:anywhere] whitespace-pre-wrap rounded border border-border bg-surface px-2 py-1.5 font-mono ui-micro text-text"
         >
           {preview.prompt}
         </p>

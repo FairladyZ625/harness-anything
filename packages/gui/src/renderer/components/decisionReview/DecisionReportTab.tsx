@@ -134,7 +134,7 @@ export function DecisionReportTab({
             {t("views.decisionReview.reportMissing", { code: report.data.code })}
           </p>
         ) : (
-          <DocReader content={report.data.body} />
+          <DocReader content={report.data.body} fill={false} />
         )}
       </section>
       <p className="ui-micro text-text-faint">{t("views.decisionReview.reportBinding")}</p>

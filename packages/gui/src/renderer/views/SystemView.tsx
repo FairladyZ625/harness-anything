@@ -335,10 +335,7 @@ export function SystemView({
           )}
         </section>
       </div>
-      <section
-        data-testid="system-daemon-logs"
-        className="flex h-[var(--long-content-cap)] min-h-0 w-full shrink-0 flex-col px-4 pb-4"
-      >
+      <section data-testid="system-daemon-logs" className="flex min-h-0 w-full flex-1 flex-col px-4 pb-4">
         <p data-testid="system-daemon-logs-scope" className="pb-1.5 ui-micro text-text-faint">
           {t("views.systemView.logsScope", { daemonId: daemon.daemonId })}
         </p>

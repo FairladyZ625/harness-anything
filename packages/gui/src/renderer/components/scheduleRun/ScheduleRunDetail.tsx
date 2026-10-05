@@ -174,7 +174,7 @@ export function ScheduleRunDetail({
           ) : (
             // 报告内嵌:与产物页 Markdown 预览同一个 DocReader,不新写渲染器。
             <div data-testid="schedule-run-report">
-              <DocReader content={occurrence.reportText} />
+              <DocReader content={occurrence.reportText} fill={false} />
             </div>
           )}
           <h4 className="mb-1.5 mt-3 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">

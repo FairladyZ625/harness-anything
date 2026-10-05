@@ -54,7 +54,7 @@ export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; deci
     );
   }
   return (
-    <div data-testid="decision-body-document">
+    <div className="h-full" data-testid="decision-body-document">
       <DocReader content={body.body} />
       <div className="hidden" aria-hidden="true">
         {splitMarkdownBlocks(body.body).map((_, index) => (
