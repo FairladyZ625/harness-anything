@@ -78,6 +78,9 @@ export function githubActionsWitnessEvidence(
     if (!covers(event)) continue;
     const verification = event.payload.verification;
     if (publicCut && verification?.source === "github-actions" && verification.event !== options.event) continue;
+    // Runs on other branches are measurements too: a pull-request branch rebased onto this delivery
+    // descends from it, and its run must neither witness the delivery nor shadow the frozen branch's.
+    if (publicCut && verification?.source === "github-actions" && event.payload.run.branch !== options.branch) continue;
     // Runs of workflows outside the frozen option list are measurements, not delivery
     // verdicts: they never shadow the configured workflow's runs, whichever conclusion.
     if (
