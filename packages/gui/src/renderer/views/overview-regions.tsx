@@ -588,6 +588,10 @@ export function OverviewDrillBody({
   );
 }
 
+/* ------------------------------------------------------------------ 左列:在飞任务流与产物速览架 */
+
+export { ARTIFACTS_SHELF_LIMIT, OverviewArtifactsShelf, OverviewInflightBody } from "./overview-inflight-shelf.tsx";
+
 /* ------------------------------------------------------------------ 放大层列表与详情 */
 
 /** 评审执行放大层的列表:三组混排,组标签区分。 */

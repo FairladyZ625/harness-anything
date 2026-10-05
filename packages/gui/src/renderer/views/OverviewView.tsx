@@ -7,7 +7,7 @@ import { PageRegions } from "../components/primitives/page-regions.tsx";
 import { Region } from "../components/primitives/Region";
 import { StatusTag } from "../components/primitives/StatusTag";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
-import { useOverviewCi, useOverviewRecentEvents, useOverviewRuntime } from "../overview-data.ts";
+import { useOverviewArtifacts, useOverviewCi, useOverviewRecentEvents, useOverviewRuntime } from "../overview-data.ts";
 import { useTaskWipQuery } from "../task-data.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import { t } from "../i18n/index.tsx";
@@ -16,6 +16,7 @@ import {
   attentionSources,
   decisionRows,
   followUpRows,
+  inflightTaskRows,
   mainCiFailingJobs,
   pinnedTaskRows,
   recentDayGroups,
@@ -30,8 +31,10 @@ import {
   CiFocusList,
   FollowUpsFocusDetail,
   FollowUpsFocusList,
+  OverviewArtifactsShelf,
   OverviewDecisionsBand,
   OverviewDrillBody,
+  OverviewInflightBody,
   OverviewWorksBody,
   PinnedFocusDetail,
   PinnedFocusList,
@@ -46,16 +49,16 @@ import {
 import { wipVisibleEntries, type WipFilter } from "./OverviewTaskWip.tsx";
 
 /**
- * 总览(2026-10-04 视觉返工,注意力优先):页面顶部是紧凑决策带——只放真实要本人动手
- * 的 awaits 问句与待点头决策,默认三条、其余一键展开,不按条数瓜分首屏;待初审的
- * execution 是 owning CEO 的机器双闸,收进「跟进与返工」。首屏主体是关注的工作(置顶
- * 非终态;零置顶回退活跃工作并给选择入口)。WIP/评审执行/跟进返工/置顶承诺收成底部
- * 一条紧凑工具带(单列布局,不再给下钻留整列空容器)。系统状态弱化成一行小字,只有
- * 影响当前工作的异常(daemon 无响应、main CI 红、投影落后)才升成显眼状态点。
- * 数据全部来自已挂载读面:agenda(attentionItems 与各分组)、工作索引、runtime overview、
- * CI 观察窗、事件一页(overview-data)与工作台占用(repo.tasks.wip,与看板共用
- * useTaskWipQuery),页面不另发请求;注意力/排序只透传 daemon 的分数与已有 Pin,不建
- * 第二套评分。区域板沿用 PageRegions(连接+仓+槽位的顺序与比例偏好照旧)。
+ * 总览(task_8a83698 信息密度重构):页面顶部仍是紧凑决策带——只放真实要本人动手的
+ * awaits 问句与待点头决策。首屏主体分两列:左列是在飞任务流(repo.tasks.wip 的
+ * active/submitted/in_review 占位,执行者来自 runtime overview 的 live 会话)与最新
+ * HTML 产物速览架(repo.artifacts.list,与产物页同一缓存,台账 cut 扇出刷新),下接
+ * 紧凑下钻工具带;右列是关注的工作(置顶非终态;零置顶回退活跃工作并给选择入口)。
+ * WIP/评审执行/跟进返工/置顶承诺的完整名单仍在各自放大层。系统状态弱化成一行小字,
+ * 只有影响当前工作的异常(daemon 无响应、main CI 红、投影落后)才升成显眼状态点;
+ * 安静行带在飞占用摘要。数据全部来自已挂载读面,页面不另发第二套请求;注意力/排序只
+ * 透传 daemon 的分数与已有 Pin。区域板沿用 PageRegions(连接+仓+槽位的顺序与比例偏好
+ * 照旧)。
  */
 export function OverviewView({
   repoId,
@@ -73,6 +76,7 @@ export function OverviewView({
   onOpenWorks,
   onOpenTasks,
   onOpenCollaboration,
+  onOpenArtifacts,
   onUnpin,
 }: {
   readonly repoId: string;
@@ -100,6 +104,8 @@ export function OverviewView({
   readonly onOpenTasks: () => void;
   /** 紧凑协作入口的落点(总览只给摘要与入口,分工清单在协作页)。 */
   readonly onOpenCollaboration?: () => void;
+  /** 产物速览架「查看全部产物」的落点:产物页;未提供时不渲染该入口。 */
+  readonly onOpenArtifacts?: () => void;
   /** 取消置顶(pin 写通道,taskActions.setTaskPin)。 */
   readonly onUnpin: (taskId: string) => void;
 }) {
@@ -109,10 +115,12 @@ export function OverviewView({
   const ciQuery = useOverviewCi(repoId);
   const runtimeQuery = useOverviewRuntime(repoId);
   const eventsQuery = useOverviewRecentEvents(repoId);
+  const artifactsQuery = useOverviewArtifacts(repoId);
   // WIP 与看板共用同一条 repo.tasks.wip 读面(同一 query key,一处缓存):总览挂载期间
   // 本实例是观察者,台账切面前进由既有失效扇出更新,不建第二份快照。
   const wipQuery = useTaskWipQuery(repoId, true);
   const wipErrorText = wipQuery.error instanceof Error ? wipQuery.error.message : null;
+  const artifactsErrorText = artifactsQuery.error instanceof Error ? artifactsQuery.error.message : null;
   // WIP 放大层的分组/搜索过滤态放在这里:FocusLayer 的 ↑↓ 只在可见集合里移动,itemIds
   // 与名单渲染必须出自同一份 wipVisibleEntries,组件内部各持一份会各自漂移。
   const [wipFilter, setWipFilter] = useState<WipFilter>({ group: "all", search: "" });
@@ -147,6 +155,10 @@ export function OverviewView({
   const failing = useMemo(() => mainCiFailingJobs(ciQuery.data), [ciQuery.data]);
   const wipCounted = wipQuery.data?.counted ?? [];
   const wipFull = wipQuery.data !== undefined && wipCounted.length >= wipQuery.data.limit;
+  const inflight = useMemo(
+    () => inflightTaskRows(wipQuery.data, runtimeQuery.data, agenda),
+    [wipQuery.data, runtimeQuery.data, agenda],
+  );
 
   const deps: OverviewBoardDeps = {
     now,
@@ -259,6 +271,11 @@ export function OverviewView({
               agents: String(runRows(runtimeQuery.data, undefined).length),
               active: String(workspaceSummary.tasks.byStatus.active ?? 0),
             })}
+            {wipQuery.data !== undefined &&
+              ` · ${t("views.overviewView.topWipSummary", {
+                count: String(wipCounted.length),
+                limit: String(wipQuery.data.limit),
+              })}`}
           </span>
         )}
         {agenda?.status === "pending" && (
@@ -277,9 +294,8 @@ export function OverviewView({
         </button>
       </header>
 
-      {/* 单列注意力漏斗:紧凑决策带 → 关注工作主体 → 底部下钻工具带。决策带是内容定高
-          的普通条(不进区域板,比例偏好不可能把它撑成大半屏);下钻与工作同列,不再出现
-          只有几行却占整列的空容器。 */}
+      {/* 双列信息密度(task_8a83698):紧凑决策带仍是内容定高的普通条(不进区域板);
+          左列平铺在飞任务流 + 最新产物速览架 + 下钻工具带,右列是关注的工作。 */}
       <div className="flex min-h-0 flex-1 flex-col gap-1 p-1" data-testid="overview-scroll">
         <OverviewDecisionsBand rows={decisions} deps={deps} />
         <PageRegions
@@ -287,6 +303,7 @@ export function OverviewView({
           repoId={repoId}
           slot="overview"
           testId="overview-board"
+          defaultRatio={0.38}
           settled={
             // 区域集就绪声明(恢复协调用,不定时猜测):本页读面全部落定后,区域集合才是
             // 完整事实,快照恢复的剪枝才不会把「还没到的区域」提前删掉。
@@ -295,10 +312,113 @@ export function OverviewView({
             !ciQuery.isPending &&
             !runtimeQuery.isPending &&
             !eventsQuery.isPending &&
-            !wipQuery.isPending
+            !wipQuery.isPending &&
+            !artifactsQuery.isPending
           }
-          columns={[["works", "drill"]]}
+          columns={[["inflight", "artifacts", "drill"], ["works"]]}
           regions={[
+            {
+              id: "inflight",
+              title: t("views.overviewView.regionInflight"),
+              weight: 3,
+              testId: "overview-region-inflight",
+              content: (
+                <div className="grid min-h-0 min-w-0">
+                  <Region
+                    title={t("views.overviewView.regionInflight")}
+                    big={wipQuery.data === undefined ? (wipErrorText !== null ? "—" : "…") : inflight.length}
+                    footer={t("views.overviewView.inflightFooter")}
+                  >
+                    <OverviewInflightBody
+                      rows={inflight}
+                      loading={wipQuery.isPending}
+                      error={wipErrorText}
+                      deps={deps}
+                    />
+                  </Region>
+                </div>
+              ),
+            },
+            {
+              id: "artifacts",
+              title: t("views.overviewView.regionArtifacts"),
+              weight: 2,
+              testId: "overview-region-artifacts",
+              content: (
+                <div className="grid min-h-0 min-w-0">
+                  <Region
+                    title={t("views.overviewView.regionArtifacts")}
+                    big={
+                      artifactsQuery.data === undefined
+                        ? artifactsErrorText !== null
+                          ? "—"
+                          : "…"
+                        : String(artifactsQuery.data.counts.html)
+                    }
+                    footer={
+                      <>
+                        {artifactsQuery.data !== undefined && (
+                          <span className="min-w-0 truncate">
+                            {t("views.overviewView.artifactsShelfNote", {
+                              shown: String(Math.min(artifactsQuery.data.artifacts.length, 6)),
+                              total: String(artifactsQuery.data.counts.html),
+                            })}
+                          </span>
+                        )}
+                        {onOpenArtifacts !== undefined && (
+                          <button
+                            type="button"
+                            data-testid="overview-artifacts-open-all"
+                            onClick={onOpenArtifacts}
+                            className="text-accent underline-offset-2 hover:underline"
+                          >
+                            {t("views.overviewView.artifactsOpenAll")}
+                          </button>
+                        )}
+                      </>
+                    }
+                  >
+                    <OverviewArtifactsShelf
+                      repoId={repoId}
+                      rows={artifactsQuery.data?.artifacts ?? []}
+                      total={artifactsQuery.data?.counts.html ?? 0}
+                      pending={artifactsQuery.isPending}
+                      error={artifactsErrorText}
+                      onOpenTask={onOpenTask}
+                      onOpenAll={onOpenArtifacts}
+                      deps={deps}
+                    />
+                  </Region>
+                </div>
+              ),
+            },
+            {
+              id: "drill",
+              title: t("views.overviewView.regionDrill"),
+              weight: 1,
+              testId: "overview-region-drill",
+              content: (
+                <div className="grid min-h-0 min-w-0">
+                  <Region title={t("views.overviewView.regionDrill")}>
+                    <OverviewDrillBody
+                      wipOccupancy={
+                        wipQuery.data === undefined
+                          ? wipErrorText !== null
+                            ? "—"
+                            : "…"
+                          : `${wipCounted.length}/${wipQuery.data.limit}`
+                      }
+                      wipFull={wipFull}
+                      reviewRowsAll={reviews}
+                      followUps={followUps}
+                      pinned={pinned}
+                      onOpenFocus={openFocus}
+                      deps={deps}
+                    />
+                  </Region>
+                </div>
+              ),
+            },
             {
               id: "works",
               title: t("views.overviewView.regionWatched"),
@@ -322,33 +442,6 @@ export function OverviewView({
                       }
                       handlersOf={(entry) => workHandlers(runtimeQuery.data, entry.work.taskId, entry.memberTaskIds)}
                       recentOf={(workTaskId) => recentByWork.get(workTaskId) ?? null}
-                      deps={deps}
-                    />
-                  </Region>
-                </div>
-              ),
-            },
-            {
-              id: "drill",
-              title: t("views.overviewView.regionDrill"),
-              weight: 1.5,
-              testId: "overview-region-drill",
-              content: (
-                <div className="grid min-h-0 min-w-0">
-                  <Region title={t("views.overviewView.regionDrill")}>
-                    <OverviewDrillBody
-                      wipOccupancy={
-                        wipQuery.data === undefined
-                          ? wipErrorText !== null
-                            ? "—"
-                            : "…"
-                          : `${wipCounted.length}/${wipQuery.data.limit}`
-                      }
-                      wipFull={wipFull}
-                      reviewRowsAll={reviews}
-                      followUps={followUps}
-                      pinned={pinned}
-                      onOpenFocus={openFocus}
                       deps={deps}
                     />
                   </Region>

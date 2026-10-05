@@ -428,17 +428,17 @@ export function TaskDetailView({
               title: t("components.pageRegions.content"),
               weight: 2,
               content: (
-                <div className="flex min-h-0 min-w-0 flex-col">
-                  <div className="flex shrink-0 items-center gap-1 ui-meta">
+                <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border border-border bg-surface">
+                  <div className="flex shrink-0 items-center gap-1 border-b border-border/70 px-2 py-1 ui-meta text-text-faint">
                     <RegionDragHandle />
-                    {t("components.pageRegions.content")}
+                    <span className="font-semibold text-text">{t("components.pageRegions.content")}</span>
                   </div>
                   {/* 概况是一屏的区域板:面板自己是板的容器量尺(量面板内容宽,不含文件树),
               ≥900px 时板占满面板高度、区域在自己内部滚动;其余页签随内容往下排。 */}
                   <TabPanel
                     idPrefix="task"
                     value={activeTab}
-                    className={`min-h-0 min-w-0 flex-1 overflow-y-auto p-1 ${
+                    className={`min-h-0 min-w-0 flex-1 overflow-y-auto p-2 ${
                       activeTab === "overview" ? "@container flex flex-col" : ""
                     }`}
                     data-testid="task-detail-panel-scroll"
