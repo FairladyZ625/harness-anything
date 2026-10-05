@@ -6,7 +6,7 @@ import type { AgentEntityAvailableRow, SquadEntityDetail } from "../../agent-ent
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ActionError } from "./ActionError.tsx";
-import { Avatar, Card, CardBody, CardHead, CardTitle, Crumbs, CrumbSep, Hint, Right, Sect } from "./parts.tsx";
+import { Avatar, Card, CardBody, CardHead, CardTitle, Hint, Right, Sect } from "./parts.tsx";
 import { Chip } from "../primitives/Chip.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { Button } from "../primitives/Button.tsx";
@@ -72,24 +72,9 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
   const patch = (value: Partial<SquadDraft>) => setDraft((current) => ({ ...current, ...value }));
   const name = (agentId: string) => agents.find((agent) => agent.id === agentId)?.name ?? agentId;
   const dirty = squadDraftDirty(detail, draft),
-    validLeaderTurnBudget = Number.isSafeInteger(Number(draft.leaderTurnBudget)) && Number(draft.leaderTurnBudget) >= 1,
-    members = draft.workers.length + 1;
+    validLeaderTurnBudget = Number.isSafeInteger(Number(draft.leaderTurnBudget)) && Number(draft.leaderTurnBudget) >= 1;
   return (
     <div data-testid={`squad-card-${detail.id}`}>
-      <Crumbs>
-        <span>{t("agentRuntime.segSquads")}</span>
-        <CrumbSep />
-        <b className="font-semibold text-text-muted">{detail.name}</b>
-        <CrumbSep />
-        <EntityRefLink
-          entityRef={`squad/${detail.id}`}
-          onNavigate={() => onSelectSquad(detail.id)}
-          title={detail.id}
-          className="font-mono text-text-muted hover:text-accent hover:underline"
-        />
-        <CrumbSep />
-        <span className="font-mono">{t("agentRuntime.memberCount", { count: members })}</span>
-      </Crumbs>
       <Card>
         <CardHead>
           <CardTitle>{detail.name}</CardTitle>

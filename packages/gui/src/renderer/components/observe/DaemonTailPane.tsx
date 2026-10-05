@@ -71,10 +71,6 @@ export const PANE_TOOL_BUTTON = [
   "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-meta",
   "text-text-muted hover:border-border-strong hover:text-text",
 ].join(" ");
-const PANE_STATUS_STRIP = [
-  "flex items-center justify-between border-b border-border px-3 py-1",
-  "font-mono ui-micro text-text-faint",
-].join(" ");
 const PANE_FILTER_INPUT = [
   "w-36 rounded border border-border-strong bg-surface px-2 py-1 font-mono ui-micro",
   "text-text outline-none focus-visible:border-accent",
@@ -169,7 +165,8 @@ export function DaemonTailPane({
     [query, setQuery] = useState(""),
     [following, setFollowing] = useState(true),
     // 分析透镜模式:顶部 HUD + 慢操作/异常聚类面板(可折叠);时段来自 HUD 框选。
-    [analytics, setAnalytics] = useState(true),
+    // 默认收起(S7 观测 pane 收敛):分析是排障时才翻的面,常态 pane 顶只留面板头。
+    [analytics, setAnalytics] = useState(false),
     [hudWindow, setHudWindow] = useState<ObserveHudWindow>("15m"),
     [timeRange, setTimeRange] = useState<ObserveTimeSelection | null>(null),
     [boardTab, setBoardTab] = useState<"ops" | "volume" | "anomalies" | "talkers">(
@@ -307,6 +304,26 @@ export function DaemonTailPane({
           </span>
         )}
         <span className="ml-auto flex items-center gap-2">
+          {/* 状态条并入面板头(S7 观测 pane 收敛):常态弱色段,不再独占一行。 */}
+          <span data-testid={`observe-status-${kind}`} className="font-mono ui-micro text-text-faint">
+            {snapshot.status === "idle"
+              ? t("views.daemonObserve.loading")
+              : snapshot.caughtUp
+                ? t("views.daemonObserve.caughtUp")
+                : t("views.daemonObserve.following")}
+          </span>
+          <span data-testid={`observe-count-${kind}`} className="font-mono ui-micro text-text-faint">
+            {effective.length === snapshot.rows.length
+              ? t("views.daemonObserve.rowCount", { loaded: String(snapshot.rows.length) })
+              : t("views.daemonObserve.rowCountFiltered", {
+                  shown: String(effective.length),
+                  loaded: String(snapshot.rows.length),
+                })}
+            {" · "}
+            {snapshot.historyDone ? t("views.daemonObserve.historyDone") : t("views.daemonObserve.historyMore")}
+            {" · "}
+            {following ? t("views.daemonObserve.tailFollowing") : t("views.daemonObserve.tailBrowsing")}
+          </span>
           {onLensChange === undefined || lensActive === null ? null : (
             <span
               data-testid={`observe-lens-chip-${kind}`}
@@ -360,27 +377,6 @@ export function DaemonTailPane({
           </button>
         </span>
       </header>
-      <div className={PANE_STATUS_STRIP}>
-        <span data-testid={`observe-status-${kind}`}>
-          {snapshot.status === "idle"
-            ? t("views.daemonObserve.loading")
-            : snapshot.caughtUp
-              ? t("views.daemonObserve.caughtUp")
-              : t("views.daemonObserve.following")}
-        </span>
-        <span data-testid={`observe-count-${kind}`}>
-          {effective.length === snapshot.rows.length
-            ? t("views.daemonObserve.rowCount", { loaded: String(snapshot.rows.length) })
-            : t("views.daemonObserve.rowCountFiltered", {
-                shown: String(effective.length),
-                loaded: String(snapshot.rows.length),
-              })}
-          {" · "}
-          {snapshot.historyDone ? t("views.daemonObserve.historyDone") : t("views.daemonObserve.historyMore")}
-          {" · "}
-          {following ? t("views.daemonObserve.tailFollowing") : t("views.daemonObserve.tailBrowsing")}
-        </span>
-      </div>
       {snapshot.status === "unavailable" ? (
         <p
           data-testid={`observe-unavailable-${kind}`}
@@ -407,22 +403,24 @@ export function DaemonTailPane({
       ) : null}
       {analytics && stats !== null ? (
         <div data-testid={`observe-analytics-${kind}`} className="border-b border-border bg-surface-raised/30">
-          <ObserveHudStrip
-            testId={`observe-hud-${kind}`}
-            stats={stats}
-            window={hudWindow}
-            onWindowChange={changeWindow}
-            selection={timeRange}
-            onSelectRange={selectRange}
-          />
-          <ObserveSnifferStrip
-            testId={`observe-sniffer-${kind}`}
-            stats={stats}
-            window={hudWindow}
-            isLogPane={isLogPane}
-            onFocusSmell={focusLensOrQuery}
-          />
-          <div className="flex flex-wrap items-center gap-2 px-3 py-1">
+          {/* HUD/嗅探/板页签三行收为一行两段(S7 观测 pane 收敛):左段 HUD 时序,右段
+              嗅探徽标与板页签;窄容器下 flex-wrap 自然退行,不再各占固定一整行。 */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1">
+            <ObserveHudStrip
+              testId={`observe-hud-${kind}`}
+              stats={stats}
+              window={hudWindow}
+              onWindowChange={changeWindow}
+              selection={timeRange}
+              onSelectRange={selectRange}
+            />
+            <ObserveSnifferStrip
+              testId={`observe-sniffer-${kind}`}
+              stats={stats}
+              window={hudWindow}
+              isLogPane={isLogPane}
+              onFocusSmell={focusLensOrQuery}
+            />
             {isLogPane ? (
               <button
                 type="button"

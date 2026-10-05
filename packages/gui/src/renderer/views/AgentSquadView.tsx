@@ -22,7 +22,7 @@ import { DegradedEntityCard, type SettingsRoleRef } from "../components/runtime/
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
 import { Hint } from "../components/runtime/parts.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
-import { IdentityRail, RoleLabel } from "../components/runtime/RuntimeRail.tsx";
+import { IdentityRail } from "../components/runtime/RuntimeRail.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
@@ -378,33 +378,23 @@ export function AgentSquadView({
           ) : current.type === "agent" ? (
             selectedAgent !== null && isAvailableAgentEntityRow(selectedAgent) ? (
               agentDetail.data ? (
-                <>
-                  <EntityConclusion
-                    refs={settingsRoleRefs(settings.data?.values, selectedAgent.id)}
-                    squads={squads.filter(
-                      (squad) => squad.leader === selectedAgent.id || squad.workers.includes(selectedAgent.id),
-                    )}
-                    agentId={selectedAgent.id}
-                    declaredRole={selectedAgent.role}
-                    lastDispatch={dockRows[0] ?? null}
-                  />
-                  <AgentCard
-                    detail={agentDetail.data}
-                    row={selectedAgent}
-                    squads={squads}
-                    instances={workspace.instances}
-                    availableSkills={skills.data ?? []}
-                    presets={catalog.data?.presets ?? []}
-                    busy={workspace.busy}
-                    actionError={workspace.error}
-                    onSave={(declaration) => void workspace.saveAgent(declaration)}
-                    onDispatch={(mission) => void openAgentDispatch(current.id, mission)}
-                    onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
-                    onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
-                    onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
-                    onFocusGraph={onFocusGraph}
-                  />
-                </>
+                <AgentCard
+                  detail={agentDetail.data}
+                  row={selectedAgent}
+                  squads={squads}
+                  instances={workspace.instances}
+                  availableSkills={skills.data ?? []}
+                  presets={catalog.data?.presets ?? []}
+                  busy={workspace.busy}
+                  actionError={workspace.error}
+                  conclusionRefs={settingsRoleRefs(settings.data?.values, selectedAgent.id)}
+                  lastDispatch={dockRows[0] ?? null}
+                  onSave={(declaration) => void workspace.saveAgent(declaration)}
+                  onDispatch={(mission) => void openAgentDispatch(current.id, mission)}
+                  onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
+                  onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
+                  onFocusGraph={onFocusGraph}
+                />
               ) : (
                 <Empty>{t("agentRuntime.loading")}</Empty>
               )
@@ -508,81 +498,6 @@ export function AgentSquadView({
   );
 }
 
-/** 可用 Agent 的详情结论行(标准 §2.2:结论在上,声明字段在下)。 */
-function EntityConclusion({
-  refs,
-  squads,
-  agentId,
-  declaredRole,
-  lastDispatch,
-}: {
-  readonly refs: readonly SettingsRoleRef[];
-  readonly squads: readonly { readonly id: string; readonly name: string; readonly leader: string }[];
-  readonly agentId: string;
-  readonly declaredRole: "worker" | "reviewer" | "commander";
-  readonly lastDispatch: {
-    readonly status: string;
-    readonly taskTitle: string | null;
-    readonly startedAt: string;
-  } | null;
-}) {
-  // 声明角色与被当作什么角色调用:设置键(defaultWorker/…)与 Squad 位次是两处调用面;
-  // 声明与调用不一致时用琥珀标签点出,一致的引用不额外强调。
-  const calledAs: readonly { readonly label: string; readonly role: "worker" | "reviewer" | "commander" }[] = [
-    ...refs.map((ref) => ({ label: `roles.${ref.key}`, role: ref.role })),
-    ...squads.map((squad) => ({
-      label: squad.name,
-      role: squad.leader === agentId ? ("commander" as const) : ("worker" as const),
-    })),
-  ];
-  const mismatch = calledAs.some((call) => call.role !== declaredRole);
-  return (
-    <section
-      data-testid="agent-detail-conclusion"
-      className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs border border-border bg-surface px-3.5 py-2"
-    >
-      <StatusTagLine tone="neutral" label={t("agentRuntime.detailAvailable")} />
-      <span className="flex items-center gap-1.5 ui-meta">
-        {t("agentRuntime.declaredRole")}
-        <RoleLabel role={declaredRole} />
-      </span>
-      <span className="flex flex-wrap items-center gap-1.5 ui-meta text-text-muted">
-        {calledAs.length === 0 ? (
-          t("agentRuntime.notReferenced")
-        ) : (
-          <>
-            {t("agentRuntime.calledAsPrefix")}
-            {calledAs.map((call) => (
-              <span key={call.label} className="flex items-center gap-1 rounded-xs border border-border px-1.5 py-px">
-                <span className="font-mono ui-meta">{call.label}</span>
-                <span className="ui-meta text-text-faint">· {roleWord(call.role)}</span>
-              </span>
-            ))}
-          </>
-        )}
-      </span>
-      {mismatch ? (
-        <StatusTagLine
-          tone="wait"
-          label={t("agentRuntime.roleMismatch", {
-            declared: roleWord(declaredRole),
-            called: roleWord(calledAs.find((call) => call.role !== declaredRole)!.role),
-          })}
-        />
-      ) : null}
-      <span className="ml-auto font-mono ui-meta text-text-faint">
-        {lastDispatch === null
-          ? t("agentRuntime.noDispatch")
-          : t("agentRuntime.lastDispatch", {
-              status: lastDispatch.status,
-              task: lastDispatch.taskTitle ?? "",
-              time: formatTime(lastDispatch.startedAt, { style: "month-day-time" }) ?? lastDispatch.startedAt,
-            })}
-      </span>
-    </section>
-  );
-}
-
 /** 可用 Squad 的详情结论行:成员规模与最近一次派工。 */
 function SquadConclusion({
   squad,
@@ -638,15 +553,6 @@ function StatusTagLine({
     </span>
   );
 }
-
-const roleWord = (role: "worker" | "reviewer" | "commander"): string =>
-  t(
-    role === "commander"
-      ? "agentRuntime.roleCommander"
-      : role === "reviewer"
-        ? "agentRuntime.roleReviewer"
-        : "agentRuntime.roleWorker",
-  );
 
 const ROLE_REF_KEYS = [
   { key: "defaultWorker", role: "worker" },
