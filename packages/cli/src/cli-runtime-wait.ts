@@ -14,6 +14,10 @@ type DaemonStoppedByOperator = { readonly kind: "daemon-stopped"; readonly stopp
 type DaemonWaitFailure = DaemonGone | DaemonStoppedByOperator;
 
 const subscriptionReconnectAttemptLimit = 5;
+// The patience a parked wait grants a latched repo matches what the plain command path grants a
+// warming one (settleRepoWarming) and the daemon's own attach budget; the retry interval's 5s
+// ceiling matches the daemon's latch-probe throttle, so every re-issued read lands on a probe.
+const subscriptionRepoLatchPatienceMs = 60_000;
 
 /** Every terminal wait — one session, several sessions, or a task's dispatch set — is one
  * long-lived repo.agentRuntime.sessions.await request. The daemon owns the settle decision and
@@ -282,10 +286,21 @@ async function readDaemonSubscription(
   reset: () => void = () => undefined,
   stopped: () => Promise<string | null> = async () => null,
 ): Promise<JsonObject | DaemonWaitFailure> {
-  let attempt = 0;
+  let attempt = 0,
+    latchAttempt = 0,
+    latchDeadline: number | null = null;
   for (;;) {
     try {
-      return await read();
+      const result = await read();
+      if (!isRepoLatchReceipt(result)) return result;
+      // A latched repo answers with an error receipt, not a transport failure: during a
+      // build-superseded handoff the successor's first attach can lose a race with the identity
+      // center, and every re-issued read re-probes the latch daemon-side. The wait rides that
+      // readiness state out; a repo that never unlatches still gets its verdict — the receipt
+      // itself returns once the patience ends.
+      latchDeadline ??= Date.now() + subscriptionRepoLatchPatienceMs;
+      if (Date.now() >= latchDeadline) return result;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** latchAttempt++, 5_000)));
     } catch (error) {
       consumeKnownError(error);
       reset();
@@ -300,6 +315,17 @@ async function readDaemonSubscription(
       await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** attempt++, 5_000)));
     }
   }
+}
+
+/** A repo_unavailable receipt is the daemon's latched-readiness verdict, not a verdict about the
+ * waited sessions: the daemon re-probes the latch on every request and re-attaches within
+ * seconds, so a parked wait treats it as transient the way plain commands treat repo_warming. */
+function isRepoLatchReceipt(receipt: JsonObject): boolean {
+  const error =
+    receipt.error && typeof receipt.error === "object" && !Array.isArray(receipt.error)
+      ? (receipt.error as JsonObject)
+      : null;
+  return receipt.ok !== true && (receipt.code === "repo_unavailable" || error?.code === "repo_unavailable");
 }
 
 function recoverableSubscriptionFailure(error: unknown): boolean {
