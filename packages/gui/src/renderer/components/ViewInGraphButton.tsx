@@ -15,6 +15,7 @@ export function ViewInGraphButton({
   onFocusGraph,
   className,
   testId = "view-in-graph-button",
+  compact = false,
 }: {
   /** 图键空间实体引用:`task/<id>`、`decision/<id>`、`fact/<anchor>`、`agent/<id>`、`schedule/<id>`。 */
   readonly entityRef: string;
@@ -22,8 +23,28 @@ export function ViewInGraphButton({
   readonly onFocusGraph?: (ref: string) => void;
   readonly className?: string;
   readonly testId?: string;
+  /** 详情页头三行化(chrome S4):页头里的 24px 图标钮档——文字进 tooltip/aria,0 额外点击。 */
+  readonly compact?: boolean;
 }) {
   if (!onFocusGraph) return null;
+  if (compact) {
+    return (
+      <button
+        type="button"
+        data-testid={testId}
+        title={entityRef}
+        aria-label={t("components.viewInGraph.view")}
+        onClick={() => onFocusGraph(entityRef)}
+        className={[
+          "grid size-6 shrink-0 place-items-center rounded-sm border border-border text-text-muted",
+          "hover:border-border-strong hover:bg-surface-raised hover:text-text",
+          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+        ].join(" ")}
+      >
+        <Graph weight="bold" className="ui-meta" />
+      </button>
+    );
+  }
   return (
     <button
       type="button"

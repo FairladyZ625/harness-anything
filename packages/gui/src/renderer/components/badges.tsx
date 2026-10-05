@@ -1,12 +1,4 @@
-import type {
-  SnapshotStatus,
-  CloseoutReadiness,
-  EngineId,
-  Freshness,
-  DecisionState,
-  RiskTier,
-  Urgency,
-} from "../model/types";
+import type { SnapshotStatus, CloseoutReadiness, Freshness, DecisionState, RiskTier, Urgency } from "../model/types";
 import {
   Circle,
   CircleHalf,
@@ -15,7 +7,6 @@ import {
   CheckCircle,
   XCircle,
   Question,
-  Lock,
   ClockCounterClockwise,
   WarningCircle,
   HourglassMedium,
@@ -108,24 +99,6 @@ export function CloseoutBadge({ value }: { value: CloseoutReadiness }) {
   if (value === "not_required") return null;
   const meta = CLOSEOUT_META[value];
   return <StatusTag tone={meta.tone} icon={meta.icon} label={meta.label} />;
-}
-
-const ENGINE_LABEL: Record<string, string> = {
-  local: "local",
-  multica: "multica",
-  github: "github",
-  linear: "linear",
-};
-
-export function EngineBadge({ engine, locked }: { engine: EngineId; locked: boolean }) {
-  return (
-    <StatusTag
-      tone="neutral"
-      mono
-      icon={locked ? <Lock weight="bold" /> : undefined}
-      label={ENGINE_LABEL[engine] ?? engine}
-    />
-  );
 }
 
 const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";

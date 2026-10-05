@@ -1,7 +1,7 @@
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CaretRight, PushPin, TerminalWindow } from "@phosphor-icons/react";
-import { EngineBadge, FreshnessTag } from "../components/badges.tsx";
+import { ArrowLeft, CaretRight, ChatCircleDots, PushPin, TerminalWindow } from "@phosphor-icons/react";
+import { FreshnessTag } from "../components/badges.tsx";
 import { SegBar } from "../components/primitives/SegBar";
 import { StatusTag } from "../components/primitives/StatusTag";
 import { Tabs } from "../components/primitives/Tabs";
@@ -168,12 +168,14 @@ export function TaskDetailView({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg" data-testid="task-detail-view">
-      {/* 视觉基线 v1 §2.2 文档型页头:面包屑 / 标题+状态 / 一行目标(可展开) /
-          生命周期进度与关键数字 / 标签栏。徽标一律 shrink-0 + whitespace-nowrap,
-          标题与面包屑截断,长标题/长徽标不再把头部撑高;头部行允许换行(原则 9②),
-          窄屏下动作钮折到面包屑下一行、逐钮换行,不越出视口。 */}
-      <header className="relative z-20 shrink-0 border-b border-border bg-surface/80" data-testid="task-detail-header">
-        <div className="flex min-h-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 lg:px-4">
+      {/* 详情页头三行化(chrome 审计 S4,对照稿 task_d821d24aacccb352053c7fd3e7):
+          行1 面包屑+标题+状态+动作钮(图标+tooltip/aria,0 额外点击)
+          行2 一行目标(可展开)
+          行3 阶段+子任务分段+关键数字+页签(页签下划线收页头底边)。
+          EngineBadge 已退役:engine 值仍在「身份」折叠的 LIFECYCLE/STATUS 条目。
+          头部行允许换行(原则 9②):窄屏下面包屑/动作钮折行,不越出视口。 */}
+      <header className="relative z-20 shrink-0 bg-surface/80" data-testid="task-detail-header">
+        <div className="flex min-h-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pt-1.5 pb-1 lg:px-4">
           <button
             type="button"
             onClick={onBack}
@@ -186,7 +188,7 @@ export function TaskDetailView({
           >
             <ArrowLeft weight="bold" className="ui-meta" />
           </button>
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden font-mono ui-micro leading-3 text-text-faint">
+          <div className="flex min-w-0 items-center gap-1 overflow-hidden font-mono ui-micro leading-3 text-text-faint">
             <button type="button" onClick={onBack} className="truncate hover:text-text-muted">
               {projectName}
             </button>
@@ -216,23 +218,31 @@ export function TaskDetailView({
               className="font-mono ui-micro leading-3 text-text-muted hover:text-accent hover:underline"
             />
           </div>
+          <h1
+            title={task.title}
+            className="min-w-0 flex-1 truncate ui-body font-semibold leading-6 tracking-[-0.01em] text-text"
+          >
+            <TitleText title={task.title} />
+          </h1>
+          <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+            <StatusTag status={task.coordinationStatus} />
+            <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
+          </span>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="whitespace-nowrap">
-              <EngineBadge engine={task.engine} locked={external} />
-            </span>
             {onOpenTerminal && (
               <button
                 type="button"
                 data-testid="task-detail-open-terminal"
                 onClick={() => onOpenTerminal(task)}
+                aria-label={t("views.taskDetailView.openTerminal")}
                 title={t("views.taskDetailView.openTerminal")}
                 className={[
-                  "flex shrink-0 items-center gap-1 rounded-sm border border-border px-1.5 py-1 font-mono ui-micro",
-                  "text-text-faint hover:border-border-strong hover:text-text-muted",
+                  "grid size-6 shrink-0 place-items-center rounded-sm border border-border text-text-muted",
+                  "hover:border-border-strong hover:bg-surface-raised hover:text-text",
+                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                 ].join(" ")}
               >
-                <TerminalWindow weight="bold" />
-                {t("views.taskDetailView.openTerminal")}
+                <TerminalWindow weight="bold" className="ui-meta" />
               </button>
             )}
             {onSetPin ? (
@@ -241,35 +251,50 @@ export function TaskDetailView({
                 data-testid="task-detail-pin-toggle"
                 onClick={() => onSetPin(task, !pinned)}
                 aria-pressed={pinned}
+                aria-label={pinned ? t("views.taskDetailView.unpinTitle") : t("views.taskDetailView.pinTitle")}
                 title={pinned ? t("views.taskDetailView.unpinTitle") : t("views.taskDetailView.pinTitle")}
                 className={[
-                  "flex shrink-0 items-center gap-1 rounded-sm border px-1.5 py-1 font-mono ui-micro",
+                  "grid size-6 shrink-0 place-items-center rounded-sm border",
                   pinned
                     ? "border-accent/50 bg-accent/10 text-accent"
-                    : "border-border text-text-faint hover:border-border-strong hover:text-text-muted",
+                    : "border-border text-text-muted hover:border-border-strong hover:bg-surface-raised hover:text-text",
                 ].join(" ")}
               >
-                <PushPin weight={pinned ? "fill" : "bold"} />
-                {pinned ? t("views.taskDetailView.pinnedToday") : t("views.taskDetailView.pinAction")}
+                <PushPin weight={pinned ? "fill" : "bold"} className="ui-meta" />
               </button>
             ) : (
               pinned && (
                 <span
                   data-testid="task-detail-pinned-marker"
-                  className={[
-                    "flex shrink-0 items-center gap-1 rounded-sm border",
-                    "border-accent/50 bg-accent/10 px-1.5 py-1 font-mono ui-micro text-accent",
-                  ].join(" ")}
+                  title={t("views.taskDetailView.pinnedToday")}
+                  className="grid size-6 shrink-0 place-items-center rounded-sm border border-accent/50 bg-accent/10 text-accent"
                 >
-                  <PushPin weight="fill" />
-                  {t("views.taskDetailView.pinnedToday")}
+                  <PushPin weight="fill" className="ui-meta" />
                 </span>
               )
             )}
+            {/* 会话页重构(任务 task_1994d52c):Task 详情反向入口,落 sessions 页该任务的
+                会话组(tasksessions/<taskId> 可寻址,回撤原路返回)。 */}
+            <button
+              type="button"
+              data-testid="task-open-sessions"
+              onClick={() => onNavigateEntity(`tasksessions/${task.taskId}`)}
+              aria-label={t("views.taskDetailView.openSessions")}
+              title={`tasksessions/${task.taskId}`}
+              className={[
+                "grid size-6 shrink-0 place-items-center rounded-sm border border-border text-text-muted",
+                "hover:border-border-strong hover:bg-surface-raised hover:text-accent",
+              ].join(" ")}
+            >
+              <ChatCircleDots weight="bold" className="ui-meta" />
+            </button>
+            {/* 统一「在关系图中查看」入口(task_89d324b5):task 是图节点 kind。 */}
+            <ViewInGraphButton entityRef={`task/${task.taskId}`} onFocusGraph={onFocusGraph} compact />
             <details className="group relative shrink-0">
               <summary
                 className={[
-                  "list-none rounded-sm border border-border px-2 py-1 font-mono ui-micro text-text-muted",
+                  "grid h-6 min-w-6 list-none place-items-center rounded-sm border border-border px-1.5",
+                  "font-mono ui-micro text-text-muted",
                   "hover:border-border-strong hover:bg-surface-raised hover:text-text",
                   "[&::-webkit-details-marker]:hidden",
                 ].join(" ")}
@@ -331,45 +356,20 @@ export function TaskDetailView({
                 />
               </dl>
             </details>
-            {/* 会话页重构(任务 task_1994d52c):Task 详情反向入口,落 sessions 页该任务的
-                会话组(tasksessions/<taskId> 可寻址,回撤原路返回)。 */}
-            <button
-              type="button"
-              data-testid="task-open-sessions"
-              onClick={() => onNavigateEntity(`tasksessions/${task.taskId}`)}
-              className={
-                "flex shrink-0 items-center gap-1 rounded-sm px-1.5 py-1 font-mono ui-micro " +
-                "text-text-faint hover:text-accent"
-              }
-            >
-              {t("views.taskDetailView.openSessions")} ↗
-            </button>
-            {/* 统一「在关系图中查看」入口(task_89d324b5):task 是图节点 kind。 */}
-            <ViewInGraphButton entityRef={`task/${task.taskId}`} onFocusGraph={onFocusGraph} />
           </div>
-        </div>
-        {/* 标题行:标题经 TitleText(冒号前重点、冒号后弱色),状态徽标同行不换行。 */}
-        <div className="flex min-h-0 items-center gap-3 px-3 pb-1 lg:px-4">
-          <h1
-            title={task.title}
-            className="min-w-0 flex-1 truncate ui-body font-semibold leading-6 tracking-[-0.01em] text-text"
-          >
-            <TitleText title={task.title} />
-          </h1>
-          <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-            <StatusTag status={task.coordinationStatus} />
-            <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
-          </span>
         </div>
         {/* 一行目标(可展开):收起时一行截断,点开看全文;无 Brief 时不渲染。 */}
         {goal !== null && <TaskGoalLine goal={goal} />}
-        {/* 生命周期进度与关键数字:阶段投影步进条 + 子任务分段(有子任务才有) + 数字。 */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 pb-1.5 lg:px-4">
-          <div data-testid="task-detail-phase" className="min-w-0 max-w-[520px] flex-1">
+        {/* 生命周期进度与关键数字与页签同行:阶段投影步进条 + 子任务分段(有子任务才有) +
+            数字随行,页签靠右、下划线即页头底边。 */}
+        <div className="flex min-h-0 flex-wrap items-end gap-x-4 gap-y-1.5 px-3 pb-0.5 lg:px-4">
+          <div data-testid="task-detail-phase" className="min-w-0 max-w-[520px] flex-1 self-center">
             <PhaseSteps phase={task.phase} />
           </div>
-          {childTotal > 0 ? <SegBar counts={childCounts} className="h-[5px] max-w-[320px] flex-1" /> : null}
-          <span className="ml-auto whitespace-nowrap font-mono tabular-nums text-text-muted ui-meta">
+          {childTotal > 0 ? (
+            <SegBar counts={childCounts} className="h-[5px] min-w-[70px] max-w-[190px] flex-1 self-center" />
+          ) : null}
+          <span className="whitespace-nowrap pb-[7px] font-mono tabular-nums text-text-muted ui-meta">
             {t("views.taskDetailView.keyNumbers", {
               gatesPassed,
               gatesTotal: task.gates.length,
@@ -383,9 +383,7 @@ export function TaskDetailView({
                 })}`
               : ""}
           </span>
-        </div>
-        <div className="px-3 pb-1 lg:px-4">
-          <div data-testid="task-detail-tabs">
+          <div data-testid="task-detail-tabs" className="ml-auto min-w-0">
             <Tabs
               ariaLabel={t("views.taskDetailView.sectionsAria")}
               idPrefix="task"
@@ -527,7 +525,7 @@ function TaskGoalLine({ goal }: { readonly goal: string }) {
       aria-expanded={open}
       title={t("views.taskDetailView.goalTitle")}
       onClick={() => setOpen((value) => !value)}
-      className={`mx-3 max-w-[110ch] cursor-pointer whitespace-pre-line text-text-muted ui-body lg:mx-4 ${
+      className={`mx-3 max-w-[110ch] cursor-pointer whitespace-pre-line py-0.5 text-text-muted ui-body lg:mx-4 ${
         open ? "" : "line-clamp-1"
       }`}
     >

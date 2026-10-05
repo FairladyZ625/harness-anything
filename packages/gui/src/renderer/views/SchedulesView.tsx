@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "@harness-anything/daemon/protocol";
 import { ScheduleFormDialog } from "../components/ScheduleFormDialog.tsx";
 import { t } from "../i18n/index.tsx";
-import { needsAttention } from "../model/schedule-list.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
 import {
   scheduleRef,
@@ -43,18 +42,10 @@ export function SchedulesView({
     queryFn: () => schedulesClient.list(repoId),
     staleTime: 2_000,
   });
-  const total = query.data?.schedules.length ?? 0,
-    attention = query.data?.schedules.filter(needsAttention).length ?? 0;
   return (
+    // 列表页头(页名+汇总句)随列表态渲染在 ScheduleListPane 里;详情态整个卸载
+    // (chrome 审计 B1①):详情页身份由详情头左端的「← 定时计划」返回钮承担。
     <section data-testid="schedules-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
-        <h1 className="text-xl font-semibold text-text">{t("schedules.title")}</h1>
-        <span data-testid="schedules-summary" className="min-w-0 truncate text-sm text-text-muted">
-          {attention > 0
-            ? t("schedules.summaryAttention", { count: total, attention })
-            : t("schedules.summary", { count: total })}
-        </span>
-      </header>
       {query.isError && (
         <Notice tone="bad" variant="strip" testId="schedules-read-error">
           {t("schedules.readFailed", {

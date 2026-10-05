@@ -57,7 +57,10 @@ describe("Task detail expression", () => {
     try {
       await mount();
       const button = document.querySelector<HTMLButtonElement>('[data-testid="task-detail-open-terminal"]');
-      expect(button?.textContent).toContain("打开终端");
+      // 三行化(chrome S4):页头动作钮收成图标钮,文字进 aria-label/title,不再进 textContent。
+      expect(button?.textContent ?? "").not.toContain("打开终端");
+      expect(button?.getAttribute("aria-label")).toBe("打开终端");
+      expect(button?.title).toBe("打开终端");
       await act(async () => button!.click());
       expect(opened.map((row) => row.taskId)).toEqual([task.taskId]);
     } finally {
@@ -87,6 +90,15 @@ describe("Task detail expression", () => {
     expect(title.nextElementSibling?.className).toContain("shrink-0");
     // 会话组入口随头部重排仍可寻址(原在 tab 行尾部)。
     expect(byTestId("task-open-sessions").closest("header")).toBe(header);
+    // 三行化(chrome S4):标题并入面包屑行(行1),页签并入阶段+数字行(行3);
+    // EngineBadge 已退役,engine 值只留在「身份」折叠的 LIFECYCLE/STATUS 条目里。
+    const firstRow = header.firstElementChild as HTMLElement;
+    expect(firstRow.querySelector("h1")).toBe(header.querySelector("h1"));
+    expect(firstRow.textContent).toContain("Harness");
+    expect(
+      byTestId("task-detail-tabs").parentElement?.querySelector('[data-testid="task-detail-phase"]'),
+    ).not.toBeNull();
+    expect(byTestId("task-identity-strip").textContent).toContain("kernel/task-lifecycle/v1");
     expect(byTestId("task-document-tree").textContent).toContain("artifacts");
     expect(byTestId("task-overview-tab").textContent).toContain("Canonical plan body");
     expect(byTestId("task-progress-timeline").textContent).toContain("Review review-w3: approved");

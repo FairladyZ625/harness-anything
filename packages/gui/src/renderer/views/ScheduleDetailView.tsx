@@ -199,6 +199,8 @@ export function ScheduleDetailView({
   const mode = scheduleRowMode(row),
     targetKind = scheduleRowTargetKind(row),
     health = scheduleRowHealth(row);
+  // 排程无目标行,三行模板落成 2 行(chrome 审计 S4):动作钮与页签同在时的行数条件。
+  const tabbed = runOccurrence === null && !editing;
   const tabs = [
     { key: "overview" as const, label: t("schedules.detail.tab.overview") },
     { key: "danger" as const, label: t("schedules.detail.tab.danger") },
@@ -208,21 +210,22 @@ export function ScheduleDetailView({
     // 根是概况区域板的容器量尺(§1.9⑤):≥900px 时页签面板占满页头以下的高度、区域在自己
     // 内部滚动;更窄或其它页签时面板随内容往下排,由这一层滚动。
     <div data-testid="schedule-detail" className="@container flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="flex-none px-5 pt-3.5 md:px-7">
-        <button
-          type="button"
-          data-testid="schedule-detail-back"
-          // Returning from an embedded run lands back on the hub (run history is on Overview).
-          onClick={runOccurrence === null ? onExit : onExitRun}
-          className="inline-flex items-center gap-1 ui-meta text-text-faint hover:text-accent"
-        >
-          <ArrowLeft />
-          {runOccurrence === null ? t("schedules.detail.backToList") : t("schedules.run.backToRuns")}
-        </button>
-        <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
+      <div className="flex-none px-5 md:px-7">
+        {/* 行1:返回并入标题行左端,标题块(徽标+元数据微行)与动作钮同行。 */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 pt-2.5">
+          <button
+            type="button"
+            data-testid="schedule-detail-back"
+            // Returning from an embedded run lands back on the hub (run history is on Overview).
+            onClick={runOccurrence === null ? onExit : onExitRun}
+            className="inline-flex shrink-0 items-center gap-1 ui-meta text-text-faint hover:text-accent"
+          >
+            <ArrowLeft />
+            {runOccurrence === null ? t("schedules.detail.backToList") : t("schedules.run.backToRuns")}
+          </button>
+          <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h1 className="min-w-0 text-[19px] font-semibold leading-snug text-text">
+              <h1 className="min-w-0 truncate text-[19px] font-semibold leading-snug text-text">
                 <TitleText title={row.name} />
               </h1>
               {/* 已布防是正常值:中性档;已暂停才需要被看到(灰蓝)。 */}
@@ -243,12 +246,12 @@ export function ScheduleDetailView({
                 <StatusTag tone="neutral" tip={t("schedules.builtin.hint")} label={t("schedules.builtin.preset")} />
               )}
             </div>
-            <p className="mt-0.5 font-mono ui-micro text-text-faint">
+            <p className="mt-0.5 truncate font-mono ui-micro text-text-faint">
               {`schedule/${row.scheduleId}`} · {t("schedules.detail.rev", { rev: String(row.definitionRevision) })} ·{" "}
               {t("schedules.fields.updatedAt")} {time(row.updatedAt)}
             </p>
           </div>
-          {runOccurrence === null && !editing && (
+          {tabbed && (
             <div className="flex flex-wrap items-center gap-2">
               <ActionBtn
                 kind="runNow"
@@ -282,34 +285,55 @@ export function ScheduleDetailView({
                 {t("schedules.action.edit")}
               </Button>
               {/* 统一「在关系图中查看」入口(task_89d324b5):schedule 是图节点 kind。 */}
-              <ViewInGraphButton entityRef={`schedule/${row.scheduleId}`} onFocusGraph={onFocusGraph} />
+              <ViewInGraphButton entityRef={`schedule/${row.scheduleId}`} onFocusGraph={onFocusGraph} compact />
             </div>
           )}
         </div>
-        {/* 关键数字行(标准 §2.2):下次运行、上次结果、错过、版本,等宽 tabular。 */}
-        <div className="mt-2.5 flex flex-wrap items-center gap-x-7 gap-y-2 border-b border-border pb-2.5">
-          <KeyNumber label={t("schedules.fields.nextRun")} value={time(row.nextRunAt)} />
-          <span className="flex items-baseline gap-2">
-            <span className="font-mono uppercase tracking-[0.06em] text-text-faint ui-micro">
-              {t("schedules.lastOutcome")}
+        {/* 行2(关键数字,标准 §2.2):下次运行、上次结果、错过、执行权,等宽 tabular;
+            页签同在右端,页签下划线即页头底边;编辑/内嵌运行态没有页签,数字行自带底边。 */}
+        <div className="mt-2 flex min-w-0 flex-wrap items-end gap-x-4 gap-y-2">
+          <div
+            className={`flex min-w-0 flex-1 flex-wrap items-baseline gap-x-7 gap-y-2 ${
+              tabbed ? "pb-[7px]" : "border-b border-border pb-2.5"
+            }`}
+          >
+            <KeyNumber label={t("schedules.fields.nextRun")} value={time(row.nextRunAt)} />
+            <span className="flex items-baseline gap-2">
+              <span className="font-mono uppercase tracking-[0.06em] text-text-faint ui-micro">
+                {t("schedules.lastOutcome")}
+              </span>
+              {row.lastRun === null ? (
+                <span className="font-mono ui-body text-text-muted">—</span>
+              ) : (
+                <>
+                  <StatusTag
+                    tone={OUTCOME_TONE[row.lastRun.outcome] ?? "neutral"}
+                    label={t(outcomeLabel(row.lastRun.outcome))}
+                  />
+                  <span className="font-mono tabular-nums text-text ui-body">{time(row.lastRun.endedAt)}</span>
+                </>
+              )}
             </span>
-            {row.lastRun === null ? (
-              <span className="font-mono ui-body text-text-muted">—</span>
-            ) : (
-              <>
-                <StatusTag
-                  tone={OUTCOME_TONE[row.lastRun.outcome] ?? "neutral"}
-                  label={t(outcomeLabel(row.lastRun.outcome))}
-                />
-                <span className="font-mono tabular-nums text-text ui-body">{time(row.lastRun.endedAt)}</span>
-              </>
-            )}
-          </span>
-          <KeyNumber label={t("schedules.fields.missedCount")} value={String(row.missed.count)} />
-          <KeyNumber
-            label={t("schedules.fields.availability")}
-            value={`${t(AVAILABILITY_META[row.executionAvailability])}${row.claim.nodeId === null ? "" : ` · ${row.claim.nodeId}`}`}
-          />
+            <KeyNumber label={t("schedules.fields.missedCount")} value={String(row.missed.count)} />
+            <KeyNumber
+              label={t("schedules.fields.availability")}
+              value={`${t(AVAILABILITY_META[row.executionAvailability])}${row.claim.nodeId === null ? "" : ` · ${row.claim.nodeId}`}`}
+            />
+          </div>
+          {tabbed && (
+            <div data-testid="schedule-detail-tabs" className="ml-auto min-w-0">
+              <Tabs
+                ariaLabel={t("schedules.title")}
+                idPrefix="schedule"
+                value={tab}
+                onChange={(next) => {
+                  setTab(next);
+                  setConfirmDelete(false);
+                }}
+                tabs={tabs}
+              />
+            </div>
+          )}
         </div>
         {/* 编辑态的错误贴着表单显示(schedule-form-error),这里不重复一份。 */}
         {actionError !== null && !editing && (
@@ -336,20 +360,7 @@ export function ScheduleDetailView({
               onSelectEntity={onSelectEntity}
             />
           )
-        ) : editing ? null : (
-          <div className="mt-2" data-testid="schedule-detail-tabs">
-            <Tabs
-              ariaLabel={t("schedules.title")}
-              idPrefix="schedule"
-              value={tab}
-              onChange={(next) => {
-                setTab(next);
-                setConfirmDelete(false);
-              }}
-              tabs={tabs}
-            />
-          </div>
-        )}
+        ) : null}
       </div>
 
       {runOccurrence === null && (

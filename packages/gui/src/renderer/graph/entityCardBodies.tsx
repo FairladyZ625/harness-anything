@@ -1,9 +1,8 @@
-import { CloseoutBadge, EngineBadge, FreshnessTag } from "../components/badges";
+import { CloseoutBadge, FreshnessTag } from "../components/badges";
 import { StatusTag } from "../components/primitives/StatusTag";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
 import type { DecisionRow, FactRef, TaskRow } from "../model/types";
-import { isExternal } from "../model/types";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -20,7 +19,6 @@ export function EgoTaskSummaryBody({ task }: { task: TaskRow }) {
       <div className="flex flex-wrap items-center gap-1.5">
         <StatusTag status={task.coordinationStatus} />
         <CloseoutBadge value={task.closeoutReadiness} />
-        <EngineBadge engine={task.engine} locked={isExternal(task)} />
       </div>
       <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
       <div className="flex gap-3 font-mono ui-micro text-text-muted">
