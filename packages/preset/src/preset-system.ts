@@ -223,7 +223,8 @@ export function presetRuntimeDefaults(settings: SettingsV1): Defaults {
   };
 }
 function presetResolverOptions(rootDir: string, defaults: Defaults) {
-  const projectRoot = resolveHarnessLayout(rootDir).authoredRoot,
+  const layout = resolveHarnessLayout(rootDir),
+    projectRoot = layout.authoredRoot,
     projectScaffold = path.resolve(projectRoot, defaults.taskOverlay),
     relative = path.relative(projectRoot, projectScaffold);
   if (relative.startsWith("..") || path.isAbsolute(relative))
@@ -231,6 +232,7 @@ function presetResolverOptions(rootDir: string, defaults: Defaults) {
   return {
     userRoot: presetUserRoot(rootDir),
     projectRoot,
+    repoRoot: layout.rootDir,
     ciWorkflows: defaults.ciWorkflows,
     ...(existsSync(projectScaffold) ? { projectScaffold } : {}),
   };

@@ -28,6 +28,8 @@ export interface PresetResolverOptions {
   readonly kernelVersion?: string;
   readonly projectScaffold?: string;
   readonly projectRoot?: string;
+  /** Repository root above the authored root; the bootstrap reads the live `.github/pull_request_template.md` from it. */
+  readonly repoRoot?: string;
   /** Repository settings.ci.workflows; an empty list drops the `ci` completion gate from the resolved profile. */
   readonly ciWorkflows?: readonly string[];
 }
