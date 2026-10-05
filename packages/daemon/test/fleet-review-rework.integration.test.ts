@@ -55,6 +55,27 @@ test(
       assert.ok(event && event.type === "runtime_dispatch_requested");
       return event.payload.executionId;
     };
+    // A spawn receipt returns before the edge runtime's pending-work tail publishes the dispatch's
+    // runtime_session_liveness_changed event, so a ledger sample taken straight after the receipt
+    // still races that append. Wait for the discrete landed event instead of tolerating a drift.
+    const waitLivenessPublished = async (runtimeSessionIds: readonly string[]): Promise<void> => {
+      const deadline = performance.now() + 15_000;
+      for (;;) {
+        const live = new Set(
+          makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
+            .read()
+            .events.flatMap((event) =>
+              event.type === "runtime_session_liveness_changed" && event.payload.liveness === "live"
+                ? [event.payload.runtimeSessionId]
+                : [],
+            ),
+        );
+        if (runtimeSessionIds.every((runtimeSessionId) => live.has(runtimeSessionId))) return;
+        if (performance.now() >= deadline)
+          throw new Error(`Runtime liveness did not publish for ${runtimeSessionIds.join(", ")}.`);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    };
     for (let iteration = 0; iteration < 3; iteration += 1) {
       const executionId = `execution-rework-${iteration}`;
       const started = await fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId, executionId });
@@ -89,12 +110,15 @@ test(
         reason: "Review this iteration.",
       });
       assert.equal(forward.outcome, "applied", JSON.stringify(forward));
+      const reviewers: string[] = [];
       for (const explicit of [false, true]) {
         const result = await spawn(`review-${iteration}-${explicit}`, explicit ? executionId : undefined);
         assert.equal(result.outcome, "applied", JSON.stringify(result));
         assert.equal(boundExecution(result.dispatchId), executionId);
+        reviewers.push(String(result.runtimeSessionId));
       }
       if (iteration > 0) {
+        await waitLivenessPublished(reviewers);
         const before = ledgerRevision(fixture),
           launchCount = launches;
         await assert.rejects(spawn(`stale-${iteration}`, "execution-rework-0"), { code: "review_target_missing" });
