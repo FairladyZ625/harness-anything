@@ -198,6 +198,8 @@ export async function fleetTaskRoute(
     quotaBytes: config.quotaBytes,
     workspaceRoot: config.workspaceRoot,
     ...(config.waitTimeoutMs ? { waitTimeoutMs: config.waitTimeoutMs } : {}),
+    ...(config.maxAgeMs !== undefined ? { maxAgeMs: config.maxAgeMs } : {}),
+    ...(config.maxLagRevisions !== undefined ? { maxLagRevisions: config.maxLagRevisions } : {}),
     action,
   };
   if (typeof fromFile === "string" || typeof jsonInput === "string") {

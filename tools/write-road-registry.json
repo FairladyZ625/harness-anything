@@ -65,6 +65,7 @@
     "packages/daemon/src/fleet/edge.ts",
     "packages/daemon/src/fleet/replica-ack-store.ts",
     "packages/daemon/src/fleet/replica-cut-store.ts",
+    "packages/daemon/src/fleet/replica-read-model.ts",
     "packages/daemon/src/lifecycle-log.ts",
     "packages/daemon/src/managed-rbac-service.ts",
     "packages/daemon/src/migration-import-oracle-rebuild.ts",

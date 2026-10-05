@@ -423,9 +423,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
       const a = await nodeContext(nodeId, frame.repoId),
         replica = options.host.replica(a.repoId),
-        decision = await options.host.authorize(a.repoId, "daemon-fleet-edge-sync", await readerAuth(a));
+        // Mirroring is reading: the node owner's repository-read admits the replica, the same authority
+        // a center-forwarded read checks (dec_D8497012F42A999E054D7ADF6A CH4).
+        decision = await options.host.authorize(a.repoId, "repository-read", await readerAuth(a));
       if (decision.outcome !== "allowed")
-        throw new FleetFault("authorization_denied", "The node owner may not mirror this repository.");
+        throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
       replica.activate();
       const ledgerCut = replica.ledgerCut();
       if (!ledgerCut || ledgerCut.revision === 0)

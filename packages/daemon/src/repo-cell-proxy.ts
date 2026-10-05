@@ -19,6 +19,7 @@ import {
   readTaskDispatchSession,
 } from "./dispatch-read.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
+import { centerTaskReadModel } from "./fleet/replica-read-model.ts";
 import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
@@ -130,6 +131,7 @@ export async function openRepoCellProxy(
       readContentBlob: (sha256) => readCurrentLedger((store) => store.readContentBlob(sha256)),
       readEvent: (opId) => readCurrentLedger((store) => store.readEvent(opId)),
       readApplied: (opId) => reader.withSession((projection) => projection.readOperation(opId)),
+      readTaskReadModel: () => reader.withSession((projection) => centerTaskReadModel(projection)),
     }),
     readSession = (runtimeSessionId: string) =>
       reader.withSession((projection) => readObservedRuntimeSession(projection, input.rootDir, runtimeSessionId)),

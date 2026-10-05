@@ -25,7 +25,7 @@ import { runFleetRepositoryReadClient, runFleetReplicaPullClient } from "../src/
 import { catalogWithNodeAdapters } from "../src/gui-catalog.ts";
 
 test(
-  "viewer edges read the center cut, page to the tail, and immediately lose revoked repository authority",
+  "viewer edges read the center cut, page to the tail, and lose revoked repository authority at the center and at the next edge sync",
   { timeout: 120_000 },
   async (t) => {
     let edge: Awaited<ReturnType<typeof openDaemonHost>> | undefined;
@@ -410,14 +410,14 @@ test(
       0,
       "successful reads do not mirror the SQL projection",
     );
-    await assert.rejects(
-      runFleetReplicaPullClient({
-        ...f.peer("node-one"),
-        viewRoot: path.join(f.root, "sync-denied"),
-        diskQuotaBytes: 64 * 1024 * 1024,
-      }),
-      { code: "authorization_denied" },
-    );
+    // Mirroring is reading: a viewer's node receives the replica its repository-read admits, which is
+    // what lets its edge answer reads locally (dec_0C26B97C5B6CEA37101FC0A84D).
+    const viewerPull = await runFleetReplicaPullClient({
+      ...f.peer("node-one"),
+      viewRoot: config.viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+    });
+    assert.equal(viewerPull.current.cut.revision > 0, true);
     await assert.rejects(
       runFleetRepositoryReadClient({
         ...f.peer("node-two"),
@@ -439,6 +439,16 @@ test(
     await refusedAgentRead(/authorization_denied/);
     await refusedCatalogRead(/authorization_denied/);
     await refusedCatalogReread(/authorization_denied/);
+    // The edge answers task list from rows already delivered to it; a revocation reaches those rows at
+    // the node's next sync, which the center refuses and the edge records by withholding them.
+    await assert.rejects(
+      runFleetReplicaPullClient({
+        ...f.peer("node-one"),
+        viewRoot: config.viewRoot,
+        diskQuotaBytes: config.quotaBytes,
+      }),
+      { code: "authorization_denied" },
+    );
     const revokedCli = await runFleetEdgeTask(
       { payload: { ...config, workspaceRoot: edgeRoot, action: { kind: "task-list" } } },
       async () => longToken,

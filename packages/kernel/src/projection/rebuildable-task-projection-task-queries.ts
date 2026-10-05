@@ -22,6 +22,7 @@ import {
 import type { RuntimeDispatchProjectionRow, TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
+import { readTaskReadModelRows } from "./read-model.ts";
 import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
 import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-reads.ts";
 import {
@@ -154,6 +155,7 @@ export function taskQueryApi(
   | "readTaskRelationNeighborhood"
   | "readTaskIndex"
   | "readTaskChildCounts"
+  | "readTaskReadModel"
   | "readWorkspaceSummary"
   | "readTaskDependencyClosure"
   | "readTaskRelationsByTargets"
@@ -206,6 +208,11 @@ export function taskQueryApi(
         };
       });
     },
+    readTaskReadModel: () =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const cut = readProjectionCut(db, readHead);
+        return { status: cut.status, sourceRevision: cut.sourceRevision, rows: readTaskReadModelRows(db) };
+      }),
     readTaskChildCounts: (parentTaskIds) =>
       withDatabase(projectionPath, readHead, (db) => readTaskChildCounts(db, parentTaskIds)),
     readWorkspaceSummary: () =>

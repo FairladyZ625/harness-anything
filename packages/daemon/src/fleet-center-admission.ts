@@ -109,7 +109,7 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
           new Error(
             // The machine was recognized and its owner lacks the action; no credential change fixes that.
             error.code === "authorization_denied"
-              ? `${error.message} Ask a center administrator to grant the node's owner daemon-fleet-edge-sync` +
+              ? `${error.message} Ask a center administrator to grant the node's owner repository-read` +
                 " on this repository, then retry the edge sync."
               : `${error.message} Register the node at the center and use the credential it issued,` +
                 " or correct --node-id / --credential, then retry the edge sync.",

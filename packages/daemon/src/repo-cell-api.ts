@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { writeFileDurably, removeFileDurably } from "./durable-file.ts";
+import { queryPayloadFacets as sharedQueryPayloadFacets, taskListQueryFromPayload } from "./repo-query-payload.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import {
@@ -27,13 +28,11 @@ import {
   buildEntityKindCatalog,
   deriveUseCaseProjectionInputs,
   durablePolicyActions,
-  isDomainStatus,
   projectDecisionReadiness,
   relationDirections,
   relationStates,
   relationTypes,
   runtimeSessionActionIds,
-  timestamp,
   type CanonicalEventStore,
   type DaemonRepoMode,
   type EventPublicationKillpoint,
@@ -306,7 +305,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.settings.read": () =>
       daemonSettingsRead(context.settings.read(), settingsLastChanged(context.store, context.projection)),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
-      queryRead().guiTasks(taskListQueryFromPayload(payload)),
+      queryRead().guiTasks(taskListQueryFromPayload(payload, context.cellCodedError)),
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),
     "repo.works.index": () => workIndexFromProjection(context.projection),
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
@@ -485,19 +484,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     return context.dispatchRead(readHandlers, method, payload, binding) as DaemonGuiReadResultMap[typeof method];
   };
   const read: RepoCell["read"] = async (method, payload = {}, binding) => readNow(method, payload, binding);
-  // Narrow/paged query payload for the task list read: an empty payload keeps one default-bounded
-  // page (guiTasks defaults `limit` to 500, the GUI page width); any explicit facet passes through as given.
-  function taskListQueryFromPayload(payload: Readonly<Record<string, unknown>>): TaskProjectionListQuery {
-    const common = queryPayloadFacets(payload, "repo.tasks.list");
-    return {
-      ...(common.status ? { status: common.status as TaskProjectionListQuery["status"] } : {}),
-      ...(common.changedAfterRevision === undefined ? {} : { changedAfterRevision: common.changedAfterRevision }),
-      ...(common.updatedAfter ? { updatedAfter: common.updatedAfter } : {}),
-      ...(common.updatedBefore ? { updatedBefore: common.updatedBefore } : {}),
-      ...(common.limit === undefined ? {} : { limit: common.limit }),
-      ...(common.cursor ? { cursor: common.cursor } : {}),
-    };
-  }
   /**
    * The single serving point for every named use-case projection. Selector admission happens once,
    * in `admitUseCaseProjectionSelector`, so an unknown name, an inadmissible facet and a smuggled
@@ -534,7 +520,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     return { ...envelope, projection: context.runtimeReads.sessionGroups(selector) };
   }
   function taskListQueryFromAction(action: RepoTaskAction): TaskProjectionListQuery {
-    return taskListQueryFromPayload(action);
+    return taskListQueryFromPayload(action, context.cellCodedError);
   }
   function relationQueryFromAction(action: RepoTaskAction) {
     const common = queryPayloadFacets(
@@ -640,47 +626,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     payload: Readonly<Record<string, unknown>>,
     method: "repo.tasks.list" | "repo.triadic.relationGraph",
   ) {
-    const status = typeof payload.status === "string" ? payload.status : undefined,
-      changedAfterRevision =
-        payload.changedAfterRevision === undefined ? undefined : Number(payload.changedAfterRevision),
-      updatedAfter = typeof payload.updatedAfter === "string" ? payload.updatedAfter : undefined,
-      updatedBefore = typeof payload.updatedBefore === "string" ? payload.updatedBefore : undefined,
-      limit = payload.limit === undefined ? undefined : Number(payload.limit),
-      cursor = typeof payload.cursor === "string" ? payload.cursor : undefined;
-    if (
-      changedAfterRevision !== undefined &&
-      (method !== "repo.tasks.list" || !Number.isSafeInteger(changedAfterRevision) || changedAfterRevision < 0)
-    )
-      throw context.cellCodedError("invalid_command", "Task changedAfterRevision must be a non-negative integer.");
-    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
-      throw context.cellCodedError("invalid_command", "Query limit must be an integer between 1 and 500.");
-    if (
-      [updatedAfter, updatedBefore].some((value) => value !== undefined && !timestamp(value)) ||
-      (updatedAfter && updatedBefore && updatedAfter > updatedBefore)
-    )
-      throw context.cellCodedError("invalid_command", "Query time window must use ordered ISO-8601 timestamps.");
-    if (cursor !== undefined && !cursor) throw context.cellCodedError("invalid_command", "Query cursor is invalid.");
-    const stateInvalid =
-      status !== undefined &&
-      (method === "repo.tasks.list"
-        ? !isDomainStatus(status)
-        : !(relationStates as readonly string[]).includes(status));
-    if (stateInvalid) throw context.cellCodedError("invalid_command", "Query status is invalid for this read.");
-    return {
-      explicit:
-        status !== undefined ||
-        changedAfterRevision !== undefined ||
-        updatedAfter !== undefined ||
-        updatedBefore !== undefined ||
-        limit !== undefined ||
-        cursor !== undefined,
-      status,
-      changedAfterRevision,
-      updatedAfter,
-      updatedBefore,
-      limit,
-      cursor,
-    };
+    return sharedQueryPayloadFacets(payload, method, context.cellCodedError);
   }
   // The wide task queries live in task-query-read.ts so the daemon and the scale
   // harness share one real read implementation; the closeout/blocking domain

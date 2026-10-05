@@ -15,6 +15,8 @@ export interface FleetEdgeConfig {
   readonly viewRoot: string;
   readonly quotaBytes: number;
   readonly waitTimeoutMs?: number;
+  readonly maxAgeMs?: number;
+  readonly maxLagRevisions?: number;
 }
 export class FleetEdgeConfigError extends Error {
   readonly code: string;
@@ -58,6 +60,12 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
   const waitTimeoutMs = row.waitTimeoutMs === undefined ? undefined : Number(row.waitTimeoutMs);
   if (waitTimeoutMs !== undefined && (!Number.isSafeInteger(waitTimeoutMs) || waitTimeoutMs <= 0))
     fail("waitTimeoutMs must be a positive integer when present");
+  const maxAgeMs = row.maxAgeMs === undefined ? undefined : Number(row.maxAgeMs),
+    maxLagRevisions = row.maxLagRevisions === undefined ? undefined : Number(row.maxLagRevisions);
+  if (maxAgeMs !== undefined && (!Number.isSafeInteger(maxAgeMs) || maxAgeMs < 0))
+    fail("maxAgeMs must be a non-negative integer when present");
+  if (maxLagRevisions !== undefined && (!Number.isSafeInteger(maxLagRevisions) || maxLagRevisions < 0))
+    fail("maxLagRevisions must be a non-negative integer when present");
   return {
     repoId: text("repoId")!,
     host: text("host")!,
@@ -69,5 +77,7 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
     viewRoot: text("viewRoot")!,
     quotaBytes,
     ...(waitTimeoutMs !== undefined ? { waitTimeoutMs } : {}),
+    ...(maxAgeMs !== undefined ? { maxAgeMs } : {}),
+    ...(maxLagRevisions !== undefined ? { maxLagRevisions } : {}),
   };
 }

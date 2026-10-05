@@ -442,12 +442,12 @@ test(
       assert.doesNotMatch(String(ungranted.receipt.rejectionExplanation), /credential/u);
       assert.equal(existsSync(path.join(fixture.edgeRepo, "harness", planPath)), false, "nothing was mirrored");
 
-      // 4. With the grant in place the same command completes the first sync, no center restart in between.
+      // 4. With repository-read granted the same command completes the first sync, no center restart in between.
       await realm.control({
         op: "permit",
         personId: "edge-operator",
         resource: "fleet-demo",
-        actions: ["daemon-fleet-edge-sync"],
+        actions: ["repository-read"],
       });
       let first = sync(credential);
       for (let attempt = 0; attempt < 40 && first.receipt.code === "replica_pending"; attempt += 1)
@@ -473,9 +473,9 @@ test(
           quotaBytes,
         }),
       );
-      const unreadable = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
-      assert.equal(unreadable.status, 1);
-      assert.equal(unreadable.receipt.code, "authorization_denied", "sync permission does not grant repository reads");
+      // Mirroring is reading: the one repository-read grant admits both the sync and the reads.
+      const readable = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
+      assert.equal(readable.status, 0, JSON.stringify(readable.receipt));
 
       // 5. A wrong credential for the now-registered node is refused by the center with the credential code.
       const loginCount = (await logins()).length;

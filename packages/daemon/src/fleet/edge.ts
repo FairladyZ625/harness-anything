@@ -15,6 +15,7 @@ import {
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
 import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
+import { recordHeadConfirmation, recordRepoReadDenied } from "./replica-read-model.ts";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, writeFileDurably } from "../durable-file.ts";
 import {
@@ -199,6 +200,7 @@ function finish(
     expected = begin.schema === "fleet.snapshot.begin/v1" ? begin.manifest.digest : begin.resultManifestDigest,
     already = readJson<Current>(path.join(viewRoot, "current.json"));
   if (JSON.stringify(already?.cut) === JSON.stringify(cut) && already?.manifestDigest === expected) {
+    recordHeadConfirmation(viewRoot, cut.revision);
     rmSync(staging, { recursive: true, force: true });
     return ack(begin.transferId, cut, expected);
   }
@@ -292,6 +294,7 @@ function finish(
     active = readJson<Current>(path.join(viewRoot, "current.json"));
   if (!reopened || !active || reopened.manifestDigest !== digest || JSON.stringify(active.cut) !== JSON.stringify(cut))
     throw new Error("atomic view verification failed");
+  recordHeadConfirmation(viewRoot, cut.revision);
   collect(viewRoot, casRoot, cut.revision);
   rmSync(staging, { recursive: true, force: true });
   return ack(begin.transferId, cut, digest);
@@ -771,6 +774,15 @@ export async function runFleetScheduleCommandClient(
 export async function runFleetReplicaPullClient(
   options: FleetReplicaPullClientOptions,
 ): Promise<FleetReplicaPullClientResult> {
+  try {
+    return await pullReplica(options);
+  } catch (error) {
+    if (error instanceof FleetRemoteError && error.code === "authorization_denied")
+      recordRepoReadDenied(options.viewRoot, options.repoId);
+    throw error;
+  }
+}
+async function pullReplica(options: FleetReplicaPullClientOptions): Promise<FleetReplicaPullClientResult> {
   const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint),
     session = await openPeer(options);
   let last: FleetReplicaPullClientResult["replica"] | null = null;
@@ -791,6 +803,10 @@ export async function runFleetReplicaPullClient(
             current.manifestDigest !== inbound.manifestDigest
           )
             throw new Error("center current differs from edge current");
+          recordHeadConfirmation(
+            path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId),
+            inbound.cut.revision,
+          );
           return { replica: last ?? inbound, current };
         }
         const response = view.receive(inbound);

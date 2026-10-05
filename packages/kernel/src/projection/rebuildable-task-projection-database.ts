@@ -8,6 +8,7 @@ import { createFactProjectionTables } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
+import { TASK_INDEX_TABLES_SQL } from "./read-model.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
@@ -474,26 +475,7 @@ function createTables(db: DatabaseSync): void {
       revision INTEGER NOT NULL,
       state_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS task_snapshot (
-      task_id TEXT PRIMARY KEY,
-      workspace_revision INTEGER NOT NULL,
-      snapshot_json TEXT NOT NULL,
-      status TEXT,
-      pinned INTEGER NOT NULL GENERATED ALWAYS AS (
-        json_extract(snapshot_json, '$.task.pinned')
-      ) STORED,
-      package_disposition TEXT NOT NULL GENERATED ALWAYS AS (
-        COALESCE(json_extract(snapshot_json, '$.task.packageDisposition'), 'active')
-      ) STORED,
-      updated_at TEXT NOT NULL DEFAULT ''
-    );
-    CREATE INDEX IF NOT EXISTS task_snapshot_status_updated ON task_snapshot(status, updated_at DESC, task_id ASC);
-    CREATE INDEX IF NOT EXISTS task_snapshot_updated_task ON task_snapshot(updated_at DESC, task_id ASC);
-    CREATE INDEX IF NOT EXISTS task_snapshot_revision_task ON task_snapshot(workspace_revision, task_id ASC);
-    CREATE INDEX IF NOT EXISTS task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC);
-    CREATE INDEX IF NOT EXISTS task_snapshot_parent
-      ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
-    CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);
+${TASK_INDEX_TABLES_SQL}
     CREATE TABLE IF NOT EXISTS task_generation (
       task_id TEXT PRIMARY KEY,
       generation TEXT NOT NULL CHECK(generation IN ('v0','v1'))
