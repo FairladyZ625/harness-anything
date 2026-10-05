@@ -256,6 +256,7 @@ async function fleetControl(
     ? await resolveLocalDaemonTarget({
         rootDir: path.resolve(flag("--root") ?? process.cwd()),
         repoIdOverride: flag("--repo"),
+        registrationMode: "remote-edge",
         userRoot,
         daemonId,
       })
