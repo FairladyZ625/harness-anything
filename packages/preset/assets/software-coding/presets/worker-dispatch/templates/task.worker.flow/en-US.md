@@ -21,7 +21,6 @@ State the outcome this worker owns and what a successful handoff makes possible.
 - [ ] The requested outcome is observable.
 - [ ] Relevant tests or checks pass.
 - [ ] Evidence is attached to the handoff.
-- [ ] The task package `artifacts/explainer.html` is updated alongside this round's delivery.
 
 ## Stop Conditions
 
@@ -31,6 +30,5 @@ Stop and report when scope, authority, required input, or a destructive choice i
 
 - Commit only files owned by this assignment.
 - Report the commit, changed files, verification, and residual risks.
-- Update the task package `artifacts/explainer.html` incrementally at the end of each round (living explainer page: single inlined file, no external dependencies, light readable theme); freeze it at closeout.
 - Before handoff, rebase onto the latest `origin/main` and rerun the evidence commands.
 - Submit task-bound receipts only through `ha doc sync --submit --task <task-id>`.

@@ -21,7 +21,6 @@
 - [ ] 请求的结果可以被观察或复核。
 - [ ] 相关测试或检查通过。
 - [ ] 移交中附有证据。
-- [ ] 任务包 `artifacts/explainer.html` 与本轮交付同步更新。
 
 ## Stop Conditions
 
@@ -31,6 +30,5 @@
 
 - 只提交本次派活负责的文件。
 - 回报 commit、变更文件、验证结果和残余风险。
-- 每轮收尾增量更新任务包 `artifacts/explainer.html`（活解释页：单文件内联、零外网依赖、浅色适读），closeout 时冻结该页。
 - 交付前先 rebase 到最新 `origin/main`，再重跑证据命令。
 - task-bound 回执只经 `ha doc sync --submit --task <task-id>` 提交。
