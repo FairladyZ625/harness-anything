@@ -82,10 +82,14 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     assert.equal(html.ok, true);
     assert.equal(html.kind, "html");
     assert.equal(html.repoId, workspaceId(repoId));
-    assert.deepEqual(html.counts, { html: 2, md: 1, raw: 3 });
+    assert.deepEqual(html.counts, { html: 3, md: 1, raw: 3 });
     // 两个文件都产自本测试的"现在",先后取决于毫秒级时钟,断言集合而非顺序。
     const htmlPaths = [...html.artifacts.map((row) => row.path)].sort();
-    assert.deepEqual(htmlPaths, ["artifacts/reports/weathering-escalation-decisions.html", "artifacts/unsynced.html"]);
+    assert.deepEqual(htmlPaths, [
+      "artifacts/explainer.html",
+      "artifacts/reports/weathering-escalation-decisions.html",
+      "artifacts/unsynced.html",
+    ]);
     const committed = html.artifacts.find(
       (row) => row.path === "artifacts/reports/weathering-escalation-decisions.html",
     )!;

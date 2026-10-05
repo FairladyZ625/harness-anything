@@ -81,17 +81,17 @@ export interface CompiledTaskBootstrap extends CompiledTaskPackage {
   readonly blobs: readonly TaskBootstrapBlob[];
 }
 
-const LIVING_EXPLAINER_TEMPLATE = `<!doctype html>
+const LIVING_EXPLAINER_TEMPLATE = (title: string) => `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Task explainer</title>
+<title>${title} | Task explainer</title>
 <style>
 :root{color-scheme:light}body{margin:0;padding:2rem;background:#faf7f0;color:#3d3833;font:16px/1.55 system-ui,sans-serif}main{max-width:72rem;margin:auto}h1{font-size:2rem;margin:0 0 1rem}section{border-top:1px solid #d8d0c4;padding:1rem 0}h2{font-size:1.1rem;margin:.2rem 0}.muted{color:#6d655d}
 </style>
 </head>
 <body><main>
-<h1>Task explainer</h1>
+<h1>${title}</h1>
 <p class="muted">Living summary. Update this page incrementally as the task progresses.</p>
 <section id="goal"><h2>Goal</h2><p>Pending.</p></section>
 <section id="changes"><h2>Changes</h2><p>Pending.</p></section>
@@ -211,8 +211,8 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           slot: "task.explainer",
           relativePath: "artifacts/explainer.html",
           path: `${packagePath}/artifacts/explainer.html`,
-          body: LIVING_EXPLAINER_TEMPLATE,
-          contentSha256: sha256Text(LIVING_EXPLAINER_TEMPLATE),
+          body: LIVING_EXPLAINER_TEMPLATE(input.title),
+          contentSha256: sha256Text(LIVING_EXPLAINER_TEMPLATE(input.title)),
           mediaType: "text/html" as const,
           owner: "doc-sync" as const,
           requiredAnchors: [],

@@ -37,6 +37,7 @@ test("repository skills are discoverable with agent metadata", () => {
     "harness-reckoning",
     "preset-creator",
     "preset-trigger",
+    "task-explainer-html",
     "vertical-creator",
   ]);
   for (const skillName of [

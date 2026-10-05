@@ -17,7 +17,6 @@ import type {
   ReceiptDiagnostic,
   TaskProjection,
   TaskWipRootRow,
-  TaskWorktreeBindingV1,
   EntityActionExplanationSetV1,
   EntityKindCatalogV1,
   VerticalDefinition,
@@ -41,6 +40,7 @@ import type {
 import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contract.ts";
 import type { ArtifactsListResult } from "./artifacts-gui-contract.ts";
+import type { DaemonTaskRuntimeContextResult } from "./daemon-protocol-runtime-context.ts";
 import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import {
   taskStatusWords,
@@ -404,14 +404,7 @@ export type DaemonGuiReadResultMap = {
    * the bounded causal-context block the worker prompt carries, the task's frozen profile id, and its
    * worktree binding (dec_57370FF2021DADF04E3B21724D CH1) — fleet edges read it through
    * `fleet.runtime.read/v1`. */
-  readonly "repo.tasks.runtimeContext.read": {
-    readonly schema: "task-runtime-context-read/v1";
-    readonly ok: true;
-    readonly taskId: string;
-    readonly causalContext: string | null;
-    readonly profileId: string | null;
-    readonly worktree: TaskWorktreeBindingV1 | null;
-  };
+  readonly "repo.tasks.runtimeContext.read": DaemonTaskRuntimeContextResult;
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
   readonly "repo.artifacts.list": ArtifactsListResult;
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
