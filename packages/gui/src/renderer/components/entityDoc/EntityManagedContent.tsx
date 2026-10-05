@@ -230,7 +230,7 @@ function ContentBody({
     );
   if (content.outcome === "file")
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="entity-managed-content-text">
+      <div className="min-h-0 flex-1" data-testid="entity-managed-content-text">
         <DocReader content={content.content ?? ""} />
       </div>
     );

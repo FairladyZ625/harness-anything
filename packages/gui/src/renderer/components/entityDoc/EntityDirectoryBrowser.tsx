@@ -198,7 +198,7 @@ function DirectoryFileViewer({ repoId, path }: { readonly repoId: string; readon
       </div>
     );
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto" data-testid="entity-directory-file-markdown">
+    <div className="min-h-0 flex-1" data-testid="entity-directory-file-markdown">
       <DocReader content={content.content ?? ""} />
     </div>
   );

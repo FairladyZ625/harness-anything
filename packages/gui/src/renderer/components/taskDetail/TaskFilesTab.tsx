@@ -1,7 +1,6 @@
 import { RegionDragHandle, RegionLayoutControls } from "../primitives/page-regions.tsx";
 import { useEffect, useMemo } from "react";
-import { CaretRight, FileText } from "@phosphor-icons/react";
-import { EntityRefLink, entityRefOf } from "../EntityRefLink.tsx";
+import { FileText } from "@phosphor-icons/react";
 import { DocReader } from "../DocReader.tsx";
 import { HtmlArtifactPreview } from "../HtmlArtifactPreview.tsx";
 import { buildDocTree, projectedDocuments } from "../../model/docTree.ts";
@@ -54,11 +53,9 @@ export function TaskDocumentSidebar(props: TaskDocumentSidebarProps) {
       className="flex min-h-0 min-w-0 flex-col border-b border-border bg-surface @min-[1100px]:border-r @min-[1100px]:border-b-0"
       data-testid="task-document-tree"
     >
+      {/* 区域标题由把手簇渲染(区域 spec 的「任务文件」);头部行只剩把手与布局控件。 */}
       <div className="flex shrink-0 items-center gap-1 px-2 py-1">
         <RegionDragHandle />
-        <p className="min-w-0 truncate font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">
-          Task 文件
-        </p>
         <span className="ml-auto shrink-0">
           <RegionLayoutControls />
         </span>
@@ -84,30 +81,15 @@ export function TaskFilesTab({
   task,
   activeDoc,
   onOpenDoc,
-  onNavigateEntity,
 }: {
   readonly task: TaskRow;
   readonly activeDoc: string;
   /** 包内相对链接的导航出口(task_89d324b5):正文里点 `artifacts/x.md` 直接切到该文件。 */
   readonly onOpenDoc?: (path: string) => void;
-  /** 面包屑里的任务编号经 EntityRefLink 激活(G10);不提供回调时退回纯文本。 */
-  readonly onNavigateEntity?: (ref: string) => void;
 }) {
+  // 任务编号与文件路径不在这里复读:页头面包屑已有任务身份,树选中态已指明当前文件。
   return (
-    <section className="min-w-0" data-testid="task-files-tab">
-      <div className="mb-4 flex flex-wrap items-center gap-1.5 border-b border-border pb-3">
-        {onNavigateEntity ? (
-          <EntityRefLink
-            entityRef={entityRefOf("task", task.taskId)}
-            onNavigate={onNavigateEntity}
-            className="font-mono ui-micro text-text-faint hover:underline"
-          />
-        ) : (
-          <span className="font-mono ui-micro text-text-faint">{task.taskId}</span>
-        )}
-        <CaretRight weight="bold" className="ui-micro text-text-faint" />
-        <span className="font-mono ui-micro text-text-muted">{activeDoc || "未选择文件"}</span>
-      </div>
+    <section className="flex h-full min-h-0 min-w-0 flex-col" data-testid="task-files-tab">
       <TaskFileBody
         repoId={task.projectId}
         taskId={task.taskId}
@@ -147,19 +129,21 @@ function TaskFileBody({ repoId, taskId, path, packagePath, onOpenDoc }: TaskFile
   if (document.data.blobSha256 === null && document.data.worktreeBody === null)
     return <FileEmpty text="该文件尚未物化。" />;
   const content = isHtmlDocument(path) ? (
-    <HtmlArtifactPreview content={body} path={path} />
+    <HtmlArtifactPreview fillAvailable content={body} path={path} />
   ) : (
     <DocReader
       content={body}
+      status={{
+        testId: "task-document-status",
+        text: uncommitted ? "L2 · 工作树未提交" : `L2 · ${document.data.status}`,
+        warn: uncommitted,
+      }}
       packageBasePath={packagePath !== null && path !== null ? `${packagePath}/${path}` : null}
       onOpenPackageDoc={onOpenDoc}
     />
   );
   return (
     <>
-      <span data-testid="task-document-status" className="mb-3 block font-mono ui-micro text-text-faint">
-        {uncommitted ? "L2 · 工作树未提交" : `L2 · ${document.data.status}`}
-      </span>
       {uncommitted && (
         <p
           data-testid="task-document-uncommitted"
@@ -171,7 +155,7 @@ function TaskFileBody({ repoId, taskId, path, packagePath, onOpenDoc }: TaskFile
           工作树内容尚未提交:以下为磁盘当前内容,与已提交投影不同。
         </p>
       )}
-      {content}
+      <div className="min-h-0 flex-1">{content}</div>
     </>
   );
 }

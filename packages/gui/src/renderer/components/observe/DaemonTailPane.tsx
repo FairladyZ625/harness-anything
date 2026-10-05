@@ -278,7 +278,7 @@ export function DaemonTailPane({
   return (
     <section
       data-testid={`observe-pane-${kind}`}
-      className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface"
     >
       <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <h2 className="ui-body font-semibold">

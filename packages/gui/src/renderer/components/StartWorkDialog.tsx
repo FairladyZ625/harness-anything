@@ -413,7 +413,7 @@ function ResourcesStep({
             <p className="mt-2 ui-micro text-text-muted">{t("views.work.startWork.planLabel")}</p>
             <pre
               data-testid="start-work-plan-body"
-              className="mt-1 bounded-content overflow-auto rounded border border-border bg-surface px-2.5 py-2 ui-micro whitespace-pre-wrap text-text-muted"
+              className="mt-1 rounded border border-border bg-surface px-2.5 py-2 ui-micro whitespace-pre-wrap text-text-muted"
             >
               {draft.intent}
             </pre>

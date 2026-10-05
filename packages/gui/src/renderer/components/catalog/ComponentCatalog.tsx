@@ -479,6 +479,7 @@ function ComponentCatalog() {
             切换单栏、双栏与窄容器，验证长文内部纵滚、宽表内部横滚及工具栏可达。
           </p>
           <DocReader
+            fill={false}
             content={[
               "# 查看器示例",
               "",

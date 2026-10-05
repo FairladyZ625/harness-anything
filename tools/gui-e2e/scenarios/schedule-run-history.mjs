@@ -96,5 +96,21 @@ export default {
     await page.getByTestId("schedule-detail-back").click();
     await page.getByTestId("schedule-runs-timeline").waitFor();
     await shot("schedule-run-history-detail");
+
+    // 9. 新建表单弹层(Modal S6):未传 footer 的对话框不再渲染空 footer 带;取消回列表。
+    //    (详情页的「编辑」是内联表单,Modal 形态挂在列表页的「新建」。)
+    await page.getByTestId("schedule-detail-back").click();
+    await page.getByTestId("schedules-view").waitFor();
+    await page.getByTestId("schedule-action-create").click();
+    const dialog = page.getByTestId("schedule-form-dialog");
+    await dialog.waitFor();
+    assert.equal(
+      await dialog.locator("footer").count(),
+      0,
+      "a modal without a footer prop must not render an empty footer band",
+    );
+    await shot("schedule-form-modal");
+    await page.getByTestId("schedule-form-cancel").click();
+    await page.getByTestId("schedules-view").waitFor();
   },
 };

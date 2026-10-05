@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { t } from "../../i18n";
-import { BoundedContent } from "./BoundedContent";
 
 export function Modal({
   title,
@@ -15,7 +14,8 @@ export function Modal({
   readonly hint?: string;
   readonly wide?: boolean;
   readonly testId?: string;
-  readonly footer: ReactNode;
+  /** 未传时不渲染 footer 带;外壳 85dvh 限高,长内容在正文内滚动。 */
+  readonly footer?: ReactNode;
   readonly onClose: () => void;
   readonly children: ReactNode;
 }) {
@@ -53,8 +53,8 @@ export function Modal({
             ✕
           </button>
         </header>
-        <BoundedContent className="min-h-0 flex-1 px-3.5 py-3">{children}</BoundedContent>
-        <footer className="shrink-0 border-t border-border px-3.5 py-2.5">{footer}</footer>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-3">{children}</div>
+        {footer !== undefined && <footer className="shrink-0 border-t border-border px-3.5 py-2.5">{footer}</footer>}
       </div>
     </dialog>
   );

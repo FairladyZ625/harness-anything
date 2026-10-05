@@ -488,10 +488,12 @@ describe("Task detail expression", () => {
     expect(webview.getAttribute("partition")).toBe("html-artifact-preview");
     expect(webview.getAttribute("preload")).toBeNull();
     expect(webview.getAttribute("src")).toMatch(/^data:text\/html;charset=utf-8,/u);
-    // 非 fill 布局:host 必须是定高(h-[42rem]),webview 的 height:100% 才有可解析的
-    // 百分比基准;只给 min-height 时 webview 会落回 150px 默认高(task_419dc330)。
+    // 文件页 html 预览是 pane 主正文:与产物页同一 fill 契约,高度链 flex 到 webview,
+    // 长页面滚动留在 guest 内部;定高 h-[42rem] 卡形态只留给嵌入场景(产物页同款断言)。
     const host = byTestId("html-artifact-host");
-    expect(host.classList.contains("h-[42rem]")).toBe(true);
+    expect(host.classList.contains("flex-1")).toBe(true);
+    expect(host.classList.contains("min-h-0")).toBe(true);
+    expect(host.classList.contains("h-[42rem]")).toBe(false);
     expect(webview.classList.contains("html-artifact-webview")).toBe(true);
   });
 

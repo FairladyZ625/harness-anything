@@ -617,7 +617,6 @@ export function ScheduleFormDialog({
       title={t(initial === null ? "schedules.form.createTitle" : "schedules.form.editTitle")}
       hint={initial?.scheduleId}
       onClose={onCancel}
-      footer={<span />}
     >
       <ScheduleForm
         options={options}

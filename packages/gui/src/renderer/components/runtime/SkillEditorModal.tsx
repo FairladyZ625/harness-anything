@@ -175,7 +175,7 @@ export function SkillEditorModal({
       ) : !read.ok ? (
         <LocalDocError result={read} />
       ) : view === "preview" ? (
-        <DocReader content={source} />
+        <DocReader content={source} fill={false} />
       ) : (
         <textarea
           aria-label={t("agentRuntime.skillModal.editTab")}
