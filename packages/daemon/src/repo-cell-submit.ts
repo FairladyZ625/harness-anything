@@ -240,8 +240,15 @@ export function deriveCloseoutSubmission(
     baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined,
     defaultBranch = repositoryBaseRef(root),
     mergeBase = defaultBranch ? git.run(root, ["merge-base", defaultBranch, commitSha]) : { ok: false, stdout: "" },
+    // No new work: an inferred delivery commit at or behind the start-frozen baseline never moved
+    // past where the project already was when the execution started. An explicitly requested commit
+    // stays the operator's own cut assertion and keeps the fork-point manifest rule (F-70FB11C4).
     unchanged =
-      baseline?.kind === "commit" ? baseline.commitSha === commitSha : baseline === undefined && bound === commitSha;
+      baseline?.kind === "commit"
+        ? baseline.commitSha === commitSha ||
+          (requestedCommit === undefined &&
+            git.run(root, ["merge-base", "--is-ancestor", commitSha, baseline.commitSha]).ok)
+        : baseline === undefined && bound === commitSha;
   let deliverables: readonly string[], commitOutputs: readonly string[];
   // An unchanged published HEAD is a delivery only when this task's earlier cut owns it.
   // The execution baseline detects new work; task history, rather than that observation,
@@ -254,10 +261,14 @@ export function deriveCloseoutSubmission(
       unchanged &&
       snapshot.executions.some((prior) => {
         const sha = prior.executionId !== executionId ? prior.submission?.commitSha : null;
+        // Only a commit the merge introduced — reachable from its second parent yet absent from
+        // main before it — evidences an earlier delivery of this cut. Any older main commit is
+        // also reachable from the merged branch and would adopt another PR's manifest.
         return (
           !!sha &&
           (secondParent?.ok === true
-            ? git.run(root, ["merge-base", "--is-ancestor", sha, secondParent.stdout]).ok
+            ? git.run(root, ["merge-base", "--is-ancestor", sha, secondParent.stdout]).ok &&
+              !git.run(root, ["merge-base", "--is-ancestor", sha, `${commitSha}^1`]).ok
             : sha === commitSha)
         );
       });

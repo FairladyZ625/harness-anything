@@ -799,20 +799,34 @@ test("a restarted task retains the first-parent diff for its earlier delivery an
     worker = path.join(root, ".worktrees/task-1"),
     delivery = git(root, "rev-parse", `${merged}^2`);
   git(root, "worktree", "add", "-qb", "task-1", worker, merged);
-  for (const prior of [delivery, git(root, "rev-parse", `${delivery}^1`)]) {
-    const packet = derive(
-      root,
-      "Re-delivered.",
-      undefined,
-      ["ci"],
-      undefined,
-      { kind: "commit", commitSha: merged },
-      undefined,
-      "repository-diff",
-      prior,
-    );
-    assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
-  }
+  const packet = derive(
+    root,
+    "Re-delivered.",
+    undefined,
+    ["ci"],
+    undefined,
+    { kind: "commit", commitSha: merged },
+    undefined,
+    "repository-diff",
+    delivery,
+  );
+  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
+  // The commit below the delivery tip is the fork point on old main: reachable from the merged
+  // branch, yet not introduced by the merge, so it evidences no delivery of this task.
+  const forkPointPrior = derive(
+    root,
+    "Prior cut named an old main commit.",
+    undefined,
+    ["ci"],
+    undefined,
+    { kind: "commit", commitSha: merged },
+    undefined,
+    "repository-diff",
+    git(root, "rev-parse", `${delivery}^1`),
+  );
+  assert.deepEqual(forkPointPrior.deliverables, []);
+  assert.deepEqual(forkPointPrior.outputs, []);
+  assert.equal(forkPointPrior.artifacts, undefined);
   const foreignPrior = derive(
     root,
     "Foreign prior cut.",
@@ -828,6 +842,75 @@ test("a restarted task retains the first-parent diff for its earlier delivery an
   assert.deepEqual(foreignPrior.deliverables, []);
   assert.deepEqual(foreignPrior.outputs, []);
   assert.equal(foreignPrior.artifacts, undefined);
+});
+
+/** A stale-checkout world: the bound task worktree sits at another PR's merge behind an advanced main. */
+function foreignMerge(t: TestContext) {
+  const { root } = fixture(t);
+  const branch = path.join(root, "foreign");
+  git(root, "worktree", "add", "-qb", "foreign/pr", branch);
+  put(branch, "src/foreign-pr.ts", "foreign\n");
+  commit(branch);
+  git(root, "merge", "--no-ff", "-qm", "test: merge foreign PR", "foreign/pr");
+  const stale = git(root, "rev-parse", "HEAD");
+  // Main advances past the foreign merge while the task checkout never moves.
+  put(root, "src/later-pr.ts", "later\n");
+  const later = commit(root);
+  git(root, "update-ref", "refs/remotes/origin/main", later);
+  git(root, "worktree", "remove", branch);
+  const worker = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worker, stale);
+  return { root, stale, later };
+}
+
+test("a stale worktree HEAD behind the frozen baseline claims no foreign merge files", (t) => {
+  const { root, stale, later } = foreignMerge(t);
+  const packet = derive(root, "Review-only round with no repository work.", undefined, ["ci"], undefined, {
+    kind: "commit",
+    commitSha: later,
+  });
+  assert.equal(packet.commitSha, stale);
+  assert.deepEqual(packet.deliverables, []);
+  assert.deepEqual(packet.outputs, []);
+});
+
+test("a prior cut that only recorded the stale merge inherits nothing on resubmit", (t) => {
+  const { root, stale, later } = foreignMerge(t);
+  const packet = derive(
+    root,
+    "Second review round.",
+    undefined,
+    ["ci"],
+    undefined,
+    { kind: "commit", commitSha: later },
+    undefined,
+    "repository-diff",
+    stale,
+  );
+  assert.equal(packet.commitSha, stale);
+  assert.deepEqual(packet.deliverables, []);
+  assert.deepEqual(packet.outputs, []);
+});
+
+// Negative control: the restarted checkout sits at this task's own merge behind an advanced
+// baseline, and the earlier cut recorded the merged branch tip — the manifest must survive.
+test("a restarted delivery whose own branch merged keeps its manifest under an advanced baseline", (t) => {
+  const { root, merged, later } = movingMain(t),
+    worker = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worker, merged);
+  const packet = derive(
+    root,
+    "Re-delivered after restart.",
+    undefined,
+    ["ci"],
+    undefined,
+    { kind: "commit", commitSha: later },
+    undefined,
+    "repository-diff",
+    git(root, "rev-parse", `${merged}^2`),
+  );
+  assert.equal(packet.commitSha, merged);
+  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
 });
 
 test("documentation amendments pin new artifact bytes while unrelated ledger writes preserve the cut", (t) => {
