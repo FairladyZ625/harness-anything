@@ -170,7 +170,9 @@ export function SessionTranscript({
       ref={scrollRef}
       data-testid="session-transcript"
       onScroll={(event) => onTranscriptScroll(event, loadOlder)}
-      className="min-h-0 flex-1 overflow-y-auto rounded border border-border"
+      // 会话详情是整页滚动流,卡片没有有界高度可分:flex-1 从未生效。改用与结果正文
+      // 同一条有界滚动契约(bounded-content,§4.1),长转写在卡内滚动、加载条不再随页滚走。
+      className="bounded-content rounded border border-border"
     >
       {!historyDone && (
         <div className="border-b border-border px-2.5 py-1.5 text-center">

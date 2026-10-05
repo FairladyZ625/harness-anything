@@ -823,6 +823,8 @@ describe("runtime entry split (W6 IA)", () => {
 
   it("requires an explicit leader turn budget before creating a blank squad", async () => {
     await mountAgentSquad("squad/core-squad");
+    // S5 身份只写一遍:SquadCard 的面包屑已删,成员规模由详情结论条呈现。
+    expect(byTestId("squad-detail-conclusion").textContent).toContain("2");
     await click("runtime-new-squads");
     const blank = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("＋ Blank"));
     expect(blank).toBeInstanceOf(HTMLButtonElement);

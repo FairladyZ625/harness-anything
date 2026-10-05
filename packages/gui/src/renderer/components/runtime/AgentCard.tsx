@@ -12,12 +12,14 @@ import type {
   SquadEntityAvailableRow,
 } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
+import { formatTime } from "../../model/time.ts";
 import { RUNTIME_KIND_IDS } from "../../runtime-provider-planes.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
 import { ActionError } from "./ActionError.tsx";
+import type { SettingsRoleRef } from "./DegradedEntityCard.tsx";
 import { SkillEditorModal, type ViewingSkill } from "./SkillEditorModal.tsx";
-import { AddChip, Avatar, Card, ChipZone, Crumbs, CrumbSep, Hint, KindDot, LiveDot, Sect } from "./parts.tsx";
+import { AddChip, Avatar, Card, ChipZone, Hint, KindDot, LiveDot, Sect } from "./parts.tsx";
 import { Chip } from "../primitives/Chip.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { Empty } from "../primitives/Empty.tsx";
@@ -85,7 +87,6 @@ type Props = {
   readonly busy: boolean;
   readonly onSave: (declaration: AgentDeclarationV1) => void;
   readonly onDispatch: (mission: string) => void;
-  readonly onSelectSquad: (squadId: string) => void;
   readonly onSelectRuntime: (instanceId: string) => void;
   readonly onSelectAgent: (agentId: string) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
@@ -95,6 +96,14 @@ type Props = {
    * 不再把原因只留在页首的通用错误条里(标准 §2.5 表单)。
    */
   readonly actionError?: string | null;
+  /** 结论行(标准 §2.2 结论在上)的数据面:设置键把该 Agent 当什么角色调用。 */
+  readonly conclusionRefs?: readonly SettingsRoleRef[];
+  /** 最近一次派工(视图的相关派工轮次投影);null = 无记录。 */
+  readonly lastDispatch?: {
+    readonly status: string;
+    readonly taskTitle: string | null;
+    readonly startedAt: string;
+  } | null;
 };
 export function AgentCard({
   detail,
@@ -106,11 +115,12 @@ export function AgentCard({
   busy,
   onSave,
   onDispatch,
-  onSelectSquad,
   onSelectRuntime,
   onSelectAgent,
   onFocusGraph,
   actionError = null,
+  conclusionRefs = [],
+  lastDispatch = null,
 }: Props) {
   const [draft, setDraft] = useState<AgentDraft>(() => agentDraftFrom(detail)),
     [runtimeListOpen, setRuntimeListOpen] = useState(false),
@@ -171,36 +181,27 @@ export function AgentCard({
       `${preset.id} ${preset.title} ${preset.description}`.toLowerCase().includes(presetSearch.trim().toLowerCase()),
     );
   const referencing = squads.filter((squad) => squad.leader === detail.id || squad.workers.includes(detail.id));
+  // 声明角色与被当作什么角色调用:设置键(defaultWorker/…)与 Squad 位次是两处调用面;
+  // 声明与调用不一致时用琥珀标签点出,一致的引用不额外强调(原 EntityConclusion 判据)。
+  const calledAs: readonly { readonly label: string; readonly role: "worker" | "reviewer" | "commander" }[] = [
+    ...conclusionRefs.map((ref) => ({ label: `roles.${ref.key}`, role: ref.role })),
+    ...referencing.map((squad) => ({
+      label: squad.name,
+      role: squad.leader === detail.id ? ("commander" as const) : ("worker" as const),
+    })),
+  ];
+  const mismatch = calledAs.some((call) => call.role !== draft.role);
   const dirty = agentDraftDirty(detail, draft);
   return (
     <div data-testid={`agent-card-${detail.id}`}>
-      <Crumbs>
-        <span>{t("agentRuntime.segAgents")}</span>
-        <CrumbSep />
-        <b className="font-semibold text-text-muted">{detail.name}</b>
-        <CrumbSep />
-        <EntityRefLink
-          entityRef={`agent/${detail.id}`}
-          onNavigate={() => onSelectAgent(detail.id)}
-          title={detail.id}
-          className="font-mono text-text-muted hover:text-accent hover:underline"
-        />
-        {/* 统一「在关系图中查看」入口(task_89d324b5):agent 是图节点 kind。 */}
-        <ViewInGraphButton
-          entityRef={`agent/${detail.id}`}
-          onFocusGraph={onFocusGraph}
-          testId="agent-view-in-graph"
-          className={
-            "ml-auto flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 ui-micro " +
-            "text-text-muted hover:border-border-strong hover:text-text"
-          }
-        />
-      </Crumbs>
       <Card>
-        <div className="flex items-start gap-3 px-3.5 py-3">
+        {/* 详情结论与身份并入卡头(S5 身份只写一遍):原独立结论条(EntityConclusion)与
+            面包屑各画一遍的名称/角色/被谁引用,收敛到这一个头块;testid 随结论内容迁移。 */}
+        <div data-testid="agent-detail-conclusion" className="flex items-start gap-3 px-3.5 py-3">
           <Avatar id={detail.id} size="lg" />
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <div className="flex flex-wrap items-center gap-2">
+              <StatusTag tone="neutral" label={t("agentRuntime.detailAvailable")} />
               <input
                 aria-label={t("agentRuntime.agentName")}
                 value={draft.name}
@@ -221,6 +222,16 @@ export function AgentCard({
                   label={row.layer}
                 />
               )}
+              {/* 统一「在关系图中查看」入口(task_89d324b5):agent 是图节点 kind。 */}
+              <ViewInGraphButton
+                entityRef={`agent/${detail.id}`}
+                onFocusGraph={onFocusGraph}
+                testId="agent-view-in-graph"
+                className={
+                  "ml-auto flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 ui-micro " +
+                  "text-text-muted hover:border-border-strong hover:text-text"
+                }
+              />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <SegCtl
@@ -247,18 +258,43 @@ export function AgentCard({
               />
               <Hint>{t("agentRuntime.roleModelDecoupled")}</Hint>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Hint>{t("agentRuntime.referencedBySquads", { count: referencing.length })}</Hint>
-              {referencing.map((squad) => (
-                <Chip key={squad.id} tone="link" onClick={() => onSelectSquad(squad.id)}>
-                  {squad.name}
-                  <StatusTag
-                    tone="neutral"
-                    mono
-                    label={squad.leader === detail.id ? t("agentRuntime.roleCommander") : t("agentRuntime.roleWorker")}
-                  />
-                </Chip>
-              ))}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span className="flex flex-wrap items-center gap-1.5 ui-meta text-text-muted">
+                {calledAs.length === 0 ? (
+                  t("agentRuntime.notReferenced")
+                ) : (
+                  <>
+                    {t("agentRuntime.calledAsPrefix")}
+                    {calledAs.map((call) => (
+                      <span
+                        key={call.label}
+                        className="flex items-center gap-1 rounded-xs border border-border px-1.5 py-px"
+                      >
+                        <span className="font-mono ui-meta">{call.label}</span>
+                        <span className="ui-meta text-text-faint">· {roleWord(call.role)}</span>
+                      </span>
+                    ))}
+                  </>
+                )}
+              </span>
+              {mismatch ? (
+                <StatusTag
+                  tone="wait"
+                  label={t("agentRuntime.roleMismatch", {
+                    declared: roleWord(draft.role),
+                    called: roleWord(calledAs.find((call) => call.role !== draft.role)!.role),
+                  })}
+                />
+              ) : null}
+              <span className="ml-auto font-mono ui-meta text-text-faint">
+                {lastDispatch === null || lastDispatch === undefined
+                  ? t("agentRuntime.noDispatch")
+                  : t("agentRuntime.lastDispatch", {
+                      status: lastDispatch.status,
+                      task: lastDispatch.taskTitle ?? "",
+                      time: formatTime(lastDispatch.startedAt, { style: "month-day-time" }) ?? lastDispatch.startedAt,
+                    })}
+              </span>
             </div>
           </div>
         </div>
@@ -594,3 +630,11 @@ const swap = <T,>(items: readonly T[], from: number, to: number): readonly T[] =
   next.splice(to, 0, moved as T);
   return next;
 };
+const roleWord = (role: "worker" | "reviewer" | "commander"): string =>
+  t(
+    role === "commander"
+      ? "agentRuntime.roleCommander"
+      : role === "reviewer"
+        ? "agentRuntime.roleReviewer"
+        : "agentRuntime.roleWorker",
+  );

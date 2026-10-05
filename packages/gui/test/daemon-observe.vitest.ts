@@ -718,9 +718,26 @@ describe("G6-B observe 观察现代化:HUD / 慢操作 / 异常聚类 / 双栏�
     return mountObserve({});
   }
 
-  it("分析面板默认展开:HUD 柱面渲染,慢操作排行曝光 4.8s 级 adjudicate 与分位卡片", async () => {
+  /** S7 观测 pane 收敛:分析块默认收起,需要看板的用例先展开对应栏。 */
+  async function expandAnalytics(container: HTMLElement, kind: string): Promise<void> {
+    const toggle = container.querySelector(`[data-testid="observe-analytics-toggle-${kind}"]`) as HTMLButtonElement;
+    expect(toggle).not.toBeNull();
+    await act(async () => {
+      toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.querySelector(`[data-testid="observe-analytics-${kind}"]`)).not.toBeNull();
+  }
+
+  it("分析面板默认收起:展开后 HUD 柱面渲染,慢操作排行曝光 4.8s 级 adjudicate 与分位卡片", async () => {
     const container = await mountModern();
-    expect(container.querySelector('[data-testid="observe-analytics-repo-log"]')).not.toBeNull();
+    // 默认态只有面板头一行,分析块整块不渲染;开关的 aria-pressed 如实反映收起。
+    expect(container.querySelector('[data-testid="observe-analytics-repo-log"]')).toBeNull();
+    expect(
+      (container.querySelector('[data-testid="observe-analytics-toggle-repo-log"]') as HTMLButtonElement).getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("false");
+    await expandAnalytics(container, "repo-log");
     const bars = container.querySelector('[data-testid="observe-hud-repo-log-bars"]');
     expect(bars?.querySelectorAll("rect").length).toBeGreaterThan(0);
     expect(container.querySelector('[data-testid="observe-hud-repo-log-anomalies"]')?.textContent).toContain("3");
@@ -733,6 +750,7 @@ describe("G6-B observe 观察现代化:HUD / 慢操作 / 异常聚类 / 双栏�
 
   it("异常聚类去重呈现,点击聚类把过滤框收敛到该指纹", async () => {
     const container = await mountModern();
+    await expandAnalytics(container, "repo-log");
     await act(async () => {
       (container.querySelector('[data-testid="observe-tab-anomalies-repo-log"]') as HTMLButtonElement).dispatchEvent(
         new MouseEvent("click", { bubbles: true }),
@@ -783,6 +801,7 @@ describe("G6-B observe 观察现代化:HUD / 慢操作 / 异常聚类 / 双栏�
 
   it("透镜候选下拉按频次给活跃实体,事件栏含 task 引用", async () => {
     const container = await mountModern();
+    await expandAnalytics(container, "events");
     await act(async () => {
       (container.querySelector('[data-testid="observe-lens-events"]') as HTMLButtonElement).dispatchEvent(
         new MouseEvent("click", { bubbles: true }),
@@ -801,10 +820,16 @@ describe("G6-B observe 观察现代化:HUD / 慢操作 / 异常聚类 / 双栏�
     );
   });
 
-  it("分析折叠开关收起 HUD 与看板,流行为不受影响", async () => {
+  it("分析折叠开关展开又收起,流行为不受影响", async () => {
     const container = await mountModern();
     const toggle = container.querySelector('[data-testid="observe-analytics-toggle-events"]') as HTMLButtonElement;
+    // S7 默认收起:开关先展开再收起,两态的 aria-pressed 与分析块渲染如实联动。
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => {
+      toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector('[data-testid="observe-analytics-events"]')).not.toBeNull();
     await act(async () => {
       toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });

@@ -159,7 +159,8 @@ export function WorkTasksTab({
               <WorkTaskRow
                 task={leaf}
                 needle={needle}
-                tag={<StatusTag status={leaf.status} />}
+                /* 按状态分组时整组状态相同,行内标签是重复值不进行(§2.4);组头已报状态。 */
+                tag={groupBy === "status" ? undefined : <StatusTag status={leaf.status} />}
                 agoOf={agoOf}
                 onOpen={onOpenTask}
               />

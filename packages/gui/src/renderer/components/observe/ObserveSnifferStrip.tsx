@@ -86,10 +86,9 @@ export const ObserveSnifferStrip = memo(function ObserveSnifferStrip({
     progressPct = signal.progress + signal.overhead > 0 ? `${Math.round(signal.progressPct)}%` : "—",
     levelLabel = t(LEVEL_KEY[contention.level]);
   return (
-    <div
-      data-testid={testId}
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-1 font-mono ui-micro"
-    >
+    // 内联段(S7 观测 pane 收敛):不再独占一整行,作为分析行的右段与板页签同排;
+    // 内部不再 ml-auto(共享行里由页签/透镜统一右对齐),窄容器 flex-wrap 退行。
+    <div data-testid={testId} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1 font-mono ui-micro">
       <span className="shrink-0 text-text-faint">{t("views.daemonObserve.sniffLabel")}</span>
       {derived.smells.length === 0 ? (
         <span
@@ -122,7 +121,7 @@ export const ObserveSnifferStrip = memo(function ObserveSnifferStrip({
           ),
         )
       )}
-      <span className="ml-auto flex flex-wrap items-center gap-2">
+      <span className="flex flex-wrap items-center gap-2">
         {isLogPane ? (
           <span
             data-testid={`${testId}-contention`}

@@ -78,7 +78,9 @@ export const ObserveHudStrip = memo(function ObserveHudStrip({
   const selected = (bucket: ObserveTimeSlice): boolean =>
     selection !== null && bucket.endMs > selection.fromMs && bucket.startMs < selection.toMs;
   return (
-    <div data-testid={testId} className="flex items-center gap-2 border-b border-border px-3 py-1.5">
+    // 内联段(S7 观测 pane 收敛):不再独占一整行,作为分析行的左段随容器伸缩;
+    // min-w 保护柱状图的可读宽度,窄容器时整段退到下一行而不是把柱面挤没。
+    <div data-testid={testId} className="flex min-w-[18rem] flex-1 items-center gap-2 py-1">
       <span role="group" aria-label={t("views.daemonObserve.hudLabel")} className={RANGE_GROUP}>
         {(["15m", "1h"] as const).map((option) => (
           <button

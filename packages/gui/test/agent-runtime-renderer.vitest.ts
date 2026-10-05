@@ -647,7 +647,6 @@ describe("agent runtime renderer", () => {
         busy: false,
         onSave: noop,
         onDispatch: noop,
-        onSelectSquad: noop,
         onSelectRuntime: noop,
       }),
     );
@@ -676,19 +675,14 @@ describe("agent runtime renderer", () => {
         onSelectAgent: noop,
       }),
     );
-    for (const text of [
-      "fable » luna, sol, terra",
-      "Core Squad",
-      "Commander",
-      "Worker #1",
-      "4 members",
-      "Leader turn budget",
-    ])
+    for (const text of ["fable » luna, sol, terra", "Core Squad", "Commander", "Worker #1", "Leader turn budget"])
       expect(squad).toContain(text);
     expect(squad).toContain('data-testid="squad-leader-turn-budget"');
     expect(squad).toContain('value="8"');
     // 启动入口已搬到 SquadCockpit(一次只派 Commander);声明卡不再带派发动作。
     expect(squad).not.toContain("Launch Commander");
+    // S5 身份只写一遍:卡上面包屑已删,成员数由视图的结论条(squad-detail-conclusion)呈现。
+    expect(squad).not.toContain("4 members");
   });
   it("round-trips skill paths and exposes searchable Skill and Preset selectors", () => {
     const withSkills = renderToStaticMarkup(
@@ -702,7 +696,6 @@ describe("agent runtime renderer", () => {
         busy: false,
         onSave: noop,
         onDispatch: noop,
-        onSelectSquad: noop,
         onSelectRuntime: noop,
       }),
     );

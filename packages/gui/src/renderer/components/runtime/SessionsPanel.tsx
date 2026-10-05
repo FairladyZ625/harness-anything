@@ -10,7 +10,7 @@ import { formatTime } from "../../model/time.ts";
 import { exactTokens } from "../../token-format.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
-import { Avatar, Card, CardBody, CardHead, CardTitle, Crumbs, CrumbSep, Hint, LiveDot, Right } from "./parts.tsx";
+import { Card, CardBody, CardHead, CardTitle, Hint, LiveDot, Right } from "./parts.tsx";
 import { KV, KVRow } from "../primitives/Fields.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { Button } from "../primitives/Button.tsx";
@@ -82,34 +82,6 @@ export function SessionsPanel({
   }, [repoId, runtimeSessionId]);
   return (
     <>
-      <Crumbs>
-        <span>{t("agentRuntime.segSessions")}</span>
-        <CrumbSep />
-        {/* G10:载体 ID 出现就必须是路——无 agent 名时回落为 provider 链接而非死文本。 */}
-        {((row?.kind === "round" ? row.agentName : null) ?? row?.instanceId ?? null) ? (
-          <b className="font-semibold text-text-muted">
-            {(row?.kind === "round" ? row.agentName : null) ?? row?.instanceId}
-          </b>
-        ) : session === null ? null : (
-          <b className="font-semibold text-text-muted">
-            <EntityRefLink
-              entityRef={`provider/${session.instanceId}`}
-              onNavigate={onNavigateEntity}
-              title={session.instanceId}
-              className="text-text-muted hover:text-accent hover:underline"
-            >
-              {session.instanceId}
-            </EntityRefLink>
-          </b>
-        )}
-        <CrumbSep />
-        <EntityRefLink
-          entityRef={`session/${runtimeSessionId}`}
-          onNavigate={onNavigateEntity}
-          title={runtimeSessionId}
-          className="font-mono text-text-muted hover:text-accent hover:underline"
-        />
-      </Crumbs>
       {error ? (
         <p role="alert" className="ui-micro text-status-blocked">
           {error}
@@ -260,6 +232,26 @@ export function SessionDetailView({
           {installationBadge && (
             <StatusTag tone="neutral" mono tip={session.installationError?.hint} label={t(installationBadge)} />
           )}
+          {squadName && (
+            <span
+              data-testid="session-owner-squad"
+              className={
+                "inline-flex items-center gap-1 rounded-[3px] border border-border-strong " +
+                "px-1.5 ui-micro text-text-muted"
+              }
+            >
+              <LiveDot state="idle" />
+              {squadName}
+            </span>
+          )}
+          {/* 面包屑并入卡头(S5 身份只写一遍):会话 id 的可寻址出口收进这里,
+              页名段与目录选中态重复、载体名与 CardTitle 重复,不再各画一遍。 */}
+          <EntityRefLink
+            entityRef={`session/${session.runtimeSessionId}`}
+            onNavigate={onNavigateEntity}
+            title={session.runtimeSessionId}
+            className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
+          />
           <Right>
             {LIVENESS_LIVE[session.liveness] && (
               <Button
@@ -309,45 +301,6 @@ export function SessionDetailView({
               </div>
             </div>
           )}
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Avatar id={agentName ?? session.instanceId} />
-            <b className="ui-body font-[650]">
-              {agentName ?? (
-                <EntityRefLink
-                  entityRef={`provider/${session.instanceId}`}
-                  onNavigate={onNavigateEntity}
-                  title={session.instanceId}
-                  className="text-text hover:text-accent hover:underline"
-                >
-                  {session.instanceId}
-                </EntityRefLink>
-              )}
-            </b>
-            {squadName && (
-              <span
-                data-testid="session-owner-squad"
-                className={
-                  "inline-flex items-center gap-1 rounded-[3px] border border-border-strong " +
-                  "px-1.5 ui-micro text-text-muted"
-                }
-              >
-                <LiveDot state="idle" />
-                {squadName}
-              </span>
-            )}
-            <span className="flex min-w-0 items-center gap-1 font-mono ui-micro text-text-faint">
-              <EntityRefLink
-                entityRef={`provider/${session.instanceId}`}
-                onNavigate={onNavigateEntity}
-                title={session.instanceId}
-                className="text-text-faint hover:text-accent hover:underline"
-              />{" "}
-              · {session.definitionSnapshot?.model ?? t("agentRuntime.definitionSnapshotNotPersisted")}
-              {!session.definitionSnapshotPersisted && session.definitionSnapshot !== null
-                ? ` · ${t("agentRuntime.definitionSnapshotNotPersisted")}`
-                : ""}
-            </span>
-          </div>
           {/* 没绑定任务时整段不渲染(规范 1.5「空了就消失」)。 */}
           {target !== null && (
             <h3 className="mb-1 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">

@@ -40,8 +40,6 @@ import {
   CardTitle,
   ChipZone,
   CfgRow,
-  Crumbs,
-  CrumbSep,
   Hint,
   KindDot,
   Right,
@@ -112,22 +110,13 @@ export function RuntimeCard({
     agyLoginPath = instance.kindId === "agy" && instance.authState === "unauthenticated";
   return (
     <div data-testid={`runtime-card-${instance.instanceId}`}>
-      <Crumbs>
-        <span>{t("agentRuntime.segRuntimes")}</span>
-        <CrumbSep />
-        <b className="font-semibold text-text-muted">{instance.name}</b>
-        <CrumbSep />
-        <EntityRefLink
-          entityRef={`provider/${instance.instanceId}`}
-          onNavigate={() => onSelectRuntime(instance.instanceId)}
-          title={instance.instanceId}
-          className="font-mono text-text-muted hover:text-accent hover:underline"
-        />
-      </Crumbs>
       {actionError ? <ActionError>{actionError}</ActionError> : null}
       <Card testId="runtime-card-provider">
         <CardHead>
           <KindDot kind={instance.kindId} />
+          {/* 面包屑并入卡头(S5 身份只写一遍):承运者名与 kind 点同行;载体 id 的
+              可寻址出口保留在危险区 hint,不在这里复读。 */}
+          <CardTitle>{instance.name}</CardTitle>
           {liveSessions > 0 ? (
             <StatusTag status="active" label={t("agentRuntime.liveSessions", { count: liveSessions })} />
           ) : (
