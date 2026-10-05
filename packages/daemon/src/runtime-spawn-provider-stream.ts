@@ -77,7 +77,7 @@ export async function consumeProviderChunk(
   active.buffer = flush ? "" : trailing;
   for (const line of lines) if (line.trim()) await context.consumeLine(active, line, persisted);
   if (flush && trailing.trim()) await context.consumeLine(active, trailing, persisted);
-  if (flush) observeCodexSessionMetrics(context, active);
+  if (flush) observeCodexSessionMetrics(active);
 }
 
 export async function consumeProviderLine(
@@ -218,7 +218,7 @@ function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function observeCodexSessionMetrics(context: RuntimeSpawnerContext, active: ActiveRuntime): void {
+function observeCodexSessionMetrics(active: ActiveRuntime): void {
   if (
     active.kindId !== "codex" ||
     !active.providerUsageEmpty ||
@@ -226,9 +226,11 @@ function observeCodexSessionMetrics(context: RuntimeSpawnerContext, active: Acti
     !/^[a-z0-9-]+$/iu.test(active.providerSessionId)
   )
     return;
-  const userRoot = context.input.runtimeDaemonRoute?.userRoot;
-  if (!userRoot) return;
-  const sessionsRoot = path.join(userRoot, "runtime-instances", active.instanceId, "home", ".codex", "sessions"),
+  // Only the directory frozen at this session's launch is consulted; a session without a
+  // witness (pre-field streams, home-less environments) simply keeps its empty usage.
+  const providerHome = active.resolvedProviderDirectory;
+  if (!providerHome) return;
+  const sessionsRoot = path.join(providerHome, "sessions"),
     matches = globSync(`**/rollout-*-${active.providerSessionId}.jsonl`, { cwd: sessionsRoot });
   if (matches.length !== 1) return;
   const lines = readFileSync(path.join(sessionsRoot, matches[0]!), "utf8").split(/\r?\n/u);

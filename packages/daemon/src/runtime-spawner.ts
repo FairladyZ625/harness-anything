@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
 import {
-  consumeKnownError,
   runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
   submissionDigest,
@@ -13,11 +12,10 @@ import { presetDocumentBody } from "@harness-anything/preset/internal/preset-res
 import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/internal/preset-system";
 import { agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
+import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
-  archiveDispatchStream,
   openDispatchStream,
   readDispatchStream,
-  reopenDispatchStream,
   removeDispatchStream,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -92,9 +90,9 @@ import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
 import {
-  continuationMission,
   initialFallbackAttempt,
   requiredRuntimeFast,
+  scheduleFallbackContinuation,
   settleFallbackAttempt,
 } from "./runtime-spawn-fallback.ts";
 import {
@@ -106,6 +104,7 @@ import {
   projectedWorktreeBinding,
   resolveDispatchCwd,
 } from "./runtime-resume-admission.ts";
+import { installHandoffRollout } from "./runtime-handoff-native.ts";
 import { taskWorktreeCheckoutNote, verifyHandoffWorktree, type TaskWorktreeCheckout } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
@@ -113,6 +112,8 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
   exitNotificationTimeoutMs = 30_000;
+// Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
+const hostPlatform = process.platform;
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
@@ -153,6 +154,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     publicationOwner: ActiveRuntime["publicationOwner"] = "runtime",
     preparedWorktree: TaskWorktreeCheckout | null = null,
     handoff?: RuntimeHandoffCheckpoint,
+    handoffRollout?: Uint8Array,
   ): Promise<JsonObject> => {
     const dryRun = payload.dryRun === true;
     const { requestedDispatchId, resumed, inherited, handoffEnabled } = resolveRuntimeResume(input, payload, handoff);
@@ -531,6 +533,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     let process: RuntimeProcess | undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
     let stream: DispatchStreamWriter | undefined;
+    // Freeze the provider directory this launch's environment actually resolved (explicit
+    // config-home, platform home, or the isolated state root) into the dispatch stream before
+    // the process starts: native handoff export and settlement metrics read this witness, never
+    // the instance's mutable current configuration. Null when the environment has no home.
+    // The witness uses the module-level host platform; the local `process` is the launched
+    // RuntimeProcess and carries no platform.
+    const resolvedProviderDirectory = sharedProviderDirectory(prepared.env, definition.kindId, hostPlatform);
     const openStream = (): DispatchStreamWriter =>
       (stream ??= openDispatchStream(input.rootDir, {
         dispatchId: newDispatchId,
@@ -552,6 +561,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...(trustedSchedule ? { schedule: trustedSchedule } : {}),
         runtimeSessionId,
         instanceId: definition.instanceId,
+        ...(resolvedProviderDirectory ? { resolvedProviderDirectory } : {}),
         startedAt: streamStartedAt,
         dispatchOpId,
         kindId: definition.kindId,
@@ -613,6 +623,28 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const cleanupCallbackRelay = (): void => {
       if (callbackRelay) removeRuntimeCallbackRelay(input.rootDir, newDispatchId);
     };
+    // The handoff rollout is installed only after the target launch is prepared and admitted —
+    // into the directory that launch actually resolved — and before any process or event, so a
+    // resumed provider always reads the state selected for it and no earlier mutable-config
+    // lookup can guess a different home.
+    if (handoff) {
+      try {
+        if (!handoffRollout)
+          throw runtimeSpawnError(
+            "runtime_handoff_payload_invalid",
+            "The handoff claim lost its verified rollout body.",
+          );
+        if (!resolvedProviderDirectory)
+          throw runtimeSpawnError(
+            "invalid_runtime_launch",
+            "The prepared target launch resolved no provider home directory.",
+          );
+        installHandoffRollout(resolvedProviderDirectory, handoff.providerSessionId, handoffRollout);
+      } catch (error) {
+        await cleanupFailedLaunch(error);
+        throw error;
+      }
+    }
     const launchPreparedProcess = async () => {
       const workerLaunch = await prepareBoundRuntimeLaunch({
         input,
@@ -782,6 +814,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       dispatchOpId,
       instanceId: definition.instanceId,
       kindId: definition.kindId,
+      resolvedProviderDirectory: resolvedProviderDirectory ?? null,
       permissionMode: launchedPermissionMode ?? null,
       agent,
       role: role ?? null,
@@ -850,7 +883,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       payload: JsonObject,
       binding: RuntimeBinding,
       worktree: TaskWorktreeCheckout | null = null,
-    ) => spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree, checkpoint),
+      rollout?: Uint8Array,
+    ) => spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree, checkpoint, rollout),
     spawn: (payload: JsonObject, binding: RuntimeBinding, worktree: TaskWorktreeCheckout | null = null) =>
       spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree),
     spawnCoordinated: (payload: JsonObject, binding: RuntimeBinding) =>
@@ -954,125 +988,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     return settleFallbackAttempt(extracted, active, outcome, terminal);
   }
   function reconcileFallback(stream: ReturnType<typeof readDispatchStream>): void {
-    if (
-      fallbackClosed ||
-      !stream ||
-      stream.fallbackState !== "scheduled" ||
-      !stream.fallbackSchedule ||
-      !stream.attemptOutcome ||
-      !stream.header.fallbackAttempt ||
-      !stream.header.binding ||
-      typeof stream.header.cwd !== "string"
-    )
-      return;
-    const notBeforeMs = Date.parse(stream.fallbackSchedule.notBeforeAt),
-      observedNowMs = Date.parse(input.now());
-    if (!Number.isFinite(notBeforeMs) || !Number.isFinite(observedNowMs)) return;
-    const remainingMs = Math.max(0, notBeforeMs - observedNowMs);
-    const timer = setTimeout(() => {
-      if (fallbackClosed) return;
-      input.schedule(async () => {
-        const current = readDispatchStream(input.rootDir, stream.header.dispatchId);
-        if (
-          !current ||
-          current.fallbackState !== "scheduled" ||
-          current.fallbackSchedule?.notBeforeAt !== stream.fallbackSchedule!.notBeforeAt ||
-          !current.attemptOutcome ||
-          !current.header.fallbackAttempt ||
-          !current.header.binding ||
-          typeof current.header.cwd !== "string"
-        )
-          return;
-        const header = current.header,
-          binding = runtimeBindingForDispatch(header.binding!),
-          dispatchCwd = header.cwd;
-        if (!binding || typeof dispatchCwd !== "string") return;
-        const fallback = header.fallbackAttempt!,
-          nextAttemptIndex = fallback.attemptIndex + 1,
-          nextFallback = { ...fallback, attemptIndex: nextAttemptIndex },
-          next = fallback.candidates[nextAttemptIndex],
-          writer = reopenDispatchStream(input.rootDir, header),
-          continuation = continuationMission(current.attemptOutcome, fallback.originalMission);
-        if (
-          !next ||
-          next.instance !== current.fallbackSchedule.nextProvider.instance ||
-          next.model !== current.fallbackSchedule.nextProvider.model
-        )
-          return;
-        try {
-          const continuationPayload: JsonObject = {
-              runtimeInstanceId: next.instance,
-              ...(header.delegatedByAgentId && header.agentId
-                ? { agentId: header.delegatedByAgentId, targetAgentId: header.agentId }
-                : header.agentId
-                  ? { agentId: header.agentId }
-                  : {}),
-              ...(header.role ? { role: header.role } : {}),
-              ...(header.squadId ? { squadId: header.squadId } : {}),
-              ...(header.parentRuntimeSessionId ? { parentRuntimeSessionId: header.parentRuntimeSessionId } : {}),
-              ...(next.model ? { model: next.model } : {}),
-              ...(header.reasoningEffort ? { effort: header.reasoningEffort } : {}),
-              ...(header.fast === undefined ? {} : { fast: header.fast }),
-              ...(header.permissionMode ? { permissionMode: header.permissionMode } : {}),
-              cwd:
-                dispatchCwd === input.rootDir
-                  ? { scope: "repo-root" }
-                  : { scope: "repo-relative", path: path.relative(input.rootDir, dispatchCwd) },
-              prompt: continuation,
-              ...(header.promptSource ? { promptSource: header.promptSource } : {}),
-              ...(header.onExitCommand ? { onExitCommand: header.onExitCommand } : {}),
-              ...(header.taskId ? { taskId: header.taskId } : {}),
-              idempotencyKey: `${fallback.rootIdempotencyKey}:fallback:${String(nextAttemptIndex)}`,
-            },
-            continuationBinding =
-              (await input.authorizeRuntimeContinuation?.(
-                continuationPayload,
-                binding,
-                `runtime-continuation:${header.dispatchId}:${nextAttemptIndex}`,
-              )) ?? binding;
-          const receipt = await spawnAttempt(
-            continuationPayload,
-            continuationBinding,
-            nextFallback,
-            header.schedule,
-            header.runtimeSessionId,
-            header.publicationOwner,
-          );
-          writer.appendFallbackState(
-            {
-              state: "dispatched",
-              nextDispatchId: String(receipt.dispatchId),
-              nextRuntimeSessionId: String(receipt.runtimeSessionId),
-            },
-            input.now(),
-          );
-          archiveDispatchStream(input.rootDir, header.dispatchId);
-        } catch (error) {
-          consumeKnownError(error);
-          const reason = `Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`;
-          writer.appendFallbackState({ state: "exhausted", reason }, input.now());
-          archiveDispatchStream(input.rootDir, header.dispatchId);
-          await input.onAttemptTerminal?.({
-            runtimeSessionId: header.runtimeSessionId,
-            dispatchId: header.dispatchId,
-            task:
-              header.taskId && header.executionId
-                ? {
-                    taskId: header.taskId,
-                    executionId: header.executionId,
-                    leaseVersion: header.leaseVersion ?? null,
-                  }
-                : null,
-            schedule: header.schedule ?? null,
-            outcome: "failed",
-            reason,
-            endedAt: input.now(),
-            resultRef: null,
-            binding,
-          });
-        }
-      }, runtimeBindingForDispatch(stream.header.binding!));
-    }, remainingMs);
-    timer.unref();
+    scheduleFallbackContinuation({
+      input,
+      closed: () => fallbackClosed,
+      launch: (payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner) =>
+        spawnAttempt(payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner),
+      stream,
+    });
   }
 }

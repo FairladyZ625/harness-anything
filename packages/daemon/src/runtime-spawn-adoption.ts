@@ -62,6 +62,7 @@ export async function adoptRuntimes(
       dispatchOpId: metadata.dispatchOpId,
       instanceId: stream.header.instanceId,
       kindId: metadata.kindId,
+      resolvedProviderDirectory: stream.header.resolvedProviderDirectory ?? null,
       permissionMode: metadata.permissionMode,
       agent: stream.header.agentId
         ? { id: stream.header.agentId, name: stream.header.agentName ?? stream.header.agentId }

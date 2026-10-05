@@ -142,6 +142,9 @@ export type ActiveRuntime = {
   readonly dispatchOpId: string;
   readonly instanceId: string;
   readonly kindId: RuntimeInstanceKind;
+  /** Frozen launch witness from the dispatch stream header; null before the field existed or
+   * when the launch environment resolved no provider home. */
+  readonly resolvedProviderDirectory: string | null;
   readonly permissionMode: RuntimePermissionMode | null;
   readonly agent: Pick<RuntimeAgent, "id" | "name"> | null;
   readonly role: string | null;

@@ -1,14 +1,24 @@
-import { readDispatchStream } from "./dispatch-stream.ts";
+import { archiveDispatchStream, readDispatchStream, reopenDispatchStream } from "./dispatch-stream.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
-import type { ActiveRuntime, RuntimeAttemptTerminal } from "./runtime-spawn-types.ts";
+import type {
+  ActiveRuntime,
+  RuntimeAttemptTerminal,
+  RuntimeBinding,
+  RuntimeSpawnerInput,
+  TrustedScheduleRuntime,
+} from "./runtime-spawn-types.ts";
+import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import { createHash } from "node:crypto";
+import path from "node:path";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
 import { agentRuntimeTargetForKind, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
 export function requiredRuntimeFast(value: unknown): boolean {
   if (typeof value !== "boolean") throw runtimeSpawnError("invalid_runtime_fast", "Runtime fast must be a boolean.");
@@ -145,4 +155,144 @@ export async function settleFallbackAttempt(
     notBeforeAt = new Date(Date.parse(input.now()) + delayMs).toISOString();
   active.stream.appendFallbackState({ state: "scheduled", delayMs, notBeforeAt, nextProvider: next }, input.now());
   context.reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
+}
+
+/** Schedules a settled stream's next fallback attempt: one bounded timer from the scheduled
+ * notBeforeAt, re-reading the stream at fire time so a superseded schedule never launches.
+ * The continuation launch is handed in by the spawner because it is the same spawnAttempt
+ * entry every other dispatch takes. */
+export function scheduleFallbackContinuation(args: {
+  readonly input: RuntimeSpawnerInput;
+  readonly closed: () => boolean;
+  readonly launch: (
+    payload: JsonObject,
+    binding: RuntimeBinding,
+    fallback: RuntimeFallbackAttempt,
+    schedule: TrustedScheduleRuntime | undefined,
+    handoffFromRuntimeSessionId: string | undefined,
+    publicationOwner: ActiveRuntime["publicationOwner"] | undefined,
+  ) => Promise<JsonObject>;
+  readonly stream: ReturnType<typeof readDispatchStream>;
+}): void {
+  const { input, stream } = args;
+  if (
+    args.closed() ||
+    !stream ||
+    stream.fallbackState !== "scheduled" ||
+    !stream.fallbackSchedule ||
+    !stream.attemptOutcome ||
+    !stream.header.fallbackAttempt ||
+    !stream.header.binding ||
+    typeof stream.header.cwd !== "string"
+  )
+    return;
+  const notBeforeMs = Date.parse(stream.fallbackSchedule.notBeforeAt),
+    observedNowMs = Date.parse(input.now());
+  if (!Number.isFinite(notBeforeMs) || !Number.isFinite(observedNowMs)) return;
+  const remainingMs = Math.max(0, notBeforeMs - observedNowMs);
+  const timer = setTimeout(() => {
+    if (args.closed()) return;
+    input.schedule(async () => {
+      const current = readDispatchStream(input.rootDir, stream.header.dispatchId);
+      if (
+        !current ||
+        current.fallbackState !== "scheduled" ||
+        current.fallbackSchedule?.notBeforeAt !== stream.fallbackSchedule!.notBeforeAt ||
+        !current.attemptOutcome ||
+        !current.header.fallbackAttempt ||
+        !current.header.binding ||
+        typeof current.header.cwd !== "string"
+      )
+        return;
+      const header = current.header,
+        binding = runtimeBindingForDispatch(header.binding!),
+        dispatchCwd = header.cwd;
+      if (!binding || typeof dispatchCwd !== "string") return;
+      const fallback = header.fallbackAttempt!,
+        nextAttemptIndex = fallback.attemptIndex + 1,
+        nextFallback = { ...fallback, attemptIndex: nextAttemptIndex },
+        next = fallback.candidates[nextAttemptIndex],
+        writer = reopenDispatchStream(input.rootDir, header),
+        continuation = continuationMission(current.attemptOutcome, fallback.originalMission);
+      if (
+        !next ||
+        next.instance !== current.fallbackSchedule.nextProvider.instance ||
+        next.model !== current.fallbackSchedule.nextProvider.model
+      )
+        return;
+      try {
+        const continuationPayload: JsonObject = {
+            runtimeInstanceId: next.instance,
+            ...(header.delegatedByAgentId && header.agentId
+              ? { agentId: header.delegatedByAgentId, targetAgentId: header.agentId }
+              : header.agentId
+                ? { agentId: header.agentId }
+                : {}),
+            ...(header.role ? { role: header.role } : {}),
+            ...(header.squadId ? { squadId: header.squadId } : {}),
+            ...(header.parentRuntimeSessionId ? { parentRuntimeSessionId: header.parentRuntimeSessionId } : {}),
+            ...(next.model ? { model: next.model } : {}),
+            ...(header.reasoningEffort ? { effort: header.reasoningEffort } : {}),
+            ...(header.fast === undefined ? {} : { fast: header.fast }),
+            ...(header.permissionMode ? { permissionMode: header.permissionMode } : {}),
+            cwd:
+              dispatchCwd === input.rootDir
+                ? { scope: "repo-root" }
+                : { scope: "repo-relative", path: path.relative(input.rootDir, dispatchCwd) },
+            prompt: continuation,
+            ...(header.promptSource ? { promptSource: header.promptSource } : {}),
+            ...(header.onExitCommand ? { onExitCommand: header.onExitCommand } : {}),
+            ...(header.taskId ? { taskId: header.taskId } : {}),
+            idempotencyKey: `${fallback.rootIdempotencyKey}:fallback:${String(nextAttemptIndex)}`,
+          },
+          continuationBinding =
+            (await input.authorizeRuntimeContinuation?.(
+              continuationPayload,
+              binding,
+              `runtime-continuation:${header.dispatchId}:${nextAttemptIndex}`,
+            )) ?? binding;
+        const receipt = await args.launch(
+          continuationPayload,
+          continuationBinding,
+          nextFallback,
+          header.schedule,
+          header.runtimeSessionId,
+          header.publicationOwner,
+        );
+        writer.appendFallbackState(
+          {
+            state: "dispatched",
+            nextDispatchId: String(receipt.dispatchId),
+            nextRuntimeSessionId: String(receipt.runtimeSessionId),
+          },
+          input.now(),
+        );
+        archiveDispatchStream(input.rootDir, header.dispatchId);
+      } catch (error) {
+        consumeKnownError(error);
+        const reason = `Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`;
+        writer.appendFallbackState({ state: "exhausted", reason }, input.now());
+        archiveDispatchStream(input.rootDir, header.dispatchId);
+        await input.onAttemptTerminal?.({
+          runtimeSessionId: header.runtimeSessionId,
+          dispatchId: header.dispatchId,
+          task:
+            header.taskId && header.executionId
+              ? {
+                  taskId: header.taskId,
+                  executionId: header.executionId,
+                  leaseVersion: header.leaseVersion ?? null,
+                }
+              : null,
+          schedule: header.schedule ?? null,
+          outcome: "failed",
+          reason,
+          endedAt: input.now(),
+          resultRef: null,
+          binding,
+        });
+      }
+    }, runtimeBindingForDispatch(stream.header.binding!));
+  }, remainingMs);
+  timer.unref();
 }

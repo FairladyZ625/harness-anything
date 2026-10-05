@@ -150,6 +150,7 @@
       "packages/daemon/src/request-log.ts#writeRequestLogLine",
       "packages/daemon/src/runtime-orchestration.ts#orchestrateRuntimeBatch",
       "packages/daemon/src/runtime-orchestration.ts#worker",
+      "packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation",
       "packages/daemon/src/runtime-spawn-process.ts#drain",
       "packages/daemon/src/runtime-spawn-process.ts#launchExitNotification",
       "packages/daemon/src/runtime-spawn-process.ts#observeResumeProcess",
@@ -161,7 +162,6 @@
       "packages/daemon/src/runtime-spawn-provider-frames.ts#isStructuredSuccessResult",
       "packages/daemon/src/runtime-spawn-provider-stream.ts#consumeProviderLine",
       "packages/daemon/src/runtime-spawn-settlement.ts#publishExit",
-      "packages/daemon/src/runtime-spawner.ts#reconcileFallback",
       "packages/daemon/src/runtime-worker-acp.ts#cancel",
       "packages/daemon/src/runtime-worker-acp.ts#fail",
       "packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession",
@@ -296,48 +296,13 @@
       "tools/gates/windows-first-run.mjs#harness"
     ],
     "fullHistoryScans": [
-      {
-        "file": "packages/daemon/src/repo-cell-api.ts",
-        "function": "\"repo.agentRuntime.events.read\"",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/daemon/src/repo-cell-task-command-docs.ts",
-        "function": "prepareTaskSurfaceWriteAt",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/daemon/src/repo-cell-task-maintenance.ts",
-        "function": "migrateTaskContracts",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/gui/src/renderer/components/taskDetail/TaskDetailSections.tsx",
-        "function": "queryFn",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/kernel/src/store/legacy-generation-conversion.ts",
-        "function": "createImmutableLegacyGenerationSnapshot",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/kernel/src/store/legacy-generation-conversion.ts",
-        "function": "sqliteSnapshotStore",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      },
-      {
-        "file": "packages/kernel/src/store/sqlite-task-event-store.ts",
-        "function": "read",
-        "task": "task_403e958e3fefd3496820e8843d",
-        "reason": "Existing request-path historical scan pending a bounded-read deletion task."
-      }
+      {"file":"packages/daemon/src/repo-cell-api.ts","function":"\"repo.agentRuntime.events.read\"","task":"task_403e958e3fefd3496820e8843d","reason":"Existing request-path historical scan pending a bounded-read deletion task."},
+      {"file":"packages/daemon/src/repo-cell-task-command-docs.ts","function":"prepareTaskSurfaceWriteAt","task":"task_403e958e3fefd3496820e8843d","reason":"Existing request-path historical scan pending a bounded-read deletion task."},
+      {"file":"packages/daemon/src/repo-cell-task-maintenance.ts","function":"migrateTaskContracts","task":"task_403e958e3fefd3496820e8843d","reason":"Existing request-path historical scan pending a bounded-read deletion task."},
+      {"file":"packages/gui/src/renderer/components/taskDetail/TaskDetailSections.tsx","function":"queryFn","task":"task_403e958e3fefd3496820e8843d","reason":"Existing request-path historical scan pending a bounded-read deletion task."},
+      {"file":"packages/kernel/src/store/legacy-generation-conversion.ts","function":"createImmutableLegacyGenerationSnapshot","task":"task_403e958e3fefd3496820e8843d","reason":"Existing request-path historical scan pending a bounded-read deletion task."},
+      {"file":"packages/kernel/src/store/legacy-generation-conversion.ts","function":"sqliteSnapshotStore","task":"task_403e958e3fefd3496820e8843d","reason":"Existing request-path historical scan pending a bounded-read deletion task."},
+      {"file":"packages/kernel/src/store/sqlite-task-event-store.ts","function":"read","task":"task_403e958e3fefd3496820e8843d","reason":"Existing request-path historical scan pending a bounded-read deletion task."}
     ],
     "catchSubstitutions": [
       "packages/application/src/task-lifecycle-service.ts#executeInternal",

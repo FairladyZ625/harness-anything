@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { prepareRuntimeHandoff, installHandoffRollout } from "./runtime-handoff-native.ts";
+import { prepareRuntimeHandoff } from "./runtime-handoff-native.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -8,10 +8,13 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 /** CLI and GUI call this same node-local orchestration; every authority check stays at the center. */
 export async function runRuntimeHandoff(input: {
   readonly rootDir: string;
-  readonly userRoot: string;
   readonly payload: JsonObject;
   readonly command: (action: JsonObject, body?: Uint8Array) => Promise<JsonObject>;
-  readonly spawn: (checkpoint: RuntimeHandoffCheckpoint, payload: JsonObject) => Promise<JsonObject>;
+  readonly spawn: (
+    checkpoint: RuntimeHandoffCheckpoint,
+    payload: JsonObject,
+    rollout: Uint8Array,
+  ) => Promise<JsonObject>;
 }): Promise<JsonObject> {
   const { operation, dispatchId } = input.payload;
   if (!["export", "claim", "revoke"].includes(String(operation)) || typeof dispatchId !== "string")
@@ -23,7 +26,7 @@ export async function runRuntimeHandoff(input: {
     ...(operation === "claim" ? { idempotencyKey } : {}),
   };
   if (operation === "export") {
-    const exported = await prepareRuntimeHandoff(input.rootDir, input.userRoot, dispatchId);
+    const exported = await prepareRuntimeHandoff(input.rootDir, dispatchId);
     return publicResult(await input.command({ ...action, commit: exported.commit }, exported.body));
   }
   if (operation === "revoke") return publicResult(await input.command(action));
@@ -61,8 +64,9 @@ export async function runRuntimeHandoff(input: {
   const body = Buffer.concat(parts);
   if (body.length !== checkpoint.blob.size || sha256Bytes(body) !== checkpoint.blob.sha256)
     throw runtimeSpawnError("content_claim_mismatch", "The downloaded rollout differs from the accepted checkpoint.");
-  installHandoffRollout(input.userRoot, runtimeInstanceId, checkpoint.providerSessionId, body);
-  const resumed = await input.spawn(checkpoint, { runtimeInstanceId, prompt, idempotencyKey });
+  // The verified bytes travel to the launch: the spawner installs them into the directory the
+  // prepared target launch resolves, immediately before that process starts.
+  const resumed = await input.spawn(checkpoint, { runtimeInstanceId, prompt, idempotencyKey }, body);
   if (resumed.replayed === true) return publicResult(await input.command(action));
   return { ...resumed, handoffResumed: true };
 }
