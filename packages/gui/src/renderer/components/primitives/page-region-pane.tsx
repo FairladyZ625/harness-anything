@@ -104,7 +104,8 @@ export function RegionPanel(props: IDockviewPanelProps<{ readonly id: string }>)
   );
 }
 
-/** 区域头把手簇:拖拽把手(移动/停靠)+ 折叠按钮(收起本区域)。 */
+/** 区域头把手簇:拖拽把手 + 可见区域标题 + 折叠按钮(收起本区域)。
+ * 标题是区域的唯一可见层:页面不再自绘区域标签行,Region 原语在 pane 内也不再重复 h2。 */
 function RegionHandleCluster({ id, title }: { readonly id: string; readonly title: string }) {
   const host = usePageRegionHost();
   const label = t("components.pageRegions.move", { title });
@@ -149,6 +150,9 @@ function RegionHandleCluster({ id, title }: { readonly id: string; readonly titl
       >
         <DotsSixVertical aria-hidden="true" />
       </button>
+      <h2 data-region-title className="min-w-0 truncate font-semibold ui-meta text-text">
+        {title}
+      </h2>
       <button
         type="button"
         aria-label={t("components.pageRegions.collapse", { title })}

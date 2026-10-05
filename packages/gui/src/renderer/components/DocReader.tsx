@@ -22,17 +22,22 @@ const readerFonts: Record<ReaderFont, string> = {
 
 export function DocReader({
   content,
-  fill = false,
+  fill = true,
+  status,
   packageBasePath = null,
   onOpenPackageDoc,
 }: {
   content: string;
+  /** 默认撑满所在 pane 的主正文;抽屉/弹层/内联卡片等嵌入场景显式传 false。 */
   fill?: boolean;
+  /** 文档状态并入工具栏左端(如 `L2 · ready`);warn 时用警示色,正常态弱色。 */
+  status?: { readonly testId?: string; readonly text: string; readonly warn?: boolean };
   /** 当前文档在任务包内的 repo 相对路径(如 `tasks/<pkg>/task_plan.md`);相对链接据此归一化。 */
   packageBasePath?: string | null;
   /** 包内文档导航出口:收到归一化后的 repo 相对路径。缺省时相对链接保持 inert。 */
   onOpenPackageDoc?: (repoRelativePath: string) => void;
 }) {
+  const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [layout, setLayout] = useState<ReaderLayout>("auto");
   const [font, setFont] = useState<ReaderFont>("sans");
@@ -55,69 +60,94 @@ export function DocReader({
       testId="doc-reader"
       fill={fill}
       toolbar={
-        <>
-          <div className="flex flex-wrap items-center gap-1 border-b border-border bg-surface-raised px-2 py-1">
-            <div className="flex w-56 max-w-full items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1">
-              <MagnifyingGlass weight="bold" className="shrink-0 ui-meta text-text-faint" />
+        <div
+          className="flex flex-wrap items-center gap-1 border-b border-border bg-surface-raised px-2 py-1"
+          data-testid="reader-floating-toolbar"
+        >
+          {status !== undefined && (
+            <span
+              data-testid={status.testId}
+              className={`shrink-0 font-mono ui-micro ${status.warn ? "text-status-blocked" : "text-text-faint"}`}
+            >
+              {status.text}
+            </span>
+          )}
+          {/* 搜索是低频操作:默认收起成按钮,点开同行展开输入,不占常驻行高。 */}
+          <button
+            type="button"
+            aria-label="文档内搜索"
+            aria-expanded={searchOpen}
+            aria-pressed={searchOpen}
+            onClick={() => setSearchOpen((open) => !open)}
+            className={[
+              "grid size-6 shrink-0 place-items-center rounded-md ui-meta",
+              searchOpen ? "bg-surface text-text" : "text-text-faint hover:bg-surface hover:text-text",
+            ].join(" ")}
+          >
+            <MagnifyingGlass weight="bold" />
+          </button>
+          {searchOpen && (
+            <>
               <input
+                autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="文档内搜索…"
                 aria-label="文档内搜索"
-                className="w-full bg-transparent ui-meta text-text outline-none placeholder:text-text-faint"
+                className="w-40 min-h-7 rounded-md border border-border bg-surface px-2 ui-meta text-text outline-none placeholder:text-text-faint"
               />
-            </div>
-            {matchCount !== null && (
-              <span className={`shrink-0 font-mono ui-micro ${matchCount > 0 ? "text-text-muted" : "text-text-faint"}`}>
-                {matchCount} 处匹配
-              </span>
-            )}
+              {matchCount !== null && (
+                <span
+                  className={`shrink-0 font-mono ui-micro ${matchCount > 0 ? "text-text-muted" : "text-text-faint"}`}
+                >
+                  {matchCount} 处匹配
+                </span>
+              )}
+            </>
+          )}
+          <div className="ml-auto flex flex-wrap items-center gap-1">
+            {/* 栏数默认「自适应」:由 .doc-flow 容器查询按可用宽度自动分栏,无需点击;
+                单栏/双栏是显式覆盖,手动选择后仍可切回自适应。 */}
+            <SegCtl label="阅读栏数" value={layout} onChange={setLayout} options={readerLayouts} />
+            <select
+              aria-label="文档字体"
+              value={font}
+              onChange={(event) => setFont(event.target.value as ReaderFont)}
+              className="min-h-7 rounded-md border border-border bg-surface px-1.5 ui-micro text-text"
+            >
+              <option value="sans">无衬线</option>
+              <option value="serif">衬线</option>
+              <option value="mono">等宽</option>
+            </select>
+            <button
+              type="button"
+              aria-label="缩小字号"
+              disabled={fontSize <= 13}
+              onClick={() => setFontSize((size) => Math.max(13, size - 1))}
+              className={[
+                "grid min-h-7 min-w-[40px] place-items-center rounded-md ui-prose text-text-muted",
+                "hover:bg-surface hover:text-text disabled:opacity-35",
+              ].join(" ")}
+            >
+              −
+            </button>
+            <span className="w-8 text-center font-mono ui-micro text-text-faint" aria-label={`字号 ${fontSize} 像素`}>
+              {fontSize}
+            </span>
+            <button
+              type="button"
+              aria-label="放大字号"
+              disabled={fontSize >= 19}
+              onClick={() => setFontSize((size) => Math.min(19, size + 1))}
+              className={[
+                "grid min-h-7 min-w-[40px] place-items-center rounded-md ui-prose text-text-muted",
+                "hover:bg-surface hover:text-text disabled:opacity-35",
+              ].join(" ")}
+            >
+              ＋
+            </button>
           </div>
-          <div className="flex flex-wrap justify-end px-2 pb-1">
-            <div className="flex flex-wrap items-center gap-1" data-testid="reader-floating-toolbar">
-              {/* 栏数默认「自适应」:由 .doc-flow 容器查询按可用宽度自动分栏,无需点击;
-              单栏/双栏是显式覆盖,手动选择后仍可切回自适应。 */}
-              <SegCtl label="阅读栏数" value={layout} onChange={setLayout} options={readerLayouts} />
-              <select
-                aria-label="文档字体"
-                value={font}
-                onChange={(event) => setFont(event.target.value as ReaderFont)}
-                className="min-h-7 rounded-md border border-border bg-surface px-1.5 ui-micro text-text"
-              >
-                <option value="sans">无衬线</option>
-                <option value="serif">衬线</option>
-                <option value="mono">等宽</option>
-              </select>
-              <button
-                type="button"
-                aria-label="缩小字号"
-                disabled={fontSize <= 13}
-                onClick={() => setFontSize((size) => Math.max(13, size - 1))}
-                className={[
-                  "grid min-h-7 min-w-[40px] place-items-center rounded-md ui-prose text-text-muted",
-                  "hover:bg-surface hover:text-text disabled:opacity-35",
-                ].join(" ")}
-              >
-                −
-              </button>
-              <span className="w-8 text-center font-mono ui-micro text-text-faint" aria-label={`字号 ${fontSize} 像素`}>
-                {fontSize}
-              </span>
-              <button
-                type="button"
-                aria-label="放大字号"
-                disabled={fontSize >= 19}
-                onClick={() => setFontSize((size) => Math.min(19, size + 1))}
-                className={[
-                  "grid min-h-7 min-w-[40px] place-items-center rounded-md ui-prose text-text-muted",
-                  "hover:bg-surface hover:text-text disabled:opacity-35",
-                ].join(" ")}
-              >
-                ＋
-              </button>
-            </div>
-          </div>
-        </>
+        </div>
       }
     >
       <div className="doc-flow min-w-0 px-5 py-5 sm:px-6" style={readerStyle}>

@@ -429,9 +429,8 @@ export function TaskDetailView({
               weight: 2,
               content: (
                 <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border border-border bg-surface">
-                  <div className="flex shrink-0 items-center gap-1 border-b border-border/70 px-2 py-1 ui-meta text-text-faint">
+                  <div className="flex shrink-0 items-center gap-1 border-b border-border/70 px-2 py-1">
                     <RegionDragHandle />
-                    <span className="font-semibold text-text">{t("components.pageRegions.content")}</span>
                   </div>
                   {/* 概况是一屏的区域板:面板自己是板的容器量尺(量面板内容宽,不含文件树),
               ≥900px 时板占满面板高度、区域在自己内部滚动;其余页签随内容往下排。 */}
@@ -494,12 +493,7 @@ export function TaskDetailView({
                         onAttest={onAttest}
                       />
                     ) : (
-                      <TaskFilesTab
-                        task={task}
-                        activeDoc={activeDoc}
-                        onOpenDoc={openDocument}
-                        onNavigateEntity={onNavigateEntity}
-                      />
+                      <TaskFilesTab task={task} activeDoc={activeDoc} onOpenDoc={openDocument} />
                     )}
                   </TabPanel>
                 </div>

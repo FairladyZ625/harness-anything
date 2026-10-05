@@ -68,7 +68,8 @@ export function Region({
         className="flex flex-none items-center gap-2 px-3 pb-[7px] pt-[9px]"
       >
         {handle}
-        <h2 className="min-w-0 truncate font-semibold ui-meta">{title}</h2>
+        {/* pane 内标题由把手簇渲染(区域 spec 的唯一可见标题);独立使用时才自绘 h2。 */}
+        {handle === null && <h2 className="min-w-0 truncate font-semibold ui-meta">{title}</h2>}
         {tag}
         {big !== undefined && (
           <span
