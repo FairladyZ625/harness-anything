@@ -1,4 +1,9 @@
-import { isOpaqueTextualMediaType, type OpaqueTextualMediaType } from "./artifact-text-classification.ts";
+import {
+  isOpaqueTextualMediaType,
+  OPAQUE_TEXTUAL_POLICY_ID,
+  taskArtifactSubtreePath,
+  type OpaqueTextualMediaType,
+} from "./artifact-text-classification.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
@@ -30,7 +35,7 @@ export interface InitialDocumentClaim {
   readonly size: number;
   readonly mediaType: "application/json" | "text/markdown" | "text/plain" | OpaqueTextualMediaType;
   readonly owner: TaskDocumentOwner;
-  readonly policyId: "markdown-body-replaceable/v1" | "typed-machine-writer/v1";
+  readonly policyId: "markdown-body-replaceable/v1" | "typed-machine-writer/v1" | typeof OPAQUE_TEXTUAL_POLICY_ID;
 }
 export interface TaskBootstrapBlob {
   readonly sha256: string;
@@ -195,9 +200,7 @@ function validDocumentClaim(value: unknown, allowUnknownFields: boolean): value 
     !validBootstrapStoredClaim(value) ||
     (value.owner !== "machine" && value.owner !== "doc-sync") ||
     (value.owner === "machine" && value.policyId !== "typed-machine-writer/v1") ||
-    (value.owner === "doc-sync" &&
-      (value.policyId !== "markdown-body-replaceable/v1" ||
-        (value.mediaType !== "text/markdown" && value.mediaType !== "text/plain"))) ||
+    (value.owner === "doc-sync" && !validDocSyncClaimPolicy(value)) ||
     (!["application/json", "text/markdown", "text/plain"].includes(String(value.mediaType)) &&
       !isOpaqueTextualMediaType(value.mediaType))
   )
@@ -208,6 +211,22 @@ function validDocumentClaim(value: unknown, allowUnknownFields: boolean): value 
     return false;
   }
 }
+/**
+ * A doc-sync claim is either canonical prose (markdown/plain) or a whole-file document born in the
+ * task's artifacts subtree — the living explainer page, the keep file. The opaque branch matches the
+ * path classification doc sync itself applies on every later update, so a scaffolded artifact stays
+ * worker-updatable instead of dying on semantic_policy_changed at its first sync.
+ */
+function validDocSyncClaimPolicy(value: Readonly<Record<string, unknown>>): boolean {
+  if (value.policyId === "markdown-body-replaceable/v1")
+    return value.mediaType === "text/markdown" || value.mediaType === "text/plain";
+  return (
+    value.policyId === OPAQUE_TEXTUAL_POLICY_ID &&
+    taskArtifactSubtreePath(String(value.path)) &&
+    isOpaqueTextualMediaType(value.mediaType)
+  );
+}
+
 function validBootstrapStoredClaim(value: Readonly<Record<string, unknown>>): boolean {
   return (
     /^[0-9a-f]{64}$/u.test(String(value.sha256)) &&

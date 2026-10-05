@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFi
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
-import { taskQueryGuidance } from "@harness-anything/daemon/internal/runtime-spawn-mission";
+import { livingDeliverableProtocol, taskQueryGuidance } from "@harness-anything/daemon/internal/runtime-spawn-mission";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import {
@@ -64,7 +64,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(bound.runtimeSessionId),
-    mission: `${taskQueryGuidance(taskId)}\n\nbound prompt`,
+    mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nbound prompt`,
   });
   assert.ok(
     assembledPrompt.indexOf("# Worker Role") < assembledPrompt.indexOf("prompt://review") &&
@@ -600,7 +600,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   assert.equal(promptFile.status, 0, JSON.stringify(promptFile));
   assert.ok(
     String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
-      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\nexisting mission`,
+      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nexisting mission`,
     ),
   );
   const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
@@ -649,7 +649,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     mission:
       `Your task package is ${path.join(realpathSync(root), "harness", packagePath)}.\n` +
       "Read task_plan.md in that package and complete the task.\n\n" +
-      `${taskQueryGuidance(taskId)}\n\n` +
+      `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
       "# Mission: existing-mission\n\nexisting mission",
   });
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -657,7 +657,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     derivedMission =
       `Your task package is ${taskPackage}.\n` +
       `Read task_plan.md in that package and complete the task.\n\n` +
-      taskQueryGuidance(taskId),
+      taskQueryGuidance(taskId) +
+      "\n\n" +
+      livingDeliverableProtocol("baseline")!,
     derived = run(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
     derivedText = String((derived.result as Record<string, unknown>).text);
   assert.match(

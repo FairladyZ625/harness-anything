@@ -389,16 +389,15 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.tasks.completion.read": (payload) =>
       readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId")),
     "repo.tasks.runtimeContext.read": (payload) => {
-      const taskId = context.requiredCellText(payload.taskId, "taskId");
+      const taskId = context.requiredCellText(payload.taskId, "taskId"),
+        task = context.projection.read(taskId).snapshot.task;
       return {
         schema: "task-runtime-context-read/v1" as const,
         ok: true as const,
         taskId,
         causalContext: assembleTaskCausalContext({ projection: context.projection, taskId }),
-        worktree: openTaskWorktreeBinding(
-          context.projection.read(taskId).snapshot.task,
-          presetSnapshotReader(context.projection),
-        ),
+        profileId: task?.metadata?.profileId ?? null,
+        worktree: openTaskWorktreeBinding(task, presetSnapshotReader(context.projection)),
       };
     },
     "repo.tasks.document.read": (payload) => readProjectedDocument(context, payload),

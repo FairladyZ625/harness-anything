@@ -41,7 +41,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
-import { runtimeMissionName, taskQueryGuidance } from "./runtime-spawn-mission.ts";
+import { livingDeliverableProtocol, runtimeMissionName, taskQueryGuidance } from "./runtime-spawn-mission.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -239,10 +239,10 @@ export function openFleetEdgeRuntime(input: {
           );
         const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/")),
           planPath = path.join(packageRoot, "task_plan.md"),
-          // The causal block and the worktree binding are assembled at the center's canonical cut in
-          // this same round trip — a stale edge mirror is never summarized as fact, and the edge has
-          // no projection to derive a binding from.
-          { causalContext, worktree } = taskRuntimeContext(
+          // The causal block, the task profile, and the worktree binding are assembled at the center's
+          // canonical cut in this same round trip — a stale edge mirror is never summarized as fact,
+          // and the edge has no projection to derive a binding from.
+          { causalContext, profileId, worktree } = taskRuntimeContext(
             await runFleetRuntimeReadClient({
               ...runtimeReadPeer,
               repoId: request.repoId,
@@ -250,7 +250,8 @@ export function openFleetEdgeRuntime(input: {
               payload: { taskId },
             }),
             taskId,
-          );
+          ),
+          livingProtocol = livingDeliverableProtocol(profileId);
         let plan: string;
         try {
           plan = readFileSync(planPath, "utf8");
@@ -288,6 +289,7 @@ export function openFleetEdgeRuntime(input: {
             : null,
           missionAfterPackage = [
             taskQueryGuidance(taskId),
+            ...(livingProtocol === null ? [] : [livingProtocol]),
             ...(causalContext === null ? [] : [causalContext]),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ];
@@ -300,6 +302,7 @@ export function openFleetEdgeRuntime(input: {
               }
             : {}),
           packageRoot,
+          profileId,
           mission: (reachedPackageRoot) =>
             [
               `Your task package is ${reachedPackageRoot}.\n` +
@@ -602,18 +605,24 @@ export function openFleetEdgeRuntime(input: {
 function taskRuntimeContext(
   read: Readonly<Record<string, unknown>>,
   taskId: string,
-): { readonly causalContext: string | null; readonly worktree: TaskWorktreeBindingV1 | null } {
+): {
+  readonly causalContext: string | null;
+  readonly profileId: string | null;
+  readonly worktree: TaskWorktreeBindingV1 | null;
+} {
   const worktree = read.worktree as { readonly branch?: unknown; readonly path?: unknown } | null | undefined;
   if (
     read.schema === "task-runtime-context-read/v1" &&
     read.ok === true &&
     read.taskId === taskId &&
     (read.causalContext === null || typeof read.causalContext === "string") &&
+    (read.profileId === null || typeof read.profileId === "string") &&
     (worktree === null ||
       (typeof worktree === "object" && typeof worktree.branch === "string" && typeof worktree.path === "string"))
   )
     return {
       causalContext: read.causalContext,
+      profileId: read.profileId === null ? null : (read.profileId as string),
       worktree: worktree ? { branch: worktree.branch as string, path: worktree.path as string } : null,
     };
   throw edgeRuntimeError("runtime_read_invalid", `Center returned an invalid runtime context read for task ${taskId}.`);

@@ -42,19 +42,26 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
       opId: "op-standard",
     });
     assert.equal(standard.event.payload.task.taskClass, "standard");
-    assert.equal(standard.event.payload.initialDocumentClaims.length, 5);
+    assert.equal(standard.event.payload.initialDocumentClaims.length, 6);
     assert.equal(standard.packagePath, "tasks/task-standard-standard");
     assert.ok(
       standard.documents[0]!.body.endsWith("## Next\n\nEdit `task_plan.md`, then run `ha task start task-standard`.\n"),
     );
     assert.deepEqual(
       standard.documents.map(({ relativePath }) => relativePath),
-      ["INDEX.md", "task-contract.json", "task_plan.md", "closeout.md", "artifacts/.gitkeep"],
+      [
+        "INDEX.md",
+        "task-contract.json",
+        "task_plan.md",
+        "closeout.md",
+        "artifacts/.gitkeep",
+        "artifacts/explainer.html",
+      ],
     );
     assert.match(standard.documents[2]!.body, /^# Standard$/mu);
     assert.deepEqual(
       standard.event.payload.initialDocumentClaims.map(({ owner }) => owner),
-      ["machine", "machine", "doc-sync", "doc-sync", "doc-sync"],
+      ["machine", "machine", "doc-sync", "doc-sync", "doc-sync", "doc-sync"],
     );
     assert.equal(JSON.parse(standard.documents[1]!.body).documents[2].owner, "doc-sync");
     const documentation = compileTaskBootstrap({
@@ -103,7 +110,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
       profileId: "baseline",
       locale: "en-US",
     });
-    assert.equal(packageOnly.documents.length, 5);
+    assert.equal(packageOnly.documents.length, 6);
     assert.equal("event" in packageOnly, false);
     assert.equal("plan" in packageOnly, false);
     assert.equal("blobs" in packageOnly, false);
@@ -132,7 +139,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     });
     assert.equal(work.event.payload.task.taskClass, "work");
     assert.equal(work.snapshot.templates[0]!.templateRef, "template://planning/work-task-plan@1");
-    assert.equal(work.event.payload.initialDocumentClaims.length, 5);
+    assert.equal(work.event.payload.initialDocumentClaims.length, 6);
     const store = makeTaskEventStore({ repoId: "preset-bootstrap", rootDir }),
       projection = makeTaskProjection({ rootDir, eventStore: store }),
       before = store.currentCommit();
