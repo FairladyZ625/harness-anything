@@ -53,6 +53,7 @@ export function seedSettingsEvent(input: {
   readonly rootDir: string;
   readonly authoredBranch?: string;
   readonly writerEpochFence?: WriterEpochFenceDescriptor;
+  readonly keepOpen?: boolean;
 }): ReturnType<typeof makeTaskEventStore> | undefined {
   const repoId = workspaceId(input.repoId),
     rootDir = canonicalRoot(input.rootDir),
@@ -67,8 +68,7 @@ export function seedSettingsEvent(input: {
     }),
     stream = store.read();
   if (stream.events.some((event) => event.schema === "settings-event/v1")) {
-    seededSettings.add(fixtureKey);
-    return store;
+    return settleSeeded(store, fixtureKey, input.keepOpen);
   }
   const documentBody = settingsBase(rootDir),
     digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
@@ -85,8 +85,22 @@ export function seedSettingsEvent(input: {
       occurredAt: "2026-08-27T00:00:00.000Z",
     }),
   );
+  return settleSeeded(store, fixtureKey, input.keepOpen);
+}
+
+function settleSeeded(
+  store: ReturnType<typeof makeTaskEventStore>,
+  fixtureKey: string,
+  keepOpen?: boolean,
+): ReturnType<typeof makeTaskEventStore> | undefined {
   seededSettings.add(fixtureKey);
-  return store;
+  if (keepOpen) return store;
+  // The seeded store schedules its follower publication one tick out; drain closes the SQLite
+  // handle only after that publication settles. Callers that drop the store must not leave the
+  // handle open for the rest of the process: on Windows an open handle blocks deleting the
+  // fixture tree.
+  void store.drain();
+  return undefined;
 }
 
 export async function registerSettledBootstrappedDaemonRepo(
@@ -98,7 +112,12 @@ export async function registerSettledBootstrappedDaemonRepo(
         input.canonicalRoot,
         path.join(daemonRegistryPaths(input).userRoot, "fleet"),
       ),
-      store = seedSettingsEvent({ repoId: input.repoId, rootDir: input.canonicalRoot, writerEpochFence });
+      store = seedSettingsEvent({
+        repoId: input.repoId,
+        rootDir: input.canonicalRoot,
+        writerEpochFence,
+        keepOpen: true,
+      });
     if (store) {
       store.materialize();
       await store.drain();
