@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,35 @@ import {
 } from "@harness-anything/kernel";
 import { compilePresetSnapshotUpgrade, compileTaskBootstrap, compileTaskPackage } from "../src/index.ts";
 
+const PR_TEMPLATE_FIXTURE = `# English
+
+## Summary
+
+-
+
+## What Changed
+
+-
+
+---
+
+# 中文
+
+## 概要
+
+-
+
+## 改动内容
+
+-
+
+---
+
+## PR Gate Checklist / PR 门禁清单
+
+- [ ] PR body uses two complete language blocks.
+`;
+
 test("standard and work bootstrap compile one exact canonical birth and rebuild from L1", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-bootstrap-")),
     userRoot = path.join(rootDir, ".harness/presets");
@@ -23,8 +52,11 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     git(rootDir, "config", "user.name", "Preset Test");
     git(rootDir, "config", "user.email", "preset@example.invalid");
     git(rootDir, "commit", "--allow-empty", "-qm", "base");
+    mkdirSync(path.join(rootDir, ".github"), { recursive: true });
+    writeFileSync(path.join(rootDir, ".github", "pull_request_template.md"), PR_TEMPLATE_FIXTURE);
     const common = {
       userRoot,
+      repoRoot: rootDir,
       verticalId: "software/coding",
       profileId: "baseline",
       locale: "en-US",
@@ -42,7 +74,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
       opId: "op-standard",
     });
     assert.equal(standard.event.payload.task.taskClass, "standard");
-    assert.equal(standard.event.payload.initialDocumentClaims.length, 6);
+    assert.equal(standard.event.payload.initialDocumentClaims.length, 7);
     assert.equal(standard.packagePath, "tasks/task-standard-standard");
     assert.ok(
       standard.documents[0]!.body.endsWith("## Next\n\nEdit `task_plan.md`, then run `ha task start task-standard`.\n"),
@@ -56,12 +88,24 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
         "closeout.md",
         "artifacts/.gitkeep",
         "artifacts/explainer.html",
+        "artifacts/pr-body.md",
       ],
     );
+    // The PR-body skeleton is the repository template verbatim: workers fill it in, never guess the format.
+    assert.equal(
+      standard.documents.find(({ relativePath }) => relativePath === "artifacts/pr-body.md")!.body,
+      PR_TEMPLATE_FIXTURE,
+    );
+    const prBodyClaim = standard.event.payload.initialDocumentClaims.find(({ path }) =>
+      path.endsWith("/artifacts/pr-body.md"),
+    )!;
+    assert.equal(prBodyClaim.owner, "doc-sync");
+    assert.equal(prBodyClaim.policyId, "opaque-textual-whole-file/v1");
+    assert.equal(prBodyClaim.mediaType, "text/markdown");
     assert.match(standard.documents[2]!.body, /^# Standard$/mu);
     assert.deepEqual(
       standard.event.payload.initialDocumentClaims.map(({ owner }) => owner),
-      ["machine", "machine", "doc-sync", "doc-sync", "doc-sync", "doc-sync"],
+      ["machine", "machine", "doc-sync", "doc-sync", "doc-sync", "doc-sync", "doc-sync"],
     );
     assert.equal(JSON.parse(standard.documents[1]!.body).documents[2].owner, "doc-sync");
     const documentation = compileTaskBootstrap({
@@ -111,6 +155,25 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
       locale: "en-US",
     });
     assert.equal(packageOnly.documents.length, 6);
+    assert.equal(
+      packageOnly.documents.some(({ relativePath }) => relativePath === "artifacts/pr-body.md"),
+      false,
+      "a compile without a repository root has no template to materialize",
+    );
+    const docsTask = compileTaskBootstrap({
+      ...common,
+      taskId: "task-docs-artifact",
+      title: "Docs Artifact",
+      presetId: "docs-task",
+      workspaceRevision: 2,
+      eventId: "event-docs-artifact",
+      opId: "op-docs-artifact",
+    });
+    assert.equal(
+      docsTask.documents.some(({ relativePath }) => relativePath === "artifacts/pr-body.md"),
+      false,
+      "a task-package preset has no worktree binding and never opens a PR, even with the template present",
+    );
     assert.equal("event" in packageOnly, false);
     assert.equal("plan" in packageOnly, false);
     assert.equal("blobs" in packageOnly, false);
@@ -140,6 +203,11 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     assert.equal(work.event.payload.task.taskClass, "work");
     assert.equal(work.snapshot.templates[0]!.templateRef, "template://planning/work-task-plan@1");
     assert.equal(work.event.payload.initialDocumentClaims.length, 6);
+    assert.equal(
+      work.documents.some(({ relativePath }) => relativePath === "artifacts/pr-body.md"),
+      false,
+      "work roots are planning containers and never open a PR of their own",
+    );
     const store = makeTaskEventStore({ repoId: "preset-bootstrap", rootDir }),
       projection = makeTaskProjection({ rootDir, eventStore: store }),
       before = store.currentCommit();
