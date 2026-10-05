@@ -477,9 +477,11 @@ async function checkOverviewColumn(page, shot, label) {
   assert.ok(!(await worksFirst()), `${label} keyboard dock flips the stacking order`);
   await board.getByTestId("overview-board-controls-reset").click();
   await orderIs(true);
-  // 列高调缝:把手 Alt+方向键沿高度增减(单列板的缝是横缝);dv-sash 指针拖拽同轴。
+  // 列高调缝:把手 Alt+方向键沿高度增减(单列板的缝是横缝);dv-sash 指针拖拽同轴。方向取
+  // ArrowUp(收 works):默认权重 6:1.5 把 drill 压在最小高附近,works 向下 growth 会被 drill
+  // 的最小高卡住(实测 +7px),收缩侧的余量才是无条件的。
   const seamBefore = await box("works");
-  await handle("works").press("Alt+ArrowDown");
+  await handle("works").press("Alt+ArrowUp");
   const seamAfter = await box("works");
   assert.ok(
     Math.abs(seamAfter.height - seamBefore.height) >= 12,
