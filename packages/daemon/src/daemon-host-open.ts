@@ -112,6 +112,8 @@ export interface DaemonHostOpenInput {
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
   readonly oidc?: OidcSessionService;
+  /** The managed identity center's lifecycle; a hermetic host substitutes it to stage its resume. */
+  readonly managedRbac?: Pick<ManagedRbacService, "run" | "resume" | "stop">;
   readonly attachTimeoutMs?: number;
   readonly openCell?: (
     input: Parameters<typeof openRepoCell>[0] & { readonly onStatus?: (status: RepoCellStatus) => void },
@@ -222,9 +224,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     daemonWriterBinding = (repoId: string, base: ReturnType<typeof localSystemBinding>) => {
       if (base.writerEpochFence) return base;
       return withDaemonWriterEpochFence(base, writerEpochFence(repoId));
-    },
-    keycloakCenter: KeycloakCenterAuthority = async () => ({ ...(await oidc.center()), clientId: "harness-center" }),
-    hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
+    };
+  // Assigned once the managed identity center's resume is fired below; every center consultation
+  // awaits it, so a center still resuming reads as a slow startup instead of a broken repo (a
+  // build-superseded successor's first attach lost exactly that race and latched its repo).
+  let rbacResumed: Promise<void> = Promise.resolve();
+  const keycloakCenter: KeycloakCenterAuthority = async () => {
+    await rbacResumed;
+    return { ...(await oidc.center()), clientId: "harness-center" };
+  };
+  const hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
       const execution = auth.executionCredential
         ? await authenticateRuntimeExecutionCredential(await keycloakCenter(), auth.executionCredential)
         : auth.executionPrincipal;
@@ -641,14 +650,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now,
     startedAt,
   };
-  const managedRbac = new ManagedRbacService(input.userRoot),
+  const managedRbac = input.managedRbac ?? new ManagedRbacService(input.userRoot),
     // A node removal settles in the access-admin queue; the fleet center owns that node's
     // live TLS sessions, so the settled cut is handed from one to the other here.
     accessAdmin = new AccessAdminService(oidc, input.userRoot, {
       onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
     }),
     lifecycle = createDaemonHostLifecycleApi(hostContext);
-  void managedRbac.resume().catch((error: unknown) =>
+  // The resume failure is recorded, not surfaced: a center that cannot come back still fails
+  // every consultation honestly through oidc.center(), without a second error shape.
+  rbacResumed = managedRbac.resume().catch((error: unknown) =>
     input.recordLifecycle?.({
       event: "rbac_resume_failed",
       error: error instanceof Error ? error.message : String(error),

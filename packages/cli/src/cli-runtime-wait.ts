@@ -2,22 +2,13 @@ import type { AgentRuntimeSessionResult } from "@harness-anything/daemon/interna
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { cliErrorMessage } from "./cli-error.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
-import {
-  consumeKnownError,
-  openRuntimeStatusReader,
-  runCommandThroughDaemon,
-  streamRuntimeThroughDaemon,
-} from "./daemon/client.ts";
+import { consumeKnownError, runCommandThroughDaemon, streamRuntimeThroughDaemon } from "./daemon/client.ts";
 
 type DaemonGone = { readonly kind: "daemon-gone"; readonly cause: string };
 type DaemonStoppedByOperator = { readonly kind: "daemon-stopped"; readonly stoppedAt: string };
 type DaemonWaitFailure = DaemonGone | DaemonStoppedByOperator;
 
 const subscriptionReconnectAttemptLimit = 5;
-// The patience a parked wait grants a latched repo matches what the plain command path grants a
-// warming one (settleRepoWarming) and the daemon's own attach budget; the retry interval's 5s
-// ceiling matches the daemon's latch-probe throttle, so every re-issued read lands on a probe.
-const subscriptionRepoLatchPatienceMs = 60_000;
 
 /** Every terminal wait — one session, several sessions, or a task's dispatch set — is one
  * long-lived repo.agentRuntime.sessions.await request. The daemon owns the settle decision and
@@ -35,22 +26,25 @@ export async function waitForRuntimeSessions(
     runtimeSessionIds = Array.isArray(action.runtimeSessionIds) ? (action.runtimeSessionIds as readonly string[]) : [],
     taskIds = Array.isArray(action.taskIds) ? (action.taskIds as readonly string[]) : [],
     singleId = runtimeSessionIds.length === 1 ? runtimeSessionIds[0] : undefined;
-  let detach: (() => void) | undefined,
-    statusReader: Awaited<ReturnType<typeof openRuntimeStatusReader>> | undefined,
-    lastKnown: AgentRuntimeSessionResult | undefined;
+  let detach: (() => void) | undefined, lastKnown: AgentRuntimeSessionResult | undefined;
   try {
     if (singleId !== undefined) {
       // One capability probe decides whether an interactive stream can decorate the wait; the
-      // daemon-side await is the settle authority either way.
+      // daemon-side await is the settle authority either way. The probe rides the command path so
+      // a still-warming repo (a build-superseded successor attaching behind the identity center's
+      // resume) meets the same settleRepoWarming patience as every other read, and never spawns a
+      // daemon: the wait is a parked read, not an operator launch.
       const initial = await readDaemonSubscription(
-        async () => {
-          statusReader ??= await openRuntimeStatusReader(command, singleId);
-          return statusReader.read();
-        },
-        () => {
-          statusReader?.close();
-          statusReader = undefined;
-        },
+        () =>
+          runCommandThroughDaemon(
+            {
+              ...command,
+              method: "repo.agentRuntime.sessions.read",
+              action: { kind: "runtime-status", runtimeSessionId: singleId },
+            },
+            () => undefined,
+            { autostart: false },
+          ),
         operatorStoppedAt,
       );
       if (isDaemonStopped(initial)) return runtimeWaitFailureReceipt(initial, undefined, singleId, target, spawned);
@@ -70,7 +64,6 @@ export async function waitForRuntimeSessions(
         () =>
           // The wait is a parked read, not an operator launch: it must never spawn a daemon.
           runCommandThroughDaemon({ ...command, action: rpcAction }, () => undefined, { autostart: false }),
-        () => undefined,
         operatorStoppedAt,
       );
     if (isDaemonStopped(result))
@@ -95,7 +88,6 @@ export async function waitForRuntimeSessions(
       target?.taskId ?? (taskIds.length === 1 ? taskIds[0] : associatedTaskId(result)),
     );
   } finally {
-    statusReader?.close();
     detach?.();
   }
 }
@@ -283,27 +275,14 @@ export async function waitForSquadRun(command: ThinCommand, squadRunId: string):
 
 async function readDaemonSubscription(
   read: () => Promise<JsonObject>,
-  reset: () => void = () => undefined,
   stopped: () => Promise<string | null> = async () => null,
 ): Promise<JsonObject | DaemonWaitFailure> {
-  let attempt = 0,
-    latchAttempt = 0,
-    latchDeadline: number | null = null;
+  let attempt = 0;
   for (;;) {
     try {
-      const result = await read();
-      if (!isRepoLatchReceipt(result)) return result;
-      // A latched repo answers with an error receipt, not a transport failure: during a
-      // build-superseded handoff the successor's first attach can lose a race with the identity
-      // center, and every re-issued read re-probes the latch daemon-side. The wait rides that
-      // readiness state out; a repo that never unlatches still gets its verdict — the receipt
-      // itself returns once the patience ends.
-      latchDeadline ??= Date.now() + subscriptionRepoLatchPatienceMs;
-      if (Date.now() >= latchDeadline) return result;
-      await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** latchAttempt++, 5_000)));
+      return await read();
     } catch (error) {
       consumeKnownError(error);
-      reset();
       const stoppedAt = await stopped();
       if (stoppedAt !== null) return { kind: "daemon-stopped", stoppedAt };
       if (!recoverableSubscriptionFailure(error)) throw error;
@@ -315,17 +294,6 @@ async function readDaemonSubscription(
       await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** attempt++, 5_000)));
     }
   }
-}
-
-/** A repo_unavailable receipt is the daemon's latched-readiness verdict, not a verdict about the
- * waited sessions: the daemon re-probes the latch on every request and re-attaches within
- * seconds, so a parked wait treats it as transient the way plain commands treat repo_warming. */
-function isRepoLatchReceipt(receipt: JsonObject): boolean {
-  const error =
-    receipt.error && typeof receipt.error === "object" && !Array.isArray(receipt.error)
-      ? (receipt.error as JsonObject)
-      : null;
-  return receipt.ok !== true && (receipt.code === "repo_unavailable" || error?.code === "repo_unavailable");
 }
 
 function recoverableSubscriptionFailure(error: unknown): boolean {
