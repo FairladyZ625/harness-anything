@@ -1,7 +1,7 @@
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
+import { type AgentRuntimeEventV1, type CanonicalEventStore, type SessionIdentity } from "@harness-anything/kernel";
 import {
   runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
@@ -88,7 +88,7 @@ import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
 import { prepareBoundRuntimeLaunch, prepareTaskWorkerGitEnvironment } from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { assertReviewerTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
+import { assertReviewerTarget, selectReadOnlyAttachTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
 import {
   initialFallbackAttempt,
   requiredRuntimeFast,
@@ -114,6 +114,23 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   exitNotificationTimeoutMs = 30_000;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
+
+/** A read-only attach reads the frozen round from the repository root — the reviewer dispatch's
+ *  working-directory discipline — so its dispatch never checks out or advances the round's worktree.
+ *  Resolution failures surface here exactly as they would in spawn: an Agent identity that does not
+ *  resolve is a dispatch error, never a quiet read-only classification. */
+function readOnlyAttachDispatch(input: RuntimeSpawnerInput, payload: JsonObject): boolean {
+  const taskId = typeof payload.taskId === "string" ? payload.taskId : null;
+  if (taskId === null || payload.role === "reviewer" || payload.dryRun === true) return false;
+  const status = requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
+    ?.status;
+  if (status !== "submitted" && status !== "in_review") return false;
+  const agentId = typeof payload.agentId === "string" ? payload.agentId : undefined;
+  return agentId !== undefined && input.resolveAgent !== undefined
+    ? input.resolveAgent(agentId)?.permissionMode === "read-only"
+    : false;
+}
+
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
@@ -259,6 +276,21 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`,
       trustedHandoffSource = handoffFromRuntimeSessionId ?? resumed?.header.runtimeSessionId ?? null;
     const authorizationDecision: AuthorizationDecision | null = binding.authorizationDecision ?? null;
+    const frozenStatus = taskSnapshot?.task?.status,
+      frozenTask = frozenStatus === "submitted" || frozenStatus === "in_review",
+      // A declared read-only Agent identity attaches to the frozen round's submitted cut instead of
+      // taking the implementation path: no lease, no new execution, the frozen cut untouched. The
+      // criterion is the declaration's own permissionMode, resolved only on a frozen round: an
+      // identity that does not positively resolve read-only keeps the frozen rejection below, and
+      // a declaration that cannot resolve at all is its own dispatch error, never a quiet
+      // read-only classification.
+      readOnlyAttach =
+        taskId !== null && !input.remote && !reviewerBinding && !dryRun && frozenTask
+          ? input.resolveAgent !== undefined &&
+            agentId !== undefined &&
+            input.resolveAgent(agentId)?.permissionMode === "read-only"
+          : false,
+      attachTarget = readOnlyAttach ? selectReadOnlyAttachTarget(taskId!, taskSnapshot!) : null;
     if (taskId && !input.remote && !reviewerBinding) {
       const leaseQualifies = taskDispatchLeaseQualifies(
         leaseAtAdmission,
@@ -277,10 +309,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       if (!dryRun) assertTaskDispatchPrerequisites(projection!, taskId);
       // A submitted round's cut is frozen: an implementation runtime dispatched now could never
       // write under its lease, so the conflict is rejected here instead of after the work is done.
-      const frozenStatus = taskSnapshot?.task?.status;
-      if (!dryRun && (frozenStatus === "submitted" || frozenStatus === "in_review"))
-        throw runtimeTaskExecutionFrozenError(taskId, frozenStatus);
-      if (!dryRun && !leaseQualifies)
+      // A read-only attach is the exception: it writes nothing, so it may observe the frozen cut.
+      if (!dryRun && !readOnlyAttach && frozenTask) throw runtimeTaskExecutionFrozenError(taskId, frozenStatus);
+      if (!dryRun && !readOnlyAttach && !leaseQualifies)
         throw runtimeSpawnError(
           "runtime_task_lease_required",
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
@@ -503,8 +534,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       workerIdentityEnvironment =
         taskId || trustedSchedule || reviewerBinding ? await conventionalWorkerGitEnvironment(input.rootDir) : {};
     if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);
-    // Every implementation runtime, including squad leaders, takes the actual lease.
-    const taskLeaseHandoff = taskId && !input.remote && !reviewerBinding ? input.handoffTaskLease : undefined,
+    // Every implementation runtime, including squad leaders, takes the actual lease. A read-only
+    // attach takes none: it never asks for the handoff, so the frozen round's lease state stays untouched.
+    const taskLeaseHandoff =
+        taskId && !input.remote && !reviewerBinding && !readOnlyAttach ? input.handoffTaskLease : undefined,
       activeBinding = taskLeaseHandoff
         ? await taskLeaseHandoff({
             taskId: taskId!,
@@ -523,10 +556,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const taskBinding = taskId
         ? {
             taskId,
-            executionId: remoteTask?.executionId ?? (reviewerBinding ? reviewTarget!.executionId : lease!.executionId),
-            // A reviewer holds no lease; carrying another executor's leaseVersion would misstate
-            // the session's write authority in every downstream binding check.
-            leaseVersion: reviewerBinding ? null : (lease?.version ?? null),
+            executionId:
+              remoteTask?.executionId ??
+              (reviewerBinding
+                ? reviewTarget!.executionId
+                : readOnlyAttach
+                  ? attachTarget!.executionId
+                  : lease!.executionId),
+            // A reviewer and a read-only attach hold no lease; carrying another executor's
+            // leaseVersion would misstate the session's write authority in every downstream
+            // binding check.
+            leaseVersion: reviewerBinding || readOnlyAttach ? null : (lease?.version ?? null),
           }
         : null,
       streamStartedAt = input.now();
@@ -657,7 +697,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId,
         trustedSchedule,
         reviewerBinding: Boolean(reviewerBinding),
-        ...(taskId
+        // A read-only attach mints no execution credential: it executes nothing, and a principal
+        // labeled implementation or reviewer would misstate the session's authority either way.
+        ...(taskId && !readOnlyAttach
           ? {
               execution: {
                 repoId: input.repoId,
@@ -877,7 +919,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   };
   return {
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
-    prepareWorktree: (payload: JsonObject) => prepareDispatchWorktree(input, payload, projectedWorktreeBinding(input)),
+    prepareWorktree: (payload: JsonObject) =>
+      prepareDispatchWorktree(
+        input,
+        payload,
+        readOnlyAttachDispatch(input, payload) ? () => null : projectedWorktreeBinding(input),
+      ),
     spawnHandoff: (
       checkpoint: RuntimeHandoffCheckpoint,
       payload: JsonObject,
