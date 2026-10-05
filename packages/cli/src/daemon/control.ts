@@ -90,14 +90,17 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       );
       return finish(result, result.ok === true ? 0 : 1);
     }
-    if (command === "fleet") return fleetControl(argv, at, userRoot, daemonId, finish);
+    // `return await`, not `return`: a bare return resolves the subcommand's rejection only after
+    // this catch has let go, and a known coded error leaves the CLI as a bare stack, not a receipt.
+    if (command === "fleet") return await fleetControl(argv, at, userRoot, daemonId, finish);
     if (command === "repo") {
       const result = await runDaemonRepoControl(argv, subcommand, userRoot, daemonId, finish);
       if (result !== undefined) return result;
     }
-    if (command === "connection") return runDaemonConnectionControl(argv, subcommand, userRoot, daemonId, finish);
-    if (command === "service") return runDaemonServiceControl(subcommand, userRoot, daemonId, invokingRoot, finish);
-    if (command === "start") return startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
+    if (command === "connection") return await runDaemonConnectionControl(argv, subcommand, userRoot, daemonId, finish);
+    if (command === "service")
+      return await runDaemonServiceControl(subcommand, userRoot, daemonId, invokingRoot, finish);
+    if (command === "start") return await startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
     if (command === "status") {
       const assessed = assessDaemonStatus(await status(userRoot, daemonId, argv));
       return finish(assessed.receipt, assessed.exitCode);
@@ -253,6 +256,7 @@ async function fleetControl(
     ? await resolveLocalDaemonTarget({
         rootDir: path.resolve(flag("--root") ?? process.cwd()),
         repoIdOverride: flag("--repo"),
+        registrationMode: "remote-edge",
         userRoot,
         daemonId,
       })

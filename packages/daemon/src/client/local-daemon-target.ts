@@ -23,6 +23,8 @@ export interface LocalDaemonTarget {
 export interface LocalDaemonTargetInput {
   readonly rootDir: string;
   readonly repoIdOverride?: string;
+  /** The registration mode the caller needs; named in the unregistered-workspace remedy. */
+  readonly registrationMode?: "remote-edge";
   readonly userRoot?: string;
   readonly daemonId?: string;
   readonly env?: NodeJS.ProcessEnv;
@@ -127,7 +129,8 @@ export function resolveLocalDaemonTargetFromRepos(
           ? `workspace is blocked by disabled repoId ${JSON.stringify(repo.repoId)} at ` +
             `${JSON.stringify(repo.canonicalRoot)}; run ha repo unbind ${repo.repoId} to remove it`
           : `workspace is not registered; run ha daemon repo register --repo-id <id> --root ` +
-            JSON.stringify(path.resolve(input.rootDir)),
+            JSON.stringify(path.resolve(input.rootDir)) +
+            (input.registrationMode ? ` --mode ${input.registrationMode}` : ""),
       ),
       { code: "workspace_not_registered" },
     );
