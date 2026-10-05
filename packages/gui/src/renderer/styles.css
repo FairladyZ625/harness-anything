@@ -822,3 +822,26 @@ html[data-theme="light"] ::selection {
     min-width: var(--control-height-touch);
   }
 }
+
+/*
+ * 页面区域与停靠分屏 (PageRegions / Dockview):
+ * 页面区域严禁借 dockview 库内置主题的硬编码暗色底 (如 #1e1e1e / #252526 / #f6f5f9);
+ * 分屏与组容器完全透明,全面透传产品设计系统语义底色 (var(--color-bg) / var(--color-surface))。
+ */
+.dockview-theme-dark,
+.dockview-theme-light,
+.dockview-theme-abyss,
+.dv-dockview,
+.dv-groupview,
+.dv-root-wrapper {
+  --dv-group-view-background-color: transparent !important;
+  --dv-tabs-and-actions-container-background-color: transparent !important;
+  --dv-separator-border: var(--color-border) !important;
+  --dv-active-sash-color: var(--color-border-strong) !important;
+  background-color: transparent !important;
+}
+
+.dv-groupview > .dv-content-container {
+  background-color: transparent !important;
+}
+

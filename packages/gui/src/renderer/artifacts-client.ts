@@ -15,6 +15,11 @@ const bridge = (): ArtifactsBridge => {
   return value as ArtifactsBridge;
 };
 
+/** `repo.artifacts.list` 读面的 query key(产物页与总览速览架共用同一缓存,唯一定义点)。 */
+export const artifactsQueryKeys = {
+  list: (repoId: string, kind: ArtifactGuiKind) => ["artifacts", repoId, kind] as const,
+};
+
 export const artifactsClient = {
   list: async (repoId: string, kind: ArtifactGuiKind): Promise<ArtifactsListResult> => {
     const value = await bridge().listArtifacts({ repoId, kind });

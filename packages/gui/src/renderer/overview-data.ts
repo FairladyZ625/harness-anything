@@ -1,13 +1,14 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { CiObservatoryRead } from "../api/renderer-dto.ts";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
+import { artifactsClient, artifactsQueryKeys } from "./artifacts-client.ts";
 import { harnessClient } from "./api-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "./agent-runtime-client.ts";
 import { cadenceEventOf, type CadenceFeedEvent } from "./model/cadence.ts";
 import { observeTailRequest } from "./daemon-observe-model.ts";
 
 /**
- * 总览(S3)自持的两条读面 + 复用的 runtime overview 读:都只挂在总览页挂载期间,
+ * 总览(S3)自持的读面 + 复用的 runtime overview 读:都只挂在总览页挂载期间,
  * 且都有界(CI 观察窗 ≤30 run;事件一页 history,不进 follow 循环)。agenda、工作索引、
  * 台账摘要由 App 常驻挂载,经 props 进来。
  */
@@ -61,6 +62,21 @@ export function overviewRuntimeQuery(repoId: string) {
 /** 执行中:repo 级 runtime overview(与研发态势同一读面,key 共享去重;cut 扇出覆盖)。 */
 export function useOverviewRuntime(repoId: string | null) {
   return useQuery({ ...overviewRuntimeQuery(repoId ?? "unselected"), enabled: repoId !== null });
+}
+
+/**
+ * 最新 HTML 产物速览架的读面(task_8a83698):与产物页共用同一条 `repo.artifacts.list`
+ * 缓存(artifactsQueryKeys 同 key),台账 cut 扇出失效它,这里不立任何轮询。
+ */
+export function useOverviewArtifacts(repoId: string | null) {
+  const selectedRepoId = repoId ?? "unselected";
+  return useQuery({
+    queryKey: artifactsQueryKeys.list(selectedRepoId, "html"),
+    queryFn: () => artifactsClient.list(selectedRepoId, "html"),
+    enabled: repoId !== null,
+    staleTime: 10_000,
+    retry: 1,
+  });
 }
 
 export { ciQueryKeys, eventsQueryKeys };

@@ -14,7 +14,7 @@ import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatListTime, formatTime } from "../model/time.ts";
 import { useTaskDocumentQuery } from "../task-data.ts";
 import { useRepoRow } from "../system-data.ts";
-import { artifactsClient } from "../artifacts-client.ts";
+import { artifactsClient, artifactsQueryKeys } from "../artifacts-client.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
 import { isHtmlDocument } from "../entity-locator-renderer.ts";
 import { openArtifactExternally } from "../artifact-open-client.ts";
@@ -41,9 +41,11 @@ export const ARTIFACTS_READ_ERROR_ROW_CLASS = [
   "px-3.5 py-1.5 font-mono ui-micro text-status-blocked",
 ].join(" ");
 const DRAWER_MIN_PX = 200;
-const OPEN_BUTTON_CLASS = [
+/** 行内小动作按钮的共享档(产物页预览头与总览速览架行同一档)。 */
+export const ARTIFACT_OPEN_BUTTON_CLASS = [
   "inline-flex shrink-0 items-center gap-1 rounded-xs border border-border px-1.5 py-0.5",
   "ui-micro text-text-muted hover:border-border-strong hover:text-text",
+  "disabled:pointer-events-none disabled:opacity-40",
 ].join(" ");
 
 export function ArtifactsView({
@@ -55,7 +57,7 @@ export function ArtifactsView({
 }) {
   const [kind, setKind] = useState<ArtifactGuiKind>("html");
   const query = useQuery({
-    queryKey: ["artifacts", repoId, kind],
+    queryKey: artifactsQueryKeys.list(repoId, kind),
     queryFn: () => artifactsClient.list(repoId, kind),
     staleTime: 10_000,
   });
@@ -362,7 +364,7 @@ function ArtifactPreviewBody({
                 ? t("artifacts.preview.serverCopyTitle")
                 : t("artifacts.preview.openExternalTitle")
           }
-          className={OPEN_BUTTON_CLASS}
+          className={ARTIFACT_OPEN_BUTTON_CLASS}
         >
           <ArrowSquareOut className="size-3" />
           {t("artifacts.preview.openExternal")}
@@ -384,7 +386,7 @@ function ArtifactPreviewBody({
             type="button"
             data-testid="artifact-open-task"
             onClick={() => onNavigateTask(taskId)}
-            className={OPEN_BUTTON_CLASS}
+            className={ARTIFACT_OPEN_BUTTON_CLASS}
           >
             <ArrowRight className="size-3" />
             {t("artifacts.openTask")}
@@ -490,12 +492,12 @@ function writeArtifactDrawerState(state: ArtifactDrawerState): void {
   }
 }
 
-// ---- 纯函数 ----
+// ---- 纯函数(产物页与总览速览架共用:行显示名与 repo 相对路径只在这一份) ----
 
 const sameArtifact = (left: ArtifactGuiRowDto, right: ArtifactGuiRowDto): boolean =>
   left.taskId === right.taskId && left.path === right.path;
 
-const fileNameOf = (rowPath: string): string => rowPath.split("/").at(-1) ?? rowPath;
+export const fileNameOf = (rowPath: string): string => rowPath.split("/").at(-1) ?? rowPath;
 
-const repoPathOf = (row: ArtifactGuiRowDto): string =>
+export const repoPathOf = (row: ArtifactGuiRowDto): string =>
   row.packagePath === null ? `tasks/<unmapped>/${row.path}` : `${row.packagePath}/${row.path}`;

@@ -6,6 +6,7 @@ import type {
   AgendaTaskRow,
   AgendaAttentionItem,
   CiObservatoryRead,
+  TaskWipRead,
   WorkIndexRead,
 } from "../../api/renderer-dto.ts";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
@@ -366,6 +367,65 @@ export function workHandlers(
     handlers.push(run.who);
   }
   return handlers;
+}
+
+/**
+ * 在飞任务流的行(总览左列,task_8a83698):repo.tasks.wip 的 active/submitted/in_review
+ * 占位任务——blocked 不进流(是注意力状态,住「跟进与返工」),四态全量仍在 WIP 放大层。
+ * 执行者与最近活跃来自 runtime overview 的 live 会话(与工作卡同一 runRows 源);无会话
+ * 时的年龄兜底信号是议程任务行的 updatedAt,两个源都没有就不显示时间,不造起点。
+ */
+export interface InflightTaskRow {
+  readonly taskId: string;
+  readonly title: string;
+  readonly status: TaskWipRead["counted"][number]["status"];
+  /** 该任务名下 live 会话的执行者去重(who = kind · model);空 = 无 agent 在跑。 */
+  readonly handlers: readonly string[];
+  /** 最近一次可观察活动(live 会话的 lastObservedAt,兜底议程行 updatedAt);null = 未知。 */
+  readonly since: string | null;
+}
+
+const INFLIGHT_STATUSES: readonly InflightTaskRow["status"][] = ["active", "submitted", "in_review"];
+
+export function inflightTaskRows(
+  wip: TaskWipRead | undefined,
+  runtime: AgentRuntimeOverviewResult | undefined,
+  agenda: AgendaSuccess | undefined,
+): readonly InflightTaskRow[] {
+  if (wip === undefined) return [];
+  const sessions = new Map<string, { handlers: string[]; latest: string }>();
+  for (const run of runRows(runtime, agenda)) {
+    if (run.taskId === null) continue;
+    const held = sessions.get(run.taskId) ?? { handlers: [], latest: run.lastObservedAt };
+    if (!held.handlers.includes(run.who)) held.handlers.push(run.who);
+    if (Date.parse(run.lastObservedAt) > Date.parse(held.latest)) held.latest = run.lastObservedAt;
+    sessions.set(run.taskId, held);
+  }
+  // 议程里全部带 taskId 的任务行都能给 updatedAt(在飞/停滞/待返工/可派…),做年龄兜底。
+  const agendaUpdatedAt = new Map<string, string>();
+  for (const row of agenda?.inFlight ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
+  for (const row of agenda?.stalled ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
+  for (const row of agenda?.waitingOnOthers ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
+  for (const row of agenda?.awaitingRework ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
+  for (const row of agenda?.dispatchable ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
+  const rankOf = new Map(INFLIGHT_STATUSES.map((status, index) => [status, index] as const));
+  return wip.counted
+    .filter((entry) => rankOf.has(entry.status))
+    .map((entry) => {
+      const session = sessions.get(entry.taskId);
+      return {
+        taskId: entry.taskId,
+        title: entry.title,
+        status: entry.status,
+        handlers: session?.handlers ?? [],
+        since: session?.latest ?? agendaUpdatedAt.get(entry.taskId) ?? null,
+      };
+    })
+    .sort(
+      (left, right) =>
+        (rankOf.get(left.status) ?? 0) - (rankOf.get(right.status) ?? 0) ||
+        Date.parse(right.since ?? "") - Date.parse(left.since ?? ""),
+    );
 }
 
 /** 最近变化:与工作页 DayDigest 同一派生(model/workspace-narrative.ts 的 workDayGroups)
