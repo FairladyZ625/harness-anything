@@ -672,6 +672,20 @@ test(
     });
     assert.equal(spoofed.schema, "fleet.error/v1");
     if (spoofed.schema === "fleet.error/v1") assert.equal(spoofed.code, "invalid_frame");
+    assert.equal(fixture.transportErrors.length, 0, "a malformed frame is the edge's fault, not a handler failure");
+    // A handler that crashes on something other than the frame is reported as such and logged.
+    fixture.failOwnerLookup(new Error("registry unreadable"));
+    const crashed = await peer.request({
+      schema: "fleet.upload.begin/v1",
+      messageId: "handler-crash",
+      repoId: fixture.subject.repoId,
+      content: { sha256: sha256Bytes(Buffer.from("crash")), size: 5, mediaType: "text/plain" },
+    });
+    fixture.failOwnerLookup(null);
+    assert.equal(crashed.schema, "fleet.error/v1");
+    if (crashed.schema === "fleet.error/v1") assert.equal(crashed.code, "handler_failed");
+    assert.equal(fixture.transportErrors.length, 1);
+    assert.match(String((fixture.transportErrors[0] as { error: unknown }).error), /registry unreadable/u);
     const unknownUpload = await peer.request({
       schema: "fleet.upload.chunk/v1",
       messageId: "unknown-upload",
