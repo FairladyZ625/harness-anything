@@ -209,7 +209,7 @@ function fixture(
   return { cell, snapshot, calls };
 }
 
-test("automatic CI evidence selects exact and descendant main runs, excluding unrelated runs and rejecting non-main descendants", () => {
+test("automatic CI evidence selects exact and descendant main runs, excluding unrelated runs and non-main descendants", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-evidence-"));
   try {
     const submitted = init(root),
@@ -225,9 +225,18 @@ test("automatic CI evidence selects exact and descendant main runs, excluding un
       "pass",
     );
     assert.equal(ci(fixture(root, current, [observation("f".repeat(40))]).cell, current), null);
-    assert.throws(
-      () => ci(fixture(root, current, [observation(descendant, 1, "success", "rewrite-ci", "feature")]).cell, current),
-      { code: "invalid_proof" },
+    // A run on another branch never witnesses the delivery, and a newer one does not shadow a main run.
+    assert.equal(
+      ci(fixture(root, current, [observation(descendant, 1, "success", "rewrite-ci", "feature")]).cell, current),
+      null,
+    );
+    assert.equal(
+      ci(
+        fixture(root, current, [observation(descendant, 2, "success", "rewrite-ci", "feature"), observation(submitted)])
+          .cell,
+        current,
+      )?.result,
+      "pass",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -356,7 +365,6 @@ test("public and private cuts reject cross-kind exact and descendant witnesses",
       [publicCommit, git(root, "rev-parse", "HEAD"), "ledger-publication", "main"],
       [privateCommit, privateCommit, "rewrite-ci", "main"],
       [privateCommit, git(ledger, "rev-parse", "HEAD"), "rewrite-ci", "main"],
-      [publicCommit, publicCommit, "rewrite-ci", "feature"],
     ]) {
       const current = execution(cut!);
       assert.throws(
