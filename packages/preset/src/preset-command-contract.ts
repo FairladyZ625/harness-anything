@@ -50,6 +50,7 @@ export const repoReadCommandTopology = commandTopology("repo-read", "direct", "d
   ledgerWriteCommandTopology = commandTopology("repo-write", "direct", "rejected"),
   centerForwardReadCommandTopology = commandTopology("repo-read", "direct", "via-center-forward"),
   centerForwardWriteCommandTopology = commandTopology("repo-write", "direct", "via-center-forward"),
+  edgeReplicaQueryOnlyReadCommandTopology = commandTopology("repo-read", "direct", "edge-replica", "query-only"),
   // Runtime-local execution belongs to the edge; the center only takes its publication by assignment.
   runtimeLocalWriteCommandTopology = commandTopology("repo-write", "via-node", "direct"),
   // Review adjudication is recorded by the node that owns the ledger: local, or the center.
@@ -199,10 +200,7 @@ export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopolo
   defineQueryOnlyRepoReadCommand = defineTopologyCommand(queryOnlyRepoReadCommandTopology),
   defineLedgerWriteCommand = defineTopologyCommand(ledgerWriteCommandTopology),
   defineCenterForwardReadCommand = defineTopologyCommand(centerForwardReadCommandTopology),
-  defineCenterForwardQueryOnlyReadCommand = defineTopologyCommand({
-    ...centerForwardReadCommandTopology,
-    repoCellExecution: "query-only",
-  }),
+  defineEdgeReplicaQueryOnlyReadCommand = defineTopologyCommand(edgeReplicaQueryOnlyReadCommandTopology),
   defineCenterForwardWriteCommand = defineTopologyCommand(centerForwardWriteCommandTopology),
   defineRuntimeLocalWriteCommand = defineTopologyCommand(runtimeLocalWriteCommandTopology),
   defineLocalArbiterCommand = defineTopologyCommand(localArbiterCommandTopology),

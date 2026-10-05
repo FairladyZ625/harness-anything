@@ -136,7 +136,8 @@ export async function fleetTaskRoute(
     !("path" in descriptor) ||
     !("inputs" in descriptor) ||
     descriptor.method !== command.method ||
-    descriptor.admission["remote-edge"] !== "via-center-forward" ||
+    (descriptor.admission["remote-edge"] !== "via-center-forward" &&
+      descriptor.admission["remote-edge"] !== "edge-replica") ||
     (descriptor.path[0] === "doc" && typeof command.action.taskId !== "string") ||
     descriptor.path[0] === "schedule"
   )

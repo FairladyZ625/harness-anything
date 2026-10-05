@@ -250,9 +250,11 @@ test(
       assert.equal(result.watermark, first.watermark);
       const shown = await f.command(nodeId, { kind: "task-show", taskId: "task-read-052" });
       assert.equal(shown.outcome, "applied");
-      const listed = await f.command(nodeId, { kind: "task-list", cursor: first.page.nextCursor });
-      assert.equal(listed.outcome, "applied", JSON.stringify(listed));
-      assert.equal((JSON.parse(String(listed.receipt?.evidence)).rows as unknown[]).length, 3);
+      // task list is answered from the edge replica; a forwarded task-list is not a fleet frame at all.
+      await assert.rejects(
+        f.command(nodeId, { kind: "task-list", cursor: first.page.nextCursor }),
+        /violates closed schema fleet\.task\.command\/v1/u,
+      );
     }
     for (const method of [
       "repo.tasks.wip",
