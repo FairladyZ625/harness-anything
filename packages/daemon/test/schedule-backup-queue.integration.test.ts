@@ -1,6 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -65,7 +74,7 @@ for (const mode of ["manifest", "drill", "failure", "cleanup"]) {
     `normal writes and duplicate claims complete while backup verification is held (${mode})`,
     { timeout: 15_000 },
     async (t) => {
-      const root = mkdtempSync(path.join(tmpdir(), "ha-backup-queue-")),
+      const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-backup-queue-"))),
         cell = await openFixture(root),
         entered = Promise.withResolvers<void>();
       let release: (() => void) | undefined,
@@ -76,6 +85,9 @@ for (const mode of ["manifest", "drill", "failure", "cleanup"]) {
         workerThreads,
         "Worker",
         function (url: URL, options: workerThreads.WorkerOptions) {
+          if ((options?.workerData as { kind?: string } | undefined)?.kind !== "ledger-backup-verification") {
+            return new NativeWorker(url, options);
+          }
           const worker = new NativeWorker(new URL("./schedule-backup-cleanup-barrier.fixture.ts", import.meta.url), {
             ...options,
             workerData: {
