@@ -69,3 +69,32 @@ test("task create materializes the repository PR template as the package pr-body
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("task create leaves a task-package preset without a pr-body skeleton", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-create-pr-body-docs-"));
+  initRepo(rootDir);
+  mkdirSync(path.join(rootDir, ".github"), { recursive: true });
+  writeFileSync(path.join(rootDir, ".github", "pull_request_template.md"), PR_TEMPLATE);
+  const cell = await openBootstrappedRepoCell({
+    repoId: workspaceId("create-pr-body-docs"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "create-pr-body-docs",
+  });
+  const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  try {
+    const created = await cell.run(
+      { kind: "task-create", taskId: "task-pr-body-docs", title: "Docs only", presetId: "docs-task" },
+      binding,
+    );
+    assert.equal(created.outcome, "applied");
+    const packagePath = (created as typeof created & { packagePath: string }).packagePath;
+    assert.equal(
+      existsSync(path.join(rootDir, "harness", packagePath, "artifacts", "pr-body.md")),
+      false,
+      "a docs task's workspace is its own package (task show: does not change repository files); no PR to draft a body for",
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

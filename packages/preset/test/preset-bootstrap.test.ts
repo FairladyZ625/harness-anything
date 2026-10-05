@@ -160,6 +160,20 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
       false,
       "a compile without a repository root has no template to materialize",
     );
+    const docsTask = compileTaskBootstrap({
+      ...common,
+      taskId: "task-docs-artifact",
+      title: "Docs Artifact",
+      presetId: "docs-task",
+      workspaceRevision: 2,
+      eventId: "event-docs-artifact",
+      opId: "op-docs-artifact",
+    });
+    assert.equal(
+      docsTask.documents.some(({ relativePath }) => relativePath === "artifacts/pr-body.md"),
+      false,
+      "a task-package preset has no worktree binding and never opens a PR, even with the template present",
+    );
     assert.equal("event" in packageOnly, false);
     assert.equal("plan" in packageOnly, false);
     assert.equal("blobs" in packageOnly, false);
