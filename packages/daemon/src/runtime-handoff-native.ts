@@ -22,7 +22,7 @@ const portableTools = new Set([
 ]);
 
 /** Only the explicitly selected, task-bound rollout is read. No credentials or indexes travel. */
-export async function prepareRuntimeHandoff(rootDir: string, userRoot: string, dispatchId: string) {
+export async function prepareRuntimeHandoff(rootDir: string, dispatchId: string) {
   const stream = readDispatchStream(rootDir, dispatchId);
   if (
     !stream ||
@@ -64,7 +64,15 @@ export async function prepareRuntimeHandoff(rootDir: string, userRoot: string, d
       "runtime_handoff_commit_unpublished",
       "The task branch must publish the exact workspace commit first.",
     );
-  const sessions = codexSessions(userRoot, stream.header.instanceId),
+  // The directory is the one frozen at the source launch, never the instance's current
+  // configuration: isolation or environment edits after settlement must not move the read.
+  const providerHome = stream.header.resolvedProviderDirectory;
+  if (typeof providerHome !== "string" || !path.isAbsolute(providerHome))
+    throw runtimeSpawnError(
+      "runtime_handoff_rollout_missing",
+      "The source launch recorded no resolved provider directory for its native sessions.",
+    );
+  const sessions = path.join(providerHome, "sessions"),
     matches = globSync(`**/rollout-*-${safeId(stream.providerSessionId)}.jsonl`, { cwd: sessions });
   if (matches.length !== 1)
     throw runtimeSpawnError(
@@ -134,9 +142,11 @@ function inspectClosure(value: unknown): void {
   for (const child of Object.values(row)) inspectClosure(child);
 }
 
-export function installHandoffRollout(userRoot: string, instanceId: string, sessionId: string, body: Uint8Array): void {
+/** Installs the verified rollout into the provider home the prepared target launch resolved, so
+ * the resumed process reads exactly the state that was installed for it. */
+export function installHandoffRollout(providerHome: string, sessionId: string, body: Uint8Array): void {
   validateHandoffRollout(body, sessionId);
-  const sessions = codexSessions(userRoot, instanceId);
+  const sessions = path.join(providerHome, "sessions");
   const existing = existsSync(sessions) ? globSync(`**/rollout-*-${safeId(sessionId)}.jsonl`, { cwd: sessions }) : [];
   if (existing.length === 1 && readFileSync(path.join(sessions, existing[0]!)).equals(Buffer.from(body))) return;
   if (existing.length)
@@ -162,9 +172,6 @@ export function installHandoffRollout(userRoot: string, instanceId: string, sess
   );
 }
 
-function codexSessions(userRoot: string, instanceId: string): string {
-  return path.join(userRoot, "runtime-instances", safeId(instanceId), "home", ".codex", "sessions");
-}
 function safeId(value: string): string {
   if (!/^[a-zA-Z0-9_-]+$/u.test(value))
     throw runtimeSpawnError("invalid_field", "Invalid native session or instance identity.");

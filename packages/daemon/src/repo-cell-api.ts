@@ -713,7 +713,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
   const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding) =>
     runRuntimeHandoff({
       rootDir: context.rootDir,
-      userRoot: context.extracted.input.runtimeDaemonRoute!.userRoot,
       payload,
       command: async (action, body) => {
         let candidate;
@@ -731,7 +730,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           if (candidate) removeFileDurably(path.join(resolveHarnessLayout(context.rootDir).localRoot, candidate.ref));
         }
       },
-      spawn: async (checkpoint, spawn) => {
+      spawn: async (checkpoint, spawn, rollout) => {
         const worktree = await context.runtimeSpawner.prepareWorktree({
           taskId: checkpoint.taskId,
           acceptedCommit: checkpoint.commit,
@@ -741,7 +740,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           "runtime-handoff-claim",
           { kind: "runtime-handoff-claim", dispatchId: checkpoint.dispatchId },
           binding,
-          (authorized) => context.runtimeSpawner.spawnHandoff(checkpoint, spawn, authorized, worktree),
+          (authorized) => context.runtimeSpawner.spawnHandoff(checkpoint, spawn, authorized, worktree, rollout),
         );
       },
     });

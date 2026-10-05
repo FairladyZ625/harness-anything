@@ -79,6 +79,11 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   };
   readonly runtimeSessionId: string;
   readonly instanceId: string;
+  /** The provider config directory the launched environment actually resolved to, frozen at
+   * launch. Native handoff export and settlement metrics read only this witness — never a
+   * userRoot/instance layout or the instance's current configuration. Absent on streams
+   * written before the field existed or when the launch environment had no provider home. */
+  readonly resolvedProviderDirectory?: string;
   readonly startedAt: string;
   readonly eventStreamRef: string;
   readonly role?: string;

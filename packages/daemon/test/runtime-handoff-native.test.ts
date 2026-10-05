@@ -1,7 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { validateHandoffRollout } from "../src/runtime-handoff-native.ts";
+import { installHandoffRollout, validateHandoffRollout } from "../src/runtime-handoff-native.ts";
 const sessionId = "019abcdef-1234-5678-9999-abcdef123456";
 function rollout(extra: object[] = [], version = "0.159.1") {
   return Buffer.from(
@@ -54,4 +57,33 @@ test("refuses unknown version, other session, external image/file and child conv
   assert.throws(() => validateHandoffRollout(rollout([{ type: "future_record", payload: {} }]), sessionId), {
     code: "runtime_handoff_closure_unsupported",
   });
+});
+
+// The target install writes only into the provider home the prepared target
+// launch resolved — never a userRoot/instance layout — and stays idempotent
+// for identical bytes while refusing a conflicting native session state.
+test("installHandoffRollout installs into the resolved provider home and rejects conflicts", () => {
+  const providerHome = mkdtempSync(path.join(tmpdir(), "ha-handoff-install-"));
+  try {
+    const body = rollout([{ type: "response_item", payload: { type: "message", role: "user", content: [] } }]);
+    installHandoffRollout(providerHome, sessionId, body);
+    const installed = path.join(providerHome, "sessions", "2026", "10", "04");
+    const written = path.join(installed, `rollout-2026-10-04T00-00-00-${sessionId}.jsonl`);
+    assert.equal(readFileSync(written).equals(body), true);
+    // Reinstalling the identical bytes is the claim-retry no-op.
+    installHandoffRollout(providerHome, sessionId, body);
+    assert.equal(readFileSync(written).equals(body), true);
+    // A different native state under the same selected identity is refused.
+    writeFileSync(
+      written,
+      Buffer.from(
+        `${JSON.stringify({ type: "session_meta", payload: { id: sessionId, cli_version: "0.159.1", timestamp: "2026-10-04T00:00:00.000Z" } })}\n`,
+      ),
+    );
+    assert.throws(() => installHandoffRollout(providerHome, sessionId, body), {
+      code: "runtime_handoff_target_exists",
+    });
+  } finally {
+    rmSync(providerHome, { recursive: true, force: true });
+  }
 });

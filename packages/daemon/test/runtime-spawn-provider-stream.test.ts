@@ -33,6 +33,7 @@ function active(kindId = "codex", process = {} as never, extras: Record<string, 
     dispatchOpId: "dispatch-op-metrics",
     instanceId: "instance-1",
     kindId,
+    resolvedProviderDirectory: null,
     model: null,
     reasoningEffort: null,
     fast: false,
@@ -255,8 +256,52 @@ test("acp.session frames surface the advertised model catalog and merge it into 
   );
 });
 
+// The native rollout read observes only the directory frozen into the launch's
+// dispatch header (resolvedProviderDirectory), never a userRoot/instance layout.
 test("Codex empty turn usage is replaced by the matching session turn token count", async () => {
-  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-codex-session-metrics-")),
+  const providerHome = mkdtempSync(path.join(tmpdir(), "ha-codex-session-metrics-")),
+    runtime = active("codex", {} as never, { resolvedProviderDirectory: providerHome }),
+    providerSessionId = "01a091cd-17a9-71d1-9f46-b924018345e4",
+    sessions = path.join(providerHome, "sessions", "2026", "09", "12");
+  try {
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(
+      path.join(sessions, `rollout-2026-09-12T02-48-52-${providerSessionId}.jsonl`),
+      `${JSON.stringify({
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: { input_tokens: 181354, cached_input_tokens: 170624, output_tokens: 2449 },
+            last_token_usage: { input_tokens: 62284, cached_input_tokens: 60672, output_tokens: 2046 },
+          },
+        },
+      })}\n`,
+    );
+    runtime.providerSessionId = providerSessionId;
+    runtime.providerUsageEmpty = true;
+    await consumeProviderLine(context(), runtime, JSON.stringify({ type: "turn.completed", usage: {} }));
+    await consumeProviderChunk(context(), runtime, "", true);
+    assert.deepEqual(
+      {
+        inputTokens: runtime.inputTokens,
+        cacheReadTokens: runtime.cacheReadTokens,
+        outputTokens: runtime.outputTokens,
+      },
+      { inputTokens: 62284, cacheReadTokens: 60672, outputTokens: 2046 },
+    );
+    assert.deepEqual(runtime.rawUsage, { input_tokens: 62284, cached_input_tokens: 60672, output_tokens: 2046 });
+    assert.equal(runtime.usageReported, true);
+  } finally {
+    rmSync(providerHome, { recursive: true, force: true });
+  }
+});
+
+// A session without a frozen witness — every dispatch launched before the field
+// existed, or a launch whose environment had no provider home — must not fall
+// back to guessing a directory; the empty usage simply stays unreported.
+test("Codex session metrics without a frozen provider directory stay unreported", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-codex-session-metrics-unwitnessed-")),
     runtime = active(),
     providerSessionId = "01a091cd-17a9-71d1-9f46-b924018345e4",
     sessions = path.join(
@@ -278,10 +323,7 @@ test("Codex empty turn usage is replaced by the matching session turn token coun
         type: "event_msg",
         payload: {
           type: "token_count",
-          info: {
-            total_token_usage: { input_tokens: 181354, cached_input_tokens: 170624, output_tokens: 2449 },
-            last_token_usage: { input_tokens: 62284, cached_input_tokens: 60672, output_tokens: 2046 },
-          },
+          info: { last_token_usage: { input_tokens: 7, cached_input_tokens: 1, output_tokens: 3 } },
         },
       })}\n`,
     );
@@ -294,16 +336,15 @@ test("Codex empty turn usage is replaced by the matching session turn token coun
       "",
       true,
     );
+    assert.equal(runtime.usageReported, false);
     assert.deepEqual(
       {
         inputTokens: runtime.inputTokens,
         cacheReadTokens: runtime.cacheReadTokens,
         outputTokens: runtime.outputTokens,
       },
-      { inputTokens: 62284, cacheReadTokens: 60672, outputTokens: 2046 },
+      { inputTokens: 0, cacheReadTokens: 0, outputTokens: 0 },
     );
-    assert.deepEqual(runtime.rawUsage, { input_tokens: 62284, cached_input_tokens: 60672, output_tokens: 2046 });
-    assert.equal(runtime.usageReported, true);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
@@ -677,6 +718,7 @@ test("an adopted session settles usage recovered from the persisted provider str
       executionId: null,
       runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
       instanceId: "instance-1",
+      resolvedProviderDirectory: path.join(rootDir, "operator-home", ".codex"),
       startedAt: "2026-09-11T00:00:00.000Z",
     });
     // Live phase: raw frames reach the active runtime and persist through the production
@@ -693,12 +735,15 @@ test("an adopted session settles usage recovered from the persisted provider str
     assert.equal(live.inputTokens, 120, "live collection keeps observing raw frames");
     const persisted = readDispatchStream(rootDir, dispatchId);
     assert.ok(persisted, "live provider events persist to the dispatch stream");
+    // The frozen launch witness survives the round trip an adopted session reads.
+    assert.equal(persisted.header.resolvedProviderDirectory, path.join(rootDir, "operator-home", ".codex"));
 
     // Daemon restart: a fresh runtime adopts the stream. Adoption observes only persisted
     // records (restoreDurableOutputRecords plus the adopted process's stream tail), so the
     // settled usage must come from the events as they were scrubbed onto disk.
     const adopted = active("codex", {} as never, {
       dispatchId,
+      resolvedProviderDirectory: persisted.header.resolvedProviderDirectory ?? null,
       stream: reopenDispatchStream(rootDir, persisted.header),
     });
     const replay = {

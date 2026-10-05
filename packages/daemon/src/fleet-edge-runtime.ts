@@ -444,7 +444,6 @@ export function openFleetEdgeRuntime(input: {
       if (method === "repo.agentRuntime.handoff")
         return runRuntimeHandoff({
           rootDir: request.workspaceRoot,
-          userRoot: input.daemonRoute.userRoot,
           payload: action,
           command: async (command, body) => {
             const result = await runFleetTaskCommandClient({
@@ -458,7 +457,8 @@ export function openFleetEdgeRuntime(input: {
             });
             return result.receipt as JsonObject;
           },
-          spawn: (checkpoint, spawn) => spawner.spawnHandoff(checkpoint, spawn, edgeBinding(request)),
+          spawn: (checkpoint, spawn, rollout) =>
+            spawner.spawnHandoff(checkpoint, spawn, edgeBinding(request), null, rollout),
         });
       return method === "repo.agentRuntime.spawn"
         ? spawner.spawn(action, edgeBinding(request))
