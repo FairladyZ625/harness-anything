@@ -43,6 +43,54 @@ type PresetEntry = {
   readonly issues: readonly JsonObject[];
   readonly shadows?: { readonly layer: "bundled"; readonly title: string };
 };
+
+function nodeCatalogAdapters() {
+  return [localAdapterProviderMetadata, multicaAdapterProviderMetadata].map((adapter) => ({
+    adapterId: adapter.id,
+    registered: true,
+    capabilities: [...adapter.capabilities],
+    writability: adapter.writable ? "read-write" : adapter.readonly ? "read-only" : "unknown",
+    defaultProvider: "defaultProvider" in adapter ? adapter.defaultProvider : false,
+    unavailableReason: null,
+  }));
+}
+
+export function catalogWithNodeAdapters(center: JsonObject): JsonObject {
+  const snapshot = { ...center, adapters: nodeCatalogAdapters() };
+  const body: Record<string, unknown> = { ...snapshot };
+  for (const key of ["schema", "ok", "status", "repoId", "observedAt", "catalogDigest"]) delete body[key];
+  return {
+    ...snapshot,
+    catalogDigest: `sha256:${createHash("sha256").update(JSON.stringify(body)).digest("hex")}`,
+  };
+}
+
+export function catalogRereadReceipt(input: {
+  readonly repoId: string;
+  readonly beforeDigest: string;
+  readonly afterDigest: string;
+  readonly observedAt: string;
+  readonly rejected?: boolean;
+}): CatalogRereadReceipt {
+  const { repoId, beforeDigest, afterDigest, observedAt, rejected } = input;
+  return writeCatalogRereadReceipt<CatalogRereadReceipt>({
+    schema: "catalog-reread-receipt/v1",
+    ok: !rejected,
+    outcome: rejected ? "op_rejected" : "applied",
+    operationId: `catalog-${createHash("sha256")
+      .update(`${repoId}\0${beforeDigest}\0${afterDigest}\0${observedAt}`)
+      .digest("hex")
+      .slice(0, 20)}`,
+    repoId,
+    beforeDigest,
+    afterDigest,
+    observedAt,
+    error: rejected
+      ? { code: "catalog_digest_changed", hint: "Reread the current catalog before requesting refresh." }
+      : null,
+  });
+}
+
 export function openGuiCatalog(input: {
   readonly repoId: string;
   readonly rootDir: string;
@@ -140,14 +188,7 @@ export function openGuiCatalog(input: {
         governableAdapters: [...governableWitnessAdapterIds],
         internalGateId: CODE_DOC_GATE_ID,
       },
-      adapters: [localAdapterProviderMetadata, multicaAdapterProviderMetadata].map((adapter) => ({
-        adapterId: adapter.id,
-        registered: true,
-        capabilities: [...adapter.capabilities],
-        writability: adapter.writable ? "read-write" : adapter.readonly ? "read-only" : "unknown",
-        defaultProvider: "defaultProvider" in adapter ? adapter.defaultProvider : false,
-        unavailableReason: null,
-      })),
+      adapters: nodeCatalogAdapters(),
     };
     const catalogDigest = `sha256:${createHash("sha256").update(JSON.stringify(body)).digest("hex")}`;
     lastDigest = catalogDigest;
@@ -217,41 +258,19 @@ export function openGuiCatalog(input: {
   const reread = async (payload: JsonObject): Promise<CatalogRereadReceipt> => {
     const before = lastDigest ?? (await snapshot()).catalogDigest,
       expected = catalogText(payload.expectedDigest);
-    if (expected && expected !== before)
-      return receipt(
-        false,
-        "op_rejected",
-        before,
-        before,
-        "catalog_digest_changed",
-        "Reread the current catalog before requesting refresh.",
-      );
+    if (expected && expected !== before) return receipt(before, before, true);
     const after = (await snapshot()).catalogDigest;
-    return receipt(true, "applied", before, after);
+    return receipt(before, after, false);
   };
   return { snapshot, preset, reread };
-  function receipt(
-    ok: boolean,
-    outcome: "applied" | "op_rejected",
-    beforeDigest: string,
-    afterDigest: string,
-    code?: string,
-    hint?: string,
-  ): CatalogRereadReceipt {
+  function receipt(beforeDigest: string, afterDigest: string, rejected: boolean): CatalogRereadReceipt {
     const observedAt = now();
-    return writeCatalogRereadReceipt<CatalogRereadReceipt>({
-      schema: "catalog-reread-receipt/v1",
-      ok,
-      outcome,
-      operationId: `catalog-${createHash("sha256")
-        .update(`${input.repoId}\0${beforeDigest}\0${afterDigest}\0${observedAt}`)
-        .digest("hex")
-        .slice(0, 20)}`,
+    return catalogRereadReceipt({
       repoId: input.repoId,
       beforeDigest,
       afterDigest,
       observedAt,
-      error: code && hint ? { code, hint } : null,
+      rejected,
     });
   }
 }

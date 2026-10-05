@@ -658,6 +658,42 @@ test("a finished Squad run's worker checkout is reclaimed against the Commander 
   }
 });
 
+test("handoff checkout uses the accepted SHA even when the published branch advances", async (t) => {
+  const fixture = repositoryFixture();
+  t.after(() => rmSync(fixture.base, { recursive: true, force: true }));
+  const accepted = git(fixture.root, "rev-parse", "HEAD");
+  git(fixture.root, "switch", "-qc", taskId);
+  commit(fixture.root, "later.txt");
+  git(fixture.root, "push", "-q", "origin", taskId);
+  git(fixture.root, "switch", "-q", "main");
+  git(fixture.root, "branch", "-D", taskId);
+  const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, [], accepted);
+  assert.ok(checkout);
+  assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), accepted);
+  assert.equal(checkout.baseRef, accepted);
+});
+
+test("handoff checkout rejects dirty, mismatched, missing and non-SHA anchors without changing the tree", async (t) => {
+  const fixture = repositoryFixture();
+  t.after(() => rmSync(fixture.base, { recursive: true, force: true }));
+  const checkout = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!,
+    accepted = git(checkout.cwd, "rev-parse", "HEAD");
+  writeFileSync(path.join(checkout.cwd, "untracked.txt"), "keep me");
+  await assert.rejects(checkoutTaskWorktree(fixture.root, taskId, binding, [], accepted), {
+    code: "runtime_handoff_workspace_dirty",
+  });
+  assert.equal(readFileSync(path.join(checkout.cwd, "untracked.txt"), "utf8"), "keep me");
+  git(checkout.cwd, "add", "untracked.txt");
+  git(checkout.cwd, "commit", "-qm", "local work");
+  const current = git(checkout.cwd, "rev-parse", "HEAD");
+  await assert.rejects(checkoutTaskWorktree(fixture.root, taskId, binding, [], accepted), {
+    code: "runtime_handoff_sha_mismatch",
+  });
+  for (const anchor of ["origin/main", "0".repeat(40)])
+    await assert.rejects(checkoutTaskWorktree(fixture.root, taskId, binding, [], anchor));
+  assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), current);
+});
+
 function boundTask(status: TaskV2["status"]): TaskV2 {
   return {
     schema: "task/v2",

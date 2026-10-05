@@ -1,3 +1,4 @@
+import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";
 import { settleTask, submitTask } from "./repo-cell-submit.ts";
 import { adjudicateTask } from "./repo-cell-task-progress.ts";
 import { doctorHealth } from "./repo-cell-doctor.ts";
@@ -64,6 +65,8 @@ export function executeRepoAction(
   binding: RepoCellBinding,
 ): WriteReceipt | Promise<WriteReceipt> {
   validateCanonicalIdentityInputs(cell, action);
+  if (["runtime-handoff-export", "runtime-handoff-claim", "runtime-handoff-revoke"].includes(action.kind))
+    return runRuntimeHandoffAction(cell, action, binding);
   if (
     [
       "vertical-declaration-migrate",

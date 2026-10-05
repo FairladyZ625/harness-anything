@@ -4,6 +4,7 @@ import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 
 export interface RuntimeSpawnInput {
   readonly runtimeInstanceId?: string;
+  readonly handoffEnabled?: boolean;
   readonly dispatchId?: string;
   readonly agentId?: string;
   readonly squadId?: string;

@@ -84,11 +84,20 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         nodePrincipal: { nodeId: node.nodeId, personId },
       };
     },
-    principalAuth = async (node: { nodeId: string; repoId: string }, accessToken?: string) => {
+    principalAuth = async (
+      node: { nodeId: string; repoId: string },
+      accessToken?: string,
+      executionCredential?: string,
+    ) => {
       const machine = await readerAuth(node);
       if (accessToken && !options.verifyHuman)
         throw new FleetFault("human_confirmation_required", "Human sessions are unavailable at this center.");
-      let principal: DaemonAuthenticationContext = machine;
+      if (executionCredential && accessToken)
+        throw new FleetFault("execution_credential_rejected", "Execution authentication cannot carry a human session.");
+      let principal: DaemonAuthenticationContext = {
+        ...machine,
+        ...(executionCredential ? { executionCredential } : {}),
+      };
       if (accessToken) {
         try {
           principal = await options.verifyHuman!({ ...machine, humanAccessToken: accessToken });
@@ -103,9 +112,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       return principal;
     },
-    writerAuth = async (node: { nodeId: string; repoId: string }, accessToken?: string) => {
+    writerAuth = async (
+      node: { nodeId: string; repoId: string },
+      accessToken?: string,
+      executionCredential?: string,
+    ) => {
       const lease = ownedEpochFor(node.repoId);
-      const principal = await principalAuth(node, accessToken);
+      const principal = await principalAuth(node, accessToken, executionCredential);
       return {
         ...principal,
         writerEpoch: lease.epoch,
@@ -217,7 +230,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                 await options.host.authorize(
                   a.repoId,
                   frame.actionKind,
-                  principal,
+                  {
+                    ...principal,
+                    ...(frame.executionCredential ? { executionCredential: frame.executionCredential } : {}),
+                  },
                   frame.taskId ? { taskId: frame.taskId } : undefined,
                 )
               ).outcome === "allowed";
@@ -376,11 +392,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         a.repoId,
         {
           kind: "doc-submit",
+          ...(frame.taskId ? { taskId: frame.taskId } : {}),
           executionId: frame.executionId,
           baseLedgerSha: frame.baseLedgerSha,
           changes: frame.changes,
         },
-        await auth(a),
+        await auth(a, undefined, frame.executionCredential),
       );
       if (isSquadControlResult(receipt))
         throw new FleetFault(
@@ -471,13 +488,37 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       if (frame.docChanges !== null) verifyOwnedClaims(nodeId, a.repoId, frame.docChanges);
       let command = frame.action;
+      if (command.kind === "runtime-handoff-export") {
+        const candidate = command.candidate as import("./contract.ts").FleetDescriptor;
+        if (!candidate || !findOwnedClaim(nodeId, a.repoId, candidate))
+          throw new FleetFault(
+            "claim_not_owned",
+            "Native checkpoint upload must belong to the authenticated source node.",
+          );
+      }
+      if (frame.artifact) {
+        if (
+          command.kind !== "task-artifact-add" ||
+          command.source !== undefined ||
+          command.content !== undefined ||
+          !findOwnedClaim(nodeId, a.repoId, frame.artifact)
+        )
+          throw new FleetFault("claim_not_owned", "Artifact must name this node's staged claim.");
+        command = {
+          ...command,
+          source: path.join(safeLocal(a.repoId, "doc-sync-claims"), path.basename(frame.artifact.ref)),
+        };
+      } else if (command.kind === "task-artifact-add")
+        throw new FleetFault("claim_not_owned", "Edge artifacts require staged bytes.");
       try {
         if (command.kind === "task-submit" && typeof command.taskId === "string") {
-          const shown = await options.host.run(
-            a.repoId,
-            { kind: "task-show", taskId: command.taskId },
-            await writerAuth(a),
-          );
+          const submitAuth = await writerAuth(a, frame.accessToken, frame.executionCredential);
+          const admission = await options.host.authorize(a.repoId, command.kind, submitAuth, {
+            taskId: command.taskId,
+          });
+          if (admission.outcome !== "allowed")
+            throw new FleetFault("authorization_denied", "Task delivery is not authorized.");
+          const shown = await options.host.run(a.repoId, { kind: "task-show", taskId: command.taskId }, submitAuth);
           if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
             throw new FleetFault("task_read_failed", "Cannot read the delivery task.");
           const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
@@ -508,7 +549,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         ...(frame.docChanges === null ? {} : { docChanges: frame.docChanges }),
         ...(frame.mirrorBaseCut === null ? {} : { mirrorBaseCut: frame.mirrorBaseCut }),
       };
-      const receipt = await options.host.run(a.repoId, action, await writerAuth(a, frame.accessToken));
+      const receipt = await options.host.run(
+        a.repoId,
+        action,
+        await writerAuth(a, frame.accessToken, frame.executionCredential),
+      );
       const result = {
         outcome:
           receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
@@ -520,6 +565,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         receipt: receipt as unknown as Readonly<Record<string, unknown>>,
       };
       if (receipt.outcome === "applied" && frame.docChanges) discardOwnedClaims(nodeId, a.repoId, frame.docChanges);
+      if (command.kind === "runtime-handoff-export" && command.candidate)
+        discardOwnedClaims(nodeId, a.repoId, [
+          { candidate: command.candidate as import("./contract.ts").FleetDescriptor },
+        ]);
+      if (receipt.outcome === "applied" && frame.artifact)
+        discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.artifact }]);
       return immediate({
         schema: "fleet.task.result/v1",
         messageId: mid(frame.messageId, "task"),
@@ -617,14 +668,21 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "Runtime archive repository must match the authenticated node request.",
         );
       assertFrameEpoch(a.repoId, frame.writerEpoch);
-      const receipt = await options.host.runtimeIngress(
-        a.repoId,
-        {
-          kind: "archive",
-          archive: frame.archive as unknown as import("../doc-sync-actions.ts").RuntimeDispatchArchive,
-        },
-        await auth(a),
-      );
+      let receipt;
+      try {
+        receipt = await options.host.runtimeIngress(
+          a.repoId,
+          {
+            kind: "archive",
+            archive: frame.archive as unknown as import("../doc-sync-actions.ts").RuntimeDispatchArchive,
+          },
+          await auth(a),
+        );
+      } catch (error) {
+        const code = runtimeErrorCode(error);
+        if (code) throw new FleetFault(code, runtimeErrorMessage(error));
+        throw error;
+      }
       return immediate({
         schema: "fleet.runtime.archive.result/v1",
         messageId: mid(frame.messageId, "runtime-archive"),
@@ -633,8 +691,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.repository.read/v1") {
+      if (frame.executionCredential && frame.method !== "repo.task.read")
+        throw new FleetFault("execution_credential_rejected", "Execution reads must name their task action.");
       const node = await nodeContext(nodeId, frame.repoId);
-      const principal = await principalAuth(node, frame.accessToken ?? undefined);
+      const principal = await principalAuth(node, frame.accessToken ?? undefined, frame.executionCredential);
       let result;
       try {
         result =

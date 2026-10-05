@@ -24,8 +24,8 @@ import { proseMinimumHeight, regionMinimumHeight } from "./region-minimum.ts";
  *   aside(默认)  右列是辅助的窄内容(时间线、模板):主区 3 份 | 右列 2 份。
  *   primary      右列是这一页的主列表,每行信息量大(任务节奏、运行历史):各占一半。
  *
- * 全局总览不用它:那一页按 daemon 权重把区域落进当前最矮的一列(overview-layout),保证
- * 不了某个区域固定在右列。
+ * 全局总览不用它:那一页是固定的「需要你处理 / 关注的工作 / 执行与下钻」三区(PageRegions),
+ * 顺序与比例走用户的分割偏好,不需要按内容自适应落位。
  *
  * 用法:板放在一个 ≥900px 时有确定高度的弹性列里。
  *   <RegionBoard>

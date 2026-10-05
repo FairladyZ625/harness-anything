@@ -12,23 +12,25 @@ import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protoc
 import type { AgendaSuccess } from "../api-client.ts";
 import type { CadenceFeedEvent } from "../model/cadence.ts";
 import type { SnapshotStatus } from "../model/types";
-import { workDayGroups, type WorkDayGroup } from "../model/workspace-narrative.ts";
+import type { WorkDayGroup, WorkStepKind } from "../model/workspace-narrative.ts";
+import { workDayGroups } from "../model/workspace-narrative.ts";
 
 /**
- * 总览(S3)的纯派生层:从已挂载的读面(repo.agenda.read 的 attentionItems/regionWeights、
- * repo.works.index、repo.agentRuntime.overview、repo.ci.observatory.read、observe.tail 事件页)
- * 推出各区域的行模型。不做任何取数,不重推 daemon 的判据——注意力分、分组、权重全部
- * 透传 S1;这里只做「行怎么显示、落在哪个区域、动作给谁」的投影。
+ * 总览的纯派生层(2026-10-04 重构:注意力优先):从已挂载的读面(repo.agenda.read 的
+ * attentionItems 与各分组、repo.works.index、repo.agentRuntime.overview、repo.ci.observatory.read、
+ * observe.tail 事件页、repo.tasks.wip)推出首块「需要你处理」、主区「关注的工作」与紧凑
+ * 下钻入口的行模型。不做任何取数,不重推 daemon 的判据——注意力分、分组全部透传 S1;
+ * 这里只做「行怎么显示、落在哪个块、动作给谁」的投影。
  */
 
-/** 注意力类别的显示档(原型 v4 KIND 表;label 走 i18n,tone 决定标签色)。 */
+/** 注意力类别的显示档(label 走 i18n,tone 决定标签色)。 */
 export type AttentionTone = "bad" | "wait" | "done" | "neutral";
 export const ATTENTION_META: Readonly<
   Record<AgendaAttentionItem["kind"], { readonly tone: AttentionTone; readonly rank: number }>
 > = {
   "awaiting-you": { tone: "bad", rank: 1 },
   rework: { tone: "bad", rank: 2 },
-  adjudication: { tone: "bad", rank: 3 },
+  adjudication: { tone: "wait", rank: 3 },
   decision: { tone: "wait", rank: 4 },
   blocked: { tone: "bad", rank: 5 },
   stalled: { tone: "wait", rank: 6 },
@@ -96,6 +98,86 @@ export function attentionEntries(
     });
 }
 
+/**
+ * 首块「需要你处理」的两类:真实要本人动手的 awaits 边(question/acceptance/consent/
+ * reopen 问的人)与待点头的 decision(裁决带人工同意通道)。待初审的 execution 不在此:
+ * `ha task adjudicate --forward/--return` 是 owning CEO 的机器双闸(CLI 帮助原文),不是
+ * 用户动作,住「跟进与返工」。已答复跟进(answered)、评审打回(rework)与阻塞/停滞
+ * (blocked/stalled)同样不冒充需要用户。
+ */
+export type DecisionKind = "awaiting-you" | "decision";
+
+export interface DecisionRow {
+  /** attentionItem 的 ref(relation/<id> · execution/<id> · decision/<id>)。 */
+  readonly id: string;
+  readonly kind: DecisionKind;
+  readonly title: string;
+  readonly workTaskId: string | null;
+  /** awaiting-you 源行的问句;其余为 null(问题由类别的固定说明承担)。 */
+  readonly question: string | null;
+  /** awaiting-you 源行的请求类别(question/acceptance/consent/reopen)。 */
+  readonly askKind: AgendaAwaitsRow["askKind"] | null;
+  /** decision 源行的风险档。 */
+  readonly riskTier: AgendaDecisionRow["riskTier"] | null;
+  readonly since: string | null;
+  readonly source: AttentionSource | null;
+  /** daemon 注意力分(排序透传 S1,不在 GUI 重算)。 */
+  readonly score: number;
+}
+
+const isDecisionKind = (kind: AgendaAttentionItem["kind"]): kind is DecisionKind =>
+  kind === "awaiting-you" || kind === "decision";
+
+export function decisionRows(agenda: AgendaSuccess | undefined): readonly DecisionRow[] {
+  if (agenda === undefined) return [];
+  return attentionEntries(agenda, "mine").flatMap(({ item, since, source }) => {
+    if (!isDecisionKind(item.kind)) return [];
+    return [
+      {
+        id: item.ref,
+        kind: item.kind,
+        title: item.title,
+        workTaskId: item.workTaskId,
+        question: source?.kind === "awaits" ? source.row.question : null,
+        askKind: source?.kind === "awaits" ? source.row.askKind : null,
+        riskTier: source?.kind === "decision" ? source.row.riskTier : null,
+        since,
+        source,
+        score: item.attention.score,
+      },
+    ];
+  });
+}
+
+/**
+ * 「跟进与返工」下钻入口的行:不需要本人动手的五类。tone 一律 wait/neutral——机器/
+ * owning CEO 可处理的阻塞与初审不亮红,避免视觉上冒充需要用户;返工的文案只陈述事实
+ * (评审打回、待返工),不断言归属,是否需要人由看的人判断。
+ */
+export type FollowUpKind = "answered" | "adjudication" | "rework" | "blocked" | "stalled";
+
+export interface FollowUpRow {
+  readonly id: string;
+  readonly kind: FollowUpKind;
+  readonly title: string;
+  readonly workTaskId: string | null;
+  readonly since: string | null;
+  readonly source: AttentionSource | null;
+}
+
+const isFollowUpKind = (kind: AgendaAttentionItem["kind"]): kind is FollowUpKind =>
+  kind === "answered" || kind === "adjudication" || kind === "rework" || kind === "blocked" || kind === "stalled";
+
+export function followUpRows(agenda: AgendaSuccess | undefined): readonly FollowUpRow[] {
+  if (agenda === undefined) return [];
+  return [...attentionEntries(agenda, "mine"), ...attentionEntries(agenda, "stuck")].flatMap(
+    ({ item, since, source }) => {
+      if (!isFollowUpKind(item.kind)) return [];
+      return [{ id: item.ref, kind: item.kind, title: item.title, workTaskId: item.workTaskId, since, source }];
+    },
+  );
+}
+
 export interface MainCiFailingJob {
   readonly runId: string;
   readonly job: string;
@@ -123,7 +205,7 @@ export function mainCiFailingJobs(ci: CiObservatoryRead | undefined): readonly M
     .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt));
 }
 
-/** 执行中区域:live 会话一行(who = kind · model,what = 关联任务标题)。 */
+/** live 会话一行(who = kind · model):关注工作卡的「处理者」与安静状态行的计数来源。 */
 export interface RunRow {
   readonly runtimeSessionId: string;
   readonly who: string;
@@ -160,19 +242,6 @@ export function runRows(
       };
     })
     .sort((left, right) => Date.parse(right.lastObservedAt) - Date.parse(left.lastObservedAt));
-}
-
-/** 执行中区域的「无人」行:在飞任务里没有 live 会话关联的。 */
-export function idleInFlightCount(
-  overview: AgentRuntimeOverviewResult | undefined,
-  agenda: AgendaSuccess | undefined,
-): number {
-  const liveTasks = new Set(
-    (overview?.sessions ?? []).flatMap((session) =>
-      session.liveness === "live" ? session.associations.map(({ taskId }) => taskId) : [],
-    ),
-  );
-  return (agenda?.inFlight ?? []).filter(({ taskId }) => !liveTasks.has(taskId)).length;
 }
 
 /** 工作区域:每个工作一行,注意力 = 名下 attentionItems 的最高分(同一套分数)。 */
@@ -241,7 +310,121 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
     );
 }
 
-/** 置顶区(原型 QUEUE 的扩面,2026-10-01):置顶的非工作任务,可派的承诺在前。 */
+/**
+ * 主区「关注的工作」:置顶的非终态工作是默认入口(来源如实标示);零置顶时回退到
+ * 活跃工作(注意力/最近活动序,绝不把最旧项当当前承诺),并让页面给出「去工作页选择
+ * 关注」的入口。已收尾的置顶工作不进列表,只计数提及。
+ */
+export interface WatchedWork {
+  readonly work: WorkRow;
+  readonly source: "pinned" | "active";
+  /** 该工作名下的任务(根除外;repo.works.index 的归属,不在 GUI 重推)。 */
+  readonly memberTaskIds: readonly string[];
+}
+
+export function watchedWorks(
+  works: WorkIndexRead | undefined,
+  agenda: AgendaSuccess | undefined,
+): { readonly watched: readonly WatchedWork[]; readonly pinnedClosed: number } {
+  const rows = workRows(works, agenda);
+  const members = new Map((works?.works ?? []).map((work) => [work.taskId, work.memberTaskIds] as const));
+  const byId = new Map(rows.map((row) => [row.taskId, row]));
+  const pinnedIds = new Set(
+    (agenda?.pinnedEntities ?? [])
+      .filter((entity) => entity.kind === "task")
+      .map((entity) => entity.ref.replace(/^task\//u, "")),
+  );
+  const pinnedClosed = [...pinnedIds].filter((id) => {
+    const row = byId.get(id);
+    return row !== undefined && TERMINAL_WORK.has(row.status);
+  }).length;
+  const watched = (
+    pinnedIds.size - pinnedClosed > 0
+      ? rows.filter((row) => pinnedIds.has(row.taskId) && !TERMINAL_WORK.has(row.status))
+      : rows.filter((row) => !TERMINAL_WORK.has(row.status))
+  ).map((work) => ({
+    work,
+    source: pinnedIds.size - pinnedClosed > 0 ? ("pinned" as const) : ("active" as const),
+    memberTaskIds: members.get(work.taskId) ?? [],
+  }));
+  return { watched, pinnedClosed };
+}
+
+/**
+ * 工作卡的处理者:该工作名下任务(含根)关联的 live 会话执行者去重(who = kind · model)。
+ * 在飞计数 > 0 而处理者为空 = 「无 agent 在跑」的诚实信号,由呈现层标注。
+ */
+export function workHandlers(
+  runtime: AgentRuntimeOverviewResult | undefined,
+  rootTaskId: string,
+  memberTaskIds: readonly string[],
+): readonly string[] {
+  const tasks = new Set([rootTaskId, ...memberTaskIds]);
+  const handlers: string[] = [];
+  for (const run of runRows(runtime, undefined)) {
+    if (run.taskId === null || !tasks.has(run.taskId) || handlers.includes(run.who)) continue;
+    handlers.push(run.who);
+  }
+  return handlers;
+}
+
+/** 最近变化:与工作页 DayDigest 同一派生(model/workspace-narrative.ts 的 workDayGroups)
+ * ——按天收束、每任务一条路径;只有对人有意义的步骤进步骤,runtime_* 与 documents_written
+ * 这类内部事件不在派生的 curated 集里。这里只做总览侧的窗口裁剪:丢没有可收束步骤的
+ * 天,天序倒排(新的一天在前)。 */
+export function recentDayGroups(input: {
+  readonly events: readonly CadenceFeedEvent[];
+  readonly titles: ReadonlyMap<string, string>;
+  readonly dateKeyOf: (iso: string) => string | null;
+}): readonly WorkDayGroup[] {
+  return workDayGroups(input)
+    .filter((group) => group.paths.length > 0)
+    .reverse();
+}
+
+/**
+ * 近期变化限关注工作(任务包第 3 点):收束后的路径只留关注工作名下任务,每个关注工作
+ * 取最新一条;关注工作之外的事件留在原页(检修页/工作页),不进总览。
+ */
+export interface WorkRecentPath {
+  readonly workTaskId: string;
+  readonly taskId: string;
+  readonly title: string | null;
+  readonly firstAt: string;
+  readonly steps: readonly WorkStepKind[];
+}
+
+export function watchedRecentPaths(
+  recentDays: readonly WorkDayGroup[],
+  watched: readonly { readonly work: { readonly taskId: string }; readonly memberTaskIds: readonly string[] }[],
+): readonly WorkRecentPath[] {
+  const ownerOf = new Map<string, string>();
+  for (const entry of watched) {
+    ownerOf.set(entry.work.taskId, entry.work.taskId);
+    for (const id of entry.memberTaskIds) ownerOf.set(id, entry.work.taskId);
+  }
+  const latest = new Map<string, WorkRecentPath>();
+  for (const group of recentDays) {
+    for (const path of group.paths) {
+      const workTaskId = ownerOf.get(path.taskId);
+      if (workTaskId === undefined || latest.has(workTaskId)) continue;
+      latest.set(workTaskId, {
+        workTaskId,
+        taskId: path.taskId,
+        title: path.title,
+        firstAt: path.firstAt,
+        steps: path.steps,
+      });
+    }
+  }
+  return watched.flatMap(({ work }) => {
+    const path = latest.get(work.taskId);
+    return path === undefined ? [] : [path];
+  });
+}
+
+/** 置顶承诺的行:置顶的非工作任务(工作根住侧栏置顶块,总览不重复列);判据用 daemon
+ * 工作索引(repo.works.index),不在 GUI 里沿父链推。可派的在前,行可取消置顶。 */
 export interface PinnedTaskRow {
   readonly taskId: string;
   readonly title: string;
@@ -263,11 +446,6 @@ const PINNED_STATUS: Readonly<Record<string, SnapshotStatus>> = {
   cancelled: "cancelled",
 };
 
-/**
- * 总览置顶区的行:议程读面的 pinnedEntities(kind=task)去掉工作根——工作根住侧栏的
- * 置顶块,总览不重复列;判据用 daemon 工作索引(repo.works.index),不在 GUI 里沿父链推。
- * 可派的在前(组内保持读面序),行可取消置顶。数据只来自已挂载切面,不新增请求。
- */
 export function pinnedTaskRows(
   agenda: AgendaSuccess | undefined,
   works: WorkIndexRead | undefined,
@@ -293,22 +471,7 @@ export function pinnedTaskRows(
     .sort((left, right) => Number(right.dispatchable) - Number(left.dispatchable));
 }
 
-/** 最近变化:与工作页 DayDigest 同一派生(model/workspace-narrative.ts 的 workDayGroups)
- * ——按天收束、每任务一条路径;只有对人有意义的步骤(提交/评审结论/打回/完成/开工/派发/
- * 事实/门禁/重开)进步骤,runtime_* 与 documents_written 这类内部事件不在派生的 curated
- * 集里,天然不进总览(标准 §1.2:原始事件流只在检修页)。这里只做总览侧的窗口裁剪:
- * 丢没有可收束步骤的天(空了就消失,标准 §1.5),天序倒排(新的一天在前)。 */
-export function recentDayGroups(input: {
-  readonly events: readonly CadenceFeedEvent[];
-  readonly titles: ReadonlyMap<string, string>;
-  readonly dateKeyOf: (iso: string) => string | null;
-}): readonly WorkDayGroup[] {
-  return workDayGroups(input)
-    .filter((group) => group.paths.length > 0)
-    .reverse();
-}
-
-/** 评审与合并区域的行:打回/待初审/任务评审中/决策评审中/待点头,按读面分组顺序。 */
+/** 评审与合并的行:打回/待初审/任务评审中/决策评审中/待点头,按读面分组顺序。 */
 export interface ReviewRow {
   readonly id: string;
   readonly group:
@@ -398,7 +561,7 @@ export function reviewRows(agenda: AgendaSuccess | undefined): readonly ReviewRo
   ];
 }
 
-/** ReviewRow 的评审计数分布(评审与合并区域顶部计数条用)。 */
+/** ReviewRow 的评审计数分布(下钻入口与放大层顶部计数条用)。 */
 export function reviewCounts(rows: readonly ReviewRow[]): {
   readonly rework: number;
   readonly adjudication: number;

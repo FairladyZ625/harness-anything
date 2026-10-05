@@ -389,6 +389,111 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   await shot(`${label}-reset`);
 }
 
+/**
+ * 总览(main 2026-10-04 注意力返工后)是单列注意力漏斗:「关注的工作」(主体,weight 6)叠在
+ * 「执行与下钻」(紧凑工具带,weight 1.5)上。合并停靠分屏(task_033760e2)后,这块板的换序
+ * 交互是停靠:把「执行与下钻」停进「关注的工作」的上半区,两块上下互换、各占半高。这里
+ * 断言默认次序、above 半区预览遮罩与取消、停靠换序、重载保持、重置回位、键盘换序与列
+ * 高调缝(把手 Alt+方向键与 dv-sash 指针拖拽);不做 checkLayout 的左右二分——单列板没
+ * 有横向目标,works 也远高于 drill,交换像素位置的前提本来就不成立。
+ */
+async function checkOverviewColumn(page, shot, label) {
+  const board = page.getByTestId("overview-board");
+  const box = (id) => board.locator(`[data-region="${id}"]`).first().boundingBox();
+  const handle = (id) => board.getByTestId(`region-handle-${id}`);
+  const worksFirst = async () => {
+    const [works, drill] = await Promise.all([box("works"), box("drill")]);
+    assert.ok(works && drill, `${label} both overview regions must exist`);
+    return works.y < drill.y;
+  };
+  const orderIs = (worksOnTop) =>
+    page.waitForFunction(
+      (top) => {
+        const boardNode = globalThis.document.querySelector('[data-testid="overview-board"]');
+        const works = boardNode?.querySelector('[data-region="works"]');
+        const drill = boardNode?.querySelector('[data-region="drill"]');
+        if (works === null || drill === null) return false;
+        return works.getBoundingClientRect().y < drill.getBoundingClientRect().y === top;
+      },
+      worksOnTop,
+      { timeout: 10_000 },
+    );
+  await handle("works").waitFor();
+  assert.ok(await worksFirst(), `${label} works starts above the drill strip`);
+  await shot(`${label}-before`);
+  // 预览与取消:dragover 悬停 works 上半区时目标亮 above 半区遮罩;dragend 取消后遮罩消失、
+  // 布局不动。dragstart/dragover 与 dragend 分两次注入,中间才能从外面看到遮罩。
+  await page.evaluate(
+    ({ sourceId, targetId }) => {
+      const boardNode = globalThis.document.querySelector('[data-testid="overview-board"]');
+      const source = boardNode.querySelector(`[data-testid="region-handle-${sourceId}"]`);
+      const target = boardNode.querySelector(`[data-region="${targetId}"]`);
+      const dataTransfer = new globalThis.DataTransfer();
+      source.dispatchEvent(new globalThis.DragEvent("dragstart", { bubbles: true, dataTransfer }));
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new globalThis.DragEvent("dragover", {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height * 0.25,
+          dataTransfer,
+        }),
+      );
+    },
+    { sourceId: "drill", targetId: "works" },
+  );
+  await board.getByTestId("region-drop-overlay-works").waitFor();
+  await shot(`${label}-preview`);
+  await page.evaluate(() => {
+    const handleNode = globalThis.document.querySelector(
+      '[data-testid="overview-board"] [data-testid="region-handle-drill"]',
+    );
+    handleNode.dispatchEvent(new globalThis.DragEvent("dragend", { bubbles: true }));
+  });
+  assert.ok((await board.getByTestId("region-drop-overlay-works").count()) === 0, `${label} cancel hides the overlay`);
+  assert.ok(await worksFirst(), `${label} cancel keeps the funnel order`);
+  // 换序:drill 停进 works 上半区(works 高度远超两倍最小高,方向可行),放下后 drill 在上、
+  // 两块各占 works 原高的一半(停靠的半分契约,同 checkLayout 的横向半分)。
+  await dockRegion(page, "overview-board", "drill", "works", { x: 0.5, y: 0.25 });
+  await orderIs(false);
+  const [worksBox, drillBox] = await Promise.all([box("works"), box("drill")]);
+  assert.ok(
+    Math.abs(worksBox.height - drillBox.height) <= 8,
+    `${label} dock halves the works column: ${worksBox.height} vs ${drillBox.height}`,
+  );
+  await shot(`${label}-moved`);
+  // Reload preserves actual placement, not just a serialized preference.
+  await page.reload();
+  await handle("works").waitFor({ timeout: 30_000 });
+  await orderIs(false);
+  await shot(`${label}-reloaded`);
+  await board.getByTestId("overview-board-controls-reset").click();
+  await orderIs(true);
+  assert.ok(await worksFirst(), `${label} reset restores works above the drill strip`);
+  // 键盘换序:drill 把手 ArrowUp 把 drill 停到上方邻居 works 的上面(方向可行才换序)。
+  await handle("drill").press("ArrowUp");
+  await orderIs(false);
+  assert.ok(!(await worksFirst()), `${label} keyboard dock flips the stacking order`);
+  await board.getByTestId("overview-board-controls-reset").click();
+  await orderIs(true);
+  // 列高调缝:把手 Alt+方向键沿高度增减(单列板的缝是横缝);dv-sash 指针拖拽同轴。
+  const seamBefore = await box("works");
+  await handle("works").press("Alt+ArrowDown");
+  const seamAfter = await box("works");
+  assert.ok(
+    Math.abs(seamAfter.height - seamBefore.height) >= 12,
+    `${label} keyboard seam: ${seamBefore.height} -> ${seamAfter.height}`,
+  );
+  const sashStart = await box("works");
+  await dragSash(page, board, -40, "column");
+  const sashResized = await box("works");
+  assert.ok(Math.abs(sashResized.height - sashStart.height) > 10, `${label} sash resize`);
+  await board.getByTestId("overview-board-controls-reset").click();
+  await assertUnscrolledLayout(board);
+  await shot(`${label}-reset`);
+}
+
 export default {
   id: "page-split-layout",
   feature: "split-layout",
@@ -651,9 +756,9 @@ export default {
         globalThis.localStorage.getItem("harness:gui:split-layout"),
       );
       writeFileSync(path.join(runRoot, "overview-storage.json"), `${overviewStorageAfterDock ?? "null"}\n`);
-      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-wide");
+      await checkOverviewColumn(page, shot, "overview-wide");
       await resize(1120, 800);
-      await checkLayout(page, shot, "overview-board", overviewIds[0], overviewIds[1], "overview-narrow");
+      await checkOverviewColumn(page, shot, "overview-narrow");
       await page.evaluate(() => globalThis.localStorage.setItem("harness-locale", "en-US"));
       await page.reload();
       await page.getByTestId("overview-board").waitFor();

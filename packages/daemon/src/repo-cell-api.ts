@@ -1,3 +1,15 @@
+import { randomUUID } from "node:crypto";
+import path from "node:path";
+import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import { writeFileDurably, removeFileDurably } from "./durable-file.ts";
+import { runRuntimeHandoff } from "./runtime-handoff.ts";
+import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
+import {
+  issueRuntimeExecutionCredential,
+  runtimeExecutionLifetimeMs,
+  readRuntimeExecutionPrincipal,
+  runtimeExecutionActor,
+} from "./runtime-execution-credential.ts";
 import { executeBuiltinScheduleOccurrence } from "./schedule-builtin-executor.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
@@ -698,6 +710,41 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       (authorizedBinding) => context.runtimeSpawner.spawn(spawn, authorizedBinding, worktree),
     );
   };
+  const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding) =>
+    runRuntimeHandoff({
+      rootDir: context.rootDir,
+      userRoot: context.extracted.input.runtimeDaemonRoute!.userRoot,
+      payload,
+      command: async (action, body) => {
+        let candidate;
+        if (body) {
+          const ref = `doc-sync-claims/handoff_${randomUUID()}`;
+          writeFileDurably(path.join(resolveHarnessLayout(context.rootDir).localRoot, ref), body, 0o600);
+          candidate = { ref, size: body.byteLength, sha256: sha256Bytes(body), mediaType: "application/x-ndjson" };
+        }
+        try {
+          return (await run(
+            { ...action, ...(candidate ? { candidate } : {}) } as RepoTaskAction,
+            binding,
+          )) as unknown as JsonObject;
+        } finally {
+          if (candidate) removeFileDurably(path.join(resolveHarnessLayout(context.rootDir).localRoot, candidate.ref));
+        }
+      },
+      spawn: async (checkpoint, spawn) => {
+        const worktree = await context.runtimeSpawner.prepareWorktree({
+          taskId: checkpoint.taskId,
+          acceptedCommit: checkpoint.commit,
+        });
+        return enqueueRuntimePublication(
+          context,
+          "runtime-handoff-claim",
+          { kind: "runtime-handoff-claim", dispatchId: checkpoint.dispatchId },
+          binding,
+          (authorized) => context.runtimeSpawner.spawnHandoff(checkpoint, spawn, authorized, worktree),
+        );
+      },
+    });
   const cancelRuntime: RepoCell["cancelRuntime"] = async (payload, binding) => {
     const { executor: _claim, ...cancel } = payload;
     return enqueueRuntimePublication(
@@ -730,16 +777,77 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             taskId: action.archive.taskId,
             executionId: action.archive.executionId,
             runtimeSessionId: action.archive.runtimeSessionId,
+            executionRuntimeIngress: action,
           }
-        : { ...action, kind: "runtime-run" };
+        : { ...action, kind: "runtime-run", executionRuntimeIngress: action };
     return enqueueRuntimePublication(context, "runtime-run", policyAction, binding, async (authorizedBinding) => {
+      const runtimeSessionId =
+        action.kind === "archive" ? action.archive.runtimeSessionId : action.payload.runtimeSessionId;
+      const dispatch =
+        typeof runtimeSessionId === "string" ? context.projection.readRuntimeDispatch(runtimeSessionId) : null;
+      if (
+        typeof authorizedBinding.source === "object" &&
+        authorizedBinding.source.kind === "node" &&
+        dispatch?.payload.taskId &&
+        (action.kind === "archive" ||
+          (runtimeSessionActionIds.includes(action.type as never) &&
+            action.type !== "runtime_session_started" &&
+            action.type !== "runtime_session_cancelled"))
+      ) {
+        const center = authorizedBinding.keycloakAuthorization?.center;
+        if (!center)
+          throw context.cellCodedError("execution_credential_rejected", "Execution authority is unavailable.");
+        const principal = await readRuntimeExecutionPrincipal(center, dispatch.payload.dispatchId);
+        if (principal.repoId !== context.input.repoId)
+          throw context.cellCodedError("execution_credential_rejected", "Execution belongs to another repository.");
+        requireCurrentExecutionScope({
+          action: policyAction,
+          binding: { ...authorizedBinding, executionPrincipal: principal },
+          projection: context.projection,
+          now: context.now(),
+        });
+      }
       if (action.kind === "event" && runtimeSessionActionIds.includes(action.type as never)) {
         const receipt = await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
+        const dispatch =
+          action.type === "runtime_session_started" && typeof action.payload.runtimeSessionId === "string"
+            ? context.projection.readRuntimeDispatch(action.payload.runtimeSessionId)
+            : null;
+        const execution =
+          receipt.outcome === "applied" &&
+          dispatch?.payload.taskId &&
+          dispatch.payload.executionId &&
+          typeof authorizedBinding.source === "object" &&
+          authorizedBinding.source.kind === "node" &&
+          authorizedBinding.keycloakAuthorization?.center
+            ? {
+                personId: dispatch.actor.principal.personId,
+                repoId: context.input.repoId,
+                runtimeSessionId: dispatch.payload.runtimeSessionId,
+                dispatchId: dispatch.payload.dispatchId,
+                taskId: dispatch.payload.taskId,
+                executionId: dispatch.payload.executionId,
+                role: dispatch.payload.role === "reviewer" ? ("reviewer" as const) : ("implementation" as const),
+                source: dispatch.source,
+                expiresAt: new Date(Date.parse(context.now()) + runtimeExecutionLifetimeMs).toISOString(),
+              }
+            : null;
+        if (execution)
+          requireCurrentExecutionScope({
+            action: { kind: "task-show", taskId: execution.taskId },
+            binding: { ...authorizedBinding, actor: runtimeExecutionActor(execution), executionPrincipal: execution },
+            projection: context.projection,
+            now: context.now(),
+          });
+        const executionCredential = execution
+          ? await issueRuntimeExecutionCredential(authorizedBinding.keycloakAuthorization!.center!, execution)
+          : undefined;
         return {
           schema: "command-receipt/v2",
           ok: receipt.outcome === "applied" || receipt.outcome === "no_changes",
           command: "runtime-ingress",
           ...receipt,
+          ...(executionCredential ? { executionCredential, executionExpiresAt: execution!.expiresAt } : {}),
         } as unknown as JsonObject;
       }
       return context.appendAuxiliaryRuntimeIngress(action, authorizedBinding);
@@ -816,6 +924,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     presetRun,
     spawnRuntime,
     cancelRuntime,
+    handoffRuntime,
     awaitRuntimeOutcome: context.awaitRuntimeOutcome,
     awaitRuntimeSignal: context.awaitRuntimeSignal,
     runtimeIngress,

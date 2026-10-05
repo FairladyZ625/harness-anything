@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
   canonicalDocumentClaims,
+  canonicalDocumentRetirements,
   serializeEventHead,
   serializePersistedCanonicalEvent,
   sha256Bytes,
@@ -21,13 +22,6 @@ import {
   type FleetManifest,
 } from "./contract.ts";
 import { writeFileDurably } from "../durable-file.ts";
-
-type DocumentClaim = {
-  readonly path: string;
-  readonly sha256: string;
-  readonly size: number;
-  readonly mediaType: string;
-};
 
 export interface SnapshotCut {
   readonly repoId: string;
@@ -171,7 +165,6 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     store: DatabaseSync,
     event: CanonicalEventV1,
     entries: readonly FleetEntry[],
-    claims: readonly DocumentClaim[],
     previous: { readonly revision: number; readonly entries: readonly FleetEntry[] } | null,
     digest: string,
   ): { readonly cut: SnapshotCut; readonly pruned: readonly string[] } => {
@@ -183,23 +176,24 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         }),
       )}`,
       prior = new Map(previous?.entries.map((entry) => [entry.path, entry])),
-      // nextEntries only ever adds or replaces claim paths, so the delta against
-      // the previous cut is exactly the claims whose blob fields differ.
+      next = new Set(entries.map((entry) => entry.path)),
       changes = previous
-        ? claims
-            .filter((claim) => {
-              const before = prior.get(claim.path)?.blob;
-              return (
-                before === undefined ||
-                before.sha256 !== claim.sha256 ||
-                before.size !== claim.size ||
-                before.mediaType !== claim.mediaType
-              );
-            })
-            .map((claim) => ({
-              path: claim.path,
-              blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
-            }))
+        ? [
+            ...entries
+              .filter((entry) => {
+                const before = prior.get(entry.path)?.blob;
+                return (
+                  before === undefined ||
+                  before.sha256 !== entry.blob.sha256 ||
+                  before.size !== entry.blob.size ||
+                  before.mediaType !== entry.blob.mediaType
+                );
+              })
+              .map((entry) => ({ op: "put" as const, path: entry.path, blob: entry.blob })),
+            ...previous.entries
+              .filter((entry) => !next.has(entry.path))
+              .map((entry) => ({ op: "delete" as const, path: entry.path })),
+          ]
         : [],
       insertCut = store.prepare(
         "INSERT OR IGNORE INTO cut(repo_id, revision, head_digest, manifest_digest, entry_count, total_bytes, event_occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -222,10 +216,10 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         previous!.revision,
         event.workspaceRevision,
         change.path,
-        "put",
-        change.blob.sha256,
-        change.blob.size,
-        change.blob.mediaType,
+        change.op,
+        change.op === "put" ? change.blob.sha256 : null,
+        change.op === "put" ? change.blob.size : null,
+        change.op === "put" ? change.blob.mediaType : null,
       );
     return { cut: latest()!, pruned: prune(store) };
   };
@@ -258,7 +252,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       store = db();
     let cut!: SnapshotCut;
     const pruned = transact(store, () => {
-      const persisted = persistCut(store, event, entries, canonicalDocumentClaims(event), null, digest);
+      const persisted = persistCut(store, event, entries, null, digest);
       cut = persisted.cut;
       writeManifest({ bytes, digest });
       return persisted.pruned;
@@ -273,9 +267,10 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         blob: { sha256: blobSha256, size, mediaType },
       }))
       .sort((left, right) => left.path.localeCompare(right.path));
-  const nextEntries = (prior: readonly FleetEntry[], claims: readonly DocumentClaim[]) => {
+  const nextEntries = (prior: readonly FleetEntry[], event: CanonicalEventV1) => {
     const entries = new Map(prior.map((entry) => [entry.path, entry]));
-    for (const claim of claims)
+    for (const retirement of canonicalDocumentRetirements(event)) entries.delete(retirement.path);
+    for (const claim of canonicalDocumentClaims(event))
       entries.set(claim.path, {
         path: claim.path,
         blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
@@ -315,9 +310,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         if (processed > 0 && monotonicNow() - started >= 100) break;
         if (event.workspaceRevision !== current.revision + 1)
           throw new Error(`replica cut gap after ${current.revision}`);
-        const before = entries,
-          claims = canonicalDocumentClaims(event);
-        entries = nextEntries(entries, claims);
+        const before = entries;
+        entries = nextEntries(entries, event);
         if (
           event.workspaceRevision === basis.watermark &&
           fleetManifestDigest(entries) !== fleetManifestDigest(entriesFrom(basis))
@@ -327,14 +321,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
           digest = sha256Text(bytes),
           manifest = { bytes, digest };
         writeManifest(manifest);
-        const persisted = persistCut(
-          store,
-          event,
-          entries,
-          claims,
-          { revision: current.revision, entries: before },
-          digest,
-        );
+        const persisted = persistCut(store, event, entries, { revision: current.revision, entries: before }, digest);
         current = persisted.cut;
         settled.push(persisted.cut);
         pruned.push(...persisted.pruned);

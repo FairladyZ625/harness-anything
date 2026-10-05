@@ -9,6 +9,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
+import { runProcessTextAsync } from "./process-port.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
 import {
   addManagedWorktree,
@@ -117,15 +118,41 @@ export interface TaskWorktreeCheckout {
  * starts from the copy another node pushed before the default branch, an existing one is brought up to it (CH3). A node
  * without a default branch (a Git-less edge, a repository before its first commit) has no worktree to give: null,
  * not a failure.
+ * An accepted handoff commit instead requires that exact, retrievable SHA and a clean checkout before and after
+ * setup. An existing checkout at another commit is preserved and refused.
  */
 export async function checkoutTaskWorktree(
   rootDir: string,
   taskId: string,
   binding: TaskWorktreeBindingV1,
   setup: readonly string[],
+  acceptedCommit?: string,
 ): Promise<TaskWorktreeCheckout | null> {
   const cwd = path.join(rootDir, binding.path);
   return inWorktreeTurn(cwd, async () => {
+    if (acceptedCommit !== undefined) {
+      if (!/^[0-9a-f]{40}$/u.test(acceptedCommit))
+        throw cellCodedError("runtime_handoff_sha_invalid", "Handoff requires a complete commit SHA.");
+      const git = (directory: string, ...args: string[]) =>
+        runProcessTextAsync(
+          "git",
+          ["-C", directory, ...args],
+          undefined,
+          { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+          undefined,
+          undefined,
+          { timeoutMs: 30_000 },
+        );
+      // Fetch the immutable anchor, never a newer tip of the task branch.
+      await git(rootDir, "fetch", "--quiet", "origin", acceptedCommit);
+      const fresh = !existsSync(cwd);
+      if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: acceptedCommit });
+      const verify = () => verifyHandoffWorktree(cwd, acceptedCommit);
+      await verify();
+      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps: setup });
+      await verify();
+      return { cwd, branch: binding.branch, baseRef: fresh ? acceptedCommit : null, setup: prepared };
+    }
     const fresh = !existsSync(cwd),
       defaultRef = fresh ? repositoryBaseRef(rootDir) : null;
     if (fresh && !defaultRef) return null;
@@ -374,4 +401,22 @@ export function taskClosed(task: {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Recheck the prepared immutable anchor immediately before runtime admission. */
+export async function verifyHandoffWorktree(cwd: string, acceptedCommit: string): Promise<void> {
+  const git = (...args: string[]) =>
+    runProcessTextAsync(
+      "git",
+      ["-C", cwd, ...args],
+      undefined,
+      { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      undefined,
+      undefined,
+      { timeoutMs: 30_000 },
+    );
+  if ((await git("status", "--porcelain")).trim())
+    throw cellCodedError("runtime_handoff_workspace_dirty", "Handoff requires a clean worktree.");
+  if ((await git("rev-parse", "HEAD")).trim() !== acceptedCommit)
+    throw cellCodedError("runtime_handoff_sha_mismatch", "Worktree HEAD differs from the accepted handoff SHA.");
 }

@@ -3,6 +3,8 @@ import { hasOnlyFields, isRecord, normalizeContentAddressedInputs } from "./writ
 
 export const ENTITY_OWNED_CONTENT_SCHEMA = "entity-owned-content/v1";
 export const MAX_ENTITY_CONTENT_OBJECT_BYTES = 50_000_000;
+/** Imported entity content is raw bytes: the center records it and never decodes it. */
+export const ENTITY_CONTENT_POLICY_ID = "entity-content/v1";
 
 export interface EntityContentObjectRef {
   readonly sha256: string;

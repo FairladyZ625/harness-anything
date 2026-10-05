@@ -19,7 +19,8 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // RBAC v2 CH1 retires people-add and people-remove.
   // dec_CDDCFA8BB91A47BCE07B229E93 CH2 adds two maintainer actions.
   // F-8E80EE50: independently revocable repository reads belong to viewer.
-  assert.equal(actionDeclarations.length, 139);
+  // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: the three handoff actions are owner-approved.
+  assert.equal(actionDeclarations.length, 142);
   assert.equal(new Set(actionDeclarations.map((item) => item.policyAction)).size, actionDeclarations.length);
   for (const declaration of actionDeclarations) {
     assert.equal(declaration.policyAction, declaration.kind);

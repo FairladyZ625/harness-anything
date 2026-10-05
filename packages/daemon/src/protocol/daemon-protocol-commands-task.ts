@@ -191,7 +191,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
       cliInput("--fast", "boolean", false, { code: "invalid_runtime_fast" }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-artifact-add",
     phase: "W3",
     path: ["task", "artifact", "add", "<task-id>"],

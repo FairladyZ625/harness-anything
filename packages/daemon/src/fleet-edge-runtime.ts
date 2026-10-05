@@ -1,3 +1,4 @@
+import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -57,6 +58,7 @@ export interface FleetEdgeRuntimeRequest {
     readonly method:
       | "repo.agentRuntime.spawn"
       | "repo.agentRuntime.cancel"
+      | "repo.agentRuntime.handoff"
       | "repo.agentRuntime.overview"
       | "repo.agentRuntime.sessions.await"
       | "repo.agentRuntime.sessions.read"
@@ -155,6 +157,7 @@ export function openFleetEdgeRuntime(input: {
     // Every node reads the same Settings: the edge's materialized harness.yaml is the center's facet.
     readSettings = () =>
       readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8"));
+  const executionCredentials = new Map<string, { credential: string; expiresAt: string }>();
   let entityStore: EntityStore | undefined;
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
   const getEntityStore = (): EntityStore => (entityStore ??= openEntityStore(request.workspaceRoot));
@@ -177,6 +180,13 @@ export function openFleetEdgeRuntime(input: {
     runtimeNode: { nodeId: request.nodeId },
     runtimeDaemonRoute: input.daemonRoute,
     remote: {
+      executionCredential: (runtimeSessionId) => {
+        const execution = executionCredentials.get(runtimeSessionId);
+        if (!execution)
+          throw edgeRuntimeError("execution_credential_rejected", "Center did not issue this dispatch credential.");
+        executionCredentials.delete(runtimeSessionId);
+        return execution;
+      },
       existing: async (opId) => {
         const receipt = await readFleetReceiptClient({ ...peer, opId });
         return receipt.opId === opId && ["applied", "pending"].includes(String(receipt.outcome))
@@ -283,6 +293,12 @@ export function openFleetEdgeRuntime(input: {
           ];
         return {
           executionId,
+          ...(review
+            ? {
+                reviewerSubmission: current.executions.find((execution) => execution.executionId === executionId)!
+                  .submission!,
+              }
+            : {}),
           packageRoot,
           mission: (reachedPackageRoot) =>
             [
@@ -313,7 +329,17 @@ export function openFleetEdgeRuntime(input: {
           ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
           ...(draft.dispatchContext === undefined ? {} : { dispatchContext: draft.dispatchContext }),
         });
-        return { event: response.event as unknown as AgentRuntimeEventV1, receipt: response.receipt as JsonObject };
+        const { executionCredential, executionExpiresAt, ...receipt } = response.receipt;
+        if (
+          typeof executionCredential === "string" &&
+          typeof executionExpiresAt === "string" &&
+          typeof draft.payload.runtimeSessionId === "string"
+        )
+          executionCredentials.set(draft.payload.runtimeSessionId, {
+            credential: executionCredential,
+            expiresAt: executionExpiresAt,
+          });
+        return { event: response.event as unknown as AgentRuntimeEventV1, receipt: receipt as JsonObject };
       },
       archive: async (archive) =>
         (await runFleetRuntimeArchiveClient({
@@ -415,6 +441,25 @@ export function openFleetEdgeRuntime(input: {
     ): Promise<JsonObject> => {
       await ensureReady();
       if (method === "repo.schedule.run") return runSchedule(action);
+      if (method === "repo.agentRuntime.handoff")
+        return runRuntimeHandoff({
+          rootDir: request.workspaceRoot,
+          userRoot: input.daemonRoute.userRoot,
+          payload: action,
+          command: async (command, body) => {
+            const result = await runFleetTaskCommandClient({
+              ...peer,
+              repoId: request.repoId,
+              taskId: null,
+              opId: `handoff_${Date.now()}`,
+              waitMs: 0,
+              action: command as { kind: string },
+              ...(body ? { privatePayload: body } : {}),
+            });
+            return result.receipt as JsonObject;
+          },
+          spawn: (checkpoint, spawn) => spawner.spawnHandoff(checkpoint, spawn, edgeBinding(request)),
+        });
       return method === "repo.agentRuntime.spawn"
         ? spawner.spawn(action, edgeBinding(request))
         : method === "repo.agentRuntime.cancel"

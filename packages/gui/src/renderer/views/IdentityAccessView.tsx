@@ -4,6 +4,7 @@ import { AccessServiceTab } from "../components/identityAccess/AccessServiceTab.
 import { GrantsTab } from "../components/identityAccess/GrantsTab.tsx";
 import { PolicyGroupsTab } from "../components/identityAccess/PolicyGroupsTab.tsx";
 import { ReceiptsTab } from "../components/identityAccess/ReceiptsTab.tsx";
+import type { RepoMode } from "../components/RepoModeBadge.tsx";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
@@ -21,7 +22,11 @@ export function IdentityAccessView({
   repoId,
 }: {
   readonly repoId?: string;
-  readonly repos?: readonly { readonly repoId: string; readonly displayName: string }[];
+  readonly repos?: readonly {
+    readonly repoId: string;
+    readonly displayName: string;
+    readonly mode?: RepoMode;
+  }[];
 }) {
   const bridge = guiHostBridge(),
     auth = bridge?.auth && typeof bridge.auth.status === "function" ? bridge.auth : undefined,
@@ -60,7 +65,13 @@ export function IdentityAccessView({
         className="@container flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
       >
         {tab === "service" || !access ? (
-          <AccessServiceTab key={repoId ?? "local"} auth={auth} access={access} repoId={repoId} />
+          <AccessServiceTab
+            key={repoId ?? "local"}
+            auth={auth}
+            access={access}
+            repoId={repoId}
+            repoMode={repos.find((repo) => repo.repoId === repoId)?.mode}
+          />
         ) : tab === "teams" ? (
           <TeamsTab access={access} />
         ) : tab === "groups" ? (

@@ -52,6 +52,7 @@ export type FleetFrameV1 =
   | Msg<
       "fleet.repository.read/v1",
       {
+        executionCredential?: string;
         repoId: string;
         accessToken: string | null;
         method: FleetRepositoryReadMethod;
@@ -70,7 +71,10 @@ export type FleetFrameV1 =
         loginAuthority?: FleetLoginAuthority | null;
       }
     >
-  | Msg<"fleet.repo.metadata.get/v1", { repoId: string; actionKind?: string; taskId?: string }>
+  | Msg<
+      "fleet.repo.metadata.get/v1",
+      { executionCredential?: string; repoId: string; actionKind?: string; taskId?: string }
+    >
   | Msg<
       "fleet.repo.metadata.result/v1",
       {
@@ -98,6 +102,8 @@ export type FleetFrameV1 =
   | Msg<
       "fleet.doc.submit/v1",
       {
+        executionCredential?: string;
+        taskId?: string;
         repoId: string;
         executionId: string | null;
         writerEpoch: number;
@@ -118,6 +124,8 @@ export type FleetFrameV1 =
   | Msg<
       "fleet.task.command/v1",
       {
+        executionCredential?: string;
+        artifact?: FleetDescriptor;
         writerEpoch: number;
         opId: string;
         repoId: string;
@@ -424,6 +432,16 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
         if (typeof value === "string") add({ field, type: "string", required: false, enum: [value] });
     return [...fields.values()].filter((field) => !field.wire?.omit);
   };
+// Declaration-derived patterns are static, so each compiles once per module instance.
+const patternCache = new Map<string, RegExp>();
+const patternMatches = (pattern: string, value: string): boolean => {
+  let compiled = patternCache.get(pattern);
+  if (compiled === undefined) {
+    compiled = new RegExp(pattern, "u");
+    patternCache.set(pattern, compiled);
+  }
+  return compiled.test(value);
+};
 const fieldCheck = (field: EntityActionInputField, value: unknown): boolean => {
   if (field.wire?.nullable && value === null) return true;
   const type = field.type;
@@ -456,7 +474,7 @@ const fieldCheck = (field: EntityActionInputField, value: unknown): boolean => {
     value.length > 0 &&
     value.length <= (field.wire?.maxLength ?? 512) &&
     (!(field.wire?.enum ?? field.enum) || (field.wire?.enum ?? field.enum)!.includes(value)) &&
-    (!(field.wire?.pattern ?? field.regex) || new RegExp((field.wire?.pattern ?? field.regex)!, "u").test(value))
+    (!(field.wire?.pattern ?? field.regex) || patternMatches((field.wire?.pattern ?? field.regex)!, value))
   );
 };
 const checkFields = (fields: readonly EntityActionInputField[], value: RecordValue): boolean =>
@@ -650,6 +668,7 @@ const schemas: Readonly<Record<string, Check>> = {
     {
       ...common,
       repoId: id,
+      executionCredential: text,
       actionKind: (value) => typeof value === "string" && actionDeclarations.some((action) => action.kind === value),
       taskId: id,
     },
@@ -675,14 +694,19 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.upload.chunk/v1": shape({ ...common, uploadId: id, offset: uint, dataBase64: base64 }),
   "fleet.upload.finish/v1": shape({ ...common, uploadId: id }),
   "fleet.upload.result/v1": shape({ ...reply, status: one("staged", "already_staged"), descriptor }),
-  "fleet.doc.submit/v1": shape({
-    ...common,
-    repoId: id,
-    executionId: nullable(id),
-    writerEpoch: uint,
-    baseLedgerSha: ledgerCut,
-    changes: array(docChange),
-  }),
+  "fleet.doc.submit/v1": optionalShape(
+    {
+      ...common,
+      executionCredential: text,
+      taskId: id,
+      repoId: id,
+      executionId: nullable(id),
+      writerEpoch: uint,
+      baseLedgerSha: ledgerCut,
+      changes: array(docChange),
+    },
+    ["schema", "messageId", "repoId", "executionId", "writerEpoch", "baseLedgerSha", "changes"],
+  ),
   "fleet.doc.result/v1": shape({
     ...reply,
     outcome: one("applied", "pending", "no_changes", "op_rejected", "indeterminate"),
@@ -698,9 +722,11 @@ const schemas: Readonly<Record<string, Check>> = {
       repoId: id,
       taskId: nullable(id),
       action: taskAction,
+      artifact: descriptor,
       docChanges: nullable(array(docChange, 128)),
       mirrorBaseCut: nullable(mirrorBaseCutShape),
       accessToken,
+      executionCredential: text,
     },
     ["schema", "messageId", "writerEpoch", "opId", "repoId", "taskId", "action", "docChanges", "mirrorBaseCut"],
   ),
@@ -742,14 +768,21 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.runtime.archive/v1": shape({ ...common, writerEpoch: uint, repoId: id, archive: record }),
   "fleet.runtime.archive.result/v1": shape({ ...reply, receipt: record }),
   "fleet.repository.read/v1": (value) =>
-    shape({
-      ...common,
-      repoId: id,
-      accessToken: nullable(accessToken),
-      method: (method) =>
-        typeof method === "string" && (method === "repo.task.read" || repositoryReadDescriptor(method) !== undefined),
-      payload: record,
-    })(value) &&
+    optionalShape(
+      {
+        ...common,
+        repoId: id,
+        executionCredential: text,
+        accessToken: nullable(accessToken),
+        method: (method) =>
+          typeof method === "string" &&
+          (method === "repo.task.read" ||
+            method === "repo.projection.read" ||
+            repositoryReadDescriptor(method) !== undefined),
+        payload: record,
+      },
+      ["schema", "messageId", "repoId", "accessToken", "method", "payload"],
+    )(value) &&
     record(value) &&
     (value.method === "repo.task.read"
       ? record(value.payload) &&

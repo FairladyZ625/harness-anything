@@ -1,3 +1,4 @@
+import { RuntimeHandoff } from "./RuntimeHandoff.tsx";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { AgentRuntimeSessionDto, AgentRuntimeSessionResult } from "@harness-anything/daemon/protocol";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
@@ -137,6 +138,14 @@ export function SessionsPanel({
           onResume={onResume}
           onOpenTask={onOpenTask}
           onNavigateEntity={onNavigateEntity}
+        />
+      )}
+      {row?.kind === "round" && session?.kindId === "codex" && session.liveness === "exited" && (
+        <RuntimeHandoff
+          key={row.dispatchId}
+          repoId={repoId}
+          dispatchId={row.dispatchId}
+          onNavigate={onNavigateEntity}
         />
       )}
     </>

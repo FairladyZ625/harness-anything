@@ -14,12 +14,16 @@
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import { randomUUID } from "node:crypto";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   classifyTextualArtifactPath,
+  classifyRawArtifactPath,
+  resolveDocRoute,
+  documentPath,
   consumeKnownError,
   DOC_POLICY_ID,
+  RAW_ARTIFACT_MAX_BYTES,
   resolveHarnessLayout,
 } from "@harness-anything/kernel";
 import {
@@ -29,6 +33,7 @@ import {
   runFleetTaskCommandClient,
   runFleetRepositoryReadClient,
   runFleetUploadClient,
+  runFleetWriteClient,
 } from "./fleet/edge.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
@@ -55,6 +60,7 @@ export interface FleetEdgeTaskRequest {
     readonly servername?: string;
     readonly nodeId: string;
     readonly credential: string;
+    readonly executionCredential?: string;
     readonly repoId: string;
     readonly viewRoot: string;
     readonly quotaBytes: number;
@@ -126,6 +132,7 @@ export async function runFleetEdgeTask(
       servername: payload.servername,
       nodeId: payload.nodeId,
       credential,
+      ...(payload.executionCredential ? { executionCredential: payload.executionCredential } : {}),
       repoId: payload.repoId,
     };
   const declaration = commandDescriptorForAction(action.kind);
@@ -179,6 +186,77 @@ export async function runFleetEdgeTask(
           },
         } as Record<string, unknown>;
     }
+    if (action.kind.startsWith("doc-") && taskId !== null && workspaceRoot !== null) {
+      const shown = await runFleetTaskCommandClient({
+        ...peer,
+        opId: randomUUID(),
+        taskId,
+        action: { kind: "task-show", taskId },
+        waitMs,
+      });
+      if (shown.outcome !== "applied" || typeof shown.receipt?.evidence !== "string")
+        throw new FleetEdgeTaskError(shown.code ?? "task_read_failed", "Task document authority is unavailable.");
+      const task = JSON.parse(shown.receipt.evidence) as FleetDeliveryTask;
+      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
+      const packagePath = view && fleetExactTaskPackagePath(view, workspaceRoot, taskId);
+      if (!view || !packagePath) throw new FleetEdgeTaskError("mirror_missing", "Task package is not materialized.");
+      if (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))
+        throw new FleetEdgeTaskError(
+          "execution_credential_rejected",
+          "Task document selection cannot name other paths.",
+        );
+      const scan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
+      if (!scan) throw new FleetEdgeTaskError("mirror_missing", "Task document scan is unavailable.");
+      const changes = scan.changes.filter((change) => change.path.startsWith(`${packagePath}/`));
+      if (action.kind !== "doc-submit")
+        return {
+          schema: "command-receipt/v2",
+          command: action.kind,
+          outcome: "applied",
+          ok: true,
+          rows: changes.map((change) => ({ path: change.path, state: "eligible" })),
+        };
+      const admission = await readFleetRepositoryMetadataClient({ ...peer, taskId, actionKind: "doc-submit" });
+      if (admission.actionAllowed !== true)
+        throw new FleetEdgeTaskError("authorization_denied", "Task document submission is not authorized.");
+      const blocked = scan.blocked.filter(
+        (row) =>
+          row.path.startsWith(`${packagePath}/`) &&
+          (resolveDocRoute(documentPath(row.path)).allowed || classifyRawArtifactPath(row.path) !== null),
+      );
+      if (blocked.length) throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => row.reason).join("; "));
+      if (changes.length === 0)
+        return { schema: "command-receipt/v2", command: action.kind, ok: true, outcome: "no_changes" };
+      const result = await runFleetWriteClient({
+        ...peer,
+        taskId,
+        executionId: task.lease?.executionId ?? null,
+        channel: "collaborator",
+        changes: changes.map((change) => ({
+          path: change.path,
+          body: Buffer.from(change.bytes),
+          baseBlobSha256: change.baseBlobSha256,
+          policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID,
+          mediaType: change.mediaType,
+        })),
+      });
+      if (result.center.outcome === "applied") {
+        await runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes });
+        const materialized = applyFleetMirrorCut(payload.viewRoot, payload.repoId, workspaceRoot, "pull", {
+          kind: "task-docs",
+          taskId,
+          executionId: task.lease?.executionId ?? null,
+        });
+        if (materialized.outcome === "pull_blocked")
+          throw new FleetEdgeTaskError("pull_blocked", "Task document materialization is blocked.");
+      }
+      return {
+        ...result.center,
+        schema: "command-receipt/v2",
+        command: action.kind,
+        ok: result.center.outcome === "applied" || result.center.outcome === "no_changes",
+      };
+    }
     if (action.kind === "task-submit" && workspaceRoot !== null && taskId !== null)
       action = await prepareEdgeTaskDelivery({
         workspaceRoot,
@@ -212,7 +290,21 @@ export async function runFleetEdgeTask(
           return JSON.parse(shown.receipt.evidence) as FleetDeliveryTask;
         },
       });
-    const bundle = readOnly ? null : await attachTaskDocs();
+    let artifact: FleetDescriptor | undefined;
+    if (action.kind === "task-artifact-add") {
+      const { source, content, ...target } = action;
+      if ((typeof source === "string") === (typeof content === "string"))
+        throw new FleetEdgeTaskError("invalid_command", "Artifact requires one file or transcript.");
+      const file = typeof source === "string" ? path.resolve(workspaceRoot!, source) : null;
+      if (file && statSync(file).size > RAW_ARTIFACT_MAX_BYTES)
+        throw new FleetEdgeTaskError("artifact_too_large", "Artifact exceeds the content object limit.");
+      [artifact] = await runFleetUploadClient({
+        ...peer,
+        changes: [{ path: String(target.destination), body: file ? readFileSync(file) : Buffer.from(String(content)) }],
+      });
+      action = target as FleetTaskAction;
+    }
+    const bundle = readOnly || artifact ? null : await attachTaskDocs();
     const deadline = Date.now() + waitMs + 30_000 + (bundle === null ? 0 : 60_000);
     let result: Awaited<ReturnType<typeof runFleetTaskCommandClient>> | null = null,
       attempt = 0;
@@ -226,6 +318,7 @@ export async function runFleetEdgeTask(
           repoId: payload.repoId,
           taskId,
           action,
+          ...(artifact ? { artifact } : {}),
           waitMs,
           timeoutMs: remaining + 10_000,
           docChanges: bundle === null ? undefined : bundle.docChanges,

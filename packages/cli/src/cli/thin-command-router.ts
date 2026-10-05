@@ -330,6 +330,7 @@ function parseAgentRun(
       kind: "runtime-run",
       agentId,
       ...(resumeDispatch ? { dispatchId: resumeDispatch } : {}),
+      ...(f.booleans.has("--enable-handoff") ? { handoffEnabled: true } : {}),
       ...(f.one.get("--to") ? { targetAgentId: f.one.get("--to") } : {}),
       taskId: f.one.get("--task"),
       ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),

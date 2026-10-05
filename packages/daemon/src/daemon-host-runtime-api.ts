@@ -1,5 +1,7 @@
+import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { readDaemonRegistry } from "@harness-anything/kernel";
+import { catalogRereadReceipt } from "./gui-catalog.ts";
 import {
   ledgerWriteCommandTopology,
   repoReadCommandTopology,
@@ -34,6 +36,7 @@ export function createDaemonHostRuntimeApi(
   | "attach"
   | "spawnRuntime"
   | "cancelRuntime"
+  | "handoffRuntime"
   | "batchRuntime"
   | "awaitRuntimeSessions"
   | "runtimeIngress"
@@ -80,6 +83,12 @@ export function createDaemonHostRuntimeApi(
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       return cell.cancelRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
     },
+    handoffRuntime: async (repoId, payload, auth) => {
+      context.requireHostMode(repoId, commandDescriptorForAction(`runtime-handoff-${String(payload.operation)}`), auth);
+      await context.attemptHostRecovery(repoId);
+      const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      return cell.handoffRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
+    },
     batchRuntime: async (repoId, payload, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-batch"), auth);
       await context.attemptHostRecovery(repoId);
@@ -117,6 +126,22 @@ export function createDaemonHostRuntimeApi(
       return cell.terminal.attach(sessionId, afterSeq);
     },
     terminalAction: async (repoId, method, payload, auth) => {
+      if (
+        method === "repo.gui.catalog.reread" &&
+        readDaemonRegistry({ userRoot: context.input.userRoot }).repos.some(
+          (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
+        )
+      ) {
+        const snapshot = await context.host.read(repoId, "repo.gui.catalog.snapshot", {}, auth);
+        const digest = snapshot.catalogDigest as string;
+        return catalogRereadReceipt({
+          repoId,
+          beforeDigest: digest,
+          afterDigest: digest,
+          observedAt: new Date().toISOString(),
+          rejected: typeof payload.expectedDigest === "string" && payload.expectedDigest !== digest,
+        }) as JsonObject;
+      }
       const commandTopology =
         method === "repo.gui.catalog.reread" || method === "repo.terminal.detach"
           ? repoReadCommandTopology
@@ -164,10 +189,13 @@ export function createDaemonHostRuntimeApi(
     },
     authorize: async (repoId, kind, auth, target) => {
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      const binding = await context.binding(cell.status().rootDir, auth);
+      if (binding.executionPrincipal)
+        requireExecutionActionScope(binding.executionPrincipal, { kind, taskId: target?.taskId });
       if (target)
         return evaluateRepoCellAction({
           action: { kind, taskId: target.taskId },
-          binding: await context.binding(cell.status().rootDir, auth),
+          binding,
           actionId: `${kind}:${repoId}:${target.taskId}`,
           repoId,
           revision: cell.status().ledgerRevision ?? 0,

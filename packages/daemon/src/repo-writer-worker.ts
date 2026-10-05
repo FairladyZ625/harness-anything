@@ -206,6 +206,9 @@ async function startRepoWriterWorker(): Promise<void> {
         case "spawnRuntime":
           value = await cell.spawnRuntime(request.payload as never, binding!);
           break;
+        case "handoffRuntime":
+          value = await cell.handoffRuntime(request.payload as never, binding!);
+          break;
         case "cancelRuntime":
           value = await cell.cancelRuntime(request.payload as never, binding!);
           break;

@@ -13,7 +13,10 @@ import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
 import { randomUUID } from "node:crypto";
-import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import {
+  registerBootstrappedDaemonRepo as registerDaemonRepo,
+  registerSettledBootstrappedDaemonRepo,
+} from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const replicaQuota = 64 * 1024 * 1024;
@@ -27,6 +30,7 @@ export async function fleetNodeClaimFixture(
   verifyHuman?: Parameters<typeof listenFleetTls>[0]["verifyHuman"],
   now?: () => string,
   loginAuthority?: Parameters<typeof listenFleetTls>[0]["loginAuthority"],
+  seedCenterSettings = false,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
@@ -47,7 +51,9 @@ export async function fleetNodeClaimFixture(
   );
   git("add", "harness");
   git("commit", "-qm", "harness");
-  registerDaemonRepo({ canonicalRoot: repo, repoId: "lease-repo", userRoot, createConvenienceLinks: false });
+  const registration = { canonicalRoot: repo, repoId: "lease-repo", userRoot, createConvenienceLinks: false } as const;
+  if (seedCenterSettings) await registerSettledBootstrappedDaemonRepo(registration);
+  else registerDaemonRepo(registration);
   execFileSync(
     "openssl",
     [

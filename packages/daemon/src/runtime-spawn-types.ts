@@ -240,6 +240,10 @@ export type RuntimeSessionSelection = Pick<
 >;
 
 export interface RemoteRuntimePersistence {
+  readonly executionCredential: (runtimeSessionId: string) => {
+    readonly credential: string;
+    readonly expiresAt: string;
+  };
   readonly existing: (opId: string) => Promise<JsonObject | null>;
   readonly taskContext: (
     taskId: string,
@@ -247,6 +251,7 @@ export interface RemoteRuntimePersistence {
     review?: { readonly executionId: string | undefined },
   ) => Promise<{
     readonly executionId: string;
+    readonly reviewerSubmission?: Parameters<typeof import("@harness-anything/kernel").submissionDigest>[0];
     /** The mirrored task package on this node, and the mission that names it as the worker reaches it. */
     readonly packageRoot: string;
     readonly mission: (packageRoot: string) => string;

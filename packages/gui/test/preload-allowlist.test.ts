@@ -177,7 +177,7 @@ test("preload exposes only the approved API methods", () => {
   );
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
-  // 48 explicit actions plus the complete declaration read are the 49 editing-facing facets:
+  // 49 explicit actions plus the complete declaration read are the 50 editing-facing facets:
   // task adjudication (owner triage/verdict) and the owner's review consent joined as named
   // facets alongside complete; retireRelation answers an awaits ask in place
   // (dec_DF67F23066BAFE444190A191B5, task_ec805e49); Decision review responds, overrides,
@@ -187,11 +187,13 @@ test("preload exposes only the approved API methods", () => {
     "readVerticalDeclaration",
   ];
   // S8 CH2: assignTask and unassignTask.
-  assert.equal(editingFacets.length, 49);
+  // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: one dispatcher for export/claim/revoke.
+  assert.equal(editingFacets.length, 50);
   assert.equal(preloadAllowlist.includes("readVerticalDeclaration"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets.
-  assert.equal(daemonGuiActionMethods.length, 48);
+  // The same single handoff dispatcher accounts for the approved 49 actions / 50 editing facets.
+  assert.equal(daemonGuiActionMethods.length, 49);
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.entity.delete"),
     true,

@@ -72,10 +72,11 @@ function hostSnapshot(t) {
   return root;
 }
 
-function mutate(root, name, before, after) {
+function mutate(root, name, before, after, unique = false) {
   const file = `packages/daemon/src/${name}.ts`,
     source = readFileSync(path.join(root, file), "utf8").replaceAll("\r\n", "\n");
   assert.ok(source.includes(before), `mutation anchor missing in ${name}: ${before}`);
+  if (unique) assert.equal(source.split(before).length - 1, 1, `ambiguous mutation anchor in ${name}: ${before}`);
   writeRepoFile(root, file, source.replaceAll(before, after));
 }
 
@@ -90,6 +91,8 @@ for (const newline of ["\n", "\r\n"]) {
     mutate(root, "fixture", before, after);
     assert.equal(readFileSync(path.join(root, file), "utf8"), after);
     assert.throws(() => mutate(root, "fixture", before, after), /mutation anchor missing in fixture/u);
+    writeRepoFile(root, file, [before, before].join(newline));
+    assert.throws(() => mutate(root, "fixture", before, after, true), /ambiguous mutation anchor in fixture/u);
   });
 }
 
@@ -200,9 +203,9 @@ function taskSnapshot(t) {
   return root;
 }
 
-test("G0-2 traces all 138 declared writes, including queued task catalog ingress", () => {
+test("G0-2 traces all 141 declared writes, including queued task catalog ingress", () => {
   const result = auditDurableActionAuthorization(repoRoot);
-  assert.equal(result.rows.length, 138); // dec_CDDCFA8BB91A47BCE07B229E93 CH2: assign and unassign.
+  assert.equal(result.rows.length, 141); // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: handoff export, claim, and revoke.
   assert.deepEqual(result.findings, []);
   assert.ok(result.rows.every((row) => row.receiptAuthorizationDecision));
 });
@@ -223,8 +226,9 @@ const queuedWriteMutations = [
   {
     name: "current revision",
     file: "repo-cell-command-run",
-    before: "const revision = context.store.readHead()?.revision ?? 0,",
-    after: "const revision = 0,",
+    before:
+      "const revision = context.store.readHead()?.revision ?? 0,\n          actionId = context.operationId(action, binding,",
+    after: "const revision = 0,\n          actionId = context.operationId(action, binding,",
   },
   {
     name: "denied return",
@@ -306,42 +310,49 @@ for (const kind of ["assign", "unassign"]) {
   }
 }
 
-// The handler snapshot and dispatch below are from c7f42468aa4bf76a8a36fb68ce3841a2af1eb0e6.
-// Keep main's declared inventory intact; this isolated source tree models the pending product route.
-const handoffKinds = ["runtime-handoff-export", "runtime-handoff-claim", "runtime-handoff-revoke"];
+// The handler snapshot is from c7f42468aa4bf76a8a36fb68ce3841a2af1eb0e6.
+// Give only the queued fixture its own action and handler names. The complete product
+// tree may also authorize handoff claim through runtime publication; that independent
+// route must not satisfy a mutation of this route. The real inventory is audited above.
+const handoffKinds = ["fixture-handoff-export", "fixture-handoff-claim", "fixture-handoff-revoke"];
 function handoffSnapshot(t) {
-  const root = taskSnapshot(t);
-  writeRepoFile(
-    root,
-    "packages/daemon/src/runtime-handoff-store.ts",
-    readFileSync(new URL("./queued-handoff-store.fixture.txt", import.meta.url), "utf8"),
-  );
+  const root = taskSnapshot(t),
+    handler = readFileSync(new URL("./queued-handoff-store.fixture.txt", import.meta.url), "utf8")
+      .replaceAll('"runtime-handoff-', '"fixture-handoff-')
+      .replaceAll("runRuntimeHandoffAction", "runQueuedHandoffAction"),
+    dispatchFile = "packages/daemon/src/repo-cell-action-dispatch.ts",
+    declarationFile = "packages/kernel/src/domain/action-declaration.ts",
+    handlerImport = 'import { runQueuedHandoffAction } from "./queued-handoff-store.ts";',
+    route = `  if ([${handoffKinds.map((kind) => JSON.stringify(kind)).join(", ")}].includes(action.kind))
+    return runQueuedHandoffAction(cell, action, binding);`;
+  writeRepoFile(root, "packages/daemon/src/queued-handoff-store.ts", handler);
   mutate(
     root,
     "repo-cell-action-dispatch",
     "import { settleTask, submitTask }",
-    'import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";\nimport { settleTask, submitTask }',
+    `${handlerImport}\nimport { settleTask, submitTask }`,
+    true,
   );
   mutate(
     root,
     "repo-cell-action-dispatch",
     "  validateCanonicalIdentityInputs(cell, action);",
-    `  validateCanonicalIdentityInputs(cell, action);
-  if (["runtime-handoff-export", "runtime-handoff-claim", "runtime-handoff-revoke"].includes(action.kind))
-    return runRuntimeHandoffAction(cell, action, binding);`,
+    `  validateCanonicalIdentityInputs(cell, action);\n${route}`,
+    true,
   );
-  const file = "packages/kernel/src/domain/action-declaration.ts",
-    source = readFileSync(path.join(root, file), "utf8"),
-    anchor = '  canonical("runtime-cancel", null, "repo-write"),';
-  assert.ok(source.includes(anchor));
-  writeRepoFile(
-    root,
-    file,
-    source.replace(
-      anchor,
-      [anchor, ...handoffKinds.map((kind) => `  canonical("${kind}", null, "repo-write"),`)].join("\n"),
-    ),
-  );
+  const source = readFileSync(path.join(root, declarationFile), "utf8"),
+    anchor = '  canonical("runtime-cancel", null, "repo-write"),',
+    declarations = handoffKinds.map((kind) => `  canonical("${kind}", null, "repo-write"),`);
+  assert.equal(source.split(anchor).length - 1, 1);
+  writeRepoFile(root, declarationFile, source.replace(anchor, [anchor, ...declarations].join("\n")));
+  for (const [file, anchors] of [
+    [dispatchFile, [handlerImport, route, "return runQueuedHandoffAction(cell, action, binding)"]],
+    [declarationFile, declarations],
+    ["packages/daemon/src/queued-handoff-store.ts", ["export function runQueuedHandoffAction("]],
+  ]) {
+    const content = readFileSync(path.join(root, file), "utf8");
+    for (const expected of anchors) assert.equal(content.split(expected).length - 1, 1, `${file}: ${expected}`);
+  }
   return root;
 }
 
@@ -406,38 +417,38 @@ for (const mutation of [
   {
     name: "handler import",
     file: "repo-cell-action-dispatch",
-    before: 'from "./runtime-handoff-store.ts"',
+    before: 'from "./queued-handoff-store.ts"',
     after: 'from "./unconnected-store.ts"',
   },
   {
     name: "handler call",
     file: "repo-cell-action-dispatch",
-    before: "return runRuntimeHandoffAction(cell, action, binding)",
+    before: "return runQueuedHandoffAction(cell, action, binding)",
     after: "return disconnectedHandoff(cell, action, binding)",
   },
   {
     name: "handler arguments",
     file: "repo-cell-action-dispatch",
-    before: "return runRuntimeHandoffAction(cell, action, binding)",
-    after: "return runRuntimeHandoffAction(cell, otherAction, binding)",
+    before: "return runQueuedHandoffAction(cell, action, binding)",
+    after: "return runQueuedHandoffAction(cell, otherAction, binding)",
   },
   {
     name: "handler declaration",
-    file: "runtime-handoff-store",
-    before: "export function runRuntimeHandoffAction(",
+    file: "queued-handoff-store",
+    before: "export function runQueuedHandoffAction(",
     after: "export function disconnectedHandoff(",
   },
   {
     name: "handler export",
-    file: "runtime-handoff-store",
-    before: "export function runRuntimeHandoffAction(",
-    after: "function runRuntimeHandoffAction(",
+    file: "queued-handoff-store",
+    before: "export function runQueuedHandoffAction(",
+    after: "function runQueuedHandoffAction(",
   },
 ]) {
   test(`G0-2 rejects queued handoff after removing ${mutation.name}`, (t) => {
     const root = handoffSnapshot(t);
-    mutate(root, mutation.file, mutation.before, mutation.after);
-    if (mutation.extraBefore) mutate(root, mutation.file, mutation.extraBefore, mutation.extraAfter);
+    mutate(root, mutation.file, mutation.before, mutation.after, true);
+    if (mutation.extraBefore) mutate(root, mutation.file, mutation.extraBefore, mutation.extraAfter, true);
     const result = auditDurableActionAuthorization(root, handoffKinds);
     assert.deepEqual(
       result.rows.map((row) => row.authorizationPort),
@@ -451,11 +462,12 @@ test("G0-2 does not accept a same-named handler from an unrelated file", (t) => 
   const root = handoffSnapshot(t);
   mutate(
     root,
-    "runtime-handoff-store",
-    "export function runRuntimeHandoffAction(",
+    "queued-handoff-store",
+    "export function runQueuedHandoffAction(",
     "export function disconnectedHandoff(",
+    true,
   );
-  writeRepoFile(root, "packages/daemon/src/unrelated.ts", "export function runRuntimeHandoffAction() { return {}; }");
+  writeRepoFile(root, "packages/daemon/src/unrelated.ts", "export function runQueuedHandoffAction() { return {}; }");
   assert.ok(auditDurableActionAuthorization(root, handoffKinds).rows.every((row) => !row.authorizationPort));
 });
 
@@ -465,7 +477,7 @@ test("G0-2 requires each queued action's durable repo-write declaration", (t) =>
   const original = readFileSync(path.join(root, file), "utf8");
   for (const kind of handoffKinds) {
     const before = `canonical("${kind}", null, "repo-write"),`;
-    assert.ok(original.includes(before));
+    assert.equal(original.split(before).length - 1, 1);
     writeRepoFile(root, file, original.replace(before, ""));
     const result = auditDurableActionAuthorization(root, handoffKinds);
     assert.equal(result.rows.find((row) => row.action === kind).authorizationPort, false);
@@ -478,13 +490,13 @@ test("G0-2 follows the declared route instead of allowing handoff action names",
   for (const file of [
     "packages/kernel/src/domain/action-declaration.ts",
     "packages/daemon/src/repo-cell-action-dispatch.ts",
-    "packages/daemon/src/runtime-handoff-store.ts",
+    "packages/daemon/src/queued-handoff-store.ts",
   ]) {
     const original = readFileSync(path.join(root, file), "utf8");
-    assert.ok(original.includes("runtime-handoff-export"));
-    writeRepoFile(root, file, original.replaceAll("runtime-handoff-export", "fixture-queued-export"));
+    assert.ok(original.includes("fixture-handoff-export"));
+    writeRepoFile(root, file, original.replaceAll("fixture-handoff-export", "fixture-queued-export"));
   }
-  const result = auditDurableActionAuthorization(root, ["fixture-queued-export", "runtime-handoff-export"]);
+  const result = auditDurableActionAuthorization(root, ["fixture-queued-export", "fixture-handoff-export"]);
   assert.deepEqual(
     result.rows.map((row) => row.authorizationPort),
     [true, false],

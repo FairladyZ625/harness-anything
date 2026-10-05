@@ -35,6 +35,7 @@ const VIEW_ID_LIST = [
   "agenda",
   "workspace",
   "board",
+  "collaboration",
   "decisionPool",
   "freshness",
   "cadence",

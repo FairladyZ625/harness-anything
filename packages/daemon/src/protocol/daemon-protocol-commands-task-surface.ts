@@ -577,7 +577,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRepoReadCommand({
+  defineCenterForwardReadCommand({
     id: "task-read-set",
     repositoryRead: true,
     phase: "Governed-Entity-W2-B",

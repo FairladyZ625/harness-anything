@@ -56,6 +56,7 @@ const sensitiveAssignment =
   /\b(?:authorization|cookie|credential(?:Ref)?|executablePath|api[-_ ]?key|accessToken|apiToken|password|private[-_ ]?key|secret|token)\s*[:=]\s*[^\s,;}]+/giu;
 
 export interface DispatchStreamHeader extends RuntimeResumeHeader {
+  readonly handoffEnabled?: boolean;
   readonly schema: typeof streamSchema;
   readonly kind: "dispatch";
   readonly dispatchId: string;

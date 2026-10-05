@@ -273,6 +273,9 @@ describe("adaptProjectionRows", () => {
       leaseExpiresAt: "2026-08-30T01:00:00.000Z",
       pinned: true,
     });
+    // 结构字段原样透传:协作视图按 actor/source 结构消费,不从显示串反解析。
+    expect(task?.leaseActor).toBe(leased.snapshot.lease!.actor);
+    expect(task?.leaseSource).toBe(leased.snapshot.lease!.source);
     expect(adaptProjectionRows([row()], "repo-test")[0]?.pinned).toBeUndefined();
   });
 

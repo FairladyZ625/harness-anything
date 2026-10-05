@@ -17,6 +17,7 @@ import {
   Pulse,
   ListChecks,
   IdentificationCard,
+  UsersThree,
 } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
@@ -44,6 +45,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   work: "shell.nav.work",
   agenda: "shell.nav.agenda",
   board: "shell.nav.board",
+  collaboration: "shell.nav.collaboration",
   decisionPool: "shell.nav.decisionPool",
   freshness: "shell.nav.freshness",
   cadence: "shell.nav.cadence",
@@ -72,7 +74,15 @@ export const navLabel = (id: ViewId): string => t(NAV_LABEL_KEY[id]);
 export interface NavGroup {
   readonly id: string;
   readonly labelKey: MessageKey;
-  readonly items: readonly { readonly id: ViewId; readonly icon: React.ReactNode }[];
+  readonly items: readonly {
+    readonly id: ViewId;
+    readonly icon: React.ReactNode;
+    /**
+     * 舰队专用入口(task_1bafbf09):纯本地仓不显示——是否多节点面由仓库模式
+     * 决定,不是节点数量。AppSidebar 按当前仓模式过滤。
+     */
+    readonly fleetOnly?: boolean;
+  }[];
 }
 
 export const NAV_GROUPS: readonly NavGroup[] = [
@@ -84,6 +94,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { id: "work", icon: <Stack weight="duotone" /> },
       { id: "agenda", icon: <ListChecks weight="duotone" /> },
       { id: "board", icon: <Kanban weight="duotone" /> },
+      { id: "collaboration", icon: <UsersThree weight="duotone" />, fleetOnly: true },
       { id: "graph", icon: <Graph weight="duotone" /> },
     ],
   },

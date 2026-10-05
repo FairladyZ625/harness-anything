@@ -27,6 +27,7 @@ import {
   entityOwnedDirectories,
   entityRetiredDirectories,
   isEntityDeclarationEvent,
+  ENTITY_CONTENT_POLICY_ID,
   isEntityEvent,
   MAX_ENTITY_CONTENT_OBJECT_BYTES,
   ownedContentForDeclarationEvent,
@@ -541,8 +542,7 @@ async function resolveArtifactSource(input: {
   );
 }
 
-const SYSTEM_DIRECTORY_ENTRIES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]),
-  ENTITY_CONTENT_POLICY_ID = "entity-content/v1";
+const SYSTEM_DIRECTORY_ENTRIES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
 
 /**
  * A directory source is its files plus the directories that hold none. Git has no empty-tree entry, so an

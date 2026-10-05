@@ -187,7 +187,14 @@ export function createJsonRpcProtocolServer(options: {
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
-    if (executionCredential !== undefined) {
+    const relayExecution =
+      executionCredential !== undefined &&
+      method === "daemon.fleet.task.run" &&
+      isJsonObject(params.payload) &&
+      isJsonObject(params.payload.action) &&
+      params.payload.action.kind !== "fleet-runtime" &&
+      params.payload.action.kind !== "fleet-schedule";
+    if (executionCredential !== undefined && !relayExecution) {
       try {
         if (!options.executionPrincipal)
           throw Object.assign(new Error("Execution authentication is unavailable."), {
@@ -198,7 +205,7 @@ export function createJsonRpcProtocolServer(options: {
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
-    } else if (options.sessionPrincipal) {
+    } else if (!relayExecution && options.sessionPrincipal) {
       // A connection outlives access tokens: each request carries the session as it is now, renewed or ended.
       try {
         Object.assign(options.authContext, { oidcPrincipal: await options.sessionPrincipal() });
@@ -440,6 +447,7 @@ export function createJsonRpcProtocolServer(options: {
             ![
               "repo.agentRuntime.spawn",
               "repo.agentRuntime.cancel",
+              "repo.agentRuntime.handoff",
               "repo.agentRuntime.overview",
               "repo.agentRuntime.sessions.read",
               "repo.agentRuntime.sessions.await",
@@ -477,11 +485,12 @@ export function createJsonRpcProtocolServer(options: {
             {
               payload: {
                 ...params.payload,
+                ...(executionCredential ? { executionCredential } : {}),
                 // The two non-task discriminants return above; the remainder is FleetTaskAction.
                 action: fleetAction as DaemonFleetTaskAction,
               },
             },
-            async () => (await options.sessionPrincipal?.())?.accessToken,
+            executionCredential ? undefined : async () => (await options.sessionPrincipal?.())?.accessToken,
           ),
         );
       } catch (error) {
@@ -602,6 +611,20 @@ export function createJsonRpcProtocolServer(options: {
           parseDaemonGuiActionResult(
             method,
             await options.host.cancelRuntime(repo, params.payload, options.authContext),
+          ),
+        );
+      } catch (error) {
+        return reply(method, protocolFailure(method, error));
+      }
+    }
+    if (method === "repo.agentRuntime.handoff") {
+      const repo = params.repo.repoId;
+      try {
+        return reply(
+          method,
+          parseDaemonGuiActionResult(
+            method,
+            await options.host.handoffRuntime(repo, params.payload, options.authContext),
           ),
         );
       } catch (error) {

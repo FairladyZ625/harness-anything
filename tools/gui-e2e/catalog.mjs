@@ -1,3 +1,4 @@
+import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
 import taskAssignment from "./scenarios/task-assignment.mjs";
 import workTeams from "./scenarios/work-teams.mjs";
@@ -23,14 +24,17 @@ import settings from "./scenarios/settings-appearance.mjs";
 import declaredEntityKinds from "./scenarios/declared-entity-kinds.mjs";
 import systemDaemonLogs from "./scenarios/system-daemon-logs.mjs";
 import sessionsGrouping from "./scenarios/sessions-grouping.mjs";
+import collaborationView from "./scenarios/collaboration-view.mjs";
 import scheduleRunHistory from "./scenarios/schedule-run-history.mjs";
 import daemonStartupWait from "./scenarios/daemon-startup-wait.mjs";
 import cadenceView from "./scenarios/cadence-view.mjs";
 import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
 import pageSplitLayout from "./scenarios/page-split-layout.mjs";
 import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
+import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
 
 export const catalog = [
+  runtimeHandoff,
   accountLogin,
   taskAssignment,
   workTeams,
@@ -53,6 +57,7 @@ export const catalog = [
   declaredEntityKinds,
   systemDaemonLogs,
   sessionsGrouping,
+  collaborationView,
   scheduleRunHistory,
   daemonStartupWait,
   cadenceView,
@@ -62,6 +67,7 @@ export const catalog = [
   taskCloseoutLongValues,
   pageSplitLayout,
   overviewWipRegion,
+  overviewAttentionFocus,
 ];
 
 export function selectScenarios({ lane, ids }) {

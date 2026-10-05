@@ -641,5 +641,17 @@
   "agentRuntime.replaceApiKey": "更换 API Key",
   "agentRuntime.replaceApiKeyHint": "不开启更换则保留原密钥。新密钥用于下次启动；保存不代表已验证认证。",
   "agentRuntime.apiKeyReady": "密钥已配置;尚未验证 Provider 认证",
-  "agentRuntime.apiKeyProbing": "正在检查密钥是否可用"
+  "agentRuntime.apiKeyProbing": "正在检查密钥是否可用",
+  "agentRuntime.handoffTitle": "跨节点交接",
+  "agentRuntime.handoffHint": "源节点停稳后导出。在目标节点按任务现有生命周期开工，再用自己的 Codex 登录领取。仅支持创建时已启用交接的会话。",
+  "agentRuntime.handoffExport": "导出检查点",
+  "agentRuntime.handoffRevoke": "撤销并删除载荷",
+  "agentRuntime.handoffInstance": "本目标节点的 Codex 实例",
+  "agentRuntime.handoffPrompt": "续聊指令",
+  "agentRuntime.handoffClaim": "在本节点领取并续聊",
+  "agentRuntime.handoffRevoked": "检查点已撤销，中心载荷已删除。",
+  "agentRuntime.handoffExported": "检查点已导出，提交为 {commit}。",
+  "agentRuntime.handoffAccepted": "交接已受理；请查看目标会话的恢复结果。",
+  "agentRuntime.handoffResumed": "目标已恢复同一原生会话。",
+  "agentRuntime.handoffEnable": "允许此 Codex 会话停稳后显式跨节点交接"
 }

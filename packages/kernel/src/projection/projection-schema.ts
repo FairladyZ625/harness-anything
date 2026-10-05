@@ -3,4 +3,6 @@
 // rebuildable cache. Version 23 adds pinned_entities, which the replay fills from historical task pins.
 // Version 24 replays Settings snapshots into the symmetric roles matrix.
 // Version 25 rebuilds Schedule run views without retired assignment authority evidence.
-export const taskProjectionSchemaVersion = 25;
+// Version 26 retains canonical retired People audit documents in replica manifests without restoring authority.
+// Version 27 replays entity owned documents and retirements into the canonical document read model.
+export const taskProjectionSchemaVersion = 27;

@@ -32,6 +32,7 @@ export type DispatchCwd = { readonly scope: "repo-root" } | { readonly scope: "r
 export interface DispatchRequest {
   readonly subject: DispatchSubject;
   readonly runtimeInstanceId?: string;
+  readonly handoffEnabled?: boolean;
   readonly mission: string;
   readonly cwd: DispatchCwd;
   readonly taskId: string | null;
@@ -75,9 +76,10 @@ export function buildDispatchSpawnInput(
   return {
     ...(request.runtimeInstanceId ? { runtimeInstanceId: request.runtimeInstanceId } : {}),
     ...squadRouting,
+    ...(request.handoffEnabled ? { handoffEnabled: true } : {}),
     ...(request.model ? { model: request.model } : {}),
     ...(request.effort ? { effort: request.effort } : {}),
-    cwd: request.cwd,
+    ...(request.handoffEnabled ? {} : { cwd: request.cwd }),
     prompt: request.mission,
     taskId: request.taskId,
     idempotencyKey: request.idempotencyKey,

@@ -1,4 +1,4 @@
-import { prepareBoundRuntimeLaunch } from "./runtime-spawn-context.ts";
+import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
@@ -22,7 +22,7 @@ import {
   scrubProviderValue,
   type DispatchStreamWriter,
 } from "./dispatch-stream.ts";
-import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
+import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.ts";
@@ -85,22 +85,28 @@ import type {
   TrustedScheduleRuntime,
   TrustedScheduleSpawn,
 } from "./runtime-spawn-types.ts";
-import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
-import { prepareTaskWorkerGitEnvironment } from "./runtime-spawn-context.ts";
+import { prepareBoundRuntimeLaunch, prepareTaskWorkerGitEnvironment } from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
-import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import {
-  admitRuntimeResume,
+  continuationMission,
+  initialFallbackAttempt,
+  requiredRuntimeFast,
+  settleFallbackAttempt,
+} from "./runtime-spawn-fallback.ts";
+import {
+  resolveRuntimeResume,
+  assertNativeResumeNotExported,
+  assertRuntimeHandoffLaunch,
   assertResumeAgent,
   prepareDispatchWorktree,
   projectedWorktreeBinding,
   resolveDispatchCwd,
 } from "./runtime-resume-admission.ts";
-import { taskWorktreeCheckoutNote, type TaskWorktreeCheckout } from "./task-worktree.ts";
+import { taskWorktreeCheckoutNote, verifyHandoffWorktree, type TaskWorktreeCheckout } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
@@ -146,49 +152,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     handoffFromRuntimeSessionId?: string,
     publicationOwner: ActiveRuntime["publicationOwner"] = "runtime",
     preparedWorktree: TaskWorktreeCheckout | null = null,
+    handoff?: RuntimeHandoffCheckpoint,
   ): Promise<JsonObject> => {
-    const allowed = [
-        "runtimeInstanceId",
-        "dispatchId",
-        "agentId",
-        "targetAgentId",
-        "squadId",
-        "role",
-        "model",
-        "effort",
-        "fast",
-        "permissionMode",
-        "cwd",
-        "prompt",
-        "promptSource",
-        "missionName",
-        "onExitCommand",
-        "taskId",
-        "executionId",
-        "reviewTarget",
-        "idempotencyKey",
-        "providerSessionId",
-        "dryRun",
-      ],
-      unknownField = unknownFieldViolation(payload, allowed);
-    if (unknownField)
-      throw runtimeSpawnError("invalid_runtime_spawn", `Runtime spawn payload contains an ${unknownField}`);
     const dryRun = payload.dryRun === true;
-    const requestedDispatchId =
-        payload.dispatchId === undefined ? undefined : requiredRuntimeSpawnText(payload.dispatchId, "dispatchId"),
-      resumed = admitRuntimeResume(
-        input.rootDir,
-        requestedDispatchId,
-        input.remote ? null : () => extracted.requiredRuntimeProjection(input),
-      );
+    const { requestedDispatchId, resumed, inherited, handoffEnabled } = resolveRuntimeResume(input, payload, handoff);
     const explicitRuntimeInstanceId =
         payload.runtimeInstanceId === undefined
-          ? resumed?.header.instanceId
+          ? inherited?.instanceId
           : requiredRuntimeSpawnText(payload.runtimeInstanceId, "runtimeInstanceId"),
       explicitMission = payload.prompt === undefined ? undefined : requiredRuntimeSpawnText(payload.prompt, "prompt"),
       missionName = payload.missionName === undefined ? undefined : runtimeMissionName(payload.missionName),
       agentId =
-        payload.agentId === undefined ? resumed?.header.agentId : requiredRuntimeSpawnText(payload.agentId, "agentId"),
+        payload.agentId === undefined ? inherited?.agentId : requiredRuntimeSpawnText(payload.agentId, "agentId"),
       targetAgentId =
         payload.targetAgentId === undefined
           ? undefined
@@ -197,12 +172,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       role = payload.role === undefined ? undefined : requiredRuntimeSpawnText(payload.role, "role"),
       // Delegation provenance: which already-running runtime session invoked this spawn.
       parentRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
-      model = payload.model === undefined ? resumed?.header.model : requiredRuntimeSpawnText(payload.model, "model"),
+      model = payload.model === undefined ? inherited?.model : requiredRuntimeSpawnText(payload.model, "model"),
       effort = payload.effort === undefined ? undefined : requiredRuntimeSpawnText(payload.effort, "effort"),
       fast = payload.fast === undefined ? undefined : requiredRuntimeFast(payload.fast),
       permissionMode =
         payload.permissionMode === undefined
-          ? (resumed?.header.permissionMode ?? undefined)
+          ? (inherited?.permissionMode ?? undefined)
           : requiredRuntimeSpawnText(payload.permissionMode, "permissionMode"),
       promptSource =
         payload.promptSource === undefined ? undefined : requiredRuntimeSpawnText(payload.promptSource, "promptSource"),
@@ -213,7 +188,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       idempotencyKey = requiredRuntimeSpawnText(payload.idempotencyKey, "idempotencyKey"),
       taskId =
         payload.taskId === null || payload.taskId === undefined
-          ? (resumed?.header.taskId ?? null)
+          ? (inherited?.taskId ?? null)
           : requiredRuntimeSpawnText(payload.taskId, "taskId"),
       requestedExecutionId =
         payload.executionId === undefined ? undefined : requiredRuntimeSpawnText(payload.executionId, "executionId"),
@@ -221,8 +196,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       providerSessionId =
         typeof payload.providerSessionId === "string"
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
-          : resumed?.providerSessionId;
-    assertResumeAgent(requestedDispatchId, resumed?.header.agentId, payload.agentId, agentId);
+          : (handoff?.providerSessionId ?? resumed?.providerSessionId);
+    assertResumeAgent(requestedDispatchId, inherited?.agentId, payload.agentId, agentId);
     if (missionName && !taskId)
       throw runtimeSpawnError("invalid_runtime_mission", "Use --mission <name> only with --task <task-id>.");
     if (missionName && explicitMission)
@@ -244,8 +219,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
         input.rootDir,
         payload,
-        resumed?.header.cwd,
-        remoteTask ? await prepareDispatchWorktree(input, payload, () => remoteTask.worktree) : preparedWorktree,
+        inherited?.cwd,
+        remoteTask
+          ? await prepareDispatchWorktree(
+              input,
+              { ...payload, ...(handoff ? { taskId: handoff.taskId, acceptedCommit: handoff.commit } : {}) },
+              () => remoteTask.worktree,
+            )
+          : preparedWorktree,
       ),
       store = input.remote ? null : requiredRuntimeStore(input),
       projection = input.remote ? null : requiredRuntimeProjection(input);
@@ -327,6 +308,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     if (!dryRun && remoteExisting)
       return {
         ...remoteExisting,
+        ...(handoff ? { replayed: true } : {}),
         runtimeSessionId,
         dispatchId: newDispatchId,
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
@@ -339,6 +321,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         );
       return {
         ...applied(existing, store!.publication(existing), runtimeSessionId, newDispatchId),
+        ...(handoff ? { replayed: true } : {}),
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
     }
@@ -517,6 +500,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : undefined,
       workerIdentityEnvironment =
         taskId || trustedSchedule || reviewerBinding ? await conventionalWorkerGitEnvironment(input.rootDir) : {};
+    if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);
     // Every implementation runtime, including squad leaders, takes the actual lease.
     const taskLeaseHandoff = taskId && !input.remote && !reviewerBinding ? input.handoffTaskLease : undefined,
       activeBinding = taskLeaseHandoff
@@ -554,13 +538,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         executionId: taskBinding?.executionId ?? null,
         ...(decisionReviewTarget
           ? { reviewTarget: decisionReviewTarget }
-          : reviewerBinding && taskBinding && reviewTarget?.submission
+          : reviewerBinding && taskBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
             ? {
                 reviewTarget: {
                   kind: "task" as const,
                   taskId: taskBinding.taskId,
                   executionId: taskBinding.executionId,
-                  digest: submissionDigest(reviewTarget.submission),
+                  digest: submissionDigest((reviewTarget?.submission ?? remoteTask?.reviewerSubmission)!),
                 },
               }
             : {}),
@@ -582,7 +566,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         reasoningEffort: definition.reasoningEffort,
         fast: definition.fast ?? false,
         resumeProviderSessionId: providerSessionId ?? null,
-        ...(requestedDispatchId ? { resumedFromDispatchId: requestedDispatchId } : {}),
+        ...(handoffEnabled ? { handoffEnabled: true } : {}),
+        ...(handoff
+          ? { resumedFromDispatchId: handoff.dispatchId }
+          : requestedDispatchId
+            ? { resumedFromDispatchId: requestedDispatchId }
+            : {}),
         ...(onExitCommand ? { onExitCommand } : {}),
         ...(role ? { role } : {}),
         ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
@@ -596,6 +585,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       }));
+    assertRuntimeHandoffLaunch(
+      handoffEnabled,
+      handoff,
+      { taskId, agentId, role, trustedSchedule },
+      definition.kindId,
+      installation.version,
+    );
     const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
       process?.terminate();
       process?.release?.();
@@ -629,7 +625,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId,
         trustedSchedule,
         reviewerBinding: Boolean(reviewerBinding),
-        ...(taskId && !input.remote
+        ...(taskId
           ? {
               execution: {
                 repoId: input.repoId,
@@ -638,7 +634,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 runtimeSessionId,
                 dispatchId: newDispatchId,
                 taskId,
-                executionId: reviewerBinding ? reviewTarget!.executionId : lease!.executionId,
+                executionId: taskBinding!.executionId,
                 role: reviewerBinding ? "reviewer" : "implementation",
               },
             }
@@ -656,7 +652,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       );
     };
     // Remote resumes must first win center admission, just like fresh provider launches.
-    if (providerSessionId && !input.remote)
+    if (providerSessionId && !input.remote && !handoff) {
+      if (!requestedDispatchId) assertNativeResumeNotExported(input.rootDir, providerSessionId, projection!);
       try {
         openStream();
         ({ process, resumeObservation } = await launchPreparedProcess());
@@ -664,6 +661,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         await cleanupFailedLaunch(error);
         throw error;
       }
+    }
     let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
     try {
       await publishRuntimeEvent(
@@ -693,9 +691,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             definitionSnapshotRef,
             definitionSnapshot: definition,
             startedAt: streamStartedAt,
+            ...(handoffEnabled ? { handoffEnabled: true } : {}),
+            ...(providerSessionId ? { resumeProviderSessionId: providerSessionId } : {}),
+            ...(handoff ? { handoffCheckpointId: handoff.dispatchId, acceptedCommit: handoff.commit } : {}),
           },
           {
-            ...(requestedDispatchId ? { resumedFromDispatchId: requestedDispatchId } : {}),
+            ...(handoff
+              ? { resumedFromDispatchId: handoff.dispatchId }
+              : requestedDispatchId
+                ? { resumedFromDispatchId: requestedDispatchId }
+                : {}),
             ...(taskBinding ? { taskBinding } : {}),
             attemptGroupId: fallbackAttempt?.attemptGroupId ?? newDispatchId,
             attemptIndex: fallbackAttempt?.attemptIndex ?? 0,
@@ -704,7 +709,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             cwd,
             ...(role ? { role } : {}),
             ...(decisionReviewTarget ? { decisionReviewTarget } : {}),
-            ...(reviewerBinding && reviewTarget?.submission ? { reviewerSubmission: reviewTarget.submission } : {}),
+            ...(reviewerBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
+              ? { reviewerSubmission: (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)! }
+              : {}),
           },
         ),
         dispatchOpId,
@@ -838,6 +845,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   return {
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
     prepareWorktree: (payload: JsonObject) => prepareDispatchWorktree(input, payload, projectedWorktreeBinding(input)),
+    spawnHandoff: (
+      checkpoint: RuntimeHandoffCheckpoint,
+      payload: JsonObject,
+      binding: RuntimeBinding,
+      worktree: TaskWorktreeCheckout | null = null,
+    ) => spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree, checkpoint),
     spawn: (payload: JsonObject, binding: RuntimeBinding, worktree: TaskWorktreeCheckout | null = null) =>
       spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree),
     spawnCoordinated: (payload: JsonObject, binding: RuntimeBinding) =>
@@ -938,34 +951,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     outcome: RuntimeAttemptOutcome,
     terminal: RuntimeAttemptTerminal,
   ): Promise<void> {
-    const fallback = active.fallbackAttempt;
-    if (!isProviderFailureClassification(outcome.classification) || !fallback) {
-      await input.onAttemptTerminal?.(terminal);
-      return;
-    }
-    const nextAttemptIndex = fallback.attemptIndex + 1,
-      exhausted = nextAttemptIndex >= fallback.candidates.length;
-    if (exhausted) {
-      const reason = `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s): ${outcome.reason}`;
-      active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
-      try {
-        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
-      } catch (error) {
-        const settlementReason = [
-          "Provider fallback exhaustion could not settle terminal state: ",
-          runtimeErrorMessage(error),
-        ].join("");
-        active.stream.appendFallbackState({ state: "exhausted", reason: settlementReason }, input.now());
-        console.warn(`[runtime-fallback] ${settlementReason}`);
-        throw error;
-      }
-      return;
-    }
-    const next = fallback.candidates[nextAttemptIndex]!,
-      delayMs = Math.min(fallback.backoff.maxMs, fallback.backoff.baseMs * 2 ** fallback.attemptIndex),
-      notBeforeAt = new Date(Date.parse(input.now()) + delayMs).toISOString();
-    active.stream.appendFallbackState({ state: "scheduled", delayMs, notBeforeAt, nextProvider: next }, input.now());
-    reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
+    return settleFallbackAttempt(extracted, active, outcome, terminal);
   }
   function reconcileFallback(stream: ReturnType<typeof readDispatchStream>): void {
     if (

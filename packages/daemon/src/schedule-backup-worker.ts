@@ -1,5 +1,5 @@
 import path from "node:path";
-import { Worker } from "node:worker_threads";
+import { Worker, type WorkerOptions } from "node:worker_threads";
 import type { applyLedgerBackupRetention, LedgerBackupRetentionPolicyV1 } from "@harness-anything/kernel";
 
 export interface BackupVerification {
@@ -27,21 +27,25 @@ export type BackupWorkerMessage =
 export function finishLedgerBackup(
   input: BackupVerification,
   runSnapshot: <T>(work: () => T | PromiseLike<T>) => Promise<T>,
+  spawnWorker: new (url: string | URL, options: WorkerOptions) => Worker = Worker,
 ): Promise<BackupVerificationResult> {
   const prepared = Promise.withResolvers<void>(),
     captured = Promise.withResolvers<void>(),
     finished = Promise.withResolvers<BackupVerificationResult>(),
-    worker = new Worker(new URL(`./schedule-builtin-executor${path.extname(import.meta.filename)}`, import.meta.url), {
-      workerData: { kind: "ledger-backup-verification" },
-      execArgv: process.execArgv.filter(
-        (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
-      ),
-    });
-  let result: BackupVerificationResult | undefined;
+    worker = new spawnWorker(
+      new URL(`./schedule-builtin-executor${path.extname(import.meta.filename)}`, import.meta.url),
+      {
+        workerData: { kind: "ledger-backup-verification" },
+        execArgv: process.execArgv.filter(
+          (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
+        ),
+      },
+    );
   worker.on("message", (message: BackupWorkerMessage) => {
     if (message.kind === "prepared") prepared.resolve();
     else if (message.kind === "captured") captured.resolve();
-    else result = message.result;
+    // The result settles at once; the worker's own exit must never be the settlement signal.
+    else finished.resolve(message.result);
   });
   const fail = (error: Error) => {
     prepared.reject(error);
@@ -50,8 +54,8 @@ export function finishLedgerBackup(
   };
   worker.once("error", fail);
   worker.once("exit", (code) => {
-    if (code === 0 && result) finished.resolve(result);
-    else fail(new Error(`backup worker exited ${code} without a result`));
+    // terminate() after a settled run lands here too; rejecting settled resolvers is a no-op.
+    fail(new Error(`backup worker exited ${code} without a result`));
   });
   // Observe every phase from the outset, including failures before capture admission.
   const capture = prepared.promise.then(() =>
