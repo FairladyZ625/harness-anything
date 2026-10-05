@@ -231,6 +231,19 @@ export async function proofFor(
         ? projection.readRuntimeDispatch(runtimeSession.runtimeSessionId, runtimeSession.definitionSnapshotRef)
         : null,
       key = dispatch?.payload.idempotencyKey;
+    // A runtime session bound to the submitted cut may register a verdict only when it was
+    // dispatched as a reviewer. A read-only attach binds to the cut to observe it, and an
+    // implementation sibling binds to it to build it; for either, binding is observation
+    // authority, never review authority. The self-review rejection above stays first so the
+    // submitting executor keeps its own diagnosis.
+    if (runtimeBinding !== null && dispatch?.payload.role !== "reviewer")
+      throw cellCriterionError(
+        "runtime_task_review_dispatch_required",
+        "Task review registration requires a reviewer dispatch; a bound non-reviewer session cannot register a verdict.",
+        "review",
+        REVIEW_PROOF_CRITERION,
+        [`ha task dispatch-review ${command.taskId} --agent <reviewer-agent-id>`],
+      );
     if ((key?.startsWith("task-review:") || key?.startsWith("complete-review:")) && execution?.submission) {
       const currentKey = reviewDispatchKey(command.taskId, execution),
         legacyKey = currentKey.replace(/^task-review:/u, "complete-review:");

@@ -77,7 +77,9 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       kindId: "claude" as const,
     };
   let launchCount = 0,
-    launchedPrompt = "";
+    launchedPrompt = "",
+    launchedCwd = "",
+    launchedPermissionMode: string | undefined;
   const host = await openDaemonHost({
     daemonId: "runtime-spawn-ingress",
     userRoot,
@@ -85,6 +87,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
     runtimeLaunch: (request) => {
       launchCount += 1;
       launchedPrompt = request.prompt;
+      launchedCwd = request.cwd;
+      launchedPermissionMode = request.permissionMode;
       return {
         pid: 4310,
         onOutput: (listener) => {
@@ -496,6 +500,130 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       );
       await assertFrozen("in_review");
     });
+    await t.test(
+      "a declared read-only Agent attaches to the frozen cut without lease, execution, or review authority",
+      async () => {
+        const taskId = "task-runtime-readonly-attach",
+          executionId = "exec-runtime-readonly-attach";
+        for (const [agentId, permissionMode] of [
+          ["frozen-cut-scanner", "read-only"],
+          ["frozen-cut-writer", "workspace-write"],
+        ] as const) {
+          const installed = await host.run(
+            repoId,
+            {
+              kind: "agent-install",
+              declaration: {
+                schema: "agent-declaration/v1",
+                id: agentId,
+                name: `Frozen cut ${permissionMode} agent`,
+                instructions: "Observe the submitted cut.",
+                runtimes: [],
+                permissionMode,
+              },
+            },
+            auth,
+          );
+          assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+        }
+        await createReadyTask(taskId, "Runtime read-only attach");
+        assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
+        writeCloseout(taskId, "The read-only attach round is ready for inspection.");
+        assert.equal((await host.run(repoId, { kind: "task-submit", taskId, executionId }, auth)).outcome, "applied");
+        const dispatch = (agentId: string, idempotencyKey: string) =>
+          rpc(host, auth, "repo.agentRuntime.spawn", {
+            repo: { repoId },
+            payload: {
+              runtimeInstanceId: ingressDefinition.instanceId,
+              prompt: "Pre-read the submitted cut.",
+              agentId,
+              taskId,
+              idempotencyKey,
+            },
+          });
+        // Negative control first: a write-mode declaration on the same frozen task keeps the rejection.
+        const launchesBefore = launchCount,
+          writeReceipt = await dispatch("frozen-cut-writer", "runtime-readonly-attach-write-control");
+        assert.equal(writeReceipt.outcome, "op_rejected", JSON.stringify(writeReceipt));
+        assert.equal(writeReceipt.code, "execution_frozen", JSON.stringify(writeReceipt));
+        assert.equal(launchCount, launchesBefore, "a write identity must not launch on a frozen cut");
+        const leaseReader = () => {
+            const projection = makeTaskProjection({
+              rootDir: root,
+              eventStore: makeTaskEventReader({ repoId, rootDir: root }),
+            });
+            try {
+              return projection.read(taskId).snapshot.lease?.phase ?? null;
+            } finally {
+              projection.close();
+            }
+          },
+          leaseBeforeAttach = leaseReader(),
+          launchesBeforeAttach = launchCount,
+          receipt = await dispatch("frozen-cut-scanner", "runtime-readonly-attach-submitted");
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        assert.equal(launchCount, launchesBeforeAttach + 1, "the read-only attach must launch its runtime");
+        assert.equal(launchedCwd, root, "a read-only attach reads the frozen round from the repository root");
+        assert.equal(launchedPermissionMode, "read-only", "the declaration's read-only mode must reach the launch");
+        assert.match(launchedPrompt, /# Read-only Dispatch Contract/u);
+        assert.equal(receipt.ledgerAccess, "unavailable", "the attach receipt must disclaim ledger write access");
+        const binding = await eventuallyValue(
+          async () =>
+            makeTaskEventReader({ repoId, rootDir: root })
+              .read()
+              .events.find(
+                (event) =>
+                  event.type === "runtime_session_task_bound" &&
+                  event.payload.runtimeSessionId === receipt.runtimeSessionId,
+              ) ?? null,
+        );
+        assert.equal(binding.payload.executionId, executionId, "the attach binds to the submitted cut's execution");
+        assert.equal(leaseReader(), leaseBeforeAttach, "the attach must not take or change the task lease");
+        // The attach session is bound to the submitted cut, yet it is no reviewer: registering a
+        // review verdict is a ledger write the read-only identity must not have. The full report
+        // packet is provided so the rejection comes from the reviewer-dispatch proof, not the file check.
+        writeReviewReport(taskId, "readonly-attach-review");
+        writeFileSync(
+          path.join(root, "readonly-attach-review.json"),
+          JSON.stringify({
+            verdict: "approved",
+            reason: "The attach must not be able to register this.",
+            evidenceChecked: ["attach boundary"],
+          }),
+        );
+        const reviewClaim = await host.run(
+          repoId,
+          {
+            kind: "task-review-execution",
+            taskId,
+            executionId,
+            reviewId: "readonly-attach-review",
+            fromFile: "readonly-attach-review.json",
+            executor: { kind: "agent", id: `runtime-session:${String(receipt.runtimeSessionId)}` },
+          },
+          auth,
+        );
+        assert.equal(reviewClaim.outcome, "op_rejected", JSON.stringify(reviewClaim));
+        assert.equal(reviewClaim.code, "runtime_task_review_dispatch_required", JSON.stringify(reviewClaim));
+        assert.match(
+          String(reviewClaim.rejectionExplanation),
+          /a bound non-reviewer session cannot register a verdict/u,
+        );
+        // The attach stays legal after the cut is forwarded for review.
+        assert.equal(
+          (
+            await host.run(
+              repoId,
+              { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward for review." },
+              auth,
+            )
+          ).outcome,
+          "applied",
+        );
+        const inReview = await dispatch("frozen-cut-scanner", "runtime-readonly-attach-in-review");
+        assert.equal(inReview.outcome, "applied", JSON.stringify(inReview));
+      },
+    );
     await t.test(
       "the bound runtime appends attributed progress while an unrelated executor stays rejected",
       async () => {

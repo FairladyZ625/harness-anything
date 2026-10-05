@@ -21,6 +21,26 @@ export function assertReviewerTarget(input: {
     );
 }
 
+/**
+ * A read-only attach dispatch binds to the frozen round's single submitted cut — the same target a
+ * reviewer dispatch observes — but it is not a review: it carries no reviewer role and its session
+ * may not register one. Selection only fixes which execution the attach observed.
+ */
+export function selectReadOnlyAttachTarget(
+  taskId: string,
+  taskSnapshot: ReturnType<typeof requireCurrentTaskProjection>["snapshot"],
+): ExecutionV1 {
+  const candidates = currentSubmittedExecutions(taskSnapshot);
+  if (candidates.length === 1) return candidates[0]!;
+  throw runtimeSpawnError(
+    "attach_target_missing",
+    candidates.length === 0
+      ? `Task ${taskId} froze without a submitted execution to attach to.`
+      : `Task ${taskId} has ${String(candidates.length)} submitted executions on its current iteration ` +
+          `(${candidates.map((candidate) => candidate.executionId).join(", ")}); an attach dispatch cannot choose between them.`,
+  );
+}
+
 /** A reviewer dispatch binds to the task's submitted cut; anything else is a dispatch error, never a fallback to an implementation execution. */
 export function selectReviewTarget(
   taskId: string | null,
