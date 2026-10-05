@@ -52,13 +52,13 @@ import { wipVisibleEntries, type WipFilter } from "./OverviewTaskWip.tsx";
  * 总览(task_8a83698 信息密度重构):页面顶部仍是紧凑决策带——只放真实要本人动手的
  * awaits 问句与待点头决策。首屏主体分两列:左列是在飞任务流(repo.tasks.wip 的
  * active/submitted/in_review 占位,执行者来自 runtime overview 的 live 会话)与最新
- * HTML 产物速览架(repo.artifacts.list,与产物页同一缓存,台账 cut 扇出刷新),下接
- * 紧凑下钻工具带;右列是关注的工作(置顶非终态;零置顶回退活跃工作并给选择入口)。
- * WIP/评审执行/跟进返工/置顶承诺的完整名单仍在各自放大层。系统状态弱化成一行小字,
- * 只有影响当前工作的异常(daemon 无响应、main CI 红、投影落后)才升成显眼状态点;
- * 安静行带在飞占用摘要。数据全部来自已挂载读面,页面不另发第二套请求;注意力/排序只
- * 透传 daemon 的分数与已有 Pin。区域板沿用 PageRegions(连接+仓+槽位的顺序与比例偏好
- * 照旧)。
+ * HTML 产物速览架(repo.artifacts.list,与产物页同一缓存,台账 cut 扇出刷新);右列是
+ * 关注的工作(置顶非终态;零置顶回退活跃工作并给选择入口),下钻工具带回到工作列底部
+ * (dec_B3D40712 的底部下钻工具条,不另立空列)。WIP/评审执行/跟进返工/置顶承诺的
+ * 完整名单仍在各自放大层。系统状态弱化成一行小字,只有影响当前工作的异常(daemon 无
+ * 响应、main CI 红、投影落后)才升成显眼状态点;安静行带在飞占用摘要。数据全部来自
+ * 已挂载读面,页面不另发第二套请求;注意力/排序只透传 daemon 的分数与已有 Pin。区域板
+ * 沿用 PageRegions(连接+仓+槽位的顺序与比例偏好照旧)。
  */
 export function OverviewView({
   repoId,
@@ -295,7 +295,7 @@ export function OverviewView({
       </header>
 
       {/* 双列信息密度(task_8a83698):紧凑决策带仍是内容定高的普通条(不进区域板);
-          左列平铺在飞任务流 + 最新产物速览架 + 下钻工具带,右列是关注的工作。 */}
+          左列平铺在飞任务流 + 最新产物速览架,右列是关注的工作、下钻工具带收在其底部。 */}
       <div className="flex min-h-0 flex-1 flex-col gap-1 p-1" data-testid="overview-scroll">
         <OverviewDecisionsBand rows={decisions} deps={deps} />
         <PageRegions
@@ -315,7 +315,10 @@ export function OverviewView({
             !wipQuery.isPending &&
             !artifactsQuery.isPending
           }
-          columns={[["inflight", "artifacts", "drill"], ["works"]]}
+          columns={[
+            ["inflight", "artifacts"],
+            ["works", "drill"],
+          ]}
           regions={[
             {
               id: "inflight",

@@ -10,15 +10,17 @@ import { formatRelative, formatTime } from "../model/time.ts";
 import { openArtifactExternally } from "../artifact-open-client.ts";
 import { useRepoRow } from "../system-data.ts";
 import { ARTIFACT_OPEN_BUTTON_CLASS, fileNameOf, repoPathOf } from "./ArtifactsView.tsx";
-import type { InflightTaskRow, OverviewBoardDeps } from "./overview-model.ts";
+import type { InflightTaskRow } from "./overview-model.ts";
+import type { OverviewBoardDeps } from "./overview-regions.tsx";
 
 /* ------------------------------------------------------------------ 左列:在飞任务流与产物速览架 */
 
 /**
  * 在飞任务流的行体(task_8a83698):repo.tasks.wip 的 active/submitted/in_review 占位任务
  * 平铺在总览左列——状态标签 + 标题 + 执行者(live 会话,无会话如实标注)+ 最近活动的
- * 相对年龄,行点击直达任务详情。名单内部滚动(Region 行体滚动容器),blocked 不进流
- * (住「跟进与返工」),四态全量与过滤仍在 WIP 放大层。
+ * 相对年龄,行点击直达任务详情。行取 relaxed 两行档(标题一行、执行者与年龄收进弱色
+ * 第二行):左列是窄流,单行档会把执行者挤成中途截断。名单内部滚动(Region 行体滚动
+ * 容器),blocked 不进流(住「跟进与返工」),四态全量与过滤仍在 WIP 放大层。
  */
 export function OverviewInflightBody({
   rows,
@@ -60,6 +62,7 @@ export function OverviewInflightBody({
             tag={<StatusTag status={row.status} />}
             title={row.title}
             hoverTitle={row.taskId}
+            relaxed
             reason={
               row.handlers.length > 0 ? (
                 row.handlers.join(" · ")

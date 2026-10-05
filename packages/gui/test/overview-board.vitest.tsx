@@ -1,11 +1,7 @@
 // harness-test-tier: fast
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { prefersReducedMotion } from "motion/react";
-import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import {
   decisionRows,
   followUpRows,
@@ -14,324 +10,33 @@ import {
   reviewRows,
   reviewCounts,
 } from "../src/renderer/views/overview-model.ts";
-import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
-import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
-import type { AgendaAwaitsRow, TaskWipRead, WorkIndexRead, WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
-import type { RuntimeHealth } from "../src/renderer/model/runtime-health.ts";
+import type { TaskWipRead } from "../../src/api/renderer-dto.ts";
+import {
+  AT,
+  HEALTH_DOWN,
+  WORKS,
+  WORKS_EMPTY,
+  agenda,
+  setupOverviewBoardEnvironment,
+  mountOverview as mount,
+  textOf,
+  flushUntil,
+  unmountOverview as unmount,
+} from "./overview-board.fixtures.ts";
 
 /**
  * 总览(2026-10-04 注意力优先重构)的行为面:首块只列真实待人事项并给真实动作;主区
  * 关注的工作(置顶优先,零置顶回退活跃工作);WIP/评审执行/跟进返工/置顶承诺收成紧凑
  * 下钻入口且列表可达;系统状态弱化、异常(daemon/CI/投影)提升。旧九区瀑布板与
- * overview-layout 已删除,布局断言不再适用;注意力派生的纯函数另测。
+ * overview-layout 已删除,布局断言不再适用;注意力派生的纯函数另测。左列在飞任务流
+ * 与产物速览架(task_8a83698)的行为面在 overview-inflight-shelf.vitest.tsx;共享挂载
+ * 夹具在 overview-board.fixtures.ts。
  */
 
-const AT = "2026-09-29T01:00:00.000Z";
-
 beforeAll(() => {
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  setActiveLocale("zh-CN");
-  // 不开假定时器:react-query 的取数调度依赖真定时器,冻结会永远 pending。
-  vi.stubGlobal(
-    "matchMedia",
-    (query: string) =>
-      ({
-        matches: false,
-        media: query,
-        onchange: null,
-        addEventListener: () => undefined,
-        removeEventListener: () => undefined,
-        addListener: () => undefined,
-        removeListener: () => undefined,
-        dispatchEvent: () => false,
-      }) as unknown as typeof matchMedia,
-  );
-  prefersReducedMotion.current = true;
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      private callback: ResizeObserverCallback;
-      constructor(callback: ResizeObserverCallback) {
-        this.callback = callback;
-      }
-      observe(target: Element): void {
-        this.callback(
-          [
-            {
-              target,
-              contentRect: { width: 1200, height: 700, x: 0, y: 0, top: 0, left: 0, bottom: 700, right: 1200 },
-            } as ResizeObserverEntry,
-          ],
-          this as unknown as ResizeObserver,
-        );
-      }
-      unobserve(): void {}
-      disconnect(): void {}
-    },
-  );
-  // 测试不接 daemon:自持读面走确定性失败(error 态),总览按「无数据」渲染。
-  vi.stubGlobal("harness", {
-    request: () => Promise.reject(new Error("no bridge in test")),
-  });
+  setupOverviewBoardEnvironment();
 });
-
-const HEALTH: RuntimeHealth = {
-  daemon: { state: "responsive", observedAgeSec: 1, uptimeMs: 1000 },
-  cell: { state: "mounted", queueDepth: 0, problem: null },
-  projection: { lag: 0, status: "ready" },
-  ledgerChange: { at: AT, ageSec: 60 },
-};
-
-const HEALTH_DOWN: RuntimeHealth = {
-  ...HEALTH,
-  daemon: { state: "unresponsive", observedAgeSec: 90, uptimeMs: 1000 },
-};
-
-const SUMMARY = {
-  schema: "daemon.workspace-summary/v1",
-  ok: true,
-  status: "ready",
-  tasks: {
-    lastChangedAt: null,
-    total: 9,
-    byStatus: { planned: 3, active: 2, submitted: 1, in_review: 1, blocked: 1, done: 1, cancelled: 0 },
-  },
-  decisions: { total: 2, byState: {} },
-  watermark: 7,
-  sourceRevision: 7,
-  warnings: [],
-} as unknown as WorkspaceSummaryRead;
-
-const awaitsRow = (relationId: string): AgendaAwaitsRow => ({
-  relationId,
-  relationRevision: 1,
-  sourceRef: "task/task_w1",
-  title: `提案 ${relationId}`,
-  status: "active",
-  personId: "person_me",
-  askKind: "question",
-  question: "接口要不要兼容旧字段?",
-  askedAt: AT,
-  askedBy: "person_worker",
-});
-
-const WORKS: WorkIndexRead = {
-  schema: "daemon.work-index/v1",
-  ok: true,
-  status: "ready",
-  works: [
-    {
-      taskId: "task_w1",
-      title: "代码质量长期检验",
-      status: "active",
-      root: "declared",
-      parentTaskId: null,
-      taskCount: 3,
-      counts: { done: 2, executing: 1, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
-      lastActivityAt: "2026-09-28T00:00:00.000Z",
-      memberTaskIds: ["task_m1"],
-    },
-    {
-      taskId: "task_w2",
-      title: "网关读面加缓存",
-      status: "active",
-      root: "derived",
-      parentTaskId: null,
-      taskCount: 3,
-      counts: { done: 0, executing: 0, pending: 0, blocked: 1, planned: 2, cancelled: 0 },
-      lastActivityAt: "2026-09-20T00:00:00.000Z",
-      memberTaskIds: [],
-    },
-    {
-      taskId: "task_w_done",
-      title: "已收尾的工作",
-      status: "done",
-      root: "declared",
-      parentTaskId: null,
-      taskCount: 1,
-      counts: { done: 1, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
-      lastActivityAt: "2026-09-30T00:00:00.000Z",
-      memberTaskIds: [],
-    },
-  ],
-  watermark: 7,
-  sourceRevision: 7,
-  warnings: [],
-};
-
-const WORKS_EMPTY: WorkIndexRead = { ...WORKS, works: [] };
-
-const TITLES = new Map([
-  ["task/task_w1", "代码质量长期检验"],
-  ["task/task_m1", "总览首块的成员任务"],
-  ["task/task_other", "不属于关注工作的任务"],
-]);
-
-const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess =>
-  ({
-    ok: true,
-    status: "ready",
-    pinnedEntities: [],
-    pinnedEntityOverflow: 0,
-    attentionItems: [
-      {
-        ref: "relation/rel_1",
-        title: "边缘 RBAC 设计裁决",
-        kind: "awaiting-you",
-        region: "mine",
-        workTaskId: "task_w1",
-        attention: {
-          score: 132,
-          reasons: [
-            { label: "等你答复", contribution: 100 },
-            { label: "已置顶", contribution: 20 },
-          ],
-        },
-      },
-      {
-        ref: "execution/exec_1",
-        title: "总览重构的提交",
-        kind: "adjudication",
-        region: "mine",
-        workTaskId: "task_w1",
-        attention: { score: 90, reasons: [{ label: "待裁决", contribution: 60 }] },
-      },
-      {
-        ref: "decision/dec_1",
-        title: "是否冻结旧投影字段",
-        kind: "decision",
-        region: "mine",
-        workTaskId: null,
-        attention: { score: 70, reasons: [{ label: "决策待点头", contribution: 50 }] },
-      },
-      {
-        ref: "task/task_blk",
-        title: "被阻塞的成员任务",
-        kind: "blocked",
-        region: "stuck",
-        workTaskId: "task_w2",
-        attention: { score: 48, reasons: [{ label: "阻塞", contribution: 45 }] },
-      },
-      {
-        ref: "task/task_stuck",
-        title: "PLT-Observability-Eval",
-        kind: "stalled",
-        region: "stuck",
-        workTaskId: null,
-        attention: { score: 40, reasons: [{ label: "进行中停滞", contribution: 40 }] },
-      },
-    ],
-    regionWeights: { mine: 15.4, stuck: 4, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
-    awaitingYou: [awaitsRow("rel_1")],
-    answeredForYou: [],
-    inFlight: [],
-    stalled: [
-      {
-        taskId: "task_stuck",
-        title: "PLT-Observability-Eval",
-        status: "active",
-        pinned: false,
-        updatedAt: "2026-09-10T00:00:00.000Z",
-        leaseExecutionId: null,
-        activeExecutionIds: [],
-        blockingAssessment: { state: "clear", blockers: [], warnings: [] },
-      },
-    ],
-    awaitingRework: [],
-    awaitingAdjudication: [
-      {
-        taskId: "task_m1",
-        title: "总览重构的提交",
-        work: { taskId: "task_w1", title: "代码质量长期检验" },
-        pinned: false,
-        executionId: "exec_1",
-        submittedAt: AT,
-        blockingAssessment: { state: "clear", blockers: [], warnings: [] },
-      },
-    ],
-    underReview: [],
-    decisionReviewInProgress: [],
-    awaitingDecisionReview: [],
-    awaitingDecision: [
-      { decisionId: "dec_1", title: "是否冻结旧投影字段", riskTier: "high", urgency: "high", proposedAt: AT },
-    ],
-    waitingOnOthers: [
-      {
-        taskId: "task_blk",
-        title: "被阻塞的成员任务",
-        work: { taskId: "task_w2", title: "网关读面加缓存" },
-        status: "blocked",
-        pinned: false,
-        updatedAt: AT,
-        leaseExecutionId: null,
-        activeExecutionIds: [],
-        blockingAssessment: { state: "clear", blockers: [], warnings: [] },
-      },
-    ],
-    dispatchable: [],
-    summary: "",
-    page: { sourceLimit: 100, cursor: null, nextCursor: null },
-    watermark: 7,
-    sourceRevision: 7,
-    ...patch,
-  }) as AgendaSuccess;
-
-let root: Root | null = null;
-
-/** 每个用例一个干净 client:上一例的 error 态不能泄进下一例的读面。 */
-function mount(props: Partial<Parameters<typeof OverviewView>[0]> = {}): HTMLElement {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-  const noop = () => undefined;
-  act(() =>
-    root!.render(
-      createElement(
-        QueryClientProvider,
-        { client: queryClient },
-        createElement(
-          AppMotionConfig,
-          null,
-          createElement(OverviewView, {
-            repoId: "probe-repo",
-            connectionId: "local",
-            agenda: agenda(),
-            works: WORKS,
-            titles: TITLES,
-            workspaceSummary: SUMMARY,
-            health: HEALTH,
-            onNavigateEntity: noop,
-            onOpenTask: noop,
-            onOpenSearch: noop,
-            onOpenSessions: noop,
-            onOpenWorks: noop,
-            onOpenTasks: noop,
-            onUnpin: noop,
-            ...props,
-          }),
-        ),
-      ),
-    ),
-  );
-  return container;
-}
-
-const textOf = (element: Element | null | undefined) => element?.textContent ?? "";
-
-/** 自持读面(queryFn 走微任务链)落定的确定性等待:谓词成立即停,上限轮数内不成立即原样返回,
- * 由调用方的断言报红。不用假定时器(react-query 调度依赖真定时器)。 */
-async function flushUntil(predicate: () => boolean, rounds = 200): Promise<void> {
-  for (let round = 0; round < rounds && !predicate(); round += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-}
-
-const unmount = () => act(() => root?.unmount());
 
 describe("总览:顶部「需要你处理」紧凑决策带", () => {
   it("只列真实待人事项,并区分出不冒充需要用户的四类", () => {
@@ -1100,10 +805,10 @@ describe("总览紧凑协作入口(task_1bafbf09 返工)", () => {
     expect(entry!.textContent).toContain("2");
     act(() => entry!.click());
     expect(opened).toEqual(["collaboration"]);
-    act(() => root?.unmount());
+    unmount();
 
     const local = mount({ collaboration: null });
     expect(local.querySelector('[data-testid="overview-collaboration-entry"]')).toBeNull();
-    act(() => root?.unmount());
+    unmount();
   });
 });

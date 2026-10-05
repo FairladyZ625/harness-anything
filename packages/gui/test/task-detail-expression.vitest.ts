@@ -431,8 +431,8 @@ describe("Task detail expression", () => {
     const hero = byTestId("task-overview-hero");
     const go = [...hero.querySelectorAll("button")].find((button) => button.textContent === "去处理")!;
     expect(go.closest("section")!.lastElementChild!.contains(go)).toBe(true);
-    // 主内容外衬收窄:正文更早进入首屏。
-    expect(scrollPanel.className).toContain("p-1");
+    // 主内容面板自带边框卡片面与 p-2 内衬(c6636f615 浅色修复);页面外衬保持 p-1。
+    expect(scrollPanel.className).toContain("p-2");
     expect(scrollPanel.closest("main")?.className).toContain("p-1");
 
     // 阅读栏数默认「自适应」:容器查询驱动(styles.css 的 .doc-flow),无需点击。
