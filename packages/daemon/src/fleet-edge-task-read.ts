@@ -65,7 +65,7 @@ export async function answerEdgeTaskList(
       code: "LOCAL_UNAVAILABLE",
       error: {
         code: "LOCAL_UNAVAILABLE",
-        hint: "This edge has no usable task read model yet; it is rebuilt by the next successful replica pull.",
+        hint: "This edge has no usable task read model yet. The center publishes it with each new cut, so it arrives with the first pull after the next write on the center.",
       },
     }
   );
