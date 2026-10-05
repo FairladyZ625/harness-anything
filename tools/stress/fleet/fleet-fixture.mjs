@@ -200,7 +200,7 @@ export async function openFleetCampaignFixture(options = {}) {
         takeoverAuthority?.close();
         await host.close();
         await owners.close();
-        rmSync(root, { recursive: true, force: true });
+        rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       },
     };
   } catch (error) {
@@ -208,7 +208,12 @@ export async function openFleetCampaignFixture(options = {}) {
     await center?.close().catch(() => undefined);
     takeoverAuthority?.close();
     await owners?.close();
-    rmSync(root, { recursive: true, force: true });
+    // A failed cleanup must not replace the setup error that is about to be reported.
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch (cleanupError) {
+      console.error(`fleet fixture cleanup failed: ${cleanupError}`);
+    }
     throw error;
   }
 }

@@ -17,7 +17,13 @@ const remove = fs.rmSync,
   read = fs.readFileSync,
   copy = fs.cpSync;
 fs.rmSync = (candidate, options) => {
-  if (workerData.phase === "cleanup" && String(candidate) === workerData.holdAt) hold();
+  if (
+    workerData.phase === "cleanup" &&
+    (String(candidate) === workerData.holdAt ||
+      path.resolve(String(candidate)) === path.resolve(workerData.holdAt) ||
+      String(candidate).replace(/^\/private/, "") === String(workerData.holdAt).replace(/^\/private/, ""))
+  )
+    hold();
   return remove(candidate, options);
 };
 fs.readFileSync = (...args: Parameters<typeof fs.readFileSync>): ReturnType<typeof fs.readFileSync> => {

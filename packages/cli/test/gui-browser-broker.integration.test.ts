@@ -177,10 +177,12 @@ test("browser writes preserve RepoCell idempotency, revision fences, and reposit
   try {
     initializeSettingsRepo(firstRoot);
     initializeSettingsRepo(secondRoot);
-    const firstStore = seedSettingsEvent({ rootDir: firstRoot, repoId: "browser-write-first" }),
-      secondStore = seedSettingsEvent({ rootDir: secondRoot, repoId: "browser-write-second" });
+    const firstStore = seedSettingsEvent({ rootDir: firstRoot, repoId: "browser-write-first", keepOpen: true }),
+      secondStore = seedSettingsEvent({ rootDir: secondRoot, repoId: "browser-write-second", keepOpen: true });
     assert.ok(firstStore && secondStore);
     const initialRevision = firstStore.read().revision;
+    void firstStore.drain();
+    void secondStore.drain();
     startDaemon(firstRoot, userRoot);
     run(firstRoot, userRoot, [
       "daemon",

@@ -163,7 +163,9 @@ function invoke(fixture, argv, { timing = true } = {}) {
       env: {
         ...baseEnv,
         HOME: fixture.home,
-        GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+        // git for Windows >= 2.55 refuses the NUL device as a config path; a missing file
+        // under the fixture home reads as no configuration.
+        GIT_CONFIG_GLOBAL: process.platform === "win32" ? path.join(fixture.home, ".gitconfig-empty") : "/dev/null",
         HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
         ...(timing ? { HA_CLI_TIMING: "1", HA_CLI_TIMING_SHA: fixture.sha } : {}),
       },

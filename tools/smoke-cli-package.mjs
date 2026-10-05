@@ -448,11 +448,14 @@ function sanitizedChildEnvironment(overrides = {}) {
   return { ...environment, ...overrides };
 }
 export function env(userRoot, home) {
+  // git for Windows >= 2.55 refuses the NUL device as a config path ("unable to access
+  // 'NUL': Invalid argument"); a path under the smoke home is missing or empty, which git
+  // reads as no configuration on every platform it supports.
   return sanitizedChildEnvironment({
     HOME: home,
     USERPROFILE: home,
-    GIT_CONFIG_SYSTEM: process.platform === "win32" ? "NUL" : "/dev/null",
-    GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+    GIT_CONFIG_SYSTEM: process.platform === "win32" ? path.join(home, ".gitconfig-empty") : "/dev/null",
+    GIT_CONFIG_GLOBAL: process.platform === "win32" ? path.join(home, ".gitconfig-empty") : "/dev/null",
     HARNESS_DAEMON_USER_ROOT: userRoot,
   });
 }

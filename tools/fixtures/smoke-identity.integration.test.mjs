@@ -47,9 +47,13 @@ test("first-run identity is required, then the complete real CLI smoke succeeds"
     assert.equal(lastReceipt(wrongScope.stdout).configureVerify.causeCode, "authorization_denied");
     console.log("signed in with another repository grant: init rejected / authorization_denied");
   } finally {
-    cli(["daemon", "stop"]);
+    // The init attempts above are refused before any workspace registration, so the plain
+    // stop is refused the same way and the resident daemon would keep the tree open. The
+    // sanitized smoke environment fixes the daemon id; bounded retries absorb the window
+    // between a confirmed stop and Windows releasing the last handle.
+    cli(["daemon", "stop", "--daemon-id", "default"]);
     await identity.close();
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
   const result = await evaluateWindowsFirstRun(repo);
   assert.equal(result.ok, true, result.errors.join("\n"));
