@@ -65,7 +65,47 @@ if (args[0] === "pr" && args[1] === "view") {
   return bin;
 }
 
-function fixture(t) {
+function makeFakeHa(bin) {
+  const script = `import { readFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const state = JSON.parse(readFileSync(process.env.HA_STATE_PATH, "utf8"));
+if (args[0] !== "task" || args[1] !== "show" || !args[2] || args[3] !== "--json") {
+  process.stderr.write(\`unexpected ha args: \${args.join(" ")}\\n\`);
+  process.exit(2);
+}
+if (state.fail) {
+  process.stderr.write("Error: daemon socket not found; is the harness daemon running?\\n");
+  process.exit(1);
+}
+process.stdout.write(
+  JSON.stringify({
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "task-show",
+    outcome: "applied",
+    opId: \`read:\${args[2]}\`,
+    evidence: JSON.stringify(state.receipt),
+  }),
+);
+`;
+  if (process.platform === "win32") {
+    writeFileSync(path.join(bin, "ha.mjs"), script, "utf8");
+    writeFileSync(
+      path.join(bin, "ha.cmd"),
+      `@echo off\r\n"${process.execPath}" "%~dp0ha.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n`,
+      "utf8",
+    );
+    return;
+  }
+  const ha = path.join(bin, "ha");
+  writeFileSync(ha, `#!/usr/bin/env node\n${script}`, "utf8");
+  chmodSync(ha, 0o755);
+}
+
+// haState shapes the fake `ha` fixture: { fail: true } answers every task-show with an
+// unreachable-daemon exit, { receipt: <task-show evidence payload> } answers with that payload.
+// A fake ha always shadows any real one so tests never reach the production daemon.
+function fixture(t, { branch = "codex/pr-123", haState = { fail: true } } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "pr-merge-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const remote = path.join(root, "origin.git");
@@ -73,6 +113,7 @@ function fixture(t) {
   const main = path.join(root, "main");
   const prWorktree = path.join(root, "pr-worktree");
   const statePath = path.join(root, "pr-state.json");
+  const haStatePath = path.join(root, "ha-state.json");
 
   git(root, "init", "--bare", "--initial-branch=main", remote);
   git(root, "init", "--initial-branch=main", seed);
@@ -85,12 +126,12 @@ function fixture(t) {
   git(seed, "push", "-u", "origin", "main");
   git(root, "clone", remote, main);
 
-  git(seed, "checkout", "-b", "codex/pr-123");
+  git(seed, "checkout", "-b", branch);
   writeFileSync(path.join(seed, "feature.txt"), "feature\n");
   git(seed, "add", "feature.txt");
   git(seed, "commit", "-m", "feature");
   const headRefOid = git(seed, "rev-parse", "HEAD");
-  git(seed, "push", "-u", "origin", "codex/pr-123");
+  git(seed, "push", "-u", "origin", branch);
   git(seed, "checkout", "main");
   writeFileSync(path.join(seed, "base.txt"), "base\nupstream\n");
   git(seed, "add", "base.txt");
@@ -98,9 +139,9 @@ function fixture(t) {
   const upstreamHead = git(seed, "rev-parse", "HEAD");
   git(seed, "push", "origin", "main");
 
-  git(main, "fetch", "origin", "codex/pr-123");
-  git(main, "branch", "codex/pr-123", "origin/codex/pr-123");
-  git(main, "worktree", "add", prWorktree, "codex/pr-123");
+  git(main, "fetch", "origin", branch);
+  git(main, "branch", branch, `origin/${branch}`);
+  git(main, "worktree", "add", prWorktree, branch);
   writeFileSync(
     statePath,
     JSON.stringify({
@@ -108,19 +149,22 @@ function fixture(t) {
       state: "OPEN",
       isDraft: false,
       baseRefName: "main",
-      headRefName: "codex/pr-123",
+      headRefName: branch,
       headRefOid,
       isCrossRepository: false,
       mergeable: "MERGEABLE",
       url: "https://example.test/pull/123",
     }),
   );
+  writeFileSync(haStatePath, JSON.stringify(haState));
 
   const fakeBin = makeFakeGh(root);
+  makeFakeHa(fakeBin);
   const env = {
     ...process.env,
     PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
     PR_STATE_PATH: statePath,
+    HA_STATE_PATH: haStatePath,
     HARNESS_TASK_BOUND: "",
     HARNESS_ACTOR: "",
     HARNESS_CANONICAL_ROOT: "",
@@ -254,4 +298,109 @@ ${receiveScript}
       else assert.match(result.stderr, /remote deletion denied/u);
     });
   }
+});
+
+const TASK_BRANCH = "task_9c0333244c936a312f0c6d4713";
+
+function consentMissingHaState() {
+  return {
+    receipt: {
+      task: { status: "in_review", taskId: TASK_BRANCH },
+      completionBlocker: { code: "consent_missing", gate: "consent" },
+      completionNext: {
+        action: `ha task review-consent ${TASK_BRANCH}`,
+        reason: "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
+        authority: "person_zeyu",
+        readCut: { revision: 1, iteration: 0, executionId: "exe_test" },
+      },
+    },
+  };
+}
+
+test("refuses a task PR whose current execution has no consented approved review", (t) => {
+  const setup = fixture(t, { branch: TASK_BRANCH, haState: consentMissingHaState() });
+  const initialHead = git(setup.main, "rev-parse", "HEAD");
+
+  const result = run(process.execPath, [helper, "123"], {
+    cwd: setup.main,
+    env: setup.env,
+    allowFailure: true,
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, new RegExp(`ha task review-consent ${TASK_BRANCH}`, "u"));
+  assert.match(result.stderr, /refusing to merge/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
+  assert.notEqual(git(setup.main, "ls-remote", "--heads", "origin", `refs/heads/${TASK_BRANCH}`), "");
+  assert.equal(existsSync(setup.prWorktree), true);
+});
+
+test("merges a task PR once the ledger shows the consent chain closed", async (t) => {
+  const states = [
+    {
+      label: "consent recorded, completion pending",
+      haState: {
+        receipt: {
+          task: { status: "in_review", taskId: TASK_BRANCH },
+          completionBlocker: null,
+          completionNext: {
+            action: `ha task complete ${TASK_BRANCH}`,
+            reason: "The completion chain has no remaining blocker.",
+            authority: "person_zeyu",
+            readCut: { revision: 1, iteration: 0, executionId: "exe_test" },
+          },
+        },
+      },
+    },
+    {
+      label: "task done",
+      haState: {
+        receipt: {
+          task: { status: "done", taskId: TASK_BRANCH },
+          completionBlocker: null,
+          completionNext: null,
+        },
+      },
+    },
+  ];
+  for (const { label, haState } of states) {
+    await t.test(label, (t) => {
+      const setup = fixture(t, { branch: TASK_BRANCH, haState });
+      const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+      assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the review-consent check`, "u"));
+      assert.match(result.stdout, /Local main synchronized/u);
+      assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+      assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
+      assert.equal(existsSync(setup.prWorktree), false);
+    });
+  }
+});
+
+test("merges a non-task branch with an explanatory note", (t) => {
+  const setup = fixture(t);
+
+  const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+  assert.match(result.stdout, /codex\/pr-123 is not a task branch; merging without a review-consent check/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
+});
+
+test("fails closed when the harness ledger is unreachable for a task PR", (t) => {
+  const setup = fixture(t, { branch: TASK_BRANCH });
+  const initialHead = git(setup.main, "rev-parse", "HEAD");
+
+  const result = run(process.execPath, [helper, "123"], {
+    cwd: setup.main,
+    env: setup.env,
+    allowFailure: true,
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /fail closed/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
+  assert.equal(existsSync(setup.prWorktree), true);
 });

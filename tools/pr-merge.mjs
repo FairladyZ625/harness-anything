@@ -4,10 +4,13 @@ import process from "node:process";
 
 const MAIN_BRANCH = "main";
 const REMOTE = "origin";
+// The kernel's task id shape (doc-sync-validation.ts taskFromPath): a PR head branch equal to a
+// task id is the harness convention for task-bound PRs; anything else merges without the check.
+const TASK_BRANCH_PATTERN = /^task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})$/u;
 
 function run(command, args, { cwd, allowFailure = false } = {}) {
   const invocation =
-    process.platform === "win32" && command === "gh"
+    process.platform === "win32" && (command === "gh" || command === "ha")
       ? {
           command: process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe",
           args: ["/d", "/s", "/c", [command, ...args].map(quoteWindowsArgument).join(" ")],
@@ -125,6 +128,60 @@ function preflight(selector) {
   return { mainWorktree, pr, prWorktree };
 }
 
+// The merge gate for task-bound PRs: the ledger's own completion judgment decides whether the
+// task's current execution has an owner-consented approved review. completionBlocker === null is
+// the ledger saying the chain closed (task done, or review+consent satisfied with only the
+// mechanical completion step left); any non-null blocker names the actual next command. The
+// digest-pinned consent matching stays in the kernel — this tool only consumes the verdict.
+function readTaskReviewConsent(taskId, root) {
+  let receipt;
+  try {
+    receipt = JSON.parse(output("ha", ["task", "show", taskId, "--json"], { cwd: root }));
+  } catch (error) {
+    throw new Error(
+      `Reading harness task ${taskId} failed (${error instanceof Error ? error.message : String(error)}); ` +
+        "refusing to merge while the review-consent state is unknown (fail closed).",
+    );
+  }
+  if (receipt?.ok !== true) {
+    const code = typeof receipt?.error?.code === "string" ? receipt.error.code : "unknown_error";
+    throw new Error(`Harness task show for ${taskId} was refused (code=${code}); refusing to merge (fail closed).`);
+  }
+  let evidence;
+  try {
+    evidence = JSON.parse(receipt.evidence);
+  } catch {
+    throw new Error(`Harness task show for ${taskId} returned a malformed receipt; refusing to merge (fail closed).`);
+  }
+  const status = evidence?.task?.status;
+  if (typeof status !== "string" || !("completionBlocker" in evidence)) {
+    throw new Error(
+      `Harness task show for ${taskId} returned no completion judgment; refusing to merge (fail closed).`,
+    );
+  }
+  return { status, blocker: evidence.completionBlocker ?? null, next: evidence.completionNext ?? null };
+}
+
+function requireReviewConsent(pr, root) {
+  if (!TASK_BRANCH_PATTERN.test(pr.headRefName)) {
+    console.log(`Branch ${pr.headRefName} is not a task branch; merging without a review-consent check.`);
+    return;
+  }
+  const taskId = pr.headRefName,
+    { status, blocker, next } = readTaskReviewConsent(taskId, root);
+  if (blocker === null) {
+    console.log(`Task ${taskId} passed the review-consent check (status=${status}).`);
+    return;
+  }
+  const action = typeof next?.action === "string" ? next.action : `ha task show ${taskId}`;
+  const reason = typeof next?.reason === "string" ? ` — ${next.reason}` : "";
+  throw new Error(
+    `Task ${taskId} (status=${status}) has no owner-consented approved review for its current execution ` +
+      `(blocker=${typeof blocker.code === "string" ? blocker.code : "unknown"}); refusing to merge. ` +
+      `Next: ${action}${reason}`,
+  );
+}
+
 function mergeOpenPr(pr, root) {
   const checks = run("gh", ["pr", "checks", String(pr.number), "--required"], {
     cwd: root,
@@ -199,6 +256,9 @@ function printHelp() {
       "",
       "From the local main worktree: merge the PR after required checks pass, delete its",
       "origin branch, remove its clean local worktree/branch, and fast-forward local main.",
+      "A PR whose head branch is a task id must first have the owner-consented review of its",
+      "current execution recorded in the harness ledger (ha task show); the check fails closed",
+      "when the ledger is unreachable.",
       "This helper never pulls the private harness ledger repository.",
     ].join("\n"),
   );
@@ -216,8 +276,10 @@ function main(argv) {
 
   const { mainWorktree, pr, prWorktree } = preflight(argv[0]);
   console.log(`Finalizing PR #${pr.number} (${pr.headRefName} -> ${MAIN_BRANCH}).`);
-  if (pr.state === "OPEN") mergeOpenPr(pr, mainWorktree.path);
-  else console.log(`PR #${pr.number} is already merged; continuing with cleanup.`);
+  if (pr.state === "OPEN") {
+    requireReviewConsent(pr, mainWorktree.path);
+    mergeOpenPr(pr, mainWorktree.path);
+  } else console.log(`PR #${pr.number} is already merged; continuing with cleanup.`);
 
   deleteRemoteBranch(pr.headRefName, mainWorktree.path);
   removeLocalBranch(pr, prWorktree, mainWorktree.path);
