@@ -8,6 +8,7 @@ import { consumeKnownError, readTaskChildCounts, readTaskIndexRows } from "@harn
 import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { isReadDenied, openEdgeTaskReadModel, readHeadConfirmation } from "./fleet/replica-read-model.ts";
 import { taskListPayload } from "./repo-cell-task-query.ts";
+import { renderTaskIndexPayload } from "./task-index-query.ts";
 import { taskListQueryFromPayload } from "./repo-query-payload.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -117,7 +118,14 @@ function readLocalTaskList(input: EdgeTaskReadInput, now: () => number): Record<
       maxLagRevisions = input.maxLagRevisions ?? DEFAULT_EDGE_READ_MAX_LAG_REVISIONS,
       ageMs = confirmation ? Math.max(0, now() - confirmation.confirmedAt) : null,
       lagRevisions = confirmation ? Math.max(0, confirmation.headRevision - model.meta.sourceRevision) : null,
-      stale = ageMs === null || lagRevisions === null || ageMs > maxAgeMs || lagRevisions > maxLagRevisions;
+      stale = ageMs === null || lagRevisions === null || ageMs > maxAgeMs || lagRevisions > maxLagRevisions,
+      warning = !stale
+        ? null
+        : ageMs === null
+          ? "可能过期：本边缘尚未与中心确认过最新版本。"
+          : ageMs > maxAgeMs
+            ? `可能过期，已 ${Math.max(1, Math.floor(ageMs / 60_000))} 分钟未连中心。`
+            : `可能过期：本地落后中心 ${lagRevisions} 个版本。`;
     // Same top-level shape as the center's task-list receipt: the payload schema is the receipt schema.
     return {
       command: "task-list",
@@ -134,16 +142,15 @@ function readLocalTaskList(input: EdgeTaskReadInput, now: () => number): Record<
         maxLagRevisions,
         confirmedAt: confirmation ? new Date(confirmation.confirmedAt).toISOString() : null,
       },
-      ...(stale
-        ? {
-            warning:
-              ageMs === null
-                ? "可能过期：本边缘尚未与中心确认过最新版本。"
-                : ageMs > maxAgeMs
-                  ? `可能过期，已 ${Math.max(1, Math.floor(ageMs / 60_000))} 分钟未连中心。`
-                  : `可能过期：本地落后中心 ${lagRevisions} 个版本。`,
-          }
-        : {}),
+      ...(warning ? { warning } : {}),
+      // The human rendering of a center task-list receipt, plus where this answer came from.
+      summary: [
+        renderTaskIndexPayload(payload),
+        `freshness=${stale ? "stale" : "fresh"}  confirmedAt=${confirmation ? new Date(confirmation.confirmedAt).toISOString() : "never"}`,
+        warning,
+      ]
+        .filter((line) => line !== null)
+        .join("\n"),
     };
   } finally {
     model.db.close();

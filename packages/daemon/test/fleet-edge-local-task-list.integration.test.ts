@@ -61,6 +61,10 @@ test(
       assert.deepEqual(edge.rows, truth.rows, JSON.stringify(action));
       assert.deepEqual(edge.page ?? null, truth.page ?? null, JSON.stringify(action));
       assert.equal((edge.freshness as { state: string }).state, "fresh");
+      // The CLI prints `summary` for a human: it carries the rows, as the center's receipt does.
+      for (const row of edge.rows as readonly { taskId: string }[])
+        assert.match(String(edge.summary), new RegExp(row.taskId, "u"));
+      assert.match(String(edge.summary), /freshness=fresh/u);
     }
     assert.deepEqual(await local({ kind: "task-list", depth: 0 }), {
       schema: "command-receipt/v2",
@@ -82,6 +86,7 @@ test(
     assert.equal((later.rows as unknown[]).length, 3);
     assert.equal((later.freshness as { state: string }).state, "stale");
     assert.match(String(later.warning), /已 5 分钟未连中心/u);
+    assert.match(String(later.summary), /已 5 分钟未连中心/u);
     assert.equal(
       ((await local({ kind: "task-list" }, () => Date.now() + 20, { maxAgeMs: 10 })).freshness as { state: string })
         .state,
