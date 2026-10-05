@@ -778,6 +778,78 @@ test("daemon connection and repo update options reject missing or invalid fields
   }
 });
 
+test("fleet edge sync and daemon connection failures return receipts instead of bare stacks", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-cli-unregistered-")),
+    workspace = path.join(root, "workspace"),
+    userRoot = path.join(root, "user");
+  mkdirSync(workspace, { recursive: true });
+  mkdirSync(userRoot, { recursive: true });
+  mkdirSync(path.join(root, "home"));
+  const {
+    HARNESS_DAEMON_ENDPOINT: _endpoint,
+    HARNESS_DAEMON_REPO_ID: _repoId,
+    HARNESS_EXECUTION_CREDENTIAL: _credential,
+    ...inherited
+  } = process.env;
+  const env = {
+    ...inherited,
+    HOME: path.join(root, "home"),
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+  };
+  const edgeSyncArgs = [
+    "daemon",
+    "fleet",
+    "edge",
+    "sync",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "8443",
+    "--ca",
+    path.join(root, "ca.pem"),
+    "--node-id",
+    "edge-one",
+    "--view-root",
+    path.join(root, "view"),
+    "--quota-bytes",
+    String(quotaBytes),
+  ];
+  try {
+    // An unregistered workspace is answered with a receipt naming the remote-edge registration
+    // remedy, never with an unhandled rejection from the target resolver.
+    const json = spawnSync(process.execPath, [cli, "--root", workspace, "--json", ...edgeSyncArgs], {
+      encoding: "utf8",
+      env,
+    });
+    assert.equal(json.status, 1, `${json.stdout}\n${json.stderr}`);
+    assert.doesNotMatch(json.stderr, /Node\.js v\d/u, "a known coded error must not leave as a bare stack");
+    const receipt = JSON.parse(json.stdout) as Record<string, unknown>;
+    assert.equal(receipt.code, "workspace_not_registered", JSON.stringify(receipt));
+    assert.equal(receipt.command, "daemon-fleet-edge-sync");
+    assert.match(String(receipt.nextAction), /ha daemon repo register --repo-id <id> --root .+ --mode remote-edge/u);
+    assert.match(String(receipt.nextAction), new RegExp(escapeRegExp(JSON.stringify(workspace)), "u"));
+    // The human-readable form carries the same code and remedy, still with no stack trace.
+    const human = spawnSync(process.execPath, [cli, "--root", workspace, ...edgeSyncArgs], { encoding: "utf8", env });
+    assert.equal(human.status, 1, `${human.stdout}\n${human.stderr}`);
+    assert.doesNotMatch(human.stderr, /Node\.js v\d/u, human.stderr);
+    assert.match(`${human.stdout}${human.stderr}`, /workspace_not_registered/u);
+    assert.match(`${human.stdout}${human.stderr}`, /--mode remote-edge/u);
+    // The same escape used to swallow daemon-connection refusals: an unreachable daemon is a
+    // daemon_unavailable receipt, not a bare ENOENT stack.
+    const unreachable = spawnSync(
+      process.execPath,
+      [cli, "--root", workspace, "--json", "daemon", "connection", "add", "--endpoint", "tcp://127.0.0.1:9"],
+      { encoding: "utf8", env },
+    );
+    assert.equal(unreachable.status, 1, `${unreachable.stdout}\n${unreachable.stderr}`);
+    assert.doesNotMatch(unreachable.stderr, /Node\.js v\d/u, unreachable.stderr);
+    assert.equal((JSON.parse(unreachable.stdout) as Record<string, unknown>).code, "daemon_unavailable");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("CLI resident modes resolve the installed daemon manifest and launch its absolute bin", () => {
   const manifestPath = createRequire(import.meta.url).resolve("@harness-anything/daemon/package.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));

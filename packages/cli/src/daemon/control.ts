@@ -4,6 +4,7 @@ import {
   daemonUserRoot,
   localUserDaemonEndpoint,
   resolveLocalDaemonTarget,
+  type LocalDaemonTarget,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import type { DaemonShutdownExchange } from "@harness-anything/daemon/internal/client/local-json-rpc-shutdown";
@@ -90,14 +91,17 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       );
       return finish(result, result.ok === true ? 0 : 1);
     }
-    if (command === "fleet") return fleetControl(argv, at, userRoot, daemonId, finish);
+    // `return await`, not `return`: a bare return resolves the subcommand's rejection only after
+    // this catch has let go, and a known coded error leaves the CLI as a bare stack, not a receipt.
+    if (command === "fleet") return await fleetControl(argv, at, userRoot, daemonId, finish);
     if (command === "repo") {
       const result = await runDaemonRepoControl(argv, subcommand, userRoot, daemonId, finish);
       if (result !== undefined) return result;
     }
-    if (command === "connection") return runDaemonConnectionControl(argv, subcommand, userRoot, daemonId, finish);
-    if (command === "service") return runDaemonServiceControl(subcommand, userRoot, daemonId, invokingRoot, finish);
-    if (command === "start") return startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
+    if (command === "connection") return await runDaemonConnectionControl(argv, subcommand, userRoot, daemonId, finish);
+    if (command === "service")
+      return await runDaemonServiceControl(subcommand, userRoot, daemonId, invokingRoot, finish);
+    if (command === "start") return await startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
     if (command === "status") {
       const assessed = assessDaemonStatus(await status(userRoot, daemonId, argv));
       return finish(assessed.receipt, assessed.exitCode);
@@ -249,14 +253,29 @@ async function fleetControl(
       "invalid_field",
       "Use a TCP port from 0 to 65535 and a positive integer byte count for --quota-bytes.",
     );
-  const edgeTarget = edge
-    ? await resolveLocalDaemonTarget({
-        rootDir: path.resolve(flag("--root") ?? process.cwd()),
-        repoIdOverride: flag("--repo"),
-        userRoot,
-        daemonId,
-      })
-    : null;
+  let edgeTarget: LocalDaemonTarget | null = null;
+  if (edge) {
+    const rootDir = path.resolve(flag("--root") ?? process.cwd());
+    try {
+      edgeTarget = await resolveLocalDaemonTarget({ rootDir, repoIdOverride: flag("--repo"), userRoot, daemonId });
+    } catch (error) {
+      if (code(error) !== "workspace_not_registered") throw error;
+      const detail = message(error);
+      // The resolver's generic remedy omits the mode; the daemon-side sync handler only accepts a
+      // workspace registered as remote-edge, so that is the form this command names. A disabled
+      // registration keeps its own remedy (unbind), which the passthrough preserves.
+      return finish(
+        daemonFailure(
+          command,
+          "workspace_not_registered",
+          detail.startsWith("workspace is not registered")
+            ? `Register this workspace for fleet edge sync first: run ha daemon repo register --repo-id <id> --root ${JSON.stringify(rootDir)} --mode remote-edge.`
+            : detail,
+        ),
+        1,
+      );
+    }
+  }
   // The machine credential the center issued at node registration: named on the command line, or kept
   // off it in the workspace's fleet-edge.json.
   let credential = flag("--credential");
