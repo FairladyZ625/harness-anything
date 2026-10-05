@@ -167,14 +167,9 @@ export async function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SET
       `daemon still answering ${stopSettleMs}ms after a successful stop`,
     );
   } finally {
-    // The early-return paths above quit before the workspace was registered, and a plain
-    // stop is then refused with workspace_not_registered while the resident daemon keeps
-    // the tree open. The sanitized smoke environment fixes the daemon id, so address it
-    // directly; bounded retries absorb the window between a confirmed stop and Windows
-    // releasing the last handle.
-    harness(entry, repo, env, ["daemon", "stop", "--daemon-id", "default"]);
+    harness(entry, repo, env, ["daemon", "stop"]);
     await identity.close();
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(root, { recursive: true, force: true });
   }
   return { ok: errors.length === 0, errors, checks };
 }
