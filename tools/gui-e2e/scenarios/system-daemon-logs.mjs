@@ -4,10 +4,10 @@ import assert from "node:assert/strict";
  * #2224 系统 tab 常驻日志面板 + #2227 的「面板被 flex 压成 0 高」回归。
  *
  * 三层断言,全部对着真实夹具 daemon(不 mock 任何读面):
- *   1. 高度:面板声明 h-[24rem](384px),断言 getBoundingClientRect().height >= 300 是
- *      该声明的下界。SystemView 的父级是 overflow-y-auto 的 flex 列,面板自身带
- *      min-h-0——没有 shrink-0 时(#2227 之前)上方内容一满,这个 section 就会被
- *      压到远小于 24rem,这里就是抓它的探针。阈值不许为了变绿放宽。
+ *   1. 高度:日志区是页面主正文,flex-1 吃满剩余高度(chrome 收敛 S6,替代旧的固定
+ *      24rem/55cqb 封顶)。探针两半:机制上 flex-grow 必须是 1;几何上面板底边贴
+ *      页面滚动容器底边——固定封顶时下方会留出整段空白,这里就是抓它的探针。
+ *      阈值不许为了变绿放宽。
  *   2. 「生命周期」kind:observe.tail 读 daemon 的 lifecycle JSONL,夹具 daemon 启动、
  *      挂仓本身就是真实事件源,至少 1 行。
  *   3. 「请求」kind:切换不报读取失败(observe-error-* / observe-unavailable-* 都算红)。
@@ -20,7 +20,7 @@ export default {
   feature: "system",
   lane: "isolated",
   description:
-    "The System tab keeps its resident daemon log panel at the declared 24rem height, shows real lifecycle rows, and the request kind switch does not fail.",
+    "The System tab fills the remaining page height with its resident daemon log panel, shows real lifecycle rows, and the request kind switch does not fail.",
   async run({ page }) {
     await page.getByRole("button", { name: /^(?:Daemon 状态|Daemon status)$/u }).click();
     const panel = page.getByTestId("system-daemon-logs");
@@ -34,9 +34,20 @@ export default {
       "an attached repo must route observe.tail for the system log panel",
     );
 
-    // 1. 声明高度下界:24rem = 384px,断言 >= 300 抓 flex 塌陷(#2227)。
-    const height = await panel.evaluate((node) => node.getBoundingClientRect().height);
-    assert.ok(height >= 300, `system-daemon-logs height ${height}px is below the 24rem lower bound 300px`);
+    // 1. 撑满剩余高度:flex-grow 机制 + 底边几何(面板贴页面底,无固定封顶留白)。
+    const geometry = await panel.evaluate((node) => {
+      const root = node.parentElement;
+      return {
+        flexGrow: globalThis.getComputedStyle(node).flexGrow,
+        panelBottom: node.getBoundingClientRect().bottom,
+        rootBottom: root.getBoundingClientRect().bottom,
+      };
+    });
+    assert.equal(geometry.flexGrow, "1", "the log panel must grow into the remaining page height");
+    assert.ok(
+      Math.abs(geometry.panelBottom - geometry.rootBottom) < 2,
+      `log panel bottom ${geometry.panelBottom}px must meet the page bottom ${geometry.rootBottom}px, not a fixed cap`,
+    );
 
     // 2. 生命周期 kind:夹具 daemon 的真实 lifecycle 事件,至少一行。
     await page.getByTestId("observe-kind-lifecycle").click();
