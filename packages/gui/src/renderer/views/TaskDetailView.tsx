@@ -8,7 +8,12 @@ import { Tabs } from "../components/primitives/Tabs";
 import { TitleText } from "../components/primitives/TitleText";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { ViewInGraphButton } from "../components/ViewInGraphButton.tsx";
-import { TaskDispatchTab, TaskEvidenceTab, TaskOverviewTab } from "../components/taskDetail/TaskDetailSections.tsx";
+import {
+  TaskDispatchTab,
+  TaskEvidenceTab,
+  TaskOverviewTab,
+  TaskTimelineRegion,
+} from "../components/taskDetail/TaskDetailSections.tsx";
 import { TaskAssignmentPanel } from "../components/taskDetail/TaskAssignmentPanel.tsx";
 import { TaskCloseoutTab } from "../components/taskDetail/TaskCloseoutTab.tsx";
 import { TaskRelationsTab, type TaskDecisionRef } from "../components/taskDetail/TaskRelationsTab.tsx";
@@ -395,16 +400,16 @@ export function TaskDetailView({
         <AwaitsAskStrip repoId={repoId} sourceRef={`task/${task.taskId}`} onNavigateEntity={onNavigateEntity} />
       ) : null}
 
-      {/* 自动按容器选择方向,默认即用可拖分区;首次调整记住当前方向与比例。 */}
+      {/* 停靠分屏(task_033760e2…):文件|正文|时间线三块都是页级区域,标题把手可拖到
+          另一区域的边缘半区分屏,布局按连接+仓记忆;默认文件树 22%,时间线叠在正文下方。 */}
       <main className="@container flex min-h-0 flex-1 overflow-hidden p-1">
         <PageRegions
           connectionId={connectionId}
           repoId={task.projectId}
           slot="task-detail-docs"
           testId="task-detail-content-grid"
-          collapsible
           defaultRatio={0.22}
-          columns={[["files"], ["content"]]}
+          columns={[["files"], ["content", "timeline"]]}
           regions={[
             {
               id: "files",
@@ -421,6 +426,7 @@ export function TaskDetailView({
             {
               id: "content",
               title: t("components.pageRegions.content"),
+              weight: 2,
               content: (
                 <div className="flex min-h-0 min-w-0 flex-col">
                   <div className="flex shrink-0 items-center gap-1 ui-meta">
@@ -442,7 +448,6 @@ export function TaskDetailView({
                         connectionId={connectionId}
                         task={task}
                         onOpenCloseout={() => selectTab("closeout")}
-                        onOpenRecord={openCloseoutRecord}
                       />
                     ) : activeTab === "dispatch" ? (
                       <>
@@ -500,6 +505,16 @@ export function TaskDetailView({
                 </div>
               ),
             },
+            ...((task.events ?? []).length > 0
+              ? [
+                  {
+                    id: "timeline",
+                    title: t("components.pageRegions.timeline"),
+                    testId: "task-progress-timeline",
+                    content: <TaskTimelineRegion task={task} onOpenRecord={openCloseoutRecord} />,
+                  },
+                ]
+              : []),
           ]}
         />
       </main>

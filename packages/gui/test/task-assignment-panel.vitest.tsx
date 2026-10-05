@@ -2,7 +2,7 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TaskAssignmentPanel } from "../src/renderer/components/taskDetail/TaskAssignmentPanel.tsx";
 import { harnessClient } from "../src/renderer/api-client.ts";
@@ -19,6 +19,16 @@ beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setActiveLocale("zh-CN");
 });
+
+// 期限字段用 formatTime 的「同一天省略日期」写法:夹具里的 10-05 在 10-05 当天会渲染成
+// 「今天 08:00」而不是字面日期,断言因此依赖运行日。钉住 now 使日期断言与运行日无关。
+const NOW = new Date("2026-10-01T08:00:00");
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+afterEach(() => vi.useRealTimers());
 
 const makeTask = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   taskId: "task-panel",

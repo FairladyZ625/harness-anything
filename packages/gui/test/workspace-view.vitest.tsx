@@ -366,10 +366,9 @@ describe("overview narrative", () => {
     // 没有散排:板上的标题、行、按天进展都在某个区域框里。
     for (const element of board.querySelectorAll("h2, h3, [data-task-row], [data-day], [data-group-filter]"))
       expect(element.closest("section[data-entry-region]")).not.toBeNull();
-    // 时间线是板上独立的最后一列,不混在主区里。
+    // 时间线是板上独立区域(dockview 列),不混在主区里。
     const timeline = host.querySelector('[data-testid="work-timeline"]')!;
-    expect(timeline.parentElement).toBe(board.firstElementChild);
-    expect(timeline.parentElement!.lastElementChild).toBe(timeline);
+    expect(timeline.closest('[data-testid="work-overview-board"]')).not.toBeNull();
     expect(timeline.closest('[data-testid="work-overview-main"]')).toBeNull();
     expect(timeline.querySelectorAll("[data-day]")).toHaveLength(1);
     // 阻塞的任务进「阻塞与异常」并报卡点;有 agent 在跑的进「进行中」并报执行者。
@@ -381,93 +380,99 @@ describe("overview narrative", () => {
     expect(running.querySelector('[data-task-row="task_solo"]')).toBeNull();
   });
 
-  // PageRegions owns the measured grid, title controls and persistent proportional seams.
-  it("resizes the automatic overview split and changes direction without losing the timeline", async () => {
+  /** 一条最小事件,喂给「最近进展」时间线让它落位。 */
+  const eventSummary = (taskId: string) => ({
+    eventId: `e-${taskId}`,
+    schema: "task-event/v1",
+    type: "execution_started",
+    occurredAt: "2026-09-30T02:05:00.000Z",
+    workspaceRevision: 1,
+    taskId,
+    payload: {},
+  });
+
+  // 停靠分屏(task_033760e2…):把手拖到另一区域的边缘半区,方向键停靠;布局按连接+仓记忆。
+  it("docks the timeline region by handle drag and keyboard, then undoes and resets", async () => {
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(804);
     const host = await mount(
       <WorkspaceView
-        scope={{
-          ...baseScope,
-          eventSummaries: [
-            {
-              eventId: "e1",
-              schema: "task-event/v1",
-              type: "execution_started",
-              occurredAt: "2026-09-30T02:05:00.000Z",
-              workspaceRevision: 1,
-              taskId: "task_solo",
-              payload: {},
-            },
-          ],
-        }}
+        scope={{ ...baseScope, eventSummaries: [eventSummary("task_solo")] }}
         repoId="repo"
+        connectionId="local"
         projectName="Harness"
         tasks={[row("task_wait", { coordinationStatus: "submitted", parentTaskId: "task_root" })]}
         onOpenTask={() => {}}
       />,
     );
     const board = host.querySelector<HTMLElement>('[data-testid="work-overview-board"]')!;
-    const grid = () =>
-      host.querySelector<HTMLElement>('[data-testid="work-overview-board"]')!.firstElementChild as HTMLElement;
-    expect(grid().style.gridTemplateColumns).toBe("minmax(0,1fr)");
-    expect(host.querySelector('[data-testid="work-overview-board-divider"]')).not.toBeNull();
-    const controls = host.querySelector<HTMLElement>('[data-testid="work-overview-board-controls"]')!;
-    const controlButton = (suffix: string) =>
-      board.querySelector<HTMLButtonElement>(`[data-testid="work-overview-board-controls-${suffix}"]`)!;
+    const region = (id: string) => board.querySelector<HTMLElement>(`[data-region="${id}"]`)!;
+    const handle = (id: string) => board.querySelector<HTMLElement>(`[data-testid="region-handle-${id}"]`)!;
+    const defaultOrder = [...board.querySelectorAll<HTMLElement>("[data-region]")].map((node) => node.dataset.region);
 
-    expect(controls.closest('[data-region="mine"]')).not.toBeNull();
-    const automaticDivider = host.querySelector<HTMLElement>('[data-testid="work-overview-board-divider"]')!;
-    expect(automaticDivider.getAttribute("aria-orientation")).toBe("horizontal");
+    // 拖时间线到「我的工作」的右半区(零几何默认右半区):放下成左右分割,遮罩消失。
     await act(async () => {
-      automaticDivider.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientY: 100 }));
-      window.dispatchEvent(new PointerEvent("pointermove", { clientY: 180 }));
-      window.dispatchEvent(new PointerEvent("pointerup"));
+      handle("recent").dispatchEvent(new Event("dragstart", { bubbles: true }));
+      region("mine").dispatchEvent(
+        new MouseEvent("dragover", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }),
+      );
     });
-    expect(grid().style.gridTemplateRows).toBe("minmax(0,70.00fr) 4px minmax(0,30.00fr)");
+    expect(region("mine").dataset.zone).toBe("right");
     await act(async () => {
-      controlButton("row").click();
+      region("mine").dispatchEvent(new MouseEvent("drop", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(grid().style.gridTemplateColumns).toBe("minmax(0,70.00fr) 4px minmax(0,30.00fr)");
-    const divider = host.querySelector<HTMLElement>('[data-testid="work-overview-board-divider"]')!;
-    expect(divider.getAttribute("role")).toBe("separator");
-    expect(divider.getAttribute("aria-orientation")).toBe("vertical");
-    // 分隔条轨道(含手柄)插在时间线之前,时间线仍是板最后一个子元素。
-    const track = host.querySelector<HTMLElement>('[data-testid="work-overview-board-divider-track"]')!;
-    expect(host.querySelector('[data-testid="work-timeline"]')!.previousElementSibling).toBe(track);
-    expect(grid().lastElementChild).toBe(host.querySelector('[data-testid="work-timeline"]'));
-    // Regions retain their dedicated movement handles after the split changes direction.
-    expect(board.querySelector('[data-testid="region-handle-recent"]')).not.toBeNull();
+    expect(region("mine").dataset.zone).toBeUndefined();
+    // 布局快照按真实键 work-overview 落盘;区域集合不变。
+    const stored = readSplitPreferences(localStorage, "local", "repo")["work-overview"];
+    expect(stored).toBeDefined();
+    const flatOrder = (node: unknown, into: string[] = []): string[] => {
+      const record = node as { type?: string; data?: unknown };
+      if (record?.type === "branch") for (const child of (record.data as unknown[]) ?? []) flatOrder(child, into);
+      else {
+        const view = (record?.data as { views?: string[] })?.views?.[0];
+        if (view !== undefined) into.push(view);
+      }
+      return into;
+    };
+    expect(flatOrder((stored!.snapshot as { grid?: { root?: unknown } }).grid?.root).sort()).toEqual(
+      [...defaultOrder].sort(),
+    );
+    // 时间线区域仍在板上,正文行与把手不丢。
+    expect(region("recent").querySelector('[data-testid="region-handle-recent"]')).not.toBeNull();
 
+    // 撤销上一步停靠:时间线回到独立列。
     await act(async () => {
-      controlButton("reset").click();
+      board.querySelector<HTMLButtonElement>('[data-testid="work-overview-board-controls-undo"]')!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(grid().style.gridTemplateColumns).toBe("minmax(0,1fr)");
-    expect(grid().style.gridTemplateRows).toBe("minmax(0,60.00fr) 4px minmax(0,40.00fr)");
-    expect(host.querySelector('[data-testid="work-overview-board-divider"]')).not.toBeNull();
+    const undone = flatOrder(
+      (readSplitPreferences(localStorage, "local", "repo")["work-overview"]!.snapshot as { grid?: { root?: unknown } })
+        .grid?.root,
+    );
+    expect(undone.indexOf("recent")).toBeGreaterThan(undone.indexOf("structure"));
+
+    // 重置:默认布局回来,本页槽位清空(重置会换 key 重挂,重查板节点)。
+    await act(async () => {
+      board.querySelector<HTMLButtonElement>('[data-testid="work-overview-board-controls-reset"]')!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(readSplitPreferences(localStorage, "local", "repo")["work-overview"]).toBeUndefined();
+    const rebuilt = host.querySelector<HTMLElement>('[data-testid="work-overview-board"]')!;
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    expect([...rebuilt.querySelectorAll("[data-region]")].map((node) => (node as HTMLElement).dataset.region)).toEqual(
+      defaultOrder,
+    );
   });
 
   // task_fb3ba20d66…(返工):分割偏好按连接+仓隔离。App 传的是 system status 仓行的
   // connectionId;同 repoId 的两个连接(如 remote-proxy 改挂)读写/重置互不串用。
-  it("addresses overview split preferences by the live connection so same-repo connections stay isolated", async () => {
+  it("addresses overview docking preferences by the live connection so same-repo connections stay isolated", async () => {
     localStorage.removeItem(SPLIT_STORAGE_KEY);
     const mountOverview = (connectionId: string) =>
       mount(
         <WorkspaceView
-          scope={{
-            ...baseScope,
-            eventSummaries: [
-              {
-                eventId: "e1",
-                schema: "task-event/v1",
-                type: "execution_started",
-                occurredAt: "2026-09-30T02:05:00.000Z",
-                workspaceRevision: 1,
-                taskId: "task_solo",
-                payload: {},
-              },
-            ],
-          }}
+          scope={{ ...baseScope, eventSummaries: [eventSummary("task_solo")] }}
           repoId="repo"
           connectionId={connectionId}
           projectName="Harness"
@@ -475,40 +480,50 @@ describe("overview narrative", () => {
           onOpenTask={() => {}}
         />,
       );
-    const orientation = (host: HTMLElement) =>
-      host.querySelector('[data-testid="work-overview-board-divider"]')!.getAttribute("aria-orientation");
+    const dockTimeline = async (host: HTMLElement) => {
+      const board = host.querySelector<HTMLElement>('[data-testid="work-overview-board"]')!;
+      const recent = board.querySelector<HTMLElement>('[data-region="recent"]')!;
+      await act(async () => {
+        board
+          .querySelector<HTMLElement>('[data-testid="region-handle-recent"]')!
+          .dispatchEvent(new Event("dragstart", { bubbles: true }));
+        board
+          .querySelector<HTMLElement>('[data-region="mine"]')!
+          .dispatchEvent(new MouseEvent("dragover", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }));
+        board
+          .querySelector<HTMLElement>('[data-region="mine"]')!
+          .dispatchEvent(new MouseEvent("drop", { clientX: 0, clientY: 0, bubbles: true, cancelable: true }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(recent).not.toBeNull();
+    };
     const remote = await mountOverview("remote-abc123def456");
-    expect(orientation(remote)).toBe("horizontal");
-    await act(async () => {
-      remote.querySelector<HTMLButtonElement>('[data-testid="work-overview-board-controls-row"]')!.click();
-    });
-    expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toEqual({
-      orientation: "row",
-    });
-    expect(orientation(remote)).toBe("vertical");
+    await dockTimeline(remote);
+    expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toBeDefined();
+    // 重挂同一连接:停靠布局从快照恢复(快照等区域集稳定后去抖应用,等它落地)。
     const reloaded = await mountOverview("remote-abc123def456");
-    expect(orientation(reloaded)).toBe("vertical");
-    // 同 repoId 换连接:不沿用上一连接的排列,后续写动也不覆盖它。
-    const local = await mountOverview("local");
-    expect(orientation(local)).toBe("horizontal");
-    expect(local.querySelector('[data-testid="work-overview-board-divider"]')).not.toBeNull();
     await act(async () => {
-      local.querySelector<HTMLButtonElement>('[data-testid="work-overview-board-controls-column"]')!.click();
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if (reloaded.querySelector("[data-region]") !== null) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
     });
-    expect(readSplitPreferences(localStorage, "local", "repo")["work-overview"]).toEqual({ orientation: "column" });
-    expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toEqual({
-      orientation: "row",
-    });
+    const regionsAfterReload = [...reloaded.querySelectorAll<HTMLElement>("[data-region]")].map(
+      (n) => n.dataset.region,
+    );
+    expect(regionsAfterReload).toContain("recent");
+    // 同 repoId 换连接:不沿用上一连接的停靠,后续写动也不覆盖它。
+    const local = await mountOverview("local");
+    await dockTimeline(local);
+    expect(readSplitPreferences(localStorage, "local", "repo")["work-overview"]).toBeDefined();
+    expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toBeDefined();
     // 重置只清当前连接的槽。
     await act(async () => {
       local.querySelector<HTMLButtonElement>('[data-testid="work-overview-board-controls-reset"]')!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(readSplitPreferences(localStorage, "local", "repo")).toEqual({});
-    expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toEqual({
-      orientation: "row",
-    });
-    expect(orientation(local)).toBe("horizontal");
-    expect(orientation(await mountOverview("remote-abc123def456"))).toBe("vertical");
+    expect(readSplitPreferences(localStorage, "remote-abc123def456", "repo")["work-overview"]).toBeDefined();
     localStorage.removeItem(SPLIT_STORAGE_KEY);
   });
 

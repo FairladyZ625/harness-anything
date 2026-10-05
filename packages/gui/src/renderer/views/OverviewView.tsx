@@ -287,6 +287,16 @@ export function OverviewView({
           repoId={repoId}
           slot="overview"
           testId="overview-board"
+          settled={
+            // 区域集就绪声明(恢复协调用,不定时猜测):本页读面全部落定后,区域集合才是
+            // 完整事实,快照恢复的剪枝才不会把「还没到的区域」提前删掉。
+            agenda !== undefined &&
+            works !== undefined &&
+            !ciQuery.isPending &&
+            !runtimeQuery.isPending &&
+            !eventsQuery.isPending &&
+            !wipQuery.isPending
+          }
           columns={[["works", "drill"]]}
           regions={[
             {
