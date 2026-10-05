@@ -3,7 +3,7 @@ import { ArrowSquareOut, Lock, PushPin, X } from "@phosphor-icons/react";
 import type { EventEntry, RelationEdge, TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
 import { normalizeTaskId } from "../model/triadic.ts";
-import { CloseoutBadge, EngineBadge, FreshnessTag } from "./badges";
+import { CloseoutBadge, FreshnessTag } from "./badges";
 import { DayDigest } from "./primitives/DayDigest";
 import { DenseRow } from "./primitives/DenseRow";
 import { Drawer } from "./primitives/Drawer";
@@ -138,7 +138,6 @@ function TaskPreviewBody({
                 title={task.taskId}
                 className="font-mono text-text-faint hover:text-accent hover:underline ui-body"
               />
-              <EngineBadge engine={task.engine} locked={isExternal(task)} />
               {isExternal(task) && (
                 <span className="inline-flex items-center gap-1 text-text-faint ui-meta">
                   <Lock weight="bold" />

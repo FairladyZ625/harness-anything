@@ -279,14 +279,21 @@ export function WorkspaceView({
 
   return (
     <div data-testid="workspace-view" className="flex h-full min-h-0 flex-1 flex-col">
-      <header className="flex-none px-5 pt-3.5 md:px-7">
-        <nav className="text-text-muted ui-meta" aria-label="工作范围">
-          {[projectName, ...scope.ancestors.map(({ title }) => title), scope.root.title].join(" / ")}
-        </nav>
-        <div className="mt-0.5 flex items-start gap-3">
-          <h1 className="min-w-0 flex-1 text-[19px] font-semibold leading-snug text-text">{scope.root.title}</h1>
+      {/* 详情页头三行化(chrome 审计 S4,对照稿 task_d821d24aacccb352053c7fd3e7):
+          行1 面包屑(只留 repo+ancestors,末段由标题承担)+ 标题 + 置顶图标钮
+          行2 一行目标(可展开)
+          行3 状态分段 + 进度数字 + 页签 + 页内搜索(页签下划线收页头底边)。 */}
+      <header className="flex-none px-5 md:px-7">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pt-1.5 pb-1">
+          <nav className="min-w-0 truncate text-text-muted ui-meta" aria-label="工作范围">
+            {[projectName, ...scope.ancestors.map(({ title }) => title)].join(" / ")}
+          </nav>
+          <h1 className="min-w-0 flex-1 truncate text-[19px] font-semibold leading-snug text-text">
+            {scope.root.title}
+          </h1>
           {rootRow !== undefined && onSetTaskPin !== undefined ? (
             <PinButton
+              compact
               testId="workspace-root-pin"
               pinned={rootRow.pinned === true}
               onClick={() => onSetTaskPin(rootRow, rootRow.pinned !== true)}
@@ -296,7 +303,7 @@ export function WorkspaceView({
         {repoId !== "unselected" && scope.goalMaterial !== null ? (
           <WorkMission repoId={repoId} taskId={scope.goalMaterial.taskId} path={scope.goalMaterial.path} />
         ) : null}
-        <div className="mt-2.5 flex items-center gap-3.5">
+        <div className="mt-1 flex min-w-0 flex-wrap items-end gap-x-3.5 gap-y-1.5">
           <SegBar
             counts={{
               done: scope.counts.done,
@@ -306,9 +313,9 @@ export function WorkspaceView({
               planned: scope.counts.planned,
               cancelled: scope.counts.cancelled,
             }}
-            className="h-[5px] max-w-[520px] flex-1"
+            className="h-[5px] min-w-[70px] max-w-[190px] flex-1 self-center"
           />
-          <span className="whitespace-nowrap font-mono text-text-muted ui-meta">
+          <span className="whitespace-nowrap pb-[7px] font-mono text-text-muted ui-meta">
             <b className="text-text">{scope.counts.done}</b>
             {t("views.workspace.progressNumbers", {
               done: "",
@@ -318,9 +325,7 @@ export function WorkspaceView({
             {" · "}
             {t("views.workspace.lastActivity", { ago: agoOf(lastActivityAt) })}
           </span>
-        </div>
-        <div className="mt-2 flex items-end gap-4">
-          <div className="min-w-0 flex-1">
+          <div className="ml-auto min-w-0">
             <Tabs ariaLabel="工作分区" idPrefix="workspace" value={tab} onChange={setTab} tabs={tabs} />
           </div>
           <input
@@ -336,7 +341,7 @@ export function WorkspaceView({
               if (next.trim() !== "")
                 setTab((current) => (current === "tasks" || current === "decisions" ? current : "tasks"));
             }}
-            className="mb-1.5 min-w-0 flex-1 rounded-xs border border-border bg-surface-raised px-3 py-1.5 text-text ui-meta outline-none placeholder:text-text-faint focus:border-border-strong md:w-[260px] md:flex-none"
+            className="mb-1.5 h-6 w-[210px] shrink-0 rounded-xs border border-border bg-surface-raised px-2.5 text-text ui-meta outline-none placeholder:text-text-faint focus:border-border-strong"
           />
         </div>
       </header>
@@ -525,7 +530,9 @@ function WorkMission({
       aria-expanded={open}
       title={t("views.workspace.missionTitle")}
       onClick={() => setOpen((value) => !value)}
-      className={`mt-1 max-w-[110ch] cursor-pointer whitespace-pre-line text-text-muted ui-body ${open ? "" : "line-clamp-1"}`}
+      className={`mt-0.5 max-w-[110ch] cursor-pointer whitespace-pre-line py-0.5 text-text-muted ui-body ${
+        open ? "" : "line-clamp-1"
+      }`}
     >
       {goal}
     </div>

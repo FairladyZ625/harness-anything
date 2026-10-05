@@ -80,6 +80,9 @@ export function ScheduleListPane({
   const visible = rows.filter((row) => matchesSearch(row) && matchesFilter(row, filter)),
     tiers = scheduleTiers(visible, rows.length),
     upcoming = upcomingRuns(rows);
+  // 列表页头随列表态渲染(详情态整个卸载,chrome 审计 B1①);汇总句只数本列表的行。
+  const total = rows.length,
+    attention = rows.filter(needsAttention).length;
   const chips = (
     [
       ["attn", t("schedules.list.filter.attn")],
@@ -118,6 +121,14 @@ export function ScheduleListPane({
     );
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="schedules-list">
+      <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
+        <h1 className="text-xl font-semibold text-text">{t("schedules.title")}</h1>
+        <span data-testid="schedules-summary" className="min-w-0 truncate text-sm text-text-muted">
+          {attention > 0
+            ? t("schedules.summaryAttention", { count: total, attention })
+            : t("schedules.summary", { count: total })}
+        </span>
+      </header>
       {upcoming.next.length > 0 && (
         <p data-testid="schedules-upcoming" className="flex flex-wrap items-baseline gap-x-2 gap-y-1 px-5 pb-1 ui-meta">
           <span className="font-semibold text-text-muted">{t("schedules.upcoming.label")}</span>

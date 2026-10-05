@@ -165,7 +165,8 @@ describe("work page header", () => {
       />,
     );
     const toggle = host.querySelector<HTMLButtonElement>('[data-testid="workspace-root-pin"]');
-    expect(toggle?.textContent).toContain("置顶");
+    // 三行化(chrome S4):置顶收成图标钮(PinButton compact),可访问名进 aria-label。
+    expect(toggle?.getAttribute("aria-label")).toContain("置顶");
     await act(async () => toggle!.click());
     expect(setPin).toHaveBeenCalledWith(expect.objectContaining({ taskId: "task_root" }), true);
   });
@@ -907,11 +908,15 @@ describe("layout adapts without guessed viewport constants(原则 9)", () => {
     expect(panel.className).not.toMatch(/calc\(100vh|min-h-\[\d+px\]/u);
   });
 
-  it("lets the in-page search flex below md and pins it to 260px from md up", async () => {
+  it("keeps the in-page search a fixed compact control in the header tab row (chrome S4)", async () => {
     const host = await mount(<WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />);
     const search = host.querySelector('[data-testid="workspace-search"]')!;
-    expect(search.className).toContain("flex-1");
-    expect(search.className).toContain("md:w-[260px]");
-    expect(search.className).not.toMatch(/(?<!md:)w-\[260px\]/u);
+    // 三行化:搜索与页签同行,固定 210px/24px 紧凑档,窄屏随行折行,不再吃 flex-1。
+    expect(search.className).toContain("w-[210px]");
+    expect(search.className).toContain("h-6");
+    expect(search.className).toContain("shrink-0");
+    expect(search.className).not.toContain("flex-1");
+    // 搜索仍与页签同属页头行。
+    expect(search.closest("header")).not.toBeNull();
   });
 });
