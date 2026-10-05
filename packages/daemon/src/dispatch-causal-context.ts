@@ -7,10 +7,15 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
  * work it belongs to, the decision whose chosen anchor derives the task, and the
  * facts that evidence that decision's load-bearing claims.
  *
- * Every field is read from the canonical projection at one verified cut; the
- * block is task data for the worker, never an override of its role or safety
- * instructions. Fleet-edge dispatch fetches the same block from the center's
- * canonical read — a stale mirrored markdown is never summarized as fact.
+ * The block is a `<task-context>` XML fragment whose grammar the
+ * task-explainer-html skill documents for consumers: every element is complete
+ * on one line, so any subset of detail lines the byte budget sheds still parses.
+ * Text and attribute values are XML-escaped; the canonical ids ride `ref`
+ * attributes and the final `<refs>` line. Every field is read from the canonical
+ * projection at one verified cut; the block is task data for the worker, never
+ * an override of its role or safety instructions. Fleet-edge dispatch fetches
+ * the same block from the center's canonical read — a stale mirrored markdown
+ * is never summarized as fact.
  *
  * Token budget: no tokenizer ships in this dependency set, so the block is
  * capped at 2,048 UTF-8 bytes — a provable hard bound the tests assert on real
@@ -29,7 +34,8 @@ export const CAUSAL_CONTEXT_MAX_BYTES = 2048;
 const MAX_DECISIONS = 2,
   MAX_FACTS = 5,
   MAX_EVIDENCE_ANCHORS = 6,
-  HEADER = "# Task Causal Context";
+  ROOT_OPEN = "<task-context>",
+  ROOT_CLOSE = "</task-context>";
 
 export function assembleTaskCausalContext(input: {
   readonly projection: TaskProjection;
@@ -111,38 +117,42 @@ export function assembleTaskCausalContext(input: {
   const details: string[] = [],
     tails: string[] = [];
   // The refs line already carries every canonical id, so identity lines stay
-  // title-only — repeating `(${id})` here would spend budget twice.
-  if (work !== null) details.push(`- Work: ${field(work.title, 48)}`);
-  if (parent !== null && parent.taskId !== work?.taskId) details.push(`- Parent: ${field(parent.title, 48)}`);
+  // title-only — repeating the id in an attribute would spend budget twice.
+  if (work !== null) details.push(`<work ref="task/${work.taskId}">${xmlField(work.title, 48)}</work>`);
+  if (parent !== null && parent.taskId !== work?.taskId)
+    details.push(`<parent ref="task/${parent.taskId}">${xmlField(parent.title, 48)}</parent>`);
   const decisionBlocks: string[][] = [];
   for (const decisionId of decisionIds) {
     const decision = decisions.get(decisionId);
     if (decision === undefined) continue;
-    const block = [`- Decision: ${decisionId} "${field(decision.title, 48)}"`],
+    const block = [`<decision ref="decision/${decisionId}" title="${xmlField(decision.title, 48)}"/>`],
       anchorId = derivingAnchor.get(decisionId),
       chosen = decision.chosen.find((entry) => entry.id === anchorId) ?? decision.chosen[0],
       claims = decision.claims.filter((claim) => claim.loadBearing);
-    if (chosen !== undefined)
-      block.push(
-        `  * Chosen ${chosen.id}: ${field(chosen.text, 48)}` +
-          (chosen.rationale ? ` — ${field(chosen.rationale, 48)}` : ""),
-      );
+    if (chosen !== undefined) {
+      const summary = chosen.rationale ? `${chosen.text} — ${chosen.rationale}` : chosen.text;
+      block.push(`<chosen ref="decision/${decisionId}" anchor="${chosen.id}">${xmlField(summary, 96)}</chosen>`);
+    }
     if (claims.length > 0)
-      block.push("  * Claims: " + field(claims.map((claim) => `${claim.id} ${claim.text}`).join("; "), 96));
-    if (decision.question.trim()) tails.push(`  * Question: ${field(decision.question, 64)}`);
+      block.push(
+        `<claims ref="decision/${decisionId}">${xmlField(claims.map((claim) => `${claim.id} ${claim.text}`).join("; "), 96)}</claims>`,
+      );
+    if (decision.question.trim())
+      tails.push(`<question ref="decision/${decisionId}">${xmlField(decision.question, 64)}</question>`);
     decisionBlocks.push(block);
   }
   details.push(...(decisionBlocks[0] ?? []));
   const factLines = servedFactRefs.slice(0, MAX_FACTS).map((ref) => {
     const fact = facts.get(ref);
-    return `  * ${ref.replace(/^fact\//u, "")}: ${
+    return `<fact ref="${ref}">${
       fact === undefined
         ? "(statement not projected at this cut)"
-        : `${field(fact.statement, 64)} (src:${field(fact.evidenceSource, 35)})`
-    }`;
+        : `${xmlField(fact.statement, 64)} (src:${xmlField(fact.evidenceSource, 35)})`
+    }</fact>`;
   });
-  if (factLines.length > 0) details.push(`- Facts:\n${factLines[0]!}`, ...factLines.slice(1));
-  if (workGoal !== null) tails.unshift(`  * Goal: ${field(workGoal, 64)}`);
+  details.push(...factLines);
+  if (workGoal !== null && work !== null)
+    tails.unshift(`<goal ref="task/${work.taskId}">${xmlField(workGoal, 64)}</goal>`);
   details.push(...(decisionBlocks[1] ?? []), ...tails);
   const refs = [
     ...(work === null ? [] : [`task/${work.taskId}`]),
@@ -154,21 +164,23 @@ export function assembleTaskCausalContext(input: {
 }
 
 /**
- * Greedy fit in priority order under a reserved Refs line: the refs keep every
+ * Greedy fit in priority order under a reserved refs line: `<refs>` keeps every
  * layer's canonical id queryable even when the detail lines must drop. The
- * byte cap is a promise, not a hope — if the header plus refs alone exceed it
+ * byte cap is a promise, not a hope — if the root plus refs alone exceed it
  * (only a pathological id set can do that), refs are shed from the tail and
- * the output is hard-clamped to the ceiling on a character boundary.
+ * the output is hard-clamped to the ceiling on a character boundary. A shed
+ * detail marks the root `truncated="yes"` instead of breaking the grammar.
  */
 function renderWithinBudget(details: readonly string[], refs: readonly string[]): string {
   const kept: string[] = [],
     mutable = [...refs];
-  let refsLine = `Refs: ${mutable.join(" ")}`;
-  while (mutable.length > 0 && byteLength(`${HEADER}\n${refsLine}`) > CAUSAL_CONTEXT_MAX_BYTES) {
+  let refsLine = `<refs>${mutable.join(" ")}</refs>`;
+  while (mutable.length > 0 && byteLength(`${ROOT_OPEN}\n${refsLine}\n${ROOT_CLOSE}`) > CAUSAL_CONTEXT_MAX_BYTES) {
     mutable.pop();
-    refsLine = `Refs: ${mutable.join(" ")} …`;
+    refsLine = `<refs>${mutable.join(" ")} …</refs>`;
   }
-  let used = byteLength(HEADER) + 1 + byteLength(refsLine),
+  const usedBase = byteLength(ROOT_OPEN) + 1 + byteLength(refsLine) + 1 + byteLength(ROOT_CLOSE);
+  let used = usedBase,
     dropped = false;
   for (const line of details) {
     const cost = byteLength(line) + 1;
@@ -179,8 +191,8 @@ function renderWithinBudget(details: readonly string[], refs: readonly string[])
     kept.push(line);
     used += cost;
   }
-  let out = `${HEADER}\n${[...kept, refsLine].join("\n")}`;
-  if (dropped && byteLength(out) + 4 <= CAUSAL_CONTEXT_MAX_BYTES) out += " …";
+  const open = dropped ? `<task-context truncated="yes">` : ROOT_OPEN;
+  const out = `${open}\n${[...kept, refsLine].join("\n")}\n${ROOT_CLOSE}`;
   if (byteLength(out) > CAUSAL_CONTEXT_MAX_BYTES) {
     let clamped = "",
       size = 0;
@@ -195,8 +207,48 @@ function renderWithinBudget(details: readonly string[], refs: readonly string[])
   return out;
 }
 
-/** Collapse whitespace and bound one free-text field so CJK prose cannot eat the block. */
-function field(text: string, maxBytes = 96): string {
+/** Collapse whitespace, XML-escape, and bound one free-text field so CJK prose cannot eat the block. */
+function xmlField(text: string, maxBytes = 96): string {
+  const compact = text.replace(/\*\*/gu, "").replace(/\s+/gu, " ").trim();
+  if (byteLength(escapeXml(compact)) <= maxBytes) return escapeXml(compact);
+  let out = "",
+    used = 0;
+  for (const char of compact) {
+    const size = byteLength(escapeXml(char));
+    if (used + size > maxBytes - byteLength("…")) break;
+    out += escapeXml(char);
+    used += size;
+  }
+  return `${out}…`;
+}
+
+function escapeXml(text: string): string {
+  return text.replace(/[&<>"]/gu, (char) =>
+    char === "&" ? "&amp;" : char === "<" ? "&lt;" : char === ">" ? "&gt;" : "&quot;",
+  );
+}
+
+/**
+ * The one-paragraph goal/mission statement of a task plan, if the plan declares one. Returns plain
+ * compacted text — the caller's render line is the single XML-escape point, so this must not pre-escape.
+ */
+export function planGoalSummary(body: string): string | null {
+  // The create-work plan states its goal under Mission.
+  for (const heading of ["Goal", "Brief", "Mission"]) {
+    const section = new RegExp(`^## ${heading}\\s*\\r?\\n([\\s\\S]*?)(?=^## |$)`, "mu").exec(body)?.[1],
+      text = section
+        ?.split(/\r?\n/u)
+        .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/u, "").trim())
+        .filter(Boolean)
+        .slice(0, 2)
+        .join(" ");
+    if (text) return plainField(text, 120);
+  }
+  return null;
+}
+
+/** Collapse whitespace and bound one plain-text field; the render path escapes it exactly once. */
+function plainField(text: string, maxBytes: number): string {
   const compact = text.replace(/\*\*/gu, "").replace(/\s+/gu, " ").trim();
   if (byteLength(compact) <= maxBytes) return compact;
   let out = "",
@@ -208,22 +260,6 @@ function field(text: string, maxBytes = 96): string {
     used += size;
   }
   return `${out}…`;
-}
-
-/** The one-paragraph goal/mission statement of a task plan, if the plan declares one. */
-export function planGoalSummary(body: string): string | null {
-  // The create-work plan states its goal under Mission.
-  for (const heading of ["Goal", "Brief", "Mission"]) {
-    const section = new RegExp(`^## ${heading}\\s*\\r?\\n([\\s\\S]*?)(?=^## |$)`, "mu").exec(body)?.[1],
-      text = section
-        ?.split(/\r?\n/u)
-        .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/u, "").trim())
-        .filter(Boolean)
-        .slice(0, 2)
-        .join(" ");
-    if (text) return field(text, 120);
-  }
-  return null;
 }
 
 function byteLength(text: string): number {

@@ -22,7 +22,8 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 function assertScopedGuidance(prompt: string, taskId: string): void {
   assert.doesNotMatch(prompt, /ha (?:graph|work show|task create)/u);
   assert.match(prompt, new RegExp(`ha task read-set ${taskId}`, "u"));
-  assert.match(prompt, /已注入的 Task Causal Context/u);
+  assert.match(prompt, /已注入的 <task-context>/u);
+  assert.match(prompt, /# Living Deliverable Protocol/u);
   assert.match(prompt, /资料不足[\s\S]*owner/u);
   for (const role of ["implementation", "reviewer"] as const) {
     const principal = {
@@ -137,7 +138,9 @@ async function acceptDecision(cell: Cell, decisionId: string): Promise<void> {
 }
 
 function causalBlock(prompt: string): string | null {
-  const match = /# Task Causal Context[\s\S]*?(?=\r?\n\r?\n|\r?\n# |\s*$)/u.exec(prompt);
+  // Line-anchored: the lookup guidance names the tag mid-sentence, so only an
+  // element that starts its own line is the injected block.
+  const match = /^<task-context[^>]*>[\s\S]*?<\/task-context>/mu.exec(prompt);
   return match === null ? null : match[0];
 }
 
@@ -260,18 +263,31 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.ok(prompt !== null, "the launch request captured a prompt");
     const block = causalBlock(prompt!);
     assert.ok(block !== null, `no causal block in prompt:\n${prompt}`);
-    assert.match(block, /- Work: Causal work\n/u);
-    assert.match(block, new RegExp(`- Decision: ${decisionId} "Dispatch context decision"`, "u"));
-    assert.match(block, /\* Chosen CH1: Inject the causal slice at dispatch — Agents do not run/u);
-    assert.match(block, /\* Claims: C1 94% of dispatches skip read-set\./u);
-    assert.match(block, /- Facts:/u);
+    assert.match(block, /<work ref="task\/task_ctx_root">Causal work<\/work>/u);
+    assert.match(block, new RegExp(`<decision ref="decision/${decisionId}" title="Dispatch context decision"/>`, "u"));
     assert.match(
       block,
-      /\* F-00CA05A1: Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spaw…\)/u,
+      new RegExp(
+        `<chosen ref="decision/${decisionId}" anchor="CH1">Inject the causal slice at dispatch — Agents do not run`,
+        "u",
+      ),
+    );
+    assert.match(
+      block,
+      new RegExp(`<claims ref="decision/${decisionId}">C1 94% of dispatches skip read-set\\.</claims>`, "u"),
+    );
+    assert.match(
+      block,
+      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spaw…\)<\/fact>/u,
     );
     assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES, "causal block exceeds the byte budget");
     assert.doesNotMatch(block, /ha graph/u, "the causal block no longer spends budget on a bare command word");
     assert.match(prompt!, /# 台账查询引导/u, "the lookup guidance rides every task-bound mission");
+    assert.match(
+      prompt!,
+      /# Living Deliverable Protocol/u,
+      "the living deliverable protocol rides every task-bound mission",
+    );
     assertScopedGuidance(prompt!, "task_ctx_leaf");
 
     // An explicit prompt on a task-bound dispatch still gets the same block prepended.
@@ -445,7 +461,7 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
     assert.equal(typeof preview.prompt, "string");
     assert.equal(typeof preview.mission, "string");
     assert.match(String(preview.prompt), /# Agent Identity: Preview Worker/u);
-    assert.match(String(preview.prompt), /# Task Causal Context/u);
+    assert.match(String(preview.prompt), /<task-context/u);
 
     // No launch, no lease, no ledger write: the preview is a read projection.
     assert.equal(launchCalls, 0, "dry-run must not reach prepareLaunch");
@@ -464,7 +480,8 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
     assert.equal(preview.dispatchId, real.dispatchId, "preview must derive the same dispatch identity");
     assert.equal(preview.runtimeSessionId, real.runtimeSessionId);
     assert.equal(preview.prompt, prompt, "preview prompt must equal the injected prompt byte-for-byte");
-    assert.match(String(preview.mission), /# Task Causal Context/u);
+    assert.match(String(preview.mission), /<task-context/u);
+    assert.match(String(preview.mission), /# Living Deliverable Protocol/u);
     assertScopedGuidance(String(preview.mission), "task_pv_leaf");
 
     // Negative control: changing an injected declaration field must change the preview.

@@ -188,8 +188,9 @@ test(
       },
       localAuth,
     );
-    const causalBlock = (prompt: string) =>
-      /# Task Causal Context[\s\S]*?(?=\r?\n\r?\n|\r?\n# |\s*$)/u.exec(prompt)?.[0] ?? null;
+    // Line-anchored: the lookup guidance names the tag mid-sentence, so only an
+    // element that starts its own line is the injected block.
+    const causalBlock = (prompt: string) => /^<task-context[^>]*>[\s\S]*?<\/task-context>/mu.exec(prompt)?.[0] ?? null;
     // Explicit-prompt dispatch: the center block must be prepended to the caller text.
     const explicit = await edgeHost.fleet.edgeRuntime(
       {
@@ -218,15 +219,16 @@ test(
     assert.ok(explicitPrompt !== undefined, "the provider launch captured no prompt");
     assert.doesNotMatch(explicitPrompt, /ha (?:graph|work show|task create)/u);
     assert.ok(explicitPrompt.includes(`ha task read-set ${fixture.subject.taskId}`));
-    assert.match(explicitPrompt, /已注入的 Task Causal Context/u);
+    assert.match(explicitPrompt, /已注入的 <task-context>/u);
+    assert.match(explicitPrompt, /# Living Deliverable Protocol/u);
     assert.match(explicitPrompt, /资料不足[\s\S]*owner/u);
     assert.ok(explicitPrompt.endsWith("Explicit edge mission."));
     const explicitBlock = causalBlock(explicitPrompt);
     assert.ok(explicitBlock !== null, `no causal block in remote-edge prompt:\n${explicitPrompt}`);
     assert.match(explicitBlock, /CENTERFRESH-ZQ decision/u);
     assert.match(explicitBlock, /CENTERFRESH-ZQ evidence recorded post-pull\./u);
-    assert.match(explicitBlock, /Refs: [^\s]/u);
-    assert.doesNotMatch(explicitBlock, /ha graph/u, "the bare graph command word left the Refs tail");
+    assert.match(explicitBlock, /<refs>[^<]/u);
+    assert.doesNotMatch(explicitBlock, /ha graph/u, "the bare graph command word left the refs tail");
     assert.ok(
       Buffer.byteLength(explicitBlock, "utf8") <= 500,
       `causal block is ${Buffer.byteLength(explicitBlock, "utf8")} bytes`,

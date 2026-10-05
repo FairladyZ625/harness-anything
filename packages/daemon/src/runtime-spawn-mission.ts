@@ -206,7 +206,7 @@ export async function resolveRuntimeInstanceId(input: {
 export function taskQueryGuidance(taskId: string): string {
   return [
     "# 台账查询引导",
-    "- 动手前先读任务包 task_plan.md 与已注入的 Task Causal Context；其中 Work、Parent、Decision、Facts 和 Refs " +
+    "- 动手前先读任务包 task_plan.md 与已注入的 <task-context> 因果上下文；其中 work、parent、decision、fact 和 refs " +
       "提供本任务的关系背景，不要求先查询全仓图。",
     `- 本任务阅读集合用 ha task read-set ${taskId} 查；按任务契约、read-set 和注入上下文点名的路径读取资料。`,
     `- 需要核对本任务状态时用 ha task show ${taskId}；其他命令仅按本次 dispatch 已授权范围调用。`,
@@ -217,10 +217,28 @@ export function taskQueryGuidance(taskId: string): string {
   ].join("\n");
 }
 
-/** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance as a derived mission. */
+/**
+ * The standing Living Deliverable contract every task-bound dispatch carries: the task's explainer
+ * page is a living artifact the worker updates each round and freezes at closeout. Fixed text the
+ * daemon injects on every task mission (derived, explicit-prompt, and fleet-edge alike); the
+ * task-explainer-html skill carries the authoring spec, and the inline baselines keep a repo
+ * without that skill on the same rails. Non-task dispatches never see it.
+ */
+export function livingDeliverableProtocol(): string {
+  return [
+    "# Living Deliverable Protocol",
+    "- 本任务的可视解释页是任务包 `artifacts/explainer.html`：每个工作轮次结束前增量更新它，让不读代码的读者" +
+      "也能看到本任务做了什么、验证了什么、还差什么。",
+    "- 页面遵循 `task-explainer-html` 技能规范：单文件 HTML、样式与 SVG 全内联、零外网依赖、浅色适读" +
+      "（背景 `#faf7f0`，正文 `#3d3833`）、无 JS 也可读；技能不在当前仓库时按这四条底线自绘。",
+    "- closeout 终态冻结该页：随任务包一并提交后不再改动。它是交付回环的一环，不替代 closeout.md 的结构化汇报。",
+  ].join("\n");
+}
+
+/** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance and living-deliverable contract as a derived mission. */
 export function explicitPromptMission(taskId: string | null, causalContext: string | null, prompt: string): string {
   return [
-    ...(taskId === null ? [] : [taskQueryGuidance(taskId)]),
+    ...(taskId === null ? [] : [taskQueryGuidance(taskId), livingDeliverableProtocol()]),
     ...(causalContext === null ? [] : [causalContext]),
     prompt,
   ].join("\n\n");
@@ -268,6 +286,7 @@ export function deriveTaskMission(
       `Your task package is ${packageRoot}.\nRead ${path.basename(planPath)} in that package and complete the task.`,
       ...(returnDocument ? [`# Owner rework instruction\n\n${returnDocument.body.trim()}`] : []),
       taskQueryGuidance(taskId),
+      livingDeliverableProtocol(),
       ...(causalContextResolved === null ? [] : [causalContextResolved]),
       ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.trim()}`] : []),
     ].join("\n\n");

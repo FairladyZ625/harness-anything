@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } fro
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
-import { taskQueryGuidance } from "@harness-anything/daemon/internal/runtime-spawn-mission";
+import { livingDeliverableProtocol, taskQueryGuidance } from "@harness-anything/daemon/internal/runtime-spawn-mission";
 import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
@@ -187,7 +187,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: detachedSessionId,
-    mission: `${taskQueryGuidance(taskId)}\n\nhold`,
+    mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol()}\n\nhold`,
   });
   const cancelledWait = runMaybe(root, env, ["runtime", "status", detachedSessionId, "--wait", "--no-stream"]);
   assert.equal(cancelledWait.status, 1);
@@ -260,7 +260,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(resumedDispatch.runtimeSessionId),
-    mission: `${taskQueryGuidance(taskId)}\n\nfollow up`,
+    mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol()}\n\nfollow up`,
   });
   const resumedRow = (run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find(
     (row) => row.dispatchId === resumedDispatchId,
@@ -432,7 +432,12 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
     wildcardText,
   );
   assert.match(wildcardText, /# Worker Role/u);
-  assert.ok(wildcardText.endsWith(`# Assigned Mission\n${taskQueryGuidance(taskId)}\n\nwildcard prompt`), wildcardText);
+  assert.ok(
+    wildcardText.endsWith(
+      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol()}\n\nwildcard prompt`,
+    ),
+    wildcardText,
+  );
   assert.ok(
     wildcardText.indexOf("# Worker Role") < wildcardText.indexOf("prompt://review") &&
       wildcardText.indexOf("prompt://review") < wildcardText.indexOf("# Standard Task") &&
