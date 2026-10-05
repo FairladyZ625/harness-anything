@@ -7,7 +7,7 @@ import { leaseRuntimeSessionIdOf, type CollaborationTask } from "./model/collabo
  * 协作页的会话→Agent 索引读面(task_1bafbf09 返工):runtime-session-groups 的
  * groupBy=agent 一条读,Agent 维度由仓库派工事件中的 agentId 权威绑定。
  * query key 并入 sessionGroupsAll 家族,与会话页/研发态势共享缓存与台账 cut 的
- * 失效扇出,不建第二份快照;只在协作页挂载且非纯本地时读。
+ * 失效扇出,不建第二份快照;协作页挂载时读(本地仓也是舰队中心,业主 2026-10-05)。
  */
 export function useCollaborationAgentIndex(
   repoId: string | null,

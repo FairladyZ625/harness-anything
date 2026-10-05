@@ -217,13 +217,76 @@ describe("协作页内容契约", () => {
     act(() => view.root.unmount());
   });
 
-  it("纯本地落页给如实提示;远端中心不提示", () => {
+  it("本地仓即舰队中心:落页给中心视角提示;远端中心不提示", () => {
     const local = renderView({ mode: "local", tasks: [task("task-1")] });
-    expect(local.host.querySelector('[data-testid="collaboration-local-notice"]')).not.toBeNull();
+    expect(local.host.querySelector('[data-testid="collaboration-center-notice"]')?.textContent).toContain(
+      "本机即舰队中心",
+    );
     act(() => local.root.unmount());
     const center = renderView({ mode: "remote-center", tasks: [task("task-1")] });
-    expect(center.host.querySelector('[data-testid="collaboration-local-notice"]')).toBeNull();
+    expect(center.host.querySelector('[data-testid="collaboration-center-notice"]')).toBeNull();
     act(() => center.root.unmount());
+  });
+
+  it("本地仓(舰队中心)视角:local 通道租约计入中心锚点节点,本机 Agent 与租约照常呈现", () => {
+    const view = renderView({
+      mode: "local",
+      tasks: [
+        task("task-center", {
+          leaseActor: {
+            principal: { personId: "person_zeyu" },
+            executor: { kind: "agent", id: "runtime-session:runtime_glm" },
+          },
+          leaseSource: "local",
+          leasePhase: "held",
+        }),
+        task("task-edge", HELD_LEASE), // edge-mac 节点来源,与中心并列
+      ],
+      agents: agentIndex([declaredSessionAgent("glm", "GLM-5.3", "runtime_glm")]),
+    });
+    const nodes = view.host.querySelector('[data-testid="collaboration-nodes"]')!;
+    // 中心是锚点排在边缘节点前,显示名点明本机,悬停保留 id
+    const centerEntry = nodes.querySelector('[data-node="center"]')!;
+    expect(centerEntry.textContent).toContain("中心（本机）");
+    expect([...nodes.querySelectorAll("[data-node]")].map((node) => node.getAttribute("data-node"))).toEqual([
+      "center",
+      "edge-mac",
+    ]);
+    // 本机执行的租约计入中心节点的执行计数
+    expect(centerEntry.textContent).toContain("执行中 1");
+    // 行内执行位:本机 Agent、会话与中心节点名齐全,不再显示「本机通道」
+    const row = view.rows().find((r) => r.getAttribute("data-task-id") === "task-center")!;
+    expect(row.textContent).toContain("GLM-5.3");
+    expect(row.textContent).toContain("中心（本机）");
+    expect(row.textContent).toContain("执行中");
+    expect(row.textContent).not.toContain("本机通道");
+    // 中心节点筛选只留本机执行的行
+    const centerChip = view.host
+      .querySelector('[data-testid="collaboration-filter-node"] span[title="center"]')
+      ?.closest("button") as HTMLButtonElement;
+    act(() => centerChip.click());
+    expect(view.rows().map((r) => r.getAttribute("data-task-id"))).toEqual(["task-center"]);
+    act(() => view.root.unmount());
+  });
+
+  it("远端中心视角的中心节点不带「本机」:显示名区分中心所在地", () => {
+    const view = renderView({
+      mode: "remote-center",
+      tasks: [
+        task("task-center", {
+          leaseActor: {
+            principal: { personId: "person_zeyu" },
+            executor: { kind: "agent", id: "runtime-session:runtime_glm" },
+          },
+          leaseSource: "local",
+          leasePhase: "held",
+        }),
+      ],
+    });
+    const centerEntry = view.host.querySelector('[data-testid="collaboration-nodes"] [data-node="center"]')!;
+    expect(centerEntry.textContent).toContain("中心");
+    expect(centerEntry.textContent).not.toContain("本机");
+    act(() => view.root.unmount());
   });
 
   it("切面未读完与真空仓是两种状态", () => {

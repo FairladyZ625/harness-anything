@@ -12,7 +12,10 @@ import type { TaskRow } from "./types.ts";
  *   runtime-session-groups 投影的权威绑定(dispatch 行的 agentId,见
  *   daemon agent-runtime-session-groups.ts),不从 model/instance/session 字符串猜;
  * - 指派过期不打断已持有的 lease——执行侧以 lease 为准,资格侧只如实标注过期;
- * - 节点观察仅汇总数据里出现的 nodeId,在线状态本读面不提供,不推断。
+ * - 节点观察仅汇总数据里出现的 nodeId,在线状态本读面不提供,不推断;
+ * - 台账里只有边缘节点有 nodeId,中心本机没有;中心视角由前端投影把 local 通道
+ *   的 lease 虚拟为中心节点(见 projectCenterLeaseSource),不在 daemon 协议里
+ *   造中心实体。
  *
  * 一切判定只消费结构字段(assignment / leaseActor / leaseSource),不从
  * leaseHolder 显示串反解析。
@@ -70,6 +73,26 @@ export function leaseNodeIdOf(leaseSource: TaskRow["leaseSource"]): string | nul
   return typeof leaseSource === "object" && leaseSource !== null && leaseSource.kind === "node"
     ? leaseSource.nodeId
     : null;
+}
+
+/**
+ * 舰队中心本机的虚拟节点 id(task_775fc98c):lease/v1 的 local 通道执行在持有
+ * canonical 台账的中心机器上,而中心在台账里没有 nodeId(只有边缘节点有)。
+ * 前端投影用它把中心与边缘节点收进同一条节点管线;该 id 由本模块保留,
+ * 不与真实节点混淆——真实 nodeId 来自 fleet admission,不经过这里。
+ */
+export const CENTER_NODE_ID = "center";
+
+/**
+ * 中心视角虚拟化投影:把 local 通道的 lease 来源映射为中心虚拟节点,让中心本机
+ * 的执行与边缘节点出现在同一份节点汇总/筛选/行渲染里(业主 2026-10-05:本地仓即
+ * Fleet Center,中心也要一览协作大盘)。remote_direct 是无节点身份的远端直写,
+ * 不是中心本机,不虚拟;其余来源原样透传。投影只改 leaseSource,不改行数与排序。
+ */
+export function projectCenterLeaseSource(tasks: readonly CollaborationTask[]): readonly CollaborationTask[] {
+  return tasks.map((task) =>
+    task.leaseSource === "local" ? { ...task, leaseSource: { kind: "node", nodeId: CENTER_NODE_ID } } : task,
+  );
 }
 
 /** 资格侧状态:无指派 / 指派在期 / 指派期限已过(只描述资格,不影响执行侧显示)。 */
@@ -131,6 +154,8 @@ export const isExecutingLeasePhase = (phase: string | undefined): boolean =>
  * 指派人与 lease principal 是同一人、或 lease 节点与指派节点是同一节点,都只计一次。
  * Agent 维度按会话→Agent 索引聚合:同一 Agent 的多个 lease 会话收进同一个筛选值;
  * 索引映射不上的会话不产生 Agent 筛选值(行内如实显示「未提供」)。
+ * 节点序:中心虚拟节点(经 projectCenterLeaseSource 投影后出现)是舰队拓扑的锚点,
+ * 恒排首位;其余按执行数降序。输入未投影时行为与旧版一致(没有 center 条目)。
  */
 export function collaborationFilterOptions(
   tasks: readonly CollaborationTask[],
@@ -185,7 +210,10 @@ export function collaborationFilterOptions(
     persons: [...persons.entries()].map(([id, count]) => ({ id, count })).sort(byCountThenId),
     agents: [...agentCounts.entries()].map(([id, { label, count }]) => ({ id, label, count })).sort(byCountThenId),
     nodes: [...nodes.values()].sort(
-      (left, right) => right.executing - left.executing || left.nodeId.localeCompare(right.nodeId),
+      (left, right) =>
+        Number(left.nodeId !== CENTER_NODE_ID) - Number(right.nodeId !== CENTER_NODE_ID) ||
+        right.executing - left.executing ||
+        left.nodeId.localeCompare(right.nodeId),
     ),
   };
 }
