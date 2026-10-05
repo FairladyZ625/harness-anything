@@ -353,11 +353,62 @@ test("runtime status --wait reports an operator stop honestly instead of burning
   }
 });
 
-test("runtime status --wait exits non-zero when the parked await answers an error receipt", async () => {
-  // The client-visible shape of the 2026-09-19 handoff incident: a parked await answered with the
-  // receipt protocolFailure() builds for a closed RepoCell. Whatever ends a wait in an error must
-  // not look like success to the orchestrator reading the sentinel's exit code.
-  const fixture = await openFixtureDaemon("await-error-receipt");
+test("runtime status --wait rides out a repo_warming handoff window on the successor", async () => {
+  // The daemon-fixed client-visible shape of the 2026-10-05 handoff incident: the successor
+  // daemon no longer latches its first attach on the identity center's startup race — the attach
+  // waits behind the center's resume, so the waited repo answers repo_warming until the attach
+  // completes. The probe read rides that readiness state through the command path's own
+  // settleRepoWarming patience, and the wait keeps waiting instead of returning the window as a
+  // verdict about the awaited sessions.
+  const fixture = await openFixtureDaemon("await-warming-rideout");
+  let awaitRequests = 0,
+    warmingReads = 0,
+    statusReads = 0;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.sessions.read") {
+      // The still-attaching successor answers the probe read as warming until its attach lands.
+      if (warmingReads < 2) {
+        warmingReads += 1;
+        reply(socket, request.id, repoWarmingReceipt("repo.agentRuntime.sessions.read"));
+        return;
+      }
+      statusReads += 1;
+      reply(socket, request.id, runtimeStatus(false));
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.await");
+    awaitRequests += 1;
+    pendingAwait.push({ socket, id: request.id });
+  };
+  const invocation = runWait(fixture);
+  try {
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the wait must reach the parked await past the warming window");
+    assert.ok(!invocation.closed, "the wait must stay parked through the warming window");
+    assert.ok(warmingReads >= 2, `the probe must retry warming answers, observed ${warmingReads}`);
+    for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
+    const result = await invocation.result(hangGuardMs);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.receipt.outcome, "succeeded");
+    assert.equal(awaitRequests, 1, "the await itself needs no retry once the attach has landed");
+    assert.equal(statusReads, 1, "the probe settles on the first attached answer");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("runtime status --wait exits non-zero at once when the parked await answers a latched repo_unavailable receipt", async () => {
+  // The daemon heals its own startup race at the source now, so a repo_unavailable verdict is no
+  // longer a transient the client should ride out: it means the repo is genuinely latched, and
+  // the wait returns that verdict immediately instead of parking on a retry budget.
+  const fixture = await openFixtureDaemon("await-latch-verdict");
+  let awaitRequests = 0;
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
@@ -365,6 +416,46 @@ test("runtime status --wait exits non-zero when the parked await answers an erro
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      pendingAwait.push({ socket, id: request.id });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    reply(socket, request.id, runtimeStatus(false));
+  };
+  const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait", "--no-stream"], false);
+  try {
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    assert.ok(!invocation.closed, "the wait must stay parked until the daemon answers");
+    for (const pending of pendingAwait)
+      reply(pending.socket, pending.id, repoLatchReceipt("repo.agentRuntime.sessions.await"));
+    const result = await invocation.result(hangGuardMs);
+    assert.notEqual(result.code, 0, "a latched verdict must not report success through its exit code");
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /error code=repo_unavailable/u);
+    assert.equal(awaitRequests, 1, "a latched verdict is terminal; the wait must not re-ask");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("runtime status --wait exits non-zero at once when the parked await answers a terminal error receipt", async () => {
+  // The negative control for the latch ride-out, and the standing contract from the 2026-09-19
+  // incident: a repo the daemon does not know never heals, so that verdict returns immediately,
+  // and whatever ends a wait in an error must not look like success to the orchestrator reading
+  // the sentinel's exit code.
+  const fixture = await openFixtureDaemon("await-error-receipt");
+  let awaitRequests = 0;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
       pendingAwait.push({ socket, id: request.id });
       return;
     }
@@ -384,15 +475,16 @@ test("runtime status --wait exits non-zero when the parked await answers an erro
         outcome: "op_rejected",
         opId: "N/A",
         origin: "daemon",
-        code: "repo_unavailable",
-        evidence: "rejection:repo_unavailable",
-        rejectionExplanation: "RepoCell is closed.",
-        error: { code: "repo_unavailable" },
+        code: "repo_namespace_unknown",
+        evidence: "rejection:repo_namespace_unknown",
+        rejectionExplanation: "Unknown repo namespace: runtime-wait.",
+        error: { code: "repo_namespace_unknown" },
       });
     const result = await invocation.result(hangGuardMs);
     assert.notEqual(result.code, 0, "an errored wait must not report success through its exit code");
     assert.equal(result.code, 1);
-    assert.match(result.stderr, /error code=repo_unavailable hint=RepoCell is closed\./u);
+    assert.match(result.stderr, /error code=repo_namespace_unknown/u);
+    assert.equal(awaitRequests, 1, "a namespace verdict is terminal; the wait must not re-ask");
   } finally {
     invocation.stop();
     await fixture.close();
@@ -924,6 +1016,41 @@ async function withTimeout(
 
 function reply(socket: net.Socket, id: number, result: Record<string, unknown>): void {
   socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
+}
+
+function repoWarmingReceipt(command: string): Record<string, unknown> {
+  // daemonProtocolError()'s shape for a still-attaching RepoCell: the successor daemon keeps the
+  // repo warming while its first attach waits behind the identity center's resume.
+  return {
+    schema: "command-receipt/v2",
+    ok: false,
+    command,
+    outcome: "op_rejected",
+    opId: "N/A",
+    origin: "daemon",
+    code: "repo_warming",
+    evidence: "rejection:repo_warming",
+    rejectionExplanation: "Repository runtime-wait is still warming; wait for its background attachment to complete.",
+    error: { code: "repo_warming" },
+  };
+}
+
+function repoLatchReceipt(command: string): Record<string, unknown> {
+  // daemonProtocolError()'s shape for a latched RepoCell: the transient attach error rides
+  // unflattened as the rejection explanation (the 2026-10-05 lifecycle log: "TypeError: fetch
+  // failed").
+  return {
+    schema: "command-receipt/v2",
+    ok: false,
+    command,
+    outcome: "op_rejected",
+    opId: "N/A",
+    origin: "daemon",
+    code: "repo_unavailable",
+    evidence: "rejection:repo_unavailable",
+    rejectionExplanation: "fetch failed",
+    error: { code: "repo_unavailable" },
+  };
 }
 
 function awaitReceipt(

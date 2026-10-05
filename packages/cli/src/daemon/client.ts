@@ -23,7 +23,6 @@ import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/
 import { materializePromptFile } from "../cli-runtime-prompt-file.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetDocRoute, fleetRuntimeRoute, fleetScheduleRoute, fleetTaskRoute } from "./fleet-command-route.ts";
-import { openDaemonStatusReader } from "./status-reader.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
 import { isRepoAdminMethod, runRepoAdminCommand } from "./repo-admin-route.ts";
@@ -497,24 +496,6 @@ export async function streamRuntimeThroughDaemon(
     timeoutMs: 2_000,
     ...(onClosed ? { onClosed } : {}),
   });
-}
-export async function openRuntimeStatusReader(
-  command: ThinCommand,
-  runtimeSessionId: string,
-): Promise<{ readonly read: () => Promise<JsonObject>; readonly close: () => void }> {
-  // The spawn receipt already identifies the canonical session; task/dispatch point reads
-  // depend on a dispatch stream that lives on the execution node, not at the fleet center.
-  const fleetCommand = {
-    ...command,
-    method: "repo.agentRuntime.sessions.read",
-    action: { kind: "runtime-status", runtimeSessionId },
-  } as ThinCommand;
-  if (await fleetRuntimeRoute(fleetCommand))
-    return {
-      read: () => runCommandThroughDaemon(fleetCommand, () => undefined, { autostart: false }),
-      close: () => undefined,
-    };
-  return openDaemonStatusReader(fleetCommand, "repo.agentRuntime.sessions.read", { runtimeSessionId });
 }
 async function openLocalDaemonReader(
   target: { readonly socketPath: string; readonly sessionEnvironment?: DaemonSessionEnvironment },
