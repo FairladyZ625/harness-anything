@@ -67,7 +67,7 @@ description: 产出与增量维护任务包的活解释页 artifacts/explainer.h
 ## 活页生命周期（Living Deliverable Protocol）
 
 1. **每轮增量更新**：工作轮次收尾时更新 `artifacts/explainer.html`——更新结论句、任务对照表状态、验证区证据，而不是推倒重写。页面 DOM 骨架保持稳定（章节 id 不变），只重写数据区，让逐轮 diff 可读。
-2. **首轮即建页**：任务开工的第一轮就创建该页（哪怕只有结论句与对照表空行），不要攒到收尾一次性补。
+2. **创建即物化**：非 lightweight profile 的任务在 `ha task create` 时就已物化这一页（preset 模板直接可增量填写）；lightweight profile 不物化本页、mission 也不注入本协议。首轮工作从填充骨架开始，不要另起新文件。
 3. **closeout 冻结**：任务进入终态时，解释页随任务包一并提交并不再改动；冻结版必须与 closeout.md 的结论一致。
 4. **不替代结构化汇报**：本页是给人看的解释层；closeout.md 四节、progress、fact 等台账义务不因本页存在而减免。
 

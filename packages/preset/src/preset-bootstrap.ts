@@ -12,6 +12,7 @@ import {
   validatePresetSnapshotUpgradeEvent,
   validateTaskBootstrapEvent,
   validateTaskIdSyntax,
+  OPAQUE_TEXTUAL_POLICY_ID,
   type ActorIdentity,
   type FrozenWritePlan,
   type PresetSnapshotUpgradeBundle,
@@ -79,6 +80,25 @@ export interface CompiledTaskBootstrap extends CompiledTaskPackage {
   readonly plan: FrozenWritePlan<"TaskBootstrap">;
   readonly blobs: readonly TaskBootstrapBlob[];
 }
+
+const LIVING_EXPLAINER_TEMPLATE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Task explainer</title>
+<style>
+:root{color-scheme:light}body{margin:0;padding:2rem;background:#faf7f0;color:#3d3833;font:16px/1.55 system-ui,sans-serif}main{max-width:72rem;margin:auto}h1{font-size:2rem;margin:0 0 1rem}section{border-top:1px solid #d8d0c4;padding:1rem 0}h2{font-size:1.1rem;margin:.2rem 0}.muted{color:#6d655d}
+</style>
+</head>
+<body><main>
+<h1>Task explainer</h1>
+<p class="muted">Living summary. Update this page incrementally as the task progresses.</p>
+<section id="goal"><h2>Goal</h2><p>Pending.</p></section>
+<section id="changes"><h2>Changes</h2><p>Pending.</p></section>
+<section id="verification"><h2>Verification</h2><p>Pending.</p></section>
+<section id="remaining"><h2>Remaining risk</h2><p>Pending.</p></section>
+</main></body></html>
+`;
 export interface CompilePresetSnapshotUpgradeInput extends PresetResolverOptions {
   readonly toPresetId?: string;
   readonly documentExists?: (relativePath: string) => boolean;
@@ -184,6 +204,20 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         "invalid_scaffold",
         `Preset script ${script.relativePath} collides with a scaffold document path.`,
       );
+  const explainer =
+    metadata.profileId === "lightweight"
+      ? null
+      : {
+          slot: "task.explainer",
+          relativePath: "artifacts/explainer.html",
+          path: `${packagePath}/artifacts/explainer.html`,
+          body: LIVING_EXPLAINER_TEMPLATE,
+          contentSha256: sha256Text(LIVING_EXPLAINER_TEMPLATE),
+          mediaType: "text/html" as const,
+          owner: "doc-sync" as const,
+          requiredAnchors: [],
+          templateRef: null,
+        };
   const scaffoldDigest = resolved.snapshot.scaffold.resolvedSelectionDigest,
     orderedProse = [bySlot.get("task.plan")!, bySlot.get("task.closeout")!, bySlot.get("task.artifacts.keep")!],
     additions = prose
@@ -201,6 +235,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       descriptor(orderedProse[1]!),
       descriptor(orderedProse[2]!),
       ...additions.map((document) => descriptor(document)),
+      ...(explainer === null ? [] : [descriptor(explainer)]),
       ...presetScripts.map((document) => descriptor(document)),
     ],
     index = machine("task.index", "INDEX.md", renderIndex(input, packagePath, metadata, descriptors)),
@@ -240,7 +275,16 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         2,
       )}\n`,
     ),
-    documents = [index, contract, orderedProse[0]!, orderedProse[1]!, orderedProse[2]!, ...additions, ...presetScripts];
+    documents = [
+      index,
+      contract,
+      orderedProse[0]!,
+      orderedProse[1]!,
+      orderedProse[2]!,
+      ...additions,
+      ...(explainer === null ? [] : [explainer]),
+      ...presetScripts,
+    ];
   return {
     snapshot,
     packagePath,
@@ -293,7 +337,13 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
       mediaType: document.mediaType,
       owner: document.owner,
       policyId:
-        document.owner === "machine" ? ("typed-machine-writer/v1" as const) : ("markdown-body-replaceable/v1" as const),
+        document.owner === "machine"
+          ? ("typed-machine-writer/v1" as const)
+          : ((document.relativePath === "artifacts/explainer.html"
+              ? OPAQUE_TEXTUAL_POLICY_ID
+              : ("markdown-body-replaceable/v1" as const)) as
+              | "markdown-body-replaceable/v1"
+              | "opaque-textual-whole-file/v1"),
     }));
   const event: TaskBootstrapEventV1 = {
     schema: "task-bootstrap-event/v1",

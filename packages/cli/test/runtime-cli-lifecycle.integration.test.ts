@@ -187,7 +187,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: detachedSessionId,
-    mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol()}\n\nhold`,
+    mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nhold`,
   });
   const cancelledWait = runMaybe(root, env, ["runtime", "status", detachedSessionId, "--wait", "--no-stream"]);
   assert.equal(cancelledWait.status, 1);
@@ -260,7 +260,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(resumedDispatch.runtimeSessionId),
-    mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol()}\n\nfollow up`,
+    mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nfollow up`,
   });
   const resumedRow = (run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find(
     (row) => row.dispatchId === resumedDispatchId,
@@ -434,7 +434,7 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
   assert.match(wildcardText, /# Worker Role/u);
   assert.ok(
     wildcardText.endsWith(
-      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol()}\n\nwildcard prompt`,
+      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nwildcard prompt`,
     ),
     wildcardText,
   );

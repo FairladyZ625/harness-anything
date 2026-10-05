@@ -55,7 +55,7 @@ test("task create materializes preset scripts into artifacts/scripts as byte-ide
     const packageDir = path.join(rootDir, "harness", bootstrap.packagePath),
       scriptsDir = path.join(packageDir, "artifacts", "scripts");
     assert.deepEqual(readdirSync(scriptsDir).sort(), ["check-env.mjs", "sum.mjs"]);
-    assert.deepEqual(readdirSync(path.join(packageDir, "artifacts")).sort(), [".gitkeep", "scripts"]);
+    assert.deepEqual(readdirSync(path.join(packageDir, "artifacts")).sort(), [".gitkeep", "explainer.html", "scripts"]);
     for (const name of ["check-env.mjs", "sum.mjs"]) {
       const target = path.join(scriptsDir, name),
         status = lstatSync(target);
@@ -122,7 +122,7 @@ test("a preset without scripts leaves the task package unchanged and creates no 
       bootstrap.documents.some(({ relativePath }) => relativePath.startsWith("artifacts/scripts/")),
       false,
     );
-    assert.equal(bootstrap.documents.length, 5);
+    assert.equal(bootstrap.documents.length, 6);
     const store = makeTaskEventStore({ repoId: "preset-scripts-none", rootDir });
     store.append({ event: bootstrap.event, plan: bootstrap.plan, blobs: bootstrap.blobs });
     await store.settlePendingMaterialization();

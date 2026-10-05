@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -98,9 +98,10 @@ async function createTask(
     readonly title: string;
     readonly taskClass?: string;
     readonly parentTaskId?: string;
+    readonly profileId?: string;
   },
   planTitle?: string,
-): Promise<void> {
+): Promise<string> {
   const created = await cell.run({ kind: "task-create", ...spec }, binding);
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForFixturePublication(cell, created.opId, binding);
@@ -112,6 +113,7 @@ async function createTask(
     (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     planTitle,
   );
+  return String(packagePath);
 }
 
 async function relate(cell: Cell, sourceRef: string, targetRef: string, relationType: string): Promise<void> {
@@ -355,6 +357,58 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.equal(causalBlock(prompt!), null, "relation-free task must not carry a fabricated block");
     assert.match(prompt!, /# 台账查询引导/u);
     assertScopedGuidance(prompt!, "task_ctx_lonely");
+
+    // dec_64C2E7741F1827DADC27941FCA: a baseline task is born with a materialized explainer page
+    // its mission points at; a lightweight task is born without one and its mission carries no
+    // Living Deliverable Protocol at all.
+    const baselinePackage = await createTask(cell, root, {
+      taskId: "task_ctx_explainer",
+      title: "Explainer carrier",
+      parentTaskId: "task_ctx_root",
+    });
+    const baselinePage = readFileSync(
+      path.join(canonicalRoot(root), "harness", baselinePackage, "artifacts", "explainer.html"),
+      "utf8",
+    );
+    assert.ok(baselinePage.startsWith("<!DOCTYPE html>"), "the explainer page is materialized at create");
+    assert.ok(baselinePage.includes("Explainer carrier"), "the skeleton carries the task title");
+    prompt = null;
+    const explainerDispatch = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: definition.instanceId,
+        cwd: { scope: "repo-root" },
+        taskId: "task_ctx_explainer",
+        idempotencyKey: "dispatch-context-explainer",
+      },
+      binding,
+    );
+    assert.equal(explainerDispatch.outcome, "applied", JSON.stringify(explainerDispatch));
+    assert.match(prompt!, /# Living Deliverable Protocol/u);
+    assert.match(prompt!, /已物化/u, "the protocol names the already-materialized page");
+    const litePackage = await createTask(cell, root, {
+      taskId: "task_ctx_lite",
+      title: "Lightweight carrier",
+      profileId: "lightweight",
+    });
+    assert.equal(
+      existsSync(path.join(canonicalRoot(root), "harness", litePackage, "artifacts", "explainer.html")),
+      false,
+      "a lightweight task materializes no explainer page",
+    );
+    prompt = null;
+    const lite = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: definition.instanceId,
+        cwd: { scope: "repo-root" },
+        taskId: "task_ctx_lite",
+        idempotencyKey: "dispatch-context-lite",
+      },
+      binding,
+    );
+    assert.equal(lite.outcome, "applied", JSON.stringify(lite));
+    assert.match(prompt!, /# 台账查询引导/u, "lightweight keeps the lookup guidance");
+    assert.doesNotMatch(prompt!, /# Living Deliverable Protocol/u, "lightweight owes no living deliverable");
+    assert.doesNotMatch(prompt!, /explainer\.html/u);
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

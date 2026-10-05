@@ -9,6 +9,7 @@ import test from "node:test";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 
+import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 
@@ -230,7 +231,7 @@ test(
     assert.match(explicitBlock, /<refs>[^<]/u);
     assert.doesNotMatch(explicitBlock, /ha graph/u, "the bare graph command word left the refs tail");
     assert.ok(
-      Buffer.byteLength(explicitBlock, "utf8") <= 500,
+      Buffer.byteLength(explicitBlock, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
       `causal block is ${Buffer.byteLength(explicitBlock, "utf8")} bytes`,
     );
     // Wait for the first session to settle so the task lease frees, then prove

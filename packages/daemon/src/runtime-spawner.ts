@@ -298,13 +298,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ? null
             : assembleTaskCausalContext({ projection: projection!, taskId })
           : remoteTask.causalContext,
+      // The profile is frozen at creation: locally from the projection, remotely from the center's
+      // serving read. It gates the Living Deliverable Protocol on every task-bound path.
+      missionProfileId = remoteTask?.profileId ?? taskSnapshot?.task?.metadata?.profileId ?? null,
       taskMission = taskId
         ? missionAt(input.rootDir, cwd, remoteTask ?? { projection: projection!, taskId, missionName, causalContext })
         : null,
       mission =
         explicitMission === undefined
           ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
-          : explicitPromptMission(taskId, causalContext, explicitMission);
+          : explicitPromptMission(taskId, causalContext, explicitMission, missionProfileId);
     const remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
       existing = input.remote ? null : store!.readEvent(dispatchOpId);
     if (!dryRun && remoteExisting)

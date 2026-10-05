@@ -218,27 +218,39 @@ export function taskQueryGuidance(taskId: string): string {
 }
 
 /**
- * The standing Living Deliverable contract every task-bound dispatch carries: the task's explainer
- * page is a living artifact the worker updates each round and freezes at closeout. Fixed text the
- * daemon injects on every task mission (derived, explicit-prompt, and fleet-edge alike); the
- * task-explainer-html skill carries the authoring spec, and the inline baselines keep a repo
- * without that skill on the same rails. Non-task dispatches never see it.
+ * The standing Living Deliverable contract a non-lightweight task-bound dispatch carries: the task's
+ * explainer page is materialized at task creation and stays a living artifact the worker updates
+ * incrementally each round and freezes at closeout. Fixed text the daemon injects on every
+ * qualifying task mission (derived, explicit-prompt, and fleet-edge alike); the task-explainer-html
+ * skill carries the authoring spec, and the inline baselines keep a repo without that skill on the
+ * same rails. Lightweight-profile tasks owe no explainer page — their creation materializes none,
+ * so their missions carry no protocol (dec_64C2E7741F1827DADC27941FCA CH2). Non-task dispatches
+ * never see it.
  */
-export function livingDeliverableProtocol(): string {
+export function livingDeliverableProtocol(profileId: string | null | undefined): string | null {
+  if (profileId === "lightweight") return null;
   return [
     "# Living Deliverable Protocol",
-    "- 本任务的可视解释页是任务包 `artifacts/explainer.html`：每个工作轮次结束前增量更新它，让不读代码的读者" +
-      "也能看到本任务做了什么、验证了什么、还差什么。",
+    "- 本任务创建时已物化可视解释页 `artifacts/explainer.html`（单文件浅色骨架模板）：每个工作轮次结束前" +
+      "**增量更新这一页**——更新结论句、对照表状态与验证证据，让不读代码的读者也能看到本任务做了什么、" +
+      "验证了什么、还差什么；不要推倒重建，也不要另起新文件。",
     "- 页面遵循 `task-explainer-html` 技能规范：单文件 HTML、样式与 SVG 全内联、零外网依赖、浅色适读" +
-      "（背景 `#faf7f0`，正文 `#3d3833`）、无 JS 也可读；技能不在当前仓库时按这四条底线自绘。",
-    "- closeout 终态冻结该页：随任务包一并提交后不再改动。它是交付回环的一环，不替代 closeout.md 的结构化汇报。",
+      "（背景 `#faf7f0`，正文 `#3d3833`）、无 JS 也可读；骨架章节 id 保持稳定，逐轮 diff 可读。",
+    "- closeout 终态冻结该页：随任务包一并提交后不再改动，冻结版结论与 closeout.md 一致。" +
+      "它是交付回环的一环，不替代 closeout.md 的结构化汇报。",
   ].join("\n");
 }
 
 /** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance and living-deliverable contract as a derived mission. */
-export function explicitPromptMission(taskId: string | null, causalContext: string | null, prompt: string): string {
+export function explicitPromptMission(
+  taskId: string | null,
+  causalContext: string | null,
+  prompt: string,
+  profileId: string | null | undefined = undefined,
+): string {
+  const protocol = taskId === null ? null : livingDeliverableProtocol(profileId);
   return [
-    ...(taskId === null ? [] : [taskQueryGuidance(taskId), livingDeliverableProtocol()]),
+    ...(taskId === null ? [] : [taskQueryGuidance(taskId), ...(protocol === null ? [] : [protocol])]),
     ...(causalContext === null ? [] : [causalContext]),
     prompt,
   ].join("\n\n");
@@ -276,6 +288,7 @@ export function deriveTaskMission(
     causalContextResolved =
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
     snapshot = projection.read(taskId).snapshot,
+    livingProtocol = livingDeliverableProtocol(snapshot.task?.metadata?.profileId),
     priorIteration = snapshot.task && snapshot.task.iteration > 0 ? snapshot.task.iteration - 1 : null,
     returnDocument =
       priorIteration === null
@@ -286,7 +299,7 @@ export function deriveTaskMission(
       `Your task package is ${packageRoot}.\nRead ${path.basename(planPath)} in that package and complete the task.`,
       ...(returnDocument ? [`# Owner rework instruction\n\n${returnDocument.body.trim()}`] : []),
       taskQueryGuidance(taskId),
-      livingDeliverableProtocol(),
+      ...(livingProtocol === null ? [] : [livingProtocol]),
       ...(causalContextResolved === null ? [] : [causalContextResolved]),
       ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.trim()}`] : []),
     ].join("\n\n");

@@ -401,13 +401,15 @@ export type DaemonGuiReadResultMap = {
   };
   readonly "repo.tasks.completion.read": DaemonTaskCompletionResult;
   /** What a node that launches a task-bound dispatch needs from the center, assembled at the serving cut:
-   * the bounded causal-context block the worker prompt carries, and the task's worktree binding
-   * (dec_57370FF2021DADF04E3B21724D CH1) — fleet edges read it through `fleet.runtime.read/v1`. */
+   * the bounded causal-context block the worker prompt carries, the task's frozen profile id, and its
+   * worktree binding (dec_57370FF2021DADF04E3B21724D CH1) — fleet edges read it through
+   * `fleet.runtime.read/v1`. */
   readonly "repo.tasks.runtimeContext.read": {
     readonly schema: "task-runtime-context-read/v1";
     readonly ok: true;
     readonly taskId: string;
     readonly causalContext: string | null;
+    readonly profileId: string | null;
     readonly worktree: TaskWorktreeBindingV1 | null;
   };
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
