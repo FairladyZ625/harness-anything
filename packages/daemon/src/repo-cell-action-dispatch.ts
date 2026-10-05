@@ -14,6 +14,7 @@ import {
   lifecycleDocumentPaths,
   requireEntityTypeContract,
   type ExecutionAnnotationKind,
+  type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { runPresetAction } from "@harness-anything/preset";
@@ -583,7 +584,13 @@ function dispatchedExecutor(
   readonly dispatchTaskId: string;
 } {
   const requested = action.agent === undefined ? undefined : cell.requiredCellText(action.agent, "agent"),
-    rows = readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }),
+    // Reviewer dispatches never name an executor: attribution exists to judge reviewer independence,
+    // so a review session offered as a candidate would let the reviewer become the declared author.
+    // Filtering before the execution cut keeps the lineage fallback able to reach an earlier
+    // iteration's authoring dispatch when the current execution only ever hosted review sessions.
+    rows = readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).filter(
+      (dispatch) => !isReviewerDispatch(cell.projection, dispatch.dispatchId),
+    ),
     exactRows = rows.filter((dispatch) => dispatch.executionId === executionId),
     eligibleRows = exactRows.length ? exactRows : rows,
     candidates = [
@@ -617,9 +624,9 @@ function dispatchedExecutor(
     assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, declarationCandidates);
     throw cell.cellCodedError(
       "invalid_proof",
-      `Task ${taskId} has no recorded runtime dispatch on itself or its parent chain. ` +
-        `Run ha task dispatches ${taskId}; ` +
-        "executor declaration remains unavailable until a real dispatch record exists.",
+      `Task ${taskId} has no non-reviewer runtime dispatch on itself or its parent chain; ` +
+        `reviewer sessions never carry executor attribution. Run ha task dispatches ${taskId}; ` +
+        "executor declaration remains unavailable until an authoring dispatch record exists.",
     );
   }
   if (requested)
@@ -637,4 +644,11 @@ function dispatchedExecutor(
       )
       .join(" or ")}.`,
   );
+}
+
+/** The dispatch event is the canonical role record: stream headers predate the `role` field and
+ * settled archives drop both it and `reviewTarget`, so the projection is the only readable witness. */
+function isReviewerDispatch(projection: TaskProjection, dispatchId: string): boolean {
+  const payload = projection.readRuntimeDispatchById(dispatchId)?.event.payload;
+  return payload?.role === "reviewer" || payload?.reviewTarget !== undefined;
 }
