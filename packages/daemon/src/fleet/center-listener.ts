@@ -424,7 +424,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const a = await nodeContext(nodeId, frame.repoId),
         replica = options.host.replica(a.repoId),
         // Mirroring is reading: the node owner's repository-read admits the replica, the same authority
-        // a center-forwarded read checks (dec_D8497012F42A999E054D7ADF6A CH4).
+        // a center-forwarded read checks (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
         decision = await options.host.authorize(a.repoId, "repository-read", await readerAuth(a));
       if (decision.outcome !== "allowed")
         throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
