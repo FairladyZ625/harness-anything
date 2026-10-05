@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -39,7 +40,8 @@ test("S4 consolidation derives three-seed totals only from validated current-run
 test(
   "S4 exercises fleet claim, replica, takeover and injected-clock arms",
   { concurrency: false, timeout: 600_000 },
-  async () => {
+  async (t) => {
+    if (!opensslAvailable()) return t.skip("requires openssl on PATH (fleet center TLS certificate)");
     const fixture = await openFleetCampaignFixture(),
       alpha = fixture.repos[0],
       beta = fixture.repos[1];
@@ -602,6 +604,10 @@ function claimEvidence(claim, status) {
     claimFence: claim.claimFence,
     status,
   };
+}
+
+function opensslAvailable() {
+  return spawnSync("openssl", ["version"], { encoding: "utf8", windowsHide: true }).status === 0;
 }
 
 function assertReplicaContent(viewRoot, repoId, viewId, current) {
