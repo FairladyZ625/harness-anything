@@ -66,10 +66,12 @@ export async function fleetFixture(
     certFile = path.join(root, "tls.crt"),
     emptyPath = path.join(root, "empty-path"),
     owned = reclaimer();
+  let ownerLookupFailure: Error | null = null;
   let ownerLookupDelayMs = 0,
     authenticateBarrier: { readonly started: () => void; readonly wait: Promise<boolean> } | null = null;
   let taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
+  const transportErrors: unknown[] = [];
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   mkdirSync(emptyPath);
   initRepo(repo);
@@ -190,6 +192,10 @@ export async function fleetFixture(
     setOwnerLookupDelay: (value: number) => {
       ownerLookupDelayMs = value;
     },
+    /** Makes the registry owner lookup throw a non-contract error, as a crashed handler would. */
+    failOwnerLookup: (error: Error | null) => {
+      ownerLookupFailure = error;
+    },
     blockTaskRelease: () => {
       let started!: () => void, release!: () => void;
       const startedPromise = new Promise<void>((resolve) => {
@@ -230,6 +236,7 @@ export async function fleetFixture(
     },
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
     runtimeArchiveReceipts,
+    transportErrors,
     center: (diskQuotaBytes = replicaQuota, staleReplica = false) =>
       owned.hold(
         listenFleetTls({
@@ -268,6 +275,7 @@ export async function fleetFixture(
           cert,
           replicaDiskQuotaBytes: diskQuotaBytes,
           verifyHuman: (auth) => new OidcSessionService(userRoot).bind(auth),
+          onError: (entry) => transportErrors.push(entry),
           authenticate: async (nodeId, credential) => {
             const barrier = authenticateBarrier;
             if (barrier) {
@@ -278,6 +286,7 @@ export async function fleetFixture(
           },
           nodeOwner: async (nodeId) => {
             if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
+            if (ownerLookupFailure) throw ownerLookupFailure;
             return owners.nodeOwner(nodeId);
           },
         }),

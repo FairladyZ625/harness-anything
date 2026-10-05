@@ -12,6 +12,7 @@ import {
   FLEET_SESSION_SEND_WINDOW_BYTES,
   currentFleetProtocolVersion,
   FleetUtf8LineDecoder,
+  FleetContractError,
   parseFleetFrame,
   serializeFleetFrame,
   type FleetCut,
@@ -150,10 +151,20 @@ export async function serve(
       await enqueue(await handle(nodeId, frame, window, () => socket.destroyed, disconnected.signal));
     } catch (error) {
       consumeKnownError(error);
+      const contractError = error instanceof FleetContractError;
       const fault =
         error instanceof FleetFault
           ? error
-          : new FleetFault("invalid_frame", error instanceof Error ? error.message : String(error));
+          : new FleetFault(
+              contractError ? "invalid_frame" : "handler_failed",
+              error instanceof Error ? error.message : String(error),
+            );
+      if (!contractError && !(error instanceof FleetFault))
+        (options.onError ?? ((entry) => console.error("[fleet-center] transport handler failed", entry)))({
+          nodeId,
+          messageId: frame?.messageId ?? null,
+          error,
+        });
       await enqueue(
         immediate({
           schema: "fleet.error/v1",

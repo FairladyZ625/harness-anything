@@ -33,6 +33,11 @@ export interface FleetCenterOptions {
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;
   readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
+  readonly onError?: (entry: {
+    readonly nodeId: string | null;
+    readonly messageId: string | null;
+    readonly error: unknown;
+  }) => void;
 }
 
 export interface FleetReplicaStatus extends ReplicaDeliveryKey {
