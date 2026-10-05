@@ -110,10 +110,11 @@ export function AppSidebar({
     endpoint = activeRepo
       ? connections.find((connection) => connection.id === activeRepo.connectionId)?.endpoint
       : undefined;
-  // 舰队专用入口(如协作页)只在远端模式显示:纯本地仓没有多节点面,判据是仓库模式
-  // 而不是节点/Agent 数量;未选中仓(home)同样不显示。
+  // 舰队专用入口(如协作页)在选中任一仓库时显示:本地仓也是舰队中心
+  // (业主 2026-10-05 裁定,中心机器要看协作大盘),不再按模式隐藏;
+  // 未选中仓(home)没有仓库视角,同样不显示。
   const navGroups =
-    activeRepo === null || activeRepo.mode === "local"
+    activeRepo === null
       ? NAV_GROUPS.map((group) => ({ ...group, items: group.items.filter((item) => item.fleetOnly !== true) }))
       : NAV_GROUPS;
   // 置顶块只列工作根:App 传入的是全部置顶任务,这里按 daemon 工作索引

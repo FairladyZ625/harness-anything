@@ -5,12 +5,14 @@ import {
   applyCollaborationFilters,
   assignmentStateOf,
   collaborationFilterOptions,
+  CENTER_NODE_ID,
   EMPTY_SESSION_AGENT_INDEX,
   hasCollaborationFilters,
   isExecutingLeasePhase,
   leaseNodeIdOf,
   leaseRuntimeSessionIdOf,
   NO_COLLABORATION_FILTERS,
+  projectCenterLeaseSource,
   type CollaborationTask,
 } from "../src/renderer/model/collaboration.ts";
 
@@ -331,6 +333,58 @@ describe("review be577 四个反例的修后行为", () => {
         count,
       );
     }
+  });
+});
+
+describe("projectCenterLeaseSource(本地 center 视角的虚拟化投影)", () => {
+  it("local 通道映射为中心虚拟节点;remote_direct 与节点来源原样透传,行数不变", () => {
+    const projected = projectCenterLeaseSource([
+      task("center-held", { leaseActor: AGENT_LEASE, leaseSource: "local", leasePhase: "held" }),
+      task("direct", { leaseActor: AGENT_LEASE, leaseSource: "remote_direct", leasePhase: "held" }),
+      task("edge", {
+        leaseActor: AGENT_LEASE,
+        leaseSource: { kind: "node", nodeId: "edge-a" },
+        leasePhase: "held",
+      }),
+      task("bare"),
+    ]);
+    expect(projected.map(({ taskId, leaseSource }) => [taskId, leaseSource])).toEqual([
+      ["center-held", { kind: "node", nodeId: CENTER_NODE_ID }],
+      ["direct", "remote_direct"],
+      ["edge", { kind: "node", nodeId: "edge-a" }],
+      ["bare", undefined],
+    ]);
+    // 资格侧字段不因投影丢失
+    expect(projected[0]?.leaseActor).toBe(AGENT_LEASE);
+  });
+
+  it("投影后中心进节点汇总且恒排首位(锚点),与边缘节点同一条计数/筛选管线", () => {
+    const tasks = projectCenterLeaseSource([
+      task("center-held", { leaseActor: AGENT_LEASE, leaseSource: "local", leasePhase: "held" }),
+      task("center-released", { leaseActor: PERSON_LEASE, leaseSource: "local", leasePhase: "released" }),
+      task("edge-hot", {
+        leaseActor: AGENT_LEASE,
+        leaseSource: { kind: "node", nodeId: "edge-z" },
+        leasePhase: "held",
+      }),
+    ]);
+    const { nodes } = collaborationFilterOptions(tasks);
+    // 中心是拓扑锚点:即使 edge-z 执行数并列也排首位
+    expect(nodes.map(({ nodeId }) => nodeId)).toEqual([CENTER_NODE_ID, "edge-z"]);
+    expect(nodes[0]).toEqual({ nodeId: CENTER_NODE_ID, count: 2, executing: 1, assigned: 0 });
+    expect(
+      applyCollaborationFilters(tasks, { ...NO_COLLABORATION_FILTERS, node: CENTER_NODE_ID }).map((t) => t.taskId),
+    ).toEqual(["center-held", "center-released"]);
+  });
+
+  it("无 local 通道时投影是恒等变换,不产生中心条目", () => {
+    const without = [
+      task("assigned", {
+        assignment: { assignee: { kind: "person", personId: "person_ana" }, expiresAt: "2026-10-02T00:00:00Z" },
+      }),
+    ];
+    expect(projectCenterLeaseSource(without)).toEqual(without);
+    expect(collaborationFilterOptions(projectCenterLeaseSource(without)).nodes).toEqual([]);
   });
 });
 

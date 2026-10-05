@@ -205,7 +205,7 @@
   "collaboration.summary": "{total} 任务 · {executing} 执行中",
   "collaboration.loading": "正在读取任务切面…",
   "collaboration.empty": "本仓还没有任务。",
-  "collaboration.localNotice": "纯本地仓库没有多节点协作面；接入中心或边缘连接后，这里显示同一份中心快照的分工。",
+  "collaboration.centerNotice": "本机即舰队中心（Center）：本地通道执行的租约计入「中心」节点，边缘节点连入后并列显示。",
   "collaboration.filterPerson": "人",
   "collaboration.filterAgent": "Agent",
   "collaboration.agentNotProvided": "Agent 未提供",
@@ -217,6 +217,8 @@
   "collaboration.filterEmpty": "没有符合筛选的任务。",
   "collaboration.filterClear": "清除筛选",
   "collaboration.nodeLabel": "节点",
+  "collaboration.centerNode": "中心",
+  "collaboration.centerNodeLocal": "中心（本机）",
   "collaboration.nodeExecuting": "执行中 {count}",
   "collaboration.nodeAssigned": "被指派 {count}",
   "collaboration.nodeOnlineUnknown": "在线状态未知（本页不推断）",
@@ -229,7 +231,6 @@
   "collaboration.phase.reserving": "占用中",
   "collaboration.phase.orphaned": "失联",
   "collaboration.phase.released": "已释放",
-  "collaboration.source.local": "本机通道",
   "collaboration.source.remoteDirect": "远端直写",
   "collaboration.source.other": "来源未知"
 }

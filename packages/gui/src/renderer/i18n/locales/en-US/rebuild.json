@@ -205,7 +205,7 @@
   "collaboration.summary": "{total} tasks · {executing} executing",
   "collaboration.loading": "Reading the task projection…",
   "collaboration.empty": "No tasks in this repository yet.",
-  "collaboration.localNotice": "A purely local repository has no fleet collaboration surface; connect a center or edge to see the division of labor from the same center snapshot.",
+  "collaboration.centerNotice": "This machine is the fleet center: leases executed over the local channel count toward the Center node; connected edges appear alongside it.",
   "collaboration.filterPerson": "Person",
   "collaboration.filterAgent": "Agent",
   "collaboration.agentNotProvided": "agent not provided",
@@ -217,6 +217,8 @@
   "collaboration.filterEmpty": "No tasks match the filters.",
   "collaboration.filterClear": "Clear filters",
   "collaboration.nodeLabel": "Nodes",
+  "collaboration.centerNode": "Center",
+  "collaboration.centerNodeLocal": "Center (this machine)",
   "collaboration.nodeExecuting": "executing {count}",
   "collaboration.nodeAssigned": "assigned {count}",
   "collaboration.nodeOnlineUnknown": "online status unknown (not inferred here)",
@@ -229,7 +231,6 @@
   "collaboration.phase.reserving": "reserving",
   "collaboration.phase.orphaned": "orphaned",
   "collaboration.phase.released": "released",
-  "collaboration.source.local": "local channel",
   "collaboration.source.remoteDirect": "remote direct",
   "collaboration.source.other": "source unknown"
 }

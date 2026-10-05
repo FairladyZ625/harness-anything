@@ -4,12 +4,14 @@ import {
   applyCollaborationFilters,
   assignmentStateOf,
   collaborationFilterOptions,
+  CENTER_NODE_ID,
   EMPTY_SESSION_AGENT_INDEX,
   hasCollaborationFilters,
   isExecutingLeasePhase,
   leaseNodeIdOf,
   leaseRuntimeSessionIdOf,
   NO_COLLABORATION_FILTERS,
+  projectCenterLeaseSource,
   type CollaborationAgent,
   type CollaborationFilters,
   type CollaborationTask,
@@ -32,8 +34,9 @@ import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.t
  * (repo.tasks.list)与会话→Agent 索引(runtime-session-groups groupBy=agent),
  * 本页不自建读面、不判能力、不显示可抢语义。
  *
- * 入口按仓库模式显隐(纯本地无多节点面,见 navConfig fleetOnly);直接落到本页的
- * 纯本地会话给如实提示。节点汇总只列数据中出现过的 nodeId,在线状态本读面不提供。
+ * 本地仓即舰队中心(业主 2026-10-05 裁定,入口不再按模式隐藏):local 通道的
+ * lease 经 projectCenterLeaseSource 虚拟为中心节点,中心本机与边缘节点进同一份
+ * 节点汇总;纯本地落页给中心视角提示。节点在线状态本读面不提供。
  */
 
 const LEASE_PHASE_LABEL_KEY: Readonly<Record<string, MessageKey>> = {
@@ -48,8 +51,8 @@ const LEASE_PHASE_TONE: Readonly<Record<string, StatusTone>> = {
   orphaned: "bad",
   released: "neutral",
 };
+/** 行内来源回退词表:local 通道经中心投影后不会以字符串到达行渲染,此处只剩远端直写与未知。 */
 const LEASE_SOURCE_LABEL_KEY: Readonly<Record<string, MessageKey>> = {
-  local: "collaboration.source.local",
   remote_direct: "collaboration.source.remoteDirect",
 };
 
@@ -66,7 +69,7 @@ export function CollaborationView({
   now = new Date().toISOString(),
 }: {
   readonly repoId: string;
-  /** 当前仓的 registry v2 模式;本页在纯本地只给提示,不渲染多节点面。 */
+  /** 当前仓的 registry v2 模式;local 时本机即舰队中心,给中心视角提示与中心节点名。 */
   readonly mode: RepoMode;
   readonly tasks: readonly CollaborationTask[];
   /** 任务切面是否已读完(App 的 repo.tasks.list status);未完时行集渐进成形。 */
@@ -82,11 +85,17 @@ export function CollaborationView({
   readonly now?: string;
 }) {
   const [filters, setFilters] = useState<CollaborationFilters>(NO_COLLABORATION_FILTERS);
-  const options = useMemo(() => collaborationFilterOptions(tasks, agents), [tasks, agents]);
-  const rows = useMemo(() => applyCollaborationFilters(tasks, filters, agents), [tasks, filters, agents]);
+  // 中心视角投影:local 通道的 lease 虚拟为中心节点(排序恒锚点首位),本页的
+  // 汇总/筛选/行渲染都吃投影后的行集;remote_direct 无节点身份,仍如实不归属。
+  const fleetTasks = useMemo(() => projectCenterLeaseSource(tasks), [tasks]);
+  const options = useMemo(() => collaborationFilterOptions(fleetTasks, agents), [fleetTasks, agents]);
+  const rows = useMemo(() => applyCollaborationFilters(fleetTasks, filters, agents), [fleetTasks, filters, agents]);
   // 页头「执行中」与行内 phase 同源:只认 held/reserving;orphaned/released 是持有人在
   // 但不在执行,actor 存在不等于执行中。
-  const executing = useMemo(() => tasks.filter((task) => isExecutingLeasePhase(task.leasePhase)).length, [tasks]);
+  const executing = useMemo(
+    () => fleetTasks.filter((task) => isExecutingLeasePhase(task.leasePhase)).length,
+    [fleetTasks],
+  );
   const filtering = hasCollaborationFilters(filters);
 
   return (
@@ -98,12 +107,12 @@ export function CollaborationView({
       <PageHeader
         title={t("collaboration.title")}
         note={t("collaboration.note")}
-        meta={t("collaboration.summary", { total: tasks.length, executing })}
+        meta={t("collaboration.summary", { total: fleetTasks.length, executing })}
         actions={<RepoModeBadge mode={mode} />}
       />
       {mode === "local" ? (
-        <Notice tone="neutral" variant="strip" testId="collaboration-local-notice">
-          {t("collaboration.localNotice")}
+        <Notice tone="neutral" variant="strip" testId="collaboration-center-notice">
+          {t("collaboration.centerNotice")}
         </Notice>
       ) : null}
       {agentReadError !== null ? (
@@ -148,10 +157,10 @@ export function CollaborationView({
             <FilterDimension
               testId="collaboration-filter-node"
               label={t("collaboration.filterNode")}
-              total={tasks.length}
+              total={fleetTasks.length}
               options={options.nodes.map(({ nodeId, count }) => ({
                 key: nodeId,
-                label: <span title={nodeId}>{nodeId}</span>,
+                label: <span title={nodeId}>{nodeDisplayName(nodeId, mode)}</span>,
                 count,
               }))}
               value={filters.node}
@@ -168,7 +177,7 @@ export function CollaborationView({
           <span className="text-text-faint">{t("collaboration.nodeLabel")}</span>
           {options.nodes.map(({ nodeId, executing: nodeExecuting, assigned }) => (
             <span key={nodeId} data-node={nodeId} className="flex items-center gap-1">
-              <IdText value={nodeId} />
+              <NodeRefText nodeId={nodeId} mode={mode} />
               <span>
                 {t("collaboration.nodeExecuting", { count: nodeExecuting })} ·{" "}
                 {t("collaboration.nodeAssigned", { count: assigned })}
@@ -202,6 +211,7 @@ export function CollaborationView({
             <CollaborationRow
               key={task.taskId}
               task={task}
+              mode={mode}
               now={now}
               agents={agents}
               agentReadError={agentReadError !== null}
@@ -213,6 +223,27 @@ export function CollaborationView({
         )}
       </div>
     </section>
+  );
+}
+
+/** 节点显示名:中心虚拟节点给人话名(local 时点明「本机」),真实节点原样 id。 */
+function nodeDisplayName(nodeId: string, mode: RepoMode): string {
+  return nodeId === CENTER_NODE_ID
+    ? t(mode === "local" ? "collaboration.centerNodeLocal" : "collaboration.centerNode")
+    : nodeId;
+}
+
+/**
+ * 节点展示叶:真实节点用 IdText(完整 id 悬停可达);中心虚拟节点显示人话名,
+ * 悬停给保留 id,与 IdText 同一档实体引用排版。
+ */
+function NodeRefText({ nodeId, mode }: { readonly nodeId: string; readonly mode: RepoMode }) {
+  return nodeId === CENTER_NODE_ID ? (
+    <span title={CENTER_NODE_ID} className="font-mono ui-micro">
+      {nodeDisplayName(nodeId, mode)}
+    </span>
+  ) : (
+    <IdText value={nodeId} />
   );
 }
 
@@ -258,6 +289,7 @@ function FilterDimension({
 
 function CollaborationRow({
   task,
+  mode,
   now,
   agents,
   agentReadError,
@@ -266,6 +298,7 @@ function CollaborationRow({
   onNavigateEntity,
 }: {
   readonly task: CollaborationTask;
+  readonly mode: RepoMode;
   readonly now: string;
   readonly agents: SessionAgentIndex;
   readonly agentReadError: boolean;
@@ -366,7 +399,7 @@ function CollaborationRow({
               {leaseNodeId !== null ? (
                 <span className="flex items-baseline gap-1">
                   <span className="text-text-faint">@</span>
-                  <IdText value={leaseNodeId} />
+                  <NodeRefText nodeId={leaseNodeId} mode={mode} />
                 </span>
               ) : typeof task.leaseSource === "string" ? (
                 <span className="text-text-faint">

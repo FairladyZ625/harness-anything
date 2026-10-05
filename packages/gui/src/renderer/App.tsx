@@ -227,13 +227,10 @@ function AppShell() {
     });
   }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data, works]);
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
-  // 协作页(task_1bafbf09)的会话→Agent 索引:只在协作页挂载且非纯本地仓时读
+  // 协作页(task_1bafbf09)的会话→Agent 索引:协作页挂载时就读——本地仓也是
+  // 舰队中心(业主 2026-10-05),中心本机的 Agent 同样要呈现
   // (group-by=agent 一条读,sessionGroupsAll 家族共享缓存)。
-  const collaborationAgentIndex = useCollaborationAgentIndex(
-    activeRepoId,
-    view === "collaboration" && (activeRepo?.mode ?? "local") !== "local",
-    tasks,
-  );
+  const collaborationAgentIndex = useCollaborationAgentIndex(activeRepoId, view === "collaboration", tasks);
   const project = adaptRepoProject(
     projectId,
     activeRepo,
@@ -246,10 +243,10 @@ function AppShell() {
   const { openLocalDocument } = useLocalDocOpener();
 
   const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
-  // 总览紧凑协作入口的摘要(task_1bafbf09 返工):纯本地不给入口(fleetOnly 同源),
-  // 非纯本地仓从已挂载的任务切面折算,不另发请求。
+  // 总览紧凑协作入口的摘要(task_1bafbf09):本地仓也是舰队中心(业主 2026-10-05),
+  // 从已挂载的任务切面折算,不另发请求;未选中仓没有仓库视角,不给入口。
   const collaborationSummary = useMemo(() => {
-    if (activeRepo === undefined || activeRepo.mode === "local") return null;
+    if (activeRepo === undefined) return null;
     return {
       total: projectTasks.length,
       executing: projectTasks.filter((task) => isExecutingLeasePhase(task.leasePhase)).length,
@@ -680,7 +677,7 @@ function AppShell() {
                 />
               ) : view === "collaboration" ? (
                 // 协作页(task_1bafbf09):消费 App 已读出的任务切面,不自建读面;
-                // 入口按仓库模式显隐(见 navConfig fleetOnly),直接落页的纯本地会话由页面给提示。
+                // 本地仓即舰队中心(业主 2026-10-05),local 通道执行由页面投影为中心节点。
                 <CollaborationView
                   repoId={projectId}
                   mode={activeRepo?.mode ?? "local"}

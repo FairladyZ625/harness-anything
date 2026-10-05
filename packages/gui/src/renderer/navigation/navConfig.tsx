@@ -78,8 +78,9 @@ export interface NavGroup {
     readonly id: ViewId;
     readonly icon: React.ReactNode;
     /**
-     * 舰队专用入口(task_1bafbf09):纯本地仓不显示——是否多节点面由仓库模式
-     * 决定,不是节点数量。AppSidebar 按当前仓模式过滤。
+     * 舰队专用入口(task_1bafbf09):只在选中仓库后出现——本地仓同样是舰队
+     * 中心(业主 2026-10-05 裁定),协作大盘不再按仓库模式隐藏。AppSidebar
+     * 按是否选中仓过滤(home 无仓库视角)。
      */
     readonly fleetOnly?: boolean;
   }[];
