@@ -122,7 +122,7 @@ function seed(db: DatabaseSync, decisions: number, facts: number): void {
   const insertFact = db.prepare(
     "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
-  const insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'evidenced-by', 'active', ?, ?, ?, ?)");
+  const insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'evidenced-by', 'active', ?, ?, ?, ?, ?)");
   db.exec("BEGIN");
   for (let index = 0; index < facts; index += 1) {
     const taskId = `task-${index}`,
@@ -177,6 +177,7 @@ function seed(db: DatabaseSync, decisions: number, facts: number): void {
       targetVersion,
       root,
       index + 1,
+      `2026-08-${String(10 + (index % 6)).padStart(2, "0")}T00:00:00.000Z`,
       JSON.stringify({
         schema: "relation-projection/v1",
         entity: {
@@ -254,12 +255,13 @@ test("fact liveness target reads use the target-leading relation index", () => {
     { db } = counted;
   try {
     seed(db, 1, 1);
-    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'supersedes-fact', 'active', NULL, ?, ?, ?)").run(
+    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'supersedes-fact', 'active', NULL, ?, ?, ?, ?)").run(
       "rel_supersedes",
       "fact/F-00000001",
       "fact/F-00000000",
       "fact/F-00000000",
       99,
+      "2026-08-21T00:00:00.000Z",
       JSON.stringify({}),
     );
     searchFactRowsPage(db, { refs: ["fact/F-00000000"] });
@@ -517,11 +519,12 @@ test("task context collection reads stay indexed, bounded, and constant in state
       ["rel_bc", "task/b", "task/c"],
     ] as const)
       insertTask.run(relationId, source.slice(5), source, target, source);
-    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', NULL, ?, 1, ?)").run(
+    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', NULL, ?, 1, ?, ?)").run(
       "rel_decision_a",
       "decision/dec_A/CH1",
       "task/a",
       "decision/dec_A",
+      "2026-08-21T00:00:00.000Z",
       JSON.stringify({
         relationId: "rel_decision_a",
         sourceRef: "decision/dec_A/CH1",
@@ -590,7 +593,7 @@ test("relation pages fetch limit plus one rows from each keyed source before mer
     const insertTask = db.prepare(
         "INSERT INTO task_relation VALUES (?, ?, ?, ?, 'depends-on', 'directed', 'strong', 'declared', 'active', 'fixture', ?, 'fixture', 0, ?, '2026-08-21T00:00:00.000Z')",
       ),
-      insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', NULL, ?, ?, ?)"),
+      insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', NULL, ?, ?, ?, ?)"),
       insertEvent = db.prepare("INSERT INTO event_index VALUES (?, ?)");
     for (let index = 0; index < 100; index += 1) {
       const relationId = `rel_${String(index * 2).padStart(3, "0")}`;
@@ -603,6 +606,7 @@ test("relation pages fetch limit plus one rows from each keyed source before mer
         `fact/F-${index}`,
         `decision/dec_${index}`,
         index + 1,
+        "2026-08-21T00:00:00.000Z",
         JSON.stringify({
           direction: "directed",
           strength: "strong",

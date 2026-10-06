@@ -67,8 +67,7 @@ test("direction filtering precedes pagination in both relation sources", () => {
   try {
     createRelationGraphProjectionTables(db);
     createTaskRelationProjectionTable(db);
-    db.exec("CREATE TABLE event_index(workspace_revision INTEGER, event_json TEXT)");
-    const edge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+    const edge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
       taskEdge = db.prepare("INSERT INTO task_relation VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     for (let i = 0; i < 6; i++) {
       const relationId = `rel-${i}`;
@@ -101,6 +100,7 @@ test("direction filtering precedes pagination in both relation sources", () => {
         null,
         "task/a",
         i,
+        "",
         JSON.stringify({
           relationId,
           direction: i < 3 ? "undirected" : "directed",

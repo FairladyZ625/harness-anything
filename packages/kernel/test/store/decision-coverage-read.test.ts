@@ -106,7 +106,7 @@ function ledger() {
       const entity = (ref: string) => (ref.startsWith("decision/") ? ref.split("/").slice(0, 2).join("/") : ref),
         version = next(`relation/${relationId}`),
         observed = versions.get(entity(target)) ?? null;
-      db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+      db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
         relationId,
         source,
         target,
@@ -115,6 +115,7 @@ function ledger() {
         observed,
         entity(source),
         version,
+        "2026-08-20T00:00:00.000Z",
         JSON.stringify({
           schema: "relation-projection/v1",
           entity: {

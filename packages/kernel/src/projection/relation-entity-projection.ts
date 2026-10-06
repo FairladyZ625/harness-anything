@@ -74,12 +74,13 @@ export function applyRelationProjectionEvent(
     db,
     [
       "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, " +
-        "state, target_observed_version, owner_ref, workspace_revision, row_json)",
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "state, target_observed_version, owner_ref, workspace_revision, updated_at, row_json)",
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       "ON CONFLICT(relation_id) DO UPDATE SET source_ref=excluded.source_ref, target_ref=excluded.target_ref,",
       "relation_type=excluded.relation_type, state=excluded.state,",
       "target_observed_version=excluded.target_observed_version, owner_ref=excluded.owner_ref,",
-      "workspace_revision=excluded.workspace_revision, row_json=excluded.row_json",
+      "workspace_revision=excluded.workspace_revision, updated_at=excluded.updated_at,",
+      "row_json=excluded.row_json",
       "WHERE relation_edge.workspace_revision < excluded.workspace_revision",
     ].join(" "),
     row.relationId,
@@ -90,6 +91,7 @@ export function applyRelationProjectionEvent(
     row.targetObservedVersion,
     row.ownerRef,
     row.workspaceRevision,
+    entity.updatedAt,
     canonicalJson(row),
   );
   const taskId = row.sourceRef.match(/^task\/([^/]+)$/u)?.[1];

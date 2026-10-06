@@ -781,9 +781,7 @@ export function readTaskRelationPage(
     "json_extract(row_json, '$.rationale') AS rationale, owner_ref,",
     "json_extract(row_json, '$.sourcePath') AS source_path,",
     "json_extract(row_json, '$.recordIndex') AS record_index, workspace_revision,",
-    "workspace_revision AS relation_revision,",
-    "(SELECT json_extract(event_json, '$.occurredAt') FROM event_index",
-    "WHERE event_index.workspace_revision = relation_edge.workspace_revision) AS updated_at",
+    "workspace_revision AS relation_revision, updated_at",
     "FROM relation_edge",
   ].join(" ");
   // With an endpoint fixed, its source or target index finds that endpoint's few edges. Unary +
