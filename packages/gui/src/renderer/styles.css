@@ -849,3 +849,300 @@ html[data-theme="light"] ::selection {
   background-color: transparent !important;
 }
 
+/*
+ * 协作页舰队拓扑(task_16c20131「指挥台」视觉层):状态即光——连线与节点外圈用
+ * 状态色发光(fresh=绿稳定、lag=琥珀、unsynced=红且暗、无副本=灰虚线),中心是
+ * 持续呼吸的能量核心(径向光晕+细环),执行中节点扫描环;流光是沿中心→边缘推进的
+ * 虚线光束,速度随 lag 加快。动效只动 transform/opacity/stroke-dashoffset;hover/
+ * 选择只在进出时改属性,不在动画帧里触发 React 重渲染;prefers-reduced-motion 由
+ * 上方全局规则关停流光与脉冲,静态状态色保留。
+ */
+
+/* 画布底座:三层——星点网格 + 中心微光 + 四角渐暗,给玻璃卡一个可折射的层次 */
+.fleet-grid {
+  background-image:
+    radial-gradient(
+      ellipse 62% 56% at 50% 42%,
+      color-mix(in oklab, var(--color-accent) 7%, transparent),
+      transparent 78%
+    ),
+    radial-gradient(
+      circle at 1px 1px,
+      color-mix(in oklab, var(--color-border-strong) 62%, transparent) 1px,
+      transparent 1.6px
+    ),
+    radial-gradient(ellipse 120% 100% at 50% 40%, transparent 55%, color-mix(in oklab, black 22%, transparent));
+  background-size:
+    100% 100%,
+    26px 26px,
+    100% 100%;
+}
+
+/* 画布裁剪:panel 内的圆角与裁切,画布超高时在内部滚动 */
+.fleet-canvas-clip {
+  overflow: hidden;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+/* 节点卡:半透明玻璃 + 细边框 + 状态光;状态色由变体类给 --fleet-state */
+.fleet-node {
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-surface) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid color-mix(in oklab, var(--fleet-state, var(--color-border)) 52%, var(--color-border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
+    0 0 22px color-mix(in oklab, var(--fleet-state, var(--color-border)) 26%, transparent);
+  transition:
+    transform 0.16s var(--ease),
+    opacity 0.18s var(--ease),
+    box-shadow 0.16s var(--ease),
+    border-color 0.16s var(--ease);
+}
+.fleet-node:hover {
+  transform: scale(1.045);
+  border-color: color-mix(in oklab, var(--fleet-state, var(--color-border)) 80%, var(--color-border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 10%, transparent),
+    0 0 30px color-mix(in oklab, var(--fleet-state, var(--color-border)) 48%, transparent);
+  z-index: 5;
+}
+.fleet-node--fresh {
+  --fleet-state: var(--color-status-done);
+}
+.fleet-node--lag {
+  --fleet-state: var(--color-stale);
+}
+.fleet-node--unsynced {
+  --fleet-state: var(--color-danger);
+  opacity: 0.9;
+}
+.fleet-node--absent {
+  --fleet-state: var(--color-text-muted);
+}
+.fleet-node--center {
+  --fleet-state: var(--color-accent);
+  z-index: 2;
+}
+
+/* 卡上状态点:与连线同色的实心小圆,扫视时的状态锚点 */
+.fleet-state-dot {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+  background: var(--fleet-state, var(--color-border));
+  box-shadow: 0 0 8px color-mix(in oklab, var(--fleet-state, var(--color-border)) 60%, transparent);
+  flex: none;
+}
+
+/* cut/rev/lag 数字:节点卡的扫视主角,比正文大一号的等宽数字 */
+.fleet-metric {
+  font-size: 1.02rem;
+  letter-spacing: 0.01em;
+}
+.fleet-metric-lag {
+  color: var(--color-stale);
+  font-size: 0.95rem;
+}
+
+/* 中心卡枢纽三数(第 3 轮):能量核心的读数板——比边缘卡的 metric 再大一档,
+ * 垂直占据卡身中段,数值是中心卡的第二主角。 */
+.fleet-core-metrics {
+  font-size: 1.3rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* 中心能量核心:径向光晕低频呼吸 + 两圈细环缓慢明灭(只动 opacity)。
+ * 第 3 轮把呼吸幅度拉宽(0.4→1):静止截图里也能看出核心在「活着」。 */
+.fleet-core-halo {
+  animation: fleet-core-breathe 4.2s var(--ease) infinite;
+}
+@keyframes fleet-core-breathe {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.fleet-core-ring {
+  fill: none;
+  stroke: color-mix(in oklab, var(--color-accent) 34%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 2 10;
+  animation: fleet-ring-pulse 5.6s var(--ease) infinite;
+}
+.fleet-core-ring--outer {
+  stroke-dasharray: 1 14;
+  animation-duration: 7.4s;
+  animation-delay: 0.8s;
+}
+@keyframes fleet-ring-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* 执行中节点(held/reserving 租约):扫描环向外扩散 */
+.fleet-node[data-executing="on"]::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in oklab, var(--fleet-state) 75%, transparent);
+  animation: fleet-scan 2.6s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes fleet-scan {
+  0% {
+    transform: scale(0.94);
+    opacity: 0.9;
+  }
+  70%,
+  100% {
+    transform: scale(1.16);
+    opacity: 0;
+  }
+}
+
+/* 新事件到达:所属节点在拓扑上闪一下 */
+.fleet-node[data-flash="on"] {
+  animation: fleet-flash 1.6s var(--ease) 1;
+}
+@keyframes fleet-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 22px color-mix(in oklab, var(--fleet-state, var(--color-border)) 26%, transparent);
+  }
+  30% {
+    box-shadow:
+      0 0 30px color-mix(in oklab, var(--fleet-state, var(--color-border)) 65%, transparent),
+      0 0 72px color-mix(in oklab, var(--fleet-state, var(--color-border)) 32%, transparent);
+  }
+}
+
+/* 连线:底轨 + 流光两层;方向沿路径(中心→边缘),dashoffset 负向推进。
+ * 深色底上对比度是第一约束:底轨用状态色 78% 混合、2px 宽;absent 用亮灰短虚线并
+ * 让虚线缓慢漂移——「谁连着谁」始终可见,灰=从未同步由图例解释。 */
+.fleet-link {
+  --link: var(--color-status-done);
+  transition: opacity 0.18s var(--ease);
+}
+.fleet-link[data-state="lag"] {
+  --link: var(--color-stale);
+}
+.fleet-link[data-state="unsynced"] {
+  --link: var(--color-danger);
+}
+.fleet-link[data-state="absent"] {
+  --link: var(--color-text-muted);
+}
+.fleet-link path {
+  fill: none;
+}
+.fleet-link .fleet-link-base {
+  stroke: color-mix(in oklab, var(--link) 78%, transparent);
+  stroke-width: 2;
+}
+.fleet-link[data-state="unsynced"] .fleet-link-base {
+  stroke-dasharray: 7 6;
+  opacity: 0.7;
+}
+.fleet-link[data-state="absent"] .fleet-link-base {
+  stroke: color-mix(in oklab, var(--color-text-muted) 72%, transparent);
+  stroke-dasharray: 5 9;
+  animation: fleet-absent-drift 11s linear infinite;
+}
+@keyframes fleet-absent-drift {
+  to {
+    stroke-dashoffset: -140;
+  }
+}
+.fleet-link .fleet-link-flow {
+  stroke: color-mix(in oklab, var(--link) 96%, white 4%);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 15 33;
+  animation: fleet-flow var(--fleet-flow-duration, 2.8s) linear infinite;
+  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--link) 65%, transparent));
+}
+@keyframes fleet-flow {
+  to {
+    stroke-dashoffset: -96;
+  }
+}
+
+/* 粒子列车(第 3 轮):圆头点 dash 沿中心→边缘推进,与流光同一时间轴但更快一档,
+ * 700ms 间隔的相邻截图里粒子位移肉眼可辨;间距 54px,一条 130–200px 的轨道上
+ * 常驻 2–4 颗。reduced-motion 由全局规则冻结(点停在轨道上,静态色不变)。 */
+.fleet-link .fleet-link-particles {
+  stroke: color-mix(in oklab, var(--link) 92%, white 8%);
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 54;
+  animation: fleet-particles calc(var(--fleet-flow-duration, 2.8s) / 2.2) linear infinite;
+  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--link) 75%, transparent));
+}
+@keyframes fleet-particles {
+  to {
+    stroke-dashoffset: -54.1;
+  }
+}
+
+/* hover/选择聚焦:无关节点与连线淡出,被聚焦连线加粗;选中节点保持高亮 */
+.fleet-node[data-dim="on"],
+.fleet-link[data-dim="on"] {
+  opacity: 0.35;
+}
+.fleet-node[data-sel="on"] {
+  border-color: color-mix(in oklab, var(--fleet-state, var(--color-border)) 88%, var(--color-border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 8%, transparent),
+    0 0 32px color-mix(in oklab, var(--fleet-state, var(--color-border)) 50%, transparent);
+}
+.fleet-canvas[data-focus] .fleet-link:not([data-dim="on"]) .fleet-link-base {
+  stroke-width: 3;
+}
+
+/* 连线状态图例:色样即连线的线型本身 */
+.fleet-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.fleet-legend-key {
+  display: inline-block;
+  inline-size: 1.35rem;
+  block-size: 0;
+  border-top: 2px solid var(--color-status-done);
+  border-radius: 2px;
+}
+.fleet-legend--lag .fleet-legend-key {
+  border-color: var(--color-stale);
+}
+.fleet-legend--unsynced .fleet-legend-key {
+  border-color: color-mix(in oklab, var(--color-danger) 75%, transparent);
+  border-top-style: dotted;
+}
+.fleet-legend--absent .fleet-legend-key {
+  border-color: color-mix(in oklab, var(--color-text-muted) 72%, transparent);
+  border-top-style: dashed;
+}
+
+/* 事件流新行进入:淡入 + 上滑,一次性(元素不重挂不重播) */
+.fleet-event-in {
+  animation: fleet-event-in 220ms var(--ease) both;
+}
+@keyframes fleet-event-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+

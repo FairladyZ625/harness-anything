@@ -265,5 +265,20 @@
   "collaboration.executorLabel": "执行",
   "collaboration.readError.authorizationDenied": "当前身份未获授权查看舰队拓扑（授权已被收回或从未授予）",
   "collaboration.readError.insufficientScope": "当前身份的权限范围不足以查看舰队拓扑",
-  "collaboration.readError.authenticationRequired": "需要先登录账号才能查看舰队拓扑"
+  "collaboration.readError.authenticationRequired": "需要先登录账号才能查看舰队拓扑",
+  "collaboration.state.fresh": "新鲜",
+  "collaboration.state.lag": "落后",
+  "collaboration.state.unsynced": "未同步",
+  "collaboration.state.absent": "无副本记录",
+  "collaboration.legendAria": "连线状态图例",
+  "collaboration.legend.fresh": "已同步",
+  "collaboration.legend.lag": "同步落后",
+  "collaboration.legend.unsynced": "未同步",
+  "collaboration.legend.absent": "灰虚线＝从未同步",
+  "collaboration.cutProgressAria": "cut 进度：{ack} / {center}",
+  "collaboration.lagBarAria": "落后 {rev} 个修订",
+  "collaboration.drawerAria": "节点详情",
+  "collaboration.centerEdges": "边缘 {count}",
+  "collaboration.centerInFlight": "在飞 {count}",
+  "collaboration.centerHead": "head"
 }

@@ -131,6 +131,181 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
   };
 }
 
+describe("舰队拓扑视觉重做(task_16c20131)", () => {
+  it("连线层按通道状态着状态:lag 有流光,unsynced 无流光,无副本行的节点是 absent 虚线", () => {
+    const data = overview();
+    data.nodes = [
+      ...data.nodes,
+      {
+        ...data.nodes[1]!,
+        nodeId: "edge-unsynced",
+        leases: [],
+        replica: null,
+        replicaNote: "center-replica-ledger-has-no-row-for-node",
+      },
+    ];
+    data.links = [
+      ...data.links,
+      {
+        nodeId: "edge-unsynced",
+        state: "unsynced",
+        delivery: "degraded",
+        lagRevisions: null,
+        lagMs: null,
+        ackedAt: null,
+        centerRevision: 164,
+      },
+    ];
+    const view = renderView({ data });
+    const lagLink = view.host.querySelector('g.fleet-link[data-node="cc90-ubuntu"]');
+    expect(lagLink!.getAttribute("data-state")).toBe("lag");
+    expect(lagLink!.querySelector(".fleet-link-flow")).not.toBeNull();
+    const unsyncedLink = view.host.querySelector('g.fleet-link[data-node="edge-unsynced"]');
+    expect(unsyncedLink!.getAttribute("data-state")).toBe("unsynced");
+    expect(unsyncedLink!.querySelector(".fleet-link-flow")).toBeNull();
+    // 无副本行(ghost)没有 daemon link:连线层按 absent 给灰虚线,节点卡同步标注。
+    const ghost = {
+      ...data.nodes[1]!,
+      nodeId: "ghost-node",
+      leases: [],
+      replica: null,
+      replicaNote: "center-replica-ledger-has-no-row-for-node",
+    };
+    const withGhost = overview();
+    withGhost.nodes = [...withGhost.nodes, ghost];
+    const ghostView = renderView({ data: withGhost });
+    expect(ghostView.host.querySelector('g.fleet-link[data-node="ghost-node"]')!.getAttribute("data-state")).toBe(
+      "absent",
+    );
+    expect(
+      ghostView.host.querySelector('[data-testid="collaboration-node-ghost-node"]')!.getAttribute("data-state"),
+    ).toBe("absent");
+  });
+
+  it("详情是右侧滑入抽屉(role=dialog),cut 细进度条与 lag 小柱带 aria 值", () => {
+    const view = renderView();
+    expect(view.host.querySelector('[role="dialog"]')).toBeNull();
+    view.click(view.nodeCard("cc90-ubuntu"));
+    const dialog = view.host.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    const cut = view.host.querySelector<HTMLElement>('[data-testid="collaboration-cut-progress"]')!;
+    expect(cut.getAttribute("aria-valuenow")).toBe("163");
+    expect(cut.getAttribute("aria-valuemax")).toBe("164");
+    const lag = view.host.querySelector<HTMLElement>('[data-testid="collaboration-lag-bar"]')!;
+    expect(lag.getAttribute("aria-valuenow")).toBe("1");
+    view.click(view.host.querySelector('[data-testid="collaboration-node-details-close"]'));
+    // 关闭是选择态清空(aria-pressed 归 false);面板卸载走 Drawer 的退出动画,
+    // 其卸载契约由 Drawer 原语自己的测试覆盖,这里不断言退出中的 DOM。
+    expect(view.nodeCard("cc90-ubuntu")!.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("再次点击已选中的节点收起抽屉(aria-pressed 开关语义)", () => {
+    const view = renderView();
+    view.click(view.nodeCard("cc90-ubuntu"));
+    expect(view.host.querySelector('[role="dialog"]')).not.toBeNull();
+    view.click(view.nodeCard("cc90-ubuntu"));
+    expect(view.nodeCard("cc90-ubuntu")!.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("第 2 轮视觉修正:四态连线图例、中心能量核心与节点状态点在画布上", () => {
+    const view = renderView();
+    const legend = view.host.querySelector('[data-testid="collaboration-link-legend"]')!;
+    expect(legend).not.toBeNull();
+    expect(legend.textContent).toContain("已同步");
+    expect(legend.textContent).toContain("灰虚线＝从未同步");
+    // 四态各一枚色样(fresh/lag/unsynced/absent),线型本身即图例。
+    expect(legend.querySelectorAll(".fleet-legend")).toHaveLength(4);
+    expect(legend.querySelector(".fleet-legend--absent .fleet-legend-key")).not.toBeNull();
+    // 中心能量核心:径向光晕 + 细环(SVG 组),不依赖 JS 运行时。
+    expect(view.host.querySelector('[data-testid="collaboration-core"]')).not.toBeNull();
+    expect(view.host.querySelector('[data-testid="collaboration-core"] .fleet-core-ring')).not.toBeNull();
+    // 节点卡状态点:与连线同色的扫视锚点。
+    expect(view.nodeCard("cc90-ubuntu")!.querySelector(".fleet-state-dot")).not.toBeNull();
+  });
+
+  it("第 3 轮:中心卡是能量核心读数板(rev/边缘/在飞 + head 短 hash)", () => {
+    const view = renderView();
+    const card = view.nodeCard("center")!;
+    const metrics = card.querySelector('[data-testid="collaboration-core-metrics"]')!;
+    expect(metrics.textContent).toContain("rev 164");
+    expect(metrics.textContent).toContain("边缘 1");
+    // 在飞数按整个舰队计:夹具里中心 1 + 边缘 1 两笔 held 租约。
+    expect(metrics.textContent).toContain("在飞 2");
+    const head = card.querySelector('[data-testid="collaboration-core-head"]')!;
+    expect(head.textContent).toContain("head bd2251a");
+    expect(head.getAttribute("title")).toContain("bd2251a");
+    // 第 4 轮:标题旁不再渲染裸 daemonId——无标签短 id(夹具外场如 "g")读作孤立
+    // 碎片;daemon 身份由详情抽屉带标签完整展示(daemonId · version @ sha)。
+    expect(card.textContent).not.toContain("default");
+    // 边缘卡保持原读数(owner + cut),不被中心卡的布局改写。
+    expect(view.nodeCard("cc90-ubuntu")!.textContent).toContain("cut 163/164");
+  });
+
+  it("第 3 轮:fresh/lag 连线携带粒子列车层,absent/unsynced 不携带", () => {
+    const view = renderView();
+    expect(view.host.querySelectorAll(".fleet-link-particles")).toHaveLength(1);
+    expect(view.host.querySelector('g.fleet-link[data-state="lag"] .fleet-link-particles')).not.toBeNull();
+  });
+
+  it("执行中的节点带执行标记,事件行带进入动效类", () => {
+    const view = renderView();
+    expect(view.nodeCard("cc90-ubuntu")!.getAttribute("data-executing")).toBe("on");
+    expect(view.nodeCard("center")!.getAttribute("data-executing")).toBe("on");
+    const idle = overview();
+    idle.nodes = idle.nodes.map((node) => (node.nodeId === "cc90-ubuntu" ? { ...node, leases: [] } : node));
+    const idleView = renderView({ data: idle });
+    expect(idleView.nodeCard("cc90-ubuntu")!.getAttribute("data-executing")).toBeNull();
+    const row = view.host.querySelector('[data-testid="collaboration-event-evt-row-1"]');
+    expect(row!.className).toContain("fleet-event-in");
+  });
+
+  it("读面刷新出现新事件时,其所属节点在拓扑上闪一下", () => {
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    const first = overview();
+    act(() =>
+      root.render(
+        <CollaborationView
+          repoId="repo-test"
+          mode="remote-center"
+          overview={first}
+          onOpenTask={() => {}}
+          onNavigateEntity={() => {}}
+          now="2026-10-06T01:00:00.000Z"
+        />,
+      ),
+    );
+    expect(host.querySelector('[data-testid="collaboration-node-cc90-ubuntu"]')!.getAttribute("data-flash")).toBeNull();
+    const refreshed = overview();
+    refreshed.events = [
+      ...refreshed.events,
+      {
+        eventId: "row-3",
+        type: "fact_recorded",
+        occurredAt: "2026-10-06T00:31:00.000Z",
+        workspaceRevision: 164,
+        taskId: null,
+        title: null,
+        nodeId: "cc90-ubuntu",
+      },
+    ];
+    act(() =>
+      root.render(
+        <CollaborationView
+          repoId="repo-test"
+          mode="remote-center"
+          overview={refreshed}
+          onOpenTask={() => {}}
+          onNavigateEntity={() => {}}
+          now="2026-10-06T01:00:00.000Z"
+        />,
+      ),
+    );
+    expect(host.querySelector('[data-testid="collaboration-node-cc90-ubuntu"]')!.getAttribute("data-flash")).toBe("on");
+    expect(host.querySelector('[data-testid="collaboration-node-center"]')!.getAttribute("data-flash")).toBeNull();
+  });
+});
+
 function renderView(
   overrides: {
     data?: FleetOverviewRead | null;

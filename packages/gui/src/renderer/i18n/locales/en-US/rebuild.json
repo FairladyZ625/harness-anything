@@ -265,5 +265,20 @@
   "collaboration.executorLabel": "Executing",
   "collaboration.readError.authorizationDenied": "Your identity is not authorized to view the fleet topology (the grant was revoked or never given).",
   "collaboration.readError.insufficientScope": "Your identity's scope does not cover viewing the fleet topology.",
-  "collaboration.readError.authenticationRequired": "Sign in before viewing the fleet topology."
+  "collaboration.readError.authenticationRequired": "Sign in before viewing the fleet topology.",
+  "collaboration.state.fresh": "fresh",
+  "collaboration.state.lag": "lagging",
+  "collaboration.state.unsynced": "unsynced",
+  "collaboration.state.absent": "no replica row",
+  "collaboration.legendAria": "Link state legend",
+  "collaboration.legend.fresh": "synced",
+  "collaboration.legend.lag": "lagging",
+  "collaboration.legend.unsynced": "unsynced",
+  "collaboration.legend.absent": "gray dashed = never synced",
+  "collaboration.cutProgressAria": "cut progress: {ack} / {center}",
+  "collaboration.lagBarAria": "{rev} revisions behind",
+  "collaboration.drawerAria": "Node details",
+  "collaboration.centerEdges": "edges {count}",
+  "collaboration.centerInFlight": "in-flight {count}",
+  "collaboration.centerHead": "head"
 }
