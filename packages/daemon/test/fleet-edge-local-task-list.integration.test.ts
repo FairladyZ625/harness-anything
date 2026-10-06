@@ -35,9 +35,12 @@ test(
     const center = async (action: Record<string, unknown> = { kind: "task-list" }) =>
       (await f.host.run("lease-repo", action as never, localAuthFixture())) as unknown as Record<string, unknown>;
     // The center publishes the read model with the cut it describes: wait for the cut at the ledger
-    // head, then one pull carries every task.
+    // head, then one pull carries every task. The cut source builds only once activated, as the
+    // center does when it first serves a replica request.
     const settle = async (count: number) => {
-      await f.host.replica("lease-repo").waitForCut(f.eventCount());
+      const replica = f.host.replica("lease-repo");
+      replica.activate();
+      await replica.waitForCut(f.eventCount());
       await pull();
       const answer = await local();
       assert.equal(answer.ok, true, JSON.stringify(answer));
