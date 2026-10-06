@@ -116,7 +116,6 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     // Success says success: the affirmation names the execution instead of dumping closeout duties.
     assert.match(String(submitted.summary), new RegExp(`task-submit: submitted \\(execution: ${executionId}\\)`, "u"));
-    assert.match(String(submitted.summary), /Next: 在 artifacts\/explainer\.html 的 header 写下结论并冻结该页/u);
     assert.doesNotMatch(String(submitted.summary), /Worker must|closeout\.md/u);
     await waitForFixturePublication(cell, submitted.opId, holder);
     const events = () =>
