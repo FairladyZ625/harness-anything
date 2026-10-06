@@ -116,6 +116,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         false,
         JSON.stringify(rows),
       );
+      // The successor is published only after its predecessor links to it, so no read may see both
+      // rows with the predecessor still scheduled.
+      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
       return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
     });
     assertAttemptChain(completed, ["provider-rate-first", "provider-success-second"]);
@@ -311,6 +314,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     cell = await open();
     const restarted = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_restart" })).dispatches;
+      // The successor is published only after its predecessor links to it, so no read may see both
+      // rows with the predecessor still scheduled.
+      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
       return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
     });
     assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
@@ -328,6 +334,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const bare = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_bare" })).dispatches;
+      // The successor is published only after its predecessor links to it, so no read may see both
+      // rows with the predecessor still scheduled.
+      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
       return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
     });
     assertAttemptChain(bare, ["provider-bare-first", "provider-bare-second"]);
@@ -353,6 +362,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const stderrBounded = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_stderr" })).dispatches;
+      // The successor is published only after its predecessor links to it, so no read may see both
+      // rows with the predecessor still scheduled.
+      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
       return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
     });
     assertAttemptChain(stderrBounded, ["provider-stderr-first", "provider-stderr-second"]);

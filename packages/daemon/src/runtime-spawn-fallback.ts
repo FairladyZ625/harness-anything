@@ -171,7 +171,8 @@ export function scheduleFallbackContinuation(args: {
     schedule: TrustedScheduleRuntime | undefined,
     handoffFromRuntimeSessionId: string | undefined,
     publicationOwner: ActiveRuntime["publicationOwner"] | undefined,
-  ) => Promise<JsonObject>;
+    onDispatched: (dispatchId: string, runtimeSessionId: string) => void,
+  ) => Promise<void>;
   readonly stream: ReturnType<typeof readDispatchStream>;
 }): void {
   const { input, stream } = args;
@@ -251,21 +252,19 @@ export function scheduleFallbackContinuation(args: {
               binding,
               `runtime-continuation:${header.dispatchId}:${nextAttemptIndex}`,
             )) ?? binding;
-        const receipt = await args.launch(
+        await args.launch(
           continuationPayload,
           continuationBinding,
           nextFallback,
           header.schedule,
           header.runtimeSessionId,
           header.publicationOwner,
-        );
-        writer.appendFallbackState(
-          {
-            state: "dispatched",
-            nextDispatchId: String(receipt.dispatchId),
-            nextRuntimeSessionId: String(receipt.runtimeSessionId),
+          (dispatchId, runtimeSessionId) => {
+            writer.appendFallbackState(
+              { state: "dispatched", nextDispatchId: dispatchId, nextRuntimeSessionId: runtimeSessionId },
+              input.now(),
+            );
           },
-          input.now(),
         );
         archiveDispatchStream(input.rootDir, header.dispatchId);
       } catch (error) {
