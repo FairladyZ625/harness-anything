@@ -62,8 +62,9 @@ export async function squadWorkerBranchHasDelivery(input: { readonly cwd: string
   const env = gitEnvironment();
   try {
     const branch = (await readGitText(input.cwd, ["branch", "--show-current"], env)).trim(),
-      commander = branch.slice(0, branch.lastIndexOf("--squad-"));
-    if (!commander) return false;
+      marker = branch.lastIndexOf("--squad-");
+    if (marker <= 0) return false;
+    const commander = branch.slice(0, marker);
     return (await readGitText(input.cwd, ["rev-list", "--count", `${commander}..HEAD`], env)).trim() !== "0";
   } catch {
     return false;
