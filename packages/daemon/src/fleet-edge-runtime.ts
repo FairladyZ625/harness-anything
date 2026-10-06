@@ -193,18 +193,7 @@ export function openFleetEdgeRuntime(input: {
           : null;
       },
       taskContext: async (taskId, missionName, review) => {
-        // The pull supplies package documents and warms read-only local views. Lease and
-        // reviewer ownership below come only from the center response, never this replica.
-        const pulled = await runFleetReplicaPullClient({
-          ...peer,
-          viewRoot: request.viewRoot,
-          diskQuotaBytes: request.quotaBytes,
-        });
-        const materialized = applyFleetMirrorCut(request.viewRoot, request.repoId, request.workspaceRoot, "pull", {
-          viewId: pulled.replica.viewId,
-        });
-        if (materialized.outcome === "pull_blocked")
-          throw edgeRuntimeError("pull_blocked", "Runtime task context mirror is blocked.");
+        // Lease and reviewer ownership come only from the center response, never this replica.
         const runtimeContext = taskRuntimeContext(
           await runFleetRuntimeReadClient({
             ...runtimeReadPeer,
@@ -215,6 +204,7 @@ export function openFleetEdgeRuntime(input: {
           taskId,
         );
         const current = runtimeContext.snapshot;
+        if (!current.task) throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
         const executionId = review
           ? selectReviewTarget(taskId, review.executionId, current, false)?.executionId
           : current.lease?.phase === "held"
