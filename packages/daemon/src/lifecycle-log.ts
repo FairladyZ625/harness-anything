@@ -24,6 +24,7 @@ export type DaemonLifecycleEvent =
   | "repo_attach_started"
   | "repo_attach_completed"
   | "repo_attach_failed"
+  | "replica_sync_failed"
   | "repo_attach_timed_out"
   | "repo_attach_discarded"
   | "repo_registry_pruned"

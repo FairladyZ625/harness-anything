@@ -777,7 +777,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       }).catch((error: unknown) => {
         if (!controller.signal.aborted)
           input.recordLifecycle?.({
-            event: "repo_attach_failed",
+            event: "replica_sync_failed",
             repoId: repo.repoId,
             error: error instanceof Error ? error.message : String(error),
           });

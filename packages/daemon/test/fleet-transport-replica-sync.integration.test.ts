@@ -19,6 +19,7 @@ import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
+  runFleetReplicaSync,
   runFleetWriteClient,
   type FleetReplicaPullClientOptions,
   type FleetWriteClientOptions,
@@ -124,6 +125,91 @@ test("cross-repo transfer identity keeps equal node/view/cut/digest isolated", {
     assert.equal(receipt.outcome, "applied");
     assert.equal(current.cut.revision, expected.center.revision);
   }
+});
+
+test("background replica sync follows a new center cut without a read request", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetFixture(t, ["tasks/background/a.md"]);
+  t.after(() => fixture.close());
+  const center = await fixture.center();
+  const edgeRoot = path.join(fixture.root, "background-edge");
+  await runFleetRoundTrip({
+    port: center.port,
+    ca: fixture.cert,
+    nodeId: fixture.subject.nodeId,
+    credential: "machine-secret",
+    repoId: fixture.subject.repoId,
+    executionId: fixture.subject.executionId,
+    viewRoot: edgeRoot,
+    changes: [{ path: "tasks/background/a.md", body: "# first\n" }],
+  });
+  const next = await runFleetRoundTrip({
+    port: center.port,
+    ca: fixture.cert,
+    nodeId: fixture.subject.nodeId,
+    credential: "machine-secret",
+    repoId: fixture.subject.repoId,
+    executionId: fixture.subject.executionId,
+    changes: [{ path: "tasks/background/b.md", body: "# second\n" }],
+  });
+  assert.equal(next.center.outcome, "applied");
+  await waitForCenterLedgerRevision(
+    {
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+    },
+    next.center.revision!,
+    5_000,
+  );
+  const controller = new AbortController();
+  let sleeps = 0;
+  await assert.rejects(
+    runFleetReplicaSync({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot: edgeRoot,
+      diskQuotaBytes: replicaQuota,
+      signal: controller.signal,
+      sleep: async () => {
+        sleeps += 1;
+        controller.abort();
+        throw new Error("test stop");
+      },
+    }),
+    /test stop/u,
+  );
+  assert.equal(sleeps, 1);
+  const current = JSON.parse(
+    readFileSync(
+      path.join(edgeRoot, "repos", fixture.subject.repoId, "views", fixture.subject.viewId, "current.json"),
+      "utf8",
+    ),
+  ) as { cut: FleetCut };
+  assert.equal(current.cut.revision, next.center.revision);
+  assert.equal(
+    readFileSync(
+      path.join(
+        edgeRoot,
+        "repos",
+        fixture.subject.repoId,
+        "views",
+        fixture.subject.viewId,
+        "cuts",
+        String(next.center.revision),
+        "files",
+        "tasks/background/b.md",
+      ),
+      "utf8",
+    ),
+    "# second\n",
+  );
 });
 test("multi-path subject produces a complete first snapshot and a scoped delta", { timeout: 30_000 }, async (t) => {
   const paths = ["tasks/task-fleet-fleet/a.md", "tasks/task-fleet-fleet/b.md"],
