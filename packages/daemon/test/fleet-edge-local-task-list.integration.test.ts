@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -31,7 +31,7 @@ test(
       return runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot, diskQuotaBytes: quota });
     };
     const local = (action: Record<string, unknown> = { kind: "task-list" }, now?: () => number, budgets = {}) =>
-      answerEdgeTaskList({ viewRoot, repoId: "lease-repo", action, ...budgets }, pull, now);
+      answerEdgeTaskList({ viewRoot, repoId: "lease-repo", principalId: "person-one", action, ...budgets }, pull, now);
     const center = async (action: Record<string, unknown> = { kind: "task-list" }) =>
       (await f.host.run("lease-repo", action as never, localAuthFixture())) as unknown as Record<string, unknown>;
     // The center publishes the read model with the cut it describes: wait for the cut at the ledger
@@ -50,6 +50,26 @@ test(
 
     // 1. Local answers are the center's answers, for the default page and for filters and paging.
     await settle(3);
+    const nonOwner = await answerEdgeTaskList(
+      { viewRoot, repoId: "lease-repo", principalId: "person-two", action: { kind: "task-list" } },
+      async () => {
+        throw new Error("non-owner local read must not pull");
+      },
+    );
+    assert.equal(nonOwner.code, "authorization_denied", JSON.stringify(nonOwner));
+    const currentPath = path.join(locateFleetMirrorView(viewRoot, "lease-repo")!.viewDir, "current.json");
+    const currentWithoutAuthorization = JSON.parse(readFileSync(currentPath, "utf8")) as Record<string, unknown>;
+    delete currentWithoutAuthorization.authorizationOwner;
+    delete currentWithoutAuthorization.authorizationShapeDigest;
+    writeFileSync(currentPath, JSON.stringify(currentWithoutAuthorization));
+    const missingAuthorization = await answerEdgeTaskList(
+      { viewRoot, repoId: "lease-repo", principalId: "person-one", action: { kind: "task-list" } },
+      async () => {
+        throw new Error("a view without authorization metadata must not pull");
+      },
+    );
+    assert.equal(missingAuthorization.code, "authorization_denied", JSON.stringify(missingAuthorization));
+    await pull();
     pulls = 0;
     for (const action of [
       { kind: "task-list" },
@@ -123,6 +143,7 @@ test(
     const offline = await runFleetEdgeTask({
       payload: {
         ...f.peer("node-one"),
+        principalId: "person-one",
         host: "localhost",
         caPath: path.join(f.root, "tls.crt"),
         viewRoot,
@@ -170,7 +191,7 @@ test(
     const target = appliedCuts.reduce((left, right) => (left!.revision > right!.revision ? left : right))!;
     let pulls = 0;
     const read = answerEdgeTaskList(
-      { viewRoot, repoId: "lease-repo", minCut: target, action: { kind: "task-list" } },
+      { viewRoot, repoId: "lease-repo", principalId: "person-one", minCut: target, action: { kind: "task-list" } },
       async () => {
         pulls += 1;
         return pull();
@@ -190,6 +211,7 @@ test(
       {
         viewRoot,
         repoId: "lease-repo",
+        principalId: "person-one",
         minCut: { revision: target.revision + 10, headDigest: `sha256:${"f".repeat(64)}` },
         writeReadWaitMs: 5,
         action: { kind: "task-list" },
@@ -201,7 +223,7 @@ test(
     assert.equal(timedOut.code, "write_committed_read_pending");
     assert.equal(timedOut.outcome, "pending");
     const withoutMinCut = await answerEdgeTaskList(
-      { viewRoot, repoId: "lease-repo", action: { kind: "task-list" } },
+      { viewRoot, repoId: "lease-repo", principalId: "person-one", action: { kind: "task-list" } },
       async () => {
         throw new Error("a usable local answer must not request the center");
       },
@@ -220,6 +242,7 @@ test(
         runFleetEdgeTask({
           payload: {
             ...f.peer("node-one"),
+            principalId: "person-one",
             host: "localhost",
             caPath: path.join(f.root, "tls.crt"),
             viewRoot,
@@ -235,3 +258,32 @@ test(
     assert.ok((read.rows as { taskId: string }[]).some((row) => row.taskId === "independent-write"));
   },
 );
+
+test("same repository pulls keep per-node authorization metadata independent", { timeout: 180_000 }, async (t) => {
+  const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+  f.owners.reassign("node-two", "person-two");
+  await f.command("center-node", { kind: "task-create", taskId: "dual-owner", title: "Dual owner" });
+  const first = path.join(f.root, "view-one"),
+    second = path.join(f.root, "view-two");
+  await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: first, diskQuotaBytes: quota });
+  await runFleetReplicaPullClient({ ...f.peer("node-two"), viewRoot: second, diskQuotaBytes: quota });
+  const one = locateFleetMirrorView(first, "lease-repo")!,
+    two = locateFleetMirrorView(second, "lease-repo")!;
+  assert.equal(one.authorizationOwner, "person-one");
+  assert.equal(two.authorizationOwner, "person-two");
+  assert.notEqual(one.authorizationShapeDigest, two.authorizationShapeDigest);
+  f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
+  await assert.rejects(runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: first, diskQuotaBytes: quota }), {
+    code: "authorization_denied",
+  });
+  const deniedOne = await answerEdgeTaskList(
+      { viewRoot: first, repoId: "lease-repo", principalId: "person-one", action: { kind: "task-list" } },
+      async () => undefined,
+    ),
+    allowedTwo = await answerEdgeTaskList(
+      { viewRoot: second, repoId: "lease-repo", principalId: "person-two", action: { kind: "task-list" } },
+      async () => undefined,
+    );
+  assert.equal(deniedOne.code, "authorization_denied");
+  assert.equal(allowedTwo.ok, true, JSON.stringify(allowedTwo));
+});

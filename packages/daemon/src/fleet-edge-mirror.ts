@@ -45,6 +45,8 @@ export interface FleetMirrorView {
   readonly revision: number;
   readonly headDigest: string;
   readonly manifestDigest: string;
+  readonly authorizationOwner: string | null;
+  readonly authorizationShapeDigest: string;
   readonly entries: ReadonlyMap<string, FleetMirrorBlob>;
 }
 export interface FleetMirrorDirtyFile {
@@ -222,9 +224,12 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
   for (const candidate of readdirSync(viewsRoot, { withFileTypes: true })) {
     if (!candidate.isDirectory() || (viewId !== undefined && candidate.name !== viewId)) continue;
     const viewDir = path.join(viewsRoot, candidate.name),
-      current = fleetMirrorReadJson<{ cut: { revision: number; headDigest: string }; manifestDigest: string }>(
-        path.join(viewDir, "current.json"),
-      );
+      current = fleetMirrorReadJson<{
+        cut: { revision: number; headDigest: string };
+        manifestDigest: string;
+        authorizationOwner: string | null;
+        authorizationShapeDigest: string;
+      }>(path.join(viewDir, "current.json"));
     if (current === null) continue;
     const manifest = fleetMirrorCutEntries(viewDir, current.cut.revision);
     if (manifest === null) continue;
@@ -235,6 +240,8 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
       revision: current.cut.revision,
       headDigest: current.cut.headDigest,
       manifestDigest: current.manifestDigest,
+      authorizationOwner: current.authorizationOwner,
+      authorizationShapeDigest: current.authorizationShapeDigest,
       entries: manifest,
     };
     if (best === null || view.revision > best.revision) best = view;

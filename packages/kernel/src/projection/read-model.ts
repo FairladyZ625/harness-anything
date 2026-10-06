@@ -3,6 +3,7 @@ import { createDecisionProjectionTables } from "./decision-projection-schema.ts"
 import { createFactProjectionTables } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { createTaskRelationProjectionTable, refreshTaskRelationProjection } from "./task-query-projection.ts";
+import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 
 /**
  * The edge read model (dec_0C26B97C5B6CEA37101FC0A84D): the center publishes its own projection
@@ -241,6 +242,20 @@ export interface EdgeReadModelMeta {
   readonly schemaGeneration: typeof READ_MODEL_SCHEMA_GENERATION;
   readonly sourceRevision: number;
   readonly rootThreshold: number;
+}
+
+export const EDGE_READ_AUTHORIZATION_DOMAINS = ["repository-read"] as const;
+export function edgeReadAuthorizationShapeDigest(input: {
+  readonly repoId: string;
+  readonly owner: string | null;
+}): string {
+  return sha256Text(
+    stableStringify({
+      repoId: input.repoId,
+      owner: input.owner,
+      domains: EDGE_READ_AUTHORIZATION_DOMAINS,
+    }),
+  );
 }
 
 export function taskReadModelPath(taskId: string): string {

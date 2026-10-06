@@ -40,7 +40,11 @@ test(
       return runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot, diskQuotaBytes: quota });
     };
     const local = (taskId: string, now?: () => number) =>
-      answerEdgeTaskShow({ viewRoot, repoId: "lease-repo", action: { kind: "task-show", taskId } }, pull, now);
+      answerEdgeTaskShow(
+        { viewRoot, repoId: "lease-repo", principalId: "person-one", action: { kind: "task-show", taskId } },
+        pull,
+        now,
+      );
     const center = async (taskId: string) =>
       (await f.host.run("lease-repo", { kind: "task-show", taskId } as never, localAuthFixture())) as unknown as {
         readonly outcome: string;
@@ -57,6 +61,13 @@ test(
       await pull();
     };
     await settle();
+    const nonOwner = await answerEdgeTaskShow(
+      { viewRoot, repoId: "lease-repo", principalId: "person-two", action: { kind: "task-show", taskId: "show-1" } },
+      async () => {
+        throw new Error("non-owner local read must not pull");
+      },
+    );
+    assert.equal(nonOwner.code, "authorization_denied", JSON.stringify(nonOwner));
 
     // 1. The edge answer is the center's answer, field by field, with the freshness envelope added.
     pulls = 0;
@@ -109,6 +120,7 @@ test(
         {
           viewRoot,
           repoId: "lease-repo",
+          principalId: "person-one",
           minCut: secondWrite.appliedCut!,
           action: { kind: "task-show", taskId: "show-1" },
         },
@@ -122,6 +134,7 @@ test(
       {
         viewRoot,
         repoId: "lease-repo",
+        principalId: "person-one",
         minCut: { revision: secondWrite.appliedCut!.revision + 10, headDigest: `sha256:${"f".repeat(64)}` },
         writeReadWaitMs: 5,
         action: { kind: "task-show", taskId: "show-1" },
@@ -152,6 +165,7 @@ test(
     const offline = await runFleetEdgeTask({
       payload: {
         ...f.peer("node-one"),
+        principalId: "person-one",
         host: "localhost",
         caPath: path.join(f.root, "tls.crt"),
         viewRoot,
@@ -166,7 +180,12 @@ test(
     const emptyRoot = mkdtempSync(path.join(tmpdir(), "ha-edge-empty-"));
     t.after(() => rmSync(emptyRoot, { recursive: true, force: true }));
     const unavailable = await answerEdgeTaskShow(
-      { viewRoot: emptyRoot, repoId: "lease-repo", action: { kind: "task-show", taskId: "show-1" } },
+      {
+        viewRoot: emptyRoot,
+        repoId: "lease-repo",
+        principalId: "person-one",
+        action: { kind: "task-show", taskId: "show-1" },
+      },
       () => runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: emptyRoot, diskQuotaBytes: quota }),
     );
     assert.equal(unavailable.code, "LOCAL_UNAVAILABLE");

@@ -73,6 +73,9 @@ export function createJsonRpcProtocolServer(options: {
     method: string,
     params: JsonObject,
   ) => Promise<NonNullable<DaemonAuthenticationContext["executionPrincipal"]>>;
+  readonly edgeExecutionPrincipal?: (
+    credential: string,
+  ) => Promise<NonNullable<DaemonAuthenticationContext["executionPrincipal"]>>;
   /** The daemon's signed-in OIDC principal as of now; read on every request, not once per connection. */
   readonly sessionPrincipal?: () => Promise<DaemonAuthenticationContext["oidcPrincipal"]>;
   readonly emit: (method: string, params: JsonObject) => Promise<void>;
@@ -457,13 +460,11 @@ export function createJsonRpcProtocolServer(options: {
             throw Object.assign(new Error("Fleet runtime envelope must carry one closed runtime method and payload."), {
               code: "invalid_field",
             });
-          return reply(
-            method,
-            await options.host.fleet.edgeRuntime(
-              { ...fleetPayload, method: fleetAction.method, action: fleetAction.payload },
-              options.authContext,
-            ),
+          const result = await options.host.fleet.edgeRuntime(
+            { ...fleetPayload, method: fleetAction.method, action: fleetAction.payload },
+            options.authContext,
           );
+          return reply(method, result);
         }
         if (isJsonObject(fleetAction) && fleetAction.kind === "fleet-schedule") {
           if (!isJsonObject(fleetAction.payload))
@@ -479,6 +480,16 @@ export function createJsonRpcProtocolServer(options: {
           );
         }
         const { runFleetEdgeTask } = await import("../fleet-edge-task.ts");
+        const relayedExecutionPrincipal =
+          executionCredential === undefined
+            ? undefined
+            : options.edgeExecutionPrincipal
+              ? await options.edgeExecutionPrincipal(executionCredential)
+              : (() => {
+                  throw Object.assign(new Error("Edge execution identity is unavailable."), {
+                    code: "authorization_denied",
+                  });
+                })();
         return reply(
           method,
           await runFleetEdgeTask(
@@ -486,6 +497,13 @@ export function createJsonRpcProtocolServer(options: {
               payload: {
                 ...params.payload,
                 ...(executionCredential ? { executionCredential } : {}),
+                ...(options.authContext.executionPrincipal
+                  ? { principalId: options.authContext.executionPrincipal.personId }
+                  : relayedExecutionPrincipal
+                    ? { principalId: relayedExecutionPrincipal.personId }
+                    : !executionCredential && options.authContext.oidcPrincipal
+                      ? { principalId: options.authContext.oidcPrincipal.personId }
+                      : {}),
                 // The two non-task discriminants return above; the remainder is FleetTaskAction.
                 action: fleetAction as DaemonFleetTaskAction,
               },

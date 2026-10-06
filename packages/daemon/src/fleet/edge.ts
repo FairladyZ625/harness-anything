@@ -37,8 +37,13 @@ import {
 
 type Begin = Extract<FleetFrameV1, { schema: "fleet.snapshot.begin/v1" | "fleet.delta.begin/v1" }>;
 type Finish = Extract<FleetFrameV1, { schema: "fleet.snapshot.finish/v1" | "fleet.delta.finish/v1" }>;
-type Current = { cut: FleetCut; manifestDigest: string };
-type Manifest = Current & { entries: FleetEntry[] };
+type Current = {
+  cut: FleetCut;
+  manifestDigest: string;
+  authorizationOwner: string;
+  authorizationShapeDigest: string;
+};
+type Manifest = { cut: FleetCut; manifestDigest: string; entries: FleetEntry[] };
 export interface FleetEdgeView {
   readonly receive: (frame: FleetFrameV1) => FleetFrameV1 | null;
   readonly current: (repoId: string, viewId: string) => Current | null;
@@ -287,14 +292,23 @@ function finish(
   }
   const digest = fleetManifestDigest(entries);
   if (digest !== expected) throw new Error("result manifest mismatch");
-  const manifest: Manifest = { cut, manifestDigest: digest, entries };
+  const manifest: Manifest = {
+    cut,
+    manifestDigest: digest,
+    entries,
+  };
   writeEdgeDurableJson(path.join(result, "manifest.json"), manifest);
   const cutDir = path.join(viewRoot, "cuts", String(cut.revision));
   mkdirSync(path.dirname(cutDir), { recursive: true });
   if (!existsSync(cutDir)) renameSync(result, cutDir);
   else rmSync(result, { recursive: true, force: true });
   killpoint?.("before_current_rename");
-  writeEdgeDurableJson(path.join(viewRoot, "current.json"), { cut, manifestDigest: digest });
+  writeEdgeDurableJson(path.join(viewRoot, "current.json"), {
+    cut,
+    manifestDigest: digest,
+    authorizationOwner: begin.authorizationOwner,
+    authorizationShapeDigest: begin.authorizationShapeDigest,
+  });
   const reopened = readJson<Manifest>(path.join(cutDir, "manifest.json")),
     active = readJson<Current>(path.join(viewRoot, "current.json"));
   if (!reopened || !active || reopened.manifestDigest !== digest || JSON.stringify(active.cut) !== JSON.stringify(cut))
@@ -821,6 +835,15 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
             current.manifestDigest !== inbound.manifestDigest
           )
             throw new Error("center current differs from edge current");
+          writeEdgeDurableJson(
+            path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId, "current.json"),
+            {
+              cut: inbound.cut,
+              manifestDigest: inbound.manifestDigest,
+              authorizationOwner: inbound.authorizationOwner,
+              authorizationShapeDigest: inbound.authorizationShapeDigest,
+            },
+          );
           recordHeadConfirmation(
             path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId),
             inbound.cut.revision,
