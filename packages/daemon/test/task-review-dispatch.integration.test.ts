@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -209,6 +210,117 @@ test("decision dispatch-review passes spawn admission and launches once for the 
     await f.close();
   }
 });
+
+test(
+  "a settled decision review dispatch publishes its report, packet, and dispatch record through the writer",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+    const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
+    try {
+      await f.install();
+      const proposed = await runDecision({
+        kind: "decision-propose",
+        body: realizedDecisionBody("Published dispatch review"),
+        jsonInput: JSON.stringify({
+          title: "Published dispatch review",
+          question: "Should the dispatched review's artifacts be published?",
+          riskTier: "high",
+          urgency: "high",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["daemon"], productLines: [] },
+          chosen: [{ id: "CH1", text: "Publish the review artifacts" }],
+          rejected: [{ id: "RJ1", text: "Leave them untracked", whyNot: "The ledger must hold the review" }],
+          claims: [{ id: "C1", text: "The reviewer is independent.", loadBearing: true }],
+          fulfillments: [],
+        }),
+      });
+      assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+      const decisionId = JSON.parse(String(proposed.evidence)).decisionId as string,
+        shown = await runDecision({ kind: "decision-show", decisionId, includeBody: true }),
+        digest = JSON.parse(String(shown.evidence)).decision.currentReviewContentDigest as string,
+        receipt = await runDecision({ kind: "decision-dispatch-review", decisionId }),
+        step = dispatchesOf(receipt)[0]!,
+        dispatchId = step.dispatchId!,
+        runtimeSessionId = step.runtimeSessionId!,
+        packageRoot = `decisions/decision-${decisionId}`,
+        reportRef = `${packageRoot}/artifacts/reports/${dispatchId}.md`,
+        packetRef = `${packageRoot}/artifacts/reports/${dispatchId}.json`;
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.match(
+        f.launches[0]!.prompt,
+        new RegExp(`artifacts/reports/${dispatchId}\\.json`, "u"),
+        "the dispatch must assign the reviewer one packet path",
+      );
+      const authored = path.join(f.root, "harness", packetRef);
+      mkdirSync(path.dirname(authored), { recursive: true });
+      writeFileSync(path.join(f.root, "harness", reportRef), "# Review\n\nThe Decision cut was reviewed.\n");
+      writeFileSync(
+        authored,
+        JSON.stringify({
+          reviewId: `review-${dispatchId}`,
+          reviewContentDigest: digest,
+          verdict: "approved",
+          reason: "The frozen Decision document supports acceptance.",
+          findings: [],
+          evidenceChecked: ["decision.md"],
+          reportRef,
+        }),
+      );
+      const reviewed = await runDecision({
+        kind: "decision-review",
+        decisionId,
+        fromFile: `harness/${packetRef}`,
+        executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+      });
+      assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+      const reviewEvent = f.events().find((event) => event.opId === reviewed.opId),
+        carried = reviewEvent?.type === "decision_review_recorded" ? reviewEvent.payload.carriedDocumentClaims : null;
+      assert.deepEqual(
+        (carried ?? []).map((change) => change.path).sort(),
+        [packetRef, reportRef].sort(),
+        "recording the review must publish the report and its packet together",
+      );
+      const outcome = await f.settleDecisionReview(runtimeSessionId, "Reviewed and recorded.");
+      assert.equal(outcome, "succeeded", "a registered decision review settles as succeeded");
+      const archive = f
+        .events()
+        .find(
+          (event) =>
+            event.type === "documents_written" &&
+            (event.payload.changes as { readonly path: string }[]).some(
+              (change) => change.path === `${packageRoot}/artifacts/dispatches/${dispatchId}.json`,
+            ),
+        );
+      assert.ok(archive, "the settlement archive must publish the decision dispatch record");
+      const archivePaths = (archive.payload.changes as { readonly path: string }[]).map((change) => change.path);
+      assert.ok(
+        archivePaths.includes(`${packageRoot}/artifacts/missions/${dispatchId}.md`),
+        `archive changes: ${JSON.stringify(archivePaths)}`,
+      );
+      for (const opId of [reviewed.opId, archive.opId])
+        await f
+          .cell()
+          .run(
+            { kind: "receipt-show", opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
+            withPolicyGroup(owner, "admin"),
+          );
+      for (const logical of [
+        reportRef,
+        packetRef,
+        `${packageRoot}/artifacts/dispatches/${dispatchId}.json`,
+        `${packageRoot}/artifacts/missions/${dispatchId}.md`,
+      ])
+        execFileSync("git", ["-C", f.root, "ls-files", "--error-unmatch", "--", `harness/${logical}`], {
+          stdio: "ignore",
+        });
+    } finally {
+      await f.close();
+    }
+  },
+);
 
 type DispatchStep = {
   taskId: string;

@@ -33,8 +33,11 @@ import { readDispatchStreamHeader } from "./dispatch-stream.ts";
 
 export interface RuntimeDispatchArchive {
   readonly dispatchId: string;
-  readonly taskId: string;
-  readonly executionId: string;
+  /** The bound task execution, or null when the dispatch targeted a Decision review. */
+  readonly taskId: string | null;
+  readonly executionId: string | null;
+  /** Present exactly when the dispatch was a Decision review; the occurrence must match it. */
+  readonly decisionReview?: { readonly decisionId: string; readonly digest: string };
   readonly agentId?: string;
   readonly agentName?: string;
   readonly delegatedByAgentId?: string;
@@ -69,10 +72,27 @@ export function archiveRuntimeDispatch(
   input: Omit<Input, "action"> & { readonly archive: RuntimeDispatchArchive },
 ): DocSettlementReceipt {
   const value = input.archive,
-    task = input.projection.read(value.taskId);
-  if (task.watermark !== task.sourceRevision || !task.packagePath || !task.snapshot.task)
+    decision = value.decisionReview ?? null,
+    taskRead = decision === null && value.taskId !== null ? input.projection.read(value.taskId) : null,
+    decisionRead = decision === null ? null : input.projection.readDecision(decision.decisionId);
+  if (decision === null && value.taskId === null)
+    throw docSyncError(
+      "invalid_command",
+      `Runtime archive ${value.dispatchId} names neither a task execution nor a Decision review target`,
+    );
+  if (
+    taskRead !== null &&
+    (taskRead.watermark !== taskRead.sourceRevision || !taskRead.packagePath || !taskRead.snapshot.task)
+  )
     throw docSyncError("content_not_ready", `Task ${value.taskId} is not ready for runtime archive`);
-  const occurrence = input.projection
+  if (
+    decision !== null &&
+    decisionRead !== null &&
+    (decisionRead.watermark !== decisionRead.sourceRevision || !decisionRead.decision)
+  )
+    throw docSyncError("content_not_ready", `Decision ${decision.decisionId} is not ready for runtime archive`);
+  const packagePath = taskRead?.packagePath ?? `decisions/decision-${decision!.decisionId}`,
+    occurrence = input.projection
       .readRuntimeDispatches()
       .find((event) => event.payload.dispatchId === value.dispatchId),
     session = input.projection.readRuntimeSession(value.runtimeSessionId),
@@ -83,34 +103,40 @@ export function archiveRuntimeDispatch(
         input.binding.source.kind === "node" &&
         occurrence?.actor.principal.personId === input.binding.actor.principal.personId &&
         JSON.stringify(occurrence.source) === JSON.stringify(input.binding.source)),
+    matchingDecision =
+      decision !== null &&
+      occurrence?.payload.reviewTarget?.kind === "decision" &&
+      occurrence.payload.reviewTarget.decisionId === decision.decisionId &&
+      occurrence.payload.reviewTarget.digest === decision.digest,
     matchingTask =
-      session?.taskBindings.some(
+      decision === null &&
+      (session?.taskBindings.some(
         (binding) => binding.taskId === value.taskId && binding.executionId === value.executionId,
       ) === true ||
-      input.projection
-        .readLeaseIntervals(value.taskId)
-        .some(
-          (interval) =>
-            interval.executionId === value.executionId &&
-            interval.holder.actor.executor?.id === runtimeExecutorId &&
-            interval.holder.actor.principal.personId === input.binding.actor.principal.personId,
-        ) ||
-      (occurrence?.payload.taskId === value.taskId &&
-        occurrence.payload.executionId === value.executionId &&
-        JSON.stringify(occurrence.source) === JSON.stringify(input.binding.source));
+        input.projection
+          .readLeaseIntervals(value.taskId!)
+          .some(
+            (interval) =>
+              interval.executionId === value.executionId &&
+              interval.holder.actor.executor?.id === runtimeExecutorId &&
+              interval.holder.actor.principal.personId === input.binding.actor.principal.personId,
+          ) ||
+        (occurrence?.payload.taskId === value.taskId &&
+          occurrence.payload.executionId === value.executionId &&
+          JSON.stringify(occurrence.source) === JSON.stringify(input.binding.source)));
   if (
     occurrence?.payload.runtimeSessionId !== value.runtimeSessionId ||
     occurrence.payload.instanceId !== value.instanceId ||
-    !matchingTask ||
+    !(matchingDecision || matchingTask) ||
     !runtimeActor
   )
     throw docSyncError(
       "runtime_archive_occurrence_mismatch",
       `Runtime archive ${value.dispatchId} does not match its canonical dispatch occurrence`,
     );
-  const existingMissionRef = runtimeArchiveMissionRef(input, task.packagePath, value),
-    missionRef = existingMissionRef ?? `${task.packagePath}/artifacts/missions/${value.dispatchId}.md`,
-    reportRef = documentPath(`${task.packagePath}/artifacts/reports/${value.dispatchId}.md`),
+  const existingMissionRef = runtimeArchiveMissionRef(input, packagePath, value),
+    missionRef = existingMissionRef ?? `${packagePath}/artifacts/missions/${value.dispatchId}.md`,
+    reportRef = documentPath(`${packagePath}/artifacts/reports/${value.dispatchId}.md`),
     layout = resolveHarnessLayout(input.rootDir),
     // A reviewer the completion facade dispatches authors its own report at the dispatch report path
     // before the runtime settles. That authored report is the dispatch report; the final message is
@@ -121,8 +147,15 @@ export function archiveRuntimeDispatch(
     dispatch = {
       schema: "runtime-dispatch/v1",
       dispatchId: value.dispatchId,
-      taskId: value.taskId,
-      executionId: value.executionId,
+      ...(decision
+        ? {
+            reviewTarget: {
+              kind: "decision" as const,
+              decisionId: decision.decisionId,
+              digest: decision.digest,
+            },
+          }
+        : { taskId: value.taskId, executionId: value.executionId }),
       ...(value.agentId ? { agentId: value.agentId, agentName: value.agentName } : {}),
       ...(value.delegatedByAgentId
         ? {
@@ -164,7 +197,7 @@ export function archiveRuntimeDispatch(
           ]
         : []),
       {
-        path: `${task.packagePath}/artifacts/dispatches/${value.dispatchId}.json`,
+        path: `${packagePath}/artifacts/dispatches/${value.dispatchId}.json`,
         body: `${JSON.stringify(dispatch, null, 2)}\n`,
         mediaType: "text/plain" as const,
       },
@@ -215,7 +248,7 @@ export function archiveRuntimeDispatch(
     if (unrouted || conflict)
       throw docSyncError(
         "runtime_archive_collision",
-        `Runtime archive ${value.dispatchId} is not a fresh task artifact set` +
+        `Runtime archive ${value.dispatchId} is not a fresh artifact set` +
           (conflict ? ` (${conflict.document.path} already exists)` : ""),
       );
   }
@@ -263,7 +296,7 @@ export function archiveRuntimeDispatch(
         runtimeSessionId: value.runtimeSessionId,
         taskId: value.taskId,
         executionId: value.executionId,
-        packagePath: task.packagePath,
+        packagePath,
       },
     },
     intent,

@@ -200,13 +200,13 @@ export function decisionReviewerArtifact(input: {
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
 }): {
-  readonly change: DocEventChange;
-  readonly blob: {
+  readonly changes: readonly DocEventChange[];
+  readonly blobs: readonly {
     readonly sha256: string;
     readonly size: number;
-    readonly mediaType: "text/markdown";
+    readonly mediaType: string;
     readonly body: string;
-  };
+  }[];
 } | null {
   const decisionId = String(input.action.decisionId ?? ""),
     reviewId = String(input.action.reviewId ?? ""),
@@ -231,14 +231,16 @@ export function decisionReviewerArtifact(input: {
       throw cellCodedError("review_report_invalid", `Decision review reportRef must be ${artifact.path}.`);
     const { path: artifactPath, ...blob } = artifact;
     return {
-      change: {
-        path: documentPath(artifactPath),
-        baseBlobSha256: input.projection.readDocument(artifactPath).document?.blobSha256 ?? null,
-        candidate: { sha256: artifact.sha256, size: artifact.size, mediaType: artifact.mediaType },
-        policyId: classifyTextualArtifactPath(artifactPath)!.policyId,
-        regionProofs: [],
-      },
-      blob,
+      changes: [
+        {
+          path: documentPath(artifactPath),
+          baseBlobSha256: input.projection.readDocument(artifactPath).document?.blobSha256 ?? null,
+          candidate: { sha256: artifact.sha256, size: artifact.size, mediaType: artifact.mediaType },
+          policyId: classifyTextualArtifactPath(artifactPath)!.policyId,
+          regionProofs: [],
+        },
+      ],
+      blobs: [blob],
     };
   }
   const session = input.projection.readRuntimeSession(runtimeSessionId),
@@ -257,7 +259,10 @@ export function decisionReviewerArtifact(input: {
       "Decision review does not match the dispatch's persisted review target.",
     );
   const packagePath = `decisions/decision-${decisionId}`,
-    expected = reviewReportRelativePath(packagePath, reviewId);
+    expected = reviewReportRelativePath(packagePath, reviewId),
+    packetRef = `${packagePath}/artifacts/reports/${dispatchId}.json`,
+    requestedPacket =
+      typeof input.action.fromFile === "string" ? input.action.fromFile.replace(/^harness\//u, "") : null;
   if (reportRef !== expected)
     throw cellCodedError("review_report_invalid", `Decision review reportRef must be ${expected}.`);
   const artifact = assertPhysicalReviewReport({
@@ -267,19 +272,60 @@ export function decisionReviewerArtifact(input: {
       subject: `Decision ${decisionId}`,
       retry: `ha decision review ${decisionId} --review-id ${reviewId}`,
     }),
-    classification = classifyTextualArtifactPath(artifact.path);
-  if (!classification)
+    reportClassification = classifyTextualArtifactPath(artifact.path);
+  if (!reportClassification)
     throw cellCodedError("review_report_invalid", `Decision review report is not textual: ${artifact.path}.`);
-  const { path: artifactPath, ...blob } = artifact;
+  const { path: artifactPath, ...reportBlob } = artifact,
+    // A reviewer that registered through the dispatch-assigned packet path published that packet
+    // with the review; one that used inline JSON authored no packet file, so nothing is carried.
+    packet =
+      requestedPacket === packetRef
+        ? {
+            path: documentPath(packetRef),
+            body: readWorkspaceText(input.rootDir, `harness/${packetRef}`, "reviewPacket"),
+          }
+        : null,
+    packetClassification = packet === null ? null : classifyTextualArtifactPath(packetRef);
+  if (packet !== null && !packetClassification)
+    throw cellCodedError("review_report_invalid", `Decision review packet is not textual: ${packetRef}.`);
+  const packetChange =
+    packet === null || packetClassification === null
+      ? null
+      : ({
+          path: packet.path,
+          baseBlobSha256: input.projection.readDocument(packetRef).document?.blobSha256 ?? null,
+          candidate: {
+            sha256: sha256Text(packet.body),
+            size: Buffer.byteLength(packet.body) as DocEventChange["candidate"]["size"],
+            mediaType: packetClassification.mediaType,
+          },
+          policyId: packetClassification.policyId,
+          regionProofs: [],
+        } satisfies DocEventChange);
   return {
-    change: {
-      path: documentPath(artifactPath),
-      baseBlobSha256: input.projection.readDocument(artifactPath).document?.blobSha256 ?? null,
-      candidate: { sha256: artifact.sha256, size: artifact.size, mediaType: classification.mediaType },
-      policyId: classification.policyId,
-      regionProofs: [],
-    },
-    blob,
+    changes: [
+      {
+        path: documentPath(artifactPath),
+        baseBlobSha256: input.projection.readDocument(artifactPath).document?.blobSha256 ?? null,
+        candidate: { sha256: artifact.sha256, size: artifact.size, mediaType: reportClassification.mediaType },
+        policyId: reportClassification.policyId,
+        regionProofs: [],
+      },
+      ...(packetChange === null ? [] : [packetChange]),
+    ],
+    blobs: [
+      reportBlob,
+      ...(packetChange === null
+        ? []
+        : [
+            {
+              sha256: packetChange.candidate.sha256,
+              size: packetChange.candidate.size,
+              mediaType: packetChange.candidate.mediaType,
+              body: packet!.body,
+            },
+          ]),
+    ],
   };
 }
 
@@ -291,12 +337,12 @@ export function attachDecisionReviewerArtifact(
   if (!artifact || bundle.event.type !== "decision_review_recorded") return bundle;
   const event = {
     ...bundle.event,
-    payload: { ...bundle.event.payload, carriedDocumentClaims: [artifact.change] },
+    payload: { ...bundle.event.payload, carriedDocumentClaims: artifact.changes },
   };
   return {
     ...bundle,
     event,
     plan: decisionWritePlan(event),
-    blobs: [...bundle.blobs, artifact.blob],
+    blobs: [...bundle.blobs, ...artifact.blobs],
   };
 }

@@ -116,8 +116,9 @@ export interface DocWriteIntent {
 export interface RuntimeArchiveWriteScope {
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
-  readonly taskId: string;
-  readonly executionId: string;
+  /** The bound task execution, or null when the dispatch targeted a Decision review. */
+  readonly taskId: string | null;
+  readonly executionId: string | null;
   readonly packagePath: string;
 }
 

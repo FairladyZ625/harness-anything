@@ -124,7 +124,10 @@ export async function dispatchDecisionReview(
         `Independently review Decision ${decisionId} at reviewContentDigest ${digest}.`,
         `Read the frozen accepted document at harness/${path}.`,
         "Record approved or changes_requested with ha decision review; never accept, reject, defer, or amend.",
-        `Write the report to harness/decisions/decision-${decisionId}/artifacts/reports/${ids.dispatchId}.md.`,
+        `Write the review report to harness/decisions/decision-${decisionId}/artifacts/reports/${ids.dispatchId}.md ` +
+          `and the review input to harness/decisions/decision-${decisionId}/artifacts/reports/${ids.dispatchId}.json.`,
+        `Register with ha decision review ${decisionId} --from-file ` +
+          `harness/decisions/decision-${decisionId}/artifacts/reports/${ids.dispatchId}.json.`,
       ].join("\n"),
     },
     authorizationDecision = await evaluateRepoCellAction({
