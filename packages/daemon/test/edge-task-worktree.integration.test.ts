@@ -170,6 +170,41 @@ test("a node refused before it worked takes the task over from what the other no
   assert.equal(git(resumed.cwd, "rev-parse", "HEAD"), continued);
 });
 
+test("an idle checkout a refused dispatch cut is advanced to the present default branch on retry", async (t) => {
+  const fixture = nodesFixture(t),
+    // The refused dispatch's checkout: cut from the default branch before the prerequisite landed on it.
+    idle = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!,
+    stale = git(idle.cwd, "rev-parse", "HEAD");
+  // The prerequisite merges and this node's view of the default branch moves with it.
+  const merged = commit(fixture.nodeA, "prerequisite.txt");
+  git(fixture.nodeA, "push", "-q", "origin", "main");
+  git(fixture.nodeB, "fetch", "-q", "origin", "main");
+
+  const retry = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!;
+  assert.equal(retry.cwd, idle.cwd);
+  assert.equal(retry.baseRef, null, "the checkout was already here");
+  assert.equal(git(retry.cwd, "rev-parse", "HEAD"), merged, "the idle checkout starts the retry on current main");
+  assert.equal(git(retry.cwd, "merge-base", "--is-ancestor", stale, merged), "", "the advance is a fast-forward");
+});
+
+test("an advancing default branch leaves a checkout that holds work of its own exactly where it is", async (t) => {
+  for (const scenario of ["a commit of its own", "an uncommitted change"] as const) {
+    const fixture = nodesFixture(t),
+      checkout = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!;
+    if (scenario === "a commit of its own") commit(checkout.cwd, "node-b.txt");
+    else writeFileSync(path.join(checkout.cwd, "src", "index.txt"), "edited on node b\n");
+    commit(fixture.nodeA, "prerequisite.txt");
+    git(fixture.nodeA, "push", "-q", "origin", "main");
+    git(fixture.nodeB, "fetch", "-q", "origin", "main");
+    const head = git(checkout.cwd, "rev-parse", "HEAD"),
+      status = git(checkout.cwd, "status", "--porcelain");
+
+    await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []);
+    assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), head, scenario);
+    assert.equal(git(checkout.cwd, "status", "--porcelain"), status, scenario);
+  }
+});
+
 test("a checkout behind the published branch that holds work of its own is refused and left untouched", async (t) => {
   for (const scenario of ["a commit of its own", "an uncommitted change"] as const) {
     const fixture = nodesFixture(t),
