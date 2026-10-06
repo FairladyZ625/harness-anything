@@ -211,10 +211,13 @@ test(
       const anonymous = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(anonymous.status, 1);
       assert.equal(anonymous.receipt.code, "authorization_denied", JSON.stringify(anonymous.receipt));
+      realm.bind(fixture.edgeUser);
       signInAt(fixture.edgeUser, "edge-operator");
       const shown = run(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(shown.revision, pulled.ackCut);
       assert.doesNotMatch(String(shown.summary), /task=null/u);
+      // Edge writes below keep the machine path; a signed-in person's writes would ask for confirmation.
+      signOutAt(fixture.edgeUser);
       const status = run(fixture, "edge", ["doc", "status", "--path", docPath]);
       assert.equal((status.cut as { revision: number }).revision, pulled.ackCut);
       assert.deepEqual(status.rows, []);
@@ -490,6 +493,7 @@ test(
       const anonymousRead = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(anonymousRead.status, 1);
       assert.equal(anonymousRead.receipt.code, "authorization_denied", JSON.stringify(anonymousRead.receipt));
+      realm.bind(fixture.edgeUser);
       signInAt(fixture.edgeUser, "edge-operator");
       const readable = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(readable.status, 0, JSON.stringify(readable.receipt));
