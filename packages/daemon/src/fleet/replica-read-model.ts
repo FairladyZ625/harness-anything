@@ -4,7 +4,6 @@ import { DatabaseSync } from "node:sqlite";
 import {
   applyEdgeReadModelEntry,
   canonicalJson,
-  classifyRawArtifactPath,
   classifyTextualArtifactPath,
   consumeKnownError,
   createEdgeReadModelTables,
@@ -14,6 +13,7 @@ import {
   INITIAL_SETTINGS_V1,
   isReadModelPath,
   parseEdgeReadModelMeta,
+  RAW_ARTIFACT_MEDIA_TYPE,
   RAW_ARTIFACT_POLICY_ID,
   READ_MODEL_META_PATH,
   repositorySettings,
@@ -164,9 +164,12 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string): Edge
               // Ledger documents ride the cut as content entries; their projected DocumentState is
               // rebuilt here from the same bytes the mirror materializes, so decision and closeout
               // reads resolve bodies exactly as the center's own queries do.
+              // An artifact's bytes decided text versus raw when the center wrote it; the cut carries
+              // that verdict as the entry's media type, so the path alone cannot re-decide it here.
               const policyId =
-                classifyTextualArtifactPath(entryPath)?.policyId ??
-                (classifyRawArtifactPath(entryPath) !== null ? RAW_ARTIFACT_POLICY_ID : DOC_POLICY_ID);
+                entry.mediaType === RAW_ARTIFACT_MEDIA_TYPE
+                  ? RAW_ARTIFACT_POLICY_ID
+                  : (classifyTextualArtifactPath(entryPath)?.policyId ?? DOC_POLICY_ID);
               const bytes = blob(entry.sha256),
                 state: DocumentState = {
                   path: entryPath as DocumentState["path"],

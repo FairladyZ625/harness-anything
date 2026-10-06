@@ -271,9 +271,16 @@ test(
       }),
       { code: "execution_credential_rejected" },
     );
+    // Edge reads answer from the local read model; a revocation lands at the next sync attempt.
+    const resync = async () => {
+      await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
+      applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
+    };
     f.owners.keycloak.revoke("person-owner", repoId, ["repository-read"]);
+    await assert.rejects(resync(), { code: "authorization_denied" });
     assert.equal((await cli(["task", "show", taskId])).code, "authorization_denied");
     f.owners.keycloak.permit("person-owner", repoId, ["repository-read"]);
+    await resync();
     const client = f.owners.keycloak.nodeClients.get(secret.split(":")[0]!)!;
     client.enabled = false;
     await assert.rejects(
@@ -310,11 +317,15 @@ test(
       { code: "execution_credential_rejected" },
     );
     client.attributes.harness_execution = JSON.stringify(principal);
+    // Reassigning the node voids the execution's authority at the center; reads stay local.
     f.setOwner("person-other");
-    assert.equal((await cli(["task", "show", taskId])).outcome, "op_rejected");
+    const reassigned = await cli(["task", "progress", "append", taskId, "--text", "Owner was reassigned."]);
+    assert.equal(reassigned.outcome, "op_rejected", JSON.stringify(reassigned));
     f.setOwner("person-owner");
     offline = true;
-    assert.equal((await cli(["task", "show", taskId])).outcome, "op_rejected");
+    const offlineShow = await cli(["task", "show", taskId]);
+    assert.equal(offlineShow.outcome, "applied", JSON.stringify(offlineShow));
+    assert.ok(offlineShow.freshness, JSON.stringify(offlineShow));
     offline = false;
     const settledCut = f.host.replica(repoId);
     settledCut.activate();
@@ -490,7 +501,7 @@ test(
         executionCredential,
         opId: `crossed-${nodeId}`,
         taskId,
-        action: { kind: "task-show", taskId },
+        action: { kind: "task-progress-append", taskId, text: "crossed credential probe" },
         waitMs: 0,
       });
       assert.equal(crossed.code, "execution_credential_rejected");
@@ -585,8 +596,9 @@ test(
       "the supported amendment must change the submitted cut",
     );
     t.diagnostic("Owner CLI/Fleet TLS amended S1 to a distinct S2 submission.");
+    // The stale credential still reads the local replica; the center refuses only its writes below.
     const staleRead = await reviewCli(["task", "show", taskId]);
-    assert.equal(staleRead.code, "execution_credential_rejected", JSON.stringify(staleRead));
+    assert.equal(staleRead.outcome, "applied", JSON.stringify(staleRead));
     const staleReceipt = await reviewCli([
       "task",
       "review-execution",
@@ -781,14 +793,8 @@ test(
     signInAt(path.join(f.root, "user"), "person-owner");
     assert.ok((await show()).reviews.some((review) => review.reviewId === `review-${reviewDispatch}`));
     t.diagnostic("Fresh S2 reviewer read, fixed receipt and honest unknown settlement passed after logout.");
-    await assert.rejects(
-      runFleetRuntimeEventClient({
-        ...peer,
-        opId: "logout-terminal",
-        eventType: "runtime_session_exited",
-        payload: { runtimeSessionId: runtimeId, exitedAt: new Date().toISOString(), exitCode: 0 },
-      }),
-      { code: "execution_credential_rejected" },
-    );
+    // The settled execution's credential is dead at the center: a write with it is refused.
+    const after = await cli(["task", "progress", "append", taskId, "--text", "After settlement."]);
+    assert.equal(after.code, "execution_credential_rejected", JSON.stringify(after));
   },
 );
