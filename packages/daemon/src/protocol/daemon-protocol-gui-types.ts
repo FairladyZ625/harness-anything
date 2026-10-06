@@ -423,9 +423,15 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.gui.catalog.snapshot": JsonObject;
   readonly "repo.gui.catalog.preset.read": JsonObject;
   readonly "repo.terminal.sessions.list": JsonObject;
+  readonly "repo.fleet.overview.read": import("../fleet/fleet-overview-read.ts").FleetOverviewResult;
 };
 
-export type DaemonHostOnlyGuiReadMethod = "repo.workspace.summary.read" | "repo.workspace.scope.read" | "observe.tail";
+/** Host-owned aggregate reads (fleet topology needs the center handle + daemon build facts). */
+export type DaemonHostOnlyGuiReadMethod =
+  | "repo.workspace.summary.read"
+  | "repo.workspace.scope.read"
+  | "observe.tail"
+  | "repo.fleet.overview.read";
 
 /** Historical cell-routable read union. Host-owned aggregate reads use the full RPC union below. */
 export type DaemonGuiReadMethod = Exclude<keyof DaemonGuiReadResultMap, DaemonHostOnlyGuiReadMethod>;
@@ -518,6 +524,7 @@ export type DaemonGuiReadPayloadMap = {
     readonly locale?: string;
   };
   readonly "repo.terminal.sessions.list": Readonly<Record<string, never>>;
+  readonly "repo.fleet.overview.read": Readonly<Record<string, never>>;
 };
 
 /** Optional narrow/paged query facets for the wide task reads. Absent fields keep the

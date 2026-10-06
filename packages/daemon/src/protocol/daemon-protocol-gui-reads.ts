@@ -18,6 +18,7 @@ import {
   DAEMON_DOCUMENT_READ_SCHEMA,
   DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA,
   DAEMON_ENTITY_KIND_CATALOG_SCHEMA,
+  DAEMON_FLEET_OVERVIEW_SCHEMA,
   DAEMON_VERTICAL_DECLARATION_READ_SCHEMA,
   DAEMON_ENTITY_ROW_LIST_SCHEMA,
   DAEMON_ENTITY_CONTENT_READ_SCHEMA,
@@ -821,6 +822,28 @@ export const daemonGuiReadMethods = Object.freeze([
     outputSchemaId: TERMINAL_SESSION_LIST_SCHEMA.id,
     errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
     serviceMethod: "listTerminalSessions",
+    auth: "local-session-token",
+    commandClass: "repo-read",
+  },
+  {
+    // task_8ce646d94: the Collaboration page's fleet topology in one read — nodes (center + edges),
+    // replica channels, per-node leases/dispatches, internal state with honest unavailable/redacted
+    // fields, and the recent canonical event window. Host-owned (needs the fleet center handle and
+    // the daemon's own build facts); remote-edge repos relay it to the center over the generic
+    // repository-read transport, so no fleet protocol frame is added.
+    id: "fleet.overview.read",
+    repositoryRead: true,
+    phase: "Fleet-Collab",
+    method: "repo.fleet.overview.read",
+    requiresRepo: true,
+    params: shape({ repo: shape({ repoId: "string" }) }),
+    guiBridgeMethod: "getFleetOverview",
+    httpMethod: "GET",
+    path: "/api/fleet/overview",
+    inputSchemaId: "gui.empty/v1",
+    outputSchemaId: DAEMON_FLEET_OVERVIEW_SCHEMA.id,
+    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+    serviceMethod: "readFleetOverview",
     auth: "local-session-token",
     commandClass: "repo-read",
   },

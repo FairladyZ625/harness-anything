@@ -16,6 +16,7 @@ import {
   DAEMON_CONTROL_RECEIPT_SCHEMA,
   DAEMON_CI_OBSERVATORY_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
+  DAEMON_FLEET_OVERVIEW_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
   DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA,
   DAEMON_ENTITY_KIND_CATALOG_SCHEMA,
@@ -298,6 +299,14 @@ export const daemonGuiReadSchemas = Object.freeze([
       "packages/daemon/fixtures/contracts/daemon-agent-runtime-overview-invalid.json",
       "packages/daemon/fixtures/contracts/daemon-agent-runtime-overview-profiles-invalid.json",
     ]),
+  },
+  {
+    id: DAEMON_FLEET_OVERVIEW_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_FLEET_OVERVIEW_SCHEMA",
+    parser: "packages/daemon/src/fleet/fleet-overview-read.ts#validateFleetOverview",
+    writer: "packages/daemon/src/fleet/fleet-overview-read.ts#buildFleetOverview",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-fleet-overview-invalid.json"]),
   },
   {
     id: DAEMON_AGENT_RUNTIME_SESSION_GROUPS_SCHEMA.id,

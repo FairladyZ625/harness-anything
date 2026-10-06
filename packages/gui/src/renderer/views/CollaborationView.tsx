@@ -1,25 +1,28 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import {
-  CENTER_NODE_ID,
-  EMPTY_SESSION_AGENT_INDEX,
-  assignmentStateOf,
-  isExecutingLeasePhase,
-  leaseNodeIdOf,
-  leaseRuntimeSessionIdOf,
-  projectCenterLeaseSource,
-  type CollaborationAgent,
-  type CollaborationTask,
-  type SessionAgentIndex,
-} from "../model/collaboration.ts";
-import { actorDisplayName } from "../model/actor-name.ts";
+import type {
+  FleetFieldState,
+  FleetOverviewEvent,
+  FleetOverviewLink,
+  FleetOverviewNode,
+  FleetOverviewRead,
+} from "../../api/renderer-dto.ts";
+import { formatListTime } from "../model/time.ts";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
-import { IdText } from "../components/IdText.tsx";
 import { RepoModeBadge, type RepoMode } from "../components/RepoModeBadge.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Section } from "../components/primitives/Section.tsx";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
+
+/**
+ * 协作页:舰队拓扑(task_8ce646d94)。数据全部来自 `repo.fleet.overview.read` 这一条
+ * typed read——节点(中心+边缘)、副本通道、每节点租约/派工、内部状态与 canonical
+ * 事件窗口都由 daemon 聚合并标注三态;页面只渲染,不从任务列表二次推导,也不推断
+ * 中心没有声明的事实(在线、同步内部状态等按 daemon 给的 unavailable 原因如实显示)。
+ *
+ * 交互契约:点节点卡片(含中心)打开详情;事件流可按节点过滤,点事件跳到对应节点详情。
+ */
 
 const PHASE_LABEL: Readonly<Record<string, MessageKey>> = {
   held: "collaboration.phase.held",
@@ -33,44 +36,52 @@ const PHASE_TONE: Readonly<Record<string, StatusTone>> = {
   orphaned: "bad",
   released: "neutral",
 };
-type FleetNode = {
-  readonly id: string;
-  readonly tasks: readonly CollaborationTask[];
-  readonly executing: number;
-  readonly owner: string | null;
+const LINK_TONE: Readonly<Record<FleetOverviewLink["state"], StatusTone>> = {
+  fresh: "done",
+  lag: "wait",
+  unsynced: "bad",
 };
+const LINK_LABEL: Readonly<Record<FleetOverviewLink["state"], string>> = {
+  fresh: "fresh",
+  lag: "lag",
+  unsynced: "未同步",
+};
+
+type FleetLeaseRowView = Exclude<FleetOverviewNode["leases"], { readonly redacted: string }>[number];
 
 export function CollaborationView({
   repoId,
   mode,
-  tasks,
-  ready,
-  agents = EMPTY_SESSION_AGENT_INDEX,
-  agentReadError = null,
-  agentReadLoading = false,
+  overview,
+  overviewError = null,
+  overviewLoading = false,
   onOpenTask,
   onNavigateEntity,
   now = new Date().toISOString(),
 }: {
   readonly repoId: string;
   readonly mode: RepoMode;
-  readonly tasks: readonly CollaborationTask[];
-  readonly ready: boolean;
-  readonly agents?: SessionAgentIndex;
-  readonly agentReadError?: string | null;
-  readonly agentReadLoading?: boolean;
+  readonly overview: FleetOverviewRead | null;
+  readonly overviewError?: string | null;
+  readonly overviewLoading?: boolean;
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
   readonly now?: string;
 }) {
-  const projected = useMemo(() => projectCenterLeaseSource(tasks), [tasks]);
-  const nodes = useMemo(() => nodeSummaries(projected), [projected]);
+  const nodes = overview?.nodes ?? [];
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [eventNode, setEventNode] = useState("all");
-  const selected = selectedNode === null ? null : (nodes.find((node) => node.id === selectedNode) ?? null);
-  const events = useMemo(() => eventRows(projected, nodes), [projected, nodes]);
+  const selected = selectedNode === null ? null : (nodes.find((node) => node.nodeId === selectedNode) ?? null);
+  const events = overview?.events ?? [];
   const visibleEvents = eventNode === "all" ? events : events.filter((event) => event.nodeId === eventNode);
-  const executing = projected.filter((task) => isExecutingLeasePhase(task.leasePhase)).length;
+  const executing = nodes.reduce(
+    (total, node) =>
+      total +
+      (Array.isArray(node.leases)
+        ? node.leases.filter((lease) => lease.phase === "held" || lease.phase === "reserving").length
+        : 0),
+    0,
+  );
   return (
     <section
       data-testid="collaboration-view"
@@ -79,8 +90,8 @@ export function CollaborationView({
     >
       <PageHeader
         title={t("collaboration.title")}
-        note="舰队拓扑：节点、通道与正在发生的事情"
-        meta={`${nodes.length} 节点 · ${executing} 执行中 · ${events.length} 事件`}
+        note={t("collaboration.fleetNote")}
+        meta={t("collaboration.fleetSummary", { nodes: nodes.length, executing, events: events.length })}
         actions={<RepoModeBadge mode={mode} />}
       />
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -92,33 +103,32 @@ export function CollaborationView({
             {t("collaboration.centerNotice")}
           </p>
         ) : null}
-        {agentReadError !== null ? (
-          <p className="mb-3 ui-meta text-status-blocked">
-            {t("collaboration.agentReadFailed", { error: agentReadError })}
+        {overviewError !== null ? (
+          <p data-testid="collaboration-read-error" className="mb-3 ui-meta text-status-blocked">
+            {t("collaboration.readFailed", { error: overviewError })}
           </p>
         ) : null}
-        {!ready ? (
+        {overviewLoading && overview === null ? (
           <Empty>{t("collaboration.loading")}</Empty>
-        ) : nodes.length === 0 ? (
+        ) : overview === null ? null : nodes.length === 0 ? (
           <Empty>{t("collaboration.empty")}</Empty>
-        ) : null}
-        {nodes.length > 0 ? (
+        ) : (
           <>
-            <Section title="舰队拓扑" note="点击节点查看运行、租约与同步状态" variant="panel">
+            <Section title={t("collaboration.topologyTitle")} note={t("collaboration.topologyNote")} variant="panel">
               <div
                 data-testid="collaboration-topology"
                 className="relative grid min-h-[250px] grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-3 p-4"
               >
                 {nodes.map((node) => (
-                  <div key={node.id} className={node.id === CENTER_NODE_ID ? "col-span-full flex justify-center" : ""}>
-                    {node.id !== CENTER_NODE_ID ? (
+                  <div key={node.nodeId} className={node.role === "center" ? "col-span-full flex justify-center" : ""}>
+                    {node.role !== "center" ? (
                       <div aria-hidden="true" className="mx-auto mb-2 h-5 w-px bg-border" />
                     ) : null}
                     <NodeCard
                       node={node}
-                      mode={mode}
-                      selected={node.id === selectedNode}
-                      onSelect={() => setSelectedNode(node.id)}
+                      link={linkOf(overview, node)}
+                      selected={node.nodeId === selectedNode}
+                      onSelect={() => setSelectedNode(node.nodeId)}
                     />
                   </div>
                 ))}
@@ -127,31 +137,29 @@ export function CollaborationView({
             {selected !== null ? (
               <NodeDetails
                 node={selected}
-                mode={mode}
+                overview={overview}
                 now={now}
-                agents={agents}
-                agentReadError={agentReadError !== null}
-                agentReadLoading={agentReadLoading}
                 onOpenTask={onOpenTask}
                 onNavigateEntity={onNavigateEntity}
                 onClose={() => setSelectedNode(null)}
               />
             ) : null}
             <Section
-              title="事件流"
+              title={t("collaboration.eventsTitle")}
               count={visibleEvents.length}
-              note="来自任务与租约投影；不在页面写入事件"
+              note={t("collaboration.eventsNote")}
               action={
                 <select
-                  aria-label="按节点筛选事件"
+                  aria-label={t("collaboration.eventsFilter")}
+                  data-testid="collaboration-event-filter"
                   value={eventNode}
                   onChange={(event) => setEventNode(event.target.value)}
                   className="border border-border bg-surface px-2 py-1 ui-meta text-text"
                 >
-                  <option value="all">全部节点</option>
+                  <option value="all">{t("collaboration.filterAll")}</option>
                   {nodes.map((node) => (
-                    <option key={node.id} value={node.id}>
-                      {nodeLabel(node.id, mode)}
+                    <option key={node.nodeId} value={node.nodeId}>
+                      {nodeLabel(node)}
                     </option>
                   ))}
                 </select>
@@ -160,90 +168,97 @@ export function CollaborationView({
             >
               <div data-testid="collaboration-events" className="divide-y divide-border">
                 {visibleEvents.map((event) => (
-                  <button
-                    key={event.id}
-                    type="button"
-                    className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-raised"
-                    onClick={() => setSelectedNode(event.nodeId)}
-                  >
-                    <StatusTag tone={event.tone} label={event.label} />
-                    <span className="min-w-0 flex-1 truncate ui-meta text-text">{event.detail}</span>
-                    <span className="ui-micro text-text-faint">{nodeLabel(event.nodeId, mode)}</span>
-                  </button>
+                  <EventRow
+                    key={event.eventId}
+                    event={event}
+                    nodes={nodes}
+                    now={now}
+                    onOpenTask={onOpenTask}
+                    onSelectNode={() => setSelectedNode(event.nodeId)}
+                  />
                 ))}
+                {visibleEvents.length === 0 ? (
+                  <p className="px-3 py-2 ui-meta text-text-muted">{t("collaboration.eventsEmpty")}</p>
+                ) : null}
               </div>
             </Section>
+            {overview.warnings.length > 0 ? (
+              <p className="mt-3 ui-micro text-text-faint" data-testid="collaboration-warnings">
+                {overview.warnings.join(" · ")}
+              </p>
+            ) : null}
           </>
-        ) : null}
+        )}
       </div>
     </section>
   );
 }
 
-function nodeSummaries(tasks: readonly CollaborationTask[]): readonly FleetNode[] {
-  const map = new Map<string, CollaborationTask[]>();
-  for (const task of tasks) {
-    const node = leaseNodeIdOf(task.leaseSource);
-    if (node === null) continue;
-    const list = map.get(node) ?? [];
-    list.push(task);
-    map.set(node, list);
-  }
-  return [...map.entries()]
-    .map(([id, nodeTasks]) => ({
-      id,
-      tasks: nodeTasks,
-      executing: nodeTasks.filter((task) => isExecutingLeasePhase(task.leasePhase)).length,
-      owner: nodeTasks.find((task) => task.leaseActor)?.leaseActor?.principal.personId ?? null,
-    }))
-    .sort(
-      (left, right) =>
-        Number(left.id !== CENTER_NODE_ID) - Number(right.id !== CENTER_NODE_ID) ||
-        right.executing - left.executing ||
-        left.id.localeCompare(right.id),
-    );
+function linkOf(overview: FleetOverviewRead, node: FleetOverviewNode): FleetOverviewLink | null {
+  return node.role === "center" ? null : (overview.links.find((link) => link.nodeId === node.nodeId) ?? null);
 }
-function nodeLabel(id: string, mode: RepoMode): string {
-  return id === CENTER_NODE_ID
-    ? t(mode === "local" ? "collaboration.centerNodeLocal" : "collaboration.centerNode")
-    : id;
+
+function nodeLabel(node: FleetOverviewNode): string {
+  return node.role === "center" ? t("collaboration.centerNode") : node.nodeId;
 }
+
 function NodeCard({
   node,
-  mode,
+  link,
   selected,
   onSelect,
 }: {
-  readonly node: FleetNode;
-  readonly mode: RepoMode;
+  readonly node: FleetOverviewNode;
+  readonly link: FleetOverviewLink | null;
   readonly selected: boolean;
   readonly onSelect: () => void;
 }) {
+  const leases = Array.isArray(node.leases) ? node.leases : [];
+  const executing = leases.filter((lease) => lease.phase === "held" || lease.phase === "reserving").length;
   return (
     <button
       type="button"
-      data-testid={`collaboration-node-${node.id}`}
+      data-testid={`collaboration-node-${node.nodeId}`}
       aria-pressed={selected}
       onClick={onSelect}
       className={`w-full max-w-[300px] border px-3 py-3 text-left transition-colors ${selected ? "border-accent bg-surface-raised" : "border-border bg-surface hover:border-accent"}`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold ui-body">{nodeLabel(node.id, mode)}</span>
-        <StatusTag tone={node.executing > 0 ? "active" : "neutral"} label={node.executing > 0 ? "执行中" : "空闲"} />
+        <span className="truncate font-semibold ui-body">{nodeLabel(node)}</span>
+        <StatusTag
+          tone={executing > 0 ? "active" : "neutral"}
+          label={executing > 0 ? t("collaboration.nodeExecuting", { count: executing }) : t("collaboration.nodeIdle")}
+        />
       </div>
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 ui-micro text-text-muted">
-        <span>角色</span>
-        <span className="text-right">{node.id === CENTER_NODE_ID ? "center" : "edge"}</span>
+        <span>{t("collaboration.nodeRole")}</span>
+        <span className="text-right">{node.role}</span>
         <span>owner</span>
-        <span className="truncate text-right">{node.owner ?? "未提供"}</span>
-        <span>当前 cut</span>
-        <span className="text-right">{node.tasks.length ? `${node.tasks.length} leases` : "未提供"}</span>
+        <span className="truncate text-right" data-testid={`collaboration-node-owner-${node.nodeId}`}>
+          {fieldText(node.owner)}
+        </span>
+        <span>{t("collaboration.nodeCut")}</span>
+        <span className="text-right">
+          {node.replica === null
+            ? t("collaboration.notProvided")
+            : `cut ${node.replica.ackRevision ?? "—"} / ${node.replica.centerRevision}`}
+        </span>
       </div>
       <div className="mt-2 flex items-center justify-between border-t border-border pt-2 ui-micro text-text-faint">
-        <span>通道</span>
-        <span>
-          {node.id === CENTER_NODE_ID ? "local" : "replica"} ·{" "}
-          {node.id === CENTER_NODE_ID ? "fresh" : node.executing ? "lag" : "未同步"}
+        <span>{t("collaboration.nodeChannel")}</span>
+        <span data-testid={`collaboration-node-channel-${node.nodeId}`}>
+          {node.role === "center" ? (
+            t("collaboration.centerChannel")
+          ) : link === null ? (
+            t("collaboration.noReplicaRow")
+          ) : (
+            <>
+              <StatusTag mono tone={LINK_TONE[link.state]} label={LINK_LABEL[link.state]} />
+              {link.ackedAt === null ? null : (
+                <span className="ml-2">{t("collaboration.ackAt", { at: formatListTime(link.ackedAt) })}</span>
+              )}
+            </>
+          )}
         </span>
       </div>
     </button>
@@ -252,133 +267,213 @@ function NodeCard({
 
 function NodeDetails({
   node,
-  mode,
+  overview,
   now,
-  agents,
-  agentReadError,
-  agentReadLoading,
   onOpenTask,
   onNavigateEntity,
   onClose,
 }: {
-  readonly node: FleetNode;
-  readonly mode: RepoMode;
+  readonly node: FleetOverviewNode;
+  readonly overview: FleetOverviewRead;
   readonly now: string;
-  readonly agents: SessionAgentIndex;
-  readonly agentReadError: boolean;
-  readonly agentReadLoading: boolean;
   readonly onOpenTask: (id: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
   readonly onClose: () => void;
 }) {
   return (
     <Section
-      title={nodeLabel(node.id, mode)}
-      note="节点详情"
+      title={nodeLabel(node)}
+      note={t("collaboration.nodeDetailNote")}
       action={
         <button type="button" onClick={onClose} className="text-accent ui-meta">
-          关闭
+          {t("collaboration.close")}
         </button>
       }
       variant="panel"
     >
       <div data-testid="collaboration-node-details" className="grid gap-4 p-4 lg:grid-cols-2">
-        <DetailBlock title="在做什么">
-          {node.tasks.length === 0 ? (
-            <p className="ui-meta text-text-muted">当前没有任务租约。</p>
+        <DetailBlock title={t("collaboration.doingTitle")}>
+          {!Array.isArray(node.leases) ? (
+            <p data-testid="collaboration-node-leases-redacted" className="ui-meta text-status-blocked">
+              {t("collaboration.noPermission", { reason: node.leases.redacted })}
+            </p>
+          ) : node.leases.length === 0 ? (
+            <p className="ui-meta text-text-muted">{t("collaboration.noLeases")}</p>
           ) : (
-            node.tasks.map((task) => (
-              <TaskDetail
-                key={task.taskId}
-                task={task}
+            node.leases.map((lease) => (
+              <LeaseRow
+                key={lease.taskId}
+                lease={lease}
                 now={now}
-                agents={agents}
-                agentReadError={agentReadError}
-                agentReadLoading={agentReadLoading}
                 onOpenTask={onOpenTask}
                 onNavigateEntity={onNavigateEntity}
               />
             ))
           )}
         </DetailBlock>
-        <DetailBlock title="内部状态">
-          <DetailLine label="daemon" value="未提供（当前读面未暴露 daemon health）" />
-          <DetailLine label="构建" value="未提供（当前读面未暴露 build）" />
-          <DetailLine
-            label="副本视图"
-            value={node.id === CENTER_NODE_ID ? "center canonical view" : "未提供（节点视图 ID 未接入协作读面）"}
+        <DetailBlock title={t("collaboration.internalTitle")}>
+          <FieldLine
+            label={t("collaboration.fieldDaemon")}
+            state={
+              node.role === "center"
+                ? {
+                    kind: "value",
+                    text: `${overview.center.daemonId} · ${overview.center.version} @ ${overview.center.commitSha ?? "unknown"}`,
+                  }
+                : node.build
+            }
           />
-          <DetailLine label="watch / pull" value={node.id === CENTER_NODE_ID ? "watch 未提供" : "同步通道未提供"} />
-          <DetailLine label="最近失败" value="未提供（无 canonical lifecycle failure 记录）" />
+          <FieldLine label={t("collaboration.fieldOwner")} state={node.owner} />
+          <FieldLine label={t("collaboration.fieldOnline")} state={node.online} />
+          {node.replica === null ? (
+            <DetailLine
+              label={t("collaboration.fieldReplica")}
+              value={node.replicaNote ?? t("collaboration.notProvided")}
+            />
+          ) : (
+            <>
+              <DetailLine label={t("collaboration.fieldView")} value={`${node.replica.viewId}`} />
+              <DetailLine
+                label={t("collaboration.fieldCut")}
+                value={`${node.replica.ackRevision ?? "—"} / ${node.replica.centerRevision}`}
+              />
+              <DetailLine
+                label={t("collaboration.fieldAck")}
+                value={
+                  node.replica.ackedAt === null
+                    ? t("collaboration.notProvided")
+                    : formatListTime(node.replica.ackedAt, { now })
+                }
+              />
+              <DetailLine
+                label={t("collaboration.fieldLag")}
+                value={`rev ${node.replica.lagRevisions}${node.replica.lagMs === null ? "" : ` · ${Math.round(node.replica.lagMs / 1000)}s`} · ${node.replica.delivery}`}
+              />
+            </>
+          )}
+          <FieldLine label={t("collaboration.fieldWatch")} state={node.watch} />
+          <FieldLine label={t("collaboration.fieldLastFailure")} state={node.lastFailure} />
         </DetailBlock>
       </div>
+      <p className="px-4 pb-3 ui-micro text-text-faint">{overview.notes.join(" · ")}</p>
     </Section>
   );
 }
-function TaskDetail({
-  task,
+
+function LeaseRow({
+  lease,
   now,
-  agents,
-  agentReadError,
-  agentReadLoading,
   onOpenTask,
   onNavigateEntity,
 }: {
-  readonly task: CollaborationTask;
+  readonly lease: FleetLeaseRowView;
   readonly now: string;
-  readonly agents: SessionAgentIndex;
-  readonly agentReadError: boolean;
-  readonly agentReadLoading: boolean;
   readonly onOpenTask: (id: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
-  const session = leaseRuntimeSessionIdOf(task.leaseActor);
-  const agent: CollaborationAgent | undefined = session === null ? undefined : agents.agentOfSession.get(session);
-  const actor = task.leaseActor ? actorDisplayName(task.leaseActor.principal.personId) : null;
-  const phase = task.leasePhase;
   return (
     <article className="border-t border-border py-2 first:border-t-0">
       <div className="flex items-center gap-2">
-        <StatusTag status={task.coordinationStatus} />
+        <StatusTag mono tone="neutral" label={lease.coordinationStatus} />
         <button
           type="button"
-          data-testid={`collaboration-task-${task.taskId}`}
-          onClick={() => onOpenTask(task.taskId)}
+          data-testid={`collaboration-task-${lease.taskId}`}
+          onClick={() => onOpenTask(lease.taskId)}
           className="truncate text-left ui-body hover:underline"
         >
-          {task.title}
+          {lease.title ?? lease.taskId}
         </button>
       </div>
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 ui-micro text-text-muted">
-        <span>{actor ? actor.name : "未提供"}</span>
-        {agent ? (
-          <EntityRefLink entityRef={`agent/${agent.agentId}`} onNavigate={onNavigateEntity}>
-            {agent.label}
+        <span>{lease.personId ?? t("collaboration.notProvided")}</span>
+        {lease.agentId === null ? null : (
+          <EntityRefLink entityRef={`agent/${lease.agentId}`} onNavigate={onNavigateEntity}>
+            {lease.agentLabel ?? lease.agentId}
           </EntityRefLink>
-        ) : session ? (
-          <span>{agentReadError ? "无权限查看 Agent" : agentReadLoading ? "正在读取 Agent" : "Agent 未提供"}</span>
-        ) : null}
-        {session ? (
-          <EntityRefLink entityRef={`session/${session}`} onNavigate={onNavigateEntity} title={session}>
+        )}
+        {lease.runtimeSessionId === null ? null : (
+          <EntityRefLink
+            entityRef={`session/${lease.runtimeSessionId}`}
+            onNavigate={onNavigateEntity}
+            title={lease.runtimeSessionId}
+          >
             session
           </EntityRefLink>
-        ) : null}
+        )}
         <span>
-          {phase ? (
+          {lease.phase === null ? (
+            t("collaboration.leasePhaseMissing")
+          ) : (
             <StatusTag
               mono
-              tone={PHASE_TONE[phase] ?? "neutral"}
-              label={PHASE_LABEL[phase] ? t(PHASE_LABEL[phase]) : phase}
+              tone={PHASE_TONE[lease.phase] ?? "neutral"}
+              label={PHASE_LABEL[lease.phase] ? t(PHASE_LABEL[lease.phase]) : lease.phase}
             />
-          ) : (
-            "租约状态未提供"
           )}
         </span>
-        <span>资格：{assignmentStateOf(task, now) === "expired" ? "已过期" : task.assignment ? "有效" : "未指派"}</span>
+        {lease.startedAt === null ? null : (
+          <span>{t("collaboration.dispatchStartedAt", { at: formatListTime(lease.startedAt, { now }) })}</span>
+        )}
+        {lease.dispatchStatus === null ? null : <span className="font-mono">{lease.dispatchStatus}</span>}
       </div>
     </article>
   );
 }
+
+function EventRow({
+  event,
+  nodes,
+  now,
+  onOpenTask,
+  onSelectNode,
+}: {
+  readonly event: FleetOverviewEvent;
+  readonly nodes: readonly FleetOverviewNode[];
+  readonly now: string;
+  readonly onOpenTask: (taskId: string) => void;
+  readonly onSelectNode: () => void;
+}) {
+  const node = nodes.find((candidate) => candidate.nodeId === event.nodeId);
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-raised"
+      onClick={onSelectNode}
+      data-testid={`collaboration-event-evt-${event.eventId}`}
+    >
+      <span className="shrink-0 ui-micro text-text-faint">{formatListTime(event.occurredAt, { now })}</span>
+      <span className="min-w-0 flex-1 truncate ui-meta text-text">
+        {event.type}
+        {event.title === null ? null : ` · ${event.title}`}
+      </span>
+      {event.taskId === null ? null : (
+        <span
+          role="link"
+          tabIndex={0}
+          onClick={(clickEvent) => {
+            clickEvent.stopPropagation();
+            onOpenTask(event.taskId!);
+          }}
+          onKeyDown={(keyEvent) => {
+            if (keyEvent.key === "Enter") {
+              keyEvent.stopPropagation();
+              onOpenTask(event.taskId!);
+            }
+          }}
+          className="shrink-0 font-mono text-accent hover:underline ui-micro"
+          title={event.taskId}
+        >
+          {event.taskId}
+        </span>
+      )}
+      <span className="shrink-0 ui-micro text-text-faint" data-testid={`collaboration-event-node-${event.eventId}`}>
+        {" "}
+        {node === undefined ? event.nodeId : nodeLabel(node)}
+      </span>
+    </button>
+  );
+}
+
 function DetailBlock({ title, children }: { readonly title: string; readonly children: ReactNode }) {
   return (
     <div>
@@ -387,50 +482,45 @@ function DetailBlock({ title, children }: { readonly title: string; readonly chi
     </div>
   );
 }
-function DetailLine({ label, value }: { readonly label: string; readonly value: string }) {
+
+/** 三态字段行:有值 / 无权限查看(带原因) / 未提供(带原因)——标签保留,值不编造。 */
+function FieldLine({ label, state }: { readonly label: string; readonly state: FleetFieldState }) {
   return (
-    <div className="flex justify-between gap-3 border-t border-border py-1.5 ui-meta">
-      <span className="text-text-faint">{label}</span>
-      <span className="text-right text-text-muted">{value}</span>
+    <div
+      className="flex justify-between gap-3 border-t border-border py-1.5 ui-meta"
+      data-testid="collaboration-field-line"
+    >
+      <span className="shrink-0 text-text-faint">{label}</span>
+      <span className="text-right text-text-muted">
+        {fieldText(state)}
+        {state.kind === "unavailable" ? (
+          <span className="block ui-micro text-text-faint">
+            {t("collaboration.reasonPrefix", { reason: state.reason })}
+          </span>
+        ) : null}
+        {state.kind === "redacted" ? (
+          <span className="block ui-micro text-text-faint">
+            {t("collaboration.reasonPrefix", { reason: state.reason })}
+          </span>
+        ) : null}
+      </span>
     </div>
   );
 }
-type FleetEvent = {
-  readonly id: string;
-  readonly nodeId: string;
-  readonly tone: StatusTone;
-  readonly label: string;
-  readonly detail: string;
-};
-function eventRows(tasks: readonly CollaborationTask[], nodes: readonly FleetNode[]): readonly FleetEvent[] {
-  const events: FleetEvent[] = [];
-  for (const task of tasks) {
-    const nodeId = leaseNodeIdOf(task.leaseSource);
-    if (nodeId === null) continue;
-    events.push({
-      id: `${task.taskId}:lease`,
-      nodeId,
-      tone: isExecutingLeasePhase(task.leasePhase) ? "active" : "neutral",
-      label: task.leasePhase === "held" ? "lease held" : "task observed",
-      detail: task.title,
-    });
-  }
-  for (const node of nodes.filter((entry) => entry.id !== CENTER_NODE_ID))
-    events.push({
-      id: `${node.id}:sync`,
-      nodeId: node.id,
-      tone: node.executing > 0 ? "wait" : "neutral",
-      label: node.executing > 0 ? "replica lag" : "replica observed",
-      detail: `${node.tasks.length} task lease${node.tasks.length === 1 ? "" : "s"} visible`,
-    });
-  return events;
+
+function fieldText(state: FleetFieldState): string {
+  return state.kind === "value"
+    ? state.text
+    : state.kind === "redacted"
+      ? t("collaboration.noPermissionShort")
+      : t("collaboration.notProvided");
 }
-export function CollaborationNodeRef({ nodeId, mode }: { readonly nodeId: string; readonly mode: RepoMode }) {
-  return nodeId === CENTER_NODE_ID ? (
-    <span title={CENTER_NODE_ID} className="font-mono ui-micro">
-      {nodeLabel(nodeId, mode)}
-    </span>
-  ) : (
-    <IdText value={nodeId} />
+
+function DetailLine({ label, value }: { readonly label: string; readonly value: string }) {
+  return (
+    <div className="flex justify-between gap-3 border-t border-border py-1.5 ui-meta">
+      <span className="shrink-0 text-text-faint">{label}</span>
+      <span className="text-right text-text-muted">{value}</span>
+    </div>
   );
 }

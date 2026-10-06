@@ -4,11 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeAll, describe, expect, it } from "vitest";
 import { CollaborationView } from "../src/renderer/views/CollaborationView.tsx";
-import {
-  agentIndexOfSessionGroups,
-  type CollaborationTask,
-  type SessionAgentIndex,
-} from "../src/renderer/model/collaboration.ts";
+import type { FleetOverviewRead } from "../src/api/renderer-dto.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 beforeAll(() => {
@@ -16,48 +12,131 @@ beforeAll(() => {
   setActiveLocale("zh-CN");
 });
 
-function task(taskId: string, fields: Partial<CollaborationTask> = {}): CollaborationTask {
+/** daemon `repo.fleet.overview.read` 的最小真实形状夹具:三态字段齐全,只改需要的块。 */
+function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead {
   return {
-    taskId,
-    title: `标题 ${taskId}`,
-    lastKnownAt: "2026-10-01T00:00:00.000Z",
-    coordinationStatus: "active",
-    board: { columnId: "open", rank: 3 },
-    ...fields,
+    schema: "daemon.fleet-overview/v1",
+    ok: true,
+    repoId: "repo-test",
+    mode: "remote-center",
+    generatedAt: "2026-10-06T00:00:00.000Z",
+    center: {
+      nodeId: "center",
+      daemonId: "default",
+      startedAt: "2026-10-01T00:00:00.000Z",
+      version: "0.0.0",
+      commitSha: "bd2251a",
+    },
+    centerRevision: 164,
+    nodes: [
+      {
+        nodeId: "center",
+        role: "center",
+        owner: { kind: "value", text: "daemon" },
+        build: { kind: "value", text: "0.0.0 @ bd2251a" },
+        online: { kind: "value", text: "running" },
+        leases: [
+          {
+            taskId: "task_local1",
+            title: "本机租约任务",
+            coordinationStatus: "active",
+            phase: "held",
+            expiresAt: "2026-10-07T00:00:00.000Z",
+            personId: "person_zeyu",
+            runtimeSessionId: "runtime_center_session",
+            dispatchId: "dispatch_center",
+            agentId: "agent_ceo",
+            agentLabel: "CEO",
+            startedAt: "2026-10-06T00:10:00.000Z",
+            dispatchStatus: "running",
+          },
+        ],
+        replica: null,
+        replicaNote: null,
+        watch: { kind: "value", text: "local canonical writer" },
+        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
+      },
+      {
+        nodeId: "cc90-ubuntu",
+        role: "edge",
+        owner: { kind: "value", text: "person_zeyu" },
+        build: { kind: "unavailable", reason: "replica-status-has-no-build-field" },
+        online: { kind: "unavailable", reason: "tls-session-fact-not-exposed" },
+        leases: [
+          {
+            taskId: "task_edge1",
+            title: "边缘租约任务",
+            coordinationStatus: "active",
+            phase: "held",
+            expiresAt: "2026-10-07T00:00:00.000Z",
+            personId: "person_zeyu",
+            runtimeSessionId: "runtime_edge_session",
+            dispatchId: "dispatch_edge",
+            agentId: "agent_worker",
+            agentLabel: "Worker",
+            startedAt: "2026-10-06T00:20:00.000Z",
+            dispatchStatus: "running",
+          },
+        ],
+        replica: {
+          repoId: "repo-test",
+          viewId: "view-ubuntu",
+          centerRevision: 164,
+          centerEventAt: "2026-10-06T00:30:00.000Z",
+          ackRevision: 163,
+          ackedAt: "2026-10-06T00:29:00.000Z",
+          lagRevisions: 1,
+          lagMs: 61_000,
+          delivery: "delta",
+        },
+        replicaNote: null,
+        watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
+        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-record-in-lifecycle-read" },
+      },
+    ],
+    links: [
+      {
+        nodeId: "cc90-ubuntu",
+        state: "lag",
+        delivery: "delta",
+        lagRevisions: 1,
+        lagMs: 61_000,
+        ackedAt: "2026-10-06T00:29:00.000Z",
+        centerRevision: 164,
+      },
+    ],
+    events: [
+      {
+        eventId: "row-1",
+        type: "task_status_changed",
+        occurredAt: "2026-10-06T00:28:00.000Z",
+        workspaceRevision: 163,
+        taskId: "task_edge1",
+        title: "边缘任务状态变化",
+        nodeId: "cc90-ubuntu",
+      },
+      {
+        eventId: "row-2",
+        type: "fact_recorded",
+        occurredAt: "2026-10-06T00:25:00.000Z",
+        workspaceRevision: 160,
+        taskId: null,
+        title: "中心事实",
+        nodeId: "center",
+      },
+    ],
+    notes: ["events-attribution=current-lease (canonical 事件按任务当前租约归属节点)"],
+    warnings: [],
+    ...overrides,
   };
-}
-
-const HELD_LEASE = {
-  leaseActor: {
-    principal: { personId: "person_zeyu" },
-    executor: { kind: "agent" as const, id: "runtime-session:runtime_a520047968e6" },
-  },
-  leaseSource: { kind: "node" as const, nodeId: "edge-mac" },
-  leasePhase: "held",
-  leaseExpiresAt: "2026-10-05T00:00:00.000Z",
-};
-
-/** Repository dispatch event identity projected for one running session. */
-function declaredSessionAgent(agentId: string, label: string, runtimeSessionId: string) {
-  return { runtimeSessionId, agentId, label };
-}
-
-const agentIndex = (sessionAgents: readonly ReturnType<typeof declaredSessionAgent>[]): SessionAgentIndex =>
-  agentIndexOfSessionGroups({ sessionAgents });
-
-/** FilterChips 的计数渲染在 chip 内的 <b> 里;取它做精确断言,不受标签文字干扰。 */
-function chipCount(chip: HTMLButtonElement): string {
-  return chip.querySelector("b")?.textContent ?? "";
 }
 
 function renderView(
   overrides: {
-    tasks?: readonly CollaborationTask[];
+    data?: FleetOverviewRead | null;
     mode?: "local" | "remote-center";
-    ready?: boolean;
-    agents?: SessionAgentIndex;
-    agentReadError?: string;
-    agentReadLoading?: boolean;
+    error?: string | null;
+    loading?: boolean;
   } = {},
 ) {
   const host = document.createElement("div");
@@ -69,12 +148,10 @@ function renderView(
       <CollaborationView
         repoId="repo-test"
         mode={overrides.mode ?? "remote-center"}
-        tasks={overrides.tasks ?? []}
-        ready={overrides.ready ?? true}
-        agents={overrides.agents}
-        agentReadError={overrides.agentReadError}
-        agentReadLoading={overrides.agentReadLoading}
-        now="2026-10-01T12:00:00.000Z"
+        overview={overrides.data === undefined ? overview() : overrides.data}
+        overviewError={overrides.error ?? null}
+        overviewLoading={overrides.loading ?? false}
+        now="2026-10-06T01:00:00.000Z"
         onOpenTask={(id) => openedTasks.push(id)}
         onNavigateEntity={(ref) => navigatedRefs.push(ref)}
       />,
@@ -86,412 +163,116 @@ function renderView(
     openedTasks,
     navigatedRefs,
     text: () => host.textContent ?? "",
-    rows: () => [...host.querySelectorAll('[data-testid="collaboration-row"]')],
+    nodeCard: (nodeId: string) => host.querySelector<HTMLElement>(`[data-testid="collaboration-node-${nodeId}"]`),
+    click: (element: Element | null | undefined) => {
+      expect(element, "click target must exist").not.toBeNull();
+      act(() => element!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    },
   };
 }
 
-describe("协作页内容契约", () => {
-  it("每行同时给资格侧与执行侧:指派对象、执行人/会话、节点、phase", () => {
-    const view = renderView({
-      tasks: [
-        task("task-held", {
-          assignment: { assignee: { kind: "person", personId: "person_ana" }, expiresAt: "2026-10-02T00:00:00.000Z" },
-          ...HELD_LEASE,
-        }),
-      ],
-    });
-    const row = view.rows()[0]!;
-    expect(row.getAttribute("data-task-id")).toBe("task-held");
-    expect(row.textContent).toContain("person_ana");
-    expect(row.textContent).toContain("zeyu"); // principal personId 的可读名(完整串在悬停)
-    expect(row.textContent).toContain("edge-mac");
-    expect(row.textContent).toContain("执行中"); // lease phase=held
-    // executor 是 runtime-session 时给会话跳转,链接文本是 session/<id>
-    const sessionLink = row.querySelector<HTMLButtonElement>('button[title*="runtime_a520047968e6"]');
-    expect(sessionLink).not.toBeNull();
-    act(() => sessionLink!.click());
-    expect(view.navigatedRefs).toEqual(["session/runtime_a520047968e6"]);
-    // 点标题打开任务详情
-    act(() => row.querySelector<HTMLButtonElement>('[data-testid="collaboration-task-task-held"]')!.click());
-    expect(view.openedTasks).toEqual(["task-held"]);
-    act(() => view.root.unmount());
+describe("协作页舰队拓扑契约", () => {
+  it("拓扑渲染 daemon 给出的中心与边缘节点,不自行推断节点集合", () => {
+    const view = renderView();
+    expect(view.nodeCard("center")).not.toBeNull();
+    expect(view.nodeCard("cc90-ubuntu")).not.toBeNull();
+    expect(view.nodeCard("edge-mac")).toBeNull();
+    expect(view.nodeCard("cc90-ubuntu")!.getAttribute("aria-pressed")).toBe("false");
+    expect(view.text()).toContain("2 节点");
+    expect(view.text()).toContain("2 事件");
   });
 
-  it("未指派如实显示且不构成可抢语义", () => {
-    const view = renderView({ tasks: [task("task-bare", HELD_LEASE)] });
-    const row = view.rows()[0]!;
-    expect(row.textContent).toContain("未指派（不等于任何人可开工）");
-    act(() => view.root.unmount());
-  });
-
-  it("指派过期但 lease 仍 held:资格侧标过期,执行侧仍是执行中,不显示可抢", () => {
-    const view = renderView({
-      tasks: [
-        task("task-expired", {
-          assignment: { assignee: { kind: "person", personId: "person_ana" }, expiresAt: "2026-09-30T00:00:00.000Z" },
-          ...HELD_LEASE,
-        }),
-      ],
-    });
-    const row = view.rows()[0]!;
-    expect(row.textContent).toContain("指派期限已过");
-    expect(row.textContent).toContain("执行中");
-    expect(row.textContent).not.toContain("可抢");
-    expect(row.textContent).not.toContain("可领取");
-    act(() => view.root.unmount());
-  });
-
-  it("无人持有租约的行显示执行侧空态", () => {
-    const view = renderView({
-      tasks: [
-        task("task-idle", {
-          assignment: { assignee: { kind: "team", teamId: "team-1" }, expiresAt: "2026-10-02T00:00:00.000Z" },
-        }),
-      ],
-    });
-    const row = view.rows()[0]!;
-    expect(row.textContent).toContain("无人持有");
-    expect(row.textContent).toContain("team-1");
-    expect(row.textContent).toContain("工作组");
-    act(() => view.root.unmount());
-  });
-
-  it("按人筛选只留命中行;维度叠加筛空给一键清除,清除后恢复", () => {
-    const view = renderView({
-      tasks: [
-        task("task-ana", {
-          assignment: { assignee: { kind: "person", personId: "person_ana" }, expiresAt: "2026-10-02T00:00:00.000Z" },
-        }),
-        task("task-bob", {
-          assignment: { assignee: { kind: "person", personId: "person_bob" }, expiresAt: "2026-10-02T00:00:00.000Z" },
-          leaseActor: {
-            principal: { personId: "person_bob" },
-            executor: { kind: "agent", id: "runtime-session:runtime_b1" },
-          },
-          leasePhase: "held",
-        }),
-      ],
-      agents: agentIndex([declaredSessionAgent("glm", "GLM-5.3", "runtime_b1")]),
-    });
-    expect(view.rows().map((row) => row.getAttribute("data-task-id"))).toEqual(["task-ana", "task-bob"]);
-    const personChips = () => [
-      ...view.host
-        .querySelector('[data-testid="collaboration-filter-person"]')!
-        .querySelectorAll<HTMLButtonElement>("button"),
-    ];
-    act(() =>
-      personChips()
-        .find((button) => button.textContent?.includes("ana"))!
-        .click(),
+  it("本地仓显示中心提示条;读失败显示失败横幅而非空拓扑", () => {
+    const local = renderView({ mode: "local" });
+    expect(local.host.querySelector('[data-testid="collaboration-center-notice"]')).not.toBeNull();
+    const failed = renderView({ error: "repo_unavailable" });
+    expect(failed.host.querySelector('[data-testid="collaboration-read-error"]')!.textContent).toContain(
+      "repo_unavailable",
     );
-    expect(view.rows().map((row) => row.getAttribute("data-task-id"))).toEqual(["task-ana"]);
-    // 人=ana 叠加 Agent=glm(bob 的执行会话映射)→ 交集为空:空态 + 清除入口
-    const agentChip = view.host
-      .querySelector('[data-testid="collaboration-filter-agent"] span[title="glm"]')
-      ?.closest("button") as HTMLButtonElement;
-    act(() => agentChip.click());
-    expect(view.rows()).toEqual([]);
-    expect(view.host.querySelector('[data-testid="collaboration-filter-empty"]')).not.toBeNull();
-    act(() => view.host.querySelector<HTMLButtonElement>('[data-testid="collaboration-filter-clear"]')!.click());
-    expect(view.rows().map((row) => row.getAttribute("data-task-id"))).toEqual(["task-ana", "task-bob"]);
-    act(() => view.root.unmount());
   });
 
-  it("节点汇总给出执行/被指派计数并明确在线状态未知", () => {
-    const view = renderView({
-      tasks: [
-        task("task-1", {
-          ...HELD_LEASE,
-          assignment: {
-            assignee: { kind: "person", personId: "person_ana", nodeId: "edge-a" },
-            expiresAt: "2026-10-02T00:00:00.000Z",
-          },
-        }),
-      ],
-    });
-    const nodes = view.host.querySelector('[data-testid="collaboration-nodes"]')!;
-    expect(nodes.getAttribute("data-testid")).toBe("collaboration-nodes");
-    expect(nodes.textContent).toContain("edge-mac");
-    expect(nodes.textContent).toContain("edge-a");
-    expect(nodes.textContent).toContain("在线状态未知");
-    act(() => view.root.unmount());
+  it("加载且无数据时显示读取态,不给空舰队", () => {
+    const view = renderView({ data: null, loading: true });
+    expect(view.text()).toContain("正在读取舰队拓扑");
+    expect(view.host.querySelector('[data-testid="collaboration-topology"]')).toBeNull();
   });
 
-  it("本地仓即舰队中心:落页给中心视角提示;远端中心不提示", () => {
-    const local = renderView({ mode: "local", tasks: [task("task-1")] });
-    expect(local.host.querySelector('[data-testid="collaboration-center-notice"]')?.textContent).toContain(
-      "本机即舰队中心",
+  it("点击节点打开详情:在做什么显示租约任务/Agent/会话,内部状态显示副本 cut/lag", () => {
+    const view = renderView();
+    view.click(view.nodeCard("cc90-ubuntu"));
+    const details = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
+    expect(details).not.toBeNull();
+    expect(details.textContent).toContain("边缘租约任务");
+    expect(details.textContent).toContain("Worker");
+    // 会话标识在跳转链接的 title 里(可见标签是 session),不在文本流里。
+    expect(details.outerHTML).toContain("runtime_edge_session");
+    expect(details.textContent).toContain("163 / 164");
+    expect(details.textContent).toContain("delta");
+    view.click(view.nodeCard("center"));
+    const centerDetails = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
+    expect(centerDetails.textContent).toContain("本机租约任务");
+    expect(centerDetails.textContent).toContain("bd2251a");
+    expect(view.openedTasks).toEqual([]);
+  });
+
+  it("详情里的任务点击走 onOpenTask,事件行点击跳到对应节点详情", () => {
+    const view = renderView();
+    view.click(view.nodeCard("cc90-ubuntu"));
+    view.click(view.host.querySelector('[data-testid="collaboration-task-task_edge1"]'));
+    expect(view.openedTasks).toEqual(["task_edge1"]);
+    view.click(view.host.querySelector('[data-testid="collaboration-event-evt-row-1"]'));
+    expect(view.nodeCard("cc90-ubuntu")!.getAttribute("aria-pressed")).toBe("true");
+    expect(view.host.querySelector('[data-testid="collaboration-node-details"]')!.textContent).toContain(
+      "边缘租约任务",
     );
-    act(() => local.root.unmount());
-    const center = renderView({ mode: "remote-center", tasks: [task("task-1")] });
-    expect(center.host.querySelector('[data-testid="collaboration-center-notice"]')).toBeNull();
-    act(() => center.root.unmount());
   });
 
-  it("本地仓(舰队中心)视角:local 通道租约计入中心锚点节点,本机 Agent 与租约照常呈现", () => {
-    const view = renderView({
-      mode: "local",
-      tasks: [
-        task("task-center", {
-          leaseActor: {
-            principal: { personId: "person_zeyu" },
-            executor: { kind: "agent", id: "runtime-session:runtime_glm" },
-          },
-          leaseSource: "local",
-          leasePhase: "held",
-        }),
-        task("task-edge", HELD_LEASE), // edge-mac 节点来源,与中心并列
-      ],
-      agents: agentIndex([declaredSessionAgent("glm", "GLM-5.3", "runtime_glm")]),
-    });
-    const nodes = view.host.querySelector('[data-testid="collaboration-nodes"]')!;
-    // 中心是锚点排在边缘节点前,显示名点明本机,悬停保留 id
-    const centerEntry = nodes.querySelector('[data-node="center"]')!;
-    expect(centerEntry.textContent).toContain("中心（本机）");
-    expect([...nodes.querySelectorAll("[data-node]")].map((node) => node.getAttribute("data-node"))).toEqual([
-      "center",
-      "edge-mac",
-    ]);
-    // 本机执行的租约计入中心节点的执行计数
-    expect(centerEntry.textContent).toContain("执行中 1");
-    // 行内执行位:本机 Agent、会话与中心节点名齐全,不再显示「本机通道」
-    const row = view.rows().find((r) => r.getAttribute("data-task-id") === "task-center")!;
-    expect(row.textContent).toContain("GLM-5.3");
-    expect(row.textContent).toContain("中心（本机）");
-    expect(row.textContent).toContain("执行中");
-    expect(row.textContent).not.toContain("本机通道");
-    // 中心节点筛选只留本机执行的行
-    const centerChip = view.host
-      .querySelector('[data-testid="collaboration-filter-node"] span[title="center"]')
-      ?.closest("button") as HTMLButtonElement;
-    act(() => centerChip.click());
-    expect(view.rows().map((r) => r.getAttribute("data-task-id"))).toEqual(["task-center"]);
-    act(() => view.root.unmount());
+  it("未提供字段显示「未提供」并保留原因,不编造值", () => {
+    const view = renderView();
+    view.click(view.nodeCard("cc90-ubuntu"));
+    const details = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
+    expect(details.textContent).toContain("未提供");
+    expect(details.textContent).toContain("原因：tls-session-fact-not-exposed");
+    expect(details.textContent).toContain("原因：edge-sync-internals-not-exposed");
   });
 
-  it("远端中心视角的中心节点不带「本机」:显示名区分中心所在地", () => {
-    const view = renderView({
-      mode: "remote-center",
-      tasks: [
-        task("task-center", {
-          leaseActor: {
-            principal: { personId: "person_zeyu" },
-            executor: { kind: "agent", id: "runtime-session:runtime_glm" },
-          },
-          leaseSource: "local",
-          leasePhase: "held",
-        }),
-      ],
-    });
-    const centerEntry = view.host.querySelector('[data-testid="collaboration-nodes"] [data-node="center"]')!;
-    expect(centerEntry.textContent).toContain("中心");
-    expect(centerEntry.textContent).not.toContain("本机");
-    act(() => view.root.unmount());
-  });
-
-  it("切面未读完与真空仓是两种状态", () => {
-    const loading = renderView({ tasks: [], ready: false });
-    expect(loading.text()).toContain("正在读取任务切面");
-    act(() => loading.root.unmount());
-    const empty = renderView({ tasks: [], ready: true });
-    expect(empty.text()).toContain("本仓还没有任务");
-    act(() => empty.root.unmount());
-  });
-});
-
-describe("review be577 四个反例的修后视图行为", () => {
-  it("页头「执行中」只计 held/reserving:orphaned 行内显示失联,不计入执行中", () => {
-    const view = renderView({
-      tasks: [
-        task("task-held", HELD_LEASE),
-        task("task-orphaned", {
-          ...HELD_LEASE,
-          leasePhase: "orphaned",
-          leaseSource: { kind: "node" as const, nodeId: "edge-orphan" },
-        }),
-        task("task-bare", {}),
-      ],
-    });
-    // 3 任务,只有 1 个 phase=held:页头不得把 orphaned 计成执行中
-    expect(view.text()).toContain("3 任务 · 1 执行中");
-    const orphanedRow = view.rows().find((row) => row.getAttribute("data-task-id") === "task-orphaned")!;
-    expect(orphanedRow.textContent).toContain("失联");
-    expect(orphanedRow.textContent).not.toContain("执行中");
-    act(() => view.root.unmount());
-  });
-
-  it("仅有被指派任务的节点:chip 计数等于筛选命中行数,不再显示 0 却筛出任务", () => {
-    const view = renderView({
-      tasks: [
-        task("task-1", {
-          assignment: {
-            assignee: { kind: "person", personId: "person_ana", nodeId: "edge-x" },
-            expiresAt: "2026-10-02T00:00:00Z",
-          },
-        }),
-        task("task-2", {
-          assignment: {
-            assignee: { kind: "person", personId: "person_bob", nodeId: "edge-x" },
-            expiresAt: "2026-10-02T00:00:00Z",
-          },
-        }),
-      ],
-    });
-    const nodeChip = view.host
-      .querySelector('[data-testid="collaboration-filter-node"] span[title="edge-x"]')
-      ?.closest("button") as HTMLButtonElement;
-    expect(chipCount(nodeChip)).toBe("2"); // 不是 executing 计数(会是 0),是筛选命中数
-    act(() => nodeChip.click());
-    expect(view.rows().map((row) => row.getAttribute("data-task-id"))).toEqual(["task-1", "task-2"]);
-    act(() => view.root.unmount());
-  });
-
-  it("同一 task 的指派人与 lease principal 相同:人 chip 计数与筛选行数一致(计 1 不计 2)", () => {
-    const view = renderView({
-      tasks: [
-        task("task-both", {
-          assignment: { assignee: { kind: "person", personId: "person_ana" }, expiresAt: "2026-10-02T00:00:00Z" },
-          leaseActor: { principal: { personId: "person_ana" }, executor: null },
-          leasePhase: "held",
-        }),
-      ],
-    });
-    const anaChip = view.host
-      .querySelector('[data-testid="collaboration-filter-person"] span[title="person_ana"]')
-      ?.closest("button") as HTMLButtonElement;
-    expect(chipCount(anaChip)).toBe("1"); // 同 task 双重身份只计一次,筛选也只命中这一行
-    act(() => anaChip.click());
-    expect(view.rows()).toHaveLength(1);
-    act(() => view.root.unmount());
-  });
-
-  it("同一 Agent 的两个在飞会话跨 task 聚合到一个筛选值", () => {
-    const view = renderView({
-      tasks: [
-        // runtime_aaa 同时是两个 task 的 lease executor——聚合为一个 Agent 值。
-        task("task-a", {
-          leaseActor: {
-            principal: { personId: "person_zeyu" },
-            executor: { kind: "agent", id: "runtime-session:runtime_aaa" },
-          },
-          leasePhase: "held",
-        }),
-        task("task-a2", {
-          leaseActor: {
-            principal: { personId: "person_zeyu" },
-            executor: { kind: "agent", id: "runtime-session:runtime_aaa" },
-          },
-          leasePhase: "held",
-        }),
-        // 另一在飞会话 runtime_bbb 同样由仓库派工事件声明为 glm。
-        task("task-old-round", {
-          leaseActor: {
-            principal: { personId: "person_zeyu" },
-            executor: { kind: "agent", id: "runtime-session:runtime_bbb" },
-          },
-          leasePhase: "held",
-        }),
-      ],
-      agents: agentIndex([
-        declaredSessionAgent("glm", "GLM-5.3", "runtime_aaa"),
-        declaredSessionAgent("glm", "GLM-5.3", "runtime_bbb"),
-      ]),
-    });
-    const agentDimension = view.host.querySelector('[data-testid="collaboration-filter-agent"]')!;
-    expect(agentDimension.textContent).toContain("Agent");
-    const glmChip = view.host
-      .querySelector('[data-testid="collaboration-filter-agent"] span[title="glm"]')
-      ?.closest("button") as HTMLButtonElement;
-    expect(chipCount(glmChip)).toBe("3");
-    act(() => glmChip.click());
-    expect(view.rows().map((row) => row.getAttribute("data-task-id"))).toEqual(["task-a", "task-a2", "task-old-round"]);
-    // 同 Agent 的另一会话在筛选后仍保留会话跳转。
-    const agentAll = view.host
-      .querySelector('[data-testid="collaboration-filter-agent"]')!
-      .querySelector<HTMLButtonElement>("button")!;
-    act(() => agentAll.click());
-    const oldRow = view.rows().find((row) => row.getAttribute("data-task-id") === "task-old-round")!;
-    expect(oldRow.textContent).toContain("GLM-5.3");
-    const sessionLink = oldRow.querySelector<HTMLButtonElement>('button[title*="runtime_bbb"]');
-    expect(sessionLink).not.toBeNull();
-    act(() => sessionLink!.click());
-    expect(view.navigatedRefs).toContain("session/runtime_bbb");
-    // 映射上的行:声明 Agent 名 + agent 实体跳转。
-    const mappedRow = view.rows().find((row) => row.getAttribute("data-task-id") === "task-a")!;
-    expect(mappedRow.textContent).toContain("GLM-5.3");
-    expect(mappedRow.textContent).not.toContain("Agent 未提供");
-    const agentLink = mappedRow.querySelector<HTMLButtonElement>('button[title*="agent/glm"]');
-    expect(agentLink).not.toBeNull();
-    act(() => agentLink!.click());
-    expect(view.navigatedRefs).toContain("agent/glm");
-    act(() => view.root.unmount());
-  });
-
-  it("索引缺映射的执行会话:行内如实「Agent 未提供」,不出现 Agent 筛选值", () => {
-    const view = renderView({
-      tasks: [
-        task("task-unmapped", {
-          leaseActor: {
-            principal: { personId: "person_zeyu" },
-            executor: { kind: "agent", id: "runtime-session:runtime_none" },
-          },
-          leasePhase: "held",
-        }),
-      ],
-    });
-    // Agent 维度无值时整个不渲染
-    expect(view.host.querySelector('[data-testid="collaboration-filter-agent"]')).toBeNull();
-    const row = view.rows()[0]!;
-    expect(row.textContent).toContain("Agent 未提供");
-    // 会话跳转不受映射缺失影响
-    const sessionLink = row.querySelector<HTMLButtonElement>('button[title*="runtime_none"]');
-    expect(sessionLink).not.toBeNull();
-    act(() => sessionLink!.click());
-    expect(view.navigatedRefs).toContain("session/runtime_none");
-    act(() => view.root.unmount());
-  });
-
-  it("Agent 查询失败保留任务行和会话跳转，并区别于成功读取后未声明", () => {
-    const view = renderView({ tasks: [task("task-glm", HELD_LEASE)], agentReadError: "authorization_denied" });
-    expect(view.rows()).toHaveLength(1);
-    expect(view.host.querySelector('[data-testid="collaboration-agent-read-error"]')?.textContent).toContain(
-      "authorization_denied",
+  it("租约被权限裁剪时显示「无权限查看」与原因,不显示空租约列表", () => {
+    const data = overview();
+    data.nodes = data.nodes.map((node) =>
+      node.nodeId === "cc90-ubuntu" ? { ...node, leases: { redacted: "insufficient_scope" } } : node,
     );
-    expect(view.rows()[0]?.textContent).toContain("Agent 读取失败");
-    expect(view.rows()[0]?.textContent).not.toContain("Agent 未提供");
-    const sessionLink = view.rows()[0]?.querySelector<HTMLButtonElement>('button[title*="runtime_a520047968e6"]');
-    expect(sessionLink).not.toBeNull();
-    act(() => sessionLink!.click());
-    expect(view.navigatedRefs).toContain("session/runtime_a520047968e6");
-    act(() => view.root.unmount());
+    const view = renderView({ data });
+    view.click(view.nodeCard("cc90-ubuntu"));
+    const redacted = view.host.querySelector('[data-testid="collaboration-node-leases-redacted"]')!;
+    expect(redacted.textContent).toContain("无权限查看");
+    expect(redacted.textContent).toContain("insufficient_scope");
   });
 
-  it("映射上的执行会话:行内给声明 Agent 名与 agent 实体跳转", () => {
-    const view = renderView({
-      tasks: [task("task-glm", HELD_LEASE)],
-      agents: agentIndex([declaredSessionAgent("glm", "GLM-5.3", "runtime_a520047968e6")]),
+  it("事件流可按节点过滤,过滤后只留该节点的事件", () => {
+    const view = renderView();
+    const filter = view.host.querySelector<HTMLSelectElement>('[data-testid="collaboration-event-filter"]')!;
+    expect(view.host.querySelectorAll('[data-testid^="collaboration-event-evt"]').length).toBe(2);
+    act(() => {
+      filter.value = "cc90-ubuntu";
+      filter.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    const row = view.rows()[0]!;
-    expect(row.textContent).toContain("GLM-5.3");
-    expect(row.textContent).not.toContain("Agent 未提供");
-    const agentLink = row.querySelector<HTMLButtonElement>('button[title*="agent/glm"]');
-    expect(agentLink).not.toBeNull();
-    act(() => agentLink!.click());
-    expect(view.navigatedRefs).toContain("agent/glm");
-    act(() => view.root.unmount());
+    const rows = view.host.querySelectorAll('[data-testid^="collaboration-event-evt"]');
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.getAttribute("data-testid")).toBe("collaboration-event-evt-row-1");
+    expect(view.host.querySelector('[data-testid="collaboration-event-node-row-1"]')!.textContent).toContain(
+      "cc90-ubuntu",
+    );
   });
 
-  it("无执行会话的行不显示 Agent 槽位(人工执行/无 executor 不产生未提供噪音)", () => {
-    const view = renderView({
-      tasks: [
-        task("task-person", {
-          leaseActor: { principal: { personId: "person_zeyu" }, executor: null },
-          leasePhase: "held",
-        }),
-      ],
+  it("daemon 的读面限制声明(warnings/notes)如实展示,不隐藏", () => {
+    const view = renderView();
+    view.click(view.nodeCard("cc90-ubuntu"));
+    expect(view.text()).toContain("events-attribution=current-lease");
+    const warned = renderView({
+      data: overview({ warnings: ["node-owner-registry-unavailable: keycloak-unreachable"] }),
     });
-    const row = view.rows()[0]!;
-    expect(row.textContent).not.toContain("Agent 未提供");
-    act(() => view.root.unmount());
+    expect(warned.host.querySelector('[data-testid="collaboration-warnings"]')!.textContent).toContain(
+      "keycloak-unreachable",
+    );
   });
 });

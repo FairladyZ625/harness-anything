@@ -60,6 +60,12 @@ export type TaskDispatchesRead = DaemonGuiReadResultMap["repo.task.dispatches"];
 export type TaskDispatchProjectionRow = DaemonGuiReadResultMap["repo.task.dispatches"]["dispatches"][number];
 export type ObserveTailPayload = DaemonGuiReadPayloadMap["observe.tail"];
 export type ObserveTailRead = DaemonGuiReadResultMap["observe.tail"];
+/** `repo.fleet.overview.read`: the Collaboration page's fleet topology in one typed read. */
+export type FleetOverviewRead = DaemonGuiReadResultMap["repo.fleet.overview.read"];
+export type FleetOverviewNode = FleetOverviewRead["nodes"][number];
+export type FleetOverviewLink = FleetOverviewRead["links"][number];
+export type FleetOverviewEvent = FleetOverviewRead["events"][number];
+export type FleetFieldState = FleetOverviewNode["owner"];
 export type AgentRuntimeOverviewPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.overview"];
 export type AgentRuntimeSessionPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"];
 export type AgentRuntimeEventsPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"];
