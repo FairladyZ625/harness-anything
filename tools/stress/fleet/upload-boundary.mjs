@@ -54,7 +54,7 @@ export async function runFleetUploadBoundaryCampaign() {
         opId: "upload-stale-generation",
         repoId: repo.repoId,
         taskId: "task-upload-boundary",
-        action: { kind: "task-show", taskId: "task-upload-boundary" },
+        action: { kind: "task-progress-append", taskId: "task-upload-boundary", text: "stale generation" },
         waitMs: 1_000,
         writerEpoch: oldMetadata.writerEpoch,
         docChanges: [

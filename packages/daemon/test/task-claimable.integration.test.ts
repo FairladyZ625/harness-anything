@@ -162,24 +162,22 @@ test(
     const f = await fleetNodeClaimFixture(t);
     const query = (nodeId = "node-one") =>
       runFleetRuntimeReadClient({ ...f.peer(nodeId), method: "repo.tasks.claimable", payload: {} });
+    const revisions = new Map<string, number>();
     for (const suffix of ["named", "person", "free"]) {
-      assert.equal(
-        (await f.command("node-one", { kind: "task-create", taskId: `task-${suffix}`, title: suffix })).outcome,
-        "applied",
-      );
+      const created = await f.command("node-one", { kind: "task-create", taskId: `task-${suffix}`, title: suffix });
+      assert.equal(created.outcome, "applied");
+      revisions.set(`task-${suffix}`, Number(created.receipt?.projection?.revision ?? created.revision ?? 1));
     }
     for (const [suffix, target] of [
       ["named", { nodeId: "node-one" }],
       ["person", { personId: "person-one" }],
     ] as const) {
-      const shown = await f.command("node-one", { kind: "task-show", taskId: `task-${suffix}` });
-      const snapshot = JSON.parse(String(shown.receipt?.evidence));
       assert.equal(
         (
           await f.command("node-one", {
             kind: "task-assign",
             taskId: `task-${suffix}`,
-            expectedVersion: snapshot.revision,
+            expectedVersion: revisions.get(`task-${suffix}`),
             ...target,
           })
         ).outcome,
