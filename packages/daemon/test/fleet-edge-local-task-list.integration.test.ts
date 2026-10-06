@@ -143,3 +143,95 @@ test(
     assert.equal(unavailable.code, "LOCAL_UNAVAILABLE");
   },
 );
+
+test(
+  "edge task list waits locally for concurrent write cuts and times out without returning an older answer",
+  { timeout: 180_000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true),
+      viewRoot = path.join(f.root, "view");
+    await f.command("center-node", { kind: "task-create", taskId: "write-read-base", title: "Base" });
+    const pull = () => runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot, diskQuotaBytes: quota });
+    const base = f.host.replica("lease-repo");
+    base.activate();
+    await base.waitForCut(f.eventCount());
+    await pull();
+
+    const writes = await Promise.all([
+      f.command("center-node", { kind: "task-create", taskId: "write-read-one", title: "First concurrent write" }),
+      f.command("node-two", { kind: "task-create", taskId: "write-read-two", title: "Second concurrent write" }),
+    ]);
+    const appliedCuts = writes.map((write) => write.appliedCut);
+    assert.ok(
+      appliedCuts.every(
+        (cut) => cut && Number.isSafeInteger(cut.revision) && /^sha256:[0-9a-f]{64}$/u.test(cut.headDigest),
+      ),
+    );
+    const target = appliedCuts.reduce((left, right) => (left!.revision > right!.revision ? left : right))!;
+    let pulls = 0;
+    const read = answerEdgeTaskList(
+      { viewRoot, repoId: "lease-repo", minCut: target, action: { kind: "task-list" } },
+      async () => {
+        pulls += 1;
+        return pull();
+      },
+    );
+    assert.equal(pulls, 0, "waiting is local and does not create a center request");
+    await pull();
+    const current = await read;
+    assert.equal(current.ok, true, JSON.stringify(current));
+    assert.ok((current.cut as { revision: number }).revision >= target.revision);
+    assert.deepEqual(
+      new Set((current.rows as { taskId: string }[]).map((row) => row.taskId)),
+      new Set(["write-read-base", "write-read-one", "write-read-two"]),
+    );
+
+    const timedOut = await answerEdgeTaskList(
+      {
+        viewRoot,
+        repoId: "lease-repo",
+        minCut: { revision: target.revision + 10, headDigest: `sha256:${"f".repeat(64)}` },
+        writeReadWaitMs: 5,
+        action: { kind: "task-list" },
+      },
+      async () => {
+        throw new Error("minCut wait must not request the center");
+      },
+    );
+    assert.equal(timedOut.code, "write_committed_read_pending");
+    assert.equal(timedOut.outcome, "pending");
+    const withoutMinCut = await answerEdgeTaskList(
+      { viewRoot, repoId: "lease-repo", action: { kind: "task-list" } },
+      async () => {
+        throw new Error("a usable local answer must not request the center");
+      },
+    );
+    assert.equal(withoutMinCut.ok, true);
+  },
+);
+
+test(
+  "edge daemon remembers a write cut across independent write and read requests",
+  { timeout: 180_000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true),
+      viewRoot = path.join(f.root, "view"),
+      edge = (action: Record<string, unknown>) =>
+        runFleetEdgeTask({
+          payload: {
+            ...f.peer("node-one"),
+            host: "localhost",
+            caPath: path.join(f.root, "tls.crt"),
+            viewRoot,
+            quotaBytes: quota,
+            action: action as never,
+          },
+        });
+    const written = await edge({ kind: "task-create", taskId: "independent-write", title: "Independent write" });
+    assert.equal(written.outcome, "applied", JSON.stringify(written));
+    assert.ok(written.appliedCut);
+    const read = await edge({ kind: "task-list" });
+    assert.equal(read.ok, true, JSON.stringify(read));
+    assert.ok((read.rows as { taskId: string }[]).some((row) => row.taskId === "independent-write"));
+  },
+);

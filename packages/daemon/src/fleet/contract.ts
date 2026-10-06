@@ -143,6 +143,7 @@ export type FleetFrameV1 =
         outcome: "applied" | "op_rejected";
         opId: string;
         revision: number | null;
+        appliedCut?: FleetCut | null;
         code: string | null;
         receipt: Readonly<Record<string, unknown>> | null;
       }
@@ -732,14 +733,18 @@ const schemas: Readonly<Record<string, Check>> = {
     },
     ["schema", "messageId", "writerEpoch", "opId", "repoId", "taskId", "action", "docChanges", "mirrorBaseCut"],
   ),
-  "fleet.task.result/v1": shape({
-    ...reply,
-    outcome: one("applied", "op_rejected"),
-    opId: id,
-    revision: nullable(uint),
-    code: nullable(text),
-    receipt: nullable(record),
-  }),
+  "fleet.task.result/v1": optionalShape(
+    {
+      ...reply,
+      outcome: one("applied", "op_rejected"),
+      opId: id,
+      revision: nullable(uint),
+      appliedCut: nullable(cut),
+      code: nullable(text),
+      receipt: nullable(record),
+    },
+    ["schema", "messageId", "inReplyTo", "outcome", "opId", "revision", "code", "receipt"],
+  ),
   "fleet.schedule.command/v1": shape({
     ...common,
     writerEpoch: uint,

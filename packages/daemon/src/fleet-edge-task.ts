@@ -82,6 +82,20 @@ export class FleetEdgeTaskError extends Error {
   }
 }
 
+type EdgeWriteCut = { readonly revision: number; readonly headDigest: string };
+const recentAppliedCuts = new Map<string, EdgeWriteCut>();
+
+function edgeReadStateKey(viewRoot: string, repoId: string): string {
+  return `${viewRoot}\u0000${repoId}`;
+}
+
+function rememberAppliedCut(viewRoot: string, repoId: string, cut: EdgeWriteCut | null | undefined): void {
+  if (!cut || !Number.isSafeInteger(cut.revision) || typeof cut.headDigest !== "string") return;
+  const key = edgeReadStateKey(viewRoot, repoId),
+    previous = recentAppliedCuts.get(key);
+  if (!previous || cut.revision >= previous.revision) recentAppliedCuts.set(key, cut);
+}
+
 // Conservative task-path predicate for the unresolved-conflict gate. It
 // deliberately has no ULID alphabet heuristic, so lowercase generated ids
 // and plain ids are both covered. Automatic carry resolves the exact package
@@ -143,8 +157,11 @@ export async function runFleetEdgeTask(
   if ("repositoryRead" in declaration && declaration.repositoryRead === true) {
     const pullOnce = () =>
       runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes });
-    if (action.kind === "task-list") return answerEdgeTaskList({ ...payload, action }, pullOnce);
-    if (action.kind === "task-show") return answerEdgeTaskShow({ ...payload, action }, pullOnce);
+    const minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId));
+    if (action.kind === "task-list")
+      return answerEdgeTaskList({ ...payload, action, ...(minCut ? { minCut } : {}) }, pullOnce);
+    if (action.kind === "task-show")
+      return answerEdgeTaskShow({ ...payload, action, ...(minCut ? { minCut } : {}) }, pullOnce);
     const receipt = await runFleetRepositoryReadClient({
       ...peer,
       method: "repo.task.read",
@@ -380,6 +397,7 @@ export async function runFleetEdgeTask(
       }
     }
     const receipt = result.receipt ?? { outcome: result.outcome, code: result.code };
+    if (applied) rememberAppliedCut(payload.viewRoot, payload.repoId, result.appliedCut);
     const ok = applied && (mirror === null || mirror.outcome !== "pull_blocked");
     return {
       schema: "command-receipt/v2",
@@ -400,6 +418,7 @@ export async function runFleetEdgeTask(
             },
           }),
       ...(receipt as Record<string, unknown>),
+      ...(result.appliedCut ? { appliedCut: result.appliedCut } : {}),
       fleet: {
         origin: "fleet-edge",
         nodeId: payload.nodeId,

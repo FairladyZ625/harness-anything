@@ -4,6 +4,7 @@
 // is still given, marked stale. Only a missing or unusable read model is unavailable, and that case
 // — the one where no local answer exists at all — is the only one that touches the network, once
 // and bounded.
+import { watch } from "node:fs";
 import path from "node:path";
 import {
   consumeKnownError,
@@ -24,6 +25,12 @@ import type { RepoTaskAction } from "./repo-cell-types.ts";
 
 export const DEFAULT_EDGE_READ_MAX_AGE_MS = 60_000;
 export const DEFAULT_EDGE_READ_MAX_LAG_REVISIONS = 32;
+export const DEFAULT_WRITE_READ_WAIT_MS = 5_000;
+
+export interface EdgeReadCut {
+  readonly revision: number;
+  readonly headDigest: string;
+}
 
 export interface EdgeTaskReadInput {
   readonly viewRoot: string;
@@ -31,6 +38,8 @@ export interface EdgeTaskReadInput {
   readonly workspaceRoot?: string;
   readonly maxAgeMs?: number;
   readonly maxLagRevisions?: number;
+  readonly writeReadWaitMs?: number;
+  readonly minCut?: EdgeReadCut;
   readonly action: Readonly<Record<string, unknown>>;
 }
 
@@ -47,6 +56,7 @@ export async function answerEdgeTaskList(
   pull: () => Promise<unknown>,
   now: () => number = Date.now,
 ): Promise<Record<string, unknown>> {
+  if (input.minCut && !(await waitForMinimumCut(input))) return writeReadPendingReceipt(input.action, input.minCut);
   const local = readLocalTaskList(input, now);
   if (local) return local;
   try {
@@ -215,6 +225,7 @@ export async function answerEdgeTaskShow(
   pull: () => Promise<unknown>,
   now: () => number = Date.now,
 ): Promise<Record<string, unknown>> {
+  if (input.minCut && !(await waitForMinimumCut(input))) return writeReadPendingReceipt(input.action, input.minCut);
   const local = readLocalTaskShow(input, now);
   if (local) return local;
   try {
@@ -226,6 +237,57 @@ export async function answerEdgeTaskShow(
   const view = locateFleetMirrorView(input.viewRoot, input.repoId);
   if (view && isReadDenied(view.viewDir)) return edgeReadDeniedReceipt("task-show");
   return readLocalTaskShow(input, now) ?? edgeReadUnavailableReceipt("task-show");
+}
+
+function writeReadPendingReceipt(action: Readonly<Record<string, unknown>>, minCut: EdgeReadCut) {
+  const command = action.kind === "task-list" ? "task-list" : "task-show";
+  return {
+    schema: "command-receipt/v2",
+    command,
+    ok: false,
+    outcome: "pending",
+    code: "write_committed_read_pending",
+    appliedCut: minCut,
+    error: {
+      code: "write_committed_read_pending",
+      hint: `The local task read model has not reached revision ${minCut.revision} yet.`,
+    },
+  };
+}
+
+async function waitForMinimumCut(input: EdgeTaskReadInput): Promise<boolean> {
+  const target = input.minCut!;
+  // A denied view ends the wait: the denial, not a pending write, is the read's answer.
+  const reached = (): boolean => {
+    const view = locateFleetMirrorView(input.viewRoot, input.repoId);
+    return Boolean(
+      view &&
+        (isReadDenied(view.viewDir) ||
+          view.revision > target.revision ||
+          (view.revision === target.revision && view.headDigest === target.headDigest)),
+    );
+  };
+  if (reached()) return true;
+  const view = locateFleetMirrorView(input.viewRoot, input.repoId);
+  if (!view) return false;
+  const timeoutMs = Math.max(0, input.writeReadWaitMs ?? DEFAULT_WRITE_READ_WAIT_MS);
+  if (timeoutMs === 0) return false;
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const watcher = watch(view.viewDir, () => {
+      if (reached()) finish(true);
+    });
+    const timer = setTimeout(() => finish(reached()), timeoutMs);
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      watcher.close();
+      resolve(value);
+    };
+    watcher.on("error", () => finish(reached()));
+    if (reached()) finish(true);
+  });
 }
 
 /**
