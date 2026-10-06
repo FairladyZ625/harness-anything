@@ -161,7 +161,7 @@ test("Codex stream normalizes usage, ten tool calls, compaction, and preserves r
 });
 
 test("Claude stream normalizes message usage including cache creation and preserves raw usage", async () => {
-  const runtime = active();
+  const runtime = active("claude");
   for (const frame of [
     {
       type: "message_start",
@@ -288,9 +288,9 @@ test("Codex empty turn usage is replaced by the matching session turn token coun
         cacheReadTokens: runtime.cacheReadTokens,
         outputTokens: runtime.outputTokens,
       },
-      { inputTokens: 62284, cacheReadTokens: 60672, outputTokens: 2046 },
+      { inputTokens: 181354, cacheReadTokens: 170624, outputTokens: 2449 },
     );
-    assert.deepEqual(runtime.rawUsage, { input_tokens: 62284, cached_input_tokens: 60672, output_tokens: 2046 });
+    assert.deepEqual(runtime.rawUsage, { input_tokens: 181354, cached_input_tokens: 170624, output_tokens: 2449 });
     assert.equal(runtime.usageReported, true);
   } finally {
     rmSync(providerHome, { recursive: true, force: true });
@@ -560,6 +560,7 @@ test("ZCode accumulates turn.completed tool counts and reports no token usage", 
       payload: {
         usage: { source: "provider", modelRequestCount: 27, webFetchRequests: 0, webSearchRequests: 0 },
         toolCallCount: 33,
+        cacheStats: { totalMessages: 100, cachedMessages: 80, lastCacheHit: true },
         historyRoundCount: 27,
         duration: 313948,
         resultType: "success",
@@ -586,13 +587,66 @@ test("ZCode accumulates turn.completed tool counts and reports no token usage", 
   assert.deepEqual(runtime.rawUsage, {
     source: "provider",
     modelRequestCount: 36,
+    cacheStats: { totalMessages: 100, cachedMessages: 80, lastCacheHit: true },
   });
+});
+
+test("runtime usage extracts protocol cache fields and normalizes inclusive inputs without double counting", async () => {
+  const cases = [
+    {
+      kind: "claude",
+      usage: { input_tokens: 10, cache_read_input_tokens: 20, cache_creation_input_tokens: 3 },
+      input: 33,
+      cache: 20,
+    },
+    {
+      kind: "codex",
+      usage: {
+        prompt_tokens: 100,
+        prompt_tokens_details: { cached_tokens: 70, cache_write_tokens: 5 },
+        completion_tokens: 4,
+      },
+      input: 100,
+      cache: 70,
+    },
+    {
+      kind: "opencode",
+      usage: { promptTokens: 50, input_tokens_details: { cached_tokens: 30 }, outputTokens: 2 },
+      input: 50,
+      cache: 30,
+    },
+    {
+      kind: "deepseek",
+      usage: { prompt_tokens: 60, prompt_cache_hit_tokens: 40, completion_tokens: 3 },
+      input: 100,
+      cache: 40,
+    },
+    { kind: "gemini", usage: { inputTokens: 80, cachedContentTokenCount: 70, output: 1 }, input: 80, cache: 70 },
+    {
+      kind: "zcode",
+      usage: {
+        inputTokens: 2_806_008,
+        outputTokens: 25_637,
+        totalTokens: 2_831_645,
+        cacheReadTokens: 2_712_960,
+        cacheWriteTokens: 0,
+      },
+      input: 2_806_008,
+      cache: 2_712_960,
+    },
+  ];
+  for (const item of cases) {
+    const runtime = active(item.kind);
+    await consumeProviderLine(context(), runtime, JSON.stringify({ type: "usage", usage: item.usage }));
+    assert.equal(runtime.inputTokens, item.input, item.kind);
+    assert.equal(runtime.cacheReadTokens, item.cache, item.kind);
+  }
 });
 
 // Frames below are trimmed from real zcode 0.16.5 headless runs (2026-09-05, `--output-format stream-json`).
 const sessionId = "sess_f02d106e-527b-4896-b179-90c6c59627dd";
 
-test("ZCode result frame maps response and usage to a succeeded outcome", () => {
+test("ZCode result frame maps response and usage to a succeeded outcome", async () => {
   const frame = {
     type: "result",
     sessionId,
@@ -609,6 +663,13 @@ test("ZCode result frame maps response and usage to a succeeded outcome", () => 
     outcome: "succeeded",
     sessionIdentity: { runtime: "zcode", sessionId, transcriptReachability: "dispatch_stream_only" },
   });
+  const runtime = active("zcode");
+  await consumeProviderLine(context(), runtime, JSON.stringify(frame));
+  assert.deepEqual(
+    { input: runtime.inputTokens, cache: runtime.cacheReadTokens, output: runtime.outputTokens },
+    { input: 16_995, cache: 0, output: 3 },
+  );
+  assert.deepEqual(runtime.rawUsage.projection, frame.projection);
 });
 
 test("ZCode turn.failed maps the provider error message to a failed outcome (no result frame follows)", () => {
