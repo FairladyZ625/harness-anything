@@ -63,6 +63,7 @@ export interface FleetEdgeTaskRequest {
     readonly nodeId: string;
     readonly credential: string;
     readonly executionCredential?: string;
+    readonly principalId?: string;
     readonly repoId: string;
     readonly viewRoot: string;
     readonly quotaBytes: number;

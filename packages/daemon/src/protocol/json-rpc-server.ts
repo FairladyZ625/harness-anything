@@ -479,6 +479,10 @@ export function createJsonRpcProtocolServer(options: {
           );
         }
         const { runFleetEdgeTask } = await import("../fleet-edge-task.ts");
+        const relayedExecutionPrincipal =
+          executionCredential !== undefined && options.executionPrincipal
+            ? await options.executionPrincipal(executionCredential, method, params as JsonObject)
+            : undefined;
         return reply(
           method,
           await runFleetEdgeTask(
@@ -486,6 +490,13 @@ export function createJsonRpcProtocolServer(options: {
               payload: {
                 ...params.payload,
                 ...(executionCredential ? { executionCredential } : {}),
+                ...(options.authContext.executionPrincipal
+                  ? { principalId: options.authContext.executionPrincipal.personId }
+                  : relayedExecutionPrincipal
+                    ? { principalId: relayedExecutionPrincipal.personId }
+                    : !executionCredential && options.authContext.oidcPrincipal
+                      ? { principalId: options.authContext.oidcPrincipal.personId }
+                      : {}),
                 // The two non-task discriminants return above; the remainder is FleetTaskAction.
                 action: fleetAction as DaemonFleetTaskAction,
               },

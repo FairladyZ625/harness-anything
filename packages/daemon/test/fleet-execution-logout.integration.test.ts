@@ -214,7 +214,8 @@ test(
     };
     await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
-    assert.equal((await cli(["task", "show", taskId])).outcome, "applied");
+    const initialLocalRead = await cli(["task", "show", taskId]);
+    assert.equal(initialLocalRead.outcome, "applied", JSON.stringify(initialLocalRead));
     const edgeLogout = await rpc("daemon.rbac.manage", { operation: "logout" });
     assert.equal(edgeLogout.ok, true, JSON.stringify(edgeLogout));
     const logout = await new OidcSessionService(path.join(f.root, "user")).logout();

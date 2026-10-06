@@ -91,7 +91,10 @@ export function readHeadConfirmation(viewDir: string): HeadConfirmation | null {
 
 export interface EdgeReadModel {
   readonly db: DatabaseSync;
-  readonly meta: EdgeReadModelMeta;
+  readonly meta: EdgeReadModelMeta & {
+    readonly authorizationOwner: string | null;
+    readonly authorizationShapeDigest: string;
+  };
 }
 
 /**
@@ -198,7 +201,14 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string): Edge
         throw error;
       }
     }
-    return { db, meta };
+    return {
+      db,
+      meta: {
+        ...meta,
+        authorizationOwner: view.authorizationOwner,
+        authorizationShapeDigest: view.authorizationShapeDigest,
+      },
+    };
   } catch (error) {
     db.close();
     throw error;
