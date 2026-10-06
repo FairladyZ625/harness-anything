@@ -7,11 +7,11 @@ description: 产出与增量维护任务包中的活解释页 artifacts/explaine
 
 每个非 lightweight 在账任务有一页**活的可视解释**：任务包 `artifacts/explainer.html`。它不是终局报告，而是随工作轮次增量生长、在 closeout 终态冻结的单文件 HTML——让不读代码的读者随时看到这个任务做了什么、验证了什么、还差什么。Daemon 的派工协议只提醒 worker 更新这份已物化页面。
 
-任务创建时物化的 `artifacts/explainer.html` 顶部 HTML 注释是章节、配色、布局、场景图型和质量要求的**唯一权威来源**。派工与本技能都不复制这些规则；打开页面后按注释逐轮填入真实任务内容。完成示范见 `harness/tasks/task_772dfffe2b4d41546909e3b56b-explainer-skill-svg/artifacts/sample-explainer.html`。
+任务创建时物化的 `artifacts/explainer.html` 顶部 HTML 注释是章节、配色、布局、场景图型和质量要求的**唯一权威来源**。派工与本技能都不复制这些规则；打开页面后按注释逐轮填入真实任务内容。
 
 ## 页面编写
 
-以物化页面的 HTML 注释为准。不要在本技能、mission 或其他副本维护第二套模板指引；模板规则变化时只改 preset 模板与它的测试。上面的示范页展示了如何把已完成任务的真实结构、验证结果和剩余范围画进五章，而不是用通用输入/处理/输出占位图。
+以物化页面的 HTML 注释为准。不要在本技能、mission 或其他副本维护第二套模板指引；模板规则变化时只改 preset 模板与它的测试。五章都要画进本任务的真实结构、验证结果和剩余范围，而不是通用输入/处理/输出占位图。
 
 ## `<task-context>` 注入规约
 
