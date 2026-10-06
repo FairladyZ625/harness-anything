@@ -2,13 +2,16 @@
 import { describe, expect, it } from "vitest";
 import {
   borderPoint,
+  CENTER_CARD,
   computeFleetLayout,
   curvePath,
+  EDGE_CARD,
+  suggestFleetCanvasHeight,
   type FleetNodePlacement,
 } from "../src/renderer/views/collaboration/fleet-topology-layout.ts";
 
 /** 布局的护栏契约:任务计划的「节点数 1–12 都排得开,窗口宽度变化时重排」。 */
-const WIDTHS = [390, 640, 699, 700, 751, 752, 900, 1120, 1440, 1920];
+const WIDTHS = [390, 640, 700, 889, 890, 939, 940, 1120, 1440, 1920];
 const MARGIN = 2;
 
 function edgeIds(count: number): { nodeId: string; role: "center" | "edge" }[] {
@@ -64,8 +67,29 @@ describe("舰队拓扑布局", () => {
     const six = computeFleetLayout(1120, 420, edgeIds(6));
     const twelve = computeFleetLayout(1120, 420, edgeIds(12));
     expect(twelve.canvasHeight).toBeGreaterThan(six.canvasHeight);
-    // 12 个分两翼各 6:6×92 + 5×18 + 上下 padding。
-    expect(twelve.canvasHeight).toBeGreaterThanOrEqual(6 * 92 + 5 * 18 + 32);
+    // 12 个分两翼各 6:6×124 + 5×20 + 上下 padding。
+    expect(twelve.canvasHeight).toBeGreaterThanOrEqual(6 * 124 + 5 * 20 + 32);
+  });
+
+  it("第 2 轮视觉修正:节点卡足够大,雷达环横向铺开,画布高度建议随节点数单调", () => {
+    // 卡片尺寸下限:节点是画布主角,退回小卡即回归「画布大而空」的缺陷。
+    expect(CENTER_CARD.width).toBeGreaterThanOrEqual(300);
+    expect(CENTER_CARD.height).toBeGreaterThanOrEqual(140);
+    expect(EDGE_CARD.width).toBeGreaterThanOrEqual(250);
+    expect(EDGE_CARD.height).toBeGreaterThanOrEqual(120);
+    // 1440 雷达环:边缘卡的横向跨度要吃掉画布宽度的大头(≥60%),不是挤在中间一撮。
+    const ring = computeFleetLayout(1440, 460, edgeIds(3));
+    const center = ring.placement.get("center")!;
+    const edges = [...ring.placement.values()].filter((placement) => placement !== center);
+    const leftEdge = Math.min(...edges.map((placement) => placement.left));
+    const rightEdge = Math.max(...edges.map((placement) => placement.left + placement.width));
+    expect((rightEdge - leftEdge) / ring.canvasWidth).toBeGreaterThanOrEqual(0.6);
+    // 高度建议:节点越多画布越高,少节点时保持基础高度(不留死空白也不挤压)。
+    const heights = [0, 1, 4, 8, 12].map((count) => suggestFleetCanvasHeight(count));
+    expect(suggestFleetCanvasHeight(0)).toBeGreaterThanOrEqual(460);
+    for (let index = 1; index < heights.length; index += 1)
+      expect(heights[index]!).toBeGreaterThanOrEqual(heights[index - 1]!);
+    expect(suggestFleetCanvasHeight(12)).toBeGreaterThan(suggestFleetCanvasHeight(2));
   });
 
   it("窄容器走纵向堆叠:卡片逐行下移,画布高度覆盖最后一张卡", () => {
@@ -81,6 +105,17 @@ describe("舰队拓扑布局", () => {
     const layout = computeFleetLayout(1120, 420, edgeIds(0));
     expect(layout.placement.size).toBe(1);
     expect(layout.canvasHeight).toBeGreaterThan(0);
+  });
+
+  it("画布高度建议覆盖环形形态的实际高度,底部节点不被容器折线裁半", () => {
+    for (const count of [1, 2, 3, 4]) {
+      const suggested = suggestFleetCanvasHeight(count);
+      const layout = computeFleetLayout(1440, suggested, edgeIds(count));
+      expect(
+        layout.canvasHeight,
+        `container ${suggested}px must fit the ring canvas (${layout.canvasHeight}px) for ${count} edges`,
+      ).toBeLessThanOrEqual(suggested + MARGIN);
+    }
   });
 
   it("borderPoint 把连线端点收到卡片边框", () => {

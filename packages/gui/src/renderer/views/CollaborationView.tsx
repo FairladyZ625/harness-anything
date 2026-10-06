@@ -8,6 +8,7 @@ import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Section } from "../components/primitives/Section.tsx";
 import { Drawer } from "../components/primitives/Drawer.tsx";
 import { READ_ERROR_LABELS, warningLabel } from "./collaboration/fleet-labels.ts";
+import { suggestFleetCanvasHeight } from "./collaboration/fleet-topology-layout.ts";
 import { FleetTopology } from "./collaboration/FleetTopology.tsx";
 import { NodeDetails, nodeLabelOf } from "./collaboration/NodeDetails.tsx";
 
@@ -43,6 +44,7 @@ export function CollaborationView({
   readonly now?: string;
 }) {
   const nodes = overview?.nodes ?? [];
+  const edgesCount = nodes.filter((node) => node.role !== "center").length;
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [eventNode, setEventNode] = useState("all");
   const selected = selectedNode === null ? null : (nodes.find((node) => node.nodeId === selectedNode) ?? null);
@@ -110,8 +112,17 @@ export function CollaborationView({
           <Empty>{t("collaboration.empty")}</Empty>
         ) : (
           <>
-            <Section title={t("collaboration.topologyTitle")} note={t("collaboration.topologyNote")} variant="panel">
-              <div className="h-[clamp(300px,46vh,440px)]">
+            <Section
+              title={t("collaboration.topologyTitle")}
+              note={t("collaboration.topologyNote")}
+              action={<LinkStateLegend />}
+              variant="panel"
+            >
+              {/* 画布高度随边缘节点数自适应(少节点不留死空白,多节点纵向长画布可滚动)。 */}
+              <div
+                style={{ height: `clamp(420px, ${suggestFleetCanvasHeight(edgesCount)}px, 68vh)` }}
+                className="fleet-canvas-clip"
+              >
                 <FleetTopology
                   nodes={nodes}
                   links={overview.links}
@@ -192,6 +203,31 @@ export function CollaborationView({
         )}
       </Drawer>
     </section>
+  );
+}
+
+/** 连线状态图例:连线颜色/线型是「谁连着谁、为什么是灰的」的第一语言,图例给出
+ * 四态的口语解释,不读文字也能对着色猜,读文字则知道因果。 */
+function LinkStateLegend() {
+  const entries = [
+    { state: "fresh", label: t("collaboration.legend.fresh") },
+    { state: "lag", label: t("collaboration.legend.lag") },
+    { state: "unsynced", label: t("collaboration.legend.unsynced") },
+    { state: "absent", label: t("collaboration.legend.absent") },
+  ] as const;
+  return (
+    <ul
+      data-testid="collaboration-link-legend"
+      aria-label={t("collaboration.legendAria")}
+      className="flex items-center gap-3"
+    >
+      {entries.map((entry) => (
+        <li key={entry.state} className={`fleet-legend fleet-legend--${entry.state}`}>
+          <i aria-hidden="true" className="fleet-legend-key" />
+          <span className="ui-micro text-text-faint">{entry.label}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

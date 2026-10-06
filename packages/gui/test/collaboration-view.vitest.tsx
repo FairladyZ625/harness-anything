@@ -207,6 +207,22 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
     expect(view.nodeCard("cc90-ubuntu")!.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("第 2 轮视觉修正:四态连线图例、中心能量核心与节点状态点在画布上", () => {
+    const view = renderView();
+    const legend = view.host.querySelector('[data-testid="collaboration-link-legend"]')!;
+    expect(legend).not.toBeNull();
+    expect(legend.textContent).toContain("已同步");
+    expect(legend.textContent).toContain("灰虚线＝从未同步");
+    // 四态各一枚色样(fresh/lag/unsynced/absent),线型本身即图例。
+    expect(legend.querySelectorAll(".fleet-legend")).toHaveLength(4);
+    expect(legend.querySelector(".fleet-legend--absent .fleet-legend-key")).not.toBeNull();
+    // 中心能量核心:径向光晕 + 细环(SVG 组),不依赖 JS 运行时。
+    expect(view.host.querySelector('[data-testid="collaboration-core"]')).not.toBeNull();
+    expect(view.host.querySelector('[data-testid="collaboration-core"] .fleet-core-ring')).not.toBeNull();
+    // 节点卡状态点:与连线同色的扫视锚点。
+    expect(view.nodeCard("cc90-ubuntu")!.querySelector(".fleet-state-dot")).not.toBeNull();
+  });
+
   it("执行中的节点带执行标记,事件行带进入动效类", () => {
     const view = renderView();
     expect(view.nodeCard("cc90-ubuntu")!.getAttribute("data-executing")).toBe("on");

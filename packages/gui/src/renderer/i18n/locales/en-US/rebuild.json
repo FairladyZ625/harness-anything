@@ -270,6 +270,11 @@
   "collaboration.state.lag": "lagging",
   "collaboration.state.unsynced": "unsynced",
   "collaboration.state.absent": "no replica row",
+  "collaboration.legendAria": "Link state legend",
+  "collaboration.legend.fresh": "synced",
+  "collaboration.legend.lag": "lagging",
+  "collaboration.legend.unsynced": "unsynced",
+  "collaboration.legend.absent": "gray dashed = never synced",
   "collaboration.cutProgressAria": "cut progress: {ack} / {center}",
   "collaboration.lagBarAria": "{rev} revisions behind",
   "collaboration.drawerAria": "Node details"

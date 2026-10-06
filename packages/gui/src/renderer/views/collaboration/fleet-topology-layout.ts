@@ -4,7 +4,8 @@
  * 契约是「边缘 1–12 个在 700px 以上排得开、以下纵向堆叠,任意组合卡片不重叠」。
  *
  * 三种形态(高→低宽度):
- * - 雷达环(宽 ≥740 且边缘 ≤4):中心居中,边缘按固定扇面角放椭圆环上;
+ * - 雷达环(宽 ≥940 且边缘 ≤4):中心居中,边缘按固定扇面角放椭圆环上,椭圆横向
+ *   铺满可用宽度(指挥台要的是「撑开的舰队」,不是挤在中间的一撮卡);
  * - 双翼列(宽 ≥700):中心居中,边缘分列左右两翼纵向排布,画布高度随节点数扩展
  *   (任务 2879 设计稿「2 列环形网格分层排布并扩展画布高度」);
  * - 纵向堆叠(窄):中心在上、边缘下移成列,左侧留出轨道槽,连线走左槽,
@@ -34,36 +35,79 @@ export interface FleetLayout {
   readonly spineX: number;
 }
 
-/** 卡片尺寸常量;节点卡是固定尺寸的玻璃卡,内容随节点角色不同。 */
-export const CENTER_CARD = { width: 240, height: 112 } as const;
-export const EDGE_CARD = { width: 190, height: 92 } as const;
+/** 卡片尺寸常量;节点卡是固定尺寸的玻璃卡,内容随节点角色不同。第 2 轮放大:
+ * 节点是画布主角,cut/lag 数字要在扫视距离可读,卡片小=信息弱。 */
+export const CENTER_CARD = { width: 300, height: 148 } as const;
+export const EDGE_CARD = { width: 252, height: 124 } as const;
 
-const CANVAS_PADDING = 16;
-/** 纵向堆叠的上限宽度:双翼列需要 2×(239+95+16)=700px。 */
-const COLUMN_MIN_WIDTH = 700;
-/** 雷达环的最小宽度:椭圆以 50px 净空包住「中心卡⊕边缘卡」矩形(见 ringLayout)。 */
-const RING_MIN_WIDTH = 752;
+const CANVAS_PADDING = 20;
+/** 纵向堆叠的上限宽度:双翼列要同时容纳「中心卡 300 + 间隙 + 边缘卡 252」两翼,
+ * 右翼右沿不越界要求 width ≥ 2×(150+20+126)+2×20=884,取 890。 */
+const COLUMN_MIN_WIDTH = 890;
+/** 雷达环的最小宽度:椭圆横向净空包住「中心卡⊕边缘卡」(见 ringLayout),
+ * 2×(150+126+50)+252+2×20=944,取 940 档以下交给双翼列。 */
+const RING_MIN_WIDTH = 940;
 /** 椭圆/两翼对「中心卡⊕边缘卡」矩形的净空。 */
 const CLEARANCE = 50;
-const CARD_GAP = 18;
-/** 双翼列的列中心到画布中心的水平距离:中心半宽 120 + 间隙 24 + 边缘半宽 95。 */
-const COLUMN_OFFSET = CENTER_CARD.width / 2 + 24 + EDGE_CARD.width / 2;
+const CARD_GAP = 20;
+/** 双翼列的列中心到画布中心的水平距离:中心半宽 150 + 间隙 28 + 边缘半宽 126。 */
+const COLUMN_OFFSET = CENTER_CARD.width / 2 + 28 + EDGE_CARD.width / 2;
+
+/** 卡片矩形净空:两轴让开中心卡时的最小间隙(不相切、留可读缝)。 */
+const CARD_CLEARANCE = 8;
+/** 环形形态的基础 ry:中心半高 + 边缘半高 + 矩形净空。 */
+const RING_BASE_RY = CENTER_CARD.height / 2 + EDGE_CARD.height / 2 + CARD_CLEARANCE + CLEARANCE;
 
 export function computeFleetLayout(width: number, height: number, nodes: readonly FleetLayoutNode[]): FleetLayout {
   if (width <= 0) width = 1024;
-  if (height <= 0) height = 400;
+  if (height <= 0) height = 420;
   const edges = nodes.filter((node) => node.role === "edge");
   if (width >= RING_MIN_WIDTH && edges.length > 0 && edges.length <= 4) return ringLayout(width, height, edges);
   if (width >= COLUMN_MIN_WIDTH) return columnLayout(width, height, edges);
   return narrowLayout(width, edges);
 }
 
-/** 雷达环:椭圆必须把「中心卡⊕边缘卡」的矩形角包在内部((215/rx)²+(102/ry)² ≥ 1),
- * 任意扇面角都不会压到中心卡;≤4 个边缘取固定扇面角,相邻弦距 ≥ 卡宽。 */
+/** 画布容器的建议高度:随布局形态/边缘数增长(环形净空/双翼列纵向堆叠),少节点时
+ * 不留大片死空白;容器再由 CSS clamp 上限约束,超高画布在内部滚动。
+ * 环形高度必须给足椭圆的纵向净空,否则底部节点被容器折线裁半。 */
+export function suggestFleetCanvasHeight(edgeCount: number): number {
+  if (edgeCount >= 1 && edgeCount <= 4)
+    return Math.max(
+      2 * (RING_BASE_RY + EDGE_CARD.height / 2 + CANVAS_PADDING + 8),
+      2 * CANVAS_PADDING + CENTER_CARD.height + 80,
+    );
+  const wingRows = Math.ceil(edgeCount / 2);
+  return Math.max(
+    460,
+    2 * CANVAS_PADDING + CENTER_CARD.height + 80,
+    wingRows * (EDGE_CARD.height + CARD_GAP) - CARD_GAP + 2 * CANVAS_PADDING + 60,
+  );
+}
+
+/** 雷达环:边缘卡中心落在椭圆上,对每个扇面角必须沿至少一根轴让开中心卡
+ * (rx|cosθ| ≥ 中心半宽+边缘半宽 或 ry|sinθ| ≥ 中心半高+边缘半高);椭圆横向吃掉
+ * 可用宽度的 78%(指挥台要撑开的队形,不是中间一撮),纵向至少给足基础环高。 */
 function ringLayout(width: number, height: number, edges: readonly FleetLayoutNode[]): FleetLayout {
   const halfWidth = width / 2 - EDGE_CARD.width / 2 - CANVAS_PADDING;
-  const rx = Math.min(halfWidth, Math.max(CENTER_CARD.width / 2 + EDGE_CARD.width / 2 + CLEARANCE, width * 0.26));
-  const ry = Math.max(CENTER_CARD.height / 2 + EDGE_CARD.height / 2 + CLEARANCE, height * 0.3);
+  const rx = Math.min(halfWidth, Math.max(CENTER_CARD.width / 2 + EDGE_CARD.width / 2 + CLEARANCE, halfWidth * 0.78));
+  const fanAngles: Record<number, readonly number[]> = {
+    1: [90],
+    2: [0, 180],
+    3: [90, 210, 330],
+    4: [45, 135, 225, 315],
+  };
+  const angles = fanAngles[edges.length] ?? [90];
+  // 卡是矩形:两轴净空各加卡间隙,保证椭圆上的卡与中心卡不相交(而非恰好相切)。
+  const clearX = CENTER_CARD.width / 2 + EDGE_CARD.width / 2 + CARD_CLEARANCE,
+    clearY = CENTER_CARD.height / 2 + EDGE_CARD.height / 2 + CARD_CLEARANCE;
+  // x 轴让不开的角,由 y 轴兜底:ry ≥ clearY/|sinθ|;θ 趋近 0/180 时只能靠 rx(有地板值)。
+  const ryNeeded = Math.max(
+    ...angles.map((degree) => {
+      const radian = (degree * Math.PI) / 180;
+      return rx * Math.abs(Math.cos(radian)) >= clearX ? 0 : clearY / Math.max(Math.abs(Math.sin(radian)), 1e-6);
+    }),
+  );
+  const ry = Math.max(clearY + CLEARANCE, ryNeeded, height / 2 - EDGE_CARD.height / 2 - 2 * CANVAS_PADDING);
   const canvasHeight = Math.max(height, 2 * (ry + EDGE_CARD.height / 2 + CANVAS_PADDING + 8));
   const center = { x: width / 2, y: canvasHeight / 2 };
   const placement = new Map<string, FleetNodePlacement>([
@@ -77,12 +121,6 @@ function ringLayout(width: number, height: number, edges: readonly FleetLayoutNo
       },
     ],
   ]);
-  const fanAngles: Record<number, readonly number[]> = {
-    1: [90],
-    2: [0, 180],
-    3: [90, 210, 330],
-    4: [45, 135, 225, 315],
-  };
   for (const [index, node] of edges.entries()) {
     const angle = ((fanAngles[edges.length] ?? [])[index] ?? 90) * (Math.PI / 180);
     placement.set(node.nodeId, {
@@ -133,14 +171,14 @@ function columnLayout(width: number, height: number, edges: readonly FleetLayout
 
 /** 纵向堆叠:中心在上、边缘成列,左槽走轨道连线。 */
 function narrowLayout(width: number, edges: readonly FleetLayoutNode[]): FleetLayout {
-  const cardWidth = Math.min(width - 64, 320);
+  const cardWidth = Math.min(width - 64, 360);
   const spineX = CANVAS_PADDING + 6;
   const cardLeft = spineX + 14;
   const centerTop = CANVAS_PADDING;
   const placement = new Map<string, FleetNodePlacement>([
     ["center", { left: cardLeft, top: centerTop, width: cardWidth, height: CENTER_CARD.height }],
   ]);
-  let top = centerTop + CENTER_CARD.height + 30;
+  let top = centerTop + CENTER_CARD.height + 34;
   let lastBottom = centerTop + CENTER_CARD.height;
   for (const node of edges) {
     placement.set(node.nodeId, { left: cardLeft, top, width: cardWidth, height: EDGE_CARD.height });

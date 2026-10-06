@@ -270,6 +270,11 @@
   "collaboration.state.lag": "落后",
   "collaboration.state.unsynced": "未同步",
   "collaboration.state.absent": "无副本记录",
+  "collaboration.legendAria": "连线状态图例",
+  "collaboration.legend.fresh": "已同步",
+  "collaboration.legend.lag": "同步落后",
+  "collaboration.legend.unsynced": "未同步",
+  "collaboration.legend.absent": "灰虚线＝从未同步",
   "collaboration.cutProgressAria": "cut 进度：{ack} / {center}",
   "collaboration.lagBarAria": "落后 {rev} 个修订",
   "collaboration.drawerAria": "节点详情"

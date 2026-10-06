@@ -44,7 +44,10 @@ export function NodeDetails({
     <div data-testid="collaboration-node-details" className="flex flex-col gap-4">
       <header className="flex items-start justify-between gap-3 border-b border-border pb-3">
         <div className="min-w-0">
-          <h2 className="truncate font-semibold ui-title">{nodeLabelOf(node)}</h2>
+          {/* 长节点 id 在抽屉宽度内换行展示(完整可读),不截断成看不见的省略号。 */}
+          <h2 className="break-all font-semibold ui-title" title={nodeLabelOf(node)}>
+            {nodeLabelOf(node)}
+          </h2>
           <p className="mt-0.5 ui-micro text-text-faint">{t("collaboration.nodeDetailNote")}</p>
         </div>
         <button
@@ -212,7 +215,7 @@ function LeaseRow({
           type="button"
           data-testid={`collaboration-task-${lease.taskId}`}
           onClick={() => onOpenTask(lease.taskId)}
-          className="truncate text-left ui-body hover:underline"
+          className="min-w-0 flex-1 truncate text-left ui-body hover:underline"
         >
           {lease.title ?? lease.taskId}
         </button>
@@ -263,7 +266,8 @@ function DetailBlock({ title, children }: { readonly title: string; readonly chi
 }
 
 /** 三态字段行:有值 / 无权限查看(带原因) / 未提供(带原因)——标签保留,值不编造;
- * 可见文本是人话解释,机器码只进 title/data-reason 供测试断言。 */
+ * 可见文本是人话解释,机器码只进 title/data-reason 供测试断言。值一侧允许收窄与
+ * 断词(min-w-0 + break-words):长 id / 长说明必须在抽屉宽度内换行,不许横向溢出。 */
 function FieldLine({ label, state }: { readonly label: string; readonly state: FleetFieldState }) {
   const machine = machineOf(state);
   const unavailable = state.kind === "unavailable" || state.kind === "redacted";
@@ -274,7 +278,7 @@ function FieldLine({ label, state }: { readonly label: string; readonly state: F
     >
       <span className="shrink-0 text-text-faint">{label}</span>
       <span
-        className={`text-right ${unavailable ? "text-text-faint" : "text-text-muted"}`}
+        className={`min-w-0 break-words text-right ${unavailable ? "text-text-faint" : "text-text-muted"}`}
         data-reason={machine}
         title={machine}
       >
@@ -297,7 +301,7 @@ function DetailLine({
   return (
     <div className="flex justify-between gap-3 border-t border-border py-1.5 ui-meta" data-reason={title}>
       <span className="shrink-0 text-text-faint">{label}</span>
-      <span className="text-right text-text-muted" title={title}>
+      <span className="min-w-0 break-words text-right text-text-muted" title={title}>
         {value}
       </span>
     </div>
