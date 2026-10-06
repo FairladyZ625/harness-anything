@@ -316,6 +316,9 @@ test(
     offline = true;
     assert.equal((await cli(["task", "show", taskId])).outcome, "op_rejected");
     offline = false;
+    const settledCut = f.host.replica(repoId);
+    settledCut.activate();
+    await settledCut.waitForCut(f.eventCount());
     await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     writeFileSync(
@@ -323,10 +326,9 @@ test(
       "## Summary\nEdge implementation evidence.\n## Verification\nReal CLI after logout passed.\n## Residual Risk\nFixture only.\n## Same Mechanism Elsewhere\nFleet scopes bind the canonical dispatch.\n",
     );
     const doc = await cli(["doc", "sync", "--submit", "--task", taskId]);
-    assert.equal(doc.code, "LOCAL_UNAVAILABLE", JSON.stringify(doc));
+    assert.equal(doc.outcome, "applied", JSON.stringify(doc));
     const unchanged = await cli(["doc", "sync", "--submit", "--task", taskId]);
-    assert.equal(unchanged.code, "LOCAL_UNAVAILABLE", JSON.stringify(unchanged));
-    return;
+    assert.equal(unchanged.outcome, "no_changes", JSON.stringify(unchanged));
     const submitted = await cli(["task", "submit", taskId]);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     signInAt(path.join(f.root, "user"), "person-owner");
