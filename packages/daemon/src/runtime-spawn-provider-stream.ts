@@ -143,6 +143,8 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
     usageValue = frame.usage ?? nestedMessage?.usage;
   if (providerRecord(usageValue)) observeRuntimeUsage(active, usageValue);
   const type = String(frame.type ?? frame.event ?? "").toLowerCase();
+  if (type === "result" && providerRecord(frame.projection))
+    active.rawUsage = { ...active.rawUsage, projection: frame.projection };
   if (type.includes("compaction") || type.includes("context_truncated") || frame.compacted === true)
     active.compacted = true;
   if (type === "assistant" && frame.message && typeof frame.message === "object" && !Array.isArray(frame.message)) {
@@ -182,6 +184,8 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
   if (type === "turn.completed" && providerRecord(frame.payload)) {
     const turnToolCalls = numberValue(frame.payload.toolCallCount);
     if (turnToolCalls !== null) active.toolCallCount += turnToolCalls;
+    if (providerRecord(frame.payload.cacheStats))
+      active.rawUsage = { ...active.rawUsage, cacheStats: frame.payload.cacheStats };
   }
   // ACP tool calls announce once per toolCallId; later tool_call_update rows are status churn.
   if (type === "acp.update" && providerRecord(frame.update) && frame.update.sessionUpdate === "tool_call") {
@@ -197,10 +201,36 @@ function observeRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknow
   active.rawUsage = { ...active.rawUsage, ...usage };
   // ACP frames carry usage under neutral names (input/output/total/used); token-named
   // fields also survive dispatch-stream persistence, so both shapes feed the counters.
-  const input = numberValue(usage.input_tokens) ?? numberValue(usage.inputTokens) ?? numberValue(usage.input),
-    cacheRead = numberValue(usage.cached_input_tokens) ?? numberValue(usage.cache_read_input_tokens),
-    cacheCreation = numberValue(usage.cache_creation_input_tokens),
-    output = numberValue(usage.output_tokens) ?? numberValue(usage.outputTokens) ?? numberValue(usage.output),
+  const promptDetails = providerRecord(usage.prompt_tokens_details) ? usage.prompt_tokens_details : null,
+    inputDetails = providerRecord(usage.input_tokens_details) ? usage.input_tokens_details : null,
+    metadata = providerRecord(usage.usageMetadata) ? usage.usageMetadata : null,
+    input =
+      numberValue(usage.input_tokens) ??
+      numberValue(usage.inputTokens) ??
+      numberValue(usage.input) ??
+      numberValue(usage.prompt_tokens) ??
+      numberValue(usage.promptTokens),
+    cacheRead =
+      numberValue(usage.cached_input_tokens) ??
+      numberValue(usage.cache_read_input_tokens) ??
+      numberValue(usage.cacheReadTokens) ??
+      numberValue(usage.cachedTokens) ??
+      numberValue(promptDetails?.cached_tokens) ??
+      numberValue(inputDetails?.cached_tokens) ??
+      numberValue(usage.prompt_cache_hit_tokens) ??
+      numberValue(usage.cachedContentTokenCount) ??
+      numberValue(metadata?.cachedContentTokenCount),
+    cacheCreation =
+      numberValue(usage.cache_creation_input_tokens) ??
+      numberValue(usage.cacheWriteTokens) ??
+      numberValue(promptDetails?.cache_write_tokens) ??
+      numberValue(inputDetails?.cache_write_tokens),
+    output =
+      numberValue(usage.output_tokens) ??
+      numberValue(usage.outputTokens) ??
+      numberValue(usage.output) ??
+      numberValue(usage.completion_tokens) ??
+      numberValue(usage.completionTokens),
     total =
       numberValue(usage.total_tokens) ??
       numberValue(usage.totalTokens) ??
@@ -208,8 +238,9 @@ function observeRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknow
       numberValue(usage.used);
   if (input !== null || cacheRead !== null || cacheCreation !== null || output !== null || total !== null)
     active.usageReported = true;
-  active.inputTokens +=
-    (input ?? 0) + (numberValue(usage.cache_read_input_tokens) !== null ? (cacheRead ?? 0) + (cacheCreation ?? 0) : 0);
+  const isInclusive = ["codex", "codex-acp", "zcode", "gemini", "devin", "cursor", "opencode"].includes(active.kindId);
+  if (input !== null || cacheRead !== null || cacheCreation !== null)
+    active.inputTokens += (input ?? 0) + (isInclusive ? 0 : (cacheRead ?? 0) + (cacheCreation ?? 0));
   active.cacheReadTokens += cacheRead ?? 0;
   active.outputTokens += output ?? 0;
 }
@@ -241,7 +272,11 @@ function observeCodexSessionMetrics(active: ActiveRuntime): void {
     if (!providerRecord(record) || !providerRecord(record.payload)) continue;
     const { payload } = record;
     if (payload.type !== "token_count" || !providerRecord(payload.info)) continue;
-    const usage = providerRecord(payload.info.last_token_usage) ? payload.info.last_token_usage : null;
+    const usage = providerRecord(payload.info.total_token_usage)
+      ? payload.info.total_token_usage
+      : providerRecord(payload.info.last_token_usage)
+        ? payload.info.last_token_usage
+        : null;
     if (!usage) continue;
     const input = numberValue(usage.input_tokens),
       cached = numberValue(usage.cached_input_tokens),

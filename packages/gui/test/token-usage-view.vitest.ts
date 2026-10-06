@@ -645,6 +645,8 @@ describe("token usage display model", () => {
     expect(parts).toEqual({ cacheRead: 700, freshInput: 300, output: 50 });
     expect(parts.cacheRead + parts.freshInput + parts.output).toBe(1_050);
     expect(cacheHitRate({ inputTokens: 1_000, cacheReadTokens: 700 })).toBe(0.7);
+    expect(cacheHitRate({ inputTokens: 1_000, cacheReadTokens: -10 })).toBe(0);
+    expect(cacheHitRate({ inputTokens: 1_000, cacheReadTokens: 1_100 })).toBe(1);
     expect(cacheHitRate({ inputTokens: 0, cacheReadTokens: 0 })).toBeNull();
   });
 

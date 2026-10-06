@@ -113,7 +113,7 @@ export function tokenComposition(counters: {
   readonly cacheReadTokens: number;
   readonly outputTokens: number;
 }): Readonly<Record<TokenKind, number>> {
-  const cacheRead = Math.min(counters.cacheReadTokens, counters.inputTokens);
+  const cacheRead = Math.max(0, Math.min(counters.cacheReadTokens, counters.inputTokens));
   return { cacheRead, freshInput: counters.inputTokens - cacheRead, output: counters.outputTokens };
 }
 /** 缓存命中率:缓存读取占输入的比例;没有输入时没有这个数。 */
@@ -122,7 +122,7 @@ export function cacheHitRate(counters: {
   readonly cacheReadTokens: number;
 }): number | null {
   return counters.inputTokens > 0
-    ? Math.min(counters.cacheReadTokens, counters.inputTokens) / counters.inputTokens
+    ? Math.max(0, Math.min(counters.cacheReadTokens, counters.inputTokens)) / counters.inputTokens
     : null;
 }
 
