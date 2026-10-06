@@ -257,12 +257,13 @@ function writeReadPendingReceipt(action: Readonly<Record<string, unknown>>, minC
 
 async function waitForMinimumCut(input: EdgeTaskReadInput): Promise<boolean> {
   const target = input.minCut!;
+  // A denied view ends the wait: the denial, not a pending write, is the read's answer.
   const reached = (): boolean => {
     const view = locateFleetMirrorView(input.viewRoot, input.repoId);
     return Boolean(
       view &&
-        !isReadDenied(view.viewDir) &&
-        (view.revision > target.revision ||
+        (isReadDenied(view.viewDir) ||
+          view.revision > target.revision ||
           (view.revision === target.revision && view.headDigest === target.headDigest)),
     );
   };
