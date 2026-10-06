@@ -509,6 +509,19 @@ describe("Task detail expression", () => {
     expect(webview.classList.contains("html-artifact-webview")).toBe(true);
   });
 
+  it("opens directly at the focused artifact document without touching the file tree", async () => {
+    // 总览产物速览架的落点(task_15b1bb96):行点击带包内相对路径进来,详情停在文件
+    // 页签并直接选中该 HTML——不用再在左侧列表里点一次。阴性对照:同 fixture 不带
+    // initialDocFocus 时仍从概况(task_plan.md)开始,见 task-detail-review-tab。
+    installBridge();
+    await mount({ initialDocFocus: "artifacts/reports/night.html" });
+    await flushEffects();
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe("task-tab-files");
+    const webview = byTestId("html-artifact-webview");
+    expect(webview.getAttribute("data-artifact-path")).toBe("artifacts/reports/night.html");
+    expect(webview.getAttribute("src")).toMatch(/^data:text\/html;charset=utf-8,/u);
+  });
+
   it("docks the document regions by handle drag, undoes and resets through the tree controls", async () => {
     installBridge();
     await mount({ connectionId: "local" });

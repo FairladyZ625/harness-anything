@@ -209,9 +209,9 @@ describe("总览:左列在飞任务流与最新产物速览架(task_8a83698)", (
     const unmapped = region.querySelector<HTMLButtonElement>('[data-testid="overview-artifact-open-task_unmapped"]');
     expect(unmapped).not.toBeNull();
     expect(unmapped!.disabled).toBe(true);
-    // 行点击直达归属任务。
+    // 行点击直达归属任务,并携带该产物的包内相对路径(任务详情据此直接选中该 HTML)。
     act(() => (region.querySelector("[data-shelf-artifact]")!.querySelector("button") as HTMLButtonElement).click());
-    expect(onOpenTask).toHaveBeenCalledWith("task_art_owner");
+    expect(onOpenTask).toHaveBeenCalledWith("task_art_owner", "artifacts/reports/report-0.html");
     unmount();
     restore();
   });

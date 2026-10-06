@@ -464,6 +464,8 @@ export async function mount(
     readonly strict?: boolean;
     /** 布局偏好归属的连接(App 传 system status 仓行);缺省 null = 仅会话内布局。 */
     readonly connectionId?: string | null;
+    /** 打开时选中的任务包文档(总览产物速览架的落点);缺省不聚焦。 */
+    readonly initialDocFocus?: string;
   } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -486,6 +488,7 @@ export async function mount(
       onNavigateEntity: () => undefined,
       onOpenTerminal,
       connectionId: overrides.connectionId,
+      initialDocFocus: overrides.initialDocFocus,
       onComplete: overrides.onComplete,
       onAdjudicate: overrides.onAdjudicate,
       onConsentReview: overrides.onConsentReview,

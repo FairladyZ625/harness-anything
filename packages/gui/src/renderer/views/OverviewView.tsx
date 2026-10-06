@@ -93,8 +93,9 @@ export function OverviewView({
   /** 非纯本地仓的协作摘要(task_1bafbf09);null/undefined = 纯本地,不显示入口。 */
   readonly collaboration?: { readonly total: number; readonly executing: number } | null;
   readonly onNavigateEntity: (ref: string) => void;
-  /** 工作行与任务行的落点:App 按「根任务即工作」分流到工作页或任务详情。 */
-  readonly onOpenTask: (taskId: string) => void;
+  /** 工作行与任务行的落点:App 按「根任务即工作」分流到工作页或任务详情;产物速览架
+   *  行点击额外带该产物的包内相对路径,任务详情直接选中该文档,其余入口不传。 */
+  readonly onOpenTask: (taskId: string, docPath?: string | null) => void;
   /** 顶栏全局搜索的落点:⌘K 命令面板。 */
   readonly onOpenSearch: () => void;
   readonly onOpenSessions: () => void;
