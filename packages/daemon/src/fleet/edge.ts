@@ -902,6 +902,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
       });
       for (;;) {
         const inbound = await session.next();
+        if (inbound.schema === "fleet.replica.head-hint/v1") continue;
         if (inbound.schema === "fleet.replica.current/v1") {
           const current = view.current(inbound.repoId, inbound.viewId);
           if (

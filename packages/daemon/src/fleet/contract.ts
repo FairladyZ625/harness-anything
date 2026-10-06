@@ -201,6 +201,7 @@ export type FleetFrameV1 =
     >
   | Msg<"fleet.runtime.read.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
   | Msg<"fleet.replica.pull/v1", { repoId: string }>
+  | Msg<"fleet.replica.head-hint/v1", { repoId: string; headRevision: number; headDigest: string }>
   | Msg<
       "fleet.replica.current/v1",
       { inReplyTo: string; repoId: string; viewId: string; cut: FleetCut; manifestDigest: string }
@@ -808,6 +809,7 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.runtime.read.result/v1": shape({ ...reply, result: record }),
   "fleet.replica.pull/v1": shape({ ...common, repoId: id }),
   "fleet.replica.current/v1": shape({ ...reply, repoId: id, viewId: id, cut, manifestDigest: sha64 }),
+  "fleet.replica.head-hint/v1": shape({ ...common, repoId: id, headRevision: uint, headDigest: sha64 }),
   "fleet.snapshot.begin/v1": shape({ ...common, transferId: id, repoId: id, viewId: id, cut, manifest }),
   "fleet.snapshot.page/v1": shape({ ...common, transferId: id, pageIndex: uint, entries: array(entry) }),
   "fleet.snapshot.chunk/v1": shape({ ...common, transferId: id, blobSha256: sha64, offset: uint, dataBase64: base64 }),

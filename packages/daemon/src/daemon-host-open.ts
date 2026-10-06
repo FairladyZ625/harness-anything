@@ -5,6 +5,7 @@ import {
 } from "./runtime-execution-credential.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import {
   consumeKnownError,
   validateScheduleV1,
@@ -94,6 +95,7 @@ import {
 import { AccessAdminService, accessAdminOperations } from "./access-admin-service.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
+import { FleetReplicaSessionPool, runFleetReplicaSync } from "./fleet/edge.ts";
 
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -132,7 +134,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       daemonId: input.daemonId,
       endpoint: input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId),
     },
-    remoteProxy = openRemoteProxyManager(input.userRoot);
+    remoteProxy = openRemoteProxyManager(input.userRoot),
+    replicaSessionPool = new FleetReplicaSessionPool(),
+    replicaSyncControllers = new Map<string, AbortController>();
   const unavailable = new Map<string, RepoCellStatus>(),
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
     controls = new Map<string, DaemonControlReceipt>(),
@@ -740,9 +744,45 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       }).then(() => managedRbac.run(request));
     },
     close: async () => {
+      for (const controller of replicaSyncControllers.values()) controller.abort();
+      replicaSyncControllers.clear();
+      replicaSessionPool.close();
       await managedRbac.stop();
       await lifecycle.close();
     },
+  };
+  const startReplicaSyncs = (): void => {
+    for (const repo of repos) {
+      if (repo.mode !== "remote-edge" || replicaSyncControllers.has(repo.repoId)) continue;
+      const config = readFleetEdgeConfig(repo.canonicalRoot);
+      if (!config || config.repoId !== repo.repoId) continue;
+      const controller = new AbortController();
+      replicaSyncControllers.set(repo.repoId, controller);
+      const viewRoot = path.isAbsolute(config.viewRoot)
+        ? config.viewRoot
+        : path.resolve(repo.canonicalRoot, config.viewRoot);
+      const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(repo.canonicalRoot, config.caPath);
+      void runFleetReplicaSync({
+        hostname: config.host,
+        port: config.port,
+        ca: readFileSync(caPath),
+        ...(config.servername ? { servername: config.servername } : {}),
+        nodeId: config.nodeId,
+        credential: config.credential,
+        repoId: config.repoId,
+        viewRoot,
+        diskQuotaBytes: config.quotaBytes,
+        sessionPool: replicaSessionPool,
+        signal: controller.signal,
+      }).catch((error: unknown) => {
+        if (!controller.signal.aborted)
+          input.recordLifecycle?.({
+            event: "repo_attach_failed",
+            repoId: repo.repoId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+      });
+    }
   };
   return host;
   async function closeCell(repoId: string): Promise<void> {
@@ -794,7 +834,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     return waitForWarmingImpl(extracted, repoId);
   }
   function startInitialAttachments(): Promise<void> {
-    return startInitialAttachmentsImpl(extracted).then(() => scheduleScheduler.start());
+    return startInitialAttachmentsImpl(extracted).then(() => {
+      startReplicaSyncs();
+      return scheduleScheduler.start();
+    });
   }
   async function attachInitial(): Promise<void> {
     return attachInitialImpl(extracted);
