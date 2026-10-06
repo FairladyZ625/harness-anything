@@ -85,6 +85,16 @@ export interface CompiledTaskBootstrap extends CompiledTaskPackage {
 }
 
 const LIVING_EXPLAINER_TEMPLATE = (title: string) => `<!DOCTYPE html>
+<!--
+AUTHORING GUIDE (comments are instructions; replace Pending content, keep the five section ids):
+Global rules: one self-contained HTML file; inline all CSS and SVG; no network assets or JavaScript; keep all content visible without JS. Use a light palette (#faf7f0 page, #f7f3ea panels, #3d3833 text), near-full-width layout (max-width:none; 16–32px page gutters), and make each chapter's SVG its visual centerpiece. SVGs use width:100%; diagrams should carry the facts, with prose only clarifying them. Distinguish observed results from inference and state unverified items.
+1. #conclusion: lead with one plain sentence that says result and verification state; follow with a compact status badge row. Add an SVG status summary, not decorative art.
+2. #objectives: one table row per task subgoal with action, status, and source anchor. Add an SVG completion overview. Coding: show changed modules; research: show answered questions; writing: show delivered sections; operations: show affected nodes.
+3. #structure: make the main explanatory diagram. Coding = module-change map with existing context green (#4a7c59), changed parts orange (#b0713c), interfaces blue (#4a6b8a). Research = evidence chain with source and confidence. Writing = section map with completion state. Operations = node/status map. These four scenarios change only this chapter's diagram, never the five-chapter structure.
+4. #evidence: table the before-fix failure, after-fix success, exact command/output excerpt, and unverified checks. Add a comparison chart or timeline when evidence has sequence or measurable change. Never claim a check that was not run.
+5. #next-steps: name residual risks and the next owner/action; draw dependencies in order with an SVG. If none remain, say so and show the completed path.
+Quality floor: replace every placeholder with real task evidence; use meaningful labels and values in every SVG; diagrams must explain the change rather than say Input/Process/Output. Keep the chapter ids stable and edit this page incrementally each work round.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -94,7 +104,7 @@ const LIVING_EXPLAINER_TEMPLATE = (title: string) => `<!DOCTYPE html>
 </style>
 </head>
 <body><main>
-<header id="conclusion"><h1>${title}</h1><p><strong>结论：</strong>Pending. 在每轮结束时更新这一句。</p><p class="badges"><span class="badge">状态：待更新</span><span class="badge">证据：待补</span></p></header>
+<header id="conclusion"><h1>${title}</h1><p><strong>结论：</strong>Pending. 在每轮结束时更新这一句。</p><p class="badges"><span class="badge">状态：待更新</span><span class="badge">证据：待补</span></p><svg viewBox="0 0 1200 140" role="img" aria-label="Conclusion status placeholder"><rect class="placeholder" x="24" y="24" width="1152" height="92" rx="8"/><text class="placeholder-text" x="600" y="80" text-anchor="middle">用状态图说明本任务结论</text></svg></header>
 <section id="objectives"><h2>任务对照表</h2><div class="table-wrap"><table><thead><tr><th>子目标</th><th>做了什么</th><th>状态</th><th>锚点</th></tr></thead><tbody><tr><td>Pending</td><td>Pending</td><td>待更新</td><td>task / commit</td></tr></tbody></table></div><svg viewBox="0 0 1200 160" role="img" aria-label="Task objectives placeholder"><rect class="placeholder" x="24" y="30" width="1152" height="100" rx="8"/><text class="placeholder-text" x="600" y="90" text-anchor="middle">在这里补充目标状态概览</text></svg></section>
 <section id="structure"><h2>结构图</h2><p class="muted">按任务类型替换为模块变更地图、证据链、章节地图或节点状态图。</p><svg viewBox="0 0 1600 300" role="img" aria-label="Structure diagram placeholder"><rect class="placeholder" x="40" y="80" width="320" height="140" rx="8"/><rect class="placeholder" x="640" y="80" width="320" height="140" rx="8"/><rect class="placeholder" x="1240" y="80" width="320" height="140" rx="8"/><path d="M360 150h280M960 150h280" stroke="#4a6b8a" stroke-width="4"/><text class="placeholder-text" x="200" y="155" text-anchor="middle">起点</text><text class="placeholder-text" x="800" y="155" text-anchor="middle">核心</text><text class="placeholder-text" x="1400" y="155" text-anchor="middle">结果</text></svg></section>
 <section id="evidence"><h2>验证与证据</h2><div class="columns"><div class="table-wrap"><table><thead><tr><th>阶段</th><th>命令与输出摘录</th><th>状态</th></tr></thead><tbody><tr><td>修前红</td><td>Pending</td><td>待更新</td></tr><tr><td>修后绿</td><td>Pending</td><td>待更新</td></tr><tr><td>未验清单</td><td>Pending</td><td>待更新</td></tr></tbody></table></div><svg viewBox="0 0 700 240" role="img" aria-label="Evidence comparison placeholder"><path d="M80 180h540M100 180V70M100 125h460" stroke="#a05252" stroke-width="18"/><path d="M100 110h460M560 110v70" stroke="#4a7c59" stroke-width="18"/><text class="placeholder-text" x="350" y="55" text-anchor="middle">修前红 / 修后绿</text></svg></div></section>
