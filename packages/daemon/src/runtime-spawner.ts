@@ -172,6 +172,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     preparedWorktree: TaskWorktreeCheckout | null = null,
     handoff?: RuntimeHandoffCheckpoint,
     handoffRollout?: Uint8Array,
+    onDispatched?: (dispatchId: string, runtimeSessionId: string) => void,
   ): Promise<JsonObject> => {
     const dryRun = payload.dryRun === true;
     const { requestedDispatchId, resumed, inherited, handoffEnabled } = resolveRuntimeResume(input, payload, handoff);
@@ -341,7 +342,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : explicitPromptMission(taskId, causalContext, explicitMission, missionProfileId);
     const remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
       existing = input.remote ? null : store!.readEvent(dispatchOpId);
-    if (!dryRun && remoteExisting)
+    if (!dryRun && remoteExisting) {
+      onDispatched?.(newDispatchId, runtimeSessionId);
       return {
         ...remoteExisting,
         ...(handoff ? { replayed: true } : {}),
@@ -349,12 +351,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchId: newDispatchId,
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
+    }
     if (!dryRun && existing) {
       if (!isRuntimeEvent(existing) || existing.type !== "runtime_dispatch_requested")
         throw runtimeSpawnError(
           "runtime_dispatch_conflict",
           `Dispatch opId ${dispatchOpId} belongs to another canonical event.`,
         );
+      onDispatched?.(newDispatchId, runtimeSessionId);
       return {
         ...applied(existing, store!.publication(existing), runtimeSessionId, newDispatchId),
         ...(handoff ? { replayed: true } : {}),
@@ -800,6 +804,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           executionId: taskBinding?.executionId ?? null,
         },
       );
+      onDispatched?.(newDispatchId, runtimeSessionId);
     } catch (error) {
       await cleanupFailedLaunch(error);
       throw error;
@@ -1041,8 +1046,28 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     scheduleFallbackContinuation({
       input,
       closed: () => fallbackClosed,
-      launch: (payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner) =>
-        spawnAttempt(payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner),
+      launch: async (
+        payload,
+        binding,
+        fallback,
+        schedule,
+        handoffFromRuntimeSessionId,
+        publicationOwner,
+        onDispatched,
+      ) => {
+        await spawnAttempt(
+          payload,
+          binding,
+          fallback,
+          schedule,
+          handoffFromRuntimeSessionId,
+          publicationOwner,
+          null,
+          undefined,
+          undefined,
+          onDispatched,
+        );
+      },
       stream,
     });
   }

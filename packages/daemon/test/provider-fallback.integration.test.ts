@@ -116,7 +116,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         false,
         JSON.stringify(rows),
       );
-      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
+      return rows.length === 2 && rows[0]?.fallbackState === "dispatched" && rows[1]?.status === "unknown"
+        ? rows
+        : null;
     });
     assertAttemptChain(completed, ["provider-rate-first", "provider-success-second"]);
     assert.deepEqual(
@@ -311,7 +313,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     cell = await open();
     const restarted = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_restart" })).dispatches;
-      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
+      return rows.length === 2 && rows[0]?.fallbackState === "dispatched" && rows[1]?.status === "unknown"
+        ? rows
+        : null;
     });
     assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
 
@@ -328,7 +332,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const bare = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_bare" })).dispatches;
-      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
+      return rows.length === 2 && rows[0]?.fallbackState === "dispatched" && rows[1]?.status === "unknown"
+        ? rows
+        : null;
     });
     assertAttemptChain(bare, ["provider-bare-first", "provider-bare-second"]);
     assert.equal(models.get("provider-bare-first"), "bare-model");
@@ -353,7 +359,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const stderrBounded = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_stderr" })).dispatches;
-      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
+      return rows.length === 2 && rows[0]?.fallbackState === "dispatched" && rows[1]?.status === "unknown"
+        ? rows
+        : null;
     });
     assertAttemptChain(stderrBounded, ["provider-stderr-first", "provider-stderr-second"]);
     assert.equal(stderrBounded[0]?.classification, "provider_fault");
