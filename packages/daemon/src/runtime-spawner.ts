@@ -388,7 +388,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
             })())
           : null),
-      _agentLifecycle = agent ? assertAgentDispatchable(agent) : null,
       resolvedSkills = (agent ? resolveAgentSkills({ rootDir: input.rootDir, skills: agent.skills }) : []).map(
         (skill) => ({ ...skill, skillFile: workerLedgerPath(input.rootDir, cwd, skill.skillFile) }),
       ),
@@ -485,6 +484,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
           : dispatchMission,
       prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt;
+    if (agent) assertAgentDispatchable(agent);
     // Dry-run preview ends exactly at the launch boundary: the same inputs, same
     // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
     if (dryRun)

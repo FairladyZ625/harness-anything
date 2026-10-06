@@ -351,7 +351,7 @@ export {
   type EntityContentRetirement,
   type EntityOwnedContentV1,
 } from "./entity-owned-content.ts";
-export type { EntityContentBlob, EntityEventV1 } from "./entity-event.ts";
+export type { AgentRetiredEventV1, AgentRetiredPayload, EntityContentBlob, EntityEventV1 } from "./entity-event.ts";
 export {
   artifactEntityContractSnapshot,
   artifactImportOperationId,

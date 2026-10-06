@@ -97,6 +97,14 @@ export interface EntityDeletedPayload {
   readonly ownedContent: EntityOwnedContentV1;
 }
 
+export interface AgentRetiredPayload {
+  readonly entityId: string;
+  readonly priorVersion: number;
+  readonly retiredAt: string;
+  readonly reason: string;
+  readonly successor?: string;
+}
+
 export type EntityUpsertEventV1 = EventEnvelope<
   "entity-event/v1",
   "entity_upserted",
@@ -133,6 +141,7 @@ export type EntityDeletedEventV1 = EventEnvelope<
   ActorIdentity,
   EntityDeletedPayload
 >;
+export type AgentRetiredEventV1 = EventEnvelope<"entity-event/v1", "agent_retired", ActorIdentity, AgentRetiredPayload>;
 export type EntityEventV1 =
   | EntityUpsertEventV1
   | EntityContentObservedEventV1
@@ -236,6 +245,34 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
   if (value.type === "entity_target_missing")
     return validateMissingPayload(value.payload, hasFields, String(value.opId), allowUnknownFields);
   return validateUpsertPayload(value.schema, value.payload, hasFields, allowUnknownFields);
+}
+
+export function validateAgentRetiredPayload(
+  payload: unknown,
+  hasFields: (value: Readonly<Record<string, unknown>>, fields: readonly string[]) => boolean,
+  allowUnknownFields: boolean,
+): readonly string[] {
+  if (!isRecord(payload) || !hasFields(payload, ["entityId", "priorVersion", "retiredAt", "reason"]))
+    return ["agent retired payload is invalid"];
+  const priorVersion = payload.priorVersion;
+  if (
+    typeof payload.entityId !== "string" ||
+    !payload.entityId.length ||
+    !Number.isSafeInteger(priorVersion) ||
+    Number(priorVersion) < 1 ||
+    typeof payload.retiredAt !== "string" ||
+    !payload.retiredAt.length ||
+    typeof payload.reason !== "string" ||
+    !payload.reason.trim() ||
+    (payload.successor !== undefined && typeof payload.successor !== "string")
+  )
+    return ["agent retired payload is invalid"];
+  if (
+    !allowUnknownFields &&
+    Object.keys(payload).some((key) => !["entityId", "priorVersion", "retiredAt", "reason", "successor"].includes(key))
+  )
+    return ["agent retired payload is invalid"];
+  return [];
 }
 
 export function isEntityEvent(event: { readonly schema: string; readonly type: string }): event is StoredEntityEventV1 {

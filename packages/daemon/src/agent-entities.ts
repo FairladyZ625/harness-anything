@@ -547,7 +547,10 @@ export function prepareAgentEntityInstall(input: {
 }
 
 /** The center claim gate. Missing lifecycle data is the legacy active state. */
-export function assertAgentDispatchable(agent: AgentDeclarationV1): NonNullable<AgentDeclarationV1["lifecycleState"]> {
+type AgentState = "configured" | "active" | "retired";
+type ProjectedAgentLifecycle = AgentDeclarationV1 & { readonly lifecycleState?: AgentState };
+
+export function assertAgentDispatchable(agent: ProjectedAgentLifecycle): AgentState {
   const state = agent.lifecycleState ?? "active";
   if (state === "active") return state;
   throw Object.assign(new Error(`Agent ${agent.id} is ${state} and cannot accept a new dispatch claim.`), {
