@@ -34,16 +34,15 @@ test(
       answerEdgeTaskList({ viewRoot, repoId: "lease-repo", action, ...budgets }, pull, now);
     const center = async (action: Record<string, unknown> = { kind: "task-list" }) =>
       (await f.host.run("lease-repo", action as never, localAuthFixture())) as unknown as Record<string, unknown>;
-    // The center's projection publishes the read model with the cut it describes; wait until the
-    // pulled cut carries all three tasks.
+    // The center publishes the read model with the cut it describes: wait for the cut at the ledger
+    // head, then one pull carries every task.
     const settle = async (count: number) => {
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        await pull();
-        const answer = await local();
-        if (answer.ok === true && (answer.rows as unknown[]).length === count) return answer;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      assert.fail(`edge read model never reached ${count} rows`);
+      await f.host.replica("lease-repo").waitForCut(f.eventCount());
+      await pull();
+      const answer = await local();
+      assert.equal(answer.ok, true, JSON.stringify(answer));
+      assert.equal((answer.rows as unknown[]).length, count, JSON.stringify(answer.rows));
+      return answer;
     };
 
     // 1. Local answers are the center's answers, for the default page and for filters and paging.
