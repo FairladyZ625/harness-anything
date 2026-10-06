@@ -219,7 +219,7 @@ export function taskQueryGuidance(taskId: string): string {
 
 /**
  * The standing Living Deliverable contract a non-lightweight task-bound dispatch carries: the task's
- * explainer page is the owner's live window into a running task — he does not read the worker
+ * explainer page is the owner's live window into a running task — they do not read the worker
  * session and the task plan is a static cut from kickoff. The worker writes a first version right
  * after reading in, rewrites `#now` and appends to `#timeline` on every material change, and
  * freezes the page at closeout. Fixed text the daemon injects on every qualifying task mission
@@ -232,8 +232,8 @@ export function livingDeliverableProtocol(profileId: string | null | undefined):
   if (profileId === "lightweight") return null;
   return [
     "# Living Deliverable Protocol",
-    "- `artifacts/explainer.html` 是业主在任务进行中看的实时说明页：他不读你的 session，task_plan 只是开工时的计划，" +
-      "这页是他了解进展的唯一窗口。",
+    "- `artifacts/explainer.html` 是业主在任务进行中看的实时说明页：业主不读你的 session，task_plan 只是开工时的计划，" +
+      "这页是业主了解进展的唯一窗口。",
     "- 开工读完材料后先写第一版；之后每有实质进展、发现、方向变化或红转绿，就更新 `#now` 并在 `#timeline` 追加一条。" +
       "不要攒到收尾一次写。",
     "- 多用图说明（结构、流程、时序、前后对比、数据），写法见该文件顶部注释；章节除 `#now`/`#timeline` 外自由组织。",

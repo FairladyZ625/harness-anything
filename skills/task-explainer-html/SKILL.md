@@ -5,7 +5,7 @@ description: 产出与增量维护任务包中的活解释页 artifacts/explaine
 
 # 任务活解释页（task-explainer-html）
 
-每个非 lightweight 在账任务有一页**活的可视解释**：任务包 `artifacts/explainer.html`。它不是终局报告，而是任务**进行中**随工作轮次更新的单文件 HTML——业主不读 worker session，task_plan 只是开工时的静态计划，这页是他在任务进行中了解进展的窗口；closeout 终态冻结。Daemon 的派工协议讲明这页给谁看、什么时候更新。
+每个非 lightweight 在账任务有一页**活的可视解释**：任务包 `artifacts/explainer.html`。它不是终局报告，而是任务**进行中**随工作轮次更新的单文件 HTML——业主不读 worker session，task_plan 只是开工时的静态计划，这页是业主在任务进行中了解进展的窗口；closeout 终态冻结。Daemon 的派工协议讲明这页给谁看、什么时候更新。
 
 任务创建时物化的 `artifacts/explainer.html` 顶部 HTML 注释是章节、配色、布局、场景图型和质量要求的**唯一权威来源**。派工与本技能都不复制这些规则；打开页面后按注释逐轮填入真实任务内容。
 
