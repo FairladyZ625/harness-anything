@@ -11,55 +11,68 @@ export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, hea
   const consoleFailures = [];
   const args = [path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts"), `--user-data-dir=${profile}`];
   if (headless) args.push("--no-sandbox", "--headless", "--disable-gpu", "--disable-dev-shm-usage");
-  const app = await electron.launch({
-    executablePath: electronPath,
-    args,
-    cwd: workspaceRoot,
-    env: { ...env, ELECTRON_DISABLE_SANDBOX: "1", HARNESS_GUI_ROOT: rootDir },
-  });
-  const page = await app.firstWindow();
-  page.setDefaultTimeout(20_000);
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleFailures.push(message.text());
-  });
-  page.on("pageerror", (error) => consoleFailures.push(error.message));
-  await page.waitForLoadState("domcontentloaded");
-  const assertBackground = async () => {
-    if (!headless) return;
-    const windows = await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows().map((window) => ({ visible: window.isVisible(), focused: window.isFocused() })),
-    );
-    writeFileSync(path.join(runRoot, "window-state.json"), `${JSON.stringify(windows)}\n`);
-    assert.ok(windows.length > 0 && windows.every((window) => !window.visible && !window.focused));
-  };
-  await assertBackground();
-  return {
-    app,
-    page,
-    consoleFailures,
-    assertBackground,
-    async nav(label) {
-      await page.getByRole("button", { name: label, exact: true }).click();
-    },
-    async shot(name) {
-      const target = path.join(runRoot, `${name}.png`);
-      await page.screenshot({ path: target, fullPage: true });
-      return target;
-    },
-    assertConsoleClean(from = 0) {
-      const failures = consoleFailures.slice(from);
-      if (failures.length) throw new Error(`renderer console errors:\n${failures.join("\n")}`);
-    },
-    async close() {
-      const child = app.process();
-      if (child.exitCode === null && child.signalCode === null) {
-        const exited = once(child, "exit");
-        child.kill("SIGKILL");
-        await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
-      }
-      rmSync(profile, { recursive: true, force: true });
-    },
-  };
+  let app;
+  try {
+    app = await electron.launch({
+      executablePath: electronPath,
+      args,
+      cwd: workspaceRoot,
+      env: { ...env, ELECTRON_DISABLE_SANDBOX: "1", HARNESS_GUI_ROOT: rootDir },
+    });
+    const page = await app.firstWindow();
+    page.setDefaultTimeout(20_000);
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleFailures.push(message.text());
+    });
+    page.on("pageerror", (error) => consoleFailures.push(error.message));
+    await page.waitForLoadState("domcontentloaded");
+    const assertBackground = async () => {
+      if (!headless) return;
+      const windows = await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().map((window) => ({ visible: window.isVisible(), focused: window.isFocused() })),
+      );
+      writeFileSync(path.join(runRoot, "window-state.json"), `${JSON.stringify(windows)}\n`);
+      assert.ok(windows.length > 0 && windows.every((window) => !window.visible && !window.focused));
+    };
+    await assertBackground();
+    return {
+      app,
+      page,
+      consoleFailures,
+      assertBackground,
+      async nav(label) {
+        await page.getByRole("button", { name: label, exact: true }).click();
+      },
+      async shot(name) {
+        const target = path.join(runRoot, `${name}.png`);
+        await page.screenshot({ path: target, fullPage: true });
+        return target;
+      },
+      assertConsoleClean(from = 0) {
+        const failures = consoleFailures.slice(from);
+        if (failures.length) throw new Error(`renderer console errors:\n${failures.join("\n")}`);
+      },
+      async close() {
+        await stopElectronApp(app);
+        rmSync(profile, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    // The profile is owned by this run: a launch that never returned a driver must
+    // still not leave it behind (and must not leave a window-less Electron process).
+    if (app) await stopElectronApp(app);
+    rmSync(profile, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function stopElectronApp(app) {
+  const child = app.process();
+  if (child.exitCode === null && child.signalCode === null) {
+    const exited = once(child, "exit");
+    child.kill("SIGKILL");
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
+  }
 }
 
 export async function runScenario(driver, scenario, { shots }) {
