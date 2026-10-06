@@ -9,7 +9,7 @@
 // --click / --scroll-to 归属于它前面最近的一个 --page:先按出现顺序点击,再按出现顺序滚动,
 // 然后等读面就绪再截图。找不到项目(精确匹配,不退回第一个)或导航文字即失败退出。
 import { spawn, execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -181,16 +181,19 @@ async function main(argv) {
   mkdirSync(outDir, { recursive: true });
   const port = 5300 + (process.pid % 200);
   const vite = await startViteRenderer(port);
+  // 窗口状态证据与 profile 一样是本次运行自有的临时物,收尾时一并移除,不在产物目录留垃圾。
+  const runRoot = mkdtempSync(path.join(tmpdir(), "gui-capture-"));
   let driver;
   try {
     driver = await startGuiDriver({
       workspaceRoot,
       rootDir: workspaceRoot,
       env: { ...process.env, ELECTRON_RENDERER_URL: `http://127.0.0.1:${port}` },
-      runRoot: mkdtempSync(path.join(tmpdir(), "gui-capture-")),
+      runRoot,
       headless: !options.show,
     });
   } catch (error) {
+    rmSync(runRoot, { recursive: true, force: true });
     vite.kill();
     throw error;
   }
@@ -225,6 +228,7 @@ async function main(argv) {
   } finally {
     await driver.close?.().catch(() => {});
     await app.close().catch(() => {});
+    rmSync(runRoot, { recursive: true, force: true });
     vite.kill();
   }
 }
