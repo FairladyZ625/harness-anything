@@ -12,6 +12,7 @@ import { presetDocumentBody } from "@harness-anything/preset/internal/preset-res
 import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/internal/preset-system";
 import { agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
+import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
   openDispatchStream,
@@ -387,6 +388,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
             })())
           : null),
+      _agentLifecycle = agent ? assertAgentDispatchable(agent) : null,
       resolvedSkills = (agent ? resolveAgentSkills({ rootDir: input.rootDir, skills: agent.skills }) : []).map(
         (skill) => ({ ...skill, skillFile: workerLedgerPath(input.rootDir, cwd, skill.skillFile) }),
       ),

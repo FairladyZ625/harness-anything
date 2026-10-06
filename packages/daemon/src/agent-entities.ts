@@ -501,6 +501,13 @@ export function prepareAgentEntityInstall(input: {
     );
   const declaration = decoded.declaration,
     current = repairableStoredDeclaration(input.entityStore ?? openEntityStore(input.rootDir), kind, declaration.id);
+  if (kind === "agent" && current.value?.lifecycleState === "retired")
+    throw agentInstallError(
+      "agent",
+      "agent_retired",
+      `Agent ${declaration.id} is retired and cannot be reinstalled.`,
+      "agent/lifecycle",
+    );
   if (
     input.action.expectedVersion !== undefined &&
     (!Number.isSafeInteger(input.action.expectedVersion) || Number(input.action.expectedVersion) < 0)
@@ -537,6 +544,15 @@ export function prepareAgentEntityInstall(input: {
       issues: [],
     },
   };
+}
+
+/** The center claim gate. Missing lifecycle data is the legacy active state. */
+export function assertAgentDispatchable(agent: AgentDeclarationV1): NonNullable<AgentDeclarationV1["lifecycleState"]> {
+  const state = agent.lifecycleState ?? "active";
+  if (state === "active") return state;
+  throw Object.assign(new Error(`Agent ${agent.id} is ${state} and cannot accept a new dispatch claim.`), {
+    code: state === "retired" ? "agent_retired" : "agent_not_active",
+  });
 }
 
 export function prepareAgentEntityDelete(input: {

@@ -32,6 +32,7 @@ import {
   settleScheduleOccurrenceWorkspace,
   type ScheduleOccurrenceWorkspace,
 } from "./schedule-occurrence-workspace.ts";
+import { assertAgentDispatchable } from "./agent-entities.ts";
 
 type ScheduleSpawnReceipt = {
   readonly outcome: string;
@@ -160,8 +161,13 @@ function trustedScheduleAgent(cell: RepoCellRuntimeContext, agentId: string) {
       `Schedule Agent ${agentId} is unavailable at the claimed center cut.`,
     );
   try {
-    return parseAgentDeclarationV1(row.value);
-  } catch {
+    const agent = parseAgentDeclarationV1(row.value);
+    assertAgentDispatchable(agent);
+    return agent;
+  } catch (error) {
+    const code = (error as { readonly code?: unknown }).code;
+    if (code === "agent_retired" || code === "agent_not_active")
+      throw cell.cellCodedError(String(code), `Schedule Agent ${agentId} cannot accept a new dispatch claim.`);
     throw cell.cellCodedError(
       "schedule_agent_unavailable",
       `Schedule Agent ${agentId} projection evidence is invalid.`,

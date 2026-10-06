@@ -35,6 +35,11 @@ export interface AgentDeclarationV1 {
   readonly prompts?: readonly string[];
   readonly preset?: string;
   readonly fallback?: AgentFallbackDeclarationV1;
+  /** Lifecycle is center-owned; authored declarations may carry the projected value for reads. */
+  readonly lifecycleState?: AgentState;
+  readonly retiredAt?: string;
+  readonly retireReason?: string;
+  readonly supersededBy?: string;
 }
 export interface SquadDeclarationV1 {
   readonly id: string;
@@ -147,6 +152,14 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
         },
       },
     },
+    lifecycleState: {
+      type: "string",
+      enum: [...agentStates],
+      description: "Center-projected Agent lifecycle state.",
+    },
+    retiredAt: nonEmptyString("Retirement timestamp."),
+    retireReason: nonEmptyString("Retirement reason."),
+    supersededBy: slug("Optional successor Agent identity."),
   }),
 }) as EntityDocumentJsonSchema<AgentDeclarationV1>;
 
