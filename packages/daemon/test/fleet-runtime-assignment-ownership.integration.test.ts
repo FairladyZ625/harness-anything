@@ -232,7 +232,7 @@ for (const distinctNode of [false, true])
             executionCredential: credentials.get(subject!.taskId)!,
             opId: `own-${subject!.taskId}`,
             taskId: subject!.taskId,
-            action: { kind: "task-show", taskId: subject!.taskId },
+            action: { kind: "task-progress-append", taskId: subject!.taskId, text: "credential scope probe" },
             waitMs: 0,
           });
           assert.equal(own.outcome, "applied");
@@ -245,7 +245,7 @@ for (const distinctNode of [false, true])
             executionCredential: credentials.get(foreign!.taskId)!,
             opId: `cross-${subject!.taskId}`,
             taskId: subject!.taskId,
-            action: { kind: "task-show", taskId: subject!.taskId },
+            action: { kind: "task-progress-append", taskId: subject!.taskId, text: "foreign credential probe" },
             waitMs: 0,
           });
           assert.equal(crossed.code, "execution_credential_rejected");
