@@ -8,7 +8,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { CommandPalette, type PaletteEntry } from "../src/renderer/components/CommandPalette.tsx";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
-import { IdentityInspector, ProviderInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
+import { AgentCard } from "../src/renderer/components/runtime/AgentCard.tsx";
+import { ProviderInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
 import { SessionInspector } from "../src/renderer/components/sessions/SessionInspector.tsx";
 import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
 import type { DecisionJudgmentConsent, DecisionRow, EventEntry, TaskRow } from "../src/renderer/model/types.ts";
@@ -18,6 +19,7 @@ import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 import {
   AGENT_ID,
   DECISION_ID,
+  FIXTURE_AGENT_DETAIL,
   FIXTURE_AGENT_ROW,
   FIXTURE_DECISIONS,
   FIXTURE_DOCK_ROW,
@@ -188,18 +190,22 @@ describe("W6 Goal 第三项:只显示前 N 条必须显形", () => {
     expect(markup).not.toContain("remaining");
   });
 
-  it("agent/squad inspector 的相关会话段完整渲染全部会话", () => {
+  it("agent 详情的最近会话段完整渲染全部会话(原 inspector 段并入详情)", () => {
     const markup = renderToStaticMarkup(
-      createElement(IdentityInspector, {
-        selection: { type: "agent", id: AGENT_ID },
-        agents: [FIXTURE_AGENT_ROW],
+      createElement(AgentCard, {
+        detail: FIXTURE_AGENT_DETAIL,
+        row: FIXTURE_AGENT_ROW,
         squads: [FIXTURE_SQUAD_ROW],
-        rows: dockRows(12),
-        onSelect: noop,
+        instances: [],
+        busy: false,
+        onSave: noop,
+        onDispatch: noop,
+        onSelectRuntime: noop,
+        sessions: dockRows(12),
         onOpenSession: noop,
       }),
     );
-    expect(markup.match(/session-\d+/gu)).toHaveLength(12);
+    expect(markup.match(/data-testid="agent-session-/gu)).toHaveLength(12);
     expect(markup).not.toContain('data-testid="runtime-inspector-related-more"');
     expect(markup).not.toContain("remaining");
   });

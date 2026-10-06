@@ -26,8 +26,6 @@ import { IdentityRail } from "../components/runtime/RuntimeRail.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
-import { Button } from "../components/primitives/Button.tsx";
-import { IdentityInspector } from "../components/runtime/RuntimeInspector.tsx";
 import { SquadCard, squadDeclarationFrom, squadDraftFrom } from "../components/runtime/SquadCard.tsx";
 import { SquadCockpit } from "../components/runtime/SquadCockpit.tsx";
 import {
@@ -58,6 +56,11 @@ type Dialog =
 // 目录版式(标准 §2.5):页头结论行直说 N 个声明无效并给修复入口;进入页面默认选中
 // 第一个异常项(无异常则第一项);右侧详情按 2.2 文档型——先一行结论(可用否及原因、
 // 被哪些设置/任务引用、最近一次派工结果),再是声明字段。
+//
+// 信息密度(业主 2026-10-06):目录 rail 用紧凑定宽档(catalogRailCompactClass),筛选
+// 收一行(搜索 + 筛选下拉),列表行单行;原右侧 IdentityInspector 不再独立成栏——它
+// 与详情重复的字段(role/runtimes/layer、被引用 Squad、成员)只留详情一处,唯一独有
+// 的相关会话段并入 AgentCard(宽屏两栏的右栏),Squad 会话本就在 SquadCockpit。
 export function AgentSquadView({
   repoId,
   tasks,
@@ -89,7 +92,6 @@ export function AgentSquadView({
       staleTime: 10_000,
     });
   const [dialog, setDialog] = useState<Dialog | null>(null),
-    [inspector, setInspector] = useState(true),
     // 查看者本地过滤状态:内存即可,不写台账(任务契约 §6)。deferred 保输入不卡。
     [filters, setFilters] = useState<AgentSquadFilters>(DEFAULT_AGENT_SQUAD_FILTERS);
   const deferredQuery = useDeferredValue(filters.query),
@@ -272,16 +274,6 @@ export function AgentSquadView({
             </span>
           )
         }
-        actions={
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setInspector(!inspector)}
-            tip={t("agentRuntime.toggleInspector")}
-          >
-            ▐
-          </Button>
-        }
       />
       {readError !== undefined && (
         <Notice tone="bad" variant="strip" testId="runtime-read-error">
@@ -389,6 +381,8 @@ export function AgentSquadView({
                   actionError={workspace.error}
                   conclusionRefs={settingsRoleRefs(settings.data?.values, selectedAgent.id)}
                   lastDispatch={dockRows[0] ?? null}
+                  sessions={dockRows.filter((row) => row.agentId === current.id)}
+                  onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
                   onSave={(declaration) => void workspace.saveAgent(declaration)}
                   onDispatch={(mission) => void openAgentDispatch(current.id, mission)}
                   onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
@@ -445,16 +439,6 @@ export function AgentSquadView({
             />
           ) : null}
         </main>
-        {inspector && current !== null && (
-          <IdentityInspector
-            selection={current}
-            agents={agents}
-            squads={squads}
-            rows={dockRows}
-            onSelect={(selection) => onSelectEntity(runtimeSelectionRef(selection))}
-            onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
-          />
-        )}
       </CatalogSplit>
       {dialog?.kind === "new-entity" && (
         <NewEntityDialog

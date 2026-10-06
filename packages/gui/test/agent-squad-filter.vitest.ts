@@ -203,7 +203,7 @@ describe("agent squad filter bar and rail", () => {
     expect(latest.query).toBe("ast");
   });
 
-  it("filters roles with counted chips at the top instead of a per-row role label", async () => {
+  it("collects counted role chips inside the filter dropdown instead of per-row role labels", async () => {
     let latest = DEFAULT_AGENT_SQUAD_FILTERS;
     await mount(
       createElement(AgentSquadFilterBar, {
@@ -215,6 +215,13 @@ describe("agent squad filter bar and rail", () => {
         },
       }),
     );
+    // 筛选收一行(业主 2026-10-06 密度反馈):分面控件在「筛选」弹层里,弹层关着时不可见。
+    const toggle = byTestId("agent-squad-filter-toggle") as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector('[data-testid="agent-squad-filter-role"]')).toBeNull();
+    await act(async () => {
+      toggle.click();
+    });
     const chips = [...byTestId("agent-squad-filter-role").querySelectorAll("button")];
     // 全部 3(降级行不计)、commander 1、worker 2;选中「全部」。
     expect(chips.map((chip) => chip.textContent)).toEqual(["All3", "commander1", "worker2"]);
@@ -223,6 +230,17 @@ describe("agent squad filter bar and rail", () => {
       chips[2]!.click();
     });
     expect(latest.roles).toEqual(["worker"]);
+    // 已选分面在按钮上留计数徽标(受控组件:用更新后的 filters 重挂断言;旧实例仍
+    // 挂在 DOM 里,按新容器定位)。
+    const remount = await mount(
+      createElement(AgentSquadFilterBar, {
+        agents,
+        squads,
+        filters: latest,
+        onChange: () => undefined,
+      }),
+    );
+    expect(remount.querySelector('[data-testid="agent-squad-filter-toggle"]')?.textContent).toMatch(/1/u);
   });
 
   it("clears the query via the clear button", async () => {
@@ -241,6 +259,9 @@ describe("agent squad filter bar and rail", () => {
       byTestId("agent-squad-search-clear").click();
     });
     expect(latest.query).toBe("");
+    await act(async () => {
+      byTestId("agent-squad-filter-toggle").click();
+    });
     await act(async () => {
       byTestId("agent-squad-filter-in-squad").click();
     });

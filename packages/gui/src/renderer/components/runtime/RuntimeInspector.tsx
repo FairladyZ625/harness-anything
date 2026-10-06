@@ -1,25 +1,24 @@
 import { type ReactNode } from "react";
-import { agentRuntimeTargetSummary, type AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
+import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
-import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { formatTime } from "../../model/time.ts";
-import { sessionStatusDot, type SessionStatus } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import {
   runtimeAuthPresentation,
   runtimeAuthPresentationText,
   type RuntimeAuthProbeState,
 } from "../../runtime-auth-presentation.ts";
-import { Avatar, CapDot, KindDot, LiveDot } from "./parts.tsx";
+import { CapDot, KindDot, LiveDot } from "./parts.tsx";
 import { KV, KVRow } from "../primitives/Fields.tsx";
 import { Empty } from "../primitives/Empty.tsx";
-import type { RuntimeDockRow, RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 // W6 IA 拆分:原四类通吃的 RuntimeInspector 拆成三个页级 inspector——右栏仍是
 // "同一个选中,从会话侧看过去:这东西最近在干什么",但跨页跳转(session/<id>、
 // agent/<id>)改走可寻址路由;同页的互跳(agent↔squad、sibling session)保持页内选择。
 // Provider 页的相关会话行取 overview 的 session DTO(liveness 投影),不为此读
 // dispatch 台账——agent/task 归属在会话详情里,点行直达。
+// IdentityInspector 已随 Agent·Squad 页密度改造撤销(业主 2026-10-06):右栏与详情
+// 重复,相关会话段并入 AgentCard;此处只剩 ProviderInspector。
 
 type OpenSession = (runtimeSessionId: string) => void;
 
@@ -67,58 +66,6 @@ export function ProviderInspector({
   );
 }
 
-export function IdentityInspector({
-  selection,
-  agents,
-  squads,
-  rows,
-  onSelect,
-  onOpenSession,
-}: {
-  readonly selection: RuntimeSelection;
-  readonly agents: readonly AgentEntityAvailableRow[];
-  readonly squads: readonly SquadEntityAvailableRow[];
-  readonly rows: readonly RuntimeDockRow[];
-  readonly onSelect: (selection: RuntimeSelection) => void;
-  readonly onOpenSession: OpenSession;
-}) {
-  const related = rows.filter((row) =>
-    selection.type === "agent" ? row.agentId === selection.id : row.squadId === selection.id,
-  );
-  return (
-    <aside
-      data-testid="runtime-inspector"
-      aria-label={t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}
-      className="@max-[719px]:hidden basis-1/4 shrink-0 overflow-y-auto border-l border-border bg-surface"
-    >
-      <h2
-        className="sticky top-0 border-b border-border bg-surface px-3 py-2 ui-micro font-bold uppercase
-        tracking-[0.09em] text-text-faint"
-      >
-        {t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}
-      </h2>
-      {selection.type === "agent" ? (
-        <AgentFacts
-          agent={agents.find((agent) => agent.id === selection.id) ?? null}
-          squads={squads}
-          onSelect={onSelect}
-        />
-      ) : (
-        <SquadFacts squad={squads.find((squad) => squad.id === selection.id) ?? null} onSelect={onSelect} />
-      )}
-      <Section title={t("agentRuntime.inspectorSessions", { count: related.length })}>
-        {related.length === 0 ? (
-          <Empty>{t("agentRuntime.noSessions")}</Empty>
-        ) : (
-          related.map((row) => (
-            <DispatchSessionRow key={row.runtimeSessionId} row={row} onOpenSession={onOpenSession} />
-          ))
-        )}
-      </Section>
-    </aside>
-  );
-}
-
 function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) {
   return (
     <section className="border-b border-border px-3 py-2 last:border-b-0">
@@ -150,35 +97,6 @@ function LiveSessionRow({
       </span>
       <span className="shrink-0 font-mono ui-micro text-text-faint">
         {formatTime(session.activity.lastObservedAt, { style: "time" }) ?? session.activity.lastObservedAt}
-      </span>
-    </button>
-  );
-}
-function DispatchSessionRow({
-  row,
-  onOpenSession,
-}: {
-  readonly row: RuntimeDockRow;
-  readonly onOpenSession: OpenSession;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onOpenSession(row.runtimeSessionId)}
-      className={[
-        "flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised",
-        SESSION_ROW_CV,
-      ].join(" ")}
-    >
-      <LiveDot state={sessionStatusDot[row.status as SessionStatus] ?? "idle"} tip={row.status} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate ui-micro">{row.agentName ?? row.instanceId}</span>
-        <span className="block truncate font-mono ui-micro text-text-faint">
-          {row.taskTitle ?? row.runtimeSessionId}
-        </span>
-      </span>
-      <span className="shrink-0 font-mono ui-micro text-text-faint">
-        {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
       </span>
     </button>
   );
@@ -218,95 +136,6 @@ function RuntimeFacts({
         <KVRow name="isolation">{instance.isolationState}</KVRow>
         <KVRow name="permission">{instance.permissionMode ?? t("agentRuntime.providerDefault")}</KVRow>
       </KV>
-    </Section>
-  );
-}
-function AgentFacts({
-  agent,
-  squads,
-  onSelect,
-}: {
-  readonly agent: AgentEntityAvailableRow | null;
-  readonly squads: readonly SquadEntityAvailableRow[];
-  readonly onSelect: (selection: RuntimeSelection) => void;
-}) {
-  if (!agent)
-    return (
-      <Section title={t("agentRuntime.inspectorDefinition")}>
-        <Empty>{t("agentRuntime.notFound")}</Empty>
-      </Section>
-    );
-  const referencing = squads.filter((squad) => squad.leader === agent.id || squad.workers.includes(agent.id));
-  return (
-    <>
-      <Section title={t("agentRuntime.inspectorDefinition")}>
-        <KV>
-          <KVRow name="role">{agent.role}</KVRow>
-          <KVRow name="runtimes">{agentRuntimeTargetSummary(agent.runtimes)}</KVRow>
-          <KVRow name="layer">{agent.layer}</KVRow>
-        </KV>
-      </Section>
-      <Section title={t("agentRuntime.inspectorReferencedBy", { count: referencing.length })}>
-        {referencing.length === 0 ? (
-          <Empty>{t("agentRuntime.notReferenced")}</Empty>
-        ) : (
-          referencing.map((squad) => (
-            <button
-              key={squad.id}
-              type="button"
-              onClick={() => onSelect({ type: "squad", id: squad.id })}
-              className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
-            >
-              <KindDot kind="any" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate ui-micro">{squad.name}</span>
-                <span className="block font-mono ui-micro text-text-faint">
-                  {squad.leader === agent.id ? t("agentRuntime.roleCommander") : t("agentRuntime.roleWorker")}
-                </span>
-              </span>
-            </button>
-          ))
-        )}
-      </Section>
-    </>
-  );
-}
-function SquadFacts({
-  squad,
-  onSelect,
-}: {
-  readonly squad: SquadEntityAvailableRow | null;
-  readonly onSelect: (selection: RuntimeSelection) => void;
-}) {
-  if (!squad)
-    return (
-      <Section title={t("agentRuntime.inspectorMembers")}>
-        <Empty>{t("agentRuntime.notFound")}</Empty>
-      </Section>
-    );
-  return (
-    <Section title={t("agentRuntime.inspectorMembers")}>
-      <button
-        type="button"
-        onClick={() => onSelect({ type: "agent", id: squad.leader })}
-        className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
-      >
-        <Avatar id={squad.leader} />
-        <span className="min-w-0 flex-1 truncate ui-micro">{squad.leader}</span>
-        <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.roleCommander")}</span>
-      </button>
-      {squad.workers.map((worker) => (
-        <button
-          key={worker}
-          type="button"
-          onClick={() => onSelect({ type: "agent", id: worker })}
-          className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
-        >
-          <Avatar id={worker} />
-          <span className="min-w-0 flex-1 truncate ui-micro">{worker}</span>
-          <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.roleWorker")}</span>
-        </button>
-      ))}
     </Section>
   );
 }

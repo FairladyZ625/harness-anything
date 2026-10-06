@@ -14,6 +14,7 @@ import type {
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { RUNTIME_KIND_IDS } from "../../runtime-provider-planes.ts";
+import { sessionStatusDot, type SessionStatus } from "../../sessions-model.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
 import { ActionError } from "./ActionError.tsx";
@@ -24,6 +25,7 @@ import { Chip } from "../primitives/Chip.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
+import type { RuntimeDockRow } from "./useRuntimeWorkspace.ts";
 
 export type AgentDraft = {
   readonly name: string;
@@ -104,6 +106,12 @@ type Props = {
     readonly taskTitle: string | null;
     readonly startedAt: string;
   } | null;
+  /**
+   * 最近会话(原右侧 IdentityInspector 的相关会话段并入详情,业主 2026-10-06 密度
+   * 反馈:右栏与详情重复的字段只留详情一处);不传就不渲染该段。
+   */
+  readonly sessions?: readonly RuntimeDockRow[];
+  readonly onOpenSession?: (runtimeSessionId: string) => void;
 };
 export function AgentCard({
   detail,
@@ -121,6 +129,8 @@ export function AgentCard({
   actionError = null,
   conclusionRefs = [],
   lastDispatch = null,
+  sessions,
+  onOpenSession,
 }: Props) {
   const [draft, setDraft] = useState<AgentDraft>(() => agentDraftFrom(detail)),
     [runtimeListOpen, setRuntimeListOpen] = useState(false),
@@ -299,135 +309,168 @@ export function AgentCard({
           </div>
         </div>
 
-        <Sect
-          title={t("agentRuntime.instructions")}
-          desc={t("agentRuntime.instructionsDesc")}
-          right={<span className="font-mono">{t("agentRuntime.charCount", { count: draft.instructions.length })}</span>}
-        >
-          <p className="mb-1.5 ui-micro text-text-faint">{t("agentRuntime.instructionsHint")}</p>
-          <textarea
-            aria-label={t("agentRuntime.instructions")}
-            data-testid="agent-instructions"
-            value={draft.instructions}
-            onChange={(event) => patch({ instructions: event.target.value })}
-            className="rt-instr"
-          />
-        </Sect>
-
-        <Sect title={t("agentRuntime.skills")} desc={t("agentRuntime.skillsDesc")}>
-          <ChipZone>
-            {draft.skills.length ? (
-              draft.skills.map((skill) => {
-                // 查看与删除解耦(task_5dfe382f):点药丸正文打开详情浮层,只有 × 热区删除。
-                const matching = availableSkills.find(
-                  (available) => available.path === skill.path || available.id === skill.id,
-                );
-                return (
-                  <Chip
-                    key={skill.path}
-                    tone="mono"
-                    tip={skill.path}
-                    onClick={() => setViewingSkill({ id: skill.id, path: skill.path, source: matching?.source })}
-                    onRemove={() => patch({ skills: draft.skills.filter((selected) => selected.path !== skill.path) })}
-                    removeLabel={t("agentRuntime.skillModal.removeSkill")}
-                  >
-                    {skill.id}
-                  </Chip>
-                );
-              })
-            ) : (
-              <Empty>{t("agentRuntime.noSkills")}</Empty>
-            )}
-          </ChipZone>
-          <div className="mt-2 grid gap-1.5">
-            <TextInput
-              label={t("agentRuntime.skillSearch")}
-              testId="agent-skill-search"
-              mono
-              value={skillSearch}
-              onChange={setSkillSearch}
-              placeholder={t("agentRuntime.skillSearchPlaceholder")}
-            />
-            {skillSearch.trim() && (
-              <div className="bounded-content overflow-y-auto rounded border border-border bg-surface p-1">
-                {filteredSkills.length ? (
-                  filteredSkills.map((skill) => (
-                    <div
-                      key={skill.path}
-                      className="flex w-full items-center gap-1 rounded px-2 py-1 hover:bg-surface-raised"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          patch({ skills: [...draft.skills, { id: skill.id, path: skill.path }] });
-                          setSkillSearch("");
-                        }}
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      >
-                        <b className="font-mono ui-micro">{skill.id}</b>
-                        <StatusTag tone="neutral" mono label={skill.source} />
-                        <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{skill.path}</span>
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={t("agentRuntime.skillModal.inspectSkill")}
-                        data-tip={t("agentRuntime.skillModal.inspectSkill")}
-                        data-testid="agent-skill-inspect"
-                        onClick={() => setViewingSkill({ id: skill.id, path: skill.path, source: skill.source })}
-                        className="grid size-6 shrink-0 place-items-center rounded text-text-faint hover:text-accent"
-                      >
-                        <Eye weight="bold" />
-                      </button>
+        {/* 详情宽屏两栏(业主 2026-10-06 密度反馈,标准 §1.9-⑤ 容器查询):Instructions
+            占左主栏,Skills/Preset/最近会话靠右;首屏同时看到正文与配置面,不用滚动。
+            分栏只看本容器宽度(<960px 单列),不写死视口断点。 */}
+        <div className="@container">
+          <div
+            className="grid grid-cols-1 @min-[960px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]
+              @min-[960px]:gap-x-6"
+          >
+            <div>
+              <Sect
+                title={t("agentRuntime.instructions")}
+                desc={t("agentRuntime.instructionsDesc")}
+                right={
+                  <span className="font-mono">{t("agentRuntime.charCount", { count: draft.instructions.length })}</span>
+                }
+              >
+                <p className="mb-1.5 ui-micro text-text-faint">{t("agentRuntime.instructionsHint")}</p>
+                <textarea
+                  aria-label={t("agentRuntime.instructions")}
+                  data-testid="agent-instructions"
+                  value={draft.instructions}
+                  onChange={(event) => patch({ instructions: event.target.value })}
+                  className="rt-instr"
+                />
+              </Sect>
+            </div>
+            <div>
+              <Sect title={t("agentRuntime.skills")} desc={t("agentRuntime.skillsDesc")}>
+                <ChipZone>
+                  {draft.skills.length ? (
+                    draft.skills.map((skill) => {
+                      // 查看与删除解耦(task_5dfe382f):点药丸正文打开详情浮层,只有 × 热区删除。
+                      const matching = availableSkills.find(
+                        (available) => available.path === skill.path || available.id === skill.id,
+                      );
+                      return (
+                        <Chip
+                          key={skill.path}
+                          tone="mono"
+                          tip={skill.path}
+                          onClick={() => setViewingSkill({ id: skill.id, path: skill.path, source: matching?.source })}
+                          onRemove={() =>
+                            patch({ skills: draft.skills.filter((selected) => selected.path !== skill.path) })
+                          }
+                          removeLabel={t("agentRuntime.skillModal.removeSkill")}
+                        >
+                          {skill.id}
+                        </Chip>
+                      );
+                    })
+                  ) : (
+                    <Empty>{t("agentRuntime.noSkills")}</Empty>
+                  )}
+                </ChipZone>
+                <div className="mt-2 grid gap-1.5">
+                  <TextInput
+                    label={t("agentRuntime.skillSearch")}
+                    testId="agent-skill-search"
+                    mono
+                    value={skillSearch}
+                    onChange={setSkillSearch}
+                    placeholder={t("agentRuntime.skillSearchPlaceholder")}
+                  />
+                  {skillSearch.trim() && (
+                    <div className="bounded-content overflow-y-auto rounded border border-border bg-surface p-1">
+                      {filteredSkills.length ? (
+                        filteredSkills.map((skill) => (
+                          <div
+                            key={skill.path}
+                            className="flex w-full items-center gap-1 rounded px-2 py-1 hover:bg-surface-raised"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                patch({ skills: [...draft.skills, { id: skill.id, path: skill.path }] });
+                                setSkillSearch("");
+                              }}
+                              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                            >
+                              <b className="font-mono ui-micro">{skill.id}</b>
+                              <StatusTag tone="neutral" mono label={skill.source} />
+                              <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{skill.path}</span>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={t("agentRuntime.skillModal.inspectSkill")}
+                              data-tip={t("agentRuntime.skillModal.inspectSkill")}
+                              data-testid="agent-skill-inspect"
+                              onClick={() => setViewingSkill({ id: skill.id, path: skill.path, source: skill.source })}
+                              className="grid size-6 shrink-0 place-items-center rounded text-text-faint hover:text-accent"
+                            >
+                              <Eye weight="bold" />
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <Empty>{t("agentRuntime.noSkillMatches")}</Empty>
+                      )}
                     </div>
-                  ))
-                ) : (
-                  <Empty>{t("agentRuntime.noSkillMatches")}</Empty>
-                )}
-              </div>
-            )}
-          </div>
-        </Sect>
+                  )}
+                </div>
+              </Sect>
 
-        <Sect title={t("agentRuntime.preset")} desc={t("agentRuntime.presetDesc")}>
-          <div className="flex flex-wrap items-center gap-2">
-            {draft.preset && (
-              <Chip tone="mono" onClick={() => patch({ preset: "" })}>
-                {draft.preset} ×
-              </Chip>
-            )}
-            <TextInput
-              label={t("agentRuntime.presetSearch")}
-              testId="agent-preset"
-              mono
-              value={presetSearch}
-              onChange={setPresetSearch}
-              placeholder={t("agentRuntime.presetSearchPlaceholder")}
-            />
-            <Hint>{t("agentRuntime.presetHint")}</Hint>
-          </div>
-          {presetSearch.trim() && (
-            <div className="mt-1.5 bounded-content overflow-y-auto rounded border border-border bg-surface p-1">
-              {filteredPresets.length ? (
-                filteredPresets.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => {
-                      patch({ preset: preset.id });
-                      setPresetSearch("");
-                    }}
-                    className="block w-full rounded px-2 py-1 text-left hover:bg-surface-raised"
-                  >
-                    <b className="ui-micro">{preset.title}</b>
-                    <span className="ml-2 font-mono ui-micro text-text-faint">{preset.id}</span>
-                  </button>
-                ))
-              ) : (
-                <Empty>{t("agentRuntime.noPresetMatches")}</Empty>
+              <Sect title={t("agentRuntime.preset")} desc={t("agentRuntime.presetDesc")}>
+                <div className="flex flex-wrap items-center gap-2">
+                  {draft.preset && (
+                    <Chip tone="mono" onClick={() => patch({ preset: "" })}>
+                      {draft.preset} ×
+                    </Chip>
+                  )}
+                  <TextInput
+                    label={t("agentRuntime.presetSearch")}
+                    testId="agent-preset"
+                    mono
+                    value={presetSearch}
+                    onChange={setPresetSearch}
+                    placeholder={t("agentRuntime.presetSearchPlaceholder")}
+                  />
+                  <Hint>{t("agentRuntime.presetHint")}</Hint>
+                </div>
+                {presetSearch.trim() && (
+                  <div className="mt-1.5 bounded-content overflow-y-auto rounded border border-border bg-surface p-1">
+                    {filteredPresets.length ? (
+                      filteredPresets.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            patch({ preset: preset.id });
+                            setPresetSearch("");
+                          }}
+                          className="block w-full rounded px-2 py-1 text-left hover:bg-surface-raised"
+                        >
+                          <b className="ui-micro">{preset.title}</b>
+                          <span className="ml-2 font-mono ui-micro text-text-faint">{preset.id}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <Empty>{t("agentRuntime.noPresetMatches")}</Empty>
+                    )}
+                  </div>
+                )}
+              </Sect>
+
+              {sessions !== undefined && (
+                <Sect title={t("agentRuntime.recentSessions", { count: sessions.length })}>
+                  {sessions.length === 0 ? (
+                    <Empty>{t("agentRuntime.noSessions")}</Empty>
+                  ) : (
+                    sessions.map((row) => (
+                      <DispatchSessionRow
+                        key={row.runtimeSessionId}
+                        row={row}
+                        onOpenSession={onOpenSession ?? (() => undefined)}
+                      />
+                    ))
+                  )}
+                </Sect>
               )}
             </div>
-          )}
-        </Sect>
+          </div>
+        </div>
 
         <Sect
           title={t("agentRuntime.prompts")}
@@ -630,6 +673,43 @@ const swap = <T,>(items: readonly T[], from: number, to: number): readonly T[] =
   next.splice(to, 0, moved as T);
   return next;
 };
+
+/** 最近会话段的按需渲染类:离屏行跳过布局与绘制(原 inspector 的会话行同款)。 */
+const SESSION_ROW_CV = "cv-auto-2r";
+
+/** 相关会话行(自原 IdentityInspector 迁入,业主 2026-10-06:右栏并入详情):状态点、
+ * 谁在跑、任务标题与时间;点行进会话详情。 */
+function DispatchSessionRow({
+  row,
+  onOpenSession,
+}: {
+  readonly row: RuntimeDockRow;
+  readonly onOpenSession: (runtimeSessionId: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={`agent-session-${row.runtimeSessionId}`}
+      onClick={() => onOpenSession(row.runtimeSessionId)}
+      className={[
+        "flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised",
+        SESSION_ROW_CV,
+      ].join(" ")}
+    >
+      <LiveDot state={sessionStatusDot[row.status as SessionStatus] ?? "idle"} tip={row.status} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate ui-micro">{row.agentName ?? row.instanceId}</span>
+        <span className="block truncate font-mono ui-micro text-text-faint">
+          {row.taskTitle ?? row.runtimeSessionId}
+        </span>
+      </span>
+      <span className="shrink-0 font-mono ui-micro text-text-faint">
+        {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
+      </span>
+    </button>
+  );
+}
+
 const roleWord = (role: "worker" | "reviewer" | "commander"): string =>
   t(
     role === "commander"
