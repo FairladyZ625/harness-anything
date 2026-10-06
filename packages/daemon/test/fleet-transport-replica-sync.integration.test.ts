@@ -15,6 +15,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
+import { readHeadConfirmation } from "../src/fleet/replica-read-model.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import {
   readFleetRepositoryMetadataClient,
@@ -149,7 +150,7 @@ test("background replica sync follows a new center cut without a read request", 
       viewRoot: edgeRoot,
       diskQuotaBytes: replicaQuota,
       signal: controller.signal,
-      onPulled: sync.pulled,
+      onConfirmed: sync.pulled,
       onFailure: sync.failed,
       schedule: () => assert.fail("no failure is expected, so no reconnect is scheduled"),
     });
@@ -194,7 +195,7 @@ test(
         sessionPool,
         signal: controller.signal,
         retryDelaysMs: [5, 15, 60],
-        onPulled: sync.pulled,
+        onConfirmed: sync.pulled,
         onFailure: sync.failed,
         schedule: (run, delayMs) => {
           reconnects.push({ run, delayMs });
@@ -220,6 +221,47 @@ test(
     assert.equal(edgeCutFile(edgeRoot, fixture.subject, next, backgroundPaths[1]!), "# second\n");
   },
 );
+test("an idle center keeps a watching edge confirmed fresh without another pull", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetFixture(t, backgroundPaths);
+  t.after(() => fixture.close());
+  // A short progress interval stands in for the 20s default; the test itself waits only on reported events.
+  const center = await fixture.center(undefined, 300),
+    edgeRoot = path.join(fixture.root, "progress-edge"),
+    peer = {
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+    },
+    head = await centerWrite(peer, fixture.subject.executionId, backgroundPaths[0]!, "# first\n"),
+    sync = syncProbe(),
+    controller = new AbortController();
+  let pulls = 0;
+  const running = runFleetReplicaSync({
+    ...peer,
+    viewRoot: edgeRoot,
+    diskQuotaBytes: replicaQuota,
+    signal: controller.signal,
+    onConfirmed: sync.pulled,
+    onFailure: sync.failed,
+    onFrame: (frame) => {
+      if (frame.schema === "fleet.replica.current/v1") pulls += 1;
+    },
+    schedule: () => assert.fail("no failure is expected, so no reconnect is scheduled"),
+  });
+  await sync.until(() => sync.revisions.length >= 1);
+  const viewDir = path.join(edgeRoot, "repos", fixture.subject.repoId, "views", fixture.subject.viewId),
+    firstConfirmed = readHeadConfirmation(viewDir)!.confirmedAt;
+  await sync.until(() => sync.revisions.length >= 3);
+  controller.abort();
+  await running;
+  assert.deepEqual(sync.revisions, [head, head, head].concat(sync.revisions.slice(3)));
+  assert.equal(pulls, 1, "unchanged heads are confirmed on the watch, not by pulling again");
+  assert.ok(readHeadConfirmation(viewDir)!.confirmedAt > firstConfirmed);
+  assert.deepEqual(sync.failures, []);
+});
 /** Event-driven view of a sync loop: tests wait on what the loop reports, never on a clock. */
 function syncProbe() {
   const revisions: number[] = [],
@@ -537,10 +579,11 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     },
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
     runtimeArchiveReceipts,
-    center: (port?: number) =>
+    center: (port?: number, replicaWatchProgressMs?: number) =>
       owned.hold(
         listenFleetTls({
           ...(port === undefined ? {} : { port }),
+          ...(replicaWatchProgressMs === undefined ? {} : { replicaWatchProgressMs }),
           host: {
             ...host,
             runtimeIngress: async (...args: Parameters<typeof host.runtimeIngress>) => {

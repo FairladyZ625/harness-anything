@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import type { SnapshotCut } from "./replica-cut-store.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
@@ -225,6 +226,30 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     replica.activate();
     return { a, replica };
   };
+  // A watch that sees no new cut still answers on the progress interval with the unchanged head, so a
+  // connected edge can keep confirming freshness without pulling (the same role as etcd's progress notify).
+  const headAfterOrProgress = (
+    replica: ReturnType<typeof options.host.replica>,
+    afterRevision: number,
+    progressMs: number,
+  ) =>
+    new Promise<SnapshotCut>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const current = replica.latest();
+        if (current) resolve(current);
+      }, progressMs);
+      timer.unref();
+      replica.waitForCut(afterRevision + 1).then(
+        (cut) => {
+          clearTimeout(timer);
+          resolve(cut);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
   const untilAborted = <T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> => {
     const stop = signal ? AbortSignal.any([signal, closing.signal]) : closing.signal;
     if (stop.aborted) return Promise.reject(new FleetFault("busy", "The replica session closed.", true));
@@ -469,7 +494,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         next =
           latest && latest.revision > frame.afterRevision
             ? latest
-            : await untilAborted(replica.waitForCut(frame.afterRevision + 1), connectionSignal);
+            : await untilAborted(
+                headAfterOrProgress(replica, frame.afterRevision, options.replicaWatchProgressMs ?? 20_000),
+                connectionSignal,
+              );
       return immediate({
         schema: "fleet.replica.head-hint/v1",
         messageId: mid(frame.messageId, "head-hint"),

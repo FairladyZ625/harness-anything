@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   openPeer,
   runFleetReplicaPullClient,
@@ -5,6 +6,7 @@ import {
   type FleetPeerOptions,
   type FleetReplicaPullClientOptions,
 } from "./edge.ts";
+import { recordHeadConfirmation } from "./replica-read-model.ts";
 
 export interface FleetReplicaSessionPoolOptions {
   readonly idleMs?: number;
@@ -82,8 +84,8 @@ export interface FleetReplicaSyncOptions extends FleetReplicaPullClientOptions {
   readonly schedule?: (callback: () => void, delayMs: number) => void;
   /** Called for every failed pull or watch; the loop reconnects after the backoff. */
   readonly onFailure?: (error: unknown) => void;
-  /** Called with the revision the edge holds after each completed pull. */
-  readonly onPulled?: (revision: number) => void;
+  /** Called whenever the edge confirms the center head: after each pull and on each unchanged-head progress hint. */
+  readonly onConfirmed?: (revision: number) => void;
 }
 
 /**
@@ -103,8 +105,16 @@ export function runFleetReplicaSync(options: FleetReplicaSyncOptions): Promise<v
     const revision =
       pulled.replica.schema === "fleet.replica.current/v1" ? pulled.replica.cut.revision : pulled.replica.ackCut;
     failures = 0;
-    options.onPulled?.(revision);
-    await watchReplica(options, sessionPool, revision);
+    options.onConfirmed?.(revision);
+    const viewDir = path.join(options.viewRoot, "repos", options.repoId, "views", pulled.replica.viewId);
+    // The center answers a watch either with a newer cut or, on its progress interval, with the unchanged
+    // head. An unchanged head is a live confirmation: record it so local reads stay fresh, and keep watching.
+    for (;;) {
+      const head = await watchReplica(options, sessionPool, revision);
+      if (head.revision > revision) return;
+      recordHeadConfirmation(viewDir, head.revision);
+      options.onConfirmed?.(head.revision);
+    }
   };
   return new Promise<void>((resolve) => {
     const stop = () => {
