@@ -342,7 +342,7 @@ function NodeDetails({
     >
       <div data-testid="collaboration-node-details" className="grid gap-4 p-4 lg:grid-cols-2">
         <DetailBlock title={t("collaboration.doingTitle")}>
-          {!Array.isArray(node.leases) ? (
+          {"redacted" in node.leases ? (
             <p
               data-testid="collaboration-node-leases-redacted"
               data-reason={node.leases.redacted}
