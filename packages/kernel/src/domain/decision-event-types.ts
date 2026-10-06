@@ -303,10 +303,12 @@ export interface DecisionDocumentState {
   readonly reviewResponses: readonly DecisionReviewResponseV1[];
   readonly reviewOverrides: readonly DecisionReviewOverrideV1[];
 }
+/** Content-addressed bytes a decision write carries alongside its event: the Decision document's
+ * markdown body and, for recorded reviews, the reviewer's carried report and packet artifacts. */
 export interface DecisionContentBlob {
   readonly sha256: string;
   readonly size: number;
-  readonly mediaType: "text/markdown";
+  readonly mediaType: string;
   readonly body: string;
 }
 export interface CompiledDecisionWrite {

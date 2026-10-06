@@ -60,15 +60,7 @@ export async function publishExit(
       reviewResultMissing = false;
     if (outcome === "unknown" && code === 0 && (await runtimeDeliveryWitness(context, active))) outcome = "succeeded";
     if (outcome === "succeeded" && active.decisionReviewTarget) {
-      const target = active.decisionReviewTarget,
-        reviewRegistered = context
-          .requiredRuntimeProjection(context.input)
-          .readDecision(target.decisionId)
-          .decision?.reviews.some(
-            (review) =>
-              review.reviewId === `review-${active.dispatchId}` && review.reviewContentDigest === target.digest,
-          );
-      if (!reviewRegistered) {
+      if (!decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId)) {
         outcome = "failed";
         reviewResultMissing = true;
       }
@@ -159,44 +151,46 @@ export async function publishExit(
         mediaType: context.resultMediaType,
       },
       resultRef = `artifact:runtime-result/sha256/${sha256}`;
+    const archiveBase = {
+      dispatchId: active.dispatchId,
+      ...(active.agent ? { agentId: active.agent.id, agentName: active.agent.name } : {}),
+      ...(active.squadId ? { squadId: active.squadId } : {}),
+      ...(active.parentRuntimeSessionId ? { parentRuntimeSessionId: active.parentRuntimeSessionId } : {}),
+      ...(active.delegatedBy
+        ? {
+            delegatedByAgentId: active.delegatedBy.id,
+            delegatedByAgentName: active.delegatedBy.name,
+          }
+        : {}),
+      instanceId: active.instanceId,
+      model: active.model,
+      reasoningEffort: active.reasoningEffort,
+      fast: active.fast,
+      cwd: active.cwd,
+      prompt: scrubProviderValue(active.prompt) as string,
+      ...(active.promptSource ? { promptSource: active.promptSource } : {}),
+      ...(active.onExitCommand ? { onExitCommand: active.onExitCommand } : {}),
+      runtimeSessionId: active.runtimeSessionId,
+      providerSessionId: active.providerSessionId,
+      startedAt: active.startedAt,
+      endedAt,
+      outcome,
+      exitCode: cancelled ? null : code,
+      resultRef,
+      resultText: body,
+      eventStreamRef: active.stream.ref,
+      attemptGroupId: attemptOutcome.attemptGroupId,
+      attemptIndex: attemptOutcome.attemptIndex,
+      provider: { instance: attemptOutcome.provider.instance, model: attemptOutcome.provider.model },
+      classification: attemptOutcome.classification,
+      reason: attemptOutcome.reason,
+    };
+    // A Decision review dispatch owns no task execution; its archive binds the reviewed Decision.
     const archive: RuntimeDispatchArchive | null = active.task
-      ? {
-          dispatchId: active.dispatchId,
-          taskId: active.task.taskId,
-          executionId: active.task.executionId,
-          ...(active.agent ? { agentId: active.agent.id, agentName: active.agent.name } : {}),
-          ...(active.squadId ? { squadId: active.squadId } : {}),
-          ...(active.parentRuntimeSessionId ? { parentRuntimeSessionId: active.parentRuntimeSessionId } : {}),
-          ...(active.delegatedBy
-            ? {
-                delegatedByAgentId: active.delegatedBy.id,
-                delegatedByAgentName: active.delegatedBy.name,
-              }
-            : {}),
-          instanceId: active.instanceId,
-          model: active.model,
-          reasoningEffort: active.reasoningEffort,
-          fast: active.fast,
-          cwd: active.cwd,
-          prompt: scrubProviderValue(active.prompt) as string,
-          ...(active.promptSource ? { promptSource: active.promptSource } : {}),
-          ...(active.onExitCommand ? { onExitCommand: active.onExitCommand } : {}),
-          runtimeSessionId: active.runtimeSessionId,
-          providerSessionId: active.providerSessionId,
-          startedAt: active.startedAt,
-          endedAt,
-          outcome,
-          exitCode: cancelled ? null : code,
-          resultRef,
-          resultText: body,
-          eventStreamRef: active.stream.ref,
-          attemptGroupId: attemptOutcome.attemptGroupId,
-          attemptIndex: attemptOutcome.attemptIndex,
-          provider: { instance: attemptOutcome.provider.instance, model: attemptOutcome.provider.model },
-          classification: attemptOutcome.classification,
-          reason: attemptOutcome.reason,
-        }
-      : null;
+      ? { ...archiveBase, taskId: active.task.taskId, executionId: active.task.executionId }
+      : active.decisionReviewTarget
+        ? { ...archiveBase, taskId: null, executionId: null, decisionReview: active.decisionReviewTarget }
+        : null;
     if (archive) {
       try {
         const archived = context.input.remote
@@ -233,11 +227,13 @@ export async function publishExit(
         const reviewRegistered =
           !context.input.remote &&
           active.role === "reviewer" &&
-          active.task !== null &&
-          context
-            .requiredRuntimeProjection(context.input)
-            .read(active.task.taskId)
-            .snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`);
+          (active.task !== null
+            ? context
+                .requiredRuntimeProjection(context.input)
+                .read(active.task.taskId)
+                .snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`)
+            : active.decisionReviewTarget !== null &&
+              decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId));
         if (!reviewRegistered) {
           outcome = cancelled ? "cancelled" : "failed";
           reasonCode = "runtime_archive_failed";
@@ -411,6 +407,23 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
       executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
     },
   };
+}
+
+/** The registration witness for a dispatched Decision review: the Decision carries a review by
+ * this dispatch at the reviewed content digest. */
+function decisionReviewRegistered(
+  context: RuntimeSpawnerContext,
+  target: { readonly decisionId: string; readonly digest: string },
+  dispatchId: string,
+): boolean {
+  return (
+    context
+      .requiredRuntimeProjection(context.input)
+      .readDecision(target.decisionId)
+      .decision?.reviews.some(
+        (review) => review.reviewId === `review-${dispatchId}` && review.reviewContentDigest === target.digest,
+      ) === true
+  );
 }
 
 async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<boolean> {

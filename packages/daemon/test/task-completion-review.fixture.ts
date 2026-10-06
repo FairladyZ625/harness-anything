@@ -506,6 +506,18 @@ export async function fixture(
         await new Promise((resolve) => setTimeout(resolve, 10));
       assert.equal(launches.length >= count, true, `expected at least ${String(count)} reviewer launches`);
     },
+    /** Provider-success driver for a dispatched decision reviewer: the reviewer authored its own
+     * artifacts under the Decision package, so the settlement only needs the provider turn. */
+    settleDecisionReview: async (runtimeSessionId: string, resultText: string) => {
+      const pending = pendingProviders.at(-1)!;
+      pending.output?.(`${JSON.stringify({ type: "thread.started", thread_id: "review-provider-session" })}\n`);
+      pending.output?.(
+        `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: resultText } })}\n`,
+      );
+      pending.output?.(`${JSON.stringify({ type: "turn.completed", usage: {} })}\n`);
+      pending.exit?.(0);
+      return awaitOutcome(runtimeSessionId);
+    },
     settleReview: async (
       dispatchId: string,
       runtimeSessionId: string,
