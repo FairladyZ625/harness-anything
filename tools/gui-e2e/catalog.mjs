@@ -33,6 +33,7 @@ import pageSplitLayout from "./scenarios/page-split-layout.mjs";
 import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
 import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
 import overviewArtifactsShelf from "./scenarios/overview-artifacts-shelf.mjs";
+import taskDetailExplainerDefault from "./scenarios/task-detail-explainer-default.mjs";
 
 export const catalog = [
   runtimeHandoff,
@@ -70,6 +71,7 @@ export const catalog = [
   overviewWipRegion,
   overviewAttentionFocus,
   overviewArtifactsShelf,
+  taskDetailExplainerDefault,
 ];
 
 export function selectScenarios({ lane, ids }) {

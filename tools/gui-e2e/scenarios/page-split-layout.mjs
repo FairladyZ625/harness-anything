@@ -709,6 +709,9 @@ export default {
         "files",
         '[data-testid="task-document-tree-scroll"]',
       );
+      // 默认落点(explainer 优先,task_26f9a7c4)后子任务 born-with explainer,详情默认停
+      // 在文件页签;本段量尺对象是概况板,显式切回概况再继续(与时间线场景同法)。
+      await page.getByRole("tab", { name: /^(?:概况|Overview)$/u }).click();
       await page.getByTestId("task-overview-tab-controls-reset").click();
       await resize(1120, 800);
       await checkLayout(page, shot, "task-detail-content-grid", "files", "content", "task-narrow");

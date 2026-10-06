@@ -23,7 +23,7 @@ import { PageRegions, RegionDragHandle } from "../components/primitives/page-reg
 import type { RelationEdge, TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
-import { useTaskDocumentQuery } from "../task-data.ts";
+import { useTaskDocumentListQuery, useTaskDocumentQuery } from "../task-data.ts";
 import { workspaceGoalLine } from "../model/workspace-narrative.ts";
 import { t } from "../i18n/index.tsx";
 import { AwaitsAskStrip } from "../components/AwaitsAskStrip.tsx";
@@ -38,6 +38,9 @@ const tabs = [
   { id: "closeout", labelKey: "views.taskDetailView.tabCloseout" },
   { id: "files", labelKey: "views.taskDetailView.tabFiles" },
 ] as const;
+
+// living explainer 的包内固定位置:任务包带这一页时,任何不带显式落点的入口都默认开在它上。
+const EXPLAINER_DOC = "artifacts/explainer.html";
 
 type TaskDetailTab = (typeof tabs)[number]["id"];
 
@@ -128,21 +131,51 @@ export function TaskDetailView({
   const [activeDoc, setActiveDoc] = useState(initialDocOf);
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
   const [focusedRecordRef, setFocusedRecordRef] = useState<string | null>(initialRecordFocus ?? null);
+  // 默认落点(explainer 优先):不带显式落点打开时,任务包带 living explainer 就直接落在
+  // 文件页签的 explainer 上。文档清单是异步投影,定案前正文停在占位(不先渲染概况再跳走);
+  // 定案只发生一次,之后清单变化或用户手动切换都不再挪动落点。
+  const [defaultLandingSettled, setDefaultLandingSettled] = useState(false);
+  const [userMoved, setUserMoved] = useState(false);
   const external = isExternal(task);
   const pinned = task.pinned === true;
+
+  const explicitLanding = initialTab !== undefined || initialRecordFocus !== undefined || initialDocFocus !== undefined;
+  const documentList = useTaskDocumentListQuery(task.projectId, task.taskId);
+  const explainerDefault =
+    !explicitLanding &&
+    documentList.data?.status === "ready" &&
+    documentList.data.documents.some((document) => document.path === EXPLAINER_DOC);
+  // 清单未到(挂起中)才占位等待;读失败按「无 explainer」定案,保持概况+task_plan 现状。
+  const defaultLandingPending = !explicitLanding && !defaultLandingSettled && !userMoved;
 
   useEffect(() => {
     setActiveTab(initialTabOf);
     setActiveDoc(initialDocOf);
     setFocusedSessionId(null);
     setFocusedRecordRef(initialRecordFocus ?? null);
+    setDefaultLandingSettled(false);
+    setUserMoved(false);
   }, [task.taskId, initialTabOf, initialDocOf, initialRecordFocus]);
 
+  // 默认落点定案:清单到达(或读失败)那一拍生效一次。占位与落点切页签在同一批状态更新里,
+  // 概况正文不会先 paint 再跳走。
+  useEffect(() => {
+    if (explicitLanding || defaultLandingSettled || userMoved) return;
+    if (documentList.data === undefined && !documentList.isError) return;
+    if (explainerDefault) {
+      setActiveTab("files");
+      setActiveDoc(EXPLAINER_DOC);
+    }
+    setDefaultLandingSettled(true);
+  }, [explicitLanding, defaultLandingSettled, userMoved, documentList.data, documentList.isError, explainerDefault]);
+
   const selectTab = (tab: TaskDetailTab) => {
+    setUserMoved(true);
     setActiveTab(tab);
     if (tab !== "dispatch") setFocusedSessionId(null);
   };
   const openSession = (runtimeSessionId: string) => {
+    setUserMoved(true);
     setFocusedSessionId(runtimeSessionId);
     setActiveTab("dispatch");
   };
@@ -154,6 +187,7 @@ export function TaskDetailView({
     selectTab("closeout");
   };
   const openDocument = useCallback((path: string) => {
+    setUserMoved(true);
     setActiveDoc(path);
     setFocusedSessionId(null);
     setActiveTab("files");
@@ -446,7 +480,13 @@ export function TaskDetailView({
                     }`}
                     data-testid="task-detail-panel-scroll"
                   >
-                    {activeTab === "overview" ? (
+                    {/* 默认落点未定案(等文档清单)时正文停在占位:概况/文件都可能是错的
+                        落点,先渲染哪个都会闪;用户手动切页签后立即解除占位。 */}
+                    {defaultLandingPending ? (
+                      <p className="ui-meta p-3 text-text-faint" data-testid="task-detail-landing-pending">
+                        正在定位初始文档…
+                      </p>
+                    ) : activeTab === "overview" ? (
                       <TaskOverviewTab
                         connectionId={connectionId}
                         task={task}
