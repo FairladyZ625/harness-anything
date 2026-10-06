@@ -154,7 +154,7 @@ export function taskShowFromProjection(
   taskId: string,
   directChildCount = projection.readTaskChildCounts([taskId])[taskId] ?? 0,
 ): WriteReceipt {
-  const read = projection.read(taskId),
+  const read = taskPresentationReads(projection).read(taskId),
     progress = projection.readProgress(taskId),
     rootSetting = resolveTaskRootThreshold(projectedTaskSettings(projection)),
     notFound = projectedTaskNotFound(read, taskId);
@@ -181,7 +181,7 @@ export function taskShowFromProjection(
       );
     return failed(`read:${taskId}`, notFound);
   }
-  const task = taskPresentationReads(projection).read(taskId).snapshot.task,
+  const task = read.snapshot.task,
     execution = read.snapshot.executions.find(
       (candidate) => candidate.iteration === task?.iteration && candidate.submission !== null,
     ),
