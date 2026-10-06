@@ -152,8 +152,6 @@ export async function fleetTaskRoute(
     fromFile,
     jsonInput,
     planFile,
-    minCut: requestedMinCut,
-    writeReadWaitMs,
     ...action
   } = command.action as Record<string, unknown> & {
     executor?: unknown;
@@ -163,25 +161,7 @@ export async function fleetTaskRoute(
     fromFile?: unknown;
     jsonInput?: unknown;
     planFile?: unknown;
-    minCut?: unknown;
-    writeReadWaitMs?: unknown;
   };
-  const validMinCut =
-    requestedMinCut !== null &&
-    typeof requestedMinCut === "object" &&
-    !Array.isArray(requestedMinCut) &&
-    Number.isSafeInteger((requestedMinCut as Record<string, unknown>).revision) &&
-    typeof (requestedMinCut as Record<string, unknown>).headDigest === "string" &&
-    /^sha256:[0-9a-f]{64}$/u.test((requestedMinCut as Record<string, unknown>).headDigest as string);
-  if (requestedMinCut !== undefined && !validMinCut)
-    throw Object.assign(new Error("Fleet minCut requires a revision and sha256 head digest."), {
-      code: "invalid_field",
-    });
-  if (writeReadWaitMs !== undefined && (!Number.isSafeInteger(writeReadWaitMs) || Number(writeReadWaitMs) < 0))
-    throw Object.assign(new Error("Fleet write-read wait must be a non-negative integer."), { code: "invalid_field" });
-  const minCut = validMinCut
-    ? (requestedMinCut as { readonly revision: number; readonly headDigest: string })
-    : undefined;
   // Migration/import/admin creation is intentionally
   // outside the remote-edge surface. Falling through produces the existing,
   // explicit repo_mode_read_only receipt instead of silently dropping their
@@ -219,8 +199,6 @@ export async function fleetTaskRoute(
     quotaBytes: config.quotaBytes,
     workspaceRoot: config.workspaceRoot,
     ...(config.waitTimeoutMs ? { waitTimeoutMs: config.waitTimeoutMs } : {}),
-    ...(minCut ? { minCut } : {}),
-    ...(Number.isSafeInteger(writeReadWaitMs) && Number(writeReadWaitMs) >= 0 ? { writeReadWaitMs } : {}),
     ...(config.maxAgeMs !== undefined ? { maxAgeMs: config.maxAgeMs } : {}),
     ...(config.maxLagRevisions !== undefined ? { maxLagRevisions: config.maxLagRevisions } : {}),
     action,

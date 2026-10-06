@@ -209,3 +209,29 @@ test(
     assert.equal(withoutMinCut.ok, true);
   },
 );
+
+test(
+  "edge daemon remembers a write cut across independent write and read requests",
+  { timeout: 180_000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true),
+      viewRoot = path.join(f.root, "view"),
+      edge = (action: Record<string, unknown>) =>
+        runFleetEdgeTask({
+          payload: {
+            ...f.peer("node-one"),
+            host: "localhost",
+            caPath: path.join(f.root, "tls.crt"),
+            viewRoot,
+            quotaBytes: quota,
+            action: action as never,
+          },
+        });
+    const written = await edge({ kind: "task-create", taskId: "independent-write", title: "Independent write" });
+    assert.equal(written.outcome, "applied", JSON.stringify(written));
+    assert.ok(written.appliedCut);
+    const read = await edge({ kind: "task-list" });
+    assert.equal(read.ok, true, JSON.stringify(read));
+    assert.ok((read.rows as { taskId: string }[]).some((row) => row.taskId === "independent-write"));
+  },
+);

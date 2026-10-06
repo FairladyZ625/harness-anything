@@ -353,8 +353,6 @@ export const fleetProtocolMethods = Object.freeze([
         viewRoot: "string",
         quotaBytes: "number",
         waitTimeoutMs: "number?",
-        writeReadWaitMs: "number?",
-        minCut: "json?",
         maxAgeMs: "number?",
         maxLagRevisions: "number?",
         workspaceRoot: "string?",
@@ -480,8 +478,6 @@ export type DaemonFleetTaskAction = FleetTaskAction;
 type DaemonFleetTaskPayload = DaemonFleetChannelPayload & {
   readonly workspaceRoot?: string;
   readonly waitTimeoutMs?: number;
-  readonly writeReadWaitMs?: number;
-  readonly minCut?: { readonly revision: number; readonly headDigest: string };
   readonly maxAgeMs?: number;
   readonly maxLagRevisions?: number;
   readonly action:
