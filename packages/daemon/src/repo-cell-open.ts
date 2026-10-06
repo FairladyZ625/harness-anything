@@ -465,32 +465,20 @@ export async function openRepoWriterCell(
     resolveAgent: (agentId) => {
       const projected = projection.getEntity("agent", agentId);
       if (!projected || projected.freshness === "orphaned") throw new Error(`Agent ${agentId} is unavailable.`);
-      const declaration = readAgentDeclaration({
-        rootDir,
-        agentId,
-        entityStore: {
-          ...createEntityStore(store),
-          get: <T>(kind: string, id: string) => {
-            const value =
-              kind === "agent" && id === agentId
-                ? (() => {
-                    const { lifecycleState: _state, ...declaration } = projected.value;
-                    return declaration;
-                  })()
-                : createEntityStore(store).get<T>(kind, id)?.value;
-            return value === undefined
-              ? null
-              : ({
-                  kind,
-                  id,
-                  value,
-                  documentPath: `agents/${id}.json`,
-                  documentSha256: "",
-                  workspaceRevision: projected.workspaceRevision,
-                } as never);
+      const entityStore = createEntityStore(store),
+        declaration = readAgentDeclaration({
+          rootDir,
+          agentId,
+          entityStore: {
+            ...entityStore,
+            get: <T>(kind: string, id: string) => {
+              const record = entityStore.get<T>(kind, id);
+              if (record === null || kind !== "agent") return record;
+              const { lifecycleState: _lifecycleState, ...value } = record.value as Record<string, unknown>;
+              return { ...record, value } as typeof record;
+            },
           },
-        },
-      });
+        });
       return { ...declaration, lifecycleState: projected.value.lifecycleState } as typeof declaration & {
         readonly lifecycleState?: string;
       };

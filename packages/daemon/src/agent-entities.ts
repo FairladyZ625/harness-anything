@@ -565,7 +565,7 @@ export function assertAgentDispatchable(agent: ProjectedAgentLifecycle): AgentSt
 export function prepareAgentEntityDelete(input: {
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
   readonly entityStore: EntityStore;
-  readonly projection?: Pick<TaskProjection, "readRuntimeDispatches" | "listEntities" | "readRelationQuery">;
+  readonly projection: Pick<TaskProjection, "readRuntimeDispatches" | "listEntities" | "readRelationQuery">;
 }): PreparedAgentEntityDelete {
   const kind = entityKind(input.action.kind),
     idField = kind === "agent" ? "agentId" : "squadId",
@@ -593,7 +593,7 @@ export function prepareAgentEntityDelete(input: {
       `${kind}/entity-revision`,
     );
   if (!reason.trim()) throw entityError("invalid_command", "reason is required.");
-  if (kind === "agent" && input.projection) {
+  if (kind === "agent") {
     const references = agentReferenceCounts(input.projection, entityId);
     if (references.length)
       throw attributeEntityActionCriterion(
