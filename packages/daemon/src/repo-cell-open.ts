@@ -462,7 +462,39 @@ export async function openRepoWriterCell(
     keycloakCenter: input.keycloakCenter,
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
     ...(input.prepareWorkerGitEnvironment ? { prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment } : {}),
-    resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId, entityStore: createEntityStore(store) }),
+    resolveAgent: (agentId) => {
+      const projected = projection.getEntity("agent", agentId);
+      if (!projected || projected.freshness === "orphaned") throw new Error(`Agent ${agentId} is unavailable.`);
+      const declaration = readAgentDeclaration({
+        rootDir,
+        agentId,
+        entityStore: {
+          ...createEntityStore(store),
+          get: <T>(kind: string, id: string) => {
+            const value =
+              kind === "agent" && id === agentId
+                ? (() => {
+                    const { lifecycleState: _state, ...declaration } = projected.value;
+                    return declaration;
+                  })()
+                : createEntityStore(store).get<T>(kind, id)?.value;
+            return value === undefined
+              ? null
+              : ({
+                  kind,
+                  id,
+                  value,
+                  documentPath: `agents/${id}.json`,
+                  documentSha256: "",
+                  workspaceRevision: projected.workspaceRevision,
+                } as never);
+          },
+        },
+      });
+      return { ...declaration, lifecycleState: projected.value.lifecycleState } as typeof declaration & {
+        readonly lifecycleState?: string;
+      };
+    },
     resolveSquadDispatch: (squadId, leaderId, workerId) =>
       resolveSquadDispatch({
         rootDir,

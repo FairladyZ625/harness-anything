@@ -49,6 +49,11 @@ function entityEventCache(source: EntityEventSource): Map<string, Map<string, St
     const batch = source.readBatch(cache.cursor, 1024);
     for (const event of batch.events) {
       if (!isEntityEvent(event)) continue;
+      if (event.type === "agent_retired") {
+        const latest = cache.latestByKind.get("agent") ?? new Map<string, StoredEntityEventV1>();
+        cache.latestByKind.set("agent", latest);
+        continue;
+      }
       const latest = cache.latestByKind.get(event.payload.entityKind) ?? new Map<string, StoredEntityEventV1>();
       cache.latestByKind.set(event.payload.entityKind, latest);
       const previous = latest.get(event.payload.entityId);
