@@ -903,6 +903,12 @@ test("one root status query stays indexed and constant as unrelated works grow",
     );
     add("grandchild", "done", "member");
     assert.equal(readTaskPresentationStatus(db, "root"), "done");
+    add("direct-done-root", "planned", null);
+    add("direct-done-leaf", "done", "direct-done-root");
+    assert.equal(readTaskPresentationStatus(db, "direct-done-root"), "done");
+    add("direct-open-root", "planned", null);
+    add("direct-open-leaf", "active", "direct-open-root");
+    assert.equal(readTaskPresentationStatus(db, "direct-open-root"), "planned");
     add("open", "active", "member");
     assert.equal(readTaskPresentationStatus(db, "root"), "planned");
     add("empty", "planned", null, "work");
