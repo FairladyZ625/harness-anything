@@ -14,6 +14,7 @@ import {
   entityArchivedWritePlan,
   entityContentObservedWritePlan,
   entityDeletedWritePlan,
+  agentRetiredWritePlan,
   entityTargetMissingWritePlan,
   entityUpsertWritePlan,
   validateCurrentEntityEvent,
@@ -79,6 +80,12 @@ export interface EntityArchivedBundle {
 export interface EntityDeletedBundle {
   readonly event: EntityDeletedEventV1;
   readonly plan: FrozenWritePlan<"EntityDelete">;
+  readonly blobs: readonly [];
+}
+
+export interface AgentRetiredBundle {
+  readonly event: import("./entity-event.ts").AgentRetiredEventV1;
+  readonly plan: FrozenWritePlan<"AgentRetired">;
   readonly blobs: readonly [];
 }
 
@@ -302,6 +309,31 @@ export function compileEntityDeleted(
     };
   assertValidCurrent(event);
   return { event, plan: entityDeletedWritePlan(event), blobs: [] };
+}
+
+export function compileAgentRetired(
+  input: EntityEventEnvelopeInput & {
+    readonly entityId: string;
+    readonly priorVersion: number;
+    readonly retiredAt: string;
+    readonly reason: string;
+    readonly successor?: string;
+  },
+): AgentRetiredBundle {
+  const event: import("./entity-event.ts").AgentRetiredEventV1 = {
+    ...eventEnvelope(input),
+    type: "agent_retired",
+    payload: {
+      entityKind: "agent",
+      entityId: input.entityId,
+      priorVersion: input.priorVersion,
+      retiredAt: input.retiredAt,
+      reason: input.reason.trim(),
+      ...(input.successor === undefined ? {} : { successor: input.successor }),
+    },
+  };
+  assertValidCurrent(event);
+  return { event, plan: agentRetiredWritePlan(event), blobs: [] };
 }
 
 function declarationContent(contract: EntityStoreKindContract, entityId: string, entity: unknown) {

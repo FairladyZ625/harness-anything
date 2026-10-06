@@ -770,7 +770,7 @@ export async function openRepoWriterCell(
             baseBlobSha256: existing.payload.ownedContent.retirements[0]!.baseBlobSha256,
             reason: existing.payload.reason,
           };
-        const prepared = prepareAgentEntityDelete({ action, entityStore: createEntityStore(store) });
+        const prepared = prepareAgentEntityDelete({ action, entityStore: createEntityStore(store), projection });
         return { ...action, ...prepared };
       }
       if (contract.id !== "install") return action;

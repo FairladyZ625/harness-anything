@@ -161,8 +161,12 @@ function trustedScheduleAgent(cell: RepoCellRuntimeContext, agentId: string) {
       `Schedule Agent ${agentId} is unavailable at the claimed center cut.`,
     );
   try {
-    const agent = parseAgentDeclarationV1(row.value);
-    assertAgentDispatchable(agent);
+    const { lifecycleState, ...declaration } = row.value,
+      agent = parseAgentDeclarationV1(declaration);
+    assertAgentDispatchable({
+      ...agent,
+      lifecycleState: lifecycleState as "configured" | "active" | "retired" | undefined,
+    });
     return agent;
   } catch (error) {
     const code = (error as { readonly code?: unknown }).code;

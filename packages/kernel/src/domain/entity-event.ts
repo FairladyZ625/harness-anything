@@ -256,7 +256,16 @@ export function validateAgentRetiredPayload(
   hasFields: (value: Readonly<Record<string, unknown>>, fields: readonly string[]) => boolean,
   allowUnknownFields: boolean,
 ): readonly string[] {
-  if (!isRecord(payload) || !hasFields(payload, ["entityId", "priorVersion", "retiredAt", "reason"]))
+  if (
+    !isRecord(payload) ||
+    !(allowUnknownFields
+      ? hasFields(payload, ["entityKind", "entityId", "priorVersion", "retiredAt", "reason"])
+      : hasRequiredFields(payload, ["entityKind", "entityId", "priorVersion", "retiredAt", "reason"])) ||
+    (!allowUnknownFields &&
+      Object.keys(payload).some(
+        (key) => !["entityKind", "entityId", "priorVersion", "retiredAt", "reason", "successor"].includes(key),
+      ))
+  )
     return ["agent retired payload is invalid"];
   const priorVersion = payload.priorVersion;
   if (
@@ -270,13 +279,6 @@ export function validateAgentRetiredPayload(
     !payload.reason.trim() ||
     (payload.successor !== undefined && typeof payload.successor !== "string") ||
     payload.entityKind !== "agent"
-  )
-    return ["agent retired payload is invalid"];
-  if (
-    !allowUnknownFields &&
-    Object.keys(payload).some(
-      (key) => !["entityKind", "entityId", "priorVersion", "retiredAt", "reason", "successor"].includes(key),
-    )
   )
     return ["agent retired payload is invalid"];
   return [];

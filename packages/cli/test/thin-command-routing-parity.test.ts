@@ -222,6 +222,18 @@ test("agent and squad delete project their reason and expected version into the 
   }
 });
 
+test("agent retire projects its identity, reason, and optional successor", () => {
+  const parsed = parseThinCommand(["agent", "retire", "old-agent", "--reason", "handoff", "--successor", "new-agent"]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok)
+    assert.deepEqual(parsed.command.action, {
+      kind: "agent-retire",
+      agentId: "old-agent",
+      reason: "handoff",
+      successor: "new-agent",
+    });
+});
+
 test("entity import projects its concurrency and dry-run flags into one daemon Action", () => {
   const parsed = parseThinCommand([
     "entity",
@@ -344,7 +356,15 @@ test("capabilities is an exact-set projection of the command contract", () => {
     agenda: ["agenda"],
     backup: ["ledger-backup"],
     bootstrap: ["rbac-bootstrap"],
-    agent: ["agent-delete", "agent-inspect", "agent-install", "agent-list", "agent-run", "agent-validate"],
+    agent: [
+      "agent-delete",
+      "agent-inspect",
+      "agent-install",
+      "agent-list",
+      "agent-retire",
+      "agent-run",
+      "agent-validate",
+    ],
     ci: ["ci-observe-pull"],
     daemon: [
       "daemon-connection-add",

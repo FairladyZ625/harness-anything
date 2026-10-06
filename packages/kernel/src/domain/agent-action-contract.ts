@@ -15,9 +15,17 @@ export type AgentActionDraft =
       readonly entityId: string;
       readonly baseBlobSha256: string;
       readonly reason: string;
+    }
+  | {
+      readonly kind: "agent-retire";
+      readonly entityId: string;
+      readonly priorVersion: number;
+      readonly retiredAt: string;
+      readonly reason: string;
+      readonly successor?: string;
     };
 
-export const agentActionIds = Object.freeze(["install", "delete", "validate", "list", "inspect"] as const);
+export const agentActionIds = Object.freeze(["install", "delete", "retire", "validate", "list", "inspect"] as const);
 export type AgentActionId = (typeof agentActionIds)[number];
 
 const input = (
@@ -79,6 +87,11 @@ export function createAgentActionCatalog(
             ref: "agent/model-compatibility",
             failureCode: "agent_model_unavailable",
             explain: "Generated Agent model must be supported by a compatible runtime instance.",
+          },
+          {
+            ref: "agent/lifecycle",
+            failureCode: "agent_retired",
+            explain: "A retired Agent identity cannot be reinstalled or revived.",
           },
           {
             ref: "agent/entity-revision",
@@ -163,6 +176,53 @@ export function createAgentActionCatalog(
           implementation: "compiled-event" as const,
           topology: "center-forward-write" as const,
           targetIdField: "entityId",
+        }),
+      }),
+      Object.freeze({
+        ...baseAction("retire"),
+        input: input([
+          { field: "agentId", type: "string", required: true },
+          { field: "reason", type: "string", required: true },
+          { field: "successor", type: "string", required: false },
+          { field: "expectedVersion", type: "number", required: false },
+          { field: "idempotencyKey", type: "string", required: false },
+        ]),
+        criteria: Object.freeze([
+          {
+            ref: "agent/entity-present",
+            failureCode: "agent_not_found",
+            explain: "The Agent exists at the canonical projection cut before retirement.",
+          },
+          {
+            ref: "agent/lifecycle",
+            failureCode: "agent_not_active",
+            explain: "Only an active Agent can transition to retired.",
+          },
+        ]),
+        concurrency: Object.freeze({
+          ...declared.concurrency,
+          expectedVersion: Object.freeze({
+            authority: "entity-event/v1 Agent projection revision",
+            required: false,
+            conflict: "revision_conflict",
+          }),
+          idempotency: Object.freeze({
+            authority: "operation-id",
+            input: "idempotencyKey",
+            scope: "agent/{id}/retire",
+            retry: "canonical-event-replay",
+          }),
+        }),
+        effects: Object.freeze([{ ref: "entity-event/agent_retired", projection: "AgentProjection" }]),
+        returns: actionResultContract,
+        explain: "Retire one active Agent through the canonical entity event stream.",
+        execution: Object.freeze({
+          ingress: "agent-retire",
+          compile: compileAgentRetireAction,
+          read: false,
+          implementation: "compiled-event" as const,
+          topology: "center-forward-write" as const,
+          targetIdField: "agentId",
         }),
       }),
       Object.freeze({
@@ -257,6 +317,48 @@ export const compileAgentDeleteAction: EntityActionCompileHook = (input): AgentA
   baseBlobSha256: requiredPreparedText("Agent", input.action.baseBlobSha256, "baseBlobSha256"),
   reason: requiredPreparedText("Agent", input.action.reason, "reason"),
 });
+
+export const compileAgentRetireAction: EntityActionCompileHook = (input): AgentActionDraft => {
+  const entityId = requiredPreparedText("Agent", input.action.agentId, "agentId"),
+    reason = requiredPreparedText("Agent", input.action.reason, "reason"),
+    priorVersion = input.entityRevision;
+  if (!Number.isSafeInteger(priorVersion) || priorVersion === undefined || priorVersion < 1)
+    throw Object.assign(new Error(`Agent ${entityId} has no current projection revision.`), {
+      code: "agent_not_found",
+    });
+  if (
+    input.action.expectedVersion !== undefined &&
+    (!Number.isSafeInteger(input.action.expectedVersion) || Number(input.action.expectedVersion) !== priorVersion)
+  )
+    throw Object.assign(
+      new Error(
+        `Agent ${entityId} expected revision ${String(input.action.expectedVersion)} differs from current revision ${String(priorVersion)}.`,
+      ),
+      {
+        code: "revision_conflict",
+      },
+    );
+  const lifecycleState =
+    typeof input.currentEntity === "object" && input.currentEntity !== null
+      ? ((input.currentEntity as { readonly lifecycleState?: string }).lifecycleState ?? "active")
+      : "active";
+  if (lifecycleState !== "active")
+    throw Object.assign(new Error(`Agent ${entityId} is ${lifecycleState} and cannot be retired.`), {
+      code: lifecycleState === "retired" ? "agent_retired" : "agent_not_active",
+    });
+  const successor =
+    typeof input.action.successor === "string" && input.action.successor.trim()
+      ? input.action.successor.trim()
+      : undefined;
+  return {
+    kind: "agent-retire",
+    entityId,
+    priorVersion,
+    retiredAt: input.occurredAt,
+    reason,
+    ...(successor === undefined ? {} : { successor }),
+  };
+};
 
 function agentCriterionError(error: unknown, criterionRef: string, fallbackCode: string): Error {
   const attributed = error instanceof Error ? error : Object.assign(new Error(String(error)), { code: fallbackCode });

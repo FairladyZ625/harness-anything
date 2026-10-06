@@ -327,8 +327,10 @@ export {
   compileEntityUpdated,
   compileEntityTargetMissing,
   compileEntityDeleted,
+  compileAgentRetired,
   compileEntityUpsert,
   type EntityContentObservedBundle,
+  type AgentRetiredBundle,
   type EntityDeletedBundle,
   type EntityTargetMissingBundle,
   type EntityUpsertBundle,
@@ -336,6 +338,7 @@ export {
 export {
   contractForDeclarationEvent,
   entityDeletedWritePlan,
+  agentRetiredWritePlan,
   entityUpsertWritePlan,
   isEntityDeclarationEvent,
   isEntityEvent,
@@ -351,7 +354,7 @@ export {
   type EntityContentRetirement,
   type EntityOwnedContentV1,
 } from "./entity-owned-content.ts";
-export type { AgentRetiredEventV1, AgentRetiredPayload, EntityContentBlob, EntityEventV1 } from "./entity-event.ts";
+export type { EntityContentBlob, EntityEventV1 } from "./entity-event.ts";
 export {
   artifactEntityContractSnapshot,
   artifactImportOperationId,

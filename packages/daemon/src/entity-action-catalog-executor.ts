@@ -3,13 +3,11 @@ import { makeDecisionService, makeFactService, type ArtifactSourceResolution } f
 import {
   compileEntityUpsert,
   compileEntityDeleted,
+  compileAgentRetired,
   compileDecisionWrite,
   compileFactWrite,
   decisionWritePlan,
-  entityUpsertWritePlan,
-  entityDeletedWritePlan,
   getExecutableEntityAction,
-  isEntityDeclarationEvent,
   isSamePerson,
   parseEntityRef,
   requireEntityStoreKindContract,
@@ -26,6 +24,7 @@ import {
   type EntityActionUnmetCriterionV1,
   type EntityUpsertBundle,
   type EntityDeletedBundle,
+  type AgentRetiredBundle,
   type EventPublicationKillpoint,
   type FactEventV1,
   type SessionIdentity,
@@ -33,7 +32,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
-import { factReplayBundle, supersededFactDocumentSource } from "./fact-supersede-document.ts";
+import { supersededFactDocumentSource } from "./fact-supersede-document.ts";
 import {
   archiveAllFacts,
   factArchiveBundle,
@@ -45,9 +44,9 @@ import {
   commitRuntimeSessionBundle,
   compileRuntimeSessionDraft,
   isRuntimeSessionBundle,
-  matchingRuntimeSessionReplayBundle,
   type RuntimeSessionBundle,
 } from "./entity-action-runtime-session.ts";
+import { matchingReplayBundle } from "./entity-action-replay.ts";
 import {
   executeArtifactEntityImport,
   executeArtifactEntityMutation,
@@ -65,7 +64,7 @@ import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
 type DecisionBundle = ReturnType<typeof compileDecisionWrite>;
-type EntityCatalogBundle = EntityUpsertBundle | EntityDeletedBundle;
+type EntityCatalogBundle = EntityUpsertBundle | EntityDeletedBundle | AgentRetiredBundle;
 type CatalogBundle = FactBundle | DecisionBundle | EntityCatalogBundle | RuntimeSessionBundle;
 export type EntityActionCatalogRunner = (
   contract: ExecutableAction,
@@ -403,7 +402,9 @@ export function makeEntityActionCatalogExecutor(input: {
       path =
         bundle.event.type === "entity_deleted"
           ? bundle.event.payload.ownedContent.retirements[0]!.path
-          : bundle.event.payload.declarationDocumentClaim.path,
+          : bundle.event.type === "agent_retired"
+            ? `agents/${bundle.event.payload.entityId}.json`
+            : bundle.event.payload.declarationDocumentClaim.path,
       receipt = {
         opId: bundle.event.opId,
         revision: appended.revision,
@@ -426,7 +427,7 @@ export function makeEntityActionCatalogExecutor(input: {
           canonicalVisible: visible,
           worktreeVisible: true,
         },
-        ...(bundle.event.type === "entity_deleted"
+        ...(bundle.event.type === "entity_deleted" || bundle.event.type === "agent_retired"
           ? {}
           : {
               detail: {
@@ -465,6 +466,24 @@ export function makeEntityActionCatalogExecutor(input: {
       currentEntity =
         contract.target.kind === "runtime-session"
           ? input.projection.readRuntimeSession(requiredCommandText(action.runtimeSessionId, "runtimeSessionId"))
+          : contract.target.kind === "agent" || contract.target.kind === "squad"
+            ? input.projection.getEntity(
+                contract.target.kind,
+                requiredCommandText(
+                  action[contract.execution.targetIdField ?? "entityId"],
+                  contract.execution.targetIdField ?? "entityId",
+                ),
+              )?.value
+            : undefined,
+      entityRevision =
+        contract.target.kind === "agent" || contract.target.kind === "squad"
+          ? input.projection.getEntity(
+              contract.target.kind,
+              requiredCommandText(
+                action[contract.execution.targetIdField ?? "entityId"],
+                contract.execution.targetIdField ?? "entityId",
+              ),
+            )?.workspaceRevision
           : undefined,
       draft = compile({
         action,
@@ -475,6 +494,7 @@ export function makeEntityActionCatalogExecutor(input: {
         occurredAt,
         workspaceRevision,
         ...(currentEntity === undefined ? {} : { currentEntity }),
+        ...(entityRevision === undefined ? {} : { entityRevision }),
         ...(coverage ? { coverage } : {}),
       });
     return compileDraft(
@@ -622,6 +642,15 @@ function compileDraft(
       baseBlobSha256: draft.baseBlobSha256,
       reason: draft.reason,
     });
+  if (draft.kind === "agent-retire")
+    return compileAgentRetired({
+      ...event,
+      entityId: draft.entityId,
+      priorVersion: draft.priorVersion,
+      retiredAt: draft.retiredAt,
+      reason: draft.reason,
+      ...(draft.successor === undefined ? {} : { successor: draft.successor }),
+    });
   if (draft.kind === "runtime-session") return compileRuntimeSessionDraft(draft);
   if (draft.kind === "schedule") reject("invalid_command", "Schedule drafts require the Schedule Action runtime.");
   if (draft.kind === "settings") reject("invalid_command", "Settings drafts require the Settings Action runtime.");
@@ -662,60 +691,6 @@ function compileDraft(
     currentDocument: document.document,
     decisionReviewRequirement: readDecisionReviewRequirement(),
   });
-}
-
-function matchingReplayBundle(
-  store: CanonicalEventStore,
-  contract: ExecutableAction,
-  action: RepoTaskAction,
-  existing: ReturnType<CanonicalEventStore["readEvent"]>,
-): CatalogBundle | null {
-  const writesFact = contract.target.kind === "fact" || contract.id === "reckon";
-  if (contract.target.kind === "runtime-session" && existing !== null)
-    return matchingRuntimeSessionReplayBundle(store, contract, action, existing);
-  if (
-    existing?.schema === "entity-event/v1" &&
-    existing.type === "entity_upserted" &&
-    isEntityDeclarationEvent(existing) &&
-    existing.payload.entityKind === contract.target.kind
-  ) {
-    const claim = existing.payload.declarationDocumentClaim,
-      bytes = store.readContentBlob(claim.sha256);
-    if (!bytes) reject("content_not_ready", `Entity content for ${claim.path} is unavailable.`);
-    return {
-      event: existing,
-      plan: entityUpsertWritePlan(existing),
-      blobs: [
-        {
-          sha256: claim.sha256,
-          size: claim.size,
-          mediaType: claim.mediaType,
-          body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-        },
-      ],
-    };
-  }
-  if (
-    existing?.schema === "entity-event/v1" &&
-    existing.type === "entity_deleted" &&
-    existing.payload.entityKind === contract.target.kind
-  )
-    return { event: existing, plan: entityDeletedWritePlan(existing), blobs: [] };
-  if (existing?.schema === "fact-event/v1" && writesFact) return factReplayBundle(store, existing);
-  if (existing?.schema === "decision-event/v1" && !writesFact) {
-    const claim = existing.payload.decisionDocumentClaim,
-      bytes = store.readContentBlob(claim.sha256);
-    if (!bytes) reject("content_not_ready", `Decision content for ${existing.decisionId} is unavailable.`);
-    const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    return {
-      event: existing,
-      plan: decisionWritePlan(existing),
-      blobs: [{ sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body }],
-      path: claim.path,
-      body,
-    };
-  }
-  return null;
 }
 
 function decisionCoverage(action: Readonly<Record<string, unknown>>, service: ReturnType<typeof makeDecisionService>) {

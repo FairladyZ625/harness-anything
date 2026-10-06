@@ -372,6 +372,65 @@ test("Agent install accepts a single declaration file as the package source", as
   }
 });
 
+test("Agent retire publishes lifecycle state, is idempotent by operation, and blocks reinstallation", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-retire-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("agent-retire"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "agent-retire-test",
+  });
+  try {
+    const installed = await cell.run(
+      { kind: "agent-install", declaration, expectedVersion: 0, idempotencyKey: "retire-install" },
+      binding,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const retired = await cell.run(
+      {
+        kind: "agent-retire",
+        agentId: declaration.id,
+        reason: "No longer accepting new claims.",
+        successor: "replacement-agent",
+        idempotencyKey: "retire-agent",
+      },
+      binding,
+    );
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    assert.deepEqual(retired.effects, ["entity-event/agent_retired"]);
+    const eventStore = openSqliteEventStore({
+      repoId: workspaceId("agent-retire"),
+      rootInput: rootDir,
+      readOnly: true,
+    });
+    try {
+      const event = eventStore.event(retired.opId);
+      assert.equal(event?.type, "agent_retired");
+      if (event?.type === "agent_retired") assert.equal(event.payload.successor, "replacement-agent");
+    } finally {
+      eventStore.close();
+    }
+    const repeated = await cell.run(
+      {
+        kind: "agent-retire",
+        agentId: declaration.id,
+        reason: "No longer accepting new claims.",
+        successor: "replacement-agent",
+        idempotencyKey: "retire-agent",
+      },
+      binding,
+    );
+    assert.equal(repeated.outcome, "op_rejected", JSON.stringify(repeated));
+    assert.equal(repeated.code, "agent_retired");
+    const revived = await cell.run({ kind: "agent-install", declaration, idempotencyKey: "retire-reinstall" }, binding);
+    assert.equal(revived.outcome, "op_rejected", JSON.stringify(revived));
+    assert.equal(revived.code, "agent_retired");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("owned-content objects preserve raw bytes and reject absent or oversized content", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-owned-content-")),
     repoId = workspaceId("entity-owned-content"),

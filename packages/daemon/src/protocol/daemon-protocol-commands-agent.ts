@@ -328,6 +328,18 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--expected-version", "single", true, { code: "missing_field" }, { projection: "number" }),
     ],
   }),
+  defineLedgerWriteCommand({
+    id: "agent-retire",
+    phase: "Runtime-B",
+    path: ["agent", "retire", "<id>"],
+    summary: "Retire an Agent while retaining its canonical history and deep-link identity.",
+    method: "repo.task.run",
+    positional: "agentId",
+    inputs: [
+      cliInput("--reason", "single", true, { code: "missing_field" }),
+      cliInput("--successor", "single", false, { code: "invalid_field" }),
+    ],
+  }),
   defineRepoReadCommand({
     id: "squad-list",
     phase: "Runtime-B",
