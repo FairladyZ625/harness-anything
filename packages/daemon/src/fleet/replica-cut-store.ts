@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -13,6 +13,14 @@ import {
   type CanonicalEventV1,
   type LedgerCutIdentity,
   type ReplicaProjectionBasis,
+} from "@harness-anything/kernel";
+import {
+  isReadModelPath,
+  serializeTaskReadModelMeta,
+  serializeTaskReadModelRow,
+  taskReadModelPath,
+  TASK_READ_MODEL_META_PATH,
+  type TaskReadModelRow,
 } from "@harness-anything/kernel";
 import {
   fleetManifestDigest,
@@ -59,6 +67,12 @@ export interface ReplicaCutSourceOptions {
   readonly readEvent?: (opId: string) => CanonicalEventV1 | null;
   readonly readApplied?: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly monotonicNow?: () => number;
+  /** The edge task read model at the projection's current revision, or null while it is not ready. */
+  readonly readTaskReadModel?: () => {
+    readonly sourceRevision: number;
+    readonly rootThreshold: number;
+    readonly rows: readonly TaskReadModelRow[];
+  } | null;
 }
 
 export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaCutSource {
@@ -245,6 +259,21 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         existsSync(manifestPath(orphan))
       )
         unlinkSync(manifestPath(orphan));
+    if (digests.length === 0 || !existsSync(readModelBlobRoot)) return;
+    // Deltas address read-model blobs through retained change rows; snapshots serve the latest manifest.
+    const live = new Set(
+      (
+        store
+          .prepare(
+            "SELECT DISTINCT blob_sha256 FROM change WHERE path LIKE '.read-model/%' AND blob_sha256 IS NOT NULL",
+          )
+          .all() as unknown as readonly { readonly blob_sha256: string }[]
+      ).map((row) => row.blob_sha256),
+    );
+    const head = latest();
+    if (head)
+      for (const entry of manifest(head.revision) ?? []) if (isReadModelPath(entry.path)) live.add(entry.blob.sha256);
+    for (const name of readdirSync(readModelBlobRoot)) if (!live.has(name)) unlinkSync(readModelBlobPath(name));
   };
   const persistInitial = (event: CanonicalEventV1, entries: readonly FleetEntry[]): SnapshotCut => {
     const bytes = stableStringify(entries),
@@ -267,6 +296,36 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         blob: { sha256: blobSha256, size, mediaType },
       }))
       .sort((left, right) => left.path.localeCompare(right.path));
+  // The edge task read model rides the cut as derived entries under .read-model/: one file per task
+  // row, so the existing delta protocol moves only changed rows. Its bytes are not canonical content
+  // blobs; they live beside the cut store and are reclaimed with the cuts that reference them.
+  const readModelBlobRoot = path.join(root, "read-model-blobs"),
+    readModelBlobPath = (sha256: string) => path.join(readModelBlobRoot, sha256);
+  const readModelEntry = (entryPath: string, text: string, mediaType: string): FleetEntry => {
+    const body = Buffer.from(text),
+      sha256 = sha256Bytes(body);
+    if (!existsSync(readModelBlobPath(sha256))) writeFileDurably(readModelBlobPath(sha256), body);
+    return { path: entryPath, blob: { sha256, size: body.byteLength, mediaType } };
+  };
+  const withTaskReadModel = (entries: FleetEntry[], revision: number): FleetEntry[] => {
+    const model = options.readTaskReadModel?.();
+    // Only a projection read at exactly this revision may describe this cut; otherwise the cut keeps
+    // the previous rows, whose meta still names the older revision they describe.
+    if (!model || model.sourceRevision !== revision) return entries;
+    return [
+      ...entries.filter((entry) => !isReadModelPath(entry.path)),
+      readModelEntry(
+        TASK_READ_MODEL_META_PATH,
+        serializeTaskReadModelMeta({ sourceRevision: revision, rootThreshold: model.rootThreshold }),
+        "application/json",
+      ),
+      ...model.rows.map((row) =>
+        readModelEntry(taskReadModelPath(row.taskId), serializeTaskReadModelRow(row), "application/json"),
+      ),
+    ].sort((left, right) => left.path.localeCompare(right.path));
+  };
+  const documentDigest = (entries: readonly FleetEntry[]) =>
+    fleetManifestDigest(entries.filter((entry) => !isReadModelPath(entry.path)));
   const nextEntries = (prior: readonly FleetEntry[], event: CanonicalEventV1) => {
     const entries = new Map(prior.map((entry) => [entry.path, entry]));
     for (const retirement of canonicalDocumentRetirements(event)) entries.delete(retirement.path);
@@ -288,7 +347,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     if (!initial) {
       const basis = options.readBasis(null);
       if (basis.watermark === 0 || basis.watermark !== basis.sourceRevision || !basis.headEvent) return false;
-      const first = persistInitial(basis.headEvent, entriesFrom(basis));
+      const first = persistInitial(basis.headEvent, withTaskReadModel(entriesFrom(basis), basis.watermark));
       settle(first);
       return false;
     }
@@ -312,9 +371,10 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
           throw new Error(`replica cut gap after ${current.revision}`);
         const before = entries;
         entries = nextEntries(entries, event);
+        if (event.workspaceRevision === basis.watermark) entries = withTaskReadModel(entries, event.workspaceRevision);
         if (
           event.workspaceRevision === basis.watermark &&
-          fleetManifestDigest(entries) !== fleetManifestDigest(entriesFrom(basis))
+          documentDigest(entries) !== documentDigest(entriesFrom(basis))
         )
           throw new Error(`replica manifest drift at revision ${event.workspaceRevision}`);
         const bytes = stableStringify(entries),
@@ -347,7 +407,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     const basis = options.readBasis(null),
       cut =
         basis.watermark > 0 && basis.watermark === basis.sourceRevision && basis.headEvent
-          ? persistInitial(basis.headEvent, entriesFrom(basis))
+          ? persistInitial(basis.headEvent, withTaskReadModel(entriesFrom(basis), basis.watermark))
           : null;
     if (cut) settle(cut);
     else kick();
@@ -423,7 +483,9 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     return [...folded.values()].sort((left, right) => left.path.localeCompare(right.path));
   };
   const content = (blob: FleetBlob) => {
-    const bytes = options.readContentBlob(blob.sha256);
+    const bytes = existsSync(readModelBlobPath(blob.sha256))
+      ? readFileSync(readModelBlobPath(blob.sha256))
+      : options.readContentBlob(blob.sha256);
     if (!bytes || bytes.byteLength !== blob.size || sha256Bytes(bytes) !== blob.sha256)
       throw new Error(`canonical content blob ${blob.sha256} is unavailable or corrupt`);
     return bytes;

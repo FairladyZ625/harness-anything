@@ -270,6 +270,20 @@ export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
 export type { ProjectionWarning, TaskProjectionRow } from "./projection/types.ts";
+export {
+  TASK_INDEX_TABLES_SQL,
+  TASK_READ_MODEL_META_PATH,
+  TASK_READ_MODEL_PREFIX,
+  deleteTaskReadModelRow,
+  isReadModelPath,
+  parseTaskReadModelMeta,
+  serializeTaskReadModelMeta,
+  serializeTaskReadModelRow,
+  taskReadModelPath,
+  upsertTaskReadModelRow,
+} from "./projection/read-model.ts";
+export type { TaskReadModelMeta, TaskReadModelRow } from "./projection/read-model.ts";
+export { readTaskChildCounts, readTaskIndexRows } from "./projection/task-query-projection.ts";
 export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
 export type { TemplateCatalog, TemplateSelection } from "./schemas/registry.ts";
 export {

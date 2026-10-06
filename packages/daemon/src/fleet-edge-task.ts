@@ -35,6 +35,7 @@ import {
   runFleetUploadClient,
   runFleetWriteClient,
 } from "./fleet/edge.ts";
+import { answerEdgeTaskList } from "./fleet-edge-task-read.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
 import {
@@ -66,6 +67,8 @@ export interface FleetEdgeTaskRequest {
     readonly quotaBytes: number;
     readonly workspaceRoot?: string;
     readonly waitTimeoutMs?: number;
+    readonly maxAgeMs?: number;
+    readonly maxLagRevisions?: number;
     readonly action: FleetTaskAction;
   };
 }
@@ -137,6 +140,10 @@ export async function runFleetEdgeTask(
     };
   const declaration = commandDescriptorForAction(action.kind);
   if ("repositoryRead" in declaration && declaration.repositoryRead === true) {
+    if (action.kind === "task-list")
+      return answerEdgeTaskList({ ...payload, action }, () =>
+        runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes }),
+      );
     const receipt = await runFleetRepositoryReadClient({
       ...peer,
       method: "repo.task.read",

@@ -2,7 +2,7 @@ import { relationFreshnessWords, relationStateWords, taskStatusWords } from "./d
 import {
   defineCenterForwardWriteCommand,
   defineCenterForwardReadCommand,
-  defineCenterForwardQueryOnlyReadCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
   cliInput,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
@@ -347,7 +347,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [],
   }),
-  defineCenterForwardQueryOnlyReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "task-list",
     repositoryRead: true,
     phase: "W3",

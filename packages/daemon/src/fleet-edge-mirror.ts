@@ -26,6 +26,7 @@ import {
   consumeKnownError,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
+  isReadModelPath,
   resolveDocRoute,
   resolveHarnessLayout,
   sha256Bytes,
@@ -391,6 +392,9 @@ export function applyFleetMirrorCut(
     path.join(view.viewDir, materializationMarker),
   );
   const baseOf = marker?.blobs ?? {};
+  // Only ledger documents land in the workspace; the derived read model stays in the view, and any
+  // read-model file an earlier materialization wrote leaves as a center deletion.
+  const documents = new Map([...view.entries].filter(([logical]) => !isReadModelPath(logical)));
   mkdirSync(materializedRoot, { recursive: true });
   const rows: FleetConflictPathRow[] = [],
     stage: {
@@ -405,7 +409,7 @@ export function applyFleetMirrorCut(
     const file = path.join(materializedRoot, ...logical.split("/"));
     return existsSync(file) ? readFileSync(file) : null;
   };
-  for (const [logical, blob] of view.entries) {
+  for (const [logical, blob] of documents) {
     fleetMirrorAssertLogical(logical);
     const localBytes = localBytesOf(logical),
       localSha = localBytes === null ? null : sha256Bytes(localBytes),
@@ -440,7 +444,7 @@ export function applyFleetMirrorCut(
   // modified path is a three-way divergence (center side absent by design).
   for (const logical of Object.keys(baseOf)) {
     fleetMirrorAssertLogical(logical);
-    if (view.entries.has(logical)) continue;
+    if (documents.has(logical)) continue;
     const localBytes = localBytesOf(logical),
       localSha = localBytes === null ? null : sha256Bytes(localBytes),
       oldSha = baseOf[logical]!;

@@ -8,7 +8,7 @@ import { admitRepoMode, builtinOccurrenceCommandTopology, entityActionCommandTop
 
 const localSource = "local" as const;
 const nodeSource = { kind: "node", nodeId: "edge-one" } as const;
-const admissionRoutes = new Set(["direct", "via-node", "via-center-forward", "rejected"]);
+const admissionRoutes = new Set(["direct", "via-node", "via-center-forward", "edge-replica", "rejected"]);
 
 test("all daemon commands close every repo-mode admission cell", () => {
   let cells = 0;
@@ -25,6 +25,13 @@ test("all daemon commands close every repo-mode admission cell", () => {
       } else if (route === "via-node") {
         assert.equal(direct.ok, false, `${command.id} ${mode} requires assignment`);
         assert.equal(assigned.ok, true, `${command.id} ${mode} assignment fixture`);
+      } else if (route === "edge-replica") {
+        assert.equal(
+          direct.ok,
+          false,
+          `${command.id} ${mode} answers from the edge replica, not the daemon projection`,
+        );
+        assert.equal(assigned.ok, false, `${command.id} ${mode} is never executed for an assignment`);
       } else if (route === "via-center-forward") {
         assert.equal(direct.ok, false, `${command.id} ${mode} forwards instead of executing locally`);
         assert.equal(direct.nextAction, direct.code, command.id);

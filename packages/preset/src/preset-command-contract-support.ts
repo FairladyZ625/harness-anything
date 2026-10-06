@@ -8,7 +8,8 @@ export interface CliInputGroup {
   readonly id: string;
   readonly title: string;
 }
-export type CommandAdmissionRoute = "direct" | "via-node" | "via-center-forward" | "rejected";
+// "edge-replica": a remote edge answers the read from its own replica of the center cut, never by forwarding.
+export type CommandAdmissionRoute = "direct" | "via-node" | "via-center-forward" | "edge-replica" | "rejected";
 export type CommandAdmission = Readonly<
   Record<"local" | "remote-proxy" | "remote-center" | "remote-edge", CommandAdmissionRoute>
 >;

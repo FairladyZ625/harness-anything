@@ -254,15 +254,39 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       (await fleetRuntimeRoute(entry, env)) ??
       (await fleetTaskRoute(entry, env)) ??
       (await fleetDocRoute(entry, env));
-    if (descriptor.admission["remote-edge"] === "via-center-forward" && routed === null) missing.push(descriptor.id);
+    if (
+      (descriptor.admission["remote-edge"] === "via-center-forward" ||
+        descriptor.admission["remote-edge"] === "edge-replica") &&
+      routed === null
+    )
+      missing.push(descriptor.id);
     if (descriptor.admission["remote-edge"] === "rejected" && routed !== null) unexpected.push(descriptor.id);
   }
   t.diagnostic(JSON.stringify({ declaredForwardWithoutRoute: missing, declaredRejectedWithRoute: unexpected }));
   assert.deepEqual(missing, []);
   assert.deepEqual(unexpected, []);
 
-  for (const argv of [
+  // task list is answered from the edge replica: it routes to the edge, and the center wire no longer takes it.
+  const replicaList = parseThinCommand(
     ["task", "list", "--kind", "fix", "--parent", "task_one", "--limit", "500", "--depth", "all"],
+    root,
+  );
+  assert.equal(replicaList.ok, true);
+  if (replicaList.ok) {
+    const routed = await fleetTaskRoute(replicaList.command, env);
+    assert.ok(routed, "task list");
+    assert.throws(() =>
+      parseFleetFrame({
+        schema: "fleet.repository.read/v1",
+        messageId: "read",
+        repoId: "route-repo",
+        accessToken: null,
+        method: "repo.task.read",
+        payload: routed.action,
+      }),
+    );
+  }
+  for (const argv of [
     ["task", "show", "task_one"],
     ["work", "list", "--all", "--limit", "500"],
     ["work", "show", "task_one"],
