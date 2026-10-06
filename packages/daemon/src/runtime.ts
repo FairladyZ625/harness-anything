@@ -83,6 +83,7 @@ export async function startDaemon(input: {
     socketBound = false,
     stopping = false;
   const runtimeProcessPids = new Map<string, number>();
+  const executionPrincipals = new Map<string, Awaited<ReturnType<typeof authenticateRuntimeExecutionCredential>>>();
   const buildDrainStatus = (): DaemonBuildDrainStatus => {
     const repos = host?.status().repos ?? [];
     return {
@@ -176,8 +177,20 @@ export async function startDaemon(input: {
           buildObserver,
           authContext: { ...authContext, connectionSignal: signal },
           executionPrincipal: async (credential, method, params) => {
-            const center = { ...(await oidc.center()), clientId: "harness-center" },
+            let principal;
+            try {
+              const center = { ...(await oidc.center()), clientId: "harness-center" };
               principal = await authenticateRuntimeExecutionCredential(center, credential);
+              executionPrincipals.set(credential, principal);
+            } catch (error) {
+              const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+              const cached = executionPrincipals.get(credential);
+              if (code !== "rbac_not_configured" || !cached || Date.parse(cached.expiresAt) <= Date.now()) {
+                consumeKnownError(error);
+                throw error;
+              }
+              principal = cached;
+            }
             requireExecutionRequestScope(principal, method, params);
             return principal;
           },

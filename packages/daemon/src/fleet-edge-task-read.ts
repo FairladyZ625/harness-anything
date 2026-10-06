@@ -389,11 +389,10 @@ function authorizeLocalRead(
 ): Record<string, unknown> | null {
   const expected = edgeReadAuthorizationShapeDigest({ repoId: input.repoId, owner: meta.authorizationOwner });
   if (
-    meta.authorizationShapeDigest !== "" &&
-    (meta.authorizationOwner === null ||
-      input.principalId === undefined ||
-      input.principalId !== meta.authorizationOwner ||
-      meta.authorizationShapeDigest !== expected)
+    meta.authorizationOwner === null ||
+    input.principalId === undefined ||
+    input.principalId !== meta.authorizationOwner ||
+    meta.authorizationShapeDigest !== expected
   )
     return {
       schema: "command-receipt/v2",

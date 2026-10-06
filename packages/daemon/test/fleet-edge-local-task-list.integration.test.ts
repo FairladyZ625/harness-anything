@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -57,6 +57,19 @@ test(
       },
     );
     assert.equal(nonOwner.code, "authorization_denied", JSON.stringify(nonOwner));
+    const currentPath = path.join(locateFleetMirrorView(viewRoot, "lease-repo")!.viewDir, "current.json");
+    const currentWithoutAuthorization = JSON.parse(readFileSync(currentPath, "utf8")) as Record<string, unknown>;
+    delete currentWithoutAuthorization.authorizationOwner;
+    delete currentWithoutAuthorization.authorizationShapeDigest;
+    writeFileSync(currentPath, JSON.stringify(currentWithoutAuthorization));
+    const missingAuthorization = await answerEdgeTaskList(
+      { viewRoot, repoId: "lease-repo", principalId: "person-one", action: { kind: "task-list" } },
+      async () => {
+        throw new Error("a view without authorization metadata must not pull");
+      },
+    );
+    assert.equal(missingAuthorization.code, "authorization_denied", JSON.stringify(missingAuthorization));
+    await pull();
     pulls = 0;
     for (const action of [
       { kind: "task-list" },

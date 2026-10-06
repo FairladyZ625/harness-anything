@@ -57,6 +57,7 @@ export interface JsonRpcProtocolServer {
   ) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>;
   readonly close: () => void;
 }
+const edgeExecutionPrincipals = new Map<string, string>();
 interface ObservedRequest {
   readonly repoId: string;
   readonly command: string;
@@ -457,13 +458,30 @@ export function createJsonRpcProtocolServer(options: {
             throw Object.assign(new Error("Fleet runtime envelope must carry one closed runtime method and payload."), {
               code: "invalid_field",
             });
-          return reply(
-            method,
-            await options.host.fleet.edgeRuntime(
-              { ...fleetPayload, method: fleetAction.method, action: fleetAction.payload },
-              options.authContext,
-            ),
+          const result = await options.host.fleet.edgeRuntime(
+            { ...fleetPayload, method: fleetAction.method, action: fleetAction.payload },
+            options.authContext,
           );
+          const personId =
+            options.authContext.oidcPrincipal?.personId ?? (await options.sessionPrincipal?.())?.personId;
+          const credential =
+            isJsonObject(result) && typeof result.executionCredential === "string"
+              ? result.executionCredential
+              : isJsonObject(result) &&
+                  isJsonObject(result.receipt) &&
+                  typeof result.receipt.executionCredential === "string"
+                ? result.receipt.executionCredential
+                : undefined;
+          const issuedPersonId =
+            isJsonObject(result) && typeof result.executionPrincipalId === "string"
+              ? result.executionPrincipalId
+              : isJsonObject(result) &&
+                  isJsonObject(result.receipt) &&
+                  typeof result.receipt.executionPrincipalId === "string"
+                ? result.receipt.executionPrincipalId
+                : personId;
+          if (issuedPersonId && credential) edgeExecutionPrincipals.set(credential, issuedPersonId);
+          return reply(method, result);
         }
         if (isJsonObject(fleetAction) && fleetAction.kind === "fleet-schedule") {
           if (!isJsonObject(fleetAction.payload))
@@ -479,10 +497,32 @@ export function createJsonRpcProtocolServer(options: {
           );
         }
         const { runFleetEdgeTask } = await import("../fleet-edge-task.ts");
-        const relayedExecutionPrincipal =
-          executionCredential !== undefined && options.executionPrincipal
-            ? await options.executionPrincipal(executionCredential, method, params as JsonObject)
-            : undefined;
+        let relayedExecutionPrincipal;
+        if (executionCredential !== undefined && options.executionPrincipal) {
+          let sessionPersonId = options.authContext.oidcPrincipal?.personId;
+          if (!sessionPersonId && options.sessionPrincipal) {
+            try {
+              sessionPersonId = (await options.sessionPrincipal())?.personId;
+            } catch (error) {
+              consumeKnownError(error);
+            }
+          }
+          if (sessionPersonId) edgeExecutionPrincipals.set(executionCredential, sessionPersonId);
+          try {
+            relayedExecutionPrincipal = await options.executionPrincipal(
+              executionCredential,
+              method,
+              params as JsonObject,
+            );
+          } catch (error) {
+            const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+            if (code !== "rbac_not_configured" || !edgeExecutionPrincipals.has(executionCredential)) {
+              consumeKnownError(error);
+              throw error;
+            }
+          }
+        }
+        const cachedEdgePersonId = executionCredential ? edgeExecutionPrincipals.get(executionCredential) : undefined;
         return reply(
           method,
           await runFleetEdgeTask(
@@ -494,9 +534,11 @@ export function createJsonRpcProtocolServer(options: {
                   ? { principalId: options.authContext.executionPrincipal.personId }
                   : relayedExecutionPrincipal
                     ? { principalId: relayedExecutionPrincipal.personId }
-                    : !executionCredential && options.authContext.oidcPrincipal
-                      ? { principalId: options.authContext.oidcPrincipal.personId }
-                      : {}),
+                    : cachedEdgePersonId
+                      ? { principalId: cachedEdgePersonId }
+                      : !executionCredential && options.authContext.oidcPrincipal
+                        ? { principalId: options.authContext.oidcPrincipal.personId }
+                        : {}),
                 // The two non-task discriminants return above; the remainder is FleetTaskAction.
                 action: fleetAction as DaemonFleetTaskAction,
               },

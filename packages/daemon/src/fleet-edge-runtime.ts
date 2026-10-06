@@ -324,7 +324,7 @@ export function openFleetEdgeRuntime(input: {
           ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
           ...(draft.dispatchContext === undefined ? {} : { dispatchContext: draft.dispatchContext }),
         });
-        const { executionCredential, executionExpiresAt, ...receipt } = response.receipt;
+        const { executionCredential, executionExpiresAt } = response.receipt;
         if (
           typeof executionCredential === "string" &&
           typeof executionExpiresAt === "string" &&
@@ -334,7 +334,7 @@ export function openFleetEdgeRuntime(input: {
             credential: executionCredential,
             expiresAt: executionExpiresAt,
           });
-        return { event: response.event as unknown as AgentRuntimeEventV1, receipt: receipt as JsonObject };
+        return { event: response.event as unknown as AgentRuntimeEventV1, receipt: response.receipt as JsonObject };
       },
       archive: async (archive) =>
         (await runFleetRuntimeArchiveClient({

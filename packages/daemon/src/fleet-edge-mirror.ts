@@ -227,8 +227,8 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
       current = fleetMirrorReadJson<{
         cut: { revision: number; headDigest: string };
         manifestDigest: string;
-        authorizationOwner?: string | null;
-        authorizationShapeDigest?: string;
+        authorizationOwner: string | null;
+        authorizationShapeDigest: string;
       }>(path.join(viewDir, "current.json"));
     if (current === null) continue;
     const manifest = fleetMirrorCutEntries(viewDir, current.cut.revision);
@@ -240,8 +240,8 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
       revision: current.cut.revision,
       headDigest: current.cut.headDigest,
       manifestDigest: current.manifestDigest,
-      authorizationOwner: current.authorizationOwner ?? null,
-      authorizationShapeDigest: current.authorizationShapeDigest ?? "",
+      authorizationOwner: current.authorizationOwner,
+      authorizationShapeDigest: current.authorizationShapeDigest,
       entries: manifest,
     };
     if (best === null || view.revision > best.revision) best = view;
