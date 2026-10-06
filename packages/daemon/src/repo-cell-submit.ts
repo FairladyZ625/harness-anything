@@ -240,9 +240,10 @@ export function deriveCloseoutSubmission(
     baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined,
     defaultBranch = repositoryBaseRef(root),
     mergeBase = defaultBranch ? git.run(root, ["merge-base", defaultBranch, commitSha]) : { ok: false, stdout: "" },
-    // No new work: an inferred delivery commit at or behind the start-frozen baseline never moved
-    // past where the project already was when the execution started. An explicitly requested commit
-    // stays the operator's own cut assertion and keeps the fork-point manifest rule (F-70FB11C4).
+    // No new work: an inferred delivery commit at or behind the frozen baseline never moved past
+    // where its delivery began — the branch's fork for a bound task, where the project HEAD sat at
+    // start otherwise. An explicitly requested commit stays the operator's own cut assertion and
+    // keeps the fork-point manifest rule (F-70FB11C4).
     unchanged =
       baseline?.kind === "commit"
         ? baseline.commitSha === commitSha ||

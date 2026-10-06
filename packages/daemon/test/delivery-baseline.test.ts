@@ -67,3 +67,54 @@ test("a path outside any repository fails closed", (t) => {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   assert.throws(() => observeDeliveryBaseline(root), /project Git repository/u);
 });
+
+test("a delivery branch freezes its fork point, not the advanced default branch", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-fork-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  init(root);
+  writeFileSync(path.join(root, "a.txt"), "a\n");
+  const fork = commitAll(root);
+  git(root, "checkout", "-qb", "task-fork");
+  writeFileSync(path.join(root, "delivery.txt"), "delivery\n");
+  commitAll(root);
+  git(root, "checkout", "-q", "main");
+  writeFileSync(path.join(root, "b.txt"), "b\n");
+  const advanced = commitAll(root);
+  assert.deepEqual(observeDeliveryBaseline(root, "task-fork"), { kind: "commit", commitSha: fork });
+  assert.notEqual(advanced, fork);
+});
+
+test("a delivery branch without its own commits freezes the branch tip it was cut at", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-cut-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  init(root);
+  writeFileSync(path.join(root, "a.txt"), "a\n");
+  const cut = commitAll(root);
+  git(root, "branch", "task-idle");
+  writeFileSync(path.join(root, "b.txt"), "b\n");
+  commitAll(root);
+  assert.deepEqual(observeDeliveryBaseline(root, "task-idle"), { kind: "commit", commitSha: cut });
+});
+
+test("a missing or option-shaped delivery branch falls back to the project HEAD", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-absent-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  init(root);
+  writeFileSync(path.join(root, "a.txt"), "a\n");
+  const head = commitAll(root);
+  assert.deepEqual(observeDeliveryBaseline(root, "task-absent"), { kind: "commit", commitSha: head });
+  assert.deepEqual(observeDeliveryBaseline(root, "--upload-pack=evil"), { kind: "commit", commitSha: head });
+});
+
+test("a detached main checkout has no fork anchor, so a delivery branch falls back to HEAD", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-detached-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  init(root);
+  writeFileSync(path.join(root, "a.txt"), "a\n");
+  const base = commitAll(root);
+  git(root, "checkout", "-q", "-b", "task-anchorless");
+  writeFileSync(path.join(root, "delivery.txt"), "delivery\n");
+  commitAll(root);
+  git(root, "checkout", "-q", "--detach", "main");
+  assert.deepEqual(observeDeliveryBaseline(root, "task-anchorless"), { kind: "commit", commitSha: base });
+});
