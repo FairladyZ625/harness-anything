@@ -83,6 +83,21 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     assert.match(explainer, /AUTHORING GUIDE[\s\S]*four scenarios change only this chapter's diagram/u);
     assert.match(explainer, /max-width:none/u);
     assert.doesNotMatch(explainer, /max-width:72rem/u);
+    for (const className of [
+      "hero-subtitle",
+      "measure-note",
+      "metric-grid",
+      "chapter-head",
+      "group",
+      "node-existing",
+      "node-new",
+      "node-removed",
+      "node-external",
+      "connector",
+      "legend",
+      "source-note",
+    ])
+      assert.match(explainer, new RegExp(`class=\\"[^\\"]*${className}`), `expected visual kit class: ${className}`);
     for (const rule of ["#conclusion:", "#objectives:", "#structure:", "#evidence:", "#next-steps:"])
       assert.ok(explainer.includes(rule), `expected chapter-specific template instructions: ${rule}`);
     assert.ok(
