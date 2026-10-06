@@ -78,7 +78,7 @@ export function createRelationGraphProjectionTables(db: DatabaseSync): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS relation_edge (relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL,
       state TEXT NOT NULL, target_observed_version, owner_ref TEXT NOT NULL,
-      workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL);
+      workspace_revision INTEGER NOT NULL, updated_at TEXT NOT NULL, row_json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS relation_edge_source ON relation_edge(source_ref, state);
     CREATE INDEX IF NOT EXISTS relation_edge_target ON relation_edge(target_ref, state);
     CREATE INDEX IF NOT EXISTS relation_edge_type_target ON relation_edge(relation_type, target_ref, state);

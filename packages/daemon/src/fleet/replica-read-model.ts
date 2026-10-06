@@ -2,38 +2,55 @@ import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
+  applyEdgeReadModelEntry,
+  canonicalJson,
+  classifyTextualArtifactPath,
   consumeKnownError,
-  deleteTaskReadModelRow,
-  parseTaskReadModelMeta,
+  createEdgeReadModelTables,
+  docByteLength,
+  deleteEdgeReadModelEntry,
+  DOC_POLICY_ID,
+  INITIAL_SETTINGS_V1,
+  isReadModelPath,
+  parseEdgeReadModelMeta,
+  RAW_ARTIFACT_MEDIA_TYPE,
+  RAW_ARTIFACT_POLICY_ID,
+  READ_MODEL_META_PATH,
+  repositorySettings,
+  SETTINGS_ID,
   sha256Bytes,
-  TASK_INDEX_TABLES_SQL,
-  TASK_READ_MODEL_META_PATH,
-  TASK_READ_MODEL_PREFIX,
-  upsertTaskReadModelRow,
+  type DocumentState,
+  type EdgeReadModelMeta,
+  type EdgeReadModelRows,
+  type RepositorySettingsV1,
   type TaskProjectionQueries,
-  type TaskReadModelMeta,
-  type TaskReadModelRow,
 } from "@harness-anything/kernel";
 import { writeFileDurably } from "../durable-file.ts";
 import type { FleetMirrorView } from "../fleet-edge-mirror.ts";
-import { projectedTaskSettings, resolveTaskRootThreshold } from "../task-wip-settings.ts";
+import { resolveTaskRootThreshold } from "../task-wip-settings.ts";
 
-/** The edge view's materialized task read model and its last center head confirmation, beside current.json. */
-const TASKS_READ_MODEL_FILE = "tasks-read-model.sqlite";
+/** The edge view's materialized read model and its last center head confirmation, beside current.json. */
+const READ_MODEL_FILE = "read-model.sqlite";
 const HEAD_CONFIRMATION_FILE = "head-confirmation.json";
 const READ_DENIED_FILE = "read-denied.json";
 
-/** The center side: what one cut publishes for the edge task read model. */
-export function centerTaskReadModel(projection: TaskProjectionQueries): {
+/** The center side: what one cut publishes for the edge read model. */
+export function centerEdgeReadModel(projection: TaskProjectionQueries): {
   readonly sourceRevision: number;
   readonly rootThreshold: number;
-  readonly rows: readonly TaskReadModelRow[];
+  readonly rows: EdgeReadModelRows;
 } | null {
-  const read = projection.readTaskReadModel();
+  const read = projection.readEdgeReadModel();
   if (read.status !== "ready") return null;
+  const projected = read.rows.entities.find(
+    (row) => row.entityKind === "settings" && row.entityId === SETTINGS_ID,
+  )?.valueJson;
+  const settings = repositorySettings(
+    projected === undefined ? INITIAL_SETTINGS_V1 : (JSON.parse(projected) as RepositorySettingsV1),
+  );
   return {
     sourceRevision: read.sourceRevision,
-    rootThreshold: resolveTaskRootThreshold(projectedTaskSettings(projection)).threshold,
+    rootThreshold: resolveTaskRootThreshold({ tasks: settings.tasks }).threshold,
     rows: read.rows,
   };
 }
@@ -55,7 +72,7 @@ export function recordHeadConfirmation(viewDir: string, headRevision: number, co
  */
 export function recordReadDenied(viewDir: string, deniedAt = Date.now()): void {
   writeFileDurably(path.join(viewDir, READ_DENIED_FILE), JSON.stringify({ deniedAt }));
-  rmSync(path.join(viewDir, TASKS_READ_MODEL_FILE), { force: true });
+  rmSync(path.join(viewDir, READ_MODEL_FILE), { force: true });
 }
 
 export function isReadDenied(viewDir: string): boolean {
@@ -72,19 +89,20 @@ export function readHeadConfirmation(viewDir: string): HeadConfirmation | null {
   }
 }
 
-export interface EdgeTaskReadModel {
+export interface EdgeReadModel {
   readonly db: DatabaseSync;
-  readonly meta: TaskReadModelMeta;
+  readonly meta: EdgeReadModelMeta;
 }
 
 /**
- * Opens the view's task read model synchronized to its current cut. The SQLite file is a cache of the
- * cut's published rows: it is brought up to the cut by row-blob difference from the verified local CAS,
- * and any damage is repaired by deleting it and rebuilding from the same CAS. Null means the current cut
- * carries no task read model (or its bytes are missing locally), which only a pull can fix.
+ * Opens the view's read model synchronized to its current cut. The SQLite file is a cache of the
+ * cut's published rows: it is brought up to the cut by row-blob difference from the verified local
+ * CAS — read-model row files into their tables, ledger document entries into the document table —
+ * and any damage is repaired by deleting it and rebuilding from the same CAS. Null means the
+ * current cut carries no read model (or its bytes are missing locally), which only a pull can fix.
  */
-export function openEdgeTaskReadModel(view: FleetMirrorView, casRoot: string): EdgeTaskReadModel | null {
-  const file = path.join(view.viewDir, TASKS_READ_MODEL_FILE);
+export function openEdgeReadModel(view: FleetMirrorView, casRoot: string): EdgeReadModel | null {
+  const file = path.join(view.viewDir, READ_MODEL_FILE);
   try {
     return synchronize(file, view, casRoot);
   } catch (error) {
@@ -101,55 +119,77 @@ export function openEdgeTaskReadModel(view: FleetMirrorView, casRoot: string): E
   }
 }
 
-function synchronize(file: string, view: FleetMirrorView, casRoot: string): EdgeTaskReadModel | null {
-  const metaBlob = view.entries.get(TASK_READ_MODEL_META_PATH);
+function synchronize(file: string, view: FleetMirrorView, casRoot: string): EdgeReadModel | null {
+  const metaBlob = view.entries.get(READ_MODEL_META_PATH);
   if (!metaBlob) return null;
   const blob = (sha256: string) => {
     const bytes = readFileSync(path.join(casRoot, sha256.slice(0, 2), sha256));
-    if (sha256Bytes(bytes) !== sha256) throw new Error(`task read model blob ${sha256} is corrupt`);
-    return bytes.toString("utf8");
+    if (sha256Bytes(bytes) !== sha256) throw new Error(`read model blob ${sha256} is corrupt`);
+    return bytes;
   };
-  const meta = parseTaskReadModelMeta(blob(metaBlob.sha256));
+  const meta = parseEdgeReadModelMeta(blob(metaBlob.sha256).toString("utf8"));
   const db = new DatabaseSync(file);
   try {
     db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
+    createEdgeReadModelTables(db);
     db.exec(
-      `${TASK_INDEX_TABLES_SQL}
-      CREATE TABLE IF NOT EXISTS read_model_row (task_id TEXT PRIMARY KEY, blob_sha256 TEXT NOT NULL);
+      `CREATE TABLE IF NOT EXISTS read_model_row (entry_path TEXT PRIMARY KEY, blob_sha256 TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS read_model_cut (id INTEGER PRIMARY KEY CHECK(id = 1), manifest_digest TEXT NOT NULL);`,
     );
     const synced = db.prepare("SELECT manifest_digest FROM read_model_cut WHERE id = 1").get() as
       | { readonly manifest_digest: string }
       | undefined;
     if (synced?.manifest_digest !== view.manifestDigest) {
-      const published = new Map(
-          [...view.entries]
-            .filter(([entryPath]) => entryPath.startsWith(TASK_READ_MODEL_PREFIX))
-            .map(([entryPath, entry]) => [
-              entryPath.slice(TASK_READ_MODEL_PREFIX.length, -".json".length),
-              entry.sha256,
-            ]),
+      const loaded = new Map(
+        (
+          db.prepare("SELECT entry_path, blob_sha256 FROM read_model_row").all() as unknown as readonly {
+            readonly entry_path: string;
+            readonly blob_sha256: string;
+          }[]
+        ).map((row) => [row.entry_path, row.blob_sha256]),
+      );
+      const upsertRow = db.prepare("INSERT OR REPLACE INTO read_model_row(entry_path, blob_sha256) VALUES (?, ?)"),
+        forgetRow = db.prepare("DELETE FROM read_model_row WHERE entry_path = ?"),
+        upsertDocument = db.prepare(
+          "INSERT OR REPLACE INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
         ),
-        loaded = new Map(
-          (
-            db.prepare("SELECT task_id, blob_sha256 FROM read_model_row").all() as unknown as readonly {
-              readonly task_id: string;
-              readonly blob_sha256: string;
-            }[]
-          ).map((row) => [row.task_id, row.blob_sha256]),
-        );
+        forgetDocument = db.prepare("DELETE FROM document WHERE path = ?");
       db.exec("BEGIN IMMEDIATE");
       try {
-        for (const [taskId, sha256] of published)
-          if (loaded.get(taskId) !== sha256) {
-            if (upsertTaskReadModelRow(db, blob(sha256)) !== taskId)
-              throw new Error("task read model row path mismatch");
-            db.prepare("INSERT OR REPLACE INTO read_model_row(task_id, blob_sha256) VALUES (?, ?)").run(taskId, sha256);
+        for (const [entryPath, entry] of view.entries)
+          if (entryPath !== READ_MODEL_META_PATH) {
+            if (loaded.get(entryPath) === entry.sha256) continue;
+            if (isReadModelPath(entryPath)) applyEdgeReadModelEntry(db, entryPath, blob(entry.sha256).toString("utf8"));
+            else {
+              // Ledger documents ride the cut as content entries; their projected DocumentState is
+              // rebuilt here from the same bytes the mirror materializes, so decision and closeout
+              // reads resolve bodies exactly as the center's own queries do.
+              // An artifact's bytes decided text versus raw when the center wrote it; the cut carries
+              // that verdict as the entry's media type, so the path alone cannot re-decide it here.
+              const policyId =
+                entry.mediaType === RAW_ARTIFACT_MEDIA_TYPE
+                  ? RAW_ARTIFACT_POLICY_ID
+                  : (classifyTextualArtifactPath(entryPath)?.policyId ?? DOC_POLICY_ID);
+              const bytes = blob(entry.sha256),
+                state: DocumentState = {
+                  path: entryPath as DocumentState["path"],
+                  blobSha256: entry.sha256,
+                  body:
+                    policyId === RAW_ARTIFACT_POLICY_ID ? "" : new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+                  size: docByteLength(entry.size),
+                  mediaType: entry.mediaType,
+                  policyId,
+                  workspaceRevision: view.revision,
+                };
+              upsertDocument.run(entryPath, view.revision, canonicalJson(state));
+            }
+            upsertRow.run(entryPath, entry.sha256);
           }
-        for (const taskId of loaded.keys())
-          if (!published.has(taskId)) {
-            deleteTaskReadModelRow(db, taskId);
-            db.prepare("DELETE FROM read_model_row WHERE task_id = ?").run(taskId);
+        for (const entryPath of loaded.keys())
+          if (!view.entries.has(entryPath)) {
+            if (isReadModelPath(entryPath)) deleteEdgeReadModelEntry(db, entryPath);
+            else forgetDocument.run(entryPath);
+            forgetRow.run(entryPath);
           }
         db.prepare("INSERT OR REPLACE INTO read_model_cut(id, manifest_digest) VALUES (1, ?)").run(view.manifestDigest);
         db.exec("COMMIT");

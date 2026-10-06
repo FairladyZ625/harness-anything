@@ -236,7 +236,7 @@ test(
       progress = (opId: string) => task(opId, { kind: "task-progress-append", text: opId });
     // While the node is registered the same three frames are answered.
     assert.equal(answer(await receipt("receipt-while-registered")), "fleet.receipt.result/v1");
-    assert.equal(answer(await task("show-while-registered", { kind: "task-show" })), "applied");
+    await assert.rejects(task("show-while-registered", { kind: "task-show" }), /closed schema/u);
     assert.equal(answer(await progress("progress-while-registered")), "applied");
     const before = fixture.eventCount();
 

@@ -5,4 +5,6 @@
 // Version 25 rebuilds Schedule run views without retired assignment authority evidence.
 // Version 26 retains canonical retired People audit documents in replica manifests without restoring authority.
 // Version 27 replays entity owned documents and retirements into the canonical document read model.
-export const taskProjectionSchemaVersion = 27;
+// Version 28 stores each relation_edge's own updated_at instead of joining event_index for it, so the
+// same relation page query runs unchanged on an edge replica that carries no event rows.
+export const taskProjectionSchemaVersion = 28;

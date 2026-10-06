@@ -248,9 +248,12 @@ test(
     for (const nodeId of ["node-one", "node-two"]) {
       const result = await runFleetRepositoryReadClient({ ...f.peer(nodeId), method: "repo.tasks.list", payload: {} });
       assert.equal(result.watermark, first.watermark);
-      const shown = await f.command(nodeId, { kind: "task-show", taskId: "task-read-052" });
-      assert.equal(shown.outcome, "applied");
-      // task list is answered from the edge replica; a forwarded task-list is not a fleet frame at all.
+      // task list and task show are answered from the edge replica; forwarding either is not a
+      // fleet frame at all anymore.
+      await assert.rejects(
+        f.command(nodeId, { kind: "task-show", taskId: "task-read-052" }),
+        /violates closed schema fleet\.task\.command\/v1/u,
+      );
       await assert.rejects(
         f.command(nodeId, { kind: "task-list", cursor: first.page.nextCursor }),
         /violates closed schema fleet\.task\.command\/v1/u,
@@ -352,7 +355,15 @@ test(
     assert.ok(updated.watermark > first.watermark);
     const changed = updated.rows.find((row) => row.taskId === "task-read-000")!;
     const detail = JSON.parse(
-      String((await f.command("node-one", { kind: "task-show", taskId: changed.taskId })).receipt?.evidence),
+      String(
+        (
+          await f.host.run(
+            "lease-repo",
+            { kind: "task-show", taskId: changed.taskId },
+            f.owners.auth({ nodeId: "node-one" }),
+          )
+        ).evidence,
+      ),
     );
     assert.equal(changed.snapshot.task.status, detail.task.status);
     const otherRoot = path.join(f.root, "other-repo");
@@ -457,9 +468,11 @@ test(
     );
     assert.equal(revokedCli.ok, false);
     assert.equal(revokedCli.code, "authorization_denied");
-    assert.equal(
-      (await f.command("node-two", { kind: "task-show", taskId: "task-read-000" })).code,
-      "authorization_denied",
+    // task-show no longer crosses the fleet channel at all; the edge's own answer is the one
+    // the revoked-cli assertion above already proves withheld.
+    await assert.rejects(
+      f.command("node-two", { kind: "task-show", taskId: "task-read-000" }),
+      /violates closed schema fleet\.task\.command\/v1/u,
     );
     f.owners.keycloak.permit("person-one", "lease-repo", ["repository-read"]);
     f.owners.keycloak.nodeClients.delete("harness-node-node-one");

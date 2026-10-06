@@ -23,6 +23,7 @@ import {
 } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
+import { centerEdgeReadModel } from "./fleet/replica-read-model.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -199,6 +200,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         readContentBlob: store.readContentBlob,
         readEvent: store.readEvent,
         readApplied: projection.readOperation,
+        readEdgeReadModel: () => centerEdgeReadModel(projection!),
       });
     return {
       store,

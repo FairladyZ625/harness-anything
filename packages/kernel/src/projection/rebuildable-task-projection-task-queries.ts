@@ -2,7 +2,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isTaskEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import { isAgentRuntimeEvent, type AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
-import { type TaskProgressEventV1 } from "../domain/task-progress-event.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import {
   readTaskDependencyClosureRows,
@@ -10,6 +9,7 @@ import {
   readTaskRelationNeighborhoodWindow,
   readTaskChildCounts,
   readTaskIndexRows,
+  readTaskProgressRows,
   readTaskRelationPage,
   readTaskRelationRows,
   readTaskRelationsBySources,
@@ -22,7 +22,7 @@ import {
 import type { RuntimeDispatchProjectionRow, TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
-import { readTaskReadModelRows } from "./read-model.ts";
+import { readEdgeReadModelRows } from "./read-model.ts";
 import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
 import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-reads.ts";
 import {
@@ -155,7 +155,7 @@ export function taskQueryApi(
   | "readTaskRelationNeighborhood"
   | "readTaskIndex"
   | "readTaskChildCounts"
-  | "readTaskReadModel"
+  | "readEdgeReadModel"
   | "readWorkspaceSummary"
   | "readTaskDependencyClosure"
   | "readTaskRelationsByTargets"
@@ -208,10 +208,10 @@ export function taskQueryApi(
         };
       });
     },
-    readTaskReadModel: () =>
+    readEdgeReadModel: () =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);
-        return { status: cut.status, sourceRevision: cut.sourceRevision, rows: readTaskReadModelRows(db) };
+        return { status: cut.status, sourceRevision: cut.sourceRevision, rows: readEdgeReadModelRows(db) };
       }),
     readTaskChildCounts: (parentTaskIds) =>
       withDatabase(projectionPath, readHead, (db) => readTaskChildCounts(db, parentTaskIds)),
@@ -556,15 +556,10 @@ export function taskQueryApi(
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, readHead, eventStore, digest, limit),
     readProgress: (taskId) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const cut = readProjectionCut(db, readHead),
-          rows = queryRows(
-            db,
-            "SELECT event_json FROM task_progress WHERE task_id = ? ORDER BY workspace_revision",
-            taskId,
-          );
+        const cut = readProjectionCut(db, readHead);
         return {
           status: cut.status,
-          rows: rows.map((row) => JSON.parse(String(row.event_json)) as TaskProgressEventV1),
+          rows: readTaskProgressRows(db, taskId),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

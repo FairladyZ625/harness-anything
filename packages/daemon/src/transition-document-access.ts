@@ -8,9 +8,9 @@ import {
   resolveHarnessLayout,
   sha256Text,
   transitionDocumentContract,
+  type EdgeReplicaQueries,
   type MarkdownDocumentContract,
   type TaskProjection,
-  type TaskProjectionQueries,
   type TransitionDocumentMissingSection,
 } from "@harness-anything/kernel";
 import { loadCanonicalAssets } from "@harness-anything/preset/internal/preset-assets";
@@ -108,7 +108,7 @@ function loadCatalogAssets(): CatalogSource | null {
  * projection that has not caught up counts as written so the reader reports it.
  */
 export function taskTransitionDocumentState(input: {
-  readonly projection: TaskProjectionQueries;
+  readonly projection: EdgeReplicaQueries;
   readonly taskId: string;
   readonly slot: TaskTransitionDocumentSlot;
 }):
@@ -129,7 +129,7 @@ export function taskTransitionDocumentState(input: {
 }
 
 function locateTaskTransitionDocument(input: {
-  readonly projection: TaskProjectionQueries;
+  readonly projection: EdgeReplicaQueries;
   readonly taskId: string;
   readonly slot: TaskTransitionDocumentSlot;
 }) {
@@ -179,7 +179,7 @@ function locateTaskTransitionDocument(input: {
 }
 
 export function readTaskTransitionDocument(input: {
-  readonly projection: TaskProjectionQueries;
+  readonly projection: EdgeReplicaQueries;
   readonly taskId: string;
   readonly slot: TaskTransitionDocumentSlot;
   readonly bodyOverrides?: ReadonlyMap<string, string>;

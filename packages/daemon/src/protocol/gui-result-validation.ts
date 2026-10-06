@@ -123,7 +123,7 @@ export const validateDaemonSettingsRead: ResultValidator = (value) =>
       ];
 const validateTaskRuntimeContextRead: ResultValidator = (value) =>
   isJsonObject(value) &&
-  Object.keys(value).length === 6 &&
+  Object.keys(value).length === 7 &&
   value.schema === "task-runtime-context-read/v1" &&
   value.ok === true &&
   typeof value.taskId === "string" &&
@@ -134,7 +134,8 @@ const validateTaskRuntimeContextRead: ResultValidator = (value) =>
     (isJsonObject(value.worktree) &&
       Object.keys(value.worktree).length === 2 &&
       typeof value.worktree.branch === "string" &&
-      typeof value.worktree.path === "string"))
+      typeof value.worktree.path === "string")) &&
+  isJsonObject(value.snapshot)
     ? []
     : [validationError("task-runtime-context", "result", value, "must be a valid task runtime context read")];
 const resultValidators = {

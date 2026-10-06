@@ -34,16 +34,29 @@ test(
     assert.equal(results.filter((r) => r.outcome === "applied").length, 1, JSON.stringify(results));
     assert.equal(results.filter((r) => r.code === "lease_conflict").length, 2, JSON.stringify(results));
     assert.equal(f.eventCount(), before + 1);
-    const shown = await f.command("node-one", { kind: "task-show", taskId: "task-race" });
-    const lease = JSON.parse(String(shown.receipt?.evidence)).lease;
+    // task-show is answered by the edge replica; a forwarded task-show is not a fleet frame at all.
+    await assert.rejects(
+      f.command("node-one", { kind: "task-show", taskId: "task-race" }),
+      /violates closed schema fleet\.task\.command\/v1/u,
+    );
+    const shown = await f.host.run(
+      "lease-repo",
+      { kind: "task-show", taskId: "task-race" },
+      f.owners.auth({ nodeId: "node-one" }),
+    );
+    const lease = JSON.parse(String(shown.evidence)).lease;
     assert.equal(lease.source.kind, "node");
     assert.ok(["node-one", "node-two", "center-node"].includes(lease.source.nodeId));
     await f.center.close();
     await f.closeHost(f.host);
     const host = await f.openHost();
-    const center = await f.openCenter(host);
-    const after = await f.commandOn(center, "node-one", { kind: "task-show", taskId: "task-race" });
-    assert.deepEqual(JSON.parse(String(after.receipt?.evidence)).lease, lease);
+    await f.openCenter(host);
+    const after = await host.run(
+      "lease-repo",
+      { kind: "task-show", taskId: "task-race" },
+      f.owners.auth({ nodeId: "node-one" }),
+    );
+    assert.deepEqual(JSON.parse(String(after.evidence)).lease, lease);
   },
 );
 
@@ -54,8 +67,12 @@ test(
     let clock = Date.now();
     const f = await fleetNodeClaimFixture(t, undefined, undefined, () => new Date(clock).toISOString());
     await f.command("node-one", { kind: "task-create", taskId: "task-node", title: "Node" });
-    const shown = await f.command("node-one", { kind: "task-show", taskId: "task-node" });
-    const snapshot = JSON.parse(String(shown.receipt?.evidence));
+    const shown = await f.host.run(
+      "lease-repo",
+      { kind: "task-show", taskId: "task-node" },
+      f.owners.auth({ nodeId: "node-one" }),
+    );
+    const snapshot = JSON.parse(String(shown.evidence));
     const assigned = await f.command("node-one", {
       kind: "task-assign",
       taskId: "task-node",
@@ -70,7 +87,15 @@ test(
     assert.equal(deniedRelease.code, "lease_conflict", JSON.stringify(deniedRelease));
     assert.equal((await f.command("node-one", { kind: "task-release", taskId: "task-node" })).outcome, "applied");
     const released = JSON.parse(
-      String((await f.command("node-one", { kind: "task-show", taskId: "task-node" })).receipt?.evidence),
+      String(
+        (
+          await f.host.run(
+            "lease-repo",
+            { kind: "task-show", taskId: "task-node" },
+            f.owners.auth({ nodeId: "node-one" }),
+          )
+        ).evidence,
+      ),
     );
     assert.equal(released.task.assignment.assignee.nodeId, "node-one");
     f.owners.reassign("node-one", "person-new");
@@ -80,7 +105,15 @@ test(
     );
     await f.command("node-two", { kind: "task-create", taskId: "task-expired", title: "Expired selector" });
     const unassigned = JSON.parse(
-      String((await f.command("node-two", { kind: "task-show", taskId: "task-expired" })).receipt?.evidence),
+      String(
+        (
+          await f.host.run(
+            "lease-repo",
+            { kind: "task-show", taskId: "task-expired" },
+            f.owners.auth({ nodeId: "node-two" }),
+          )
+        ).evidence,
+      ),
     );
     const expiry = new Date(clock + 10000).toISOString();
     const expired = await f.command("node-two", {
@@ -95,7 +128,15 @@ test(
     const next = await f.command("node-two", { kind: "task-start", taskId: "task-expired" });
     assert.equal(next.outcome, "applied", JSON.stringify(next));
     const taken = JSON.parse(
-      String((await f.command("node-two", { kind: "task-show", taskId: "task-expired" })).receipt?.evidence),
+      String(
+        (
+          await f.host.run(
+            "lease-repo",
+            { kind: "task-show", taskId: "task-expired" },
+            f.owners.auth({ nodeId: "node-two" }),
+          )
+        ).evidence,
+      ),
     );
     assert.equal(taken.lease.source.nodeId, "node-two");
     assert.equal(taken.task.assignment.expiresAt, expiry);
@@ -212,7 +253,15 @@ test(
         docChanges: [doc],
       });
     const shown = JSON.parse(
-      String((await f.command("node-one", { kind: "task-show", taskId: "task-bundle" })).receipt?.evidence),
+      String(
+        (
+          await f.host.run(
+            "lease-repo",
+            { kind: "task-show", taskId: "task-bundle" },
+            f.owners.auth({ nodeId: "node-one" }),
+          )
+        ).evidence,
+      ),
     );
     assert.equal(
       (
@@ -232,7 +281,15 @@ test(
     assert.equal((await submit("node-one", await prepare("node-one", otherLogical))).code, "execution_scope_mismatch");
     assert.equal(f.eventCount(), before);
     const assigned = JSON.parse(
-      String((await f.command("node-one", { kind: "task-show", taskId: "task-bundle" })).receipt?.evidence),
+      String(
+        (
+          await f.host.run(
+            "lease-repo",
+            { kind: "task-show", taskId: "task-bundle" },
+            f.owners.auth({ nodeId: "node-one" }),
+          )
+        ).evidence,
+      ),
     );
     assert.equal(
       (
@@ -253,7 +310,15 @@ test(
     await f.host.settleMaterialization("lease-repo", "bundle race published");
     const body = readFileSync(path.join(f.repo, "harness", logical), "utf8");
     const winner = JSON.parse(
-      String((await f.command("node-one", { kind: "task-show", taskId: "task-bundle" })).receipt?.evidence),
+      String(
+        (
+          await f.host.run(
+            "lease-repo",
+            { kind: "task-show", taskId: "task-bundle" },
+            f.owners.auth({ nodeId: "node-one" }),
+          )
+        ).evidence,
+      ),
     );
     assert.ok(body.includes("## Node candidate\n\n" + winner.lease.source.nodeId + "\n"));
     assert.equal((body.match(/## Node candidate/g) ?? []).length, 1);
@@ -277,7 +342,15 @@ test(
     await adapter.setTeamMember("center-token", team.id, member, true);
     await f.command("node-one", { kind: "task-create", taskId: "task-team", title: "Team" });
     const snapshot = JSON.parse(
-      String((await f.command("node-one", { kind: "task-show", taskId: "task-team" })).receipt?.evidence),
+      String(
+        (
+          await f.host.run(
+            "lease-repo",
+            { kind: "task-show", taskId: "task-team" },
+            f.owners.auth({ nodeId: "node-one" }),
+          )
+        ).evidence,
+      ),
     );
     assert.equal(
       (

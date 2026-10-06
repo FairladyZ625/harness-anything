@@ -108,11 +108,11 @@ export interface TaskProjection {
     query?: TaskProjectionListQuery,
   ) => import("./projection-reads.ts").TaskIndexProjectionRead & { readonly page: ProjectionPage | null };
   readonly readTaskChildCounts: (parentTaskIds: readonly string[]) => Readonly<Record<string, number>>;
-  /** The raw task index rows an edge read model replicates, with the projection revision they describe. */
-  readonly readTaskReadModel: () => {
+  /** The raw rows an edge read model replicates, with the projection revision they describe. */
+  readonly readEdgeReadModel: () => {
     readonly status: "ready" | "pending";
     readonly sourceRevision: number;
-    readonly rows: readonly import("./read-model.ts").TaskReadModelRow[];
+    readonly rows: import("./read-model.ts").EdgeReadModelRows;
   };
   readonly readWorkspaceSummary: () => WorkspaceSummaryProjectionRead;
   readonly readTaskRelations: () => TaskRelationProjectionRead;

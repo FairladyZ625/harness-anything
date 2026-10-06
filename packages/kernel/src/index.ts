@@ -271,18 +271,20 @@ export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
 export type { ProjectionWarning, TaskProjectionRow } from "./projection/types.ts";
 export {
-  TASK_INDEX_TABLES_SQL,
-  TASK_READ_MODEL_META_PATH,
-  TASK_READ_MODEL_PREFIX,
-  deleteTaskReadModelRow,
+  applyEdgeReadModelEntry,
+  createEdgeReadModelTables,
+  deleteEdgeReadModelEntry,
+  edgeReadModelEntries,
   isReadModelPath,
-  parseTaskReadModelMeta,
-  serializeTaskReadModelMeta,
-  serializeTaskReadModelRow,
-  taskReadModelPath,
-  upsertTaskReadModelRow,
+  parseEdgeReadModelMeta,
+  READ_MODEL_META_PATH,
 } from "./projection/read-model.ts";
-export type { TaskReadModelMeta, TaskReadModelRow } from "./projection/read-model.ts";
+export type { EdgeReadModelMeta, EdgeReadModelRows } from "./projection/read-model.ts";
+export { canonicalJson } from "./projection/rebuildable-task-projection-sql.ts";
+export { makeEdgeReplicaQueries, type EdgeReplicaQueries } from "./projection/edge-replica-queries.ts";
+export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
+export { docByteLength } from "./domain/doc-sync-codec.ts";
+export type { DocumentState } from "./domain/doc-sync-types.ts";
 export { readTaskChildCounts, readTaskIndexRows } from "./projection/task-query-projection.ts";
 export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
 export type { TemplateCatalog, TemplateSelection } from "./schemas/registry.ts";

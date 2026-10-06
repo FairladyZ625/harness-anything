@@ -55,7 +55,9 @@ export function resolveTaskRootThreshold(
   return { threshold: settings.tasks.rootThreshold, label: TASK_ROOT_THRESHOLD_SETTING };
 }
 
-export function projectedTaskSettings(projection: TaskProjectionQueries): RepositorySettingsV1 & TaskSettings {
+export function projectedTaskSettings(
+  projection: Pick<TaskProjectionQueries, "getEntity">,
+): RepositorySettingsV1 & TaskSettings {
   const projected = projection.getEntity("settings", SETTINGS_ID)?.value;
   return repositorySettings(
     projected === undefined ? INITIAL_SETTINGS_V1 : (projected as unknown as RepositorySettingsV1),

@@ -8,8 +8,8 @@ import {
   type CompletionReadinessContext,
   type FactRetirementAssessment,
   type FactStillHoldsAttestation,
+  type EdgeReplicaQueries,
   type TaskLifecycleSnapshot,
-  type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { readTaskTransitionDocument, taskTransitionDocumentState } from "./transition-document-access.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
@@ -18,7 +18,7 @@ import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(
-  projection: TaskProjectionQueries,
+  projection: EdgeReplicaQueries,
   taskId: string,
   snapshot: TaskLifecycleSnapshot,
   status: "ready" | "pending",
@@ -87,7 +87,7 @@ export function readCompletionContext(
 }
 
 export function factRetirementAssessment(
-  projection: TaskProjectionQueries,
+  projection: EdgeReplicaQueries,
   taskId: string,
   stillHoldsAttestations: readonly FactStillHoldsAttestation[],
 ): FactRetirementAssessment {
@@ -174,7 +174,7 @@ export function factRetirementAssessment(
   });
 }
 
-export function readTaskCompletion(projection: TaskProjectionQueries, taskId: string): DaemonTaskCompletionResult {
+export function readTaskCompletion(projection: EdgeReplicaQueries, taskId: string): DaemonTaskCompletionResult {
   // The same judgment task show, task dispatches, task read-set, task review and the task document
   // reads consult: a lagging cut is not an answer about this task, and a current cut without it is a
   // not-found naming the id — never an ok-shaped completion for a task that does not exist.

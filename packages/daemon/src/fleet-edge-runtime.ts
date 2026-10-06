@@ -14,7 +14,6 @@ import {
   type EntityStore,
   type ScheduleV1,
   type TaskWorktreeBindingV1,
-  type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel";
 import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { resolveSquadDispatch } from "./agent-entities.ts";
@@ -194,17 +193,18 @@ export function openFleetEdgeRuntime(input: {
           : null;
       },
       taskContext: async (taskId, missionName, review) => {
-        const shown = await runFleetTaskCommandClient({
-          ...peer,
-          opId: `context_${Date.now()}`,
+        // Lease and reviewer ownership come only from the center response, never this replica.
+        const runtimeContext = taskRuntimeContext(
+          await runFleetRuntimeReadClient({
+            ...runtimeReadPeer,
+            repoId: request.repoId,
+            method: "repo.tasks.runtimeContext.read",
+            payload: { taskId },
+          }),
           taskId,
-          repoId: request.repoId,
-          action: { kind: "task-show", taskId },
-          waitMs: 0,
-        });
-        if (shown.outcome !== "applied" || typeof shown.receipt?.evidence !== "string")
-          throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
-        const current = JSON.parse(shown.receipt.evidence) as TaskLifecycleSnapshot;
+        );
+        const current = runtimeContext.snapshot;
+        if (!current.task) throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
         const executionId = review
           ? selectReviewTarget(taskId, review.executionId, current, false)?.executionId
           : current.lease?.phase === "held"
@@ -242,15 +242,7 @@ export function openFleetEdgeRuntime(input: {
           // The causal block, the task profile, and the worktree binding are assembled at the center's
           // canonical cut in this same round trip — a stale edge mirror is never summarized as fact,
           // and the edge has no projection to derive a binding from.
-          { causalContext, profileId, worktree } = taskRuntimeContext(
-            await runFleetRuntimeReadClient({
-              ...runtimeReadPeer,
-              repoId: request.repoId,
-              method: "repo.tasks.runtimeContext.read",
-              payload: { taskId },
-            }),
-            taskId,
-          ),
+          { causalContext, profileId, worktree } = runtimeContext,
           livingProtocol = livingDeliverableProtocol(profileId);
         let plan: string;
         try {
@@ -609,6 +601,9 @@ function taskRuntimeContext(
   readonly causalContext: string | null;
   readonly profileId: string | null;
   readonly worktree: TaskWorktreeBindingV1 | null;
+  readonly snapshot: import("./repo-cell-types.ts").Snapshot & {
+    readonly workspace: import("./protocol/daemon-protocol-gui-types.ts").TaskWorkspaceView | null;
+  };
 } {
   const worktree = read.worktree as { readonly branch?: unknown; readonly path?: unknown } | null | undefined;
   if (
@@ -618,12 +613,17 @@ function taskRuntimeContext(
     (read.causalContext === null || typeof read.causalContext === "string") &&
     (read.profileId === null || typeof read.profileId === "string") &&
     (worktree === null ||
-      (typeof worktree === "object" && typeof worktree.branch === "string" && typeof worktree.path === "string"))
+      (typeof worktree === "object" && typeof worktree.branch === "string" && typeof worktree.path === "string")) &&
+    read.snapshot !== null &&
+    typeof read.snapshot === "object"
   )
     return {
       causalContext: read.causalContext,
       profileId: read.profileId === null ? null : (read.profileId as string),
       worktree: worktree ? { branch: worktree.branch as string, path: worktree.path as string } : null,
+      snapshot: read.snapshot as import("./repo-cell-types.ts").Snapshot & {
+        readonly workspace: import("./protocol/daemon-protocol-gui-types.ts").TaskWorkspaceView | null;
+      },
     };
   throw edgeRuntimeError("runtime_read_invalid", `Center returned an invalid runtime context read for task ${taskId}.`);
 }

@@ -110,11 +110,11 @@ test(
     // 4. A deleted or damaged local model is rebuilt from the verified local cut without the center.
     const view = locateFleetMirrorView(viewRoot, "lease-repo")!;
     pulls = 0;
-    rmSync(path.join(view.viewDir, "tasks-read-model.sqlite"), { force: true });
+    rmSync(path.join(view.viewDir, "read-model.sqlite"), { force: true });
     assert.equal(((await local()).rows as unknown[]).length, 4);
-    writeFileSync(path.join(view.viewDir, "tasks-read-model.sqlite"), "not a database");
-    rmSync(path.join(view.viewDir, "tasks-read-model.sqlite-wal"), { force: true });
-    rmSync(path.join(view.viewDir, "tasks-read-model.sqlite-shm"), { force: true });
+    writeFileSync(path.join(view.viewDir, "read-model.sqlite"), "not a database");
+    rmSync(path.join(view.viewDir, "read-model.sqlite-wal"), { force: true });
+    rmSync(path.join(view.viewDir, "read-model.sqlite-shm"), { force: true });
     assert.equal(((await local()).rows as unknown[]).length, 4);
     assert.equal(pulls, 0, "self-heal from the local cut must not touch the center");
 

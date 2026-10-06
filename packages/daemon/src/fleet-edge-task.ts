@@ -32,10 +32,11 @@ import {
   runFleetReplicaPullClient,
   runFleetTaskCommandClient,
   runFleetRepositoryReadClient,
+  runFleetRuntimeReadClient,
   runFleetUploadClient,
   runFleetWriteClient,
 } from "./fleet/edge.ts";
-import { answerEdgeTaskList } from "./fleet-edge-task-read.ts";
+import { answerEdgeTaskShow, answerEdgeTaskList } from "./fleet-edge-task-read.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
 import {
@@ -140,10 +141,10 @@ export async function runFleetEdgeTask(
     };
   const declaration = commandDescriptorForAction(action.kind);
   if ("repositoryRead" in declaration && declaration.repositoryRead === true) {
-    if (action.kind === "task-list")
-      return answerEdgeTaskList({ ...payload, action }, () =>
-        runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes }),
-      );
+    const pullOnce = () =>
+      runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes });
+    if (action.kind === "task-list") return answerEdgeTaskList({ ...payload, action }, pullOnce);
+    if (action.kind === "task-show") return answerEdgeTaskShow({ ...payload, action }, pullOnce);
     const receipt = await runFleetRepositoryReadClient({
       ...peer,
       method: "repo.task.read",
@@ -194,16 +195,6 @@ export async function runFleetEdgeTask(
         } as Record<string, unknown>;
     }
     if (action.kind.startsWith("doc-") && taskId !== null && workspaceRoot !== null) {
-      const shown = await runFleetTaskCommandClient({
-        ...peer,
-        opId: randomUUID(),
-        taskId,
-        action: { kind: "task-show", taskId },
-        waitMs,
-      });
-      if (shown.outcome !== "applied" || typeof shown.receipt?.evidence !== "string")
-        throw new FleetEdgeTaskError(shown.code ?? "task_read_failed", "Task document authority is unavailable.");
-      const task = JSON.parse(shown.receipt.evidence) as FleetDeliveryTask;
       const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
       const packagePath = view && fleetExactTaskPackagePath(view, workspaceRoot, taskId);
       if (!view || !packagePath) throw new FleetEdgeTaskError("mirror_missing", "Task package is not materialized.");
@@ -237,7 +228,7 @@ export async function runFleetEdgeTask(
       const result = await runFleetWriteClient({
         ...peer,
         taskId,
-        executionId: task.lease?.executionId ?? null,
+        executionId: null,
         channel: "collaborator",
         changes: changes.map((change) => ({
           path: change.path,
@@ -252,7 +243,7 @@ export async function runFleetEdgeTask(
         const materialized = applyFleetMirrorCut(payload.viewRoot, payload.repoId, workspaceRoot, "pull", {
           kind: "task-docs",
           taskId,
-          executionId: task.lease?.executionId ?? null,
+          executionId: null,
         });
         if (materialized.outcome === "pull_blocked")
           throw new FleetEdgeTaskError("pull_blocked", "Task document materialization is blocked.");
@@ -279,22 +270,15 @@ export async function runFleetEdgeTask(
           return metadata.personId;
         },
         readTask: async () => {
-          const shown = await runFleetTaskCommandClient({
+          const current = await runFleetRuntimeReadClient({
             ...peer,
-            opId: randomUUID(),
             repoId: payload.repoId,
-            taskId,
-            action: { kind: "task-show", taskId },
-            waitMs,
-            timeoutMs: 60_000,
-            accessToken: await readAccessToken?.(),
+            method: "repo.tasks.runtimeContext.read",
+            payload: { taskId },
           });
-          if (shown.outcome !== "applied" || typeof shown.receipt?.evidence !== "string")
-            throw new FleetEdgeTaskError(
-              shown.code ?? "task_read_failed",
-              "Cannot authorize delivery from the current center task.",
-            );
-          return JSON.parse(shown.receipt.evidence) as FleetDeliveryTask;
+          if (!current || typeof current !== "object" || !("snapshot" in current))
+            throw new FleetEdgeTaskError("task_read_failed", "Center returned no current task for delivery.");
+          return current.snapshot as FleetDeliveryTask;
         },
       });
     let artifact: FleetDescriptor | undefined;

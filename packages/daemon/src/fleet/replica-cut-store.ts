@@ -14,14 +14,7 @@ import {
   type LedgerCutIdentity,
   type ReplicaProjectionBasis,
 } from "@harness-anything/kernel";
-import {
-  isReadModelPath,
-  serializeTaskReadModelMeta,
-  serializeTaskReadModelRow,
-  taskReadModelPath,
-  TASK_READ_MODEL_META_PATH,
-  type TaskReadModelRow,
-} from "@harness-anything/kernel";
+import { edgeReadModelEntries, isReadModelPath, type EdgeReadModelRows } from "@harness-anything/kernel";
 import {
   fleetManifestDigest,
   type FleetBlob,
@@ -67,11 +60,11 @@ export interface ReplicaCutSourceOptions {
   readonly readEvent?: (opId: string) => CanonicalEventV1 | null;
   readonly readApplied?: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly monotonicNow?: () => number;
-  /** The edge task read model at the projection's current revision, or null while it is not ready. */
-  readonly readTaskReadModel?: () => {
+  /** The edge read model at the projection's current revision, or null while it is not ready. */
+  readonly readEdgeReadModel?: () => {
     readonly sourceRevision: number;
     readonly rootThreshold: number;
-    readonly rows: readonly TaskReadModelRow[];
+    readonly rows: EdgeReadModelRows;
   } | null;
 }
 
@@ -307,20 +300,15 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     if (!existsSync(readModelBlobPath(sha256))) writeFileDurably(readModelBlobPath(sha256), body);
     return { path: entryPath, blob: { sha256, size: body.byteLength, mediaType } };
   };
-  const withTaskReadModel = (entries: FleetEntry[], revision: number): FleetEntry[] => {
-    const model = options.readTaskReadModel?.();
+  const withReadModel = (entries: FleetEntry[], revision: number): FleetEntry[] => {
+    const model = options.readEdgeReadModel?.();
     // Only a projection read at exactly this revision may describe this cut; otherwise the cut keeps
     // the previous rows, whose meta still names the older revision they describe.
     if (!model || model.sourceRevision !== revision) return entries;
     return [
       ...entries.filter((entry) => !isReadModelPath(entry.path)),
-      readModelEntry(
-        TASK_READ_MODEL_META_PATH,
-        serializeTaskReadModelMeta({ sourceRevision: revision, rootThreshold: model.rootThreshold }),
-        "application/json",
-      ),
-      ...model.rows.map((row) =>
-        readModelEntry(taskReadModelPath(row.taskId), serializeTaskReadModelRow(row), "application/json"),
+      ...edgeReadModelEntries({ sourceRevision: revision, rootThreshold: model.rootThreshold, rows: model.rows }).map(
+        (entry) => readModelEntry(entry.path, entry.text, "application/json"),
       ),
     ].sort((left, right) => left.path.localeCompare(right.path));
   };
@@ -336,6 +324,28 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       });
     return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path));
   };
+  const publishReadModelForExistingCut = (current: SnapshotCut): SnapshotCut => {
+    const model = options.readEdgeReadModel?.();
+    if (!model || model.sourceRevision !== current.revision) return current;
+    const entries = manifest(current.revision);
+    if (!entries) return current;
+    const next = withReadModel(entries, current.revision),
+      bytes = stableStringify(next),
+      digest = sha256Text(bytes);
+    if (digest === current.manifest.digest) return current;
+    const store = db();
+    transact(store, () => {
+      writeManifest({ bytes, digest });
+      store.prepare("UPDATE cut SET manifest_digest = ?, entry_count = ?, total_bytes = ? WHERE revision = ?").run(
+        digest,
+        next.length,
+        next.reduce((sum, entry) => sum + entry.blob.size, 0),
+        current.revision,
+      );
+      return [];
+    });
+    return cut(current.revision)!;
+  };
   const settle = (cut: SnapshotCut) => {
     const rows = waiters.get(cut.revision);
     if (!rows) return;
@@ -347,15 +357,16 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     if (!initial) {
       const basis = options.readBasis(null);
       if (basis.watermark === 0 || basis.watermark !== basis.sourceRevision || !basis.headEvent) return false;
-      const first = persistInitial(basis.headEvent, withTaskReadModel(entriesFrom(basis), basis.watermark));
+      const first = persistInitial(basis.headEvent, withReadModel(entriesFrom(basis), basis.watermark));
       settle(first);
       return false;
     }
-    const basis = options.readBasis(initial.revision),
+    const published = publishReadModelForExistingCut(initial),
+      basis = options.readBasis(published.revision),
       started = monotonicNow(),
       store = db();
-    let entries = manifest(initial.revision)!,
-      current: SnapshotCut = initial,
+    let entries = manifest(published.revision)!,
+      current: SnapshotCut = published,
       processed = 0;
     const settled: SnapshotCut[] = [],
       pruned: string[] = [];
@@ -371,7 +382,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
           throw new Error(`replica cut gap after ${current.revision}`);
         const before = entries;
         entries = nextEntries(entries, event);
-        if (event.workspaceRevision === basis.watermark) entries = withTaskReadModel(entries, event.workspaceRevision);
+        if (event.workspaceRevision === basis.watermark) entries = withReadModel(entries, event.workspaceRevision);
         if (
           event.workspaceRevision === basis.watermark &&
           documentDigest(entries) !== documentDigest(entriesFrom(basis))
@@ -402,12 +413,12 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     const current = latest();
     if (current) {
       kick();
-      return current;
+      return publishReadModelForExistingCut(current);
     }
     const basis = options.readBasis(null),
       cut =
         basis.watermark > 0 && basis.watermark === basis.sourceRevision && basis.headEvent
-          ? persistInitial(basis.headEvent, withTaskReadModel(entriesFrom(basis), basis.watermark))
+          ? persistInitial(basis.headEvent, withReadModel(entriesFrom(basis), basis.watermark))
           : null;
     if (cut) settle(cut);
     else kick();

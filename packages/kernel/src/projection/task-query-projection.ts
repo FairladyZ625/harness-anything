@@ -3,6 +3,7 @@
 // from rebuildable-task-projection.ts, which owns the governed writable open.
 import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
+import type { TaskProgressEventV1 } from "../domain/task-progress-event.ts";
 import {
   relationFreshnessAnchorForType,
   type EntityRelationRecord,
@@ -354,6 +355,15 @@ export function readTaskRuntimeBatchPage(
       nextCursor: remaining.length > limit && last ? encodePageCursor([last]) : null,
     },
   };
+}
+
+/** One task's progress events in revision order; the shared body of every progress read. */
+export function readTaskProgressRows(db: DatabaseSync, taskId: string): readonly TaskProgressEventV1[] {
+  return queryRows<{ readonly event_json: string }>(
+    db,
+    "SELECT event_json FROM task_progress WHERE task_id = ? ORDER BY workspace_revision",
+    taskId,
+  ).map((row) => JSON.parse(String(row.event_json)) as TaskProgressEventV1);
 }
 
 export function createTaskRelationProjectionTable(db: DatabaseSync): void {
@@ -781,9 +791,7 @@ export function readTaskRelationPage(
     "json_extract(row_json, '$.rationale') AS rationale, owner_ref,",
     "json_extract(row_json, '$.sourcePath') AS source_path,",
     "json_extract(row_json, '$.recordIndex') AS record_index, workspace_revision,",
-    "workspace_revision AS relation_revision,",
-    "(SELECT json_extract(event_json, '$.occurredAt') FROM event_index",
-    "WHERE event_index.workspace_revision = relation_edge.workspace_revision) AS updated_at",
+    "workspace_revision AS relation_revision, updated_at",
     "FROM relation_edge",
   ].join(" ");
   // With an endpoint fixed, its source or target index finds that endpoint's few edges. Unary +
