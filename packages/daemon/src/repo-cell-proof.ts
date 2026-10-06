@@ -30,11 +30,12 @@ import {
 } from "@harness-anything/kernel";
 import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
-import { remoteDefaultBranch } from "./schedule-occurrence-workspace.ts";
+import { remoteDefaultBranch, repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readDispatchStreamHeader } from "./dispatch-stream.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import { reviewDispatchKey } from "./task-review-dispatch.ts";
+import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
 import { reviewActorsIndependent } from "./decision-review-authorization.ts";
@@ -47,11 +48,15 @@ const COMPLETE_VALIDATION_CRITERION = "task-lifecycle-review-transitions/complet
 /**
  * Observe the project comparison cut an execution will diff its delivery against. The project
  * repository is the Git work tree containing the canonical root — a nested ledger repository is a
- * different repository and never supplies this baseline. Only an unborn repository (no commit on
+ * different repository and never supplies this baseline. A task with its own delivery branch forks
+ * the default branch at one commit, and that fork is the comparison cut: freezing it keeps the
+ * baseline an ancestor of every delivery the branch can produce, however far main advances between
+ * rework rounds. A task with no readable branch here (no worktree yet, an artifact task, another
+ * node's checkout) observes the project HEAD instead. Only an unborn repository (no commit on
  * any ref) may freeze `empty-tree`; a repository whose baseline cannot be read fails closed rather
  * than guessing from the default branch or a moving `HEAD`.
  */
-export function observeDeliveryBaseline(rootDir: string): ExecutionDeliveryBaseline {
+export function observeDeliveryBaseline(rootDir: string, deliveryBranch?: string): ExecutionDeliveryBaseline {
   const git = makeGitReadinessSource(),
     top = git.run(rootDir, ["rev-parse", "--show-toplevel"]);
   if (!top.ok || !top.stdout)
@@ -61,6 +66,8 @@ export function observeDeliveryBaseline(rootDir: string): ExecutionDeliveryBasel
       "start",
       START_VALIDATION_CRITERION,
     );
+  const fork = deliveryBranchFork(git, top.stdout, deliveryBranch);
+  if (fork !== null) return { kind: "commit", commitSha: fork };
   const head = git.run(top.stdout, ["rev-parse", "--verify", "HEAD^{commit}"]);
   if (head.ok) return { kind: "commit", commitSha: head.stdout };
   const commits = git.run(top.stdout, ["rev-list", "--all", "--count"]);
@@ -71,6 +78,22 @@ export function observeDeliveryBaseline(rootDir: string): ExecutionDeliveryBasel
     "start",
     START_VALIDATION_CRITERION,
   );
+}
+
+/** Where the task's delivery branch left the default branch; null when that fork cannot be derived. */
+function deliveryBranchFork(
+  git: ReturnType<typeof makeGitReadinessSource>,
+  top: string,
+  deliveryBranch: string | undefined,
+): string | null {
+  // The binding derives the branch from the task id; anything Git could read as an option is rejected.
+  if (deliveryBranch === undefined || !/^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/u.test(deliveryBranch)) return null;
+  const tip = git.run(top, ["rev-parse", "--verify", "--quiet", `refs/heads/${deliveryBranch}^{commit}`]);
+  if (!tip.ok || !tip.stdout) return null;
+  const base = repositoryBaseRef(top);
+  if (base === null) return null;
+  const point = git.run(top, ["merge-base", base, tip.stdout]);
+  return point.ok && point.stdout ? point.stdout : null;
 }
 
 /**
@@ -131,6 +154,8 @@ export async function proofFor(
       );
     const authorizationDecision = requiredAuthorizationDecision(binding);
     // A rejoin re-proves the baseline the execution already froze; only a first start observes it.
+    // A first start freezes the fork of the task's own delivery branch — the branch may predate this
+    // execution by whole rework rounds, so where main sits now is not where the delivery began.
     const rejoined = snapshot.executions.find((execution) => execution.executionId === executionId);
     return {
       actorBinding: command.actor,
@@ -138,7 +163,10 @@ export async function proofFor(
       deliveryBaseline:
         rejoined !== undefined && isNativeExecution(rejoined) && rejoined.deliveryBaseline !== undefined
           ? rejoined.deliveryBaseline
-          : observeDeliveryBaseline(rootDir),
+          : observeDeliveryBaseline(
+              rootDir,
+              taskWorktreeBinding(snapshot.task, presetSnapshotReader(projection))?.branch,
+            ),
       reservation: {
         taskId: command.taskId,
         executionId,
