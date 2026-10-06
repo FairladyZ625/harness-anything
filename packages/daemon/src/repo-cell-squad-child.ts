@@ -11,6 +11,47 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 import { publishDocIntent } from "./doc-sync-publication.ts";
 
+/**
+ * Keep the parent's readiness contract while applying the commander's authored assignment.
+ * Missing parent sections stay missing; an assignment cannot make an incomplete parent plan ready.
+ */
+export function deriveSquadChildPlan(parentPlan: string | null, assignment: string): string {
+  if (parentPlan === null || parentPlan.trim() === "") return assignment;
+  const assignmentSections = markdownH2Sections(assignment),
+    parentSections = markdownH2Sections(parentPlan),
+    covered = new Set<string>(),
+    merged = parentPlan.replace(/(^##[ \t]+.+?(?:\r?\n|$))[\s\S]*?(?=^##[ \t]+|(?![\s\S]))/gmu, (section) => {
+      const heading = /^##[ \t]+(.+?)[ \t]*$/mu.exec(section)?.[1]?.trim();
+      if (!heading) return section;
+      const replacement = assignmentSections.get(heading);
+      if (replacement === undefined) return section;
+      covered.add(heading);
+      return replacement;
+    });
+  const unmatched = [...assignmentSections.entries()].filter(
+    ([heading]) => !covered.has(heading) && !parentSections.has(heading),
+  );
+  if (unmatched.length === 0 && assignmentSections.size > 0) return merged;
+  const assignmentBody =
+    assignmentSections.size === 0
+      ? assignment.trim()
+      : unmatched
+          .map(([, section]) => section.replace(/^##[ \t]+.+?(?:\r?\n|$)/u, "").trim())
+          .filter(Boolean)
+          .join("\n\n");
+  return `${merged.trimEnd()}\n\n## Worker Assignment\n\n${assignmentBody}\n`;
+}
+
+function markdownH2Sections(body: string): Map<string, string> {
+  const matches = [...body.matchAll(/^##[ \t]+(.+?)[ \t]*$/gmu)],
+    sections = new Map<string, string>();
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index]!;
+    sections.set(match[1]!.trim(), body.slice(match.index!, matches[index + 1]?.index ?? body.length));
+  }
+  return sections;
+}
+
 /** Called only inside the repository's serial queue, under its current parent execution lease. */
 export async function createSquadChild(
   cell: RepoCellActionContext,
@@ -24,13 +65,17 @@ export async function createSquadChild(
   binding: RepoCellBinding,
   authorize: (action: RepoTaskAction, binding: RepoCellBinding, actionId: string) => Promise<RepoCellBinding>,
 ): Promise<string> {
+  const parent = cell.projection.read(child.parentTaskId),
+    parentPlan = parent.packagePath
+      ? (cell.projection.readDocument(`${parent.packagePath}/task_plan.md`).document?.body ?? null)
+      : null;
   const action = {
       kind: "task-create",
       title: `Squad assignment for ${child.workerId}`,
       parentTaskId: child.parentTaskId,
       idempotencyKey: child.key,
       surfaces: child.ownedPaths,
-      plan: child.prompt,
+      plan: deriveSquadChildPlan(parentPlan, child.prompt),
     },
     receipt = cell.createTask(action, await authorize(action, binding, `${child.key}:create`)),
     taskId = (receipt as typeof receipt & { readonly taskId?: string }).taskId;

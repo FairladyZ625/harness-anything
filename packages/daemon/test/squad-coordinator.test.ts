@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV2 } from "@harness-anything/kernel";
-import { reacquireSquadTaskLease } from "../src/repo-cell-squad-child.ts";
+import { deriveSquadChildPlan, reacquireSquadTaskLease } from "../src/repo-cell-squad-child.ts";
 import {
   callbackLeaderPrompt,
   initialLeaderPrompt,
@@ -84,6 +84,44 @@ test("squad lease reacquisition reports conflict when another actor takes the re
     (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
   );
   assert.equal(starts, 0, "a conflicting lease must not be reacquired or overwritten");
+});
+
+test("squad child plans inherit the parent contract and apply assignment sections", () => {
+  const parent = [
+    "# Parent",
+    "",
+    "## Brief",
+    "",
+    "Parent brief.",
+    "",
+    "## Required Reading",
+    "",
+    "Read the parent contract.",
+    "",
+    "## Verification",
+    "",
+    "Run the parent verification.",
+    "",
+  ].join("\n");
+  const derived = deriveSquadChildPlan(
+    parent,
+    "## Brief\n\nWorker brief.\n\n## Implementation Plan\n\nImplement the bounded change.",
+  );
+  assert.match(derived, /## Brief\n\nWorker brief\./u);
+  assert.match(derived, /## Required Reading\n\nRead the parent contract\./u);
+  assert.match(derived, /## Verification\n\nRun the parent verification\./u);
+  assert.match(derived, /## Worker Assignment\n\nImplement the bounded change\./u);
+});
+
+test("squad child derivation does not fill a missing parent readiness section", () => {
+  const parent = "# Parent\n\n## Brief\n\nParent brief.\n";
+  const derived = deriveSquadChildPlan(parent, "## Verification\n\nWorker verification.");
+  assert.doesNotMatch(derived, /^## Verification\n\nWorker verification\./mu);
+});
+
+test("squad child derivation retains a plain-text assignment", () => {
+  const derived = deriveSquadChildPlan("# Parent\n\n## Brief\n\nParent brief.\n", "Implement the bounded change.");
+  assert.match(derived, /## Worker Assignment\n\nImplement the bounded change\./u);
 });
 
 test("runtime-batch leaves worker instance selection to the harness", () => {
