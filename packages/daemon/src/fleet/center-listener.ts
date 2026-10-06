@@ -250,9 +250,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         },
       );
     });
-  const untilAborted = <T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> => {
+  // The wait starts only once the session is known to be open: a wait started during shutdown would be
+  // rejected by the closing cut source with nobody left to observe it.
+  const untilAborted = <T>(start: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
     const stop = signal ? AbortSignal.any([signal, closing.signal]) : closing.signal;
     if (stop.aborted) return Promise.reject(new FleetFault("busy", "The replica session closed.", true));
+    const pending = start();
     return new Promise<T>((resolve, reject) => {
       const abort = () => reject(new FleetFault("busy", "The replica session closed.", true));
       stop.addEventListener("abort", abort, { once: true });
@@ -495,7 +498,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           latest && latest.revision > frame.afterRevision
             ? latest
             : await untilAborted(
-                headAfterOrProgress(replica, frame.afterRevision, options.replicaWatchProgressMs ?? 20_000),
+                () => headAfterOrProgress(replica, frame.afterRevision, options.replicaWatchProgressMs ?? 20_000),
                 connectionSignal,
               );
       return immediate({

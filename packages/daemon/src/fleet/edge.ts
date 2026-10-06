@@ -776,15 +776,27 @@ export async function runFleetScheduleCommandClient(
     session.close();
   }
 }
+// A view has one staging directory, and the daemon (the only process that pulls) runs the background
+// sync next to explicit pulls, so pulls into the same view take turns instead of interleaving transfers.
+const viewPulls = new Map<string, Promise<unknown>>();
 export async function runFleetReplicaPullClient(
   options: FleetReplicaPullClientOptions,
 ): Promise<FleetReplicaPullClientResult> {
+  const key = path.resolve(options.viewRoot),
+    previous = viewPulls.get(key) ?? Promise.resolve(),
+    turn = previous.then(
+      () => pullReplica(options),
+      () => pullReplica(options),
+    );
+  viewPulls.set(key, turn);
   try {
-    return await pullReplica(options);
+    return await turn;
   } catch (error) {
     if (error instanceof FleetRemoteError && error.code === "authorization_denied")
       recordRepoReadDenied(options.viewRoot, options.repoId);
     throw error;
+  } finally {
+    if (viewPulls.get(key) === turn) viewPulls.delete(key);
   }
 }
 async function pullReplica(options: FleetReplicaPullClientOptions): Promise<FleetReplicaPullClientResult> {
