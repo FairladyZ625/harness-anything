@@ -388,12 +388,24 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       // rides the repository channel (null) while task-context pushes name the
       // leased execution — decideDocWrite then arbitrates the holder against
       // the node's registered owner, never against a client claim.
+      let executionId = frame.executionId;
+      if (executionId === null && frame.taskId) {
+        const shown = await options.host.run(
+          a.repoId,
+          { kind: "task-show", taskId: frame.taskId },
+          await auth(a, undefined, frame.executionCredential),
+        );
+        if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
+          throw new FleetFault("task_read_failed", "Cannot read the document task at the center.");
+        const snapshot = JSON.parse(shown.evidence) as { readonly lease?: { readonly executionId?: unknown } | null };
+        executionId = typeof snapshot.lease?.executionId === "string" ? snapshot.lease.executionId : null;
+      }
       const receipt = await options.host.run(
         a.repoId,
         {
           kind: "doc-submit",
           ...(frame.taskId ? { taskId: frame.taskId } : {}),
-          executionId: frame.executionId,
+          executionId,
           baseLedgerSha: frame.baseLedgerSha,
           changes: frame.changes,
         },

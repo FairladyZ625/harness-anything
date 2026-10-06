@@ -35,7 +35,7 @@ import {
   runFleetUploadClient,
   runFleetWriteClient,
 } from "./fleet/edge.ts";
-import { answerEdgeTaskShow, answerEdgeTaskList, answerFreshEdgeTaskShow } from "./fleet-edge-task-read.ts";
+import { answerEdgeTaskShow, answerEdgeTaskList } from "./fleet-edge-task-read.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
 import {
@@ -194,16 +194,6 @@ export async function runFleetEdgeTask(
         } as Record<string, unknown>;
     }
     if (action.kind.startsWith("doc-") && taskId !== null && workspaceRoot !== null) {
-      const shown = await answerFreshEdgeTaskShow(
-        { ...payload, workspaceRoot, action: { kind: "task-show", taskId } },
-        () => runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes }),
-      );
-      if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
-        throw new FleetEdgeTaskError(
-          String(shown.code ?? "task_read_failed"),
-          "Task document authority is unavailable.",
-        );
-      const task = JSON.parse(shown.evidence) as FleetDeliveryTask;
       const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
       const packagePath = view && fleetExactTaskPackagePath(view, workspaceRoot, taskId);
       if (!view || !packagePath) throw new FleetEdgeTaskError("mirror_missing", "Task package is not materialized.");
@@ -237,7 +227,7 @@ export async function runFleetEdgeTask(
       const result = await runFleetWriteClient({
         ...peer,
         taskId,
-        executionId: task.lease?.executionId ?? null,
+        executionId: null,
         channel: "collaborator",
         changes: changes.map((change) => ({
           path: change.path,
@@ -252,7 +242,7 @@ export async function runFleetEdgeTask(
         const materialized = applyFleetMirrorCut(payload.viewRoot, payload.repoId, workspaceRoot, "pull", {
           kind: "task-docs",
           taskId,
-          executionId: task.lease?.executionId ?? null,
+          executionId: null,
         });
         if (materialized.outcome === "pull_blocked")
           throw new FleetEdgeTaskError("pull_blocked", "Task document materialization is blocked.");
@@ -279,7 +269,7 @@ export async function runFleetEdgeTask(
           return metadata.personId;
         },
         readTask: async () => {
-          const shown = await answerFreshEdgeTaskShow({ ...payload, action: { kind: "task-show", taskId } }, async () =>
+          const shown = await answerEdgeTaskShow({ ...payload, action: { kind: "task-show", taskId } }, () =>
             runFleetReplicaPullClient({
               ...peer,
               viewRoot: payload.viewRoot,
