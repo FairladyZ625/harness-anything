@@ -16,6 +16,10 @@ import {
 import { guiVitestFilePattern } from "./gui-test-runner-lib.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
+
+export function sourceRootFromCwd(cwd = process.cwd()) {
+  return execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+}
 const dispatchCommand = Object.freeze({
   ...dispatchIsolatedTestCommand,
   options: Object.freeze(
@@ -72,7 +76,7 @@ function isGuiVitestFile(value) {
 
 function validateDispatchTestFile(value) {
   if (isGuiVitestFile(value)) {
-    if (existsSync(path.join(repoRoot, value))) return;
+    if (existsSync(path.join(sourceRootFromCwd(), value))) return;
     throw new Error(`unknown GUI test file: ${value}`);
   }
   if (value.includes(".vitest.")) throw new Error(`unknown GUI test file: ${value}`);
@@ -179,15 +183,24 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(renderToolHelp(dispatchIsolatedTestCommand));
     return 0;
   }
+  let sourceRoot;
+  try {
+    sourceRoot = sourceRootFromCwd();
+  } catch (error) {
+    console.error(`dispatch-isolated-test: cannot resolve source repository from cwd: ${error.message}`);
+    return 2;
+  }
+  const sourceHead = execFileSync("git", ["-C", sourceRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   const runId = `harness-test-isolation-${process.pid}-${randomUUID()}`;
   const startedAt = Date.now();
   console.log(
     `[test-isolation] target=${options.target} selection=${options.tier ? `tier:${options.tier}` : `file:${options.file}`} run=${runId}`,
   );
+  console.log(`[test-isolation] source=${sourceRoot} head=${sourceHead}`);
   const snapshotRoot = mkdtempSync(path.join(tmpdir(), `${runId}-`));
   let exitCode;
   try {
-    const files = prepareSource(repoRoot, snapshotRoot);
+    const files = prepareSource(sourceRoot, snapshotRoot);
     const selectionError = untrackedSelectionError(options.file, files);
     if (selectionError !== undefined) {
       console.error(`dispatch-isolated-test: ${selectionError}`);
