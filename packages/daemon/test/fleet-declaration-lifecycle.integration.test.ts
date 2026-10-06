@@ -14,7 +14,7 @@ import { runFleetUploadClient } from "../src/fleet/edge.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { classifyTextualArtifactPath, openSqliteEventStore, isTaskEvent, sha256Text } from "@harness-anything/kernel";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { signInAt } from "./keycloak.fixtures.ts";
+import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 
 test(
@@ -111,10 +111,19 @@ test(
       t.diagnostic(`${args.slice(0, 3).join(" ")}: exit=${code}`);
       return JSON.parse(stdout) as Record<string, unknown>;
     };
+    // A local edge read needs the node owner's identity (dec_8DC9 CH2); edge writes stay on the machine path.
+    const readAsOwner = async (userRoot: string, personId: string, args: string[]) => {
+      signInAt(userRoot, personId);
+      try {
+        return await invoke(args);
+      } finally {
+        signOutAt(userRoot);
+      }
+    };
     await invoke(["doc", "sync", "--dry-run"]);
     const started = await invoke(["task", "start", taskId, "--execution-id", executionId]);
     assert.notEqual(started.code, "no_changes", "the edge must acquire the initial execution itself");
-    const shown = await invoke(["task", "show", taskId]);
+    const shown = await readAsOwner(edgeUser, "person-owner", ["task", "show", taskId]);
     const snapshot = JSON.parse(String(shown.evidence)) as { workspace: { path: string } };
     const cwd = path.join(edgeRoot, snapshot.workspace.path);
     mkdirSync(path.dirname(cwd), { recursive: true });
@@ -157,7 +166,7 @@ test(
     activeRoot = reviewerRoot;
     activeUser = reviewerUser;
     await invoke(["doc", "sync", "--dry-run"]);
-    await invoke(["task", "show", taskId]);
+    await readAsOwner(reviewerUser, "person-reviewer", ["task", "show", taskId]);
     const reviewerView = locateFleetMirrorView(path.join(reviewerUser, "view"), repoId)!;
     fixture.owners.keycloak.account("person-denied");
     fixture.owners.keycloak.node("node-slow", "person-denied");

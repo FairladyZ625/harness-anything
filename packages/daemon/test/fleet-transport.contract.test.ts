@@ -163,6 +163,8 @@ const frames = [
     viewId: "v1",
     cut,
     manifestDigest: "d".repeat(64),
+    authorizationOwner: "person-owner",
+    authorizationShapeDigest: "d".repeat(64),
   },
   {
     schema: "fleet.snapshot.begin/v1",
@@ -172,6 +174,8 @@ const frames = [
     viewId: "v1",
     cut,
     manifest: { digest: "d".repeat(64), entryCount: 1, totalBytes: 3 },
+    authorizationOwner: "person-owner",
+    authorizationShapeDigest: "d".repeat(64),
   },
   {
     schema: "fleet.snapshot.page/v1",
@@ -199,6 +203,8 @@ const frames = [
     toCut: cut,
     changeCount: 2,
     resultManifestDigest: "d".repeat(64),
+    authorizationOwner: "person-owner",
+    authorizationShapeDigest: "d".repeat(64),
   },
   {
     schema: "fleet.delta.page/v1",

@@ -16,7 +16,7 @@ import path from "node:path";
 import type { SnapshotCut } from "./replica-cut-store.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import { edgeReadAuthorizationShapeDigest, resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -217,14 +217,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
     const a = await nodeContext(nodeId, repoId),
-      replica = options.host.replica(a.repoId),
+      owner = await options.nodeOwner(nodeId);
+    if (!owner) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
+    const replica = options.host.replica(a.repoId),
       // Mirroring is reading: the node owner's repository-read admits the replica, the same authority
       // a center-forwarded read checks (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
-      decision = await options.host.authorize(a.repoId, "repository-read", await readerAuth(a));
+      decision = await options.host.authorize(a.repoId, "repository-read", {
+        transportKind: "fleet-tls" as const,
+        nodePrincipal: { nodeId, personId: owner },
+      });
     if (decision.outcome !== "allowed")
       throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
     replica.activate();
-    return { a, replica };
+    return { a, replica, owner };
   };
   // A watch that sees no new cut still answers on the progress interval with the unchanged head, so a
   // connected edge can keep confirming freshness without pulling (the same role as etcd's progress notify).
@@ -510,7 +515,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.replica.pull/v1") {
-      const { a, replica } = await admitReplica(nodeId, frame.repoId);
+      const { a, replica, owner } = await admitReplica(nodeId, frame.repoId);
       const ledgerCut = replica.ledgerCut();
       if (!ledgerCut || ledgerCut.revision === 0)
         throw new FleetFault("replica_pending", "No exact center cut is ready.", true);
@@ -544,6 +549,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           viewId: key.viewId,
           cut: wireCut(latest),
           manifestDigest: latest.manifest.digest,
+          authorizationOwner: owner,
+          authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
         });
       }
       let active = ackStore.offerFor(key);
@@ -559,7 +566,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const next = active ?? makeOffer(key, cursor, latest, replica, now());
       const offer = active ?? ackStore.offer(key, next);
       window.offers.set(offer.transferId, key);
-      return { key: id, frames: offerFrames(offer, replica) };
+      return {
+        key: id,
+        frames: offerFrames(offer, replica, {
+          owner,
+          digest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
+        }),
+      };
     }
     if (frame.schema === "fleet.task.command/v1") {
       const a = await nodeContext(nodeId, frame.repoId);

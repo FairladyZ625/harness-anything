@@ -206,11 +206,27 @@ export type FleetFrameV1 =
   | Msg<"fleet.replica.head-hint/v1", { inReplyTo: string; repoId: string; cut: FleetCut }>
   | Msg<
       "fleet.replica.current/v1",
-      { inReplyTo: string; repoId: string; viewId: string; cut: FleetCut; manifestDigest: string }
+      {
+        inReplyTo: string;
+        repoId: string;
+        viewId: string;
+        cut: FleetCut;
+        manifestDigest: string;
+        authorizationOwner: string;
+        authorizationShapeDigest: string;
+      }
     >
   | Msg<
       "fleet.snapshot.begin/v1",
-      { transferId: string; repoId: string; viewId: string; cut: FleetCut; manifest: FleetManifest }
+      {
+        transferId: string;
+        repoId: string;
+        viewId: string;
+        cut: FleetCut;
+        manifest: FleetManifest;
+        authorizationOwner: string;
+        authorizationShapeDigest: string;
+      }
     >
   | Msg<"fleet.snapshot.page/v1", { transferId: string; pageIndex: number; entries: readonly FleetEntry[] }>
   | Msg<"fleet.snapshot.chunk/v1", { transferId: string; blobSha256: string; offset: number; dataBase64: string }>
@@ -225,6 +241,8 @@ export type FleetFrameV1 =
         toCut: FleetCut;
         changeCount: number;
         resultManifestDigest: string;
+        authorizationOwner: string;
+        authorizationShapeDigest: string;
       }
     >
   | Msg<"fleet.delta.page/v1", { transferId: string; pageIndex: number; changes: readonly FleetDeltaChange[] }>
@@ -816,8 +834,25 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.replica.pull/v1": shape({ ...common, repoId: id }),
   "fleet.replica.watch/v1": shape({ ...common, repoId: id, afterRevision: uint }),
   "fleet.replica.head-hint/v1": shape({ ...reply, repoId: id, cut }),
-  "fleet.replica.current/v1": shape({ ...reply, repoId: id, viewId: id, cut, manifestDigest: sha64 }),
-  "fleet.snapshot.begin/v1": shape({ ...common, transferId: id, repoId: id, viewId: id, cut, manifest }),
+  "fleet.replica.current/v1": shape({
+    ...reply,
+    repoId: id,
+    viewId: id,
+    cut,
+    manifestDigest: sha64,
+    authorizationOwner: text,
+    authorizationShapeDigest: sha64,
+  }),
+  "fleet.snapshot.begin/v1": shape({
+    ...common,
+    transferId: id,
+    repoId: id,
+    viewId: id,
+    cut,
+    manifest,
+    authorizationOwner: text,
+    authorizationShapeDigest: sha64,
+  }),
   "fleet.snapshot.page/v1": shape({ ...common, transferId: id, pageIndex: uint, entries: array(entry) }),
   "fleet.snapshot.chunk/v1": shape({ ...common, transferId: id, blobSha256: sha64, offset: uint, dataBase64: base64 }),
   "fleet.snapshot.finish/v1": shape({ ...common, transferId: id, manifestDigest: sha64 }),
@@ -830,6 +865,8 @@ const schemas: Readonly<Record<string, Check>> = {
     toCut: cut,
     changeCount: uint,
     resultManifestDigest: sha64,
+    authorizationOwner: text,
+    authorizationShapeDigest: sha64,
   }),
   "fleet.delta.page/v1": shape({
     ...common,

@@ -802,7 +802,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           ok: receipt.outcome === "applied" || receipt.outcome === "no_changes",
           command: "runtime-ingress",
           ...receipt,
-          ...(executionCredential ? { executionCredential, executionExpiresAt: execution!.expiresAt } : {}),
+          ...(executionCredential
+            ? {
+                executionCredential,
+                executionExpiresAt: execution!.expiresAt,
+                executionPrincipalId: execution!.personId,
+              }
+            : {}),
         } as unknown as JsonObject;
       }
       return context.appendAuxiliaryRuntimeIngress(action, authorizedBinding);

@@ -120,6 +120,7 @@ export async function dualSyncFixture() {
     servername: "localhost",
     nodeId,
     credential: `secret-${nodeId}`,
+    principalId: owners.nodeOwner(nodeId),
     repoId: "dual-repo",
     viewRoot: edgeRoot(nodeId),
     quotaBytes: replicaQuota,

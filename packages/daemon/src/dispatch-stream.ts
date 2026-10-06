@@ -194,6 +194,7 @@ const summaryKinds = new Set([
   "squad_run_state",
   "squad_run_cancelled",
   "runtime_metrics",
+  "execution_principal",
 ]);
 
 export function openDispatchStream(

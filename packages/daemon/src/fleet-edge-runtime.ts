@@ -1,4 +1,5 @@
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
+import { recordRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -156,7 +157,7 @@ export function openFleetEdgeRuntime(input: {
     // Every node reads the same Settings: the edge's materialized harness.yaml is the center's facet.
     readSettings = () =>
       readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8"));
-  const executionCredentials = new Map<string, { credential: string; expiresAt: string }>();
+  const executionCredentials = new Map<string, { credential: string; expiresAt: string; personId: string }>();
   let entityStore: EntityStore | undefined;
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
   const getEntityStore = (): EntityStore => (entityStore ??= openEntityStore(request.workspaceRoot));
@@ -184,7 +185,15 @@ export function openFleetEdgeRuntime(input: {
         if (!execution)
           throw edgeRuntimeError("execution_credential_rejected", "Center did not issue this dispatch credential.");
         executionCredentials.delete(runtimeSessionId);
-        return execution;
+        recordRuntimeExecutionPrincipal(
+          request.workspaceRoot,
+          request.repoId,
+          runtimeSessionId,
+          execution.credential,
+          execution.personId,
+          execution.expiresAt,
+        );
+        return { credential: execution.credential, expiresAt: execution.expiresAt };
       },
       existing: async (opId) => {
         const receipt = await readFleetReceiptClient({ ...peer, opId });
@@ -324,17 +333,25 @@ export function openFleetEdgeRuntime(input: {
           ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
           ...(draft.dispatchContext === undefined ? {} : { dispatchContext: draft.dispatchContext }),
         });
-        const { executionCredential, executionExpiresAt, ...receipt } = response.receipt;
+        const { executionCredential, executionExpiresAt, executionPrincipalId, ...receipt } = response.receipt;
         if (
           typeof executionCredential === "string" &&
           typeof executionExpiresAt === "string" &&
+          typeof executionPrincipalId === "string" &&
           typeof draft.payload.runtimeSessionId === "string"
         )
           executionCredentials.set(draft.payload.runtimeSessionId, {
             credential: executionCredential,
             expiresAt: executionExpiresAt,
+            personId: executionPrincipalId,
           });
-        return { event: response.event as unknown as AgentRuntimeEventV1, receipt: receipt as JsonObject };
+        return {
+          event: response.event as unknown as AgentRuntimeEventV1,
+          receipt: {
+            ...receipt,
+            ...(typeof executionPrincipalId === "string" ? { executionPrincipalId } : {}),
+          } as JsonObject,
+        };
       },
       archive: async (archive) =>
         (await runFleetRuntimeArchiveClient({

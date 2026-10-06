@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { startDaemon } from "../src/runtime.ts";
@@ -108,7 +109,7 @@ test(
         loginTarget: edgeRoot,
       }),
     );
-    const daemon = await startDaemon({
+    const daemonOptions = {
       userRoot,
       daemonId: "edge-execution",
       buildSupersessionEnabled: false,
@@ -121,7 +122,8 @@ test(
           observedAt: new Date().toISOString(),
         },
       ],
-    });
+    };
+    let daemon = await startDaemon(daemonOptions);
     assert.ok("stop" in daemon);
     cleanup = async () => {
       for (const runtimeSessionId of live) {
@@ -204,6 +206,20 @@ test(
         : null,
     );
     assert.ok(env.HARNESS_EXECUTION_CREDENTIAL);
+    assert.equal(
+      readRuntimeExecutionPrincipal(edgeRoot, env.HARNESS_EXECUTION_CREDENTIAL)?.personId,
+      "person-owner",
+      JSON.stringify(readDispatchStream(edgeRoot, String(spawned.dispatchId))?.records),
+    );
+    const executionPrincipalRecord = readDispatchStream(edgeRoot, String(spawned.dispatchId))?.records.find(
+      (record) => record.kind === "execution_principal",
+    );
+    assert.equal(typeof executionPrincipalRecord?.grantFingerprint, "string");
+    assert.equal(JSON.stringify(executionPrincipalRecord).includes(env.HARNESS_EXECUTION_CREDENTIAL), false);
+    assert.equal(
+      readRuntimeExecutionPrincipal(edgeRoot, env.HARNESS_EXECUTION_CREDENTIAL, Number.MAX_SAFE_INTEGER),
+      null,
+    );
     assert.equal(existsSync(path.join(userRoot, "rbac/config.json")), false);
     assert.equal(existsSync(path.join(userRoot, "rbac/center-client-secret")), false);
     const worktree = path.join(edgeRoot, ".worktrees", taskId);
@@ -214,11 +230,15 @@ test(
     };
     await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
-    assert.equal((await cli(["task", "show", taskId])).outcome, "applied");
+    const initialLocalRead = await cli(["task", "show", taskId]);
+    assert.equal(initialLocalRead.outcome, "applied", JSON.stringify(initialLocalRead));
     const edgeLogout = await rpc("daemon.rbac.manage", { operation: "logout" });
     assert.equal(edgeLogout.ok, true, JSON.stringify(edgeLogout));
     const logout = await new OidcSessionService(path.join(f.root, "user")).logout();
     assert.equal(logout.ok, true, JSON.stringify(logout));
+    await daemon.stop();
+    daemon = await startDaemon(daemonOptions);
+    assert.ok("stop" in daemon);
     for (const args of [
       ["task", "show", taskId],
       ["task", "read-set", taskId],
@@ -227,6 +247,12 @@ test(
       const result = await cli(args);
       assert.equal(result.outcome, "applied", JSON.stringify(result));
     }
+    const unknownCredential = await spawnCli(["--root", worktree, "--json", "task", "show", taskId], {
+      ...process.env,
+      ...env,
+      HARNESS_EXECUTION_CREDENTIAL: "unknown-execution-credential",
+    });
+    assert.match(unknownCredential.stdout, /authorization_denied/u);
     const progress = await cli(["task", "progress", "append", taskId, "--text", "Edge worker after logout."]);
     assert.equal(progress.outcome, "applied", JSON.stringify(progress));
     const fact = await cli([
@@ -793,8 +819,8 @@ test(
     signInAt(path.join(f.root, "user"), "person-owner");
     assert.ok((await show()).reviews.some((review) => review.reviewId === `review-${reviewDispatch}`));
     t.diagnostic("Fresh S2 reviewer read, fixed receipt and honest unknown settlement passed after logout.");
-    // The settled execution's credential is dead at the center: a write with it is refused.
+    // The settled execution's edge-local identity is no longer available, so the write is refused.
     const after = await cli(["task", "progress", "append", taskId, "--text", "After settlement."]);
-    assert.equal(after.code, "execution_credential_rejected", JSON.stringify(after));
+    assert.equal(after.code, "authorization_denied", JSON.stringify(after));
   },
 );

@@ -54,7 +54,11 @@ export function makeOffer(
   };
 }
 
-export async function* offerFrames(offer: ReplicaOffer, replica: ReplicaCutSource): AsyncGenerator<FleetFrameV1> {
+export async function* offerFrames(
+  offer: ReplicaOffer,
+  replica: ReplicaCutSource,
+  authorization: { readonly owner: string; readonly digest: string },
+): AsyncGenerator<FleetFrameV1> {
   const entries = replica.manifest(offer.toCut.revision);
   if (!entries || fleetManifestDigest(entries) !== offer.manifestDigest)
     throw new FleetFault("snapshot_required", "Replica cut manifest is unavailable or corrupt.", true);
@@ -66,6 +70,8 @@ export async function* offerFrames(offer: ReplicaOffer, replica: ReplicaCutSourc
       repoId: offer.repoId,
       viewId: offer.viewId,
       cut: offer.toCut,
+      authorizationOwner: authorization.owner,
+      authorizationShapeDigest: authorization.digest,
       manifest: {
         digest: offer.manifestDigest,
         entryCount: entries.length,
@@ -102,6 +108,8 @@ export async function* offerFrames(offer: ReplicaOffer, replica: ReplicaCutSourc
     toCut: offer.toCut,
     changeCount: changes.length,
     resultManifestDigest: offer.manifestDigest,
+    authorizationOwner: authorization.owner,
+    authorizationShapeDigest: authorization.digest,
   };
   for (let offset = 0; offset < changes.length; offset += 128)
     yield {

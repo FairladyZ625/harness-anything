@@ -307,9 +307,11 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     if (!model || model.sourceRevision !== revision) return entries;
     return [
       ...entries.filter((entry) => !isReadModelPath(entry.path)),
-      ...edgeReadModelEntries({ sourceRevision: revision, rootThreshold: model.rootThreshold, rows: model.rows }).map(
-        (entry) => readModelEntry(entry.path, entry.text, "application/json"),
-      ),
+      ...edgeReadModelEntries({
+        sourceRevision: revision,
+        rootThreshold: model.rootThreshold,
+        rows: model.rows,
+      }).map((entry) => readModelEntry(entry.path, entry.text, "application/json")),
     ].sort((left, right) => left.path.localeCompare(right.path));
   };
   const documentDigest = (entries: readonly FleetEntry[]) =>

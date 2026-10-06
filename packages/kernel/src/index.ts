@@ -275,6 +275,7 @@ export {
   createEdgeReadModelTables,
   deleteEdgeReadModelEntry,
   edgeReadModelEntries,
+  edgeReadAuthorizationShapeDigest,
   isReadModelPath,
   parseEdgeReadModelMeta,
   READ_MODEL_META_PATH,

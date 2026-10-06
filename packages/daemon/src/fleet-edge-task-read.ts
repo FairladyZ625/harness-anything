@@ -8,6 +8,7 @@ import { watch } from "node:fs";
 import path from "node:path";
 import {
   consumeKnownError,
+  edgeReadAuthorizationShapeDigest,
   makeEdgeReplicaQueries,
   readTaskChildCounts,
   readTaskIndexRows,
@@ -41,6 +42,8 @@ export interface EdgeTaskReadInput {
   readonly writeReadWaitMs?: number;
   readonly minCut?: EdgeReadCut;
   readonly action: Readonly<Record<string, unknown>>;
+  /** Principal established by the local daemon session, never by the action payload. */
+  readonly principalId?: string;
 }
 
 class EdgeReadError extends Error {
@@ -98,6 +101,8 @@ function readLocalTaskList(input: EdgeTaskReadInput, now: () => number): Record<
   if (!view || isReadDenied(view.viewDir)) return null;
   const model = openEdgeReadModel(view, path.join(input.viewRoot, "repos", input.repoId, "cas", "sha256"));
   if (!model) return null;
+  const authorization = authorizeLocalRead(input, model.meta);
+  if (authorization) return authorization;
   try {
     const codedError = (code: string, message: string) => new EdgeReadError(code, message),
       action = input.action as RepoTaskAction,
@@ -326,6 +331,8 @@ function readLocalTaskShow(input: EdgeTaskReadInput, now: () => number): Record<
   if (!view || isReadDenied(view.viewDir)) return null;
   const model = openEdgeReadModel(view, path.join(input.viewRoot, "repos", input.repoId, "cas", "sha256"));
   if (!model) return null;
+  const authorization = authorizeLocalRead(input, model.meta);
+  if (authorization) return authorization;
   const action = input.action as { readonly taskId?: unknown };
   if (typeof action.taskId !== "string" || action.taskId === "")
     return {
@@ -374,4 +381,26 @@ function readLocalTaskShow(input: EdgeTaskReadInput, now: () => number): Record<
   } finally {
     model.db.close();
   }
+}
+
+function authorizeLocalRead(
+  input: EdgeTaskReadInput,
+  meta: EdgeReadModelMeta & { readonly authorizationOwner: string | null; readonly authorizationShapeDigest: string },
+): Record<string, unknown> | null {
+  const expected = edgeReadAuthorizationShapeDigest({ repoId: input.repoId, owner: meta.authorizationOwner });
+  if (
+    meta.authorizationOwner === null ||
+    input.principalId === undefined ||
+    input.principalId !== meta.authorizationOwner ||
+    meta.authorizationShapeDigest !== expected
+  )
+    return {
+      schema: "command-receipt/v2",
+      command: input.action.kind === "task-list" ? "task-list" : "task-show",
+      ok: false,
+      outcome: "op_rejected",
+      code: "authorization_denied",
+      error: { code: "authorization_denied", hint: "The local read model is not authorized for this principal." },
+    };
+  return null;
 }
