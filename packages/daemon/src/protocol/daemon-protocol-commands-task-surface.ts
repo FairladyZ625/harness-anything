@@ -1,7 +1,6 @@
 import { relationFreshnessWords, relationStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import {
   defineCenterForwardWriteCommand,
-  defineCenterForwardReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   cliInput,
   defineLedgerWriteCommand,
@@ -318,7 +317,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "work-list",
     repositoryRead: true,
     phase: "W3",
@@ -338,7 +337,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "work-show",
     repositoryRead: true,
     phase: "W3",
@@ -577,7 +576,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "task-read-set",
     repositoryRead: true,
     phase: "Governed-Entity-W2-B",

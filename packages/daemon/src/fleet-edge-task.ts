@@ -31,7 +31,6 @@ import {
   readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
   runFleetTaskCommandClient,
-  runFleetRepositoryReadClient,
   runFleetRuntimeReadClient,
   runFleetUploadClient,
   runFleetWriteClient,
@@ -163,18 +162,10 @@ export async function runFleetEdgeTask(
       return answerEdgeTaskList({ ...payload, action, ...(minCut ? { minCut } : {}) }, pullOnce);
     if (action.kind === "task-show")
       return answerEdgeTaskShow({ ...payload, action, ...(minCut ? { minCut } : {}) }, pullOnce);
-    const receipt = await runFleetRepositoryReadClient({
-      ...peer,
-      method: "repo.task.read",
-      payload: action,
-      accessToken: await readAccessToken?.(),
-    });
-    return {
-      schema: "command-receipt/v2",
-      command: action.kind,
-      ok: receipt.outcome === "applied",
-      ...receipt,
-    };
+    throw new FleetEdgeTaskError(
+      "LOCAL_UNAVAILABLE",
+      "This repository read has no local replica query implementation on this edge.",
+    );
   }
   const workspaceRoot = payload.workspaceRoot ?? null;
   // One edge/view has one registered harness materialization. Hold its round fence

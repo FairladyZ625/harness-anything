@@ -525,44 +525,6 @@ export async function runFleetRuntimeArchiveClient(
     session.close();
   }
 }
-export async function runFleetRepositoryReadClient(
-  options: FleetPeerOptions & {
-    readonly method: import("./contract.ts").FleetRepositoryReadMethod;
-    readonly accessToken?: string;
-    readonly payload: Readonly<Record<string, unknown>>;
-  },
-): Promise<Readonly<Record<string, unknown>>> {
-  const session = await openPeer(options);
-  try {
-    const messageId = session.messageId();
-    session.send({
-      schema: "fleet.repository.read/v1",
-      ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
-      accessToken: options.accessToken ?? null,
-      messageId,
-      repoId: options.repoId,
-      method: options.method,
-      payload: options.payload,
-    });
-    const chunks: Buffer[] = [];
-    let offset = 0;
-    for (;;) {
-      const response = await session.next();
-      if (
-        response.schema !== "fleet.repository.read.result/v1" ||
-        response.inReplyTo !== messageId ||
-        response.offset !== offset
-      )
-        throw new Error("repository read chunk does not continue this response");
-      const chunk = Buffer.from(response.dataBase64, "base64");
-      chunks.push(chunk);
-      offset += chunk.length;
-      if (response.done) return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Readonly<Record<string, unknown>>;
-    }
-  } finally {
-    session.close();
-  }
-}
 export async function runFleetRuntimeReadClient(
   options: FleetPeerOptions & {
     readonly repoId: string;
