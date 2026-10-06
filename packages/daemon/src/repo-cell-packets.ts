@@ -64,10 +64,6 @@ export function workspaceText(rootDir: string, requestedValue: unknown, field: s
   return readWorkspaceText(rootDir, requiredCellText(requestedValue, field), field);
 }
 
-export function taskSubmitExplainerReminder(profileId: string | undefined): string {
-  return profileId === "lightweight" ? "" : "\nNext: 在 artifacts/explainer.html 的 header 写下结论并冻结该页。";
-}
-
 export function readPacketSource(rootDir: string, action: Readonly<Record<string, unknown>>): string {
   const fromFile = action.fromFile !== undefined,
     jsonInput = action.jsonInput !== undefined;
@@ -243,9 +239,9 @@ export function lifecycleReceipt(
         ? `task-annotate: ${event.payload.annotation.kind} (execution: ${executionId})`
         : event.type === "execution_submitted" && event.payload.supersedesSubmissionId !== undefined
           ? "task-submit: amended; prior Review and consent pins are stale until reviewed or explicitly " +
-            `consented again.${taskSubmitExplainerReminder(snapshot.task?.metadata?.profileId)}`
+            "consented again."
           : event.type === "execution_submitted"
-            ? `task-submit: submitted (execution: ${executionId})${taskSubmitExplainerReminder(snapshot.task?.metadata?.profileId)}`
+            ? `task-submit: submitted (execution: ${executionId})`
             : undefined;
   return {
     outcome: "applied",
