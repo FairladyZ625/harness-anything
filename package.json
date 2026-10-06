@@ -117,7 +117,8 @@
     "effect": "3.21.4"
   },
   "overrides": {
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.1",
+    "katex": "0.18.10"
   },
   "allowScripts": {
     "node-pty@1.1.0": true
