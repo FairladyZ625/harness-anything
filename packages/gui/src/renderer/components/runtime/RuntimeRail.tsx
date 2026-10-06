@@ -9,7 +9,7 @@ import {
 import { t } from "../../i18n/index.tsx";
 import { runtimeAuthPresentation, type RuntimeAuthProbeState } from "../../runtime-auth-presentation.ts";
 import { DenseRow } from "../primitives/DenseRow.tsx";
-import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
+import { catalogRailCompactClass } from "../primitives/CatalogSplit.tsx";
 import { StatusTag, TONE_COLOR } from "../primitives/StatusTag.tsx";
 import { Avatar, KindDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
@@ -142,9 +142,10 @@ export function ProviderRail({
   );
 }
 
-// 目录行两行(标准 §2.5 v2):第一行只放名称(完整可读,不挂角色前缀),第二行一句
-// 弱色说明——Agent 是模型与所在 Squad,Squad 是 leader 与成员数。角色、层级、运行时
-// 是多数行重复的值,只在顶部筛选里出现。
+// 目录行单行(视觉基线 v2.2,业主 2026-10-06 信息密度反馈):第一行只放名称(完整可读),
+// 右侧一个小号模型/规模标签;模型、所在 Squad、leader 等第二行内容收进悬停全文
+// (DenseRow.hoverTitle 契约),详情仍是完整出处。角色、层级、运行时是多数行重复的
+// 值,只在顶部筛选里出现(标准 §2.4「重复值不进行」)。
 //
 // The identity rail: Agents and Squads share one page because a Squad has no lifecycle
 // apart from its agents (proposal P2) — organisation is a facet of identity here, not a
@@ -196,7 +197,7 @@ export function IdentityRail({
       data-testid="runtime-rail"
       data-pane="list"
       aria-label={t("agentRuntime.railLabel")}
-      className={catalogRailClass}
+      className={catalogRailCompactClass}
     >
       {toolbar}
       {notice}
@@ -228,15 +229,10 @@ export function IdentityRail({
                     <span className="min-w-0 truncate font-medium">{agent.name}</span>
                   </span>
                 }
-                reason={
-                  [
-                    agent.runtimes.map((target) => target.model ?? target.type).join(" / "),
-                    ...(squadsByAgent.get(agent.id) ?? []),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || agent.id
-                }
-                relaxed
+                // 右侧唯一关键量:首选模型(能区分这一行的信息);完整「模型 · 所在
+                // Squad」与 agent id 收进悬停全文,详情卡仍是完整出处。
+                time={agent.runtimes[0]?.model ?? agent.runtimes[0]?.type}
+                hoverTitle={agentLineSummary(agent.runtimes, squadsByAgent.get(agent.id) ?? [], agent.id)}
                 selected={picked("agent", agent.id)}
               />
             </button>
@@ -279,10 +275,8 @@ export function IdentityRail({
                     <span className="min-w-0 truncate font-medium">{squad.name}</span>
                   </span>
                 }
-                reason={`${agentNames.get(squad.leader) ?? squad.leader} · ${t("agentRuntime.memberCount", {
-                  count: squad.workers.length + 1,
-                })}`}
-                relaxed
+                time={t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}
+                hoverTitle={`${agentNames.get(squad.leader) ?? squad.leader} · ${squad.id}`}
                 selected={picked("squad", squad.id)}
               />
             </button>
@@ -307,9 +301,19 @@ export function IdentityRail({
 
 const isDegraded = (row: AgentEntityRow | SquadEntityRow): boolean => "state" in row;
 
+/** Agent 行悬停全文:完整模型清单、所在 Squad 与 agent id——行上只露首选模型。 */
+function agentLineSummary(
+  runtimes: readonly { readonly type: string; readonly model?: string | null }[],
+  squads: readonly string[],
+  id: string,
+): string {
+  return [runtimes.map((target) => target.model ?? target.type).join(" / "), ...squads, id].filter(Boolean).join(" · ");
+}
+
 type DegradedEntityRow = Extract<AgentEntityRow, { readonly state: "invalid" | "missing" }>;
 
-/** 降级行:目录健康信号不是禁用项——可选中,原因(声明校验结果)直接写在行上。 */
+/** 降级行:目录健康信号不是禁用项——可选中,状态标签就在行上;校验原因收进悬停,
+ * 右侧详情就地解释为什么无效(标准 §2.5)。 */
 function RailDegradedRow({
   kind,
   row,
@@ -332,18 +336,13 @@ function RailDegradedRow({
     >
       <DenseRow
         title={<span className="font-mono">{row.id}</span>}
-        reason={
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="shrink-0">
-              <StatusTag
-                tone="bad"
-                label={t(row.state === "missing" ? "agentRuntime.catalogMissing" : "agentRuntime.catalogInvalid")}
-              />
-            </span>
-            <span className="min-w-0 truncate">{row.error.hint}</span>
-          </span>
+        time={
+          <StatusTag
+            tone="bad"
+            label={t(row.state === "missing" ? "agentRuntime.catalogMissing" : "agentRuntime.catalogInvalid")}
+          />
         }
-        relaxed
+        hoverTitle={row.error.hint}
         selected={selected}
       />
     </button>
@@ -394,8 +393,8 @@ function Segment({
   readonly children: ReactNode;
 }) {
   return (
-    <section className="pb-5">
-      <div className="flex items-center gap-2 px-3.5 pt-3 pb-2 hover:bg-surface-raised">
+    <section className="pb-4">
+      <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-1.5 hover:bg-surface-raised">
         <button
           type="button"
           aria-expanded={open}

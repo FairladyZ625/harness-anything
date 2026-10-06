@@ -7,7 +7,6 @@ import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../src/renderer
 import { NewRuntimeDialog } from "../src/renderer/components/runtime/NewRuntimeDialog.tsx";
 import { TextInput } from "../src/renderer/components/primitives/TextInput.tsx";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
-import { IdentityInspector } from "../src/renderer/components/runtime/RuntimeInspector.tsx";
 import { IdentityRail, ProviderRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
 import { SquadCard } from "../src/renderer/components/runtime/SquadCard.tsx";
@@ -580,24 +579,15 @@ describe("agent runtime renderer", () => {
     );
     for (const text of ["Agents", "Squads", "fable", "luna", "sol", "terra", "Core Squad", "Design thesis"])
       expect(identityRail).toContain(text);
-    // 标准 §2.4/§2.5 v2:行里不挂角色前缀,名称完整可读;第二行弱色说明是模型与所在 Squad,
-    // Squad 行第二行是 leader 与成员数。
+    // 标准 §2.4/§2.5 v2.2:行里不挂角色前缀,名称完整可读;列表行单行(业主 2026-10-06
+    // 密度反馈)——右侧小号模型/种类标签,完整「模型 · 所在 Squad · id」与 Squad 的
+    // leader 收进悬停全文。
     expect(identityRail).not.toMatch(/commander|worker/iu);
-    expect(identityRail).toContain("codex · Core Squad");
-    expect(identityRail).toContain("fable · 4 members");
+    expect(identityRail).toMatch(/>claude</u);
+    expect(identityRail).toMatch(/title="claude · Core Squad · fable"/u);
+    expect(identityRail).toContain("4 members");
     expect(identityRail).not.toContain("Runtimes");
     expect(identityRail).not.toContain("Orchestration");
-    const inspector = renderToStaticMarkup(
-      createElement(IdentityInspector, {
-        selection: { type: "squad", id: "core-squad" },
-        agents: agentRows as never,
-        squads: squadRows as never,
-        rows: [],
-        onSelect: noop,
-        onOpenSession: noop,
-      }),
-    );
-    for (const text of ["fable", "luna", "sol", "terra", "commander", "worker"]) expect(inspector).toContain(text);
   });
   it("keeps invalid and missing identity rows visible, selectable, and status-tagged", () => {
     const markup = renderToStaticMarkup(

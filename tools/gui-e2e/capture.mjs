@@ -34,7 +34,8 @@ options:
   --page <nav>        侧栏导航按钮文字;--click/--scroll-to 作用于它前面最近的 --page
   --click <text>      截图前点击页面内该文字(第一个可见匹配)
   --scroll-to <text>  截图前把该文字滚入视口(第一个匹配)
-  --settle-ms <n>     每页截图前的等待毫秒数(默认 6000)`,
+  --settle-ms <n>     每页截图前的等待毫秒数(默认 6000)
+  --window-size WxH   窗口尺寸(默认 1440x900);改前改后对比须同尺寸`,
   );
   process.exitCode = 1;
 }
@@ -46,6 +47,7 @@ function parseArgs(argv) {
     pages: [],
     show: false,
     settleMs: DEFAULT_PAGE_SETTLE_MS,
+    windowSize: { width: 1440, height: 900 },
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -54,7 +56,11 @@ function parseArgs(argv) {
     else if (arg === "--show") options.show = true;
     else if (arg === "--out") options.out = value();
     else if (arg === "--settle-ms") options.settleMs = Number(value());
-    else if (arg === "--page") options.pages.push({ nav: value(), clicks: [], scrolls: [] });
+    else if (arg === "--window-size") {
+      const match = /^(\d+)x(\d+)$/u.exec(value() ?? "");
+      if (!match) throw new Error("--window-size 需要 WxH 形式,如 2000x1200");
+      options.windowSize = { width: Number(match[1]), height: Number(match[2]) };
+    } else if (arg === "--page") options.pages.push({ nav: value(), clicks: [], scrolls: [] });
     else if (arg === "--click") {
       const page = options.pages.at(-1);
       if (!page) throw new Error(`${arg} 必须跟在某个 --page 之后`);
@@ -191,10 +197,10 @@ async function main(argv) {
   const { page, app } = driver;
   const usedNames = new Set();
   try {
-    // setSize 的回调在 Electron 主进程里求值,取不到模块常量,尺寸用字面量(与 CEO 脚本一致)。
-    await app.evaluate(({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows()[0].setSize(1440, 900);
-    });
+    // setSize 的回调在 Electron 主进程里求值,取不到 Node 侧闭包,尺寸经第二参传入。
+    await app.evaluate(({ BrowserWindow }, size) => {
+      BrowserWindow.getAllWindows()[0].setSize(size.width, size.height);
+    }, options.windowSize);
     await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
     const project = await openProject(driver, options.project);
     if (project !== options.project) {
