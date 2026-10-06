@@ -625,6 +625,59 @@ test("terminal settlement accepts a review registered for the dispatch role", as
   assert.doesNotMatch(outcomeBodies[0]!, /is not submitted/u);
 });
 
+test("a reviewer's branch commit does not witness success without the registered review", async (context) => {
+  // The git fixture leaves the worker branch one commit above the baseline, so the branch
+  // witness alone would flip the outcome; the review list is empty (F-4C182EEE shape).
+  const fixture = workerGitFixture(context, "settle-review-unregistered", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "no structured provider outcome",
+      publicationOwner: "commander",
+      role: "reviewer",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "unknown");
+});
+
+test("an edge reviewer without a local projection settles unknown", async (context) => {
+  const fixture = workerGitFixture(context, "settle-review-edge", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "review registered elsewhere",
+      publicationOwner: "commander",
+      role: "reviewer",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      input: { ...settleContext.input, projection: undefined },
+      requiredRuntimeProjection: () => {
+        throw Object.assign(new Error("Local runtime projection is unavailable."), {
+          code: "runtime_preconditions_unavailable",
+        });
+      },
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "unknown");
+});
+
 test("squad leader settlement preserves its machine-readable control result", async (context) => {
   const fixture = workerGitFixture(context, "squad-leader-control", { reachableRemote: true }),
     controlResult = JSON.stringify({

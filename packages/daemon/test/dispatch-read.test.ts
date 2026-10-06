@@ -277,9 +277,9 @@ test("an observed outcome outranks liveness", () => {
   assert.equal(statusFor(session("live", "cancelled")), "cancelled");
 });
 
-test("an old unknown outcome is restated from its exit and result evidence", () => {
+test("a settled unknown outcome stays unknown even with a zero exit and a result reference", () => {
   const resultRef = "artifact:runtime-result/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  assert.equal(statusFor(session("exited", "unknown", { exitCode: 0, resultRef })), "succeeded");
+  assert.equal(statusFor(session("exited", "unknown", { exitCode: 0, resultRef })), "unknown");
   assert.equal(statusFor(session("exited", "unknown", { exitCode: 1, resultRef })), "failed");
   assert.equal(
     statusFor(session("exited", "unknown", { exitCode: 0, resultRef, reasonCode: "lease_conflict" })),

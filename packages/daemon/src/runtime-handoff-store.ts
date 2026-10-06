@@ -2,7 +2,7 @@ import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import {
   resolveHarnessLayout,
-  runtimeSessionOutcomeFromEvidence,
+  runtimeSessionMissingOutcomeEvidence,
   sha256Bytes,
   stableStringify,
   type WriteReceiptDraft,
@@ -75,7 +75,9 @@ export function runRuntimeHandoffAction(cell: RepoCellActionContext, action: Rep
       !session?.providerSessionId ||
       session.liveness !== "exited" ||
       !session.outcome ||
-      runtimeSessionOutcomeFromEvidence(session) === "unknown"
+      // Handoff continues work whose delivery was never witnessed, so eligibility is settledness
+      // (complete exit/result evidence), not a success verdict the session never declared.
+      runtimeSessionMissingOutcomeEvidence(session) !== null
     )
       throw runtimeSpawnError("runtime_handoff_ineligible", "The opted-in task-bound Codex source must be settled.");
     if (cell.projection.readRuntimeDispatchByResumeSource(dispatchId))

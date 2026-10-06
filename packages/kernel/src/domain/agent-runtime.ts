@@ -229,9 +229,10 @@ export const runtimeSessionEntityV1Schema = Object.freeze({
     },
   },
 }) as EntityDocumentJsonSchema;
-/** The terminal verdict evidenced by the canonical outcome declaration, or by
- * the exit/result pair written by settlement when an older declaration said
- * only `unknown`. An absent exit or result remains genuinely indeterminate. */
+/** The terminal verdict evidenced by the canonical outcome declaration. A declared
+ * `unknown` stays unknown: a zero exit plus a result reference is not positive evidence,
+ * because settlement always writes a result reference, even for an empty fallback body.
+ * Only a non-zero exit restates an undeclared or unknown outcome, as failure. */
 export function runtimeSessionOutcomeFromEvidence(
   session: Pick<RuntimeSession, "outcome"> & Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">>,
 ): RuntimeSession["outcome"] {
@@ -239,7 +240,7 @@ export function runtimeSessionOutcomeFromEvidence(
     return session.outcome;
   if (session.reasonCode) return "failed";
   if (session.exitCode === undefined || session.exitCode === null || !session.resultRef) return session.outcome;
-  return session.exitCode === 0 ? "succeeded" : "failed";
+  return session.exitCode === 0 ? session.outcome : "failed";
 }
 
 export function runtimeSessionMissingOutcomeEvidence(
@@ -248,7 +249,7 @@ export function runtimeSessionMissingOutcomeEvidence(
   if (runtimeSessionOutcomeFromEvidence(session) !== "unknown") return null;
   if (session.exitCode === undefined || session.exitCode === null)
     return session.resultRef ? "exit-code" : "exit-code-and-result";
-  return "result";
+  return session.resultRef ? null : "result";
 }
 
 /** A domain judgment over independent liveness and outcome evidence. */

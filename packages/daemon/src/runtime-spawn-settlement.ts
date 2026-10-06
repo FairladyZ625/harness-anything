@@ -419,6 +419,17 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
   // the provider's completed turn and final result, both durably replayed from the worker stream
   // when a successor daemon adopts the runtime.
   if (!active.task) return active.providerOutcome === "succeeded" && active.finalText !== null;
+  // A reviewer's positive delivery is the registered review, never branch commits: a report file
+  // can exist (and be committed) while the review itself was never registered. Only the node
+  // holding the task projection can witness registration; an edge settles unknown rather than
+  // guessing from its branch.
+  if (active.role === "reviewer")
+    return context.input.projection
+      ? context
+          .requiredRuntimeProjection(context.input)
+          .read(active.task.taskId)
+          .snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`)
+      : false;
   if (
     await workerBranchHasDelivery({
       cwd: active.cwd,
@@ -431,10 +442,8 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
   // repository-diff witness; absence must settle unknown rather than abort terminal publication.
   if (context.input.remote) return false;
   const projection = context.requiredRuntimeProjection(context.input),
-    snapshot = projection.read(active.task.taskId).snapshot;
-  if (active.role === "reviewer")
-    return snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`);
-  const submission = snapshot.executions.find(
+    snapshot = projection.read(active.task.taskId).snapshot,
+    submission = snapshot.executions.find(
       (execution) => execution.executionId === active.task?.executionId,
     )?.submission,
     outputShape = taskOutputShape(snapshot.task, presetSnapshotReader(projection));

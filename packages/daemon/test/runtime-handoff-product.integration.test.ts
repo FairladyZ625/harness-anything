@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, globSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, runtimeSessionOutcomeFromEvidence } from "@harness-anything/kernel";
+import { makeTaskEventReader, runtimeSessionMissingOutcomeEvidence } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
@@ -255,13 +255,15 @@ for (const row of [{type:'thread.started',thread_id:id},
       sourceWorktree = path.join(sourceRoot, ".worktrees", taskId);
     // The center's outcome wait is signalled after the worker's persisted process_exit,
     // local terminal record and task lease settlement have reached the publication path.
-    const waitForOutcome = async (runtimeSessionId: string) => {
+    const waitForOutcome = async (runtimeSessionId: string, expected: "succeeded" | "unknown" = "unknown") => {
       const receipt = await f.host.awaitRuntimeSessions(
         repoId,
         { runtimeSessionIds: [runtimeSessionId], mode: "all" },
         { ...localAuth, connectionSignal: t.signal },
       );
-      assert.equal(receipt.outcome, "succeeded", JSON.stringify(receipt));
+      // Task-bound handoff sessions settle unknown: their provider turn completed but no delivery
+      // was witnessed, and a zero exit plus a result reference no longer restates success.
+      assert.equal(receipt.outcome, expected, JSON.stringify(receipt));
       assert.deepEqual(receipt.unavailable, []);
       assert.equal(
         makeTaskEventReader({ rootDir: f.repo, repoId })
@@ -282,8 +284,8 @@ for (const row of [{type:'thread.started',thread_id:id},
     assert.ok(nativeId);
     if (!liveCodex) assert.equal(nativeId, fixtureNativeId);
     assert.equal(
-      runtimeSessionOutcomeFromEvidence(readDispatchStream(sourceRoot, dispatchId)!.terminalOutcome!.payload),
-      "succeeded",
+      runtimeSessionMissingOutcomeEvidence(readDispatchStream(sourceRoot, dispatchId)!.terminalOutcome!.payload),
+      null,
       JSON.stringify(readDispatchStream(sourceRoot, dispatchId)?.terminalOutcome),
     );
     const sourceSessions = path.join(source.userRoot, "runtime-instances", instance.instanceId, "home/.codex/sessions");
@@ -446,7 +448,7 @@ for (const row of [{type:'thread.started',thread_id:id},
         cwd: { scope: "repo-root" },
       });
       assert.equal(negative.outcome, "applied", JSON.stringify(negative));
-      await waitForOutcome(String(negative.runtimeSessionId));
+      await waitForOutcome(String(negative.runtimeSessionId), "succeeded");
       assert.ok(readDispatchStream(targetRoot, String(negative.dispatchId))?.terminalOutcome);
       const negativeStream = readDispatchStream(targetRoot, String(negative.dispatchId))!;
       assert.notEqual(negativeStream.providerSessionId, nativeId);
