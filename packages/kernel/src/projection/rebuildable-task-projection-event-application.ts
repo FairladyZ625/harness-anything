@@ -6,7 +6,6 @@ import { emptyTaskLifecycleSnapshot, reduceTaskEvent, type TaskEventV1 } from ".
 import { OPAQUE_TEXTUAL_POLICY_ID, RAW_ARTIFACT_POLICY_ID } from "../domain/artifact-text-classification.ts";
 import {
   docByteLength,
-  documentPath,
   isDecisionEvent,
   isDocEvent,
   isFactEvent,
@@ -43,6 +42,7 @@ import { consumeKnownError } from "../error-consumption.ts";
 import { isTaskBootstrapEvent, taskBootstrapPackagePath } from "../domain/task-bootstrap-event.ts";
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
+import { projectPresetUpgradeDocuments } from "./preset-upgrade-added-documents.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isValidCloseoutOverrides } from "../domain/settings-closeout.ts";
@@ -673,20 +673,9 @@ export function applyEvent(
       canonicalJson(snapshot),
     );
     runSql(db, UPSERT_DOCUMENT_SQL, contract.path, event.workspaceRevision, canonicalJson(document));
-    for (const claim of event.payload.addedDocumentClaims ?? []) {
-      const bytes = readBlob(claim.sha256);
-      if (!bytes || bytes.byteLength !== claim.size) throw new Error(`document blob ${claim.sha256} is unavailable`);
-      const added: DocumentState = {
-        path: documentPath(claim.path),
-        blobSha256: claim.sha256,
-        body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-        size: docByteLength(claim.size),
-        mediaType: claim.mediaType,
-        policyId: claim.policyId,
-        workspaceRevision: event.workspaceRevision,
-      };
-      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(added));
-    }
+    projectPresetUpgradeDocuments(event.payload.addedDocumentClaims ?? [], event.workspaceRevision, readBlob, (added) =>
+      runSql(db, UPSERT_DOCUMENT_SQL, added.path, event.workspaceRevision, canonicalJson(added)),
+    );
     return;
   }
   if (isTaskBootstrapEvent(event)) {
