@@ -625,6 +625,59 @@ test("terminal settlement accepts a review registered for the dispatch role", as
   assert.doesNotMatch(outcomeBodies[0]!, /is not submitted/u);
 });
 
+test("a reviewer's branch commit does not witness success without the registered review", async (context) => {
+  // The git fixture leaves the worker branch one commit above the baseline, so the branch
+  // witness alone would flip the outcome; the review list is empty (F-4C182EEE shape).
+  const fixture = workerGitFixture(context, "settle-review-unregistered", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "no structured provider outcome",
+      publicationOwner: "commander",
+      role: "reviewer",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "unknown");
+});
+
+test("an edge reviewer without a local projection settles unknown", async (context) => {
+  const fixture = workerGitFixture(context, "settle-review-edge", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "review registered elsewhere",
+      publicationOwner: "commander",
+      role: "reviewer",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      input: { ...settleContext.input, projection: undefined },
+      requiredRuntimeProjection: () => {
+        throw Object.assign(new Error("Local runtime projection is unavailable."), {
+          code: "runtime_preconditions_unavailable",
+        });
+      },
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "unknown");
+});
+
 test("squad leader settlement preserves its machine-readable control result", async (context) => {
   const fixture = workerGitFixture(context, "squad-leader-control", { reachableRemote: true }),
     controlResult = JSON.stringify({
@@ -712,6 +765,96 @@ test("commander-owned settlement without a local commit does not report a delive
     0,
   );
   assert.doesNotMatch(outcomeBodies[0]!, /is not submitted/u);
+});
+
+test("a squad leader turn is witnessed by its structured control result", async (context) => {
+  // The leader owes no repository artifacts (children deliver the commits), so without this
+  // witness every leader turn settles unknown and the coordinator retries instead of parsing
+  // the decision — the squad loop itself depended on the removed unknown-to-succeeded restating.
+  const fixture = workerGitFixture(context, "squad-leader-witness", { reachableRemote: true, delivery: false }),
+    controlResult = JSON.stringify({
+      schema: "squad-decision/v1",
+      action: "converged",
+      report: "# Synthesis\n\nChildren delivered.",
+    }),
+    runtime = workerSettlementRuntime(fixture, {
+      agent: { id: "fable", name: "Fable" },
+      delegatedBy: null,
+      squadId: "core-squad",
+      finalText: controlResult,
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(
+      fixture,
+      async (type, payload = {}) => {
+        if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+        return {};
+      },
+      controlResult,
+    );
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], false),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded");
+});
+
+test("a squad leader turn without the provider's structured success settles unknown", async (context) => {
+  const fixture = workerGitFixture(context, "squad-leader-unstructured", { reachableRemote: true, delivery: false }),
+    runtime = workerSettlementRuntime(fixture, {
+      agent: { id: "fable", name: "Fable" },
+      delegatedBy: null,
+      squadId: "core-squad",
+      providerOutcome: null,
+      finalText: "converged without a provider result frame",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], false),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "unknown");
+});
+
+test("a squad worker's delivery is the commits on its commander-cut branch", async (context) => {
+  // Squad checkouts branch as `<commander>--squad-…`, never the child task id, so the task-branch
+  // witness cannot name them; the commits beyond the commander branch are the child's delivery.
+  const fixture = workerGitFixture(context, "squad-worker-branch", { reachableRemote: true }),
+    commanderBranch = git(fixture.canonical, "branch", "--show-current").trim();
+  git(fixture.worker, "branch", "-m", `${commanderBranch}--squad-0123456789ab-terra-1`);
+  const runtime = workerSettlementRuntime(fixture, {
+      agent: { id: "terra", name: "Terra" },
+      delegatedBy: { id: "fable", name: "Fable" },
+      squadId: "core-squad",
+      finalText: "child delivery",
+      publicationOwner: "commander",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded");
 });
 
 test("terminal settlement names the branch when the worker push fails", async (context) => {

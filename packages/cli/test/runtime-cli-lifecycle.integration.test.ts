@@ -123,8 +123,9 @@ test("Task dispatch rejects an incomplete plan then automatically acquires its l
       },
     })}`,
   );
-  // This case owns the detached session and settles it before its daemon is torn down.
-  run(root, env, ["runtime", "status", String(automaticLease.receipt.runtimeSessionId), "--wait", "--no-stream"]);
+  // This case owns the detached session and settles it before its daemon is torn down. The stub
+  // worker delivers nothing on the task, so the settled outcome is unknown and the wait exits 1.
+  runMaybe(root, env, ["runtime", "status", String(automaticLease.receipt.runtimeSessionId), "--wait", "--no-stream"]);
 });
 
 test("Cancellation is idempotent, notifies once and resumes the archived provider session", async (context) => {
@@ -239,18 +240,21 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   ]);
   assert.equal(mismatchedAgent.status, 1);
   assert.equal(mismatchedAgent.receipt.code, "runtime_resume_agent_mismatch");
-  const resumedDispatch = run(root, env, [
-      "agent",
-      "run",
-      "terra",
-      "--resume-dispatch",
-      detachedDispatchId,
-      "--prompt",
-      "follow up",
-      "--no-stream",
-    ]),
-    resumedDispatchId = String((resumedDispatch.spawn as Record<string, unknown>).dispatchId),
-    resumedText = String((resumedDispatch.result as Record<string, unknown>).text);
+  // The resumed worker completes its provider turn but commits nothing, so the dispatch settles
+  // unknown and the no-stream wait exits 1 (F-4C182EEE).
+  const resumedDispatch = runMaybe(root, env, [
+    "agent",
+    "run",
+    "terra",
+    "--resume-dispatch",
+    detachedDispatchId,
+    "--prompt",
+    "follow up",
+    "--no-stream",
+  ]);
+  assert.equal(resumedDispatch.status, 1, `${resumedDispatch.stderr}\n${JSON.stringify(resumedDispatch.receipt)}`);
+  const resumedDispatchId = String((resumedDispatch.receipt.spawn as Record<string, unknown>).dispatchId),
+    resumedText = String((resumedDispatch.receipt.result as Record<string, unknown>).text);
   assert.ok(resumedText.startsWith("resumed:provider-cli-session:"), resumedText);
   assertTaskMissionPrompt(resumedText.slice("resumed:provider-cli-session:".length), {
     repoId: "runtime-cli",
@@ -259,13 +263,13 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
     daemonUserRoot: userRoot,
     daemonId,
-    runtimeSessionId: String(resumedDispatch.runtimeSessionId),
+    runtimeSessionId: String(resumedDispatch.receipt.runtimeSessionId),
     mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nfollow up`,
   });
-  const resumedRow = (run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find(
-    (row) => row.dispatchId === resumedDispatchId,
-  );
-  assert.equal(resumedRow?.status, "succeeded");
+  const resumedRow = (
+    runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
+  ).find((row) => row.dispatchId === resumedDispatchId);
+  assert.equal(resumedRow?.status, "unknown");
   const resumedHeader = readDispatchRecords(root, resumedDispatchId)[0];
   assert.equal(resumedHeader?.agentId, "terra");
   assert.equal(resumedHeader?.cwd, realpathSync(workerRoot));
@@ -414,7 +418,9 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
   assert.match(squad.squad.roster, /humans edited/u);
   const { taskId, executionId } = seedTask(root, env, "identity");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const wildcard = run(root, env, [
+  // The wildcard worker completes its provider turn but delivers nothing on the task, so the
+  // dispatch settles unknown and the no-stream wait exits 1 (F-4C182EEE).
+  const wildcard = runMaybe(root, env, [
     "agent",
     "run",
     "any-worker",
@@ -424,7 +430,8 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
     taskId,
     "--no-stream",
   ]);
-  const wildcardText = String((wildcard.result as Record<string, unknown>).text);
+  assert.equal(wildcard.status, 1, `${wildcard.stderr}\n${JSON.stringify(wildcard.receipt)}`);
+  const wildcardText = String((wildcard.receipt.result as Record<string, unknown>).text);
   assert.ok(
     wildcardText.startsWith(
       "final:# Agent Identity: Any Worker (any-worker)\n\nUse any compatible runtime.\n\n# Harness Execution Discipline",
@@ -482,7 +489,9 @@ test("Concurrent fact writes preserve runtime progress attribution and task wait
     true,
     JSON.stringify(factWrites),
   );
-  assert.equal(progressResult.status, 0, `${progressResult.stderr}\n${JSON.stringify(progressResult.receipt)}`);
+  // The progress worker appends checkpoints but delivers no commit or submission, so it settles
+  // unknown and its no-stream exit is 1 (F-4C182EEE); the attribution assertions below are unchanged.
+  assert.equal(progressResult.status, 1, `${progressResult.stderr}\n${JSON.stringify(progressResult.receipt)}`);
   context.diagnostic(
     `projection readiness concurrency: ${JSON.stringify({ factWrites: factWrites.length, runtime: progressResult.receipt.outcome })}`,
   );
@@ -524,8 +533,8 @@ test("Concurrent fact writes preserve runtime progress attribution and task wait
   assert.equal(unrelatedProgress.status, 1);
   assert.equal(unrelatedProgress.receipt.code, "progress_lease_required");
   const taskWait = runMaybe(root, env, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
-  assert.equal(taskWait.status, 0, `${taskWait.stderr}\n${JSON.stringify(taskWait.receipt)}`);
-  assert.equal(taskWait.receipt.outcome, "succeeded");
+  assert.equal(taskWait.status, 1, `${taskWait.stderr}\n${JSON.stringify(taskWait.receipt)}`);
+  assert.equal(taskWait.receipt.outcome, "unknown");
   const waitedRow = (taskWait.receipt.dispatches as Array<Record<string, unknown>>).find(
     (row) => row.dispatchId === progressDispatchId,
   );

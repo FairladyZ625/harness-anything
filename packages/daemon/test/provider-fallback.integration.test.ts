@@ -116,7 +116,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         false,
         JSON.stringify(rows),
       );
-      return rows.length === 2 && rows[1]?.status === "succeeded" ? rows : null;
+      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
     });
     assertAttemptChain(completed, ["provider-rate-first", "provider-success-second"]);
     assert.deepEqual(
@@ -257,7 +257,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const stopped = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_worker_stop" })).dispatches;
-      return rows.length === 1 && rows[0]?.status === "succeeded" ? rows : null;
+      return rows.length === 1 && rows[0]?.status === "unknown" ? rows : null;
     });
     assert.equal(stopped[0]?.classification, "worker_stop");
     assert.equal(stopped[0]?.fallbackState, null);
@@ -278,9 +278,11 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const emptySuccess = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_empty_success" })).dispatches;
-      return rows.length === 1 && rows[0]?.outcome === "succeeded" ? rows[0] : null;
+      // A repo-root worker with no delivery settles unknown; its zero exit and result reference
+      // no longer restate success (F-4C182EEE).
+      return rows.length === 1 && rows[0]?.outcome === "unknown" ? rows[0] : null;
     });
-    assert.equal(emptySuccess.outcome, "succeeded");
+    assert.equal(emptySuccess.outcome, "unknown");
     assert.equal(emptySuccess.exitCode, 0);
     assert.match(emptySuccess.reason ?? "", /outcome is unknown/u);
 
@@ -309,7 +311,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     cell = await open();
     const restarted = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_restart" })).dispatches;
-      return rows.length === 2 && rows[1]?.status === "succeeded" ? rows : null;
+      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
     });
     assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
 
@@ -326,7 +328,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const bare = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_bare" })).dispatches;
-      return rows.length === 2 && rows[1]?.status === "succeeded" ? rows : null;
+      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
     });
     assertAttemptChain(bare, ["provider-bare-first", "provider-bare-second"]);
     assert.equal(models.get("provider-bare-first"), "bare-model");
@@ -351,7 +353,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const stderrBounded = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_stderr" })).dispatches;
-      return rows.length === 2 && rows[1]?.status === "succeeded" ? rows : null;
+      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
     });
     assertAttemptChain(stderrBounded, ["provider-stderr-first", "provider-stderr-second"]);
     assert.equal(stderrBounded[0]?.classification, "provider_fault");

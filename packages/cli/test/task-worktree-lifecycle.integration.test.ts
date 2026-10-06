@@ -10,6 +10,7 @@ import {
   installIdentities,
   readPublishedDispatch,
   run,
+  runMaybe,
   seedTask,
 } from "./runtime-cli.fixtures.ts";
 
@@ -87,9 +88,11 @@ test("a task's worktree is bound at create, checked out on start or dispatch, an
   assert.equal(existsSync(path.join(dirtyTree.cwd, "draft.txt")), true);
   assert.equal(worktreeOf(dirty.taskId).state, "retained");
 
-  // A first dispatch without --cwd checks the worktree out and runs the worker there.
+  // A first dispatch without --cwd checks the worktree out and runs the worker there. The stub
+  // worker emits its file change as a protocol frame but never commits, so the dispatch settles
+  // unknown and exits 1 (F-4C182EEE); the worktree mechanics below are what this case verifies.
   const dispatched = seedTask(root, env, "wt-dispatch");
-  const spawn = run(root, env, [
+  const dispatchedRun = runMaybe(root, env, [
     "agent",
     "run",
     "terra",
@@ -98,7 +101,9 @@ test("a task's worktree is bound at create, checked out on start or dispatch, an
     "--task",
     dispatched.taskId,
     "--no-stream",
-  ]).spawn as Record<string, unknown>;
+  ]);
+  assert.equal(dispatchedRun.status, 1, `${dispatchedRun.stderr}\n${JSON.stringify(dispatchedRun.receipt)}`);
+  const spawn = dispatchedRun.receipt.spawn as Record<string, unknown>;
   const dispatchedTree = worktreeOf(dispatched.taskId),
     mission = await readPublishedDispatch(
       path.join(dispatched.artifactRoot, "missions", `${String(spawn.dispatchId)}.md`),
@@ -287,7 +292,9 @@ for (const { name, command } of [
     } finally {
       writeFileSync(release, "");
     }
-    assert.equal(await exited, 0, output.join(""));
+    // A start holds no runtime; the dispatch variant's stub worker settles unknown without a
+    // commit, so only the start variant still exits 0 (F-4C182EEE).
+    assert.equal(await exited, name === "dispatch" ? 1 : 0, output.join(""));
     // A dispatch's mission carries the same note a start prints: the checkout it runs in was prepared first.
     assert.match(output.join(""), /Setup ran: run: touch /u);
   });

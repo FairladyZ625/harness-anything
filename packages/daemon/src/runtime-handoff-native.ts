@@ -1,6 +1,6 @@
 import { globSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
-import { runtimeSessionOutcomeFromEvidence } from "@harness-anything/kernel";
+import { runtimeSessionMissingOutcomeEvidence } from "@harness-anything/kernel";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readDispatchStream } from "./dispatch-stream.ts";
@@ -40,7 +40,9 @@ export async function prepareRuntimeHandoff(rootDir: string, dispatchId: string)
     !stream.process?.exited ||
     runtimePidIsAlive(stream.process.pid) ||
     !stream.terminalOutcome ||
-    runtimeSessionOutcomeFromEvidence(stream.terminalOutcome.payload) === "unknown"
+    // Handoff continues work whose delivery was never witnessed, so eligibility is settledness
+    // (complete exit/result evidence), not a success verdict the stream never declared.
+    runtimeSessionMissingOutcomeEvidence(stream.terminalOutcome.payload) !== null
   )
     throw runtimeSpawnError(
       "runtime_handoff_source_active",

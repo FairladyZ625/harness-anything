@@ -615,8 +615,10 @@ test(
       workers.map((worker) => worker.workerId),
       ["terra", "luna"],
     );
+    // The bearer-reuse workers emit their protocol and exit cleanly but commit nothing in their
+    // squad checkouts, so their dispatches settle unknown rather than success (F-4C182EEE).
     assert.equal(
-      workers.every((worker) => worker.status === "succeeded" && worker.exitCode === 0),
+      workers.every((worker) => worker.status === "unknown" && worker.exitCode === 0),
       true,
     );
     const configPath = path.join(userRoot, "runtime-instances", "squad-api", "home", ".codex", "config.toml");

@@ -733,7 +733,10 @@ test(
       );
       return result.session.activity.outcome ? result.session : null;
     });
-    assert.equal(reviewSettled.activity.outcome, "succeeded", JSON.stringify(f.runtimeArchiveReceipts));
+    // The edge settles without a local projection, so its reviewer settlement cannot witness the
+    // registered review; the receipt stays honestly unknown instead of restating success from the
+    // exit/result pair. The registered review itself is asserted through `show()` below.
+    assert.equal(reviewSettled.activity.outcome, "unknown", JSON.stringify(f.runtimeArchiveReceipts));
     reviewLive.delete(reviewRuntime);
     writeFileSync(path.join(f.root, `${runtimeId}.finish`), "finish");
     const settled = await eventuallyValue(async () => {
@@ -746,11 +749,12 @@ test(
       return result.session.activity.outcome ? result.session : null;
     });
     assert.equal(settled.liveness, "exited");
-    assert.equal(settled.activity.outcome, "succeeded", JSON.stringify(f.runtimeArchiveReceipts));
+    // Same edge honesty: no local delivery witness, so the session reports its settled unknown.
+    assert.equal(settled.activity.outcome, "unknown", JSON.stringify(f.runtimeArchiveReceipts));
     live.delete(runtimeId);
     signInAt(path.join(f.root, "user"), "person-owner");
     assert.ok((await show()).reviews.some((review) => review.reviewId === `review-${reviewDispatch}`));
-    t.diagnostic("Fresh S2 reviewer read, fixed receipt and natural succeeded settlement passed after logout.");
+    t.diagnostic("Fresh S2 reviewer read, fixed receipt and honest unknown settlement passed after logout.");
     const after = await cli(["task", "show", taskId]);
     assert.equal(after.code, "execution_credential_rejected", JSON.stringify(after));
   },

@@ -5,7 +5,38 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { pushWorkerBranch, readWorkerGitIdentity, workerGitIdentityEnvironment } from "../src/runtime-worker-push.ts";
+import {
+  pushWorkerBranch,
+  readWorkerGitIdentity,
+  squadWorkerBranchHasDelivery,
+  workerGitIdentityEnvironment,
+} from "../src/runtime-worker-push.ts";
+
+test("squad delivery is witnessed only on a squad-cut branch, never on an ordinary branch with a similar name", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-squad-witness-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "-b", "main", "repo");
+  const repo = path.join(root, "repo");
+  git(repo, "config", "user.email", "squad-test@example.invalid");
+  git(repo, "config", "user.name", "Squad Test");
+  writeFileSync(path.join(repo, "README.md"), "fixture\n");
+  git(repo, "add", "README.md");
+  git(repo, "commit", "--quiet", "-m", "fixture");
+  // A sibling whose name is the current branch minus its last character: dropping the last
+  // character of an ordinary branch name must not turn it into a commander branch.
+  git(repo, "branch", "mai");
+  writeFileSync(path.join(repo, "work.txt"), "ordinary\n");
+  git(repo, "add", "work.txt");
+  git(repo, "commit", "--quiet", "-m", "ordinary work");
+  assert.equal(await squadWorkerBranchHasDelivery({ cwd: repo }), false);
+
+  git(repo, "checkout", "--quiet", "-b", "main--squad-worker-1");
+  assert.equal(await squadWorkerBranchHasDelivery({ cwd: repo }), false, "no commits beyond the commander branch yet");
+  writeFileSync(path.join(repo, "squad.txt"), "delivered\n");
+  git(repo, "add", "squad.txt");
+  git(repo, "commit", "--quiet", "-m", "squad work");
+  assert.equal(await squadWorkerBranchHasDelivery({ cwd: repo }), true);
+});
 
 test("worker push publishes only the dispatched task's own branch with force-with-lease", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-")),

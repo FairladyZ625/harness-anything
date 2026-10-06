@@ -255,9 +255,11 @@ test(
       } while (Date.now() < deadline);
       return status;
     };
+    // The mocked repo-root worker makes no delivery the edge could witness, so its settlement
+    // stays unknown; a zero exit plus a result reference no longer restates success.
     assert.equal(
       (await waitForOutcome(receipt.runtimeSessionId))?.session.activity.outcome,
-      "succeeded",
+      "unknown",
       JSON.stringify(fixture.runtimeArchiveReceipts),
     );
     assert.equal(fixture.runtimeArchiveReceipts[0]?.outcome, "applied", JSON.stringify(fixture.runtimeArchiveReceipts));
@@ -390,7 +392,9 @@ test(
           liveness: recoveredSession?.session.liveness,
           outcome: recoveredSession?.session.activity.outcome,
         },
-        { liveness: "exited", outcome: "succeeded" },
+        // The recovered verdict is the settled unknown: no delivery was witnessed on the edge,
+        // and recovery restores the published outcome rather than restating success.
+        { liveness: "exited", outcome: "unknown" },
         "a supported edge request should recover the outcome after the center accepted exited",
       );
       assert.match(String(recoveredSession?.session.activity.resultRef), /^artifact:runtime-result\/sha256\//u);

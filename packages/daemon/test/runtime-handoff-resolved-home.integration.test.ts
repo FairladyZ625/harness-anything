@@ -205,7 +205,9 @@ for (const row of [{type:'thread.started',thread_id:id},
       { runtimeSessionIds: [runtimeSessionId], mode: "all" },
       { ...localAuth, connectionSignal: t.signal },
     );
-    assert.equal(receipt.outcome, "succeeded", JSON.stringify(receipt));
+    // The handoff source settles unknown (no witnessed delivery); a zero exit plus a result
+    // reference no longer restates success.
+    assert.equal(receipt.outcome, "unknown", JSON.stringify(receipt));
     assert.deepEqual(receipt.unavailable, []);
   };
   const dispatch = async (idempotencyKey: string, prompt: string) => {

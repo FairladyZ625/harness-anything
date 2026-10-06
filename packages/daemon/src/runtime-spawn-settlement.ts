@@ -9,7 +9,7 @@ import {
 } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
-import { pushWorkerBranch, workerBranchHasDelivery } from "./runtime-worker-push.ts";
+import { pushWorkerBranch, squadWorkerBranchHasDelivery, workerBranchHasDelivery } from "./runtime-worker-push.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
@@ -419,6 +419,26 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
   // the provider's completed turn and final result, both durably replayed from the worker stream
   // when a successor daemon adopts the runtime.
   if (!active.task) return active.providerOutcome === "succeeded" && active.finalText !== null;
+  // A reviewer's positive delivery is the registered review, never branch commits: a report file
+  // can exist (and be committed) while the review itself was never registered. Only the node
+  // holding the task projection can witness registration; an edge settles unknown rather than
+  // guessing from its branch.
+  if (active.role === "reviewer")
+    return context.input.projection
+      ? context
+          .requiredRuntimeProjection(context.input)
+          .read(active.task.taskId)
+          .snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`)
+      : false;
+  // A squad leader turn owes no repository artifacts: children deliver the commits and the leader's
+  // delivery is its decision, carried in the provider's structured result and re-verified by the
+  // coordinator parsing it. The same evidence class as a taskless run witnesses the turn.
+  if (active.squadId !== null && active.delegatedBy === null)
+    return active.providerOutcome === "succeeded" && active.finalText !== null;
+  // A squad worker delivers on the commander-cut `<branch>--squad-…` checkout, which never equals
+  // the task id the witness below requires; a squad-context dispatch on the task branch still falls
+  // through to that witness.
+  if (active.squadId !== null && (await squadWorkerBranchHasDelivery({ cwd: active.cwd }))) return true;
   if (
     await workerBranchHasDelivery({
       cwd: active.cwd,
@@ -431,10 +451,8 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
   // repository-diff witness; absence must settle unknown rather than abort terminal publication.
   if (context.input.remote) return false;
   const projection = context.requiredRuntimeProjection(context.input),
-    snapshot = projection.read(active.task.taskId).snapshot;
-  if (active.role === "reviewer")
-    return snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`);
-  const submission = snapshot.executions.find(
+    snapshot = projection.read(active.task.taskId).snapshot,
+    submission = snapshot.executions.find(
       (execution) => execution.executionId === active.task?.executionId,
     )?.submission,
     outputShape = taskOutputShape(snapshot.task, presetSnapshotReader(projection));

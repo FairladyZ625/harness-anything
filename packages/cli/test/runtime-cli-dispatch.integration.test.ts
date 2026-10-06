@@ -28,15 +28,22 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   const fixture = createRuntimeFixture(context);
   const { parent, root, env, userRoot, daemonId } = fixture;
   installIdentities(parent, root, env);
+  // The stub worker completes its provider turn but never commits, so every task-bound dispatch in
+  // this file settles unknown and each wait/report command honestly exits 1 (F-4C182EEE).
+  const runUnknown = (args: readonly string[]): Record<string, unknown> => {
+    const result = runMaybe(root, env, args);
+    assert.equal(result.status, 1, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
+    return result.receipt;
+  };
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "archive");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const first = run(root, env, ["agent", "run", "terra", "--prompt", "first report", "--task", taskId, "--no-stream"]);
+  const first = runUnknown(["agent", "run", "terra", "--prompt", "first report", "--task", taskId, "--no-stream"]);
   const firstDispatchId = String((first.spawn as Record<string, unknown>).dispatchId);
   await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${firstDispatchId}.json`));
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const assembledPromptPrefix =
       "# Agent Identity: Terra (terra)\n\nReview precisely.\n\n# Harness Execution Discipline",
-    bound = run(root, env, [
+    bound = runUnknown([
       "agent",
       "run",
       "fable",
@@ -139,9 +146,9 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   assert.doesNotMatch(JSON.stringify(boundDispatch), /(?:api.?key|credential|environment|token)/iu);
   assert.ok(readDispatchRecords(root, boundDispatchId).length > 0);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const dispatchRow = (
-    run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>
-  ).find((row) => row.dispatchId === boundDispatchId);
+  const dispatchRow = (runUnknown(["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find(
+    (row) => row.dispatchId === boundDispatchId,
+  );
   assert.deepEqual(
     dispatchRow && {
       agentId: dispatchRow.agentId,
@@ -167,7 +174,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   // Runtime type is a default-instance selection hint, not an admission condition: an
   // opencode-typed agent dispatches on a codex instance when the operator names it.
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const crossKind = run(root, env, [
+  const crossKind = runUnknown([
     "agent",
     "run",
     "fable",
@@ -316,15 +323,19 @@ test("Task-bound batch enforces one lease holder and archives successful dispatc
   const batch = runMaybe(root, env, ["runtime", "batch", "batch.json"]);
   assert.equal(batch.status, 1, `${batch.stderr}\n${JSON.stringify(batch.receipt)}`);
   assert.equal(batch.receipt.command, "runtime-batch");
-  assert.equal(batch.receipt.outcome, "partial_failure");
+  // The no-delivery task workers settle unknown, so the batch aggregate reports unknown
+  // alongside its one rejected dispatch instead of partial_failure over restated successes.
+  assert.equal(batch.receipt.outcome, "unknown");
   const batchRows = batch.receipt.dispatches as Array<Record<string, unknown>>;
   assert.equal(batchRows.length, 5);
   const taskBatchRows = batchRows.slice(1),
-    successfulBatchRows = taskBatchRows.filter((row) => row.status === "succeeded"),
+    // The dispatched task workers settle unknown (no delivery); the ones that lost the single
+    // lease race stay rejected. Both together must cover every task-bound row.
+    settledTaskBatchRows = taskBatchRows.filter((row) => row.status === "unknown"),
     rejectedTaskBatchRows = taskBatchRows.filter((row) => row.status === "rejected");
-  assert.ok(successfulBatchRows.length >= 1, JSON.stringify(batch.receipt));
+  assert.ok(settledTaskBatchRows.length >= 1, JSON.stringify(batch.receipt));
   assert.equal(
-    successfulBatchRows.length + rejectedTaskBatchRows.length,
+    settledTaskBatchRows.length + rejectedTaskBatchRows.length,
     taskBatchRows.length,
     JSON.stringify(batch.receipt),
   );
@@ -335,14 +346,14 @@ test("Task-bound batch enforces one lease holder and archives successful dispatc
   );
   assert.equal(batchRows[0]?.code, "squad_member_not_found");
   assert.equal(
-    successfulBatchRows.every((row) => typeof row.dispatchId === "string" && typeof row.runtimeSessionId === "string"),
+    settledTaskBatchRows.every((row) => typeof row.dispatchId === "string" && typeof row.runtimeSessionId === "string"),
     true,
   );
-  const batchDispatchIds = new Set(successfulBatchRows.map((row) => String(row.dispatchId))),
+  const batchDispatchIds = new Set(settledTaskBatchRows.map((row) => String(row.dispatchId))),
     batchDispatches = (
-      run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>
+      runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
     ).filter((row) => batchDispatchIds.has(String(row.dispatchId)));
-  assert.equal(batchDispatches.length, successfulBatchRows.length);
+  assert.equal(batchDispatches.length, settledTaskBatchRows.length);
   assert.equal(
     batchDispatches.every(
       (row) => row.agentId === "terra" && row.delegatedByAgentId === "fable" && row.squadId === "core-squad",
@@ -350,7 +361,7 @@ test("Task-bound batch enforces one lease holder and archives successful dispatc
     true,
     JSON.stringify(batchDispatches),
   );
-  const batchArchives = successfulBatchRows.map((row) =>
+  const batchArchives = settledTaskBatchRows.map((row) =>
     path.join(artifactRoot, "dispatches", `${String(row.dispatchId)}.json`),
   );
   await Promise.all(batchArchives.map(eventuallyFile));
@@ -363,7 +374,7 @@ test("Task-bound batch enforces one lease holder and archives successful dispatc
   assert.equal((JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).reasoningEffort, "high");
   assert.equal((JSON.parse(readFileSync(slowBatchArchive, "utf8")) as Record<string, unknown>).fast, true);
   const events = existsSync(tracker) ? readFileSync(tracker, "utf8").trim().split("\n").filter(Boolean) : [],
-    trackedBatchDispatches = successfulBatchRows.filter((row) => row.index !== 3).length;
+    trackedBatchDispatches = settledTaskBatchRows.filter((row) => row.index !== 3).length;
   let active = 0,
     peak = 0;
   for (const event of events) {
@@ -597,14 +608,14 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     taskId,
     "--no-stream",
   ]);
-  assert.equal(promptFile.status, 0, JSON.stringify(promptFile));
+  assert.equal(promptFile.status, 1, JSON.stringify(promptFile));
   assert.ok(
     String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
       `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nexisting mission`,
     ),
   );
   const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
-  const reused = run(root, env, [
+  const reused = runMaybe(root, env, [
       "agent",
       "run",
       "terra",
@@ -614,7 +625,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
       taskId,
       "--no-stream",
     ]),
-    reusedDispatchId = String((reused.spawn as Record<string, unknown>).dispatchId),
+    reusedDispatchId = String((reused.receipt.spawn as Record<string, unknown>).dispatchId),
     reusedDispatch = JSON.parse(
       await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${reusedDispatchId}.json`)),
     ) as Record<string, unknown>;
@@ -629,7 +640,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
         diagnostic: unsyncedMission.receipt.diagnostic,
       },
       sync: { outcome: missionSync.outcome, summary: missionSync.summary },
-      after: { outcome: reused.outcome, dispatchId: reusedDispatchId },
+      after: { outcome: reused.receipt.outcome, dispatchId: reusedDispatchId },
     })}`,
   );
   assert.equal(reusedDispatch.missionRef, `${packagePath}/artifacts/missions/${reusedDispatchId}.md`);
@@ -645,7 +656,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
     daemonUserRoot: userRoot,
     daemonId,
-    runtimeSessionId: String(reused.runtimeSessionId),
+    runtimeSessionId: String(reused.receipt.runtimeSessionId),
     mission:
       `Your task package is ${path.join(realpathSync(root), "harness", packagePath)}.\n` +
       "Read task_plan.md in that package and complete the task.\n\n" +
@@ -659,9 +670,10 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
       `Read task_plan.md in that package and complete the task.\n\n` +
       taskQueryGuidance(taskId) +
       "\n\n" +
-      livingDeliverableProtocol("baseline")!,
-    derived = run(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
-    derivedText = String((derived.result as Record<string, unknown>).text);
+      livingDeliverableProtocol("baseline")!;
+  // The task-derived mission run also settles unknown (no delivery), so it exits 1 with its result.
+  const derived = runMaybe(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
+    derivedText = String((derived.receipt.result as Record<string, unknown>).text);
   assert.match(
     derivedText,
     /^final:# Agent Identity: Terra \(terra\).*# Harness Execution Discipline.*# Worker Role/su,
@@ -673,7 +685,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     taskPackageRoot: taskPackage,
     daemonUserRoot: userRoot,
     daemonId,
-    runtimeSessionId: String(derived.runtimeSessionId),
+    runtimeSessionId: String(derived.receipt.runtimeSessionId),
     mission: derivedMission,
   });
   assert.equal(derivedText.includes("Review precisely."), true);
@@ -713,14 +725,20 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       taskId,
       "--detach",
     ]),
-    controlNotificationWait = run(root, env, [
+    controlNotificationWait = runMaybe(root, env, [
       "runtime",
       "status",
       String(controlNotification.runtimeSessionId),
       "--wait",
       "--no-stream",
     ]),
-    controlInvariant = await runtimeInvariantEvidence(root, artifactRoot, controlNotification, controlNotificationWait);
+    controlInvariant = await runtimeInvariantEvidence(
+      root,
+      artifactRoot,
+      controlNotification,
+      controlNotificationWait.receipt,
+    );
+  assert.equal(controlNotificationWait.status, 1, "an unknown-settled wait must not exit 0");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const missingNotifier = path.join(parent, "missing-notifier"),
     missingNotification = run(root, env, [
@@ -735,7 +753,7 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       "--on-exit",
       missingNotifier,
     ]),
-    missingNotificationWait = run(root, env, [
+    missingNotificationWait = runMaybe(root, env, [
       "runtime",
       "status",
       String(missingNotification.runtimeSessionId),
@@ -743,7 +761,12 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       "--no-stream",
     ]),
     missingTrace = await eventuallyNotification(root, String(missingNotification.dispatchId)),
-    missingInvariant = await runtimeInvariantEvidence(root, artifactRoot, missingNotification, missingNotificationWait);
+    missingInvariant = await runtimeInvariantEvidence(
+      root,
+      artifactRoot,
+      missingNotification,
+      missingNotificationWait.receipt,
+    );
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const nonzeroNotification = run(root, env, [
       "agent",
@@ -757,7 +780,7 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       "--on-exit",
       nonzeroNotifier,
     ]),
-    nonzeroNotificationWait = run(root, env, [
+    nonzeroNotificationWait = runMaybe(root, env, [
       "runtime",
       "status",
       String(nonzeroNotification.runtimeSessionId),
@@ -765,7 +788,12 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       "--no-stream",
     ]),
     nonzeroNotificationTrace = await eventuallyNotification(root, String(nonzeroNotification.dispatchId)),
-    nonzeroInvariant = await runtimeInvariantEvidence(root, artifactRoot, nonzeroNotification, nonzeroNotificationWait),
+    nonzeroInvariant = await runtimeInvariantEvidence(
+      root,
+      artifactRoot,
+      nonzeroNotification,
+      nonzeroNotificationWait.receipt,
+    ),
     callbackObservation = JSON.parse(readFileSync(nonzeroTrace, "utf8")) as Record<string, unknown>,
     callbackEnvironment = callbackObservation.environment as Record<string, unknown>,
     callbackPayload = callbackObservation.payload as Record<string, unknown>;
@@ -843,7 +871,14 @@ test("Repository writes commit while an exit callback is still running", async (
     "--on-exit",
     holdNotifier,
   ]);
-  run(root, env, ["runtime", "status", String(queueNotification.runtimeSessionId), "--wait", "--no-stream"]);
+  const queueSettled = runMaybe(root, env, [
+    "runtime",
+    "status",
+    String(queueNotification.runtimeSessionId),
+    "--wait",
+    "--no-stream",
+  ]);
+  assert.equal(queueSettled.status, 1, "the no-delivery worker settles unknown and its wait exits 1");
   await eventuallyFile(notificationStarted);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const revisionBefore = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0,
