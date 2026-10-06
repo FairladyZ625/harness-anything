@@ -161,16 +161,6 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
       opId: "op-upgrade-legacy-docs",
       occurredAt: "2026-08-14T00:01:00.000Z",
     });
-    assert.deepEqual(
-      legacyUpgrade.event.payload.addedDocumentClaims?.map(({ path: item }) =>
-        item.slice(item.lastIndexOf("/artifacts/")),
-      ),
-      ["/artifacts/explainer.html", "/artifacts/pr-body.md"],
-    );
-    assert.ok(
-      legacyUpgrade.blobs.some(({ sha256 }) => sha256 === legacyUpgrade.event.payload.addedDocumentClaims?.[0]?.sha256),
-      "the upgrade event carries the scaffold bytes it claims",
-    );
     assert.equal(Object.hasOwn(upgraded.event.payload.task.metadata ?? {}, "longRunning"), false);
     assert.equal(
       JSON.parse(upgraded.blobs.find(({ sha256 }) => sha256 === upgraded!.event.payload.taskContractClaim.sha256)!.body)
@@ -186,8 +176,6 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
       JSON.parse(projection.readDocument(contractPath).document!.body).presetSnapshotDigest,
       legacyUpgrade.snapshot.digest,
     );
-    assert.ok(projection.readDocument(`${bootstrap.packagePath}/artifacts/explainer.html`).document);
-    assert.ok(projection.readDocument(`${bootstrap.packagePath}/artifacts/pr-body.md`).document);
     assert.equal(readFileSync(planPath, "utf8"), editedPlan);
     assert.throws(
       () =>

@@ -26,7 +26,6 @@ export type PresetSnapshotUpgradeEventV1 = EventEnvelope<
     readonly task: TaskV2;
     readonly presetSnapshotClaim: PresetSnapshotClaim;
     readonly taskContractClaim: InitialDocumentClaim;
-    readonly addedDocumentClaims?: readonly InitialDocumentClaim[];
   }
 > & { readonly taskId: string };
 export interface PresetSnapshotUpgradeBundle {
@@ -60,21 +59,7 @@ function validatePresetSnapshotUpgradeEventFields(value: unknown, allowUnknownFi
     value.type !== "preset_snapshot_upgraded" ||
     !isNonEmptyString(value.taskId) ||
     !isRecord(value.payload) ||
-    !(allowUnknownFields
-      ? hasRequiredFields(value.payload, ["previousDigest", "task", "presetSnapshotClaim", "taskContractClaim"])
-      : hasOnlyFields(value.payload, ["previousDigest", "task", "presetSnapshotClaim", "taskContractClaim"]) ||
-        hasOnlyFields(value.payload, [
-          "previousDigest",
-          "task",
-          "presetSnapshotClaim",
-          "taskContractClaim",
-          "addedDocumentClaims",
-        ])) ||
-    (value.payload.addedDocumentClaims !== undefined &&
-      (!Array.isArray(value.payload.addedDocumentClaims) ||
-        value.payload.addedDocumentClaims.some(
-          (claim) => !upgradeDocumentClaim(claim, String(value.taskId), allowUnknownFields),
-        )))
+    !hasFields(value.payload, ["previousDigest", "task", "presetSnapshotClaim", "taskContractClaim"])
   )
     return ["preset snapshot upgrade envelope or payload is invalid"];
   const task = value.payload.task,
@@ -106,11 +91,7 @@ export function presetSnapshotUpgradeClaims(
 ): readonly (PresetSnapshotClaim | InitialDocumentClaim)[] {
   return [
     ...new Map(
-      [
-        event.payload.presetSnapshotClaim,
-        event.payload.taskContractClaim,
-        ...(event.payload.addedDocumentClaims ?? []),
-      ].map((claim) => [claim.sha256, claim]),
+      [event.payload.presetSnapshotClaim, event.payload.taskContractClaim].map((claim) => [claim.sha256, claim]),
     ).values(),
   ];
 }
@@ -139,52 +120,7 @@ export function presetSnapshotUpgradeWritePlan(
     ];
   for (const claim of presetSnapshotUpgradeClaims(event))
     targets.push({ kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType });
-  for (const claim of event.payload.addedDocumentClaims ?? [])
-    targets.push(
-      {
-        kind: "authored_file",
-        path: claim.path,
-        operation: "replace",
-        sha256: claim.sha256,
-        size: claim.size,
-        mediaType: claim.mediaType,
-      },
-      { kind: "projection_invalidation", projection: "document/v1", key: claim.path },
-    );
   return freezeDeclaredWritePlan({ commandType: "PresetSnapshotUpgrade", targets }, ["PresetSnapshotUpgrade"]);
-}
-function upgradeDocumentClaim(
-  value: unknown,
-  taskId: string,
-  allowUnknownFields: boolean,
-): value is InitialDocumentClaim {
-  if (
-    !isRecord(value) ||
-    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
-      "path",
-      "sha256",
-      "size",
-      "mediaType",
-      "owner",
-      "policyId",
-    ]) ||
-    !storedClaim(value) ||
-    value.owner !== "doc-sync" ||
-    typeof value.path !== "string"
-  )
-    return false;
-  try {
-    const match = new RegExp(`^tasks/${taskId}-[^/]+/artifacts/(explainer\\.html|pr-body\\.md)$`, "u").exec(value.path);
-    return (
-      normalizeRelativeDocumentPath(value.path) === value.path &&
-      match !== null &&
-      value.policyId === "opaque-textual-whole-file/v1" &&
-      ((match[1] === "explainer.html" && value.mediaType === "text/html") ||
-        (match[1] === "pr-body.md" && value.mediaType === "text/markdown"))
-    );
-  } catch {
-    return false;
-  }
 }
 export function assertPresetSnapshotUpgradeWritePlan(
   event: PresetSnapshotUpgradeEventV1,

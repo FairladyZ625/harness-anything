@@ -42,7 +42,6 @@ import { consumeKnownError } from "../error-consumption.ts";
 import { isTaskBootstrapEvent, taskBootstrapPackagePath } from "../domain/task-bootstrap-event.ts";
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
-import { projectPresetUpgradeDocuments } from "./preset-upgrade-added-documents.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isValidCloseoutOverrides } from "../domain/settings-closeout.ts";
@@ -673,9 +672,6 @@ export function applyEvent(
       canonicalJson(snapshot),
     );
     runSql(db, UPSERT_DOCUMENT_SQL, contract.path, event.workspaceRevision, canonicalJson(document));
-    projectPresetUpgradeDocuments(event.payload.addedDocumentClaims ?? [], event.workspaceRevision, readBlob, (added) =>
-      runSql(db, UPSERT_DOCUMENT_SQL, added.path, event.workspaceRevision, canonicalJson(added)),
-    );
     return;
   }
   if (isTaskBootstrapEvent(event)) {
