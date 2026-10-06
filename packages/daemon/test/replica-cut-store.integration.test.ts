@@ -19,6 +19,7 @@ import {
   sha256Text,
   type DocEventV1,
   type ReplicaProjectionBasis,
+  type EdgeReadModelRows,
   artifactEntityContractSnapshot,
   canonicalSourceIdentity,
   compileVerticalContract,
@@ -102,6 +103,62 @@ test("activation bootstraps one repo cut from the exact L2 manifest and reads co
       body,
     );
     source.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an existing cut receives its read model before a pull even without a new ledger event", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-replica-read-model-existing-"));
+  try {
+    const event = lifecycleFixture().events[0]!;
+    const basis: ReplicaProjectionBasis = {
+      watermark: 1,
+      sourceRevision: 1,
+      headEvent: event,
+      events: [],
+      documents: [],
+    };
+    const open = (
+      model: {
+        readonly sourceRevision: number;
+        readonly rootThreshold: number;
+        readonly rows: EdgeReadModelRows;
+      } | null,
+    ) =>
+      openReplicaCutSource({
+        repoId: "repo-existing-read-model",
+        localRoot: root,
+        readBasis: () => basis,
+        readContentBlob: () => null,
+        readEdgeReadModel: () => model,
+      });
+    const source = open(null);
+    source.activate();
+    assert.deepEqual(source.manifest(1), []);
+    source.close();
+    const model = {
+      sourceRevision: 1,
+      rootThreshold: 0,
+      rows: {
+        tasks: [],
+        taskGeneration: [],
+        taskProgress: [],
+        entities: [],
+        leases: [],
+        relations: [],
+        decisions: [],
+        facts: [],
+        presetSnapshots: [],
+      },
+    };
+    const reopened = open(model);
+    assert.deepEqual(reopened.activate()?.manifest.entryCount, 1);
+    assert.deepEqual(
+      reopened.manifest(1)?.map((entry) => entry.path),
+      [".read-model/meta.json"],
+    );
+    reopened.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

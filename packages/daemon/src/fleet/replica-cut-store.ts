@@ -324,6 +324,28 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       });
     return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path));
   };
+  const publishReadModelForExistingCut = (current: SnapshotCut): SnapshotCut => {
+    const model = options.readEdgeReadModel?.();
+    if (!model || model.sourceRevision !== current.revision) return current;
+    const entries = manifest(current.revision);
+    if (!entries) return current;
+    const next = withReadModel(entries, current.revision),
+      bytes = stableStringify(next),
+      digest = sha256Text(bytes);
+    if (digest === current.manifest.digest) return current;
+    const store = db();
+    transact(store, () => {
+      writeManifest({ bytes, digest });
+      store.prepare("UPDATE cut SET manifest_digest = ?, entry_count = ?, total_bytes = ? WHERE revision = ?").run(
+        digest,
+        next.length,
+        next.reduce((sum, entry) => sum + entry.blob.size, 0),
+        current.revision,
+      );
+      return [];
+    });
+    return cut(current.revision)!;
+  };
   const settle = (cut: SnapshotCut) => {
     const rows = waiters.get(cut.revision);
     if (!rows) return;
@@ -339,11 +361,12 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       settle(first);
       return false;
     }
-    const basis = options.readBasis(initial.revision),
+    const published = publishReadModelForExistingCut(initial),
+      basis = options.readBasis(published.revision),
       started = monotonicNow(),
       store = db();
-    let entries = manifest(initial.revision)!,
-      current: SnapshotCut = initial,
+    let entries = manifest(published.revision)!,
+      current: SnapshotCut = published,
       processed = 0;
     const settled: SnapshotCut[] = [],
       pruned: string[] = [];
@@ -390,7 +413,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     const current = latest();
     if (current) {
       kick();
-      return current;
+      return publishReadModelForExistingCut(current);
     }
     const basis = options.readBasis(null),
       cut =

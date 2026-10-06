@@ -1,5 +1,4 @@
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
-import { answerFreshEdgeTaskShow } from "./fleet-edge-task-read.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -15,7 +14,6 @@ import {
   type EntityStore,
   type ScheduleV1,
   type TaskWorktreeBindingV1,
-  type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel";
 import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { resolveSquadDispatch } from "./agent-entities.ts";
@@ -195,23 +193,28 @@ export function openFleetEdgeRuntime(input: {
           : null;
       },
       taskContext: async (taskId, missionName, review) => {
-        const shown = await answerFreshEdgeTaskShow(
-          {
-            viewRoot: request.viewRoot,
+        // The pull supplies package documents and warms read-only local views. Lease and
+        // reviewer ownership below come only from the center response, never this replica.
+        const pulled = await runFleetReplicaPullClient({
+          ...peer,
+          viewRoot: request.viewRoot,
+          diskQuotaBytes: request.quotaBytes,
+        });
+        const materialized = applyFleetMirrorCut(request.viewRoot, request.repoId, request.workspaceRoot, "pull", {
+          viewId: pulled.replica.viewId,
+        });
+        if (materialized.outcome === "pull_blocked")
+          throw edgeRuntimeError("pull_blocked", "Runtime task context mirror is blocked.");
+        const runtimeContext = taskRuntimeContext(
+          await runFleetRuntimeReadClient({
+            ...runtimeReadPeer,
             repoId: request.repoId,
-            workspaceRoot: request.workspaceRoot,
-            action: { kind: "task-show", taskId },
-          },
-          () =>
-            runFleetReplicaPullClient({
-              ...peer,
-              viewRoot: request.viewRoot,
-              diskQuotaBytes: request.quotaBytes,
-            }),
+            method: "repo.tasks.runtimeContext.read",
+            payload: { taskId },
+          }),
+          taskId,
         );
-        if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
-          throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
-        const current = JSON.parse(shown.evidence) as TaskLifecycleSnapshot;
+        const current = runtimeContext.snapshot;
         const executionId = review
           ? selectReviewTarget(taskId, review.executionId, current, false)?.executionId
           : current.lease?.phase === "held"
@@ -249,15 +252,7 @@ export function openFleetEdgeRuntime(input: {
           // The causal block, the task profile, and the worktree binding are assembled at the center's
           // canonical cut in this same round trip — a stale edge mirror is never summarized as fact,
           // and the edge has no projection to derive a binding from.
-          { causalContext, profileId, worktree } = taskRuntimeContext(
-            await runFleetRuntimeReadClient({
-              ...runtimeReadPeer,
-              repoId: request.repoId,
-              method: "repo.tasks.runtimeContext.read",
-              payload: { taskId },
-            }),
-            taskId,
-          ),
+          { causalContext, profileId, worktree } = runtimeContext,
           livingProtocol = livingDeliverableProtocol(profileId);
         let plan: string;
         try {
@@ -616,6 +611,9 @@ function taskRuntimeContext(
   readonly causalContext: string | null;
   readonly profileId: string | null;
   readonly worktree: TaskWorktreeBindingV1 | null;
+  readonly snapshot: import("./repo-cell-types.ts").Snapshot & {
+    readonly workspace: import("./protocol/daemon-protocol-gui-types.ts").TaskWorkspaceView | null;
+  };
 } {
   const worktree = read.worktree as { readonly branch?: unknown; readonly path?: unknown } | null | undefined;
   if (
@@ -625,12 +623,17 @@ function taskRuntimeContext(
     (read.causalContext === null || typeof read.causalContext === "string") &&
     (read.profileId === null || typeof read.profileId === "string") &&
     (worktree === null ||
-      (typeof worktree === "object" && typeof worktree.branch === "string" && typeof worktree.path === "string"))
+      (typeof worktree === "object" && typeof worktree.branch === "string" && typeof worktree.path === "string")) &&
+    read.snapshot !== null &&
+    typeof read.snapshot === "object"
   )
     return {
       causalContext: read.causalContext,
       profileId: read.profileId === null ? null : (read.profileId as string),
       worktree: worktree ? { branch: worktree.branch as string, path: worktree.path as string } : null,
+      snapshot: read.snapshot as import("./repo-cell-types.ts").Snapshot & {
+        readonly workspace: import("./protocol/daemon-protocol-gui-types.ts").TaskWorkspaceView | null;
+      },
     };
   throw edgeRuntimeError("runtime_read_invalid", `Center returned an invalid runtime context read for task ${taskId}.`);
 }

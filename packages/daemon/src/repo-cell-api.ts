@@ -14,7 +14,7 @@ import {
 import { executeBuiltinScheduleOccurrence } from "./schedule-builtin-executor.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
-import { openTaskWorktreeBinding, presetSnapshotReader } from "./task-worktree.ts";
+import { openTaskWorktreeBinding, presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
 import type { RepoCellCore } from "./repo-cell.ts";
@@ -389,7 +389,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId")),
     "repo.tasks.runtimeContext.read": (payload) => {
       const taskId = context.requiredCellText(payload.taskId, "taskId"),
-        task = context.projection.read(taskId).snapshot.task;
+        read = context.projection.read(taskId),
+        task = read.snapshot.task;
       return {
         schema: "task-runtime-context-read/v1" as const,
         ok: true as const,
@@ -397,6 +398,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         causalContext: assembleTaskCausalContext({ projection: context.projection, taskId }),
         profileId: task?.metadata?.profileId ?? null,
         worktree: openTaskWorktreeBinding(task, presetSnapshotReader(context.projection)),
+        snapshot: {
+          ...read.snapshot,
+          workspace: taskWorkspaceView(
+            context.rootDir,
+            task,
+            read.packagePath,
+            presetSnapshotReader(context.projection),
+            resolveHarnessLayout(context.rootDir).authoredRoot,
+          ),
+        },
       };
     },
     "repo.tasks.document.read": (payload) => readProjectedDocument(context, payload),

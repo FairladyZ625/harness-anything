@@ -32,6 +32,7 @@ import {
   runFleetReplicaPullClient,
   runFleetTaskCommandClient,
   runFleetRepositoryReadClient,
+  runFleetRuntimeReadClient,
   runFleetUploadClient,
   runFleetWriteClient,
 } from "./fleet/edge.ts";
@@ -269,20 +270,15 @@ export async function runFleetEdgeTask(
           return metadata.personId;
         },
         readTask: async () => {
-          const shown = await answerEdgeTaskShow({ ...payload, action: { kind: "task-show", taskId } }, () =>
-            runFleetReplicaPullClient({
-              ...peer,
-              viewRoot: payload.viewRoot,
-              diskQuotaBytes: payload.quotaBytes,
-              timeoutMs: 60_000,
-            }),
-          );
-          if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
-            throw new FleetEdgeTaskError(
-              String(shown.code ?? "task_read_failed"),
-              "Cannot authorize delivery from the current center task.",
-            );
-          return JSON.parse(shown.evidence) as FleetDeliveryTask;
+          const current = await runFleetRuntimeReadClient({
+            ...peer,
+            repoId: payload.repoId,
+            method: "repo.tasks.runtimeContext.read",
+            payload: { taskId },
+          });
+          if (!current || typeof current !== "object" || !("snapshot" in current))
+            throw new FleetEdgeTaskError("task_read_failed", "Center returned no current task for delivery.");
+          return current.snapshot as FleetDeliveryTask;
         },
       });
     let artifact: FleetDescriptor | undefined;

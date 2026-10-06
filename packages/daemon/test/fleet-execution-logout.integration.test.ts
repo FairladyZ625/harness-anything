@@ -344,6 +344,9 @@ test(
       localAuthFixture(),
     );
     assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+    const reviewCut = f.host.replica(repoId);
+    reviewCut.activate();
+    await reviewCut.waitForCut(f.eventCount());
     await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     const reviewRoot = path.join(f.root, "review-edge"),
@@ -475,7 +478,8 @@ test(
       assert.ok(result.stdout.trim(), result.stderr);
       return JSON.parse(result.stdout) as JsonObject;
     };
-    assert.equal((await reviewCli(["task", "show", taskId])).outcome, "applied");
+    const reviewedTask = await reviewCli(["task", "show", taskId]);
+    assert.equal(reviewedTask.outcome, "applied", JSON.stringify(reviewedTask));
     for (const [nodeId, executionCredential] of [
       ["node-slow", secret],
       [config.nodeId, reviewEnv.HARNESS_EXECUTION_CREDENTIAL!],
