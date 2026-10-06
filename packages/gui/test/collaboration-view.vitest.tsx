@@ -125,7 +125,7 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
         nodeId: "center",
       },
     ],
-    notes: ["events-attribution=current-lease (canonical 事件按任务当前租约归属节点)"],
+    notes: ["events-attribution=current-lease", "edge-online=unavailable", "sync-internals=unavailable"],
     warnings: [],
     ...overrides,
   };
@@ -227,16 +227,47 @@ describe("协作页舰队拓扑契约", () => {
     );
   });
 
-  it("未提供字段显示「未提供」并保留原因,不编造值", () => {
+  it("未提供字段显示「未提供」与人话原因,机器码只进 data-reason/title", () => {
     const view = renderView();
     view.click(view.nodeCard("cc90-ubuntu"));
     const details = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
     expect(details.textContent).toContain("未提供");
-    expect(details.textContent).toContain("原因：tls-session-fact-not-exposed");
-    expect(details.textContent).toContain("原因：edge-sync-internals-not-exposed");
+    // 人话原因:为什么没有、何时会有。
+    expect(details.textContent).toContain("中心未在此读面暴露节点 TLS 会话事实");
+    expect(details.textContent).toContain("watch/pull 内部状态在边缘节点本地");
+    expect(details.textContent).toContain("生命周期读面尚无该节点的同步失败记录");
+    // 机器码不进可见文本,只保留在 data-reason/title 属性供测试断言。
+    expect(details.textContent).not.toContain("tls-session-fact-not-exposed");
+    expect(details.textContent).not.toContain("edge-sync-internals-not-exposed");
+    const online = details.querySelector('[data-reason="tls-session-fact-not-exposed"]');
+    expect(online).not.toBeNull();
+    expect(online!.getAttribute("title")).toBe("tls-session-fact-not-exposed");
   });
 
-  it("租约被权限裁剪时显示「无权限查看」与原因,不显示空租约列表", () => {
+  it("副本账本无行的节点给出人话原因,owner 未登记显示人话标记", () => {
+    const data = overview();
+    const ghost = {
+      ...data.nodes[1]!,
+      nodeId: "ghost-node",
+      owner: { kind: "value", text: "not-in-registry" },
+      leases: [],
+      replica: null,
+      replicaNote: "center-replica-ledger-has-no-row-for-node",
+    };
+    data.nodes = [...data.nodes, ghost];
+    const view = renderView({ data });
+    view.click(view.nodeCard("ghost-node"));
+    const details = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
+    expect(details.textContent).toContain("该节点从未在本中心同步过");
+    expect(details.textContent).not.toContain("center-replica-ledger-has-no-row-for-node");
+    expect(details.querySelector('[data-reason="center-replica-ledger-has-no-row-for-node"]')).not.toBeNull();
+    expect(details.textContent).toContain("未登记负责人");
+    expect(details.textContent).not.toContain("not-in-registry");
+    // 节点卡上的 owner 同样人话化。
+    expect(view.nodeCard("ghost-node")!.textContent).toContain("未登记负责人");
+  });
+
+  it("租约被权限裁剪时显示「无权限查看」与人话原因,不显示空租约列表", () => {
     const data = overview();
     data.nodes = data.nodes.map((node) =>
       node.nodeId === "cc90-ubuntu" ? { ...node, leases: { redacted: "insufficient_scope" } } : node,
@@ -245,7 +276,9 @@ describe("协作页舰队拓扑契约", () => {
     view.click(view.nodeCard("cc90-ubuntu"));
     const redacted = view.host.querySelector('[data-testid="collaboration-node-leases-redacted"]')!;
     expect(redacted.textContent).toContain("无权限查看");
-    expect(redacted.textContent).toContain("insufficient_scope");
+    expect(redacted.textContent).toContain("当前身份的权限范围不足以查看租约明细");
+    expect(redacted.textContent).not.toContain("insufficient_scope");
+    expect(redacted.getAttribute("data-reason")).toBe("insufficient_scope");
   });
 
   it("事件流可按节点过滤,过滤后只留该节点的事件", () => {
@@ -264,15 +297,30 @@ describe("协作页舰队拓扑契约", () => {
     );
   });
 
-  it("daemon 的读面限制声明(warnings/notes)如实展示,不隐藏", () => {
+  it("读面限制声明(notes)渲染为人话图例,机器码串不再原样露出", () => {
     const view = renderView();
     view.click(view.nodeCard("cc90-ubuntu"));
-    expect(view.text()).toContain("events-attribution=current-lease");
+    const notes = view.host.querySelector('[data-testid="collaboration-read-notes"]')!;
+    expect(notes.textContent).toContain("事件按任务当前租约归属节点");
+    expect(notes.textContent).toContain("在线状态依赖中心 TLS 会话事实");
+    expect(notes.textContent).not.toContain("events-attribution=");
+    expect(notes.textContent).not.toContain("edge-online=");
+    // 原始声明串保留在 title 供诊断与测试断言。
+    expect(notes.querySelector('[title="events-attribution=current-lease"]')).not.toBeNull();
+  });
+
+  it("warnings 的人话文案可见,机器串只进 title;未识别的声明原样保留", () => {
     const warned = renderView({
-      data: overview({ warnings: ["node-owner-registry-unavailable: keycloak-unreachable"] }),
+      data: overview({
+        warnings: ["node-owner-registry-unavailable: keycloak-unreachable", "future-unknown-warning"],
+      }),
     });
-    expect(warned.host.querySelector('[data-testid="collaboration-warnings"]')!.textContent).toContain(
-      "keycloak-unreachable",
-    );
+    const warnings = warned.host.querySelector('[data-testid="collaboration-warnings"]')!;
+    expect(warnings.textContent).toContain("节点负责人登记服务查询失败");
+    expect(warnings.textContent).not.toContain("node-owner-registry-unavailable");
+    expect(warnings.textContent).toContain("future-unknown-warning");
+    const mapped = warnings.querySelector('[title="node-owner-registry-unavailable: keycloak-unreachable"]');
+    expect(mapped).not.toBeNull();
+    expect(mapped!.getAttribute("title")).toContain("keycloak-unreachable");
   });
 });

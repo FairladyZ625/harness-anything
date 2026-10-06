@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type {
   FleetFieldState,
@@ -20,6 +20,8 @@ import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.t
  * typed read——节点(中心+边缘)、副本通道、每节点租约/派工、内部状态与 canonical
  * 事件窗口都由 daemon 聚合并标注三态;页面只渲染,不从任务列表二次推导,也不推断
  * 中心没有声明的事实(在线、同步内部状态等按 daemon 给的 unavailable 原因如实显示)。
+ * 原因/声明的机器码是 daemon 的稳定契约:可见文本只放 i18n 人话解释,机器码进
+ * title 提示与 data-reason 属性供测试断言,不在正文原样露出。
  *
  * 交互契约:点节点卡片(含中心)打开详情;事件流可按节点过滤,点事件跳到对应节点详情。
  */
@@ -46,6 +48,48 @@ const LINK_LABEL: Readonly<Record<FleetOverviewLink["state"], string>> = {
   lag: "lag",
   unsynced: "未同步",
 };
+
+/** daemon 稳定 reason 码 → 一句人话(为什么没有、何时会有);未收录的码显示通用说明,码进 title。 */
+const REASON_LABELS: Readonly<Record<string, MessageKey>> = {
+  "tls-session-fact-not-exposed": "collaboration.reason.onlineNotExposed",
+  "replica-status-has-no-build-field": "collaboration.reason.buildNotInReplicaStatus",
+  "edge-sync-internals-not-exposed": "collaboration.reason.syncInternalsNotExposed",
+  "no-replica-sync-failure-record-in-lifecycle-read": "collaboration.reason.noSyncFailureRecord",
+  "node-registry-not-queried": "collaboration.reason.registryNotQueried",
+  "center-replica-ledger-has-no-row-for-node": "collaboration.reason.noReplicaRow",
+  authorization_denied: "collaboration.reason.authorizationDenied",
+  insufficient_scope: "collaboration.reason.insufficientScope",
+};
+/** 值域里的 daemon 标记串(如 owner 登记表查无此人)→ 人话;标记串进 title。 */
+const VALUE_LABELS: Readonly<Record<string, MessageKey>> = {
+  "not-in-registry": "collaboration.ownerNotRegistered",
+};
+/** notes 的 key 前缀(key=value 形态)→ 人话;整条声明串进 title。 */
+const NOTE_LABELS: Readonly<Record<string, MessageKey>> = {
+  "events-attribution": "collaboration.note.eventsAttribution",
+  "edge-online": "collaboration.note.edgeOnline",
+  "sync-internals": "collaboration.note.syncInternals",
+};
+/** warnings 的 key 前缀(key: detail 形态)→ 人话;整条 warning 串(含 detail)进 title。 */
+const WARNING_LABELS: Readonly<Record<string, MessageKey>> = {
+  "node-owner-registry-unavailable": "collaboration.warning.ownerRegistryUnavailable",
+};
+
+function reasonText(reason: string): string {
+  const message = REASON_LABELS[reason];
+  return message === undefined ? t("collaboration.reason.unknown") : t(message);
+}
+
+function noteLabel(note: string): string {
+  const message = NOTE_LABELS[note.split("=", 1)[0] ?? ""];
+  // 未识别的 daemon 声明原样保留:静默丢弃比露出更不诚实。
+  return message === undefined ? note : t(message);
+}
+
+function warningLabel(warning: string): string {
+  const message = WARNING_LABELS[warning.split(":", 1)[0] ?? ""];
+  return message === undefined ? warning : t(message);
+}
 
 type FleetLeaseRowView = Exclude<FleetOverviewNode["leases"], { readonly redacted: string }>[number];
 
@@ -184,7 +228,12 @@ export function CollaborationView({
             </Section>
             {overview.warnings.length > 0 ? (
               <p className="mt-3 ui-micro text-text-faint" data-testid="collaboration-warnings">
-                {overview.warnings.join(" · ")}
+                {overview.warnings.map((warning, index) => (
+                  <Fragment key={warning}>
+                    {index > 0 ? " · " : null}
+                    <span title={warning}>{warningLabel(warning)}</span>
+                  </Fragment>
+                ))}
               </p>
             ) : null}
           </>
@@ -294,8 +343,13 @@ function NodeDetails({
       <div data-testid="collaboration-node-details" className="grid gap-4 p-4 lg:grid-cols-2">
         <DetailBlock title={t("collaboration.doingTitle")}>
           {!Array.isArray(node.leases) ? (
-            <p data-testid="collaboration-node-leases-redacted" className="ui-meta text-status-blocked">
-              {t("collaboration.noPermission", { reason: node.leases.redacted })}
+            <p
+              data-testid="collaboration-node-leases-redacted"
+              data-reason={node.leases.redacted}
+              title={node.leases.redacted}
+              className="ui-meta text-status-blocked"
+            >
+              {t("collaboration.noPermission")}：{reasonText(node.leases.redacted)}
             </p>
           ) : node.leases.length === 0 ? (
             <p className="ui-meta text-text-muted">{t("collaboration.noLeases")}</p>
@@ -328,7 +382,8 @@ function NodeDetails({
           {node.replica === null ? (
             <DetailLine
               label={t("collaboration.fieldReplica")}
-              value={node.replicaNote ?? t("collaboration.notProvided")}
+              value={node.replicaNote === null ? t("collaboration.notProvided") : reasonText(node.replicaNote)}
+              title={node.replicaNote ?? undefined}
             />
           ) : (
             <>
@@ -355,7 +410,16 @@ function NodeDetails({
           <FieldLine label={t("collaboration.fieldLastFailure")} state={node.lastFailure} />
         </DetailBlock>
       </div>
-      <p className="px-4 pb-3 ui-micro text-text-faint">{overview.notes.join(" · ")}</p>
+      {overview.notes.length > 0 ? (
+        <p className="px-4 pb-3 ui-micro text-text-faint" data-testid="collaboration-read-notes">
+          {overview.notes.map((note, index) => (
+            <Fragment key={note}>
+              {index > 0 ? " · " : null}
+              <span title={note}>{noteLabel(note)}</span>
+            </Fragment>
+          ))}
+        </p>
+      ) : null}
     </Section>
   );
 }
@@ -483,44 +547,54 @@ function DetailBlock({ title, children }: { readonly title: string; readonly chi
   );
 }
 
-/** 三态字段行:有值 / 无权限查看(带原因) / 未提供(带原因)——标签保留,值不编造。 */
+/** 三态字段行:有值 / 无权限查看(带原因) / 未提供(带原因)——标签保留,值不编造;
+ * 可见文本是人话解释,机器码只进 title/data-reason 供测试断言。 */
 function FieldLine({ label, state }: { readonly label: string; readonly state: FleetFieldState }) {
+  const machine = machineOf(state);
   return (
     <div
       className="flex justify-between gap-3 border-t border-border py-1.5 ui-meta"
       data-testid="collaboration-field-line"
     >
       <span className="shrink-0 text-text-faint">{label}</span>
-      <span className="text-right text-text-muted">
+      <span className="text-right text-text-muted" data-reason={machine} title={machine}>
         {fieldText(state)}
-        {state.kind === "unavailable" ? (
-          <span className="block ui-micro text-text-faint">
-            {t("collaboration.reasonPrefix", { reason: state.reason })}
-          </span>
-        ) : null}
-        {state.kind === "redacted" ? (
-          <span className="block ui-micro text-text-faint">
-            {t("collaboration.reasonPrefix", { reason: state.reason })}
-          </span>
+        {state.kind === "unavailable" || state.kind === "redacted" ? (
+          <span className="block ui-micro text-text-faint">{reasonText(state.reason)}</span>
         ) : null}
       </span>
     </div>
   );
 }
 
-function fieldText(state: FleetFieldState): string {
-  return state.kind === "value"
-    ? state.text
-    : state.kind === "redacted"
-      ? t("collaboration.noPermissionShort")
-      : t("collaboration.notProvided");
+/** 机器可断言的原始码(值标记或原因码);普通值无标记,返回 undefined 不占属性。 */
+function machineOf(state: FleetFieldState): string | undefined {
+  return state.kind === "value" ? (VALUE_LABELS[state.text] === undefined ? undefined : state.text) : state.reason;
 }
 
-function DetailLine({ label, value }: { readonly label: string; readonly value: string }) {
+function fieldText(state: FleetFieldState): string {
+  if (state.kind === "value") {
+    const message = VALUE_LABELS[state.text];
+    return message === undefined ? state.text : t(message);
+  }
+  return state.kind === "redacted" ? t("collaboration.noPermissionShort") : t("collaboration.notProvided");
+}
+
+function DetailLine({
+  label,
+  value,
+  title,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly title?: string;
+}) {
   return (
-    <div className="flex justify-between gap-3 border-t border-border py-1.5 ui-meta">
+    <div className="flex justify-between gap-3 border-t border-border py-1.5 ui-meta" data-reason={title}>
       <span className="shrink-0 text-text-faint">{label}</span>
-      <span className="text-right text-text-muted">{value}</span>
+      <span className="text-right text-text-muted" title={title}>
+        {value}
+      </span>
     </div>
   );
 }

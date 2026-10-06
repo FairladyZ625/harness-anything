@@ -134,7 +134,8 @@ test("the overview joins daemon facts: center node from daemon identity, edges f
   // 租约来源节点但副本账本没有行的节点如实标注,不静默消失。
   const ghost = result.nodes.find((node) => node.nodeId === "ghost-node")!;
   assert.equal(ghost.replica, null);
-  assert.ok(ghost.replicaNote !== null);
+  // replicaNote 是稳定机器码(人话解释归 GUI i18n),不带内嵌文案。
+  assert.equal(ghost.replicaNote, "center-replica-ledger-has-no-row-for-node");
   assert.deepEqual(
     result.links.map((link) => [link.nodeId, link.state]),
     [
@@ -155,7 +156,12 @@ test("edge fields the read surface cannot see are unavailable with a reason, nev
     { build: "unavailable", online: "unavailable", watch: "unavailable", lastFailure: "unavailable" },
   );
   assert.equal(edge.online.reason, "tls-session-fact-not-exposed");
-  assert.ok(result.notes.some((note) => note.startsWith("events-attribution=")));
+  // notes 是稳定 key=value 机器码;人话解释归 GUI i18n,daemon 不内嵌单语言文案。
+  assert.deepEqual(result.notes, [
+    "events-attribution=current-lease",
+    "edge-online=unavailable",
+    "sync-internals=unavailable",
+  ]);
   assert.equal(result.links[0]!.state, "lag");
 });
 

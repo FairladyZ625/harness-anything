@@ -28,8 +28,7 @@ import { bridgeReady, nav } from "./helpers.mjs";
  * 验证单执行节点的中心仓也能看到协作页(不以节点数量判),跑筛选/跳转/长 ID/宽窄
  * 截图,最后把仓切回 local 并重载,不影响同 lane 的后续场景。
  */
-const REPO = "gui-e2e-catalog",
-  TASK_HELM = "task-collab-helm",
+const TASK_HELM = "task-collab-helm",
   TASK_RELAY = "task-collab-relay",
   TASK_SIGNAL = "task-collab-signal",
   SESSION_GLM_LATEST = guiE2eRuntimeSessionId("round-4"),
@@ -217,7 +216,7 @@ export default {
     assert.match(header, /3 节点/u, `topology must show center plus two lease-source edges: ${header.slice(0, 120)}`);
     assert.match(header, /2 执行中/u, "executing counts held/reserving leases only, not the orphaned one");
 
-    // 3. 边缘节点详情:在做什么 = 租约任务/人/会话/phase;内部状态如实「未提供」带原因。
+    // 3. 边缘节点详情:在做什么 = 租约任务/人/会话/phase;内部状态如实「未提供」带人话原因。
     await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
     const details = page.getByTestId("collaboration-node-details");
     await details.waitFor();
@@ -228,9 +227,16 @@ export default {
     assert.match(detailText, /未提供/u, "fields the read cannot see say so");
     assert.match(
       detailText,
-      /tls-session-fact-not-exposed/u,
-      "the online fact keeps its unavailable reason instead of being invented",
+      /中心未在此读面暴露节点 TLS 会话事实/u,
+      "the unavailable reason reads as a human sentence",
     );
+    // 机器码不进可见文本,只保留在 data-reason/title 供断言与诊断。
+    assert.doesNotMatch(detailText, /tls-session-fact-not-exposed/u, "machine codes stay out of visible text");
+    await details.locator('[data-reason="tls-session-fact-not-exposed"]').waitFor();
+    // 详情底部的读面声明渲染为人话图例,不再露出 key=value 调试串。
+    const notesText = await page.getByTestId("collaboration-read-notes").innerText();
+    assert.match(notesText, /事件按任务当前租约归属节点/u, "the notes legend is humanized");
+    assert.doesNotMatch(notesText, /events-attribution=/u, "no raw key=value debug strings");
 
     // 4. 中心节点详情:daemon 构建、本机租约(orphaned 显示失联,不算执行中)。
     await page.getByTestId("collaboration-node-center").click();

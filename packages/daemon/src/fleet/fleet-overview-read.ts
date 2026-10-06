@@ -183,7 +183,8 @@ export interface FleetOverviewResult {
 const ONLINE_REASON = "tls-session-fact-not-exposed",
   EDGE_BUILD_REASON = "replica-status-has-no-build-field",
   WATCH_REASON = "edge-sync-internals-not-exposed",
-  LAST_FAILURE_REASON = "no-replica-sync-failure-record-in-lifecycle-read";
+  LAST_FAILURE_REASON = "no-replica-sync-failure-record-in-lifecycle-read",
+  NO_REPLICA_ROW_REASON = "center-replica-ledger-has-no-row-for-node";
 
 /** 授权类错误码 → 字段 redacted;其余错误原样抛出(fail-closed,不吞)。 */
 export async function authorizedOrThrow<T>(
@@ -244,10 +245,7 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
         ? leaseRows(leasesByNode.get(nodeId) ?? [], dispatchByTask)
         : { redacted: input.leaseReads.code },
       replica: replica === null ? null : projectReplica(replica),
-      replicaNote:
-        isCenter || replica !== null
-          ? null
-          : "center-replica-ledger-has-no-row-for-node (从未在本中心同步过,或租约来自其他通道)",
+      replicaNote: isCenter || replica !== null ? null : NO_REPLICA_ROW_REASON,
       watch: isCenter
         ? { kind: "value", text: "local canonical writer" }
         : { kind: "unavailable", reason: WATCH_REASON },
@@ -290,11 +288,8 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
     nodes,
     links,
     events: fleetEventRows(input.events, leasesByNode, dispatchByTask),
-    notes: [
-      "events-attribution=current-lease (canonical 事件按任务当前租约归属节点;历史事件可能早于当前持有人)",
-      "edge-online=unavailable (中心 TLS 实时会话事实未在此读面暴露,不推断)",
-      "sync-internals=unavailable (edge watch/pull/退避与 replica_sync_failed 生命周期记录未在此读面暴露)",
-    ],
+    // notes 是稳定机器码(key=value),人话解释归 GUI i18n;daemon 不内嵌单语言文案。
+    notes: ["events-attribution=current-lease", "edge-online=unavailable", "sync-internals=unavailable"],
     warnings: [
       ...new Set(
         [...input.nodeOwners.values()]
