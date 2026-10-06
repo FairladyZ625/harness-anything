@@ -415,6 +415,9 @@ export default {
       linkLengths.length >= 3 && linkLengths.every((length) => length >= 120),
       `every center-edge link stays visibly long (>=120px): ${JSON.stringify(linkLengths)}`,
     );
+    // 第 4 轮回归:节点卡必须完整落在画布可视区内(含底边)——环形态曾在中带宽
+    // (1120 窗)需求 659 > 容器 625,底卡被滚动折叠线裁掉。
+    await assertNodesInsideCanvas(page);
     // 中心卡是能量核心的读数板:rev/边缘数/在飞数 + 带 head 标签的短 hash。
     const centerCard = await page.getByTestId("collaboration-node-center").innerText();
     assert.match(centerCard, /rev \d+/u, "the center card states the center revision");
@@ -509,14 +512,21 @@ export default {
     for (const width of [1440, 1120]) {
       await page.setViewportSize({ width, height: originalViewport.height });
       await page.getByTestId("collaboration-view").waitFor();
+      // 截图前必须等拓扑几何沉降(与抽屉 drawerSettled 同一课):ResizeObserver →
+      // React 重排是异步的,不等它,1440 截图会捕到 1120 档的画布几何。
+      await topologySettled(page);
       await shot(`collaboration-${width}`);
     }
     // 第 2 轮留档:fresh/lag/absent 三种连线同框的 1440 总览(夹具已种三态副本)。
     await page.setViewportSize({ width: 1440, height: originalViewport.height });
     await page.getByTestId("collaboration-view").waitFor();
+    await topologySettled(page);
+    await assertNodesInsideCanvas(page);
     await shot("collaboration-link-states-1440");
     // 1440 节点详情(边缘节点点开)单独留档,随后收起抽屉再截过滤态与窄屏。
     await page.setViewportSize({ width: 1440, height: originalViewport.height });
+    await page.getByTestId("collaboration-view").waitFor();
+    await topologySettled(page);
     await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
     await page.getByTestId("collaboration-node-details").waitFor();
     await drawerSettled(page);
@@ -529,6 +539,8 @@ export default {
     await filter.selectOption("all");
     // 390 窄屏:Electron 最小窗口宽度可能托底,如实按实际宽度截图;抽屉同样不许溢出。
     await page.setViewportSize({ width: 390, height: originalViewport.height });
+    await topologySettled(page);
+    await assertNodesInsideCanvas(page);
     await shot("collaboration-overview-390");
     await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
     await page.getByTestId("collaboration-node-details").waitFor();
@@ -634,6 +646,46 @@ async function waitForAttached(page, repoId) {
     if (Date.now() > deadline) throw new Error(`the isolated repo ${repoId} never reached cellState=attached`);
     await page.waitForTimeout(500);
   }
+}
+
+/** 拓扑几何沉降:视口切换后 ResizeObserver → React 重排是异步的,不等它,截图与
+ * 断言捕到的是旧宽度的布局(第 4 轮:link-states-1440 曾拍下 1120 档的环几何,
+ * 画布比容器高,底卡被折叠线裁掉)。等离散条件——内容层宽度吃满当前容器宽。 */
+async function topologySettled(page) {
+  await page.waitForFunction(
+    () => {
+      const container = globalThis.document.querySelector('[data-testid="collaboration-topology"]');
+      const content = container instanceof globalThis.Element ? container.firstElementChild : null;
+      if (container === null || !(content instanceof globalThis.Element)) return false;
+      return Math.abs(content.getBoundingClientRect().width - container.clientWidth) <= 1;
+    },
+    { timeout: 10_000 },
+  );
+}
+
+/** 折叠线回归(第 4 轮修复):滚动在顶时,每张节点卡必须完整落在画布容器的可视
+ * 矩形内——底边越线即「画布比容器高,底部节点被裁」。 */
+async function assertNodesInsideCanvas(page) {
+  const clip = await page.evaluate(() => {
+    const container = globalThis.document.querySelector('[data-testid="collaboration-topology"]');
+    if (!(container instanceof globalThis.Element)) return null;
+    const box = container.getBoundingClientRect();
+    return [...container.querySelectorAll('[data-testid^="collaboration-node-"]')].map((card) => {
+      const rect = card.getBoundingClientRect();
+      return {
+        id: card.getAttribute("data-testid"),
+        overBottom: rect.bottom - box.bottom,
+        overTop: box.top - rect.top,
+      };
+    });
+  });
+  assert.ok(clip !== null && clip.length > 0, "the topology canvas and its node cards must be present");
+  for (const node of clip)
+    assert.ok(
+      node.overBottom <= 0.5 && node.overTop <= 0.5,
+      `node card ${node.id} must sit fully inside the visible canvas ` +
+        `(overBottom=${node.overBottom.toFixed(1)}, overTop=${node.overTop.toFixed(1)})`,
+    );
 }
 
 /** 抽屉滑入沉降:motion 的进出场动画只动 transform(x: 110% → 0);截图与视觉

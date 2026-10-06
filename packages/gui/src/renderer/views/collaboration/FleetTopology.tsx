@@ -256,13 +256,10 @@ function TopologyNodeCard({
       className={`fleet-node absolute flex flex-col gap-1.5 px-4 py-3 text-left ${stateClass}`}
     >
       <span className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-baseline gap-2">
-          <span className="truncate font-semibold ui-body">
-            {node.role === "center" ? t("collaboration.centerNode") : node.nodeId}
-          </span>
-          {node.role === "center" ? (
-            <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{center.daemonId}</span>
-          ) : null}
+        {/* 标题只留节点名:daemonId 是无标签裸值,短 id(如夹具的 "g")读作孤立
+            碎片;daemon 身份在详情抽屉里有完整带标签的展示(daemonId · version @ sha)。 */}
+        <span className="min-w-0 truncate font-semibold ui-body">
+          {node.role === "center" ? t("collaboration.centerNode") : node.nodeId}
         </span>
         <StatusTag
           tone={executing > 0 ? "active" : "neutral"}

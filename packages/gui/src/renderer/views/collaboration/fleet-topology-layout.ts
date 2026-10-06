@@ -6,7 +6,7 @@
  * 可视连线至少 LINK_MIN 像素——流光/粒子要有能被看见的轨道。布局按宽度分四形,
  * 每一形都按构造满足契约:
  * - 雷达环(边缘 ≤4,宽度解得开):侧锚把边缘卡推到面板左右沿,纵向偏移取
- *   连线 ≥ LINK_MIN 的最小解;解不出(宽度不够)退到队列树;
+ *   连线 ≥ LINK_MIN 的最小解;解不出(宽度不够或纵向需求超过容器)退到队列树;
  * - 双翼列(边缘 >4 且宽度解得开):两翼贴面板左右沿纵向排布,与中心卡的横向
  *   净空 ≥ LINK_MIN,画布高度随节点数扩展(任务 2879 设计稿);
  * - 队列树(中带宽):中心卡在上方,边缘两列排在下方,连线全部斜向;
@@ -55,8 +55,9 @@ const CARD_CLEARANCE = 8;
 const TREE_GAP = LINK_MIN + 2;
 /** 队列树两列的列心到画布中心的最大水平距离(窄树往里收,宽树不超过此值)。 */
 const TREE_COLUMN_SPREAD = 330;
-/** 队列树的最小宽度:两列边缘卡各带画布 padding,再留列间隙。 */
-const TREE_MIN_WIDTH = 2 * (EDGE_CARD.width + CANVAS_PADDING) + 24;
+/** 队列树的最小宽度:两列边缘卡各带画布 padding,再留列间隙。宽度低于此值只剩
+ * 纵向堆叠一形(画布高随节点数线性增长,滚动不可避免)。 */
+export const TREE_MIN_WIDTH = 2 * (EDGE_CARD.width + CANVAS_PADDING) + 24;
 
 export function computeFleetLayout(width: number, height: number, nodes: readonly FleetLayoutNode[]): FleetLayout {
   if (width <= 0) width = 1024;
@@ -85,7 +86,9 @@ function ringExits(unitX: number, unitY: number): number {
  * (X = 半宽,封顶 LINK_MAX 对应的横向距离),纵向偏移取「连线 ≥ LINK_MIN」的
  * 最小解再抬一点(错开中心行,队形有层次);下锚在正下方,距离恰 LINK_MIN。
  * 构造即契约:每条连线长度 ∈ [LINK_MIN, LINK_MAX];X 小到侧卡与中心卡净空
- * 不足 → 返回 null 退到队列树。落位后仍用 borderLinkLength 复验结果。 */
+ * 不足,或环的纵向需求超过容器(内容层比容器高会顶对齐+滚动,底部节点被
+ * 折叠线裁掉——第 4 轮:1120 窗的 888 画布 × 3 边缘需求 659 > 容器 625),
+ * 都返回 null 退到队列树(树按构造更矮)。落位后仍用 borderLinkLength 复验。 */
 function ringLayout(width: number, height: number, edges: readonly FleetLayoutNode[]): FleetLayout | null {
   const sideFloor = CENTER_CARD.width / 2 + EDGE_CARD.width / 2 + CARD_CLEARANCE;
   const sideCeiling = Math.min(
@@ -144,6 +147,9 @@ function ringLayout(width: number, height: number, edges: readonly FleetLayoutNo
             ];
   const top = Math.max(...anchors.map(([, y]) => -y + EDGE_CARD.height / 2), CENTER_CARD.height / 2);
   const bottom = Math.max(...anchors.map(([, y]) => y + EDGE_CARD.height / 2), CENTER_CARD.height / 2);
+  // 高度闸门:环的纵向需求超过容器即解不开——退到队列树,而不是顶对齐滚动
+  // 让底部锚位的节点卡越过折叠线。
+  if (top + bottom + 2 * (CANVAS_PADDING + 8) > height) return null;
   const canvasHeight = Math.max(height, top + bottom + 2 * (CANVAS_PADDING + 8));
   const centerY = (canvasHeight - (top + bottom)) / 2 + top;
   const placement = new Map<string, FleetNodePlacement>([["center", centerPlacementAt(width / 2, centerY)]]);

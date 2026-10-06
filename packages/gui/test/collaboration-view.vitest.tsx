@@ -234,6 +234,9 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
     const head = card.querySelector('[data-testid="collaboration-core-head"]')!;
     expect(head.textContent).toContain("head bd2251a");
     expect(head.getAttribute("title")).toContain("bd2251a");
+    // 第 4 轮:标题旁不再渲染裸 daemonId——无标签短 id(夹具外场如 "g")读作孤立
+    // 碎片;daemon 身份由详情抽屉带标签完整展示(daemonId · version @ sha)。
+    expect(card.textContent).not.toContain("default");
     // 边缘卡保持原读数(owner + cut),不被中心卡的布局改写。
     expect(view.nodeCard("cc90-ubuntu")!.textContent).toContain("cut 163/164");
   });

@@ -9,6 +9,7 @@ import {
   EDGE_CARD,
   LINK_MAX,
   LINK_MIN,
+  TREE_MIN_WIDTH,
   type FleetNodePlacement,
 } from "../src/renderer/views/collaboration/fleet-topology-layout.ts";
 
@@ -74,6 +75,35 @@ describe("舰队拓扑布局", () => {
       for (let count = 1; count <= 12; count += 1) {
         for (const length of linkLengthsOf(width, count))
           expect(length, `width=${width} count=${count} visible link`).toBeGreaterThanOrEqual(LINK_MIN - 0.5);
+      }
+    }
+  });
+
+  it("第 4 轮:画布包住全部节点包围盒+边距(含底边),紧凑舰队整体落在标准容器内", () => {
+    // 标准容器:协作页拓扑区高度 = max(420px, 68vh);920px 视口 → 625px。
+    const CONTAINER = 625;
+    for (const width of WIDTHS) {
+      for (let count = 1; count <= 12; count += 1) {
+        const layout = computeFleetLayout(width, CONTAINER, edgeIds(count));
+        for (const [id, placement] of layout.placement) {
+          // 节点框完全在画布内且四边留出可读边距(旧断言只查越界,这里连底边距一起查:
+          // 「被画布底边截断」的截图级缺陷在纯布局里就表现为 bottom 贴到 canvasHeight)。
+          expect(placement.top + placement.height, `${id}@${width}x${count} bottom margin`).toBeLessThanOrEqual(
+            layout.canvasHeight - 8,
+          );
+          expect(placement.left, `${id}@${width}x${count} left margin`).toBeGreaterThanOrEqual(8);
+          expect(placement.left + placement.width, `${id}@${width}x${count} right margin`).toBeLessThanOrEqual(
+            layout.canvasWidth - 8,
+          );
+        }
+        // 紧凑舰队(≤4 边缘)在树可用的宽度上不许超出容器:内容层比容器高会顶对齐+滚动,
+        // 底部节点被折叠线裁掉(第 4 轮回归:1120 窗的 888 画布 × 3 边缘,环需求 659 > 625)。
+        // 更宽(>4 边缘)的舰队行数物理超容器,滚动是预期,不在此断言面内。
+        if (count <= 4 && width >= TREE_MIN_WIDTH)
+          expect(
+            layout.canvasHeight,
+            `width=${width} count=${count} compact fleet fits the container`,
+          ).toBeLessThanOrEqual(CONTAINER);
       }
     }
   });
