@@ -1,4 +1,6 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { AgentRole, TaskProjection } from "@harness-anything/kernel";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
@@ -229,13 +231,18 @@ export function taskQueryGuidance(taskId: string): string {
  */
 export function livingDeliverableProtocol(profileId: string | null | undefined): string | null {
   if (profileId === "lightweight") return null;
+  const skillPath = fileURLToPath(new URL("../../../skills/task-explainer-html/SKILL.md", import.meta.url)),
+    skill = readFileSync(skillPath, "utf8"),
+    marker = "## 派工注入摘录（daemon 唯一读取来源）",
+    start = skill.indexOf(marker),
+    end = skill.indexOf("\n## ", start + marker.length),
+    excerpt = start >= 0 ? skill.slice(start, end < 0 ? undefined : end).trim() : "";
   return [
     "# Living Deliverable Protocol",
     "- 本任务创建时已物化可视解释页 `artifacts/explainer.html`（单文件浅色骨架模板）：每个工作轮次结束前" +
       "**增量更新这一页**——更新结论句、对照表状态与验证证据，让不读代码的读者也能看到本任务做了什么、" +
       "验证了什么、还差什么；不要推倒重建，也不要另起新文件。",
-    "- 页面遵循 `task-explainer-html` 技能规范：单文件 HTML、样式与 SVG 全内联、零外网依赖、浅色适读" +
-      "（背景 `#faf7f0`，正文 `#3d3833`）、无 JS 也可读；骨架章节 id 保持稳定，逐轮 diff 可读。",
+    excerpt,
     "- closeout 终态冻结该页：随任务包一并提交后不再改动，冻结版结论与 closeout.md 一致。" +
       "它是交付回环的一环，不替代 closeout.md 的结构化汇报。",
   ].join("\n");

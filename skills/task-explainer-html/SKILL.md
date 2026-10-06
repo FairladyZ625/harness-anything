@@ -7,6 +7,16 @@ description: 产出与增量维护任务包的活解释页 artifacts/explainer.h
 
 每个在账任务有一页**活的可视解释**：任务包 `artifacts/explainer.html`。它不是终局报告，而是随工作轮次增量生长、在 closeout 终态冻结的单文件 HTML——让不读代码的读者随时看到这个任务做了什么、验证了什么、还差什么。Daemon 在每次任务派工的 mission 里注入 `# Living Deliverable Protocol`，本技能是该协议的产出规范。
 
+## 派工注入摘录（daemon 唯一读取来源）
+
+非 lightweight 任务的 mission 会注入本节原文，确保 worker 在没有本机技能安装时仍收到质量下限：
+
+- 固定五章且保持 id：`conclusion`（一句话结论与状态徽章）、`objectives`（每个子目标一行的任务对照表）、`structure`（主结构 SVG）、`evidence`（修前红/修后绿、命令摘录与未验清单）、`next-steps`（剩余风险、依赖顺序 SVG）。
+- 每章必须有一个内联 SVG 或 SVG 占位；图是章节主体，文字只补充图中无法表达的事实。coding 画模块变更地图，research 画证据链，writing 画章节地图，fleet-ops 画节点状态图。
+- 页面必须是单文件、零外网依赖、浅色适读、无 JS 也可读；CSS 与 SVG 全内联，背景 `#faf7f0`，正文 `#3d3833`，SVG `width:100%`。
+- 页面布局贴近视口全宽：`max-width:none`，只保留 16–32px 页边距；宽屏使用多列，移动端叠列。纯文字段落才允许 `max-width:72ch`。
+- 第一行就是结论；任务表逐项写做了什么、状态和锚点；实测与推断分开；未完成事项明确写出。每轮增量编辑既有章节，closeout 时冻结并与 `closeout.md` 一致。
+
 ## 硬规则（先于一切风格）
 
 1. **单文件、全内联、零外网依赖**：全部 CSS/JS/SVG 内联在一个 `.html` 文件里，禁止外链 CDN、字体、图片、脚本。离线打开即完整渲染。

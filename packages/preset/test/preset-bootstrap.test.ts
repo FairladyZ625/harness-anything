@@ -76,6 +76,11 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     assert.equal(standard.event.payload.task.taskClass, "standard");
     assert.equal(standard.event.payload.initialDocumentClaims.length, 7);
     assert.equal(standard.packagePath, "tasks/task-standard-standard");
+    const explainer = standard.documents.find(({ relativePath }) => relativePath === "artifacts/explainer.html")!.body;
+    for (const id of ["conclusion", "objectives", "structure", "evidence", "next-steps"])
+      assert.ok(explainer.includes(`id="${id}"`));
+    assert.match(explainer, /<svg /u);
+    assert.doesNotMatch(explainer, /max-width:72rem/u);
     assert.ok(
       standard.documents[0]!.body.endsWith("## Next\n\nEdit `task_plan.md`, then run `ha task start task-standard`.\n"),
     );
