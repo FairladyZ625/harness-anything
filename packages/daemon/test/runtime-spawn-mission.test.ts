@@ -91,8 +91,12 @@ test("the guidance points at the injected <task-context> block and the protocol 
   const protocol = livingDeliverableProtocol("baseline")!;
   assert.match(protocol, /# Living Deliverable Protocol/u);
   assert.match(protocol, /artifacts\/explainer\.html/u);
-  assert.match(protocol, /已物化/u);
-  assert.match(protocol, /每轮按该文件顶部的 HTML 注释增量更新/u);
+  assert.match(protocol, /实时说明页/u, "the protocol names the owner-facing live page");
+  assert.match(protocol, /唯一窗口/u);
+  assert.match(protocol, /#now/u);
+  assert.match(protocol, /#timeline/u);
+  assert.match(protocol, /不要攒到收尾一次写/u);
+  assert.match(protocol, /顶部注释/u, "the authoring how-to stays in the template comment");
   assert.doesNotMatch(protocol, /#faf7f0|零外网依赖/u);
-  assert.match(protocol, /closeout 终态冻结/u);
+  assert.match(protocol, /closeout 时冻结/u);
 });

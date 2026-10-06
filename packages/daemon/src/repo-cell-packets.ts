@@ -65,9 +65,7 @@ export function workspaceText(rootDir: string, requestedValue: unknown, field: s
 }
 
 export function taskSubmitExplainerReminder(profileId: string | undefined): string {
-  return profileId === "lightweight"
-    ? ""
-    : "\nNext: update artifacts/explainer.html using the authoring comments in that file.";
+  return profileId === "lightweight" ? "" : "\nNext: 在 artifacts/explainer.html 的 header 写下结论并冻结该页。";
 }
 
 export function readPacketSource(rootDir: string, action: Readonly<Record<string, unknown>>): string {

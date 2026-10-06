@@ -384,12 +384,8 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     );
     assert.equal(explainerDispatch.outcome, "applied", JSON.stringify(explainerDispatch));
     assert.match(prompt!, /# Living Deliverable Protocol/u);
-    assert.match(prompt!, /已物化/u, "the protocol names the already-materialized page");
-    assert.match(
-      prompt!,
-      /该文件顶部的 HTML 注释增量更新/u,
-      "mission points workers to the materialized template instructions",
-    );
+    assert.match(prompt!, /实时说明页/u, "the protocol names the owner-facing live page");
+    assert.match(prompt!, /#now[\s\S]*#timeline/u, "mission names the fixed living sections");
     const litePackage = await createTask(cell, root, {
       taskId: "task_ctx_lite",
       title: "Lightweight carrier",

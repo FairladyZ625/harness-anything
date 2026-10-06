@@ -219,20 +219,25 @@ export function taskQueryGuidance(taskId: string): string {
 
 /**
  * The standing Living Deliverable contract a non-lightweight task-bound dispatch carries: the task's
- * explainer page is materialized at task creation and stays a living artifact the worker updates
- * incrementally each round and freezes at closeout. Fixed text the daemon injects on every
- * qualifying task mission (derived, explicit-prompt, and fleet-edge alike); the task-explainer-html
- * template carries the authoring instructions. Lightweight-profile tasks owe no explainer page — their creation materializes none,
- * so their missions carry no protocol (dec_64C2E7741F1827DADC27941FCA CH2). Non-task dispatches
- * never see it.
+ * explainer page is the owner's live window into a running task — they do not read the worker
+ * session and the task plan is a static cut from kickoff. The worker writes a first version right
+ * after reading in, rewrites `#now` and appends to `#timeline` on every material change, and
+ * freezes the page at closeout. Fixed text the daemon injects on every qualifying task mission
+ * (derived, explicit-prompt, and fleet-edge alike); the task-explainer-html template carries the
+ * authoring instructions. Lightweight-profile tasks owe no explainer page — their creation
+ * materializes none, so their missions carry no protocol (dec_64C2E7741F1827DADC27941FCA CH2).
+ * Non-task dispatches never see it.
  */
 export function livingDeliverableProtocol(profileId: string | null | undefined): string | null {
   if (profileId === "lightweight") return null;
   return [
     "# Living Deliverable Protocol",
-    "- 本任务已物化 `artifacts/explainer.html`；每轮按该文件顶部的 HTML 注释增量更新本轮内容，closeout 时冻结。",
-    "- closeout 终态冻结该页：随任务包一并提交后不再改动，冻结版结论与 closeout.md 一致。" +
-      "它是交付回环的一环，不替代 closeout.md 的结构化汇报。",
+    "- `artifacts/explainer.html` 是业主在任务进行中看的实时说明页：业主不读你的 session，task_plan 只是开工时的计划，" +
+      "这页是业主了解进展的唯一窗口。",
+    "- 开工读完材料后先写第一版；之后每有实质进展、发现、方向变化或红转绿，就更新 `#now` 并在 `#timeline` 追加一条。" +
+      "不要攒到收尾一次写。",
+    "- 多用图说明（结构、流程、时序、前后对比、数据），写法见该文件顶部注释；章节除 `#now`/`#timeline` 外自由组织。",
+    "- closeout 时冻结：结论与 closeout.md 一致，之后不再改动。",
   ].join("\n");
 }
 
