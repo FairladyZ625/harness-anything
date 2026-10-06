@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
+import type { FleetReplicaSessionPool } from "./edge-replica-sync.ts";
 import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { recordHeadConfirmation, recordRepoReadDenied } from "./replica-read-model.ts";
 import { sha256Bytes } from "@harness-anything/kernel";
@@ -98,110 +99,7 @@ export class FleetRemoteError extends Error {
   }
 }
 
-type FleetPeer = Awaited<ReturnType<typeof openPeer>>;
-
-export interface FleetReplicaSessionPoolOptions {
-  readonly idleMs?: number;
-  readonly now?: () => number;
-  readonly schedule?: (callback: () => void, delayMs: number) => NodeJS.Timeout;
-  readonly cancel?: (timer: NodeJS.Timeout) => void;
-}
-
-/** Authenticated replica sessions are scoped to one node/repository pair. */
-export class FleetReplicaSessionPool {
-  private readonly sessions = new Map<string, { peer: FleetPeer; timer?: NodeJS.Timeout }>();
-  private readonly idleMs: number;
-  private readonly schedule: (callback: () => void, delayMs: number) => NodeJS.Timeout;
-  private readonly cancel: (timer: NodeJS.Timeout) => void;
-
-  constructor(options: FleetReplicaSessionPoolOptions = {}) {
-    this.idleMs = options.idleMs ?? 30_000;
-    this.schedule = options.schedule ?? ((callback, delayMs) => setTimeout(callback, delayMs));
-    this.cancel = options.cancel ?? ((timer) => clearTimeout(timer));
-  }
-
-  private key(options: FleetPeerOptions): string {
-    return `${options.nodeId}\0${options.repoId}\0${options.hostname ?? "127.0.0.1"}\0${options.port}`;
-  }
-
-  async acquire(options: FleetPeerOptions): Promise<FleetPeer> {
-    const key = this.key(options),
-      existing = this.sessions.get(key);
-    if (existing) {
-      if (existing.timer) this.cancel(existing.timer);
-      existing.timer = undefined;
-      return existing.peer;
-    }
-    const peer = await openPeer(options);
-    this.sessions.set(key, { peer });
-    return peer;
-  }
-
-  release(options: FleetPeerOptions, peer: FleetPeer): void {
-    const key = this.key(options),
-      entry = this.sessions.get(key);
-    if (!entry || entry.peer !== peer || entry.timer) return;
-    entry.timer = this.schedule(() => {
-      if (this.sessions.get(key)?.peer === peer) {
-        this.sessions.delete(key);
-        peer.close();
-      }
-    }, this.idleMs);
-  }
-
-  close(): void {
-    for (const { peer, timer } of this.sessions.values()) {
-      if (timer) this.cancel(timer);
-      peer.close();
-    }
-    this.sessions.clear();
-  }
-}
-
-export interface FleetReplicaSyncOptions extends FleetReplicaPullClientOptions {
-  readonly signal?: AbortSignal;
-  readonly sleep?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
-  readonly retryDelaysMs?: readonly number[];
-}
-
-const defaultReplicaSleep = (delayMs: number, signal?: AbortSignal): Promise<void> =>
-  new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(signal.reason ?? new Error("replica sync aborted"));
-    const timer = setTimeout(resolve, delayMs);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(signal.reason ?? new Error("replica sync aborted"));
-      },
-      { once: true },
-    );
-  });
-
-/** Keep an edge replica fresh without putting network work on the read path. */
-export async function runFleetReplicaSync(options: FleetReplicaSyncOptions): Promise<void> {
-  const delays = options.retryDelaysMs ?? [5_000, 15_000, 60_000],
-    sleep = options.sleep ?? defaultReplicaSleep;
-  const step = async (failures: number): Promise<void> => {
-    if (options.signal?.aborted) return;
-    const failure = await runFleetReplicaPullClient(options).then(
-      async () => {
-        await sleep(delays[0] ?? 5_000, options.signal);
-        await step(0);
-        return null;
-      },
-      async (error: unknown) => {
-        if (options.signal?.aborted) return;
-        if (!(error instanceof FleetRemoteError) || !error.retryable) throw error;
-        await sleep(delays[Math.min(failures, delays.length - 1)] ?? 60_000, options.signal);
-        await step(failures + 1);
-        return null;
-      },
-    );
-    void failure;
-  };
-  return step(0);
-}
+export type FleetPeer = Awaited<ReturnType<typeof openPeer>>;
 
 export function openFleetEdgeView(
   rootDir: string,
@@ -892,7 +790,8 @@ export async function runFleetReplicaPullClient(
 async function pullReplica(options: FleetReplicaPullClientOptions): Promise<FleetReplicaPullClientResult> {
   const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint),
     session = options.sessionPool ? await options.sessionPool.acquire(options) : await openPeer(options);
-  let last: FleetReplicaPullClientResult["replica"] | null = null;
+  let last: FleetReplicaPullClientResult["replica"] | null = null,
+    failed = true;
   try {
     for (;;) {
       session.send({
@@ -902,7 +801,6 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
       });
       for (;;) {
         const inbound = await session.next();
-        if (inbound.schema === "fleet.replica.head-hint/v1") continue;
         if (inbound.schema === "fleet.replica.current/v1") {
           const current = view.current(inbound.repoId, inbound.viewId);
           if (
@@ -915,6 +813,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
             path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId),
             inbound.cut.revision,
           );
+          failed = false;
           return { replica: last ?? inbound, current };
         }
         const response = view.receive(inbound);
@@ -928,11 +827,12 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
       }
     }
   } finally {
-    if (options.sessionPool) options.sessionPool.release(options, session);
-    else session.close();
+    if (!options.sessionPool) session.close();
+    else if (failed) options.sessionPool.discard(options, session);
+    else options.sessionPool.release(options, session);
   }
 }
-async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
+export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
   const socket = await peerSocket(options),
     peer = peerFor(socket, options.timeoutMs ?? 5_000),
     prefix = `${options.nodeId}_${Date.now().toString(36)}`;

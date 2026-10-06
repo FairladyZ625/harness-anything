@@ -19,11 +19,11 @@ import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
-  runFleetReplicaSync,
   runFleetWriteClient,
   type FleetReplicaPullClientOptions,
   type FleetWriteClientOptions,
 } from "../src/fleet/edge.ts";
+import { FleetReplicaSessionPool, runFleetReplicaSync } from "../src/fleet/edge-replica-sync.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { type FleetCut } from "../src/fleet/contract.ts";
@@ -127,33 +127,13 @@ test("cross-repo transfer identity keeps equal node/view/cut/digest isolated", {
   }
 });
 
+const backgroundPaths = ["tasks/task-fleet-fleet/a.md", "tasks/task-fleet-fleet/b.md"];
 test("background replica sync follows a new center cut without a read request", { timeout: 30_000 }, async (t) => {
-  const fixture = await fleetFixture(t, ["tasks/background/a.md"]);
+  const fixture = await fleetFixture(t, backgroundPaths);
   t.after(() => fixture.close());
-  const center = await fixture.center();
-  const edgeRoot = path.join(fixture.root, "background-edge");
-  await runFleetRoundTrip({
-    port: center.port,
-    ca: fixture.cert,
-    nodeId: fixture.subject.nodeId,
-    credential: "machine-secret",
-    repoId: fixture.subject.repoId,
-    executionId: fixture.subject.executionId,
-    viewRoot: edgeRoot,
-    changes: [{ path: "tasks/background/a.md", body: "# first\n" }],
-  });
-  const next = await runFleetRoundTrip({
-    port: center.port,
-    ca: fixture.cert,
-    nodeId: fixture.subject.nodeId,
-    credential: "machine-secret",
-    repoId: fixture.subject.repoId,
-    executionId: fixture.subject.executionId,
-    changes: [{ path: "tasks/background/b.md", body: "# second\n" }],
-  });
-  assert.equal(next.center.outcome, "applied");
-  await waitForCenterLedgerRevision(
-    {
+  const center = await fixture.center(),
+    edgeRoot = path.join(fixture.root, "background-edge"),
+    peer = {
       hostname: "127.0.0.1",
       port: center.port,
       ca: fixture.cert,
@@ -161,56 +141,142 @@ test("background replica sync follows a new center cut without a read request", 
       credential: "machine-secret",
       repoId: fixture.subject.repoId,
     },
-    next.center.revision!,
-    5_000,
-  );
-  const controller = new AbortController();
-  let sleeps = 0;
-  await assert.rejects(
-    runFleetReplicaSync({
-      hostname: "127.0.0.1",
-      port: center.port,
-      ca: fixture.cert,
-      nodeId: fixture.subject.nodeId,
-      credential: "machine-secret",
-      repoId: fixture.subject.repoId,
+    first = await centerWrite(peer, fixture.subject.executionId, backgroundPaths[0]!, "# first\n"),
+    sync = syncProbe(),
+    controller = new AbortController(),
+    running = runFleetReplicaSync({
+      ...peer,
       viewRoot: edgeRoot,
       diskQuotaBytes: replicaQuota,
       signal: controller.signal,
-      sleep: async () => {
-        sleeps += 1;
-        controller.abort();
-        throw new Error("test stop");
-      },
-    }),
-    /test stop/u,
-  );
-  assert.equal(sleeps, 1);
-  const current = JSON.parse(
-    readFileSync(
-      path.join(edgeRoot, "repos", fixture.subject.repoId, "views", fixture.subject.viewId, "current.json"),
-      "utf8",
-    ),
-  ) as { cut: FleetCut };
-  assert.equal(current.cut.revision, next.center.revision);
-  assert.equal(
-    readFileSync(
-      path.join(
-        edgeRoot,
-        "repos",
-        fixture.subject.repoId,
-        "views",
-        fixture.subject.viewId,
-        "cuts",
-        String(next.center.revision),
-        "files",
-        "tasks/background/b.md",
-      ),
-      "utf8",
-    ),
-    "# second\n",
-  );
+      onPulled: sync.pulled,
+      onFailure: sync.failed,
+      schedule: () => assert.fail("no failure is expected, so no reconnect is scheduled"),
+    });
+  await sync.until(() => sync.revisions.includes(first));
+  // The edge now waits on the center; the center moves on and the edge issues no read of its own.
+  const next = await centerWrite(peer, fixture.subject.executionId, backgroundPaths[1]!, "# second\n");
+  await sync.until(() => sync.revisions.includes(next));
+  controller.abort();
+  await running;
+  assert.deepEqual(sync.failures, []);
+  assert.equal(edgeCurrent(edgeRoot, fixture.subject).revision, next);
+  assert.equal(edgeCutFile(edgeRoot, fixture.subject, next, backgroundPaths[1]!), "# second\n");
 });
+test(
+  "background replica sync drops a dead pooled session and catches up after a center restart",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t, backgroundPaths);
+    t.after(() => fixture.close());
+    const center = await fixture.center();
+    const port = center.port,
+      edgeRoot = path.join(fixture.root, "restart-edge"),
+      peer = {
+        hostname: "127.0.0.1",
+        port,
+        ca: fixture.cert,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+      },
+      // Idle sessions never expire on their own here: a dead session must leave the pool because its use failed.
+      sessionPool = new FleetReplicaSessionPool({ schedule: () => ({}) as NodeJS.Timeout, cancel: () => {} }),
+      reconnects: Array<{ readonly run: () => void; readonly delayMs: number }> = [],
+      sync = syncProbe(),
+      controller = new AbortController();
+    t.after(() => sessionPool.close());
+    const first = await centerWrite(peer, fixture.subject.executionId, backgroundPaths[0]!, "# first\n"),
+      running = runFleetReplicaSync({
+        ...peer,
+        viewRoot: edgeRoot,
+        diskQuotaBytes: replicaQuota,
+        sessionPool,
+        signal: controller.signal,
+        retryDelaysMs: [5, 15, 60],
+        onPulled: sync.pulled,
+        onFailure: sync.failed,
+        schedule: (run, delayMs) => {
+          reconnects.push({ run, delayMs });
+          sync.notify();
+        },
+      });
+    await sync.until(() => sync.revisions.includes(first));
+    await center.close();
+    await sync.until(() => reconnects.length === 1);
+    // Back on the same address, with a cut the edge has never seen.
+    await fixture.center(port);
+    const next = await centerWrite(peer, fixture.subject.executionId, backgroundPaths[1]!, "# second\n");
+    reconnects[0]!.run();
+    await sync.until(() => sync.revisions.includes(next));
+    controller.abort();
+    await running;
+    assert.equal(sync.failures.length, 1, `failures: ${sync.failures.map(String).join("; ")}`);
+    assert.deepEqual(
+      reconnects.map(({ delayMs }) => delayMs),
+      [5],
+    );
+    assert.equal(edgeCurrent(edgeRoot, fixture.subject).revision, next);
+    assert.equal(edgeCutFile(edgeRoot, fixture.subject, next, backgroundPaths[1]!), "# second\n");
+  },
+);
+/** Event-driven view of a sync loop: tests wait on what the loop reports, never on a clock. */
+function syncProbe() {
+  const revisions: number[] = [],
+    failures: unknown[] = [];
+  let wake = (): void => {};
+  const notify = () => wake();
+  return {
+    revisions,
+    failures,
+    notify,
+    pulled: (revision: number) => {
+      revisions.push(revision);
+      notify();
+    },
+    failed: (error: unknown) => {
+      failures.push(error);
+      notify();
+    },
+    until: (ready: () => boolean) =>
+      new Promise<void>((resolve) => {
+        const check = () => {
+          if (ready()) resolve();
+          else wake = check;
+        };
+        check();
+      }),
+  };
+}
+async function centerWrite(
+  peer: Parameters<typeof readFleetRepositoryMetadataClient>[0],
+  executionId: string,
+  docPath: string,
+  body: string,
+): Promise<number> {
+  const write = await runFleetWriteClient({
+    ...peer,
+    executionId,
+    channel: "replica",
+    changes: [{ path: docPath, body }],
+  });
+  assert.equal(write.center.outcome, "applied", JSON.stringify(write.center));
+  await waitForCenterLedgerRevision(peer, write.center.revision!, 5_000);
+  return write.center.revision!;
+}
+function edgeCurrent(edgeRoot: string, subject: FleetTestSubject): FleetCut {
+  return (
+    JSON.parse(
+      readFileSync(path.join(edgeRoot, "repos", subject.repoId, "views", subject.viewId, "current.json"), "utf8"),
+    ) as { cut: FleetCut }
+  ).cut;
+}
+function edgeCutFile(edgeRoot: string, subject: FleetTestSubject, revision: number, docPath: string): string {
+  return readFileSync(
+    path.join(edgeRoot, "repos", subject.repoId, "views", subject.viewId, "cuts", String(revision), "files", docPath),
+    "utf8",
+  );
+}
 test("multi-path subject produces a complete first snapshot and a scoped delta", { timeout: 30_000 }, async (t) => {
   const paths = ["tasks/task-fleet-fleet/a.md", "tasks/task-fleet-fleet/b.md"],
     fixture = await fleetFixture(t, paths);
@@ -471,9 +537,10 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     },
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
     runtimeArchiveReceipts,
-    center: () =>
+    center: (port?: number) =>
       owned.hold(
         listenFleetTls({
+          ...(port === undefined ? {} : { port }),
           host: {
             ...host,
             runtimeIngress: async (...args: Parameters<typeof host.runtimeIngress>) => {

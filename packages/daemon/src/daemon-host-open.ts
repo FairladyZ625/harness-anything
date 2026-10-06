@@ -95,7 +95,7 @@ import {
 import { AccessAdminService, accessAdminOperations } from "./access-admin-service.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
-import { FleetReplicaSessionPool, runFleetReplicaSync } from "./fleet/edge.ts";
+import { FleetReplicaSessionPool, runFleetReplicaSync } from "./fleet/edge-replica-sync.ts";
 
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -774,13 +774,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         diskQuotaBytes: config.quotaBytes,
         sessionPool: replicaSessionPool,
         signal: controller.signal,
-      }).catch((error: unknown) => {
-        if (!controller.signal.aborted)
+        onFailure: (error) =>
           input.recordLifecycle?.({
             event: "replica_sync_failed",
             repoId: repo.repoId,
             error: error instanceof Error ? error.message : String(error),
-          });
+          }),
       });
     }
   };

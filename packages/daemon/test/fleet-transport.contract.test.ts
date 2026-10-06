@@ -153,6 +153,8 @@ const frames = [
     code: null,
   },
   { schema: "fleet.replica.pull/v1", messageId: "m11-pull", repoId: "a1" },
+  { schema: "fleet.replica.watch/v1", messageId: "m11-watch", repoId: "a1", afterRevision: 7 },
+  { schema: "fleet.replica.head-hint/v1", messageId: "m11-hint", inReplyTo: "m11-watch", repoId: "a1", cut },
   {
     schema: "fleet.replica.current/v1",
     messageId: "m11-current",

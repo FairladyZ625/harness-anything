@@ -58,15 +58,6 @@ export async function* offerFrames(offer: ReplicaOffer, replica: ReplicaCutSourc
   const entries = replica.manifest(offer.toCut.revision);
   if (!entries || fleetManifestDigest(entries) !== offer.manifestDigest)
     throw new FleetFault("snapshot_required", "Replica cut manifest is unavailable or corrupt.", true);
-  // Freshness hints share the authenticated replica session and carry no data;
-  // the existing transfer frames remain the sole replication protocol.
-  yield {
-    schema: "fleet.replica.head-hint/v1",
-    messageId: mid(offer.transferId, "head-hint"),
-    repoId: offer.repoId,
-    headRevision: offer.toCut.revision,
-    headDigest: offer.toCut.headDigest.replace(/^sha256:/u, ""),
-  };
   if (offer.kind === "snapshot") {
     yield {
       schema: "fleet.snapshot.begin/v1",
