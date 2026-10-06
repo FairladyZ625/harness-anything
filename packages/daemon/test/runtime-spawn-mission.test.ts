@@ -86,15 +86,13 @@ test("the task mission wrapper still seals preconditions around the mission", ()
   assert.match(mission, /# Assigned Mission\nDo the work\./u);
 });
 
-test("the guidance points at the injected <task-context> block and the protocol names its artifact", () => {
+test("the guidance points at the injected <task-context> block and the protocol delegates to template comments", () => {
   assert.match(taskQueryGuidance("task_x"), /已注入的 <task-context>/u);
   const protocol = livingDeliverableProtocol("baseline")!;
   assert.match(protocol, /# Living Deliverable Protocol/u);
   assert.match(protocol, /artifacts\/explainer\.html/u);
   assert.match(protocol, /已物化/u);
-  assert.match(protocol, /增量更新/u);
-  assert.match(protocol, /不要推倒重建/u);
-  assert.match(protocol, /#faf7f0/u);
-  assert.match(protocol, /零外网依赖/u);
+  assert.match(protocol, /每轮按该文件顶部的 HTML 注释增量更新/u);
+  assert.doesNotMatch(protocol, /#faf7f0|零外网依赖/u);
   assert.match(protocol, /closeout 终态冻结/u);
 });

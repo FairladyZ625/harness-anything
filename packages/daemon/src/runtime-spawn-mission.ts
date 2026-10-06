@@ -222,8 +222,7 @@ export function taskQueryGuidance(taskId: string): string {
  * explainer page is materialized at task creation and stays a living artifact the worker updates
  * incrementally each round and freezes at closeout. Fixed text the daemon injects on every
  * qualifying task mission (derived, explicit-prompt, and fleet-edge alike); the task-explainer-html
- * skill carries the authoring spec, and the inline baselines keep a repo without that skill on the
- * same rails. Lightweight-profile tasks owe no explainer page — their creation materializes none,
+ * template carries the authoring instructions. Lightweight-profile tasks owe no explainer page — their creation materializes none,
  * so their missions carry no protocol (dec_64C2E7741F1827DADC27941FCA CH2). Non-task dispatches
  * never see it.
  */
@@ -231,11 +230,7 @@ export function livingDeliverableProtocol(profileId: string | null | undefined):
   if (profileId === "lightweight") return null;
   return [
     "# Living Deliverable Protocol",
-    "- 本任务创建时已物化可视解释页 `artifacts/explainer.html`（单文件浅色骨架模板）：每个工作轮次结束前" +
-      "**增量更新这一页**——更新结论句、对照表状态与验证证据，让不读代码的读者也能看到本任务做了什么、" +
-      "验证了什么、还差什么；不要推倒重建，也不要另起新文件。",
-    "- 页面遵循 `task-explainer-html` 技能规范：单文件 HTML、样式与 SVG 全内联、零外网依赖、浅色适读" +
-      "（背景 `#faf7f0`，正文 `#3d3833`）、无 JS 也可读；骨架章节 id 保持稳定，逐轮 diff 可读。",
+    "- 本任务已物化 `artifacts/explainer.html`；每轮按该文件顶部的 HTML 注释增量更新本轮内容，closeout 时冻结。",
     "- closeout 终态冻结该页：随任务包一并提交后不再改动，冻结版结论与 closeout.md 一致。" +
       "它是交付回环的一环，不替代 closeout.md 的结构化汇报。",
   ].join("\n");

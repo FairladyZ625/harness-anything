@@ -1,20 +1,17 @@
 ---
 name: task-explainer-html
-description: 产出与增量维护任务包的活解释页 artifacts/explainer.html：单文件内联 HTML、零外网依赖、浅色适读；按 Coding/Research/Writing/Fleet-Ops 四场景选骨架，消费派工注入的 <task-context> 因果上下文。Use when a task-bound dispatch requires creating, updating, or freezing the task's living explainer page, or when parsing the injected <task-context> XML.
+description: 产出与增量维护任务包中的活解释页 artifacts/explainer.html；按物化模板中的唯一权威注释编写，并消费派工注入的 <task-context> 因果上下文。Use when a task-bound dispatch requires creating, updating, or freezing the task's living explainer page, or when parsing the injected <task-context> XML.
 ---
 
 # 任务活解释页（task-explainer-html）
 
-每个在账任务有一页**活的可视解释**：任务包 `artifacts/explainer.html`。它不是终局报告，而是随工作轮次增量生长、在 closeout 终态冻结的单文件 HTML——让不读代码的读者随时看到这个任务做了什么、验证了什么、还差什么。Daemon 在每次任务派工的 mission 里注入 `# Living Deliverable Protocol`，本技能是该协议的产出规范。
+每个非 lightweight 在账任务有一页**活的可视解释**：任务包 `artifacts/explainer.html`。它不是终局报告，而是随工作轮次增量生长、在 closeout 终态冻结的单文件 HTML——让不读代码的读者随时看到这个任务做了什么、验证了什么、还差什么。Daemon 的派工协议只提醒 worker 更新这份已物化页面。
 
-## 硬规则（先于一切风格）
+任务创建时物化的 `artifacts/explainer.html` 顶部 HTML 注释是章节、配色、布局、场景图型和质量要求的**唯一权威来源**。派工与本技能都不复制这些规则；打开页面后按注释逐轮填入真实任务内容。
 
-1. **单文件、全内联、零外网依赖**：全部 CSS/JS/SVG 内联在一个 `.html` 文件里，禁止外链 CDN、字体、图片、脚本。离线打开即完整渲染。
-2. **浅色适读**：背景 `#faf7f0` / `#f7f3ea`，正文深墨 `#3d3833`，辅助文字 `#7a7266`；强调色低饱和（成功 `#4a7c59`、警示 `#b0713c`、危险 `#a05252`、链接/主题 `#4a6b8a`）。禁纯白背景、高饱和荧光色、暗色主题。目标观感 = 纸质杂志 / 晨间读物。
-3. **无 JS 也可读**：动效一律 JS-gated（`document.documentElement.classList.add('js')` 之后才允许 `opacity:0` 类隐藏），默认全部内容可见；静态快照 / 无脚本环境不许出现藏死的空白。
-4. **贴近全宽布局**：`max-width: none`，仅保留页边 `padding: 24px clamp(16px, 2vw, 32px) 80px`；禁止 960/1200/1440 居中细条。架构图 / 对照表 / 网格吃满内容区宽度（SVG `width:100%`，viewBox ≥1200 逻辑宽）；纯文字长段落可用内层 `max-width: 72ch`。≥1100px 分幕内 2 列+，≤720px 叠单列，极宽表在容器内横滚。
-5. **诚实优先**：第一句话就是结论；测到的与推出来的分开写；没修完的说没修完；每个数字标明实测还是估算。禁止箭头链（`A → B → C`）与只有作者自己懂的速记词；提到文件 / 命令 / PR，配一句白话说明它是干什么的。
-6. **泄漏检查（交付前 grep）**：页面不得含本机绝对路径、邮箱、密钥 / token、内部主机名。PR 号 / decision id / task id 可以出现。
+## 页面编写
+
+以物化页面的 HTML 注释为准。不要在本技能、mission 或其他副本维护第二套模板指引；模板规则变化时只改 preset 模板与它的测试。五章都要画进本任务的真实结构、验证结果和剩余范围，而不是通用输入/处理/输出占位图。
 
 ## `<task-context>` 注入规约
 
@@ -42,27 +39,7 @@ description: 产出与增量维护任务包的活解释页 artifacts/explainer.h
 - **截断标记**：根元素带 `truncated="yes"` 时表示有整行被预算裁掉；`<refs>` 永远保留可回查的 canonical id，缺的细节用 `ha task read-set` / `ha task show` 补，不要凭空补写。
 - **层级缺失**：`work` / `parent` / `decision` / `fact` / `goal` 任一行可以不存在（该任务没有那层关系）；空块不存在（无因果邻域的任务不注入）。
 
-渲染约定：把解析结果画成页面顶部的**身份区**——一句话任务定位 + 一行徽章（Work 名 / 决策锚 / 关键 fact 数），refs 以可读标签呈现。身份区是页面唯一「框架注入」的内容，其余章节由作者按场景骨架撰写。
-
-## 四场景骨架
-
-按任务的 vertical 选一套骨架；跨场景任务以主交付物为准，允许副章节借用另一套。
-
-### Coding（研发实现）
-
-顶部一句话结论（做了什么 / 验证状态 / 还差什么）→ **任务对照表**（硬骨架：每个子目标一行——干了什么（技术直述）、状态、锚点（PR / commit / task id））→ 变更地图（模块分层 SVG：已有 = 绿调 `#4a7c59`、本次改动 = 橙调 `#b0713c`、核心接口 = 蓝调 `#4a6b8a`）→ 验证区（修前红 / 修后绿的命令与原始输出摘录、未验清单）→ 残留风险与下一步。
-
-### Research（研究调查）
-
-顶部一句话答案 → 证据链（每条结论挂着支撑 fact 与来源路径，标注置信度与反例）→ 方法与可复现命令（白话说明每条命令干什么）→ 与既有决策的对照（本结论支持 / 冲突哪些 decision）→ 建议的下一步裁决点。
-
-### Writing（PRD / 文档撰写）
-
-顶部一段文档定位（给谁看、替哪个决定服务）→ 读者与决策点地图（谁在读到哪节时要做什么决定）→ 章节地图（大纲 SVG，标注每节状态：成稿 / 草稿 / 待裁）→ 关键取舍记录（保留了什么表述、删了什么、为什么）→ 待泽宇裁决的开放问题清单。
-
-### Fleet-Ops（舰队运维）
-
-顶部一句话舰队健康结论 → 节点 / 中心状态表（每节点一行：身份、连接、最近同步、告警）→ 事件时间线（本窗口内关键事件，按时间排）→ 容量与配额水位 → 下一步运维动作（谁 / 什么命令 / 预期效果）。
+解析规约只说明如何理解因果上下文；如何把它呈现到页面，遵循物化模板中的 HTML 注释，不在这里另设身份区或场景骨架。
 
 ## 活页生命周期（Living Deliverable Protocol）
 

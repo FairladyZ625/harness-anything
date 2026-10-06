@@ -64,6 +64,12 @@ export function workspaceText(rootDir: string, requestedValue: unknown, field: s
   return readWorkspaceText(rootDir, requiredCellText(requestedValue, field), field);
 }
 
+export function taskSubmitExplainerReminder(profileId: string | undefined): string {
+  return profileId === "lightweight"
+    ? ""
+    : "\nNext: update artifacts/explainer.html using the authoring comments in that file.";
+}
+
 export function readPacketSource(rootDir: string, action: Readonly<Record<string, unknown>>): string {
   const fromFile = action.fromFile !== undefined,
     jsonInput = action.jsonInput !== undefined;
@@ -239,9 +245,9 @@ export function lifecycleReceipt(
         ? `task-annotate: ${event.payload.annotation.kind} (execution: ${executionId})`
         : event.type === "execution_submitted" && event.payload.supersedesSubmissionId !== undefined
           ? "task-submit: amended; prior Review and consent pins are stale until reviewed or explicitly " +
-            "consented again."
+            `consented again.${taskSubmitExplainerReminder(snapshot.task?.metadata?.profileId)}`
           : event.type === "execution_submitted"
-            ? `task-submit: submitted (execution: ${executionId})`
+            ? `task-submit: submitted (execution: ${executionId})${taskSubmitExplainerReminder(snapshot.task?.metadata?.profileId)}`
             : undefined;
   return {
     outcome: "applied",
