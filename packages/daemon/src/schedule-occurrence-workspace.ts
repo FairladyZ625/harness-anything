@@ -89,6 +89,20 @@ export async function continuePublishedBranch(cwd: string, published: string): P
 }
 
 /**
+ * Advances a checkout that holds no work of its own to the repository's present default branch, so a dispatch that
+ * reuses a worktree an earlier refused or cancelled one cut still starts from the current baseline. A checkout with
+ * commits of its own or uncommitted changes — work nobody has taken over — is left exactly as it is, and the
+ * dispatch continues on it: nothing here discards work.
+ */
+export async function advanceIdleCheckout(cwd: string, ref: string): Promise<void> {
+  if ((await git(cwd, "rev-list", "--count", `HEAD..${ref}`)) === "0") return;
+  const ahead = await git(cwd, "rev-list", "--count", `${ref}..HEAD`),
+    dirty = (await git(cwd, "status", "--porcelain")).length > 0;
+  if (ahead !== "0" || dirty) return;
+  await git(cwd, "merge", "--quiet", "--ff-only", ref);
+}
+
+/**
  * The published copy of the repository's default branch: the one origin/HEAD names, else the origin copy of the
  * branch the main checkout has out. Null when neither resolves — an unfetched clone, a local-only repository. What
  * "published" and "merged" mean is judged against this ref, never against a literal branch name.

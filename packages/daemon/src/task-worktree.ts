@@ -13,6 +13,7 @@ import { runProcessTextAsync } from "./process-port.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
 import {
   addManagedWorktree,
+  advanceIdleCheckout,
   continuePublishedBranch,
   publishedBranchRef,
   reclaimDetail,
@@ -115,7 +116,9 @@ export interface TaskWorktreeCheckout {
  * Checks a binding out on this node, or finds it already there, then runs the Settings setup steps that have not
  * succeeded in it yet. The binding is all it takes: this node derives it from its projection, an edge receives it
  * from the center (dec_57370FF2021DADF04E3B21724D CH2). A checkout continues the task's own branch — a new one
- * starts from the copy another node pushed before the default branch, an existing one is brought up to it (CH3). A node
+ * starts from the copy another node pushed before the default branch, an existing one is brought up to it (CH3);
+ * with no pushed copy, an existing one that never worked is advanced to the present default branch instead, so a
+ * checkout a refused or cancelled dispatch left behind never pins its retry to a stale baseline. A node
  * without a default branch (a Git-less edge, a repository before its first commit) has no worktree to give: null,
  * not a failure.
  * An accepted handoff commit instead requires that exact, retrievable SHA and a clean checkout before and after
@@ -154,12 +157,15 @@ export async function checkoutTaskWorktree(
       return { cwd, branch: binding.branch, baseRef: fresh ? acceptedCommit : null, setup: prepared };
     }
     const fresh = !existsSync(cwd),
-      defaultRef = fresh ? repositoryBaseRef(rootDir) : null;
+      defaultRef = repositoryBaseRef(rootDir);
     if (fresh && !defaultRef) return null;
     const published = await publishedBranchRef(rootDir, binding.branch);
     if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: published ?? defaultRef! });
     // A checkout this node already had, or a branch that survived one, may predate another node's push.
     if (published) await continuePublishedBranch(cwd, published);
+    // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
+    // the default branch itself: one that never worked is advanced, so the retry starts on the present baseline.
+    else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);
     return {
       cwd,
       branch: binding.branch,
