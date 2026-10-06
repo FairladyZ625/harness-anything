@@ -13,6 +13,7 @@ import {
   runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
+import { resolveAgentRuntimeDeclaration } from "../src/repo-cell-open.ts";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -766,6 +767,27 @@ test(
     }
   },
 );
+
+test("runtime resolver preserves installed declarations across missing and orphaned projections", () => {
+  const declaration = {
+    schema: "agent-declaration/v1",
+    id: "projection-agent",
+    name: "Projection Agent",
+    instructions: "",
+    runtimes: [{ type: "codex" }],
+  } as const;
+  assert.equal(resolveAgentRuntimeDeclaration(declaration, null).id, declaration.id);
+  assert.equal(
+    resolveAgentRuntimeDeclaration(declaration, { freshness: "orphaned", value: { lifecycleState: "retired" } })
+      .lifecycleState,
+    undefined,
+  );
+  assert.equal(
+    resolveAgentRuntimeDeclaration(declaration, { freshness: "current", value: { lifecycleState: "configured" } })
+      .lifecycleState,
+    "configured",
+  );
+});
 
 test("dispatch reclaims an orphaned task lease instead of requiring a manual release", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-orphan-lease-"));

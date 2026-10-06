@@ -8,6 +8,7 @@ import {
   makeTaskEventStore,
   runtimeSessionActionIds,
   type AgentRuntimeEventV1,
+  type AgentDeclarationV1,
   type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
   type DispatchRecordLeaseSettlement,
@@ -143,6 +144,16 @@ export interface RepoCellOpenInput {
   /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
   /** Daemon-owned fallback for writes produced inside the cell rather than a request. */
   readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
+}
+
+export function resolveAgentRuntimeDeclaration(
+  declaration: AgentDeclarationV1,
+  projected: { readonly freshness: string; readonly value: { readonly lifecycleState?: string } } | null,
+): AgentDeclarationV1 & { readonly lifecycleState?: string } {
+  return {
+    ...declaration,
+    ...(projected && projected.freshness !== "orphaned" ? { lifecycleState: projected.value.lifecycleState } : {}),
+  };
 }
 
 export async function openRepoCell(input: RepoCellOpenInput): Promise<RepoCell> {
@@ -478,10 +489,7 @@ export async function openRepoWriterCell(
             },
           },
         });
-      return {
-        ...declaration,
-        ...(projected && projected.freshness !== "orphaned" ? { lifecycleState: projected.value.lifecycleState } : {}),
-      } as typeof declaration & { readonly lifecycleState?: string };
+      return resolveAgentRuntimeDeclaration(declaration, projected);
     },
     resolveSquadDispatch: (squadId, leaderId, workerId) =>
       resolveSquadDispatch({
