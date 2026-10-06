@@ -57,8 +57,8 @@ export function admitRepoMode(
   if (route === "via-node" && node) return repoModeAdmission(true, "repo_mode_admitted");
   if (route === "via-node") return rejection("repo_mode_requires_center_ingress");
   if (route === "via-center-forward") return rejection("repo_mode_read_only");
-  // Edge reads require the materialized replica; the local ledger projection is not authoritative.
-  if (route === "edge-replica") return rejection("replica_unavailable");
+  // Repository reads on an edge are served by the materialized replica query source.
+  if (route === "edge-replica") return repoModeAdmission(true, "repo_mode_admitted");
   if (mode === "remote-edge") return rejection("repo_mode_read_only");
   return rejection("repo_mode_command_rejected");
 }

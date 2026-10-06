@@ -14,6 +14,7 @@ import {
   readTaskIndexRows,
   type EdgeReadModelMeta,
 } from "@harness-anything/kernel";
+import { readTaskReadSet } from "@harness-anything/application";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { isReadDenied, openEdgeReadModel, readHeadConfirmation } from "./fleet/replica-read-model.ts";
 import { taskListPayload } from "./repo-cell-task-query.ts";
@@ -23,11 +24,13 @@ import { renderEvidencePayload } from "./repo-cell-evidence.ts";
 import { renderTaskIndexPayload } from "./task-index-query.ts";
 import { taskListQueryFromPayload } from "./repo-query-payload.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
+import { workListFromProjection, workShowFromProjection } from "./work-read.ts";
 
 export const DEFAULT_EDGE_READ_MAX_AGE_MS = 60_000;
 export const DEFAULT_EDGE_READ_MAX_LAG_REVISIONS = 32;
 export const DEFAULT_WRITE_READ_WAIT_MS = 5_000;
 
+/** Shared local repository-read service for CLI and GUI edge calls. */
 export interface EdgeReadCut {
   readonly revision: number;
   readonly headDigest: string;
@@ -110,7 +113,44 @@ function readLocalTaskList(input: EdgeTaskReadInput, now: () => number): Record<
         status: "ready" as const,
         watermark: model.meta.sourceRevision,
         sourceRevision: model.meta.sourceRevision,
+      },
+      projection = makeEdgeReplicaQueries({ db: model.db, cut });
+    if (action.kind !== "task-list") {
+      let payload: unknown;
+      if (action.kind === "work-list")
+        payload = workListFromProjection(projection as never, {
+          all: action.all === true,
+          ...(Number.isSafeInteger(action.limit) ? { limit: Number(action.limit) } : {}),
+        });
+      else if (action.kind === "work-show" && typeof action.taskId === "string")
+        payload = workShowFromProjection(projection as never, { taskId: action.taskId });
+      else if (action.kind === "task-read-set" && typeof action.taskId === "string")
+        payload = readTaskReadSet(projection as never, action.taskId);
+      else if (action.kind === "doc-status") {
+        const paths = Array.isArray(action.paths)
+          ? action.paths.filter((value): value is string => typeof value === "string")
+          : [];
+        payload = {
+          schema: "doc-status/v1",
+          rows: paths.map((pathName) => ({
+            path: pathName,
+            state: projection.readDocument(pathName).document ? "clean" : "missing",
+          })),
+          sourceRevision: model.meta.sourceRevision,
+        };
+      } else return null;
+      const fresh = edgeFreshness(view, model.meta, input, now);
+      return {
+        schema: "command-receipt/v2",
+        command: action.kind,
+        ok: true,
+        outcome: "applied",
+        payload,
+        cut: { revision: model.meta.sourceRevision, viewRevision: view.revision, headDigest: view.headDigest },
+        freshness: fresh.envelope,
+        ...(fresh.warning ? { warning: fresh.warning } : {}),
       };
+    }
     let payload: ReturnType<typeof taskListPayload>["payload"];
     try {
       payload = taskListPayload(
