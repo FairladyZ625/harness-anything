@@ -1,5 +1,5 @@
-import { authenticateRuntimeExecutionCredential } from "./runtime-execution-credential.ts";
 import { requireExecutionRequestScope } from "./runtime-execution-scope.ts";
+import { authenticateRuntimeExecutionCredential } from "./runtime-execution-credential.ts";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -17,6 +17,7 @@ import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
 import type { DaemonLifecycleEntry, DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { DaemonBuildDrainStatus } from "./protocol/daemon-protocol.contract.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
+import { readRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
 
 export interface RunningDaemon {
   readonly endpoint: string;
@@ -83,7 +84,6 @@ export async function startDaemon(input: {
     socketBound = false,
     stopping = false;
   const runtimeProcessPids = new Map<string, number>();
-  const executionPrincipals = new Map<string, Awaited<ReturnType<typeof authenticateRuntimeExecutionCredential>>>();
   const buildDrainStatus = (): DaemonBuildDrainStatus => {
     const repos = host?.status().repos ?? [];
     return {
@@ -177,21 +177,34 @@ export async function startDaemon(input: {
           buildObserver,
           authContext: { ...authContext, connectionSignal: signal },
           executionPrincipal: async (credential, method, params) => {
-            let principal;
-            try {
-              const center = { ...(await oidc.center()), clientId: "harness-center" };
-              principal = await authenticateRuntimeExecutionCredential(center, credential);
-              executionPrincipals.set(credential, principal);
-            } catch (error) {
-              const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
-              const cached = executionPrincipals.get(credential);
-              if (code !== "rbac_not_configured" || !cached || Date.parse(cached.expiresAt) <= Date.now()) {
-                consumeKnownError(error);
-                throw error;
-              }
-              principal = cached;
-            }
+            const repoId =
+              typeof params.repo === "object" && params.repo !== null && "repoId" in params.repo
+                ? String(params.repo.repoId)
+                : undefined;
+            const edgeRepo = host!.status().repos.find((repo) => repo.repoId === repoId && repo.mode === "remote-edge");
+            const principal = edgeRepo
+              ? readRuntimeExecutionPrincipal(edgeRepo.rootDir, credential)
+              : await authenticateRuntimeExecutionCredential(
+                  { ...(await oidc.center()), clientId: "harness-center" },
+                  credential,
+                );
+            if (!principal)
+              throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
+                code: "authorization_denied",
+              });
             requireExecutionRequestScope(principal, method, params);
+            return principal;
+          },
+          edgeExecutionPrincipal: async (credential) => {
+            const principal = host!
+              .status()
+              .repos.filter((repo) => repo.mode === "remote-edge")
+              .map((repo) => readRuntimeExecutionPrincipal(repo.rootDir, credential))
+              .find((entry) => entry !== null);
+            if (!principal)
+              throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
+                code: "authorization_denied",
+              });
             return principal;
           },
           sessionPrincipal: async () => (await oidc.bind({ transportKind: authContext.transportKind })).oidcPrincipal,

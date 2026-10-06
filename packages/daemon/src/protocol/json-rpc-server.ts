@@ -57,7 +57,6 @@ export interface JsonRpcProtocolServer {
   ) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>;
   readonly close: () => void;
 }
-const edgeExecutionPrincipals = new Map<string, string>();
 interface ObservedRequest {
   readonly repoId: string;
   readonly command: string;
@@ -73,6 +72,9 @@ export function createJsonRpcProtocolServer(options: {
     credential: string,
     method: string,
     params: JsonObject,
+  ) => Promise<NonNullable<DaemonAuthenticationContext["executionPrincipal"]>>;
+  readonly edgeExecutionPrincipal?: (
+    credential: string,
   ) => Promise<NonNullable<DaemonAuthenticationContext["executionPrincipal"]>>;
   /** The daemon's signed-in OIDC principal as of now; read on every request, not once per connection. */
   readonly sessionPrincipal?: () => Promise<DaemonAuthenticationContext["oidcPrincipal"]>;
@@ -462,25 +464,6 @@ export function createJsonRpcProtocolServer(options: {
             { ...fleetPayload, method: fleetAction.method, action: fleetAction.payload },
             options.authContext,
           );
-          const personId =
-            options.authContext.oidcPrincipal?.personId ?? (await options.sessionPrincipal?.())?.personId;
-          const credential =
-            isJsonObject(result) && typeof result.executionCredential === "string"
-              ? result.executionCredential
-              : isJsonObject(result) &&
-                  isJsonObject(result.receipt) &&
-                  typeof result.receipt.executionCredential === "string"
-                ? result.receipt.executionCredential
-                : undefined;
-          const issuedPersonId =
-            isJsonObject(result) && typeof result.executionPrincipalId === "string"
-              ? result.executionPrincipalId
-              : isJsonObject(result) &&
-                  isJsonObject(result.receipt) &&
-                  typeof result.receipt.executionPrincipalId === "string"
-                ? result.receipt.executionPrincipalId
-                : personId;
-          if (issuedPersonId && credential) edgeExecutionPrincipals.set(credential, issuedPersonId);
           return reply(method, result);
         }
         if (isJsonObject(fleetAction) && fleetAction.kind === "fleet-schedule") {
@@ -497,32 +480,16 @@ export function createJsonRpcProtocolServer(options: {
           );
         }
         const { runFleetEdgeTask } = await import("../fleet-edge-task.ts");
-        let relayedExecutionPrincipal;
-        if (executionCredential !== undefined && options.executionPrincipal) {
-          let sessionPersonId = options.authContext.oidcPrincipal?.personId;
-          if (!sessionPersonId && options.sessionPrincipal) {
-            try {
-              sessionPersonId = (await options.sessionPrincipal())?.personId;
-            } catch (error) {
-              consumeKnownError(error);
-            }
-          }
-          if (sessionPersonId) edgeExecutionPrincipals.set(executionCredential, sessionPersonId);
-          try {
-            relayedExecutionPrincipal = await options.executionPrincipal(
-              executionCredential,
-              method,
-              params as JsonObject,
-            );
-          } catch (error) {
-            const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
-            if (code !== "rbac_not_configured" || !edgeExecutionPrincipals.has(executionCredential)) {
-              consumeKnownError(error);
-              throw error;
-            }
-          }
-        }
-        const cachedEdgePersonId = executionCredential ? edgeExecutionPrincipals.get(executionCredential) : undefined;
+        const relayedExecutionPrincipal =
+          executionCredential === undefined
+            ? undefined
+            : options.edgeExecutionPrincipal
+              ? await options.edgeExecutionPrincipal(executionCredential)
+              : (() => {
+                  throw Object.assign(new Error("Edge execution identity is unavailable."), {
+                    code: "authorization_denied",
+                  });
+                })();
         return reply(
           method,
           await runFleetEdgeTask(
@@ -534,11 +501,9 @@ export function createJsonRpcProtocolServer(options: {
                   ? { principalId: options.authContext.executionPrincipal.personId }
                   : relayedExecutionPrincipal
                     ? { principalId: relayedExecutionPrincipal.personId }
-                    : cachedEdgePersonId
-                      ? { principalId: cachedEdgePersonId }
-                      : !executionCredential && options.authContext.oidcPrincipal
-                        ? { principalId: options.authContext.oidcPrincipal.personId }
-                        : {}),
+                    : !executionCredential && options.authContext.oidcPrincipal
+                      ? { principalId: options.authContext.oidcPrincipal.personId }
+                      : {}),
                 // The two non-task discriminants return above; the remainder is FleetTaskAction.
                 action: fleetAction as DaemonFleetTaskAction,
               },
