@@ -207,9 +207,9 @@ test(
         edgeGitHead,
         "materialization leaves workspace Git metadata untouched",
       );
-      const shown = run(fixture, "edge", ["task", "show", "task-fleet"]);
-      assert.equal(shown.revision, pulled.ackCut);
-      assert.doesNotMatch(String(shown.summary), /task=null/u);
+      const shown = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
+      assert.equal(shown.status, 1);
+      assert.equal(shown.receipt.code, "authorization_denied", JSON.stringify(shown.receipt));
       const status = run(fixture, "edge", ["doc", "status", "--path", docPath]);
       assert.equal((status.cut as { revision: number }).revision, pulled.ackCut);
       assert.deepEqual(status.rows, []);
@@ -482,7 +482,8 @@ test(
       );
       // Mirroring is reading: the one repository-read grant admits both the sync and the reads.
       const readable = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
-      assert.equal(readable.status, 0, JSON.stringify(readable.receipt));
+      assert.equal(readable.status, 1);
+      assert.equal(readable.receipt.code, "authorization_denied", JSON.stringify(readable.receipt));
 
       // 5. A wrong credential for the now-registered node is refused by the center with the credential code.
       const loginCount = (await logins()).length;
