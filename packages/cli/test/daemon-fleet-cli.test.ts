@@ -207,9 +207,14 @@ test(
         edgeGitHead,
         "materialization leaves workspace Git metadata untouched",
       );
-      const shown = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
-      assert.equal(shown.status, 1);
-      assert.equal(shown.receipt.code, "authorization_denied", JSON.stringify(shown.receipt));
+      // A local read needs the node owner's identity on the edge (dec_8DC9 CH2): none is signed in yet.
+      const anonymous = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
+      assert.equal(anonymous.status, 1);
+      assert.equal(anonymous.receipt.code, "authorization_denied", JSON.stringify(anonymous.receipt));
+      signInAt(fixture.edgeUser, "edge-operator");
+      const shown = run(fixture, "edge", ["task", "show", "task-fleet"]);
+      assert.equal(shown.revision, pulled.ackCut);
+      assert.doesNotMatch(String(shown.summary), /task=null/u);
       const status = run(fixture, "edge", ["doc", "status", "--path", docPath]);
       assert.equal((status.cut as { revision: number }).revision, pulled.ackCut);
       assert.deepEqual(status.rows, []);
@@ -481,9 +486,13 @@ test(
         }),
       );
       // Mirroring is reading: the one repository-read grant admits both the sync and the reads.
+      // Local reads also need the node owner's identity on the edge (dec_8DC9 CH2).
+      const anonymousRead = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
+      assert.equal(anonymousRead.status, 1);
+      assert.equal(anonymousRead.receipt.code, "authorization_denied", JSON.stringify(anonymousRead.receipt));
+      signInAt(fixture.edgeUser, "edge-operator");
       const readable = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
-      assert.equal(readable.status, 1);
-      assert.equal(readable.receipt.code, "authorization_denied", JSON.stringify(readable.receipt));
+      assert.equal(readable.status, 0, JSON.stringify(readable.receipt));
 
       // 5. A wrong credential for the now-registered node is refused by the center with the credential code.
       const loginCount = (await logins()).length;
