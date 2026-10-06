@@ -489,12 +489,18 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       presetId: input.toPresetId ?? presetId,
     });
   // A preset may retire a document slot (afa7f26fc retired the fact ledger document once facts became
-  // entities); the retired file stays on disk as committed prose. Only a slot the package does not have yet
-  // would need materialization, so only additions are rejected.
+  // entities); the retired file stays on disk as committed prose. Task-creation-only scaffolds
+  // are intentionally excluded from upgrade comparison because authors may edit them afterwards.
   const knownPaths = new Set(documents.map((item) => (item as { path: string }).path)),
     addedPaths = compiled.documents
       .map(({ relativePath }) => relativePath)
-      .filter((item) => !knownPaths.has(item) && !input.documentExists?.(item));
+      .filter(
+        (item) =>
+          !knownPaths.has(item) &&
+          !input.documentExists?.(item) &&
+          item !== "artifacts/explainer.html" &&
+          item !== "artifacts/pr-body.md",
+      );
   if (addedPaths.length)
     throw bootstrapFailure(
       "upgrade_document_set_changed",
