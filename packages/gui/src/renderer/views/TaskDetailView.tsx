@@ -68,6 +68,7 @@ export function TaskDetailView({
   onFocusGraph,
   initialTab,
   initialRecordFocus,
+  initialDocFocus,
 }: {
   /** 当前仓;给出时详情头下列出挂在本任务上、等你答复 / 已答复的 awaits(同一答复面板)。 */
   repoId?: string;
@@ -115,11 +116,16 @@ export function TaskDetailView({
   initialTab?: TaskDetailTab;
   /** 打开时聚焦的收口记录(execution/<id> 等);给出时停在收口页签对应记录行(预览抽屉的反向入口)。 */
   initialRecordFocus?: string;
+  /** 打开时选中的任务包文档(包内相对路径,总览产物速览架的落点);给出时停在文件页签对应文档。 */
+  initialDocFocus?: string;
 }) {
-  // 记录聚焦蕴含收口页签:详情落点在收口记录行里(显式 initialTab 优先)。
-  const initialTabOf = initialTab ?? (initialRecordFocus !== undefined ? "closeout" : "overview");
+  // 记录聚焦蕴含收口页签,文档聚焦蕴含文件页签:详情落点在对应行/文档上(显式 initialTab 优先)。
+  const initialTabOf =
+    initialTab ??
+    (initialRecordFocus !== undefined ? "closeout" : initialDocFocus !== undefined ? "files" : "overview");
+  const initialDocOf = initialDocFocus ?? "task_plan.md";
   const [activeTab, setActiveTab] = useState<TaskDetailTab>(initialTabOf);
-  const [activeDoc, setActiveDoc] = useState("task_plan.md");
+  const [activeDoc, setActiveDoc] = useState(initialDocOf);
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
   const [focusedRecordRef, setFocusedRecordRef] = useState<string | null>(initialRecordFocus ?? null);
   const external = isExternal(task);
@@ -127,10 +133,10 @@ export function TaskDetailView({
 
   useEffect(() => {
     setActiveTab(initialTabOf);
-    setActiveDoc("task_plan.md");
+    setActiveDoc(initialDocOf);
     setFocusedSessionId(null);
     setFocusedRecordRef(initialRecordFocus ?? null);
-  }, [task.taskId, initialTabOf, initialRecordFocus]);
+  }, [task.taskId, initialTabOf, initialDocOf, initialRecordFocus]);
 
   const selectTab = (tab: TaskDetailTab) => {
     setActiveTab(tab);

@@ -260,6 +260,13 @@ function AppShell() {
   useEffect(() => {
     if (recordFocus !== null && selectedId !== recordFocus.taskId) setRecordFocus(null);
   }, [recordFocus, selectedId]);
+  // 总览产物速览架点开的产物文档(task_15b1bb96):同一模式的一次性聚焦意图——
+  // 任务详情以它为初始 activeDoc(文件页签);离开该任务的详情位即清空,不滞留成
+  // 下次打开的隐性初始文档。工作根没有任务详情位,落工作页时同样立即清空。
+  const [docFocus, setDocFocus] = useState<{ taskId: string; docPath: string } | null>(null);
+  useEffect(() => {
+    if (docFocus !== null && selectedId !== docFocus.taskId) setDocFocus(null);
+  }, [docFocus, selectedId]);
   const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
   // 根任务即工作:选中位落在工作根(跨仓深链、历史恢复时任务行尚未到)就原地换成工作页。
   const selectedWorkRootId = selected !== null && works.isWorkRoot(selected.taskId) ? selected.taskId : null;
@@ -473,6 +480,9 @@ function AppShell() {
             ? recordFocus.recordRef
             : undefined
         }
+        initialDocFocus={
+          !framing.embedded && docFocus !== null && docFocus.taskId === task.taskId ? docFocus.docPath : undefined
+        }
       />
     );
   };
@@ -591,7 +601,10 @@ function AppShell() {
                     health={runtimeHealth}
                     collaboration={collaborationSummary}
                     onNavigateEntity={navigateToEntity}
-                    onOpenTask={openTaskDetail}
+                    onOpenTask={(taskId, docPath) => {
+                      if (docPath) setDocFocus({ taskId, docPath });
+                      openTaskDetail(taskId);
+                    }}
                     onOpenSearch={() => setPaletteOpen(true)}
                     onOpenSessions={() => goto("sessions")}
                     onOpenWorks={() => goto("work")}

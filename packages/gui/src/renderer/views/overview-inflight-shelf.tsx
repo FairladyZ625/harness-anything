@@ -94,7 +94,8 @@ export const ARTIFACTS_SHELF_LIMIT = 6;
 /**
  * 最新 HTML 产物速览架(task_8a83698):一条 `repo.artifacts.list`(kind=html,与产物页
  * 同一缓存)取最新产物,平铺产物名、所属任务与创建时间;行右侧「在浏览器打开」走
- * openArtifactExternally 的 preload 通道(主进程校验),行点击跳所属任务。无归属任务、
+ * openArtifactExternally 的 preload 通道(主进程校验),行点击进所属任务并直接选中该
+ * 产物文档(row.path 是包内相对路径,与任务详情 activeDoc 同一格式)。无归属任务、
  * 纯展示仓的禁用规则与产物页预览头同一份。
  */
 export function OverviewArtifactsShelf({
@@ -115,7 +116,8 @@ export function OverviewArtifactsShelf({
   readonly pending: boolean;
   /** 取数失败的可读信息。 */
   readonly error: string | null;
-  readonly onOpenTask: (taskId: string) => void;
+  /** 行点击的落点:进归属任务并直接选中该产物文档(包内相对路径,如 artifacts/x.html)。 */
+  readonly onOpenTask: (taskId: string, docPath: string) => void;
   /** 「查看全部产物」的落点(产物页);未提供时不渲染该入口。 */
   readonly onOpenAll: (() => void) | undefined;
   readonly deps: OverviewBoardDeps;
@@ -179,7 +181,7 @@ export function OverviewArtifactsShelf({
                     <ArrowSquareOut className="size-3" />
                   </button>
                 }
-                onClick={row.taskId === null ? undefined : () => onOpenTask(row.taskId!)}
+                onClick={row.taskId === null ? undefined : () => onOpenTask(row.taskId!, row.path)}
               />
             </div>
           ))}

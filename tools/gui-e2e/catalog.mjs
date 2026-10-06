@@ -32,6 +32,7 @@ import taskCloseoutLongValues from "./scenarios/task-closeout-long-values.mjs";
 import pageSplitLayout from "./scenarios/page-split-layout.mjs";
 import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
 import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
+import overviewArtifactsShelf from "./scenarios/overview-artifacts-shelf.mjs";
 
 export const catalog = [
   runtimeHandoff,
@@ -68,6 +69,7 @@ export const catalog = [
   pageSplitLayout,
   overviewWipRegion,
   overviewAttentionFocus,
+  overviewArtifactsShelf,
 ];
 
 export function selectScenarios({ lane, ids }) {
