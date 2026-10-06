@@ -22,6 +22,7 @@ import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { isReadModelPath } from "@harness-anything/kernel";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
@@ -123,8 +124,14 @@ async function initializedCenterWithEdge() {
     workspace,
     edgeSync,
     centerSubmit,
+    viewRoot,
+    repoId,
     edgeRevision: () => locateFleetMirrorView(viewRoot, repoId)?.revision ?? null,
-    mirroredPaths: () => [...(locateFleetMirrorView(viewRoot, repoId)?.entries.keys() ?? [])].sort(),
+    // Ledger documents the cut carries; its derived read-model entries are not documents.
+    mirroredPaths: () =>
+      [...(locateFleetMirrorView(viewRoot, repoId)?.entries.keys() ?? [])]
+        .filter((logical) => !isReadModelPath(logical))
+        .sort(),
     close: async () => {
       await center.close();
       await host.close();
@@ -153,6 +160,10 @@ test("init publishes every scaffold document it writes under the authored root",
   // Whatever init committed to the ledger repository is a ledger document the replica cut carries:
   // no file is on the center's disk only.
   assert.deepEqual(fixture.mirroredPaths(), written);
+  // The cut does carry the derived read model, and it never lands in the edge workspace.
+  assert.ok([...(locateFleetMirrorView(fixture.viewRoot, fixture.repoId)?.entries.keys() ?? [])].some(isReadModelPath));
+  assert.equal(existsSync(path.join(fixture.workspace, "harness", "context", "README.md")), true);
+  assert.equal(existsSync(path.join(fixture.workspace, "harness", ".read-model")), false);
 });
 
 test(

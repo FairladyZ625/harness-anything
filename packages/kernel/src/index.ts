@@ -275,6 +275,7 @@ export {
   TASK_READ_MODEL_META_PATH,
   TASK_READ_MODEL_PREFIX,
   deleteTaskReadModelRow,
+  isReadModelPath,
   parseTaskReadModelMeta,
   serializeTaskReadModelMeta,
   serializeTaskReadModelRow,

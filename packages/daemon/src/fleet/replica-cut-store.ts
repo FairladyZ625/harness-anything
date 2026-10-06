@@ -15,6 +15,7 @@ import {
   type ReplicaProjectionBasis,
 } from "@harness-anything/kernel";
 import {
+  isReadModelPath,
   serializeTaskReadModelMeta,
   serializeTaskReadModelRow,
   taskReadModelPath,
@@ -299,8 +300,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   // row, so the existing delta protocol moves only changed rows. Its bytes are not canonical content
   // blobs; they live beside the cut store and are reclaimed with the cuts that reference them.
   const readModelBlobRoot = path.join(root, "read-model-blobs"),
-    readModelBlobPath = (sha256: string) => path.join(readModelBlobRoot, sha256),
-    isReadModelPath = (entryPath: string) => entryPath.startsWith(".read-model/");
+    readModelBlobPath = (sha256: string) => path.join(readModelBlobRoot, sha256);
   const readModelEntry = (entryPath: string, text: string, mediaType: string): FleetEntry => {
     const body = Buffer.from(text),
       sha256 = sha256Bytes(body);

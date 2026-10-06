@@ -9,6 +9,11 @@ export const READ_MODEL_SCHEMA_GENERATION = 1 as const;
 export const TASK_READ_MODEL_PREFIX = ".read-model/tasks/";
 export const TASK_READ_MODEL_META_PATH = ".read-model/tasks.meta.json";
 
+/** Derived read-model entries ride replica cuts beside ledger documents but are never documents. */
+export function isReadModelPath(entryPath: string): boolean {
+  return entryPath.startsWith(".read-model/");
+}
+
 /** The task index tables shared by the center projection and the edge read model. */
 export const TASK_INDEX_TABLES_SQL = `
     CREATE TABLE IF NOT EXISTS task_snapshot (
