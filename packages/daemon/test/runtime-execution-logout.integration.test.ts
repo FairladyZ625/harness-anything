@@ -13,7 +13,7 @@ import {
 } from "@harness-anything/kernel";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { readDispatchStreamSummary } from "../src/dispatch-stream.ts";
+import { dispatchStreamPath, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -345,8 +345,13 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
       assert.equal((await rpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
       writeFileSync(path.join(parent, `${runtime.runtime}.finish`), "finish");
     }
-    const terminal = await eventuallyValue(
-      async () => readDispatchStreamSummary(root, String(runtime.result.dispatchId))?.terminalOutcome ?? null,
+    // The stream records the outcome before the ledger does; settlement archives the stream only
+    // after both terminal ledger events land, and only then is the credential's session settled.
+    const dispatchId = String(runtime.result.dispatchId);
+    const terminal = await eventuallyValue(async () =>
+      dispatchStreamPath(root, dispatchId).endsWith(path.join("archive", `${dispatchId}.jsonl`))
+        ? (readDispatchStreamSummary(root, dispatchId)?.terminalOutcome ?? null)
+        : null,
     );
     assert.equal(
       terminal.payload.outcome,

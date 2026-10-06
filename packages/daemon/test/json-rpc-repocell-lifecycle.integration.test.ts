@@ -392,10 +392,10 @@ test("bootstrap binds the ledger repository branch independently of the project 
   try {
     const initialized = await host.bootstrap({ rootDir, repoId: "branch-bound", personId: "owner", displayName: "Owner" }, auth); assert.equal(initialized.outcome, "applied", JSON.stringify(initialized));
     const ledgerRoot = path.join(rootDir, "harness"), registered = readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "branch-bound"), ledgerBranch = git(ledgerRoot, "branch", "--show-current"); assert.equal(registered?.authoredBranch, ledgerBranch);
-    assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
+    assert.equal(git(ledgerRoot, "symbolic-ref", "HEAD"), `refs/heads/${ledgerBranch}`); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
     await host.close(); host = await openDaemonHost({ daemonId: "bootstrap-two", userRoot }); await host.attachmentsSettled();
     const afterRestart = await host.run("branch-bound", { kind: "task-create", taskId: "task-after-restart", title: "After restart" }, auth); assert.equal(afterRestart.outcome, "applied", JSON.stringify(afterRestart)); const settled = await host.run("branch-bound", { kind: "receipt-show", opId: afterRestart.opId, waitFor: ["accepted_durable", "projection_visible", "git_verified"], timeoutMs: 5_000 }, auth); assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
-    assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
+    assert.equal(git(ledgerRoot, "symbolic-ref", "HEAD"), `refs/heads/${ledgerBranch}`); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 // prettier-ignore
