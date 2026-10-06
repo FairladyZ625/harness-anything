@@ -645,6 +645,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             : ("applied" as const),
         opId: frame.opId,
         revision: receipt.revision ?? null,
+        ...(receipt.outcome === "applied" &&
+        receipt.cut &&
+        typeof receipt.cut.revision === "number" &&
+        typeof receipt.cut.headDigest === "string"
+          ? { appliedCut: { revision: receipt.cut.revision, headDigest: receipt.cut.headDigest } }
+          : {}),
         code: receipt.code ?? null,
         receipt: receipt as unknown as Readonly<Record<string, unknown>>,
       };

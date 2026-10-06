@@ -97,19 +97,38 @@ test(
     assert.equal((later.freshness as { state: string }).state, "stale");
 
     // 4. A new progress row arrives with the next pull.
-    assert.equal(
-      (
-        await f.command("center-node", {
-          kind: "task-progress-append",
-          taskId: "show-1",
-          text: "second edge progress row",
-        })
-      ).outcome,
-      "applied",
-    );
-    const before = (await local("show-1")).evidence;
+    const secondWrite = await f.command("center-node", {
+      kind: "task-progress-append",
+      taskId: "show-1",
+      text: "second edge progress row",
+    });
+    assert.equal(secondWrite.outcome, "applied");
+    assert.ok(secondWrite.appliedCut);
+    const before = (await local("show-1")).evidence,
+      waiting = answerEdgeTaskShow(
+        {
+          viewRoot,
+          repoId: "lease-repo",
+          minCut: secondWrite.appliedCut!,
+          action: { kind: "task-show", taskId: "show-1" },
+        },
+        pull,
+      );
     await settle();
-    assert.notEqual((await local("show-1")).evidence, before, "the pulled model must reflect the new row");
+    const waited = await waiting;
+    assert.equal(waited.ok, true, JSON.stringify(waited));
+    assert.notEqual(waited.evidence, before, "the local wait must not return the earlier row");
+    const timedOut = await answerEdgeTaskShow(
+      {
+        viewRoot,
+        repoId: "lease-repo",
+        minCut: { revision: secondWrite.appliedCut!.revision + 10, headDigest: `sha256:${"f".repeat(64)}` },
+        writeReadWaitMs: 5,
+        action: { kind: "task-show", taskId: "show-1" },
+      },
+      pull,
+    );
+    assert.equal(timedOut.code, "write_committed_read_pending");
     const current = await center("show-1");
     assert.equal(current.outcome, "applied");
     assert.deepEqual(JSON.parse(String((await local("show-1")).evidence)), JSON.parse(String(current.evidence)));

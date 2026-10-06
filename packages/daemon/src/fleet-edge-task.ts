@@ -70,6 +70,8 @@ export interface FleetEdgeTaskRequest {
     readonly waitTimeoutMs?: number;
     readonly maxAgeMs?: number;
     readonly maxLagRevisions?: number;
+    readonly writeReadWaitMs?: number;
+    readonly minCut?: { readonly revision: number; readonly headDigest: string };
     readonly action: FleetTaskAction;
   };
 }
@@ -400,6 +402,7 @@ export async function runFleetEdgeTask(
             },
           }),
       ...(receipt as Record<string, unknown>),
+      ...(result.appliedCut ? { appliedCut: result.appliedCut } : {}),
       fleet: {
         origin: "fleet-edge",
         nodeId: payload.nodeId,
