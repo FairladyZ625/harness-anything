@@ -464,7 +464,6 @@ export async function openRepoWriterCell(
     ...(input.prepareWorkerGitEnvironment ? { prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment } : {}),
     resolveAgent: (agentId) => {
       const projected = projection.getEntity("agent", agentId);
-      if (!projected || projected.freshness === "orphaned") throw new Error(`Agent ${agentId} is unavailable.`);
       const entityStore = createEntityStore(store),
         declaration = readAgentDeclaration({
           rootDir,
@@ -479,9 +478,10 @@ export async function openRepoWriterCell(
             },
           },
         });
-      return { ...declaration, lifecycleState: projected.value.lifecycleState } as typeof declaration & {
-        readonly lifecycleState?: string;
-      };
+      return {
+        ...declaration,
+        ...(projected && projected.freshness !== "orphaned" ? { lifecycleState: projected.value.lifecycleState } : {}),
+      } as typeof declaration & { readonly lifecycleState?: string };
     },
     resolveSquadDispatch: (squadId, leaderId, workerId) =>
       resolveSquadDispatch({
