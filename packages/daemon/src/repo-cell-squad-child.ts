@@ -10,7 +10,6 @@ import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 import { publishDocIntent } from "./doc-sync-publication.ts";
-import { readTaskTransitionDocument } from "./transition-document-access.ts";
 
 /** Called only inside the repository's serial queue, under its current parent execution lease. */
 export async function createSquadChild(
@@ -31,25 +30,13 @@ export async function createSquadChild(
       parentTaskId: child.parentTaskId,
       idempotencyKey: child.key,
       surfaces: child.ownedPaths,
+      plan: child.prompt,
     },
     receipt = cell.createTask(action, await authorize(action, binding, `${child.key}:create`)),
     taskId = (receipt as typeof receipt & { readonly taskId?: string }).taskId;
   // A retried assignment reuses its child task through the idempotency key and writes nothing.
   if ((receipt.outcome !== "applied" && receipt.outcome !== "no_changes") || !taskId)
     throw cell.cellCodedError(receipt.code ?? "squad_child_create_failed", JSON.stringify(receipt));
-  const plan = readTaskTransitionDocument({ projection: cell.projection, taskId, slot: "task.plan" });
-  if (plan.body !== child.prompt)
-    await publishSquadChildDocument(
-      cell,
-      {
-        parentTaskId: child.parentTaskId,
-        taskId,
-        path: plan.path,
-        body: child.prompt,
-      },
-      binding,
-      authorize,
-    );
   return taskId;
 }
 
