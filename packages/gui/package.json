@@ -71,7 +71,7 @@
     "dockview-react": "8.2.0",
     "docx-preview": "^0.4.1",
     "electron": "42.11.9",
-    "katex": "^0.16.25",
+    "katex": "^0.18.10",
     "mermaid": "^11.17.2",
     "motion": "^13.4.5",
     "pdfjs-dist": "^6.3.289",
