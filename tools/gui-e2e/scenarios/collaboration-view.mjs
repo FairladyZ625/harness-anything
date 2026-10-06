@@ -28,8 +28,7 @@ import { bridgeReady, nav } from "./helpers.mjs";
  * 验证单执行节点的中心仓也能看到协作页(不以节点数量判),跑筛选/跳转/长 ID/宽窄
  * 截图,最后把仓切回 local 并重载,不影响同 lane 的后续场景。
  */
-const REPO = "gui-e2e-catalog",
-  TASK_HELM = "task-collab-helm",
+const TASK_HELM = "task-collab-helm",
   TASK_RELAY = "task-collab-relay",
   TASK_SIGNAL = "task-collab-signal",
   SESSION_GLM_LATEST = guiE2eRuntimeSessionId("round-4"),
@@ -200,77 +199,78 @@ export default {
   feature: "collaboration",
   lane: "isolated",
   description:
-    "Local mode hides the fleet collaboration entry; a single-execution-node center repo shows it, with assignee vs lease holder, declared agents from the session-groups projection (unmapped sessions say so), node summaries with unknown online status, filters that match visible rows, entity jumps, and wide/narrow screenshots.",
+    "The fleet topology Collaboration page backed by repo.fleet.overview.read: daemon-served nodes (center + lease-holding edges), clickable node details with leases and honest unavailable fields, event stream filtered by node with click-to-node, task jumps, and wide/narrow screenshots.",
   async run({ page, shot, fixture }) {
-    const repoId = fixture?.repoId ?? REPO,
-      endpoint = fixture.endpoint,
-      rpc = (method, params) => requestDaemonJsonRpcAt(endpoint, method, params, 5_000, 15_000);
     await bridgeReady(page);
-    await waitForAttached(page, repoId);
+    await waitForAttached(page, fixture.repoId);
 
-    // 1. 纯本地:入口按仓库模式隐藏(不以节点数量判)。
-    assert.equal(
-      await page.getByRole("button", { name: /^(?:协作|Collaboration)$/u }).count(),
-      0,
-      "the collaboration nav entry must stay hidden for a local-mode repo",
-    );
-
-    // 2. 切 remote-center:中心单执行节点也能管理协作(同一份中心读面)。
-    const updated = await rpc("daemon.repo.update", { repoId, mode: "remote-center" });
-    assert.equal(updated.ok, true, JSON.stringify(updated));
-    await page.reload();
-    await bridgeReady(page);
-    await waitForAttached(page, repoId);
+    // 1. 本地仓(本机即中心)也能进协作页:入口不按模式隐藏,页面给出中心提示条。
     await nav(page, /^(?:协作|Collaboration)$/, "collaboration-view");
-    await page.getByTestId("repo-mode-badge-remote-center").first().waitFor();
+    await page.getByTestId("collaboration-center-notice").waitFor();
 
-    // 3. 行内容:资格侧与执行侧同框,Agent 来自投影的权威映射,缺映射如实「未提供」。
-    const helmRow = page.locator('[data-testid="collaboration-row"][data-task-id="task-collab-helm"]');
-    await helmRow.waitFor();
-    // Agent 索引是一条异步读面(groupBy=agent):等它落定再断言行内容,未映射行也因此可判。
-    await page.waitForFunction(
-      () =>
-        globalThis.document
-          .querySelector('[data-testid="collaboration-row"][data-task-id="task-collab-helm"]')
-          ?.textContent?.includes("GLM-5.3") === true,
-      undefined,
-      { timeout: 20_000 },
-    );
-    const helmText = await helmRow.innerText();
-    assert.match(helmText, /person-ada/u, "helm row must show the assignee person");
-    assert.match(helmText, new RegExp(NODE_ALPHA.slice(0, 12), "u"), "helm row must show the long lease node id");
-    assert.match(helmText, /执行中/u, "helm lease is held");
-    const relayRow = page.locator('[data-testid="collaboration-row"][data-task-id="task-collab-relay"]');
-    assert.match(await relayRow.innerText(), /Astra/u, "relay row maps the astra agent");
-    const signalRow = page.locator('[data-testid="collaboration-row"][data-task-id="task-collab-signal"]');
-    const signalText = await signalRow.innerText();
+    // 2. 拓扑节点来自 daemon 聚合:中心 + 两个 lease 来源边缘,无中生有的节点不出现。
+    await page.getByTestId("collaboration-node-center").waitFor({ timeout: 20_000 });
+    await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).waitFor();
+    await page.getByTestId(`collaboration-node-${NODE_BETA}`).waitFor();
+    const header = await page.getByTestId("collaboration-view").innerText();
+    assert.match(header, /3 节点/u, `topology must show center plus two lease-source edges: ${header.slice(0, 120)}`);
+    assert.match(header, /2 执行中/u, "executing counts held/reserving leases only, not the orphaned one");
+
+    // 3. 边缘节点详情:在做什么 = 租约任务/人/会话/phase;内部状态如实「未提供」带人话原因。
+    await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
+    const details = page.getByTestId("collaboration-node-details");
+    await details.waitFor();
+    const detailText = await details.innerText();
+    assert.match(detailText, /舰队协作：指派与执行的同一份中心快照/u, "the held lease task is listed under its node");
+    assert.match(detailText, /person-ada/u, "the lease principal is shown");
+    assert.match(detailText, /执行中/u, "the held lease phase renders as executing");
+    assert.match(detailText, /未提供/u, "fields the read cannot see say so");
     assert.match(
-      signalText,
-      /Agent 未提供/u,
-      "an executor session without a dispatch row must not be attributed to an agent",
+      detailText,
+      /中心未在此读面暴露节点 TLS 会话事实/u,
+      "the unavailable reason reads as a human sentence",
     );
-    assert.match(signalText, /失联/u, "orphaned lease phase is lost-contact, not executing");
-    // 页头执行中只认 held/reserving:两个 held,orphaned 不计。
-    const summary = await page.locator('[data-testid="collaboration-view"]').innerText();
-    assert.match(summary, /2 执行中/u, `header executing count must be 2 (held only): ${summary.slice(0, 120)}`);
+    // 机器码不进可见文本,只保留在 data-reason/title 供断言与诊断。
+    assert.doesNotMatch(detailText, /tls-session-fact-not-exposed/u, "machine codes stay out of visible text");
+    await details.locator('[data-reason="tls-session-fact-not-exposed"]').waitFor();
+    // 详情底部的读面声明渲染为人话图例,不再露出 key=value 调试串。
+    const notesText = await page.getByTestId("collaboration-read-notes").innerText();
+    assert.match(notesText, /事件按任务当前租约归属节点/u, "the notes legend is humanized");
+    assert.doesNotMatch(notesText, /events-attribution=/u, "no raw key=value debug strings");
 
-    // 4. 筛选:Agent 维度的计数等于命中的行数;节点汇总如实「在线状态未知」。
-    const agentChip = page.getByTestId("collaboration-filter-agent").locator("span[title='glm']").locator("xpath=..");
-    await agentChip.click();
-    await page
-      .locator('[data-testid="collaboration-row"][data-task-id="task-collab-relay"]')
-      .waitFor({ state: "detached" });
-    assert.equal(
-      await page.locator('[data-testid="collaboration-row"]').count(),
-      1,
-      "agent filter must keep only the glm row",
+    // 4. 中心节点详情:daemon 构建、本机租约(orphaned 显示失联,不算执行中)。
+    await page.getByTestId("collaboration-node-center").click();
+    await page.getByTestId("collaboration-task-task-collab-signal").waitFor();
+    assert.match(
+      await page.getByTestId("collaboration-node-details").innerText(),
+      /失联/u,
+      "an orphaned lease keeps its lost-contact phase",
     );
-    await page.getByTestId("collaboration-filter-agent").locator("button").first().click();
-    await page.locator('[data-testid="collaboration-row"][data-task-id="task-collab-relay"]').waitFor();
-    const nodesStrip = await page.getByTestId("collaboration-nodes").innerText();
-    assert.match(nodesStrip, /在线状态未知/u, "node online status must stay unknown without an authoritative read");
 
-    // 5. 跳转:任务详情与会话页(会话跳转保留)。
+    // 5. 事件流按节点过滤,点事件跳到对应节点详情。
+    const filter = page.getByTestId("collaboration-event-filter");
+    await filter.selectOption(NODE_ALPHA);
+    // 行 testid 是 collaboration-event-evt-<id>:前缀要带上 evt-,否则会先命中筛选下拉自身。
+    const eventRows = page.locator('[data-testid^="collaboration-event-evt-"]');
+    const visible = await eventRows.count();
+    assert.ok(visible > 0, "the filtered node has events in the canonical window");
+    for (let index = 0; index < visible; index += 1)
+      assert.match(
+        await eventRows.nth(index).innerText(),
+        new RegExp(NODE_ALPHA.slice(0, 12), "u"),
+        "filtered events must all carry the selected node",
+      );
+    await eventRows.first().click();
+    await page.waitForFunction(
+      (nodeId) =>
+        globalThis.document
+          .querySelector(`[data-testid="collaboration-node-${nodeId}"]`)
+          ?.getAttribute("aria-pressed") === "true",
+      NODE_ALPHA,
+      { timeout: 10_000 },
+    );
+
+    // 6. 跳转:详情里的任务点击进任务详情,再回协作页。
     await page.getByTestId("collaboration-task-task-collab-helm").click();
     await page.getByText("舰队协作：指派与执行的同一份中心快照").first().waitFor();
     await page
@@ -278,26 +278,8 @@ export default {
       .getByRole("button", { name: /^(?:协作|Collaboration)$/u })
       .click();
     await page.getByTestId("collaboration-view").waitFor();
-    await page.locator(`button[title*="${SESSION_GLM_LATEST}"]`).first().click();
-    await page.waitForFunction(
-      (sessionId) =>
-        globalThis.document.querySelector('[data-testid="sessions-view"]')?.textContent?.includes(sessionId),
-      SESSION_GLM_LATEST,
-      { timeout: 15_000 },
-    );
 
-    // 6. 总览紧凑入口:真实摘要 + 一键进协作页。
-    await page
-      .getByTestId("app-sidebar-scroll")
-      .getByRole("button", { name: /^(?:总览|Overview)$/u })
-      .click();
-    const entry = page.getByTestId("overview-collaboration-entry");
-    await entry.waitFor();
-    assert.match(await entry.innerText(), /协作/u);
-    await entry.click();
-    await page.getByTestId("collaboration-view").waitFor();
-
-    // 7. 宽窄两档截图(1440/1120),收尾恢复视口与仓库模式。
+    // 7. 宽窄两档截图(1440/1120),加过滤态与 390 窄屏,收尾恢复视口。
     const originalViewport = await page.evaluate(() => ({
       width: globalThis.innerWidth,
       height: globalThis.innerHeight,
@@ -307,23 +289,23 @@ export default {
       await page.getByTestId("collaboration-view").waitFor();
       await shot(`collaboration-${width}`);
     }
+    // 1440 节点详情(边缘节点点开)单独留档。
+    await page.setViewportSize({ width: 1440, height: originalViewport.height });
+    await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
+    await page.getByTestId("collaboration-node-details").waitFor();
+    await shot("collaboration-detail-1440");
+    // 节点过滤态(事件流只留该节点)单独留档。
+    await page.setViewportSize({ width: 1440, height: originalViewport.height });
+    await filter.selectOption(NODE_ALPHA);
+    await shot("collaboration-filtered-1440");
+    await filter.selectOption("all");
+    // 390 窄屏:Electron 最小窗口宽度可能托底,如实按实际宽度截图。
+    await page.setViewportSize({ width: 390, height: originalViewport.height });
+    await shot("collaboration-overview-390");
+    await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
+    await page.getByTestId("collaboration-node-details").waitFor();
+    await shot("collaboration-detail-390");
     await page.setViewportSize(originalViewport);
-    // 先回总览再恢复 local:重载后的历史恢复落在总览,不落在已隐藏的协作页。
-    await page
-      .getByTestId("app-sidebar-scroll")
-      .getByRole("button", { name: /^(?:总览|Overview)$/u })
-      .click();
-    await page.getByTestId("overview-view").waitFor();
-    const restored = await rpc("daemon.repo.update", { repoId, mode: "local" });
-    assert.equal(restored.ok, true, JSON.stringify(restored));
-    await page.reload();
-    await bridgeReady(page);
-    await waitForAttached(page, repoId);
-    assert.equal(
-      await page.getByRole("button", { name: /^(?:协作|Collaboration)$/u }).count(),
-      0,
-      "the collaboration entry must hide again after restoring local mode",
-    );
   },
 };
 

@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "repoId": "harness-anything",
+  "mode": "local",
+  "generatedAt": "2026-10-06T00:00:00.000Z",
+  "center": {
+    "nodeId": "center",
+    "daemonId": "default",
+    "startedAt": "2026-10-06T00:00:00.000Z",
+    "version": "0.0.0",
+    "commitSha": null
+  },
+  "centerRevision": null,
+  "nodes": [
+    {
+      "nodeId": "cc90-ubuntu",
+      "role": "edge",
+      "owner": { "kind": "unavailable" },
+      "build": { "kind": "unavailable", "reason": "replica-status-has-no-build-field" },
+      "online": { "kind": "unavailable", "reason": "tls-session-fact-not-exposed" },
+      "leases": [],
+      "replica": null,
+      "replicaNote": null,
+      "watch": { "kind": "unavailable", "reason": "edge-sync-internals-not-exposed" },
+      "lastFailure": { "kind": "unavailable", "reason": "no-replica-sync-failure-record-in-lifecycle-read" }
+    }
+  ],
+  "links": [{ "nodeId": "cc90-ubuntu", "state": "fresh", "delivery": "current", "lagRevisions": null, "lagMs": null, "ackedAt": null, "centerRevision": null }],
+  "events": [],
+  "notes": [],
+  "warnings": []
+}

@@ -81,13 +81,15 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // the workspace page does not rebuild scope membership from the whole task list.
   // task_7897f56a then added repo.works.index: every work with its member tasks at one cut, so the GUI
   // groups graph territory, board lanes and work lists by the daemon's work rule (dec_5F7E74F1).
+  // task_8ce646d94 then added repo.fleet.overview.read: the Collaboration page's fleet topology in
+  // one host-owned aggregate (nodes, replica channels, per-node leases/dispatches, event window).
   assert.equal(
     daemonGuiReadMethods.length,
-    42,
+    43,
     "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
       "declaration read plus 1 artifact read plus 1 task WIP read plus 1 single-task completion read " +
       "plus 1 token usage aggregate read plus 1 token usage member detail read plus 1 workspace scope read " +
-      "plus 1 work index read plus 1 claimable read plus 1 assignment directory read (S8 CH4)",
+      "plus 1 work index read plus 1 claimable read plus 1 assignment directory read plus 1 fleet overview read (S8 CH4)",
   );
 });
 

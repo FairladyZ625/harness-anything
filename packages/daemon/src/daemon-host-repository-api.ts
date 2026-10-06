@@ -3,6 +3,7 @@ import { repositoryReadDescriptor } from "./repository-read-contract.ts";
 import { catalogWithNodeAdapters } from "./gui-catalog.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { runFleetRepositoryReadClient } from "./fleet/edge.ts";
+import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readTaskAssignmentDirectory } from "./task-assignment-directory.ts";
 import { doctorBuildDrift, unavailableCenterDoctor, type DoctorCheck } from "./repo-cell-doctor.ts";
@@ -771,6 +772,20 @@ export function createDaemonHostRepositoryApi(
           throw context.hostCodedError("invalid_request", "Catalog preset payload must be JSON.");
         result = await cell.catalog.preset(payload);
       } else if (method === "repo.terminal.sessions.list") result = cell.terminal.list();
+      else if (method === "repo.fleet.overview.read")
+        result = await readFleetOverviewFromHost({
+          repoId,
+          mode:
+            readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find((repo) => repo.repoId === repoId)
+              ?.mode ?? "local",
+          cell,
+          binding,
+          fleetReplicas: (context.fleetCenter?.status().replicas ?? []).filter((replica) => replica.repoId === repoId),
+          keycloakCenter: context.keycloakCenter,
+          now: context.now(),
+          userRoot: context.input.userRoot,
+          daemon: context.point(),
+        });
       else {
         if (!isRepoCellReadMethod(method))
           throw context.hostCodedError("invalid_request", `${method} is not a repository read method.`);

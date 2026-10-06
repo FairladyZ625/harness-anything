@@ -36,6 +36,7 @@ import { validateEntityContentRead } from "../entity-content-read.ts";
 import { validateEntityLocatorRead } from "../entity-locator-read.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
+import { validateFleetOverview } from "../fleet/fleet-overview-read.ts";
 import { validateCiObservatoryRead } from "../ci-observatory-read.ts";
 import {
   validateAgentDispatchPreview,
@@ -182,6 +183,7 @@ const resultValidators = {
   "repo.gui.catalog.snapshot": validateCatalogSnapshot,
   "repo.gui.catalog.preset.read": validateCatalogPreset,
   "repo.terminal.sessions.list": validateTerminalSessionList,
+  "repo.fleet.overview.read": validateFleetOverview,
 } satisfies Record<DaemonGuiRpcReadMethod, ResultValidator>;
 
 export function validateDaemonWorkspaceScope(value: unknown): readonly string[] {

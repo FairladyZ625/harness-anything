@@ -43,6 +43,13 @@ test("repository reads accept declared queries and reject writes, unmarked metho
     }).payload,
     { name: "runtime-session-groups", groupBy: "agent", limit: 1, sessionIds: ["runtime-one", "runtime-two"] },
   );
+  // task_8ce646d94: the fleet topology overview rides the same generic repository-read
+  // transport to the center — no fleet protocol frame was added for it.
+  assert.deepEqual(parseFleetFrame({ ...frame, method: "repo.fleet.overview.read", payload: {} }), {
+    ...frame,
+    method: "repo.fleet.overview.read",
+    payload: {},
+  });
 });
 
 test("repository read authentication uses the command token UTF-8 byte bound", () => {

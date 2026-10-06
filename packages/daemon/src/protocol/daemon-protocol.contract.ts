@@ -668,6 +668,7 @@ export default Object.freeze({
     "Ledger-Read",
     "Entity-Pin",
     "Edge-Resident-H1",
+    "Fleet-Collab",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([

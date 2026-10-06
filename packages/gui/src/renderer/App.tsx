@@ -24,7 +24,7 @@ import { SystemView } from "./views/SystemView.tsx";
 import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { CollaborationView } from "./views/CollaborationView.tsx";
-import { useCollaborationAgentIndex } from "./collaboration-data.ts";
+import { useFleetOverview } from "./collaboration-data.ts";
 import { isExecutingLeasePhase } from "./model/collaboration.ts";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { AppSidebar } from "./components/AppSidebar.tsx";
@@ -227,10 +227,8 @@ function AppShell() {
     });
   }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data, works]);
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
-  // 协作页(task_1bafbf09)的会话→Agent 索引:协作页挂载时就读——本地仓也是
-  // 舰队中心(业主 2026-10-05),中心本机的 Agent 同样要呈现
-  // (group-by=agent 一条读,sessionGroupsAll 家族共享缓存)。
-  const collaborationAgentIndex = useCollaborationAgentIndex(activeRepoId, view === "collaboration", tasks);
+  // 协作页舰队拓扑(task_8ce646d94):repo.fleet.overview.read 一条 typed read,挂载时读。
+  const fleetOverview = useFleetOverview(activeRepoId, view === "collaboration");
   const project = adaptRepoProject(
     projectId,
     activeRepo,
@@ -689,16 +687,14 @@ function AppShell() {
                   onSetPin={handleSetPin}
                 />
               ) : view === "collaboration" ? (
-                // 协作页(task_1bafbf09):消费 App 已读出的任务切面,不自建读面;
-                // 本地仓即舰队中心(业主 2026-10-05),local 通道执行由页面投影为中心节点。
+                // 协作页舰队拓扑(task_8ce646d94):节点/通道/详情/事件全部来自
+                // repo.fleet.overview.read,daemon 侧 join,页面不再从任务列表推导。
                 <CollaborationView
                   repoId={projectId}
                   mode={activeRepo?.mode ?? "local"}
-                  tasks={projectTasks}
-                  ready={tasksQuery.data?.status === "ready"}
-                  agents={collaborationAgentIndex.index}
-                  agentReadError={collaborationAgentIndex.error}
-                  agentReadLoading={collaborationAgentIndex.loading}
+                  overview={fleetOverview.overview}
+                  overviewError={fleetOverview.error}
+                  overviewLoading={fleetOverview.loading}
                   onOpenTask={openTaskDetail}
                   onNavigateEntity={navigateToEntity}
                 />
