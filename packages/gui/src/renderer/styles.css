@@ -849,3 +849,188 @@ html[data-theme="light"] ::selection {
   background-color: transparent !important;
 }
 
+/*
+ * 协作页舰队拓扑(task_16c20131「指挥台」视觉层):状态即光——连线与节点外圈用
+ * 状态色发光(fresh=绿稳定、lag=琥珀、unsynced=红且暗、无副本=灰虚线),中心卡
+ * 低频呼吸,执行中节点扫描环;流光是沿中心→边缘推进的虚线,速度随 lag 加快。
+ * 动效只动 transform/opacity/stroke-dashoffset;hover/选择只在进出时改属性,不在
+ * 动画帧里触发 React 重渲染;prefers-reduced-motion 由上方全局规则关停流光与脉冲,
+ * 静态状态色保留。
+ */
+
+/* 画布底座:极低对比度星点网格,给玻璃卡一个可折射的层次 */
+.fleet-grid {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in oklab, var(--color-border-strong) 60%, transparent) 1px,
+    transparent 1.5px
+  );
+  background-size: 26px 26px;
+}
+
+/* 节点卡:半透明玻璃 + 细边框 + 状态光;状态色由变体类给 --fleet-state */
+.fleet-node {
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-surface) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid color-mix(in oklab, var(--fleet-state, var(--color-border)) 40%, var(--color-border));
+  box-shadow: 0 0 16px color-mix(in oklab, var(--fleet-state, var(--color-border)) 18%, transparent);
+  transition:
+    transform 0.16s var(--ease),
+    opacity 0.18s var(--ease),
+    box-shadow 0.16s var(--ease),
+    border-color 0.16s var(--ease);
+}
+.fleet-node:hover {
+  transform: scale(1.045);
+  border-color: color-mix(in oklab, var(--fleet-state, var(--color-border)) 75%, var(--color-border));
+  box-shadow: 0 0 22px color-mix(in oklab, var(--fleet-state, var(--color-border)) 38%, transparent);
+  z-index: 5;
+}
+.fleet-node--fresh {
+  --fleet-state: var(--color-status-done);
+}
+.fleet-node--lag {
+  --fleet-state: var(--color-stale);
+}
+.fleet-node--unsynced {
+  --fleet-state: var(--color-danger);
+  opacity: 0.86;
+}
+.fleet-node--absent {
+  --fleet-state: var(--color-text-faint);
+  box-shadow: none;
+}
+.fleet-node--center {
+  --fleet-state: var(--color-accent);
+  z-index: 2;
+}
+
+/* 中心节点:持续低频呼吸光(合成器路径只动 opacity) */
+.fleet-node--center::before {
+  content: "";
+  position: absolute;
+  inset: -14px;
+  border-radius: var(--radius-lg);
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklab, var(--color-accent) 22%, transparent),
+    transparent 72%
+  );
+  animation: fleet-breathe 4.8s var(--ease) infinite;
+  pointer-events: none;
+}
+@keyframes fleet-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 执行中节点(held/reserving 租约):扫描环向外扩散 */
+.fleet-node[data-executing="on"]::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in oklab, var(--fleet-state) 70%, transparent);
+  animation: fleet-scan 2.6s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes fleet-scan {
+  0% {
+    transform: scale(0.94);
+    opacity: 0.9;
+  }
+  70%,
+  100% {
+    transform: scale(1.16);
+    opacity: 0;
+  }
+}
+
+/* 新事件到达:所属节点在拓扑上闪一下 */
+.fleet-node[data-flash="on"] {
+  animation: fleet-flash 1.6s var(--ease) 1;
+}
+@keyframes fleet-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 16px color-mix(in oklab, var(--fleet-state, var(--color-border)) 18%, transparent);
+  }
+  30% {
+    box-shadow:
+      0 0 26px color-mix(in oklab, var(--fleet-state, var(--color-border)) 60%, transparent),
+      0 0 64px color-mix(in oklab, var(--fleet-state, var(--color-border)) 30%, transparent);
+  }
+}
+
+/* 连线:底轨 + 流光两层;方向沿路径(中心→边缘),dashoffset 负向推进 */
+.fleet-link {
+  --link: var(--color-status-done);
+  transition: opacity 0.18s var(--ease);
+}
+.fleet-link[data-state="lag"] {
+  --link: var(--color-stale);
+}
+.fleet-link[data-state="unsynced"] {
+  --link: var(--color-danger);
+}
+.fleet-link[data-state="absent"] {
+  --link: var(--color-border-strong);
+}
+.fleet-link path {
+  fill: none;
+}
+.fleet-link .fleet-link-base {
+  stroke: color-mix(in oklab, var(--link) 55%, transparent);
+  stroke-width: 1.5;
+}
+.fleet-link[data-state="unsynced"] .fleet-link-base {
+  opacity: 0.55;
+}
+.fleet-link[data-state="absent"] .fleet-link-base {
+  stroke-dasharray: 5 7;
+  opacity: 0.7;
+}
+.fleet-link .fleet-link-flow {
+  stroke: var(--link);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 4 16;
+  animation: fleet-flow var(--fleet-flow-duration, 3.4s) linear infinite;
+  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--link) 55%, transparent));
+}
+@keyframes fleet-flow {
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+
+/* hover/选择聚焦:无关节点与连线淡出,被聚焦连线加粗;选中节点保持高亮 */
+.fleet-node[data-dim="on"],
+.fleet-link[data-dim="on"] {
+  opacity: 0.35;
+}
+.fleet-node[data-sel="on"] {
+  border-color: color-mix(in oklab, var(--fleet-state, var(--color-border)) 85%, var(--color-border));
+  box-shadow: 0 0 24px color-mix(in oklab, var(--fleet-state, var(--color-border)) 42%, transparent);
+}
+.fleet-canvas[data-focus] .fleet-link:not([data-dim="on"]) .fleet-link-base {
+  stroke-width: 2;
+}
+
+/* 事件流新行进入:淡入 + 上滑,一次性(元素不重挂不重播) */
+.fleet-event-in {
+  animation: fleet-event-in 220ms var(--ease) both;
+}
+@keyframes fleet-event-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+

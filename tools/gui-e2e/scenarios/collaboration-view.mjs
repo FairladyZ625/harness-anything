@@ -199,7 +199,7 @@ export default {
   feature: "collaboration",
   lane: "isolated",
   description:
-    "The fleet topology Collaboration page backed by repo.fleet.overview.read: daemon-served nodes (center + lease-holding edges), clickable node details with leases and honest unavailable fields, event stream filtered by node with click-to-node, task jumps, and wide/narrow screenshots.",
+    "The fleet topology Collaboration page backed by repo.fleet.overview.read: daemon-served nodes (center + lease-holding edges) on the redesigned SVG command canvas (state-colored links, drawer details with cut progress), event stream filtered by node with click-to-node, task jumps, reduced-motion and motion-evidence screenshots, and an animation probe proving zero React re-renders while CSS animations run.",
   async run({ page, shot, fixture }) {
     await bridgeReady(page);
     await waitForAttached(page, fixture.repoId);
@@ -208,16 +208,25 @@ export default {
     await nav(page, /^(?:协作|Collaboration)$/, "collaboration-view");
     await page.getByTestId("collaboration-center-notice").waitFor();
 
-    // 2. 拓扑节点来自 daemon 聚合:中心 + 两个 lease 来源边缘,无中生有的节点不出现。
+    // 2. 拓扑节点来自 daemon 聚合:中心 + 两个 lease 来源边缘,无中生有的节点不出现;
+    //    重做后的 SVG 连线层每个边缘一条状态连线(isolated 台账无副本行 → absent 灰虚线)。
     await page.getByTestId("collaboration-node-center").waitFor({ timeout: 20_000 });
     await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).waitFor();
     await page.getByTestId(`collaboration-node-${NODE_BETA}`).waitFor();
     const header = await page.getByTestId("collaboration-view").innerText();
     assert.match(header, /3 节点/u, `topology must show center plus two lease-source edges: ${header.slice(0, 120)}`);
     assert.match(header, /2 执行中/u, "executing counts held/reserving leases only, not the orphaned one");
+    const linkCount = await page.locator("g.fleet-link[data-state]").count();
+    assert.equal(linkCount, 2, "the SVG link layer renders one state-colored link per edge node");
+    assert.equal(
+      await page.locator('g.fleet-link[data-state="absent"]').count(),
+      2,
+      "edges without a replica row get the gray dashed absent link",
+    );
 
-    // 3. 边缘节点详情:在做什么 = 租约任务/人/会话/phase;内部状态如实「未提供」带人话原因。
+    // 3. 边缘节点详情(右侧滑入抽屉):在做什么 = 租约任务/人/会话/phase;内部状态如实「未提供」带人话原因。
     await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
+    await page.getByRole("dialog").waitFor();
     const details = page.getByTestId("collaboration-node-details");
     await details.waitFor();
     const detailText = await details.innerText();
@@ -237,6 +246,9 @@ export default {
     const notesText = await page.getByTestId("collaboration-read-notes").innerText();
     assert.match(notesText, /事件按任务当前租约归属节点/u, "the notes legend is humanized");
     assert.doesNotMatch(notesText, /events-attribution=/u, "no raw key=value debug strings");
+    // 抽屉面板会盖住右侧节点卡:交互前先收起,等退出动画结束。
+    await page.getByTestId("collaboration-node-details-close").click();
+    await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 10_000 });
 
     // 4. 中心节点详情:daemon 构建、本机租约(orphaned 显示失联,不算执行中)。
     await page.getByTestId("collaboration-node-center").click();
@@ -246,6 +258,8 @@ export default {
       /失联/u,
       "an orphaned lease keeps its lost-contact phase",
     );
+    await page.getByTestId("collaboration-node-details-close").click();
+    await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 10_000 });
 
     // 5. 事件流按节点过滤,点事件跳到对应节点详情。
     const filter = page.getByTestId("collaboration-event-filter");
@@ -289,13 +303,14 @@ export default {
       await page.getByTestId("collaboration-view").waitFor();
       await shot(`collaboration-${width}`);
     }
-    // 1440 节点详情(边缘节点点开)单独留档。
+    // 1440 节点详情(边缘节点点开)单独留档,随后收起抽屉再截过滤态与窄屏。
     await page.setViewportSize({ width: 1440, height: originalViewport.height });
     await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
     await page.getByTestId("collaboration-node-details").waitFor();
     await shot("collaboration-detail-1440");
+    await page.getByTestId("collaboration-node-details-close").click();
+    await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 10_000 });
     // 节点过滤态(事件流只留该节点)单独留档。
-    await page.setViewportSize({ width: 1440, height: originalViewport.height });
     await filter.selectOption(NODE_ALPHA);
     await shot("collaboration-filtered-1440");
     await filter.selectOption("all");
@@ -305,7 +320,91 @@ export default {
     await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
     await page.getByTestId("collaboration-node-details").waitFor();
     await shot("collaboration-detail-390");
+    await page.getByTestId("collaboration-node-details-close").click();
+    await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 10_000 });
     await page.setViewportSize(originalViewport);
+
+    // 8. 动效证据(task_16c20131):视口切换后先等拓扑几何沉降(重排引发的属性写
+    //    不属于动画成本),再采样 2s 稳态窗口——动画推进走 CSS 时间轴,窗口内 DOM
+    //    零变更(= 动画期间 0 次 React 重渲染);连拍三帧留档流光/呼吸/扫描环的推进。
+    await page.setViewportSize({ width: 1440, height: originalViewport.height });
+    await page.getByTestId("collaboration-view").waitFor();
+    for (let round = 0; ; round += 1) {
+      assert.ok(round < 12, "the topology geometry never settles after the viewport change");
+      const churn = await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const seen = [];
+            const observer = new globalThis.MutationObserver((records) => seen.push(...records));
+            observer.observe(globalThis.document.querySelector('[data-testid="collaboration-view"]'), {
+              subtree: true,
+              childList: true,
+              attributes: true,
+              characterData: true,
+            });
+            globalThis.setTimeout(() => {
+              observer.disconnect();
+              resolve(seen.length);
+            }, 350);
+          }),
+      );
+      if (churn === 0) break;
+    }
+    const perf = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const animations = globalThis.document.getAnimations().filter((a) => a.playState === "running");
+          const before = animations.map((a) => a.currentTime);
+          const mutations = [];
+          const samples = [];
+          const observer = new globalThis.MutationObserver((records) => {
+            mutations.push(...records);
+            for (const record of records)
+              if (samples.length < 8)
+                samples.push(
+                  `${record.type}:${record.target instanceof globalThis.Element ? record.target.tagName.toLowerCase() : "text"}:${record.attributeName ?? ""}`,
+                );
+          });
+          // 只看协作页本体:应用外壳(侧栏状态轮询等)的变更不属于拓扑动画的成本。
+          const scope = globalThis.document.querySelector('[data-testid="collaboration-view"]');
+          observer.observe(scope, { subtree: true, childList: true, attributes: true, characterData: true });
+          const startedAt = performance.now();
+          globalThis.setTimeout(() => {
+            const after = animations.map((a) => a.currentTime);
+            observer.disconnect();
+            resolve({
+              running: animations.length,
+              advanced: after.some((time, index) => time !== null && before[index] !== null && time > before[index]),
+              mutations: mutations.length,
+              samples,
+              windowMs: performance.now() - startedAt,
+            });
+          }, 2000);
+        }),
+    );
+    assert.ok(perf.running > 0, `CSS animations (breathe/scan/event-in) are running: ${JSON.stringify(perf)}`);
+    assert.ok(perf.advanced, `animations advance on the wall-clock timeline: ${JSON.stringify(perf)}`);
+    assert.equal(
+      perf.mutations,
+      0,
+      `no DOM mutations while animations run (zero React re-renders): ${JSON.stringify(perf)}`,
+    );
+    for (let frame = 1; frame <= 3; frame += 1) {
+      await shot(`collaboration-motion-frame-${frame}`);
+      if (frame < 3) await page.waitForTimeout(700);
+    }
+
+    // 9. reduced-motion:系统偏好「减少动态效果」下动画全部关停,静态状态色仍在。
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    assert.equal(
+      await page.evaluate(() => globalThis.document.getAnimations().filter((a) => a.playState === "running").length),
+      0,
+      "prefers-reduced-motion stops every topology animation",
+    );
+    const absentLinks = await page.locator('g.fleet-link[data-state="absent"]').count();
+    assert.ok(absentLinks > 0, "static state colors survive reduced motion");
+    await shot("collaboration-reduced-motion-1440");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
   },
 };
 
