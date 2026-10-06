@@ -1,13 +1,10 @@
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
 import { repositoryReadDescriptor } from "./repository-read-contract.ts";
-import { catalogWithNodeAdapters } from "./gui-catalog.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { runFleetRepositoryReadClient } from "./fleet/edge.ts";
 import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readTaskAssignmentDirectory } from "./task-assignment-directory.ts";
 import { doctorBuildDrift, unavailableCenterDoctor, type DoctorCheck } from "./repo-cell-doctor.ts";
-import { existsSync, realpathSync, readFileSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   readDaemonRegistry,
@@ -694,38 +691,13 @@ export function createDaemonHostRepositoryApi(
     },
     read: async (repoId, method, payload, auth) => {
       const repositoryRead = repositoryReadDescriptor(method, payload);
-      const edge =
-        repositoryRead &&
-        readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
-          (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
-        );
-      if (edge?.canonicalRoot) {
-        const principal = await context.binding(edge.canonicalRoot, auth);
-        const config = readFleetEdgeConfig(edge.canonicalRoot);
-        if (!config || config.repoId !== repoId)
-          throw context.hostCodedError(
-            "fleet_edge_config_invalid",
-            `Repository ${repoId} has no matching Fleet center configuration.`,
-          );
-        const result = await runFleetRepositoryReadClient({
-          hostname: config.host,
-          port: config.port,
-          ca: readFileSync(config.caPath),
-          servername: config.servername,
-          nodeId: config.nodeId,
-          credential: config.credential,
-          repoId,
-          timeoutMs: config.waitTimeoutMs,
-          method,
-          payload,
-          accessToken: principal.keycloakAuthorization?.session?.accessToken,
-        });
-        return parseDaemonGuiReadResult(
-          method,
-          method === "repo.gui.catalog.snapshot" && isJsonObject(result) ? catalogWithNodeAdapters(result) : result,
-        );
-      }
-      context.requireHostMode(repoId, repoReadCommandTopology, auth);
+      const edge = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+        (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
+      );
+      // Edge reads are answered by the node's query-only RepoCell over its mirrored cut. The
+      // center-forward transport was deliberately removed: freshness and authorization belong to
+      // the same local read boundary as task list/show.
+      if (!edge) context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
       if (!cell)
