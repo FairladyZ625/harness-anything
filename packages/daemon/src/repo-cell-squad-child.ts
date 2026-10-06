@@ -15,8 +15,15 @@ import { publishDocIntent } from "./doc-sync-publication.ts";
  * Keep the parent's readiness contract while applying the commander's authored assignment.
  * Missing parent sections stay missing; an assignment cannot make an incomplete parent plan ready.
  */
-export function deriveSquadChildPlan(parentPlan: string | null, assignment: string): string {
-  if (parentPlan === null || parentPlan.trim() === "") return assignment;
+export function deriveSquadChildPlan(parentInput: string | null, assignment: string): string {
+  if (parentInput === null || parentInput.trim() === "") return assignment;
+  let parentPlan = parentInput;
+  // The child is the assignment's task: its H1 title names the child, never the parent's.
+  const assignmentTitle = /^#[ \t]+(.+?)[ \t]*$/mu.exec(assignment)?.[0];
+  if (assignmentTitle !== undefined)
+    parentPlan = /^#[ \t]+.+$/mu.test(parentPlan)
+      ? parentPlan.replace(/^#[ \t]+.+$/mu, assignmentTitle)
+      : `${assignmentTitle}\n\n${parentPlan}`;
   const assignmentSections = markdownH2Sections(assignment),
     parentSections = markdownH2Sections(parentPlan),
     covered = new Set<string>(),
