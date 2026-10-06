@@ -13,7 +13,10 @@ export default {
       .click();
     await page.getByTestId("task-detail-view").waitFor();
     await page.getByTestId("task-document-tree").waitFor();
-    await page.getByTestId("doc-reader").first().waitFor();
+    // 默认落点(explainer 优先,task_26f9a7c4):夹具任务经 repo.task.create 落地即带
+    // born-with explainer,完整详情默认停在文件页签的 explainer 预览(不再先落 task_plan)。
+    await page.locator('#task-tab-files[aria-selected="true"]').waitFor();
+    await page.getByTestId("html-artifact-webview").waitFor();
     await page.locator("aside[role=dialog]").waitFor({ state: "hidden" });
     await shot("task-detail-documents");
   },

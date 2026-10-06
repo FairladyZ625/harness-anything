@@ -213,6 +213,7 @@ export function installBridge({
   completionAction = "Center completion action",
   completionBlocker = { code: "closeout_placeholder", gate: "closeout" },
   planBody = "# Canonical plan body",
+  explainer = false,
 }: {
   readonly uncommittedPlan?: boolean;
   /** `repo.tasks.completion.read` 的 next 动作原样透传;null = 无待办(next/blocker 均为 null)。 */
@@ -221,6 +222,8 @@ export function installBridge({
   readonly completionBlocker?: { readonly code: string; readonly gate: string } | null;
   /** task_plan.md 的正文;页头一行目标与概况页签共用这一份读。 */
   readonly planBody?: string | null;
+  /** 文档清单里带不带 living explainer(artifacts/explainer.html);默认不带。 */
+  readonly explainer?: boolean;
 } = {}) {
   const bridge = {
     getTaskCompletion: vi.fn(async ({ taskId }: { taskId: string }) => ({
@@ -251,9 +254,11 @@ export function installBridge({
           ? ""
           : path === "task_plan.md"
             ? planBody
-            : path.endsWith(".html")
-              ? '<style>body{color:#123}</style><h1>Night report</h1><script>window.open("https://example.invalid")</script>'
-              : `# ${path}`,
+            : path === "artifacts/explainer.html"
+              ? "<h1>Living explainer</h1><p>默认落点页</p>"
+              : path.endsWith(".html")
+                ? '<style>body{color:#123}</style><h1>Night report</h1><script>window.open("https://example.invalid")</script>'
+                : `# ${path}`,
         blobSha256: `sha256:${"d".repeat(64)}`,
         contentKind: binary ? "binary" : "text",
         mediaType: binary ? "application/octet-stream" : "text/markdown",
@@ -300,6 +305,17 @@ export function installBridge({
           mediaType: "application/octet-stream",
           uncommitted: false,
         },
+        ...(explainer
+          ? [
+              {
+                path: "artifacts/explainer.html",
+                blobSha256: "1".repeat(64),
+                size: 60,
+                mediaType: "text/html",
+                uncommitted: false,
+              },
+            ]
+          : []),
       ],
       watermark: 7,
       sourceRevision: 7,

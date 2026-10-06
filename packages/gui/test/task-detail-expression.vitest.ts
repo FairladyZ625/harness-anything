@@ -522,6 +522,59 @@ describe("Task detail expression", () => {
     expect(webview.getAttribute("src")).toMatch(/^data:text\/html;charset=utf-8,/u);
   });
 
+  it("opens at the living explainer by default when the package has one", async () => {
+    // 默认落点(explainer 优先):任务列表/搜索等不带显式落点的入口进来,任务包带
+    // artifacts/explainer.html 就直接落在文件页签并选中它,不再先停在概况的 task_plan。
+    installBridge({ explainer: true });
+    await mount();
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe("task-tab-files");
+    const webview = byTestId("html-artifact-webview");
+    expect(webview.getAttribute("data-artifact-path")).toBe("artifacts/explainer.html");
+    expect(webview.getAttribute("src")).toMatch(/^data:text\/html;charset=utf-8,/u);
+    expect(document.querySelector('[data-testid="task-detail-landing-pending"]')).toBeNull();
+  });
+
+  it("keeps the overview + task_plan landing when the package has no explainer", async () => {
+    // 无 explainer 的包保持现状:默认落在概况页签,task_plan 正文照常渲染,占位已解除。
+    installBridge();
+    await mount();
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe("task-tab-overview");
+    expect(byTestId("task-overview-plan").querySelector(".prose-harness")).not.toBeNull();
+    expect(document.querySelector('[data-testid="task-detail-landing-pending"]')).toBeNull();
+  });
+
+  it("still prefers an explicit doc focus over the explainer default", async () => {
+    // 显式落点优先级:总览速览架带 initialDocFocus 进来时,选中它带的文档,explainer
+    // 默认不参与(同一机制下 initialTab / initialRecordFocus 同理)。
+    installBridge({ explainer: true });
+    await mount({ initialDocFocus: "artifacts/reports/night.html" });
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe("task-tab-files");
+    expect(byTestId("html-artifact-webview").getAttribute("data-artifact-path")).toBe("artifacts/reports/night.html");
+  });
+
+  it("holds a neutral placeholder until the list decides, then keeps the user's manual tab", async () => {
+    // 不闪 task_plan:清单未到、落点未定时正文停在占位,概况(含 task_plan)不先渲染;
+    // 用户在定案前手动切页签,占位立即解除且默认落点不再覆盖用户选择。
+    const bridge = installBridge({ explainer: true });
+    const listPayload = await bridge.getTaskDocuments();
+    let releaseList: ((value: unknown) => void) | undefined;
+    bridge.getTaskDocuments.mockImplementation(() => new Promise((resolve) => (releaseList = resolve)));
+    await mount();
+    expect(byTestId("task-detail-landing-pending").textContent).toContain("正在定位初始文档");
+    expect(document.querySelector('[data-testid="task-overview-tab"]')).toBeNull();
+
+    await clickTab("派工");
+    expect(document.querySelector('[data-testid="task-detail-landing-pending"]')).toBeNull();
+    expect(byTestId("task-dispatch-tab").textContent).toContain("Codex Worker");
+
+    await act(async () => {
+      releaseList?.(listPayload);
+    });
+    await flushEffects();
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe("task-tab-dispatch");
+    expect(document.querySelector('[data-testid="html-artifact-webview"]')).toBeNull();
+  });
+
   it("docks the document regions by handle drag, undoes and resets through the tree controls", async () => {
     installBridge();
     await mount({ connectionId: "local" });
