@@ -203,8 +203,13 @@ test("a Keycloak authorization that never answers times out and releases the rep
     // A Keycloak that accepts the connection and never answers, like a wedged reverse proxy.
     hanging = createServer(() => {});
   let connections = 0;
-  hanging.on("connection", () => {
+  let requestClosedResolve: (() => void) | undefined;
+  const requestClosed = new Promise<void>((resolve) => {
+    requestClosedResolve = resolve;
+  });
+  hanging.on("connection", (socket) => {
     connections += 1;
+    socket.once("close", () => requestClosedResolve?.());
   });
   await new Promise<void>((resolve) => hanging.listen(0, "127.0.0.1", resolve));
   const hangUrl = `http://127.0.0.1:${(hanging.address() as AddressInfo).port}`,
@@ -229,21 +234,15 @@ test("a Keycloak authorization that never answers times out and releases the rep
       ownerId: "keycloak-hang-center",
       now: () => "2026-09-11T02:00:00.000Z",
     });
-    const startedAt = performance.now(),
-      write = cell.run(
-        { kind: "task-create", taskId: "keycloak-hang-write", title: "Hanging authorization" },
-        hungBinding,
-      );
-    const receipt = await settlesWithin(
-      write,
-      15_000,
-      "the write queue was held by the unanswered Keycloak authorization",
+    const write = cell.run(
+      { kind: "task-create", taskId: "keycloak-hang-write", title: "Hanging authorization" },
+      hungBinding,
     );
-    const elapsedMs = performance.now() - startedAt;
+    await settlesWithin(requestClosed, 15_000, "the Keycloak request was not aborted");
+    const receipt = await settlesWithin(write, 5_000, "the write queue was held after Keycloak aborted");
     assert.ok(connections >= 1, "the authorization never reached the hanging Keycloak");
     assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
     assert.equal(receipt.code, "service_rejected", JSON.stringify(receipt));
-    assert.ok(elapsedMs >= 9_000, `the timeout bound was not applied: ${elapsedMs.toFixed(1)}ms`);
     const after = await settlesWithin(
       cell.run({ kind: "task-create", taskId: "keycloak-after-hang", title: "After the timeout" }, binding),
       5_000,

@@ -11,6 +11,7 @@ import {
   powerShellTestScript,
   sourceArchiveArgs,
   sourceFileList,
+  sourceRootFromCwd,
   prepareSource,
   sourceRsyncArgs,
   testRunnerArgs,
@@ -166,6 +167,15 @@ test("source discovery includes every tracked root and excludes untracked and ig
       "prettier.config.mjs",
       "tools/kept.txt",
     ]);
+  });
+});
+
+test("source resolution follows the caller worktree when the tool is loaded elsewhere", () => {
+  withFixture(({ source }) => {
+    seedRepository(source);
+    const linked = path.join(source, "linked");
+    execFileSync("git", ["-C", source, "worktree", "add", "--quiet", "--detach", linked]);
+    assert.equal(sourceRootFromCwd(linked), linked);
   });
 });
 

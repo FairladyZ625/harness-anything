@@ -696,7 +696,11 @@ html[data-theme="light"] ::selection {
   font-feature-settings: var(--font-mono--font-feature-settings);
   font-size: 11.5px;
   line-height: 1.55;
-  min-height: 320px;
+  /* 高度随内容：短指令不留大块空白，长指令到 60vh 后内部滚动。 */
+  field-sizing: content;
+  min-height: 7.5em;
+  max-height: 60vh;
+  overflow-y: auto;
   padding: 12px;
   border-radius: var(--radius-sm);
   background: var(--color-surface);

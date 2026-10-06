@@ -11,6 +11,14 @@ import { t } from "../../i18n/index.tsx";
 export const catalogRailClass =
   "flex w-full flex-col overflow-y-auto @min-[720px]:w-[26%] @min-[720px]:min-w-[320px] @min-[720px]:max-w-[440px] @min-[720px]:shrink-0 @min-[720px]:border-r @min-[720px]:border-border";
 
+/**
+ * 目录 rail 的紧凑宽度档(视觉基线 v2.2,共享行为不等于固定尺寸):名称型目录
+ * (Agent·Squad)不按比例长宽,宽容器下取定宽 300px——名字可读的最小宽度,多出来的
+ * 宽度全部让给详情。会话/Provider 等行文更长的目录继续用 catalogRailClass。
+ */
+export const catalogRailCompactClass =
+  "flex w-full flex-col overflow-y-auto @min-[720px]:w-[300px] @min-[720px]:shrink-0 @min-[720px]:border-r @min-[720px]:border-border";
+
 /** 目录页双栏容器:窄容器下由 data-detail-open 驱动目录/详情互换,宽容器下不参与。 */
 export function CatalogSplit({
   detailOpen,

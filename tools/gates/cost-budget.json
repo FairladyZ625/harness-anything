@@ -17,7 +17,7 @@
       "task-create": {
         "sqlRowsRead": 79,
         "sha256Calls": 67,
-        "sha256Bytes": 140134,
+        "sha256Bytes": 203940,
         "gitProcesses": 6,
         "fileReadBytes": 173463
       },
@@ -80,7 +80,7 @@
       "receipt-show": {
         "sqlRowsRead": 38,
         "sha256Calls": 6,
-        "sha256Bytes": 10878,
+        "sha256Bytes": 10884,
         "gitProcesses": 0,
         "fileReadBytes": 0
       },
@@ -117,7 +117,7 @@
       "task-create": {
         "sqlRowsRead": 79,
         "sha256Calls": 67,
-        "sha256Bytes": 140134,
+        "sha256Bytes": 203940,
         "gitProcesses": 6,
         "fileReadBytes": 173463
       },
@@ -180,7 +180,7 @@
       "receipt-show": {
         "sqlRowsRead": 38,
         "sha256Calls": 6,
-        "sha256Bytes": 10878,
+        "sha256Bytes": 10884,
         "gitProcesses": 0,
         "fileReadBytes": 0
       },

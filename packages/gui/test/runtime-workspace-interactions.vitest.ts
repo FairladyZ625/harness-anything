@@ -867,10 +867,10 @@ describe("runtime entry split (W6 IA)", () => {
     expect(document.body.textContent).not.toContain("Agent declaration saved");
   });
 
-  it("lists every round of the selected agent in the inspector, not only the latest (G12 §4a)", async () => {
+  it("lists every round of the selected agent in the detail card, not only the latest (G12 §4a)", async () => {
     await mountAgentSquad("agent/terra");
-    const inspector = byTestId("runtime-inspector");
-    const rows = [...inspector.querySelectorAll("button")].map((button) => button.textContent ?? "");
+    // 原 inspector 相关会话段并入 AgentCard(业主 2026-10-06 密度反馈),按会话行 testid 数。
+    const rows = [...document.querySelectorAll('[data-testid^="agent-session-"]')].map((row) => row.textContent ?? "");
     // task-bound 的历史轮(terra sibling)与最新轮都在;相关会话按 agentId 精确读。
     expect(rows.some((text) => text.includes("terra sibling"))).toBe(true);
     expect(rows.filter((text) => text.includes("Bound task title")).length).toBe(2);
@@ -883,10 +883,9 @@ describe("runtime entry split (W6 IA)", () => {
     );
   });
 
-  it("keeps other agents' rounds and unattributed sessions out of the agent inspector (G12 §4b/§4c)", async () => {
+  it("keeps other agents' rounds and unattributed sessions out of the agent detail (G12 §4b/§4c)", async () => {
     await mountAgentSquad("agent/terra");
-    const inspector = byTestId("runtime-inspector");
-    const rows = [...inspector.querySelectorAll("button")].map((button) => button.textContent ?? "");
+    const rows = [...document.querySelectorAll('[data-testid^="agent-session-"]')].map((row) => row.textContent ?? "");
     expect(rows.some((text) => text.includes("luna"))).toBe(false);
     expect(rows.some((text) => text.includes("runtime-foreign"))).toBe(false);
   });
