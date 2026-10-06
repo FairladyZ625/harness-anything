@@ -6,6 +6,7 @@ import { emptyTaskLifecycleSnapshot, reduceTaskEvent, type TaskEventV1 } from ".
 import { OPAQUE_TEXTUAL_POLICY_ID, RAW_ARTIFACT_POLICY_ID } from "../domain/artifact-text-classification.ts";
 import {
   docByteLength,
+  documentPath,
   isDecisionEvent,
   isDocEvent,
   isFactEvent,
@@ -672,6 +673,20 @@ export function applyEvent(
       canonicalJson(snapshot),
     );
     runSql(db, UPSERT_DOCUMENT_SQL, contract.path, event.workspaceRevision, canonicalJson(document));
+    for (const claim of event.payload.addedDocumentClaims ?? []) {
+      const bytes = readBlob(claim.sha256);
+      if (!bytes || bytes.byteLength !== claim.size) throw new Error(`document blob ${claim.sha256} is unavailable`);
+      const added: DocumentState = {
+        path: documentPath(claim.path),
+        blobSha256: claim.sha256,
+        body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+        size: docByteLength(claim.size),
+        mediaType: claim.mediaType,
+        policyId: claim.policyId,
+        workspaceRevision: event.workspaceRevision,
+      };
+      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(added));
+    }
     return;
   }
   if (isTaskBootstrapEvent(event)) {

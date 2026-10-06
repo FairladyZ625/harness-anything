@@ -60,7 +60,7 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
       : isTaskBootstrapEvent(event)
         ? event.payload.initialDocumentClaims
         : isSnapshotUpgradeEvent(event)
-          ? [event.payload.taskContractClaim]
+          ? [event.payload.taskContractClaim, ...(event.payload.addedDocumentClaims ?? [])]
           : isTaskProgressEvent(event)
             ? [
                 event.payload.resultDocumentClaim,

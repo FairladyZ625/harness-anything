@@ -34,6 +34,8 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
     git(rootDir, "config", "user.name", "Preset Test");
     git(rootDir, "config", "user.email", "preset@example.invalid");
     git(rootDir, "commit", "--allow-empty", "-qm", "base");
+    mkdirSync(path.join(rootDir, ".github"), { recursive: true });
+    writeFileSync(path.join(rootDir, ".github", "pull_request_template.md"), "# Summary\n\n-\n");
     writePackage(sourceRoot, "upgrade-task", { version: "3.1.0" });
     installPresetPackage({
       source: path.join(sourceRoot, "upgrade-task"),
@@ -41,6 +43,7 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
     });
     const bootstrap = compileTaskBootstrap({
         userRoot,
+        repoRoot: rootDir,
         verticalId: "software/coding",
         profileId: "baseline",
         locale: "en-US",
@@ -142,21 +145,49 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
     assert.notEqual(upgraded.snapshot.digest, task.presetSnapshotDigest);
     assert.equal(upgraded.snapshot.identity.version, "3.2.0");
     assert.equal(upgraded.event.payload.taskContractClaim.path, contractPath);
+    const legacyContract = JSON.parse(contract.body) as { documents: Array<{ path: string }> };
+    legacyContract.documents = legacyContract.documents.filter(
+      ({ path: documentPath }) => !["artifacts/explainer.html", "artifacts/pr-body.md"].includes(documentPath),
+    );
+    const legacyUpgrade = compilePresetSnapshotUpgrade({
+      userRoot,
+      repoRoot: rootDir,
+      task,
+      taskContractBody: JSON.stringify(legacyContract),
+      actor: { principal: { personId: "person-1" }, executor: null },
+      source: "local",
+      workspaceRevision: 2,
+      eventId: "event-upgrade-legacy-docs",
+      opId: "op-upgrade-legacy-docs",
+      occurredAt: "2026-08-14T00:01:00.000Z",
+    });
+    assert.deepEqual(
+      legacyUpgrade.event.payload.addedDocumentClaims?.map(({ path: item }) =>
+        item.slice(item.lastIndexOf("/artifacts/")),
+      ),
+      ["/artifacts/explainer.html", "/artifacts/pr-body.md"],
+    );
+    assert.ok(
+      legacyUpgrade.blobs.some(({ sha256 }) => sha256 === legacyUpgrade.event.payload.addedDocumentClaims?.[0]?.sha256),
+      "the upgrade event carries the scaffold bytes it claims",
+    );
     assert.equal(Object.hasOwn(upgraded.event.payload.task.metadata ?? {}, "longRunning"), false);
     assert.equal(
       JSON.parse(upgraded.blobs.find(({ sha256 }) => sha256 === upgraded!.event.payload.taskContractClaim.sha256)!.body)
         .packagePath,
       bootstrap.packagePath,
     );
-    store.append(upgraded);
-    projection.apply(upgraded.event, upgraded.plan);
+    store.append(legacyUpgrade);
+    projection.apply(legacyUpgrade.event, legacyUpgrade.plan);
     await store.settlePendingMaterialization();
-    assert.equal(projection.read(taskId).snapshot.task?.presetSnapshotDigest, upgraded.snapshot.digest);
-    assert.deepEqual(projection.readPresetSnapshot(upgraded.snapshot.digest).snapshot, upgraded.snapshot);
+    assert.equal(projection.read(taskId).snapshot.task?.presetSnapshotDigest, legacyUpgrade.snapshot.digest);
+    assert.deepEqual(projection.readPresetSnapshot(legacyUpgrade.snapshot.digest).snapshot, legacyUpgrade.snapshot);
     assert.equal(
       JSON.parse(projection.readDocument(contractPath).document!.body).presetSnapshotDigest,
-      upgraded.snapshot.digest,
+      legacyUpgrade.snapshot.digest,
     );
+    assert.ok(projection.readDocument(`${bootstrap.packagePath}/artifacts/explainer.html`).document);
+    assert.ok(projection.readDocument(`${bootstrap.packagePath}/artifacts/pr-body.md`).document);
     assert.equal(readFileSync(planPath, "utf8"), editedPlan);
     assert.throws(
       () =>

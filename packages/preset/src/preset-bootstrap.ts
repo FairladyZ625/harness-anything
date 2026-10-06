@@ -489,16 +489,18 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       presetId: input.toPresetId ?? presetId,
     });
   // A preset may retire a document slot (afa7f26fc retired the fact ledger document once facts became
-  // entities); the retired file stays on disk as committed prose. Only a slot the package does not have yet
-  // would need materialization, so only additions are rejected.
+  // entities); the retired file stays on disk as committed prose. New fixed task scaffolds can be
+  // materialized during upgrade; authored or preset-defined additions still require recreation.
   const knownPaths = new Set(documents.map((item) => (item as { path: string }).path)),
     addedPaths = compiled.documents
       .map(({ relativePath }) => relativePath)
-      .filter((item) => !knownPaths.has(item) && !input.documentExists?.(item));
-  if (addedPaths.length)
+      .filter((item) => !knownPaths.has(item) && !input.documentExists?.(item)),
+    scaffoldAdditions = new Set(["artifacts/explainer.html", "artifacts/pr-body.md"]),
+    unsupportedAddedPaths = addedPaths.filter((item) => !scaffoldAdditions.has(item));
+  if (unsupportedAddedPaths.length)
     throw bootstrapFailure(
       "upgrade_document_set_changed",
-      `Preset upgrade adds documents the task package does not have (${addedPaths.join(", ")}); ` +
+      `Preset upgrade adds documents the task package does not have (${unsupportedAddedPaths.join(", ")}); ` +
         "recreate the task instead.",
     );
   if (compiled.snapshot.digest === previousDigest)
@@ -536,6 +538,16 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       owner: "machine" as const,
       policyId: "typed-machine-writer/v1" as const,
     },
+    addedDocumentClaims = compiled.documents
+      .filter(({ relativePath }) => addedPaths.includes(relativePath))
+      .map((document) => ({
+        path: document.path,
+        sha256: document.contentSha256,
+        size: Buffer.byteLength(document.body),
+        mediaType: document.mediaType,
+        owner: document.owner,
+        policyId: "opaque-textual-whole-file/v1" as const,
+      })),
     event: PresetSnapshotUpgradeEventV1 = {
       schema: "preset-snapshot-upgrade-event/v1",
       eventId: input.eventId,
@@ -571,6 +583,7 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
         },
         presetSnapshotClaim: snapshotClaim,
         taskContractClaim,
+        ...(addedDocumentClaims.length ? { addedDocumentClaims } : {}),
       },
     },
     issues = validatePresetSnapshotUpgradeEvent(event);
@@ -584,6 +597,14 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
         [
           { ...snapshotClaim, body: snapshotBody },
           { ...taskContractClaim, body: contractDocument.body },
+          ...compiled.documents
+            .filter(({ relativePath }) => addedPaths.includes(relativePath))
+            .map((document) => ({
+              sha256: document.contentSha256,
+              size: Buffer.byteLength(document.body),
+              mediaType: document.mediaType,
+              body: document.body,
+            })),
         ].map((blob) => [blob.sha256, blob]),
       ).values(),
     ],

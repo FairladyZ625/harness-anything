@@ -345,7 +345,7 @@ export async function completeTask(
   // A preset catalog that moved since the task was packaged used to bounce the whole completion
   // on preset_snapshot_mismatch and make the agent run ha preset upgrade by hand. Re-running that
   // same atomic upgrade here is safe, not a digest forgery: it recompiles the package against the
-  // live catalog, refuses added document slots, and writes a real preset_snapshot_upgraded event.
+  // live catalog, materializes new fixed scaffold slots, and writes a real preset_snapshot_upgraded event.
   // When the upgrade itself cannot compile (contract drift, added documents) its own coded error
   // stops the write and names the real blocker.
   const upgraded = upgradeDriftedPresetSnapshot(
