@@ -262,5 +262,8 @@
   "collaboration.phase.orphaned": "失联",
   "collaboration.phase.released": "已释放",
   "collaboration.assigneeLabel": "指派",
-  "collaboration.executorLabel": "执行"
+  "collaboration.executorLabel": "执行",
+  "collaboration.readError.authorizationDenied": "当前身份未获授权查看舰队拓扑（授权已被收回或从未授予）",
+  "collaboration.readError.insufficientScope": "当前身份的权限范围不足以查看舰队拓扑",
+  "collaboration.readError.authenticationRequired": "需要先登录账号才能查看舰队拓扑"
 }

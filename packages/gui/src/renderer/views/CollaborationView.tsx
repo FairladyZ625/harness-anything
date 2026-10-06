@@ -74,6 +74,12 @@ const NOTE_LABELS: Readonly<Record<string, MessageKey>> = {
 const WARNING_LABELS: Readonly<Record<string, MessageKey>> = {
   "node-owner-registry-unavailable": "collaboration.warning.ownerRegistryUnavailable",
 };
+/** 整页读拒绝收据的稳定 code → 人话(与字段级裁剪共用 code 但措辞面向整页);码进 title/data-reason。 */
+const READ_ERROR_LABELS: Readonly<Record<string, MessageKey>> = {
+  authorization_denied: "collaboration.readError.authorizationDenied",
+  insufficient_scope: "collaboration.readError.insufficientScope",
+  authentication_required: "collaboration.readError.authenticationRequired",
+};
 
 function reasonText(reason: string): string {
   const message = REASON_LABELS[reason];
@@ -148,8 +154,16 @@ export function CollaborationView({
           </p>
         ) : null}
         {overviewError !== null ? (
-          <p data-testid="collaboration-read-error" className="mb-3 ui-meta text-status-blocked">
-            {t("collaboration.readFailed", { error: overviewError })}
+          <p
+            data-testid="collaboration-read-error"
+            data-reason={READ_ERROR_LABELS[overviewError] === undefined ? undefined : overviewError}
+            title={READ_ERROR_LABELS[overviewError] === undefined ? undefined : overviewError}
+            className="mb-3 ui-meta text-status-blocked"
+          >
+            {t("collaboration.readFailed", {
+              error:
+                READ_ERROR_LABELS[overviewError] === undefined ? overviewError : t(READ_ERROR_LABELS[overviewError]),
+            })}
           </p>
         ) : null}
         {overviewLoading && overview === null ? (

@@ -191,6 +191,19 @@ describe("协作页舰队拓扑契约", () => {
     );
   });
 
+  it("授权类读拒绝显示人话原因,机器码只进 data-reason/title;未识别码原样保留", () => {
+    const denied = renderView({ error: "authorization_denied" });
+    const banner = denied.host.querySelector<HTMLElement>('[data-testid="collaboration-read-error"]')!;
+    expect(banner.textContent).toContain("当前身份未获授权查看舰队拓扑");
+    expect(banner.textContent).not.toContain("authorization_denied");
+    expect(banner.getAttribute("data-reason")).toBe("authorization_denied");
+    expect(banner.getAttribute("title")).toBe("authorization_denied");
+    const unknown = renderView({ error: "fleet_edge_config_invalid" });
+    const raw = unknown.host.querySelector<HTMLElement>('[data-testid="collaboration-read-error"]')!;
+    expect(raw.textContent).toContain("fleet_edge_config_invalid");
+    expect(raw.getAttribute("data-reason")).toBeNull();
+  });
+
   it("加载且无数据时显示读取态,不给空舰队", () => {
     const view = renderView({ data: null, loading: true });
     expect(view.text()).toContain("正在读取舰队拓扑");
