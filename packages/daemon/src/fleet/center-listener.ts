@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import type { SnapshotCut } from "./replica-cut-store.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
@@ -212,6 +213,64 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (!upload) throw new FleetFault("upload_unknown", "Upload metadata is missing.");
       return path.join(safeLocal(upload.repoId, "fleet-uploads"), `${uploadId}.part`);
     };
+  const admitReplica = async (nodeId: string, repoId: string) => {
+    if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
+      throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
+    const a = await nodeContext(nodeId, repoId),
+      replica = options.host.replica(a.repoId),
+      // Mirroring is reading: the node owner's repository-read admits the replica, the same authority
+      // a center-forwarded read checks (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
+      decision = await options.host.authorize(a.repoId, "repository-read", await readerAuth(a));
+    if (decision.outcome !== "allowed")
+      throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
+    replica.activate();
+    return { a, replica };
+  };
+  // A watch that sees no new cut still answers on the progress interval with the unchanged head, so a
+  // connected edge can keep confirming freshness without pulling (the same role as etcd's progress notify).
+  const headAfterOrProgress = (
+    replica: ReturnType<typeof options.host.replica>,
+    afterRevision: number,
+    progressMs: number,
+  ) =>
+    new Promise<SnapshotCut>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const current = replica.latest();
+        if (current) resolve(current);
+      }, progressMs);
+      timer.unref();
+      replica.waitForCut(afterRevision + 1).then(
+        (cut) => {
+          clearTimeout(timer);
+          resolve(cut);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  // The wait starts only once the session is known to be open: a wait started during shutdown would be
+  // rejected by the closing cut source with nobody left to observe it.
+  const untilAborted = <T>(start: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
+    const stop = signal ? AbortSignal.any([signal, closing.signal]) : closing.signal;
+    if (stop.aborted) return Promise.reject(new FleetFault("busy", "The replica session closed.", true));
+    const pending = start();
+    return new Promise<T>((resolve, reject) => {
+      const abort = () => reject(new FleetFault("busy", "The replica session closed.", true));
+      stop.addEventListener("abort", abort, { once: true });
+      pending.then(
+        (value) => {
+          stop.removeEventListener("abort", abort);
+          resolve(value);
+        },
+        (error: unknown) => {
+          stop.removeEventListener("abort", abort);
+          reject(error);
+        },
+      );
+    });
+  };
   const handle = async (
     nodeId: string,
     frame: FleetFrameV1,
@@ -430,17 +489,28 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         code: receipt.code ?? null,
       });
     }
+    if (frame.schema === "fleet.replica.watch/v1") {
+      const { replica } = await admitReplica(nodeId, frame.repoId),
+        latest = replica.latest(),
+        // Cuts are contiguous per workspace revision and every center write kicks the cut source, so the
+        // next revision's cut is the event a caught-up edge waits on instead of polling.
+        next =
+          latest && latest.revision > frame.afterRevision
+            ? latest
+            : await untilAborted(
+                () => headAfterOrProgress(replica, frame.afterRevision, options.replicaWatchProgressMs ?? 20_000),
+                connectionSignal,
+              );
+      return immediate({
+        schema: "fleet.replica.head-hint/v1",
+        messageId: mid(frame.messageId, "head-hint"),
+        inReplyTo: frame.messageId,
+        repoId: frame.repoId,
+        cut: wireCut(next),
+      });
+    }
     if (frame.schema === "fleet.replica.pull/v1") {
-      if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
-        throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
-      const a = await nodeContext(nodeId, frame.repoId),
-        replica = options.host.replica(a.repoId),
-        // Mirroring is reading: the node owner's repository-read admits the replica, the same authority
-        // a center-forwarded read checks (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
-        decision = await options.host.authorize(a.repoId, "repository-read", await readerAuth(a));
-      if (decision.outcome !== "allowed")
-        throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
-      replica.activate();
+      const { a, replica } = await admitReplica(nodeId, frame.repoId);
       const ledgerCut = replica.ledgerCut();
       if (!ledgerCut || ledgerCut.revision === 0)
         throw new FleetFault("replica_pending", "No exact center cut is ready.", true);
@@ -825,7 +895,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (closed) return;
       closed = true;
       closing.abort();
-      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      // Edges keep replica sessions open between pulls, so a session is never idle long enough to end on its own;
+      // `server.close` only resolves once every authenticated socket is gone.
+      const drained = new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+      for (const live of sessions.values()) for (const socket of live) socket.destroy();
+      sessions.clear();
+      await drained;
       try {
         for (const [repoId, owned] of ownedEpochs) {
           const current = writerEpoch.current(repoId);

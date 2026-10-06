@@ -256,13 +256,20 @@ test(
       const deltaBody = "# Fleet mirror note\n\nsecond cut\n";
       writeFileSync(path.join(fixture.repo, "harness", docPath), deltaBody);
       assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--task", "task-fleet"]).outcome, "applied");
-      const delta = retryReplicaPending(sync);
-      assert.equal(delta.status, "fleet.ack.result/v1");
-      assert.ok((delta.ackCut as number) > (pulled.ackCut as number));
-      assert.equal(
-        readFileSync(path.join(viewRoot, "cuts", String(delta.ackCut), "files", docPath), "utf8"),
-        deltaBody,
+      // The edge daemon's background sync may pull the new cut before this explicit sync runs; either way
+      // the explicit sync must leave the edge on the new cut, by transferring it or by confirming it current.
+      let delta = retryReplicaPending(sync),
+        deltaCut = (delta.cut as { revision: number }).revision;
+      for (let attempt = 0; attempt < 40 && !(deltaCut > (pulled.ackCut as number)); attempt += 1) {
+        delta = retryReplicaPending(sync);
+        deltaCut = (delta.cut as { revision: number }).revision;
+      }
+      assert.ok(
+        ["fleet.ack.result/v1", "fleet.replica.current/v1"].includes(String(delta.status)),
+        JSON.stringify(delta),
       );
+      assert.ok(deltaCut > (pulled.ackCut as number), JSON.stringify(delta));
+      assert.equal(readCutFile(viewRoot, deltaCut, docPath), deltaBody);
       assert.equal(
         readFileSync(path.join(fixture.edgeRepo, "harness", docPath), "utf8"),
         deltaBody,

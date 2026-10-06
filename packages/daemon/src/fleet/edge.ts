@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
+import type { FleetReplicaSessionPool } from "./edge-replica-sync.ts";
 import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { recordHeadConfirmation, recordRepoReadDenied } from "./replica-read-model.ts";
 import { sha256Bytes } from "@harness-anything/kernel";
@@ -77,6 +78,8 @@ export interface FleetReplicaPullClientOptions extends FleetPeerOptions {
   readonly diskQuotaBytes: number;
   readonly beforeAck?: (frame: Extract<FleetFrameV1, { schema: "fleet.ack/v1" }>) => void;
   readonly edgeKillpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void;
+  /** Reuse the authenticated TLS session for this node/repository when supplied. */
+  readonly sessionPool?: FleetReplicaSessionPool;
 }
 export interface FleetReplicaPullClientResult {
   readonly replica:
@@ -95,6 +98,8 @@ export class FleetRemoteError extends Error {
     this.resumeOffset = frame.resumeOffset;
   }
 }
+
+export type FleetPeer = Awaited<ReturnType<typeof openPeer>>;
 
 export function openFleetEdgeView(
   rootDir: string,
@@ -771,21 +776,34 @@ export async function runFleetScheduleCommandClient(
     session.close();
   }
 }
+// A view has one staging directory, and the daemon (the only process that pulls) runs the background
+// sync next to explicit pulls, so pulls into the same view take turns instead of interleaving transfers.
+const viewPulls = new Map<string, Promise<unknown>>();
 export async function runFleetReplicaPullClient(
   options: FleetReplicaPullClientOptions,
 ): Promise<FleetReplicaPullClientResult> {
+  const key = path.resolve(options.viewRoot),
+    previous = viewPulls.get(key) ?? Promise.resolve(),
+    turn = previous.then(
+      () => pullReplica(options),
+      () => pullReplica(options),
+    );
+  viewPulls.set(key, turn);
   try {
-    return await pullReplica(options);
+    return await turn;
   } catch (error) {
     if (error instanceof FleetRemoteError && error.code === "authorization_denied")
       recordRepoReadDenied(options.viewRoot, options.repoId);
     throw error;
+  } finally {
+    if (viewPulls.get(key) === turn) viewPulls.delete(key);
   }
 }
 async function pullReplica(options: FleetReplicaPullClientOptions): Promise<FleetReplicaPullClientResult> {
   const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint),
-    session = await openPeer(options);
-  let last: FleetReplicaPullClientResult["replica"] | null = null;
+    session = options.sessionPool ? await options.sessionPool.acquire(options) : await openPeer(options);
+  let last: FleetReplicaPullClientResult["replica"] | null = null,
+    failed = true;
   try {
     for (;;) {
       session.send({
@@ -807,6 +825,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
             path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId),
             inbound.cut.revision,
           );
+          failed = false;
           return { replica: last ?? inbound, current };
         }
         const response = view.receive(inbound);
@@ -820,10 +839,12 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
       }
     }
   } finally {
-    session.close();
+    if (!options.sessionPool) session.close();
+    else if (failed) options.sessionPool.discard(options, session);
+    else options.sessionPool.release(options, session);
   }
 }
-async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
+export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
   const socket = await peerSocket(options),
     peer = peerFor(socket, options.timeoutMs ?? 5_000),
     prefix = `${options.nodeId}_${Date.now().toString(36)}`;
