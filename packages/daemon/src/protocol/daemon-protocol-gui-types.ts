@@ -1032,6 +1032,6 @@ export {
   isUseCaseProjectionFacet,
   type UseCaseProjectionName,
   type UseCaseProjectionFacet,
-} from "./daemon-protocol-use-case-projection-selectors.ts";
+} from "./daemon-protocol-vocabulary.ts";
 
 export type { DaemonUseCaseProjectionPayload, DaemonUseCaseProjectionResult };

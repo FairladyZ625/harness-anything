@@ -8,7 +8,7 @@ import type {
   TaskCapabilityId,
   TaskCapabilityReason,
   TaskPhaseReason,
-  UseCaseProjectionName,
+  UseCaseProjectionName as KernelUseCaseProjectionName,
   taskPhaseSteps,
 } from "@harness-anything/kernel";
 
@@ -201,7 +201,7 @@ export const useCaseProjectionNameWords = Object.freeze([
   "schedule-plane",
   "schedule-run-history",
   "runtime-session-groups",
-] as const satisfies readonly UseCaseProjectionName[]);
+] as const satisfies readonly KernelUseCaseProjectionName[]);
 
 /**
  * Catalog projections whose fields ride on an existing read's rows instead of `repo.projection.read`
@@ -222,19 +222,91 @@ export const rowDeliveredUseCaseProjections = Object.freeze({
  * Every catalog projection has exactly one delivery channel: a `repo.projection.read` selector above
  * or a row-delivering read. Adding a name to the kernel catalog without choosing one fails here.
  */
-export const useCaseProjectionDeliveryIsTotal: [UseCaseProjectionName] extends [
+export const useCaseProjectionDeliveryIsTotal: [KernelUseCaseProjectionName] extends [
   (typeof useCaseProjectionNameWords)[number] | keyof typeof rowDeliveredUseCaseProjections,
 ]
   ? true
   : never = true;
 
 export const useCaseProjectionNameWordsAreServed: [(typeof useCaseProjectionNameWords)[number]] extends [
-  UseCaseProjectionName,
+  KernelUseCaseProjectionName,
 ]
   ? true
   : never = true;
 
 export const useCaseProjectionFacetWords = Object.freeze(["plane", "runs", "groups"] as const);
+
+/**
+ * Use-case projection transport contract (dec_5B135F46 CH4 layer two).
+ *
+ * The kernel catalog says which named projections exist and which views consume them; this is the
+ * wire half, and — the part that matters — the *single* boundary where a selector is admitted. The
+ * precedent (`task_e75157a2d1538a71726603aeef`) shipped facet selectors whose vocabulary ended up
+ * restated in five files, so adding a facet to only some of them failed asymmetrically instead of
+ * fail-closed. `admitUseCaseProjectionSelector` is called by the RPC request validator, the
+ * repo-cell handler and the GUI preload, so all three reject identically.
+ *
+ * It lives beside the word mirrors it admits against, in the one protocol module all three callers
+ * can legally reach: the thin CLI dist graph and the daemon transport allowlist both name this file,
+ * so the block cannot sit in a module of its own. No runtime kernel import rides along — the mirrors
+ * above are pinned to the kernel type at compile time.
+ */
+export const useCaseProjectionSchemaId = "daemon.use-case-projection/v1" as const;
+
+export type UseCaseProjectionName = (typeof useCaseProjectionNameWords)[number];
+
+export const useCaseProjectionFacets = Object.freeze({
+  "schedule-plane": Object.freeze(["plane"] as const),
+  "schedule-run-history": Object.freeze(["runs"] as const),
+  "runtime-session-groups": Object.freeze(["groups"] as const),
+});
+
+export type UseCaseProjectionFacet = (typeof useCaseProjectionFacetWords)[number];
+
+/**
+ * The closed field set a projection may carry, `name` and `facet` included. Anything else on the
+ * payload is rejected at the boundary rather than silently ignored by one layer and honoured by
+ * the next.
+ */
+function useCaseProjectionSelectorFields(name: UseCaseProjectionName): readonly string[] {
+  const base = ["name", "facet"];
+  if (name === "schedule-plane") return base;
+  if (name === "schedule-run-history") return [...base, "scheduleId", "limit"];
+  return [...base, "groupBy", "since", "query", "agentId", "squadId", "status", "sessionIds", "limit"];
+}
+
+export function isUseCaseProjectionName(value: unknown): value is UseCaseProjectionName {
+  return typeof value === "string" && (useCaseProjectionNameWords as readonly string[]).includes(value);
+}
+
+export function isUseCaseProjectionFacet(name: UseCaseProjectionName, facet: unknown): facet is UseCaseProjectionFacet {
+  return typeof facet === "string" && (useCaseProjectionFacets[name] as readonly string[]).includes(facet);
+}
+
+/**
+ * The one admission routine. Returns the resolved `{name, facet}` or the reason it is inadmissible,
+ * so every layer that guards this read rejects for the same reason with the same words.
+ */
+export function admitUseCaseProjectionSelector(
+  payload: Readonly<Record<string, unknown>>,
+): { readonly name: UseCaseProjectionName; readonly facet: UseCaseProjectionFacet } | string {
+  const { name } = payload;
+  if (!isUseCaseProjectionName(name)) return `Use-case projection name is unknown: ${String(name)}.`;
+  const facet = payload.facet === undefined ? useCaseProjectionFacets[name][0] : payload.facet;
+  if (!isUseCaseProjectionFacet(name, facet))
+    return (
+      `Use-case projection ${name} has no facet ${String(facet)}; ` +
+      `expected ${useCaseProjectionFacets[name].join(", ")}.`
+    );
+  const allowed = useCaseProjectionSelectorFields(name);
+  const unexpected = Object.keys(payload).filter((field) => !allowed.includes(field));
+  if (unexpected.length > 0)
+    return (
+      `Use-case projection ${name}/${facet} does not accept ${unexpected.sort().join(", ")}; ` +
+      `expected only ${allowed.join(", ")}.`
+    );
+  return { name, facet };
+}
 
 /** Schedule interval 时长词表(唯一实现)。毫秒 ↔ `90s`/`5m`/`2h`/`1d` 的解析与格式化在这里各只有
  * 一份:CLI 的 `--every`、daemon 读侧的 trigger summary、GUI 表单的时长控件都从这里取,三方不再
