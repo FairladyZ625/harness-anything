@@ -77,29 +77,38 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     assert.equal(standard.event.payload.initialDocumentClaims.length, 7);
     assert.equal(standard.packagePath, "tasks/task-standard-standard");
     const explainer = standard.documents.find(({ relativePath }) => relativePath === "artifacts/explainer.html")!.body;
+    assert.ok(explainer.includes('id="now"'), "the living section id survives");
+    assert.ok(explainer.includes('id="timeline"'), "the timeline section id survives");
     for (const id of ["conclusion", "objectives", "structure", "evidence", "next-steps"])
-      assert.ok(explainer.includes(`id="${id}"`));
-    assert.equal((explainer.match(/<svg /gu) ?? []).length, 5);
-    assert.match(explainer, /AUTHORING GUIDE[\s\S]*four scenarios change only this chapter's diagram/u);
+      assert.ok(!explainer.includes(`id="${id}"`), `the retired five-chapter id is gone: ${id}`);
+    assert.equal((explainer.match(/<svg /gu) ?? []).length, 0, "the skeleton ships no placeholder SVG");
+    assert.doesNotMatch(explainer, /Pending/u, "no placeholder fill-me prose");
     assert.match(explainer, /max-width:none/u);
     assert.doesNotMatch(explainer, /max-width:72rem/u);
-    for (const className of [
-      "hero-subtitle",
-      "measure-note",
-      "metric-grid",
-      "chapter-head",
-      "group",
-      "node-existing",
-      "node-new",
-      "node-removed",
-      "node-external",
-      "connector",
-      "legend",
-      "source-note",
+    for (const className of ["hero-subtitle", "measure-note"])
+      assert.match(explainer, new RegExp(`class=\\"[^\\"]*${className}`), `expected header class: ${className}`);
+    for (const selector of [
+      ".metric-grid{",
+      ".chapter-head{",
+      ".group{",
+      ".node-existing{",
+      ".node-new{",
+      ".node-removed{",
+      ".node-external{",
+      ".connector{",
+      ".legend{",
+      ".source-note{",
     ])
-      assert.match(explainer, new RegExp(`class=\\"[^\\"]*${className}`), `expected visual kit class: ${className}`);
-    for (const rule of ["#conclusion:", "#objectives:", "#structure:", "#evidence:", "#next-steps:"])
-      assert.ok(explainer.includes(rule), `expected chapter-specific template instructions: ${rule}`);
+      assert.ok(explainer.includes(selector), `expected visual kit selector: ${selector}`);
+    for (const rule of [
+      "给谁看",
+      "什么时候更新",
+      "开工读完材料后先写第一版",
+      "画不出真实内容的图不要画",
+      "#now",
+      "#timeline",
+    ])
+      assert.ok(explainer.includes(rule), `expected authoring-guide rule: ${rule}`);
     assert.ok(
       standard.documents[0]!.body.endsWith("## Next\n\nEdit `task_plan.md`, then run `ha task start task-standard`.\n"),
     );

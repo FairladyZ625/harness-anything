@@ -5,13 +5,13 @@ description: 产出与增量维护任务包中的活解释页 artifacts/explaine
 
 # 任务活解释页（task-explainer-html）
 
-每个非 lightweight 在账任务有一页**活的可视解释**：任务包 `artifacts/explainer.html`。它不是终局报告，而是随工作轮次增量生长、在 closeout 终态冻结的单文件 HTML——让不读代码的读者随时看到这个任务做了什么、验证了什么、还差什么。Daemon 的派工协议只提醒 worker 更新这份已物化页面。
+每个非 lightweight 在账任务有一页**活的可视解释**：任务包 `artifacts/explainer.html`。它不是终局报告，而是任务**进行中**随工作轮次更新的单文件 HTML——业主不读 worker session，task_plan 只是开工时的静态计划，这页是他在任务进行中了解进展的窗口；closeout 终态冻结。Daemon 的派工协议讲明这页给谁看、什么时候更新。
 
 任务创建时物化的 `artifacts/explainer.html` 顶部 HTML 注释是章节、配色、布局、场景图型和质量要求的**唯一权威来源**。派工与本技能都不复制这些规则；打开页面后按注释逐轮填入真实任务内容。
 
 ## 页面编写
 
-以物化页面的 HTML 注释为准。不要在本技能、mission 或其他副本维护第二套模板指引；模板规则变化时只改 preset 模板与它的测试。五章都要画进本任务的真实结构、验证结果和剩余范围，而不是通用输入/处理/输出占位图。
+以物化页面的 HTML 注释为准。正文固定只有两节：`#now`「现在在发生什么」（每轮覆盖重写）与 `#timeline`「过程记录」（只追加、最新在上）；其余章节按任务需要自加，数量与标题不限。多用带真实名字和数字的图（结构、流程、时序、前后对比、数据）说明问题，画不出真实内容的图不要画。不要在本技能、mission 或其他副本维护第二套模板指引；模板规则变化时只改 preset 模板与它的测试。
 
 ## `<task-context>` 注入规约
 
@@ -43,7 +43,7 @@ description: 产出与增量维护任务包中的活解释页 artifacts/explaine
 
 ## 活页生命周期（Living Deliverable Protocol）
 
-1. **每轮增量更新**：工作轮次收尾时更新 `artifacts/explainer.html`——更新结论句、任务对照表状态、验证区证据，而不是推倒重写。页面 DOM 骨架保持稳定（章节 id 不变），只重写数据区，让逐轮 diff 可读。
+1. **逐轮更新**：开工读完材料后先写第一版（你的理解与打算）；每有实质进展、发现、方向变化或红转绿，就重写 `#now` 并在 `#timeline` 顶部追加一条（时间 + 本轮做了什么/发现了什么/为什么改方向 + 证据锚点）。不要攒到收尾一次写。
 2. **创建即物化**：非 lightweight profile 的任务在 `ha task create` 时就已物化这一页（preset 模板直接可增量填写）；lightweight profile 不物化本页、mission 也不注入本协议。首轮工作从填充骨架开始，不要另起新文件。
 3. **closeout 冻结**：任务进入终态时，解释页随任务包一并提交并不再改动；冻结版必须与 closeout.md 的结论一致。
 4. **不替代结构化汇报**：本页是给人看的解释层；closeout.md 四节、progress、fact 等台账义务不因本页存在而减免。
