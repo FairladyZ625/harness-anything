@@ -294,6 +294,8 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         // all -- keep polling rather than crashing on that transient shape.
         return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
       });
+    // Success with permission denials is the provider's own ambiguity: the frame parser declares
+    // the outcome unknown, and a zero exit does not restat it as success.
     assert.deepEqual(
       (
         deniedRead.session as {
@@ -303,7 +305,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         outcome: (deniedRead.session as { activity: { outcome: unknown } }).activity.outcome,
         exitCode: (deniedRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
       },
-      { outcome: "succeeded", exitCode: 0 },
+      { outcome: "unknown", exitCode: 0 },
     );
     const empty = await rpc(host, auth, "repo.agentRuntime.spawn", {
       repo: { repoId },
@@ -846,7 +848,9 @@ test("agy consumes only its closed stream-json event protocol", async () => {
       // projection catch-up can return a receipt with no `session` yet.
       return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
     });
-    assert.equal((rejectedRead.session as { activity: { outcome: string } }).activity.outcome, "succeeded");
+    // The out-of-protocol event never becomes a result, and with no structured provider outcome
+    // the zero exit alone settles unknown instead of restating success.
+    assert.equal((rejectedRead.session as { activity: { outcome: string } }).activity.outcome, "unknown");
     assert.equal((rejectedRead.result as Record<string, unknown>).text, "");
   } finally {
     await host.close();

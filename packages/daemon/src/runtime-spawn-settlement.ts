@@ -9,7 +9,7 @@ import {
 } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
-import { pushWorkerBranch, workerBranchHasDelivery } from "./runtime-worker-push.ts";
+import { pushWorkerBranch, squadWorkerBranchHasDelivery, workerBranchHasDelivery } from "./runtime-worker-push.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
@@ -430,6 +430,15 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
           .read(active.task.taskId)
           .snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`)
       : false;
+  // A squad leader turn owes no repository artifacts: children deliver the commits and the leader's
+  // delivery is its decision, carried in the provider's structured result and re-verified by the
+  // coordinator parsing it. The same evidence class as a taskless run witnesses the turn.
+  if (active.squadId !== null && active.delegatedBy === null)
+    return active.providerOutcome === "succeeded" && active.finalText !== null;
+  // A squad worker delivers on the commander-cut `<branch>--squad-…` checkout, which never equals
+  // the task id the witness below requires; a squad-context dispatch on the task branch still falls
+  // through to that witness.
+  if (active.squadId !== null && (await squadWorkerBranchHasDelivery({ cwd: active.cwd }))) return true;
   if (
     await workerBranchHasDelivery({
       cwd: active.cwd,

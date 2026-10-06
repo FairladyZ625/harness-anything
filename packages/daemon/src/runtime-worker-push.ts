@@ -55,6 +55,21 @@ export async function workerBranchHasDelivery(input: {
   }
 }
 
+// A squad worker delivers on the branch its checkout cut: `<commander branch>--squad-…` (the naming
+// squad-worker-checkout.ts derives), which never equals the task id the witness above requires. Its
+// delivery is commits on that branch beyond the commander branch it was cut from.
+export async function squadWorkerBranchHasDelivery(input: { readonly cwd: string }): Promise<boolean> {
+  const env = gitEnvironment();
+  try {
+    const branch = (await readGitText(input.cwd, ["branch", "--show-current"], env)).trim(),
+      commander = branch.slice(0, branch.lastIndexOf("--squad-"));
+    if (!commander) return false;
+    return (await readGitText(input.cwd, ["rev-list", "--count", `${commander}..HEAD`], env)).trim() !== "0";
+  } catch {
+    return false;
+  }
+}
+
 // The conventional worker identity has exactly one source: the git config the canonical
 // repository itself resolves (`git config user.name/user.email` at the canonical root, local
 // values over global ones). Worker worktrees share that config, so this states explicitly the
