@@ -1,15 +1,16 @@
 /**
  * 舰队拓扑的纯布局几何(协作页视觉重做,task_16c20131):给定容器尺寸与节点集合,
- * 决定每个节点卡的落位与画布高度,并给出连线几何。纯函数、无 DOM,可单测:
- * 契约是「边缘 1–12 个在 700px 以上排得开、以下纵向堆叠,任意组合卡片不重叠」。
+ * 决定每个节点卡的落位与画布高度,并给出连线几何。纯函数、无 DOM,可单测。
  *
- * 三种形态(高→低宽度):
- * - 雷达环(宽 ≥940 且边缘 ≤4):中心居中,边缘按固定扇面角放椭圆环上,椭圆横向
- *   铺满可用宽度(指挥台要的是「撑开的舰队」,不是挤在中间的一撮卡);
- * - 双翼列(宽 ≥700):中心居中,边缘分列左右两翼纵向排布,画布高度随节点数扩展
- *   (任务 2879 设计稿「2 列环形网格分层排布并扩展画布高度」);
- * - 纵向堆叠(窄):中心在上、边缘下移成列,左侧留出轨道槽,连线走左槽,
- *   对应「窄屏纵向排列并保留节点、事件与权限信息」。
+ * 第 3 轮(CEO 续跑)把「连线可见长度」升为一等契约:中心与边缘卡边框之间的
+ * 可视连线至少 LINK_MIN 像素——流光/粒子要有能被看见的轨道。布局按宽度分四形,
+ * 每一形都按构造满足契约:
+ * - 雷达环(边缘 ≤4,宽度解得开):侧锚把边缘卡推到面板左右沿,纵向偏移取
+ *   连线 ≥ LINK_MIN 的最小解;解不出(宽度不够)退到队列树;
+ * - 双翼列(边缘 >4 且宽度解得开):两翼贴面板左右沿纵向排布,与中心卡的横向
+ *   净空 ≥ LINK_MIN,画布高度随节点数扩展(任务 2879 设计稿);
+ * - 队列树(中带宽):中心卡在上方,边缘两列排在下方,连线全部斜向;
+ * - 纵向堆叠(窄):中心在上、边缘下移成列,左侧留轨道槽,连线走左槽。
  */
 
 export interface FleetLayoutNode {
@@ -31,7 +32,7 @@ export interface FleetLayout {
   readonly placement: ReadonlyMap<string, FleetNodePlacement>;
   /** 窄屏纵向形态:连线沿左槽走;其余形态:连线是中心到边缘的贝塞尔。 */
   readonly narrow: boolean;
-  /** 窄屏形态下连线的轨道 x 坐标(环形形态无意义)。 */
+  /** 窄屏形态下连线的轨道 x 坐标(其余形态无意义)。 */
   readonly spineX: number;
 }
 
@@ -40,121 +41,184 @@ export interface FleetLayout {
 export const CENTER_CARD = { width: 300, height: 148 } as const;
 export const EDGE_CARD = { width: 252, height: 124 } as const;
 
-const CANVAS_PADDING = 20;
-/** 纵向堆叠的上限宽度:双翼列要同时容纳「中心卡 300 + 间隙 + 边缘卡 252」两翼,
- * 右翼右沿不越界要求 width ≥ 2×(150+20+126)+2×20=884,取 890。 */
-const COLUMN_MIN_WIDTH = 890;
-/** 雷达环的最小宽度:椭圆横向净空包住「中心卡⊕边缘卡」(见 ringLayout),
- * 2×(150+126+50)+252+2×20=944,取 940 档以下交给双翼列。 */
-const RING_MIN_WIDTH = 940;
-/** 椭圆/两翼对「中心卡⊕边缘卡」矩形的净空。 */
-const CLEARANCE = 50;
-const CARD_GAP = 20;
-/** 双翼列的列中心到画布中心的水平距离:中心半宽 150 + 间隙 28 + 边缘半宽 126。 */
-const COLUMN_OFFSET = CENTER_CARD.width / 2 + 28 + EDGE_CARD.width / 2;
+/** 中心卡与边缘卡边框之间连线可见长度的验收带(CEO 第 3 轮:至少 120–200px)。
+ * 下限留出渲染抗锯齿余量;上限防宽屏把连线拉成失去张力的长弧。所有形态按构造
+ * 落在带内,单测逐宽度档断言。 */
+export const LINK_MIN = 130;
+export const LINK_MAX = 200;
 
-/** 卡片矩形净空:两轴让开中心卡时的最小间隙(不相切、留可读缝)。 */
+const CANVAS_PADDING = 20;
+const CARD_GAP = 20;
+/** 卡片矩形净空:两轴让开时的最小间隙(不相切、留可读缝)。 */
 const CARD_CLEARANCE = 8;
-/** 环形形态的基础 ry:中心半高 + 边缘半高 + 矩形净空。 */
-const RING_BASE_RY = CENTER_CARD.height / 2 + EDGE_CARD.height / 2 + CARD_CLEARANCE + CLEARANCE;
+/** 队列树:中心卡底沿到第一行边缘卡顶沿的垂直净空(斜向连线由此 ≥ LINK_MIN)。 */
+const TREE_GAP = LINK_MIN + 2;
+/** 队列树两列的列心到画布中心的最大水平距离(窄树往里收,宽树不超过此值)。 */
+const TREE_COLUMN_SPREAD = 330;
+/** 队列树的最小宽度:两列边缘卡各带画布 padding,再留列间隙。 */
+const TREE_MIN_WIDTH = 2 * (EDGE_CARD.width + CANVAS_PADDING) + 24;
 
 export function computeFleetLayout(width: number, height: number, nodes: readonly FleetLayoutNode[]): FleetLayout {
   if (width <= 0) width = 1024;
   if (height <= 0) height = 420;
   const edges = nodes.filter((node) => node.role === "edge");
-  if (width >= RING_MIN_WIDTH && edges.length > 0 && edges.length <= 4) return ringLayout(width, height, edges);
-  if (width >= COLUMN_MIN_WIDTH) return columnLayout(width, height, edges);
+  if (edges.length <= 4) {
+    const ring = ringLayout(width, height, edges);
+    if (ring !== null) return ring;
+  } else {
+    const wings = columnLayout(width, height, edges);
+    if (wings !== null) return wings;
+  }
+  if (width >= TREE_MIN_WIDTH) return treeLayout(width, edges);
   return narrowLayout(width, edges);
 }
 
-/** 画布容器的建议高度:随布局形态/边缘数增长(环形净空/双翼列纵向堆叠),少节点时
- * 不留大片死空白;容器再由 CSS clamp 上限约束,超高画布在内部滚动。
- * 环形高度必须给足椭圆的纵向净空,否则底部节点被容器折线裁半。 */
-export function suggestFleetCanvasHeight(edgeCount: number): number {
-  if (edgeCount >= 1 && edgeCount <= 4)
-    return Math.max(
-      2 * (RING_BASE_RY + EDGE_CARD.height / 2 + CANVAS_PADDING + 8),
-      2 * CANVAS_PADDING + CENTER_CARD.height + 80,
-    );
-  const wingRows = Math.ceil(edgeCount / 2);
-  return Math.max(
-    460,
-    2 * CANVAS_PADDING + CENTER_CARD.height + 80,
-    wingRows * (EDGE_CARD.height + CARD_GAP) - CARD_GAP + 2 * CANVAS_PADDING + 60,
+/** 单位方向 (ux, uy) 下,中心卡与边缘卡沿该方向的边框出射距离之和。 */
+function ringExits(unitX: number, unitY: number): number {
+  return (
+    exitDistance(CENTER_CARD.width / 2, CENTER_CARD.height / 2, unitX, unitY) +
+    exitDistance(EDGE_CARD.width / 2, EDGE_CARD.height / 2, unitX, unitY)
   );
 }
 
-/** 雷达环:边缘卡中心落在椭圆上,对每个扇面角必须沿至少一根轴让开中心卡
- * (rx|cosθ| ≥ 中心半宽+边缘半宽 或 ry|sinθ| ≥ 中心半高+边缘半高);椭圆横向吃掉
- * 可用宽度的 78%(指挥台要撑开的队形,不是中间一撮),纵向至少给足基础环高。 */
-function ringLayout(width: number, height: number, edges: readonly FleetLayoutNode[]): FleetLayout {
-  const halfWidth = width / 2 - EDGE_CARD.width / 2 - CANVAS_PADDING;
-  const rx = Math.min(halfWidth, Math.max(CENTER_CARD.width / 2 + EDGE_CARD.width / 2 + CLEARANCE, halfWidth * 0.78));
-  const fanAngles: Record<number, readonly number[]> = {
-    1: [90],
-    2: [0, 180],
-    3: [90, 210, 330],
-    4: [45, 135, 225, 315],
-  };
-  const angles = fanAngles[edges.length] ?? [90];
-  // 卡是矩形:两轴净空各加卡间隙,保证椭圆上的卡与中心卡不相交(而非恰好相切)。
-  const clearX = CENTER_CARD.width / 2 + EDGE_CARD.width / 2 + CARD_CLEARANCE,
-    clearY = CENTER_CARD.height / 2 + EDGE_CARD.height / 2 + CARD_CLEARANCE;
-  // x 轴让不开的角,由 y 轴兜底:ry ≥ clearY/|sinθ|;θ 趋近 0/180 时只能靠 rx(有地板值)。
-  const ryNeeded = Math.max(
-    ...angles.map((degree) => {
-      const radian = (degree * Math.PI) / 180;
-      return rx * Math.abs(Math.cos(radian)) >= clearX ? 0 : clearY / Math.max(Math.abs(Math.sin(radian)), 1e-6);
-    }),
+/** 雷达环:边缘卡放在中心卡周围的固定锚位上——侧锚把卡心推到面板沿
+ * (X = 半宽,封顶 LINK_MAX 对应的横向距离),纵向偏移取「连线 ≥ LINK_MIN」的
+ * 最小解再抬一点(错开中心行,队形有层次);下锚在正下方,距离恰 LINK_MIN。
+ * 构造即契约:每条连线长度 ∈ [LINK_MIN, LINK_MAX];X 小到侧卡与中心卡净空
+ * 不足 → 返回 null 退到队列树。落位后仍用 borderLinkLength 复验结果。 */
+function ringLayout(width: number, height: number, edges: readonly FleetLayoutNode[]): FleetLayout | null {
+  const sideFloor = CENTER_CARD.width / 2 + EDGE_CARD.width / 2 + CARD_CLEARANCE;
+  const sideCeiling = Math.min(
+    width / 2 - EDGE_CARD.width / 2 - CANVAS_PADDING - CARD_CLEARANCE,
+    LINK_MAX + CENTER_CARD.width / 2 + EDGE_CARD.width / 2,
   );
-  const ry = Math.max(clearY + CLEARANCE, ryNeeded, height / 2 - EDGE_CARD.height / 2 - 2 * CANVAS_PADDING);
-  const canvasHeight = Math.max(height, 2 * (ry + EDGE_CARD.height / 2 + CANVAS_PADDING + 8));
-  const center = { x: width / 2, y: canvasHeight / 2 };
-  const placement = new Map<string, FleetNodePlacement>([
-    [
-      "center",
-      {
-        left: center.x - CENTER_CARD.width / 2,
-        top: center.y - CENTER_CARD.height / 2,
-        width: CENTER_CARD.width,
-        height: CENTER_CARD.height,
-      },
-    ],
-  ]);
+  if (sideCeiling < sideFloor) return null;
+  /** 二分求侧锚的最小纵向偏移:固定 X 下 link(y) 随 y 单调增(hypot 增、卡片
+   * 沿线出射距离减)。 */
+  const minimalSideY = (x: number) => {
+    let low = 0;
+    let high = 4 * x;
+    for (let round = 0; round < 24; round += 1) {
+      const mid = (low + high) / 2;
+      if (sideLinkLength(x, mid) < LINK_MIN) low = mid;
+      else high = mid;
+    }
+    return high;
+  };
+  let sideX = sideCeiling;
+  const lift = Math.max(minimalSideY(sideX), EDGE_CARD.height / 2 + CARD_CLEARANCE);
+  // lift 抬起后连线比纯侧向长,若越 LINK_MAX 再把 X 收回(固定 lift 下 link
+  // 随 X 单调增,继续二分);收缩只会让连线更短,不再触碰下限。
+  if (sideLinkLength(sideX, lift) > LINK_MAX) {
+    let low = sideFloor;
+    let high = sideX;
+    for (let round = 0; round < 24; round += 1) {
+      const mid = (low + high) / 2;
+      if (sideLinkLength(mid, lift) > LINK_MAX) high = mid;
+      else low = mid;
+    }
+    sideX = high;
+  }
+  // 纯侧向(count 2 的水平锚)连线 = sideX − 276,不足 LINK_MIN 时环解不开。
+  if (edges.length === 2 && sideX - (CENTER_CARD.width / 2 + EDGE_CARD.width / 2) < LINK_MIN) return null;
+  const belowY = LINK_MIN + CENTER_CARD.height / 2 + EDGE_CARD.height / 2;
+  const anchors: ReadonlyArray<readonly [number, number]> =
+    edges.length === 1
+      ? [[0, belowY]]
+      : edges.length === 2
+        ? [
+            [-sideX, 0],
+            [sideX, 0],
+          ]
+        : edges.length === 3
+          ? [
+              [0, belowY],
+              [-sideX, -lift],
+              [sideX, -lift],
+            ]
+          : [
+              [-sideX, -lift],
+              [sideX, -lift],
+              [-sideX, lift],
+              [sideX, lift],
+            ];
+  const top = Math.max(...anchors.map(([, y]) => -y + EDGE_CARD.height / 2), CENTER_CARD.height / 2);
+  const bottom = Math.max(...anchors.map(([, y]) => y + EDGE_CARD.height / 2), CENTER_CARD.height / 2);
+  const canvasHeight = Math.max(height, top + bottom + 2 * (CANVAS_PADDING + 8));
+  const centerY = (canvasHeight - (top + bottom)) / 2 + top;
+  const placement = new Map<string, FleetNodePlacement>([["center", centerPlacementAt(width / 2, centerY)]]);
   for (const [index, node] of edges.entries()) {
-    const angle = ((fanAngles[edges.length] ?? [])[index] ?? 90) * (Math.PI / 180);
+    const [x, y] = anchors[index] ?? anchors[anchors.length - 1]!;
     placement.set(node.nodeId, {
-      left: center.x + rx * Math.cos(angle) - EDGE_CARD.width / 2,
-      top: center.y + ry * Math.sin(angle) - EDGE_CARD.height / 2,
+      left: width / 2 + x - EDGE_CARD.width / 2,
+      top: centerY + y - EDGE_CARD.height / 2,
       width: EDGE_CARD.width,
       height: EDGE_CARD.height,
     });
   }
+  for (const node of edges) {
+    const link = borderLinkLength(placement.get("center")!, placement.get(node.nodeId)!);
+    if (link < LINK_MIN - 0.5 || link > LINK_MAX + 0.5) return null;
+  }
   return { canvasWidth: width, canvasHeight, placement, narrow: false, spineX: 0 };
 }
 
-/** 双翼列:边缘按进入顺序前一半进右翼、后一半进左翼,两翼绕中心卡纵向居中排布。 */
-function columnLayout(width: number, height: number, edges: readonly FleetLayoutNode[]): FleetLayout {
+/** 侧锚 (sideX, y) 到中心卡的连线长度:y 单调增(hypot 增、方向变陡使两卡
+ * 沿线出射距离减),供二分。 */
+function sideLinkLength(sideX: number, y: number): number {
+  const distance = Math.hypot(sideX, y);
+  const unitX = sideX / distance;
+  const unitY = y / distance;
+  return distance - ringExits(unitX, unitY);
+}
+
+/** 单位方向 (ux, uy) 下,半宽 halfW 半高 halfH 的矩形中心到边框的出射距离。 */
+function exitDistance(halfWidth: number, halfHeight: number, unitX: number, unitY: number): number {
+  const tx = unitX === 0 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(unitX);
+  const ty = unitY === 0 ? Number.POSITIVE_INFINITY : halfHeight / Math.abs(unitY);
+  return Math.min(tx, ty);
+}
+
+/** 两卡边框间连线的可见长度:连线端点收到各自边框(borderPoint 同一几何)。 */
+export function borderLinkLength(from: FleetNodePlacement, to: FleetNodePlacement): number {
+  const fromCenter = { x: from.left + from.width / 2, y: from.top + from.height / 2 };
+  const toCenter = { x: to.left + to.width / 2, y: to.top + to.height / 2 };
+  const dx = toCenter.x - fromCenter.x;
+  const dy = toCenter.y - fromCenter.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance === 0) return 0;
+  return (
+    distance -
+    exitDistance(from.width / 2, from.height / 2, dx / distance, dy / distance) -
+    exitDistance(to.width / 2, to.height / 2, dx / distance, dy / distance)
+  );
+}
+
+function centerPlacementAt(centerX: number, centerY: number): FleetNodePlacement {
+  return {
+    left: centerX - CENTER_CARD.width / 2,
+    top: centerY - CENTER_CARD.height / 2,
+    width: CENTER_CARD.width,
+    height: CENTER_CARD.height,
+  };
+}
+
+/** 双翼列:两翼贴面板左右沿(offset = 半宽),中间的横向净空即连线长度;宽度
+ * 不够 LINK_MIN 时返回 null 退到队列树。画布高度随翼列行数扩展。 */
+function columnLayout(width: number, height: number, edges: readonly FleetLayoutNode[]): FleetLayout | null {
+  const offset = width / 2 - EDGE_CARD.width / 2 - CANVAS_PADDING;
+  const horizontalLink = offset - (CENTER_CARD.width / 2 + EDGE_CARD.width / 2);
+  if (horizontalLink < LINK_MIN) return null;
   const rightCount = Math.ceil(edges.length / 2);
   const columns = [
-    { offset: COLUMN_OFFSET, members: edges.slice(0, rightCount) },
-    { offset: -COLUMN_OFFSET, members: edges.slice(rightCount) },
+    { offset, members: edges.slice(0, rightCount) },
+    { offset: -offset, members: edges.slice(rightCount) },
   ];
   const columnHeight = (count: number) => (count === 0 ? 0 : count * EDGE_CARD.height + (count - 1) * CARD_GAP);
   const tallest = Math.max(...columns.map((column) => columnHeight(column.members.length)));
   const canvasHeight = Math.max(height, 2 * CANVAS_PADDING + CENTER_CARD.height, tallest + 2 * CANVAS_PADDING);
   const cy = canvasHeight / 2;
-  const placement = new Map<string, FleetNodePlacement>([
-    [
-      "center",
-      {
-        left: width / 2 - CENTER_CARD.width / 2,
-        top: cy - CENTER_CARD.height / 2,
-        width: CENTER_CARD.width,
-        height: CENTER_CARD.height,
-      },
-    ],
-  ]);
+  const placement = new Map<string, FleetNodePlacement>([["center", centerPlacementAt(width / 2, cy)]]);
   for (const column of columns) {
     const total = columnHeight(column.members.length);
     column.members.forEach((node, index) => {
@@ -169,6 +233,32 @@ function columnLayout(width: number, height: number, edges: readonly FleetLayout
   return { canvasWidth: width, canvasHeight, placement, narrow: false, spineX: 0 };
 }
 
+/** 队列树:中心卡在上方居中,边缘两列(左先填)排在下方;列心往面板沿展开
+ * (不超过 TREE_COLUMN_SPREAD),行距 CARD_GAP。连线从中心卡斜向下到各卡,
+ * 按构造 ≥ LINK_MIN(TREE_GAP 给足纵向净空,列展开拉开横向分量)。 */
+function treeLayout(width: number, edges: readonly FleetLayoutNode[]): FleetLayout {
+  const columnOffset = Math.min(width / 2 - EDGE_CARD.width / 2 - CANVAS_PADDING, TREE_COLUMN_SPREAD);
+  const columns = [edges.filter((_, index) => index % 2 === 0), edges.filter((_, index) => index % 2 === 1)];
+  const rows = Math.max(...columns.map((column) => column.length), 1);
+  const canvasHeight =
+    CANVAS_PADDING + CENTER_CARD.height + TREE_GAP + rows * EDGE_CARD.height + (rows - 1) * CARD_GAP + CANVAS_PADDING;
+  const placement = new Map<string, FleetNodePlacement>([
+    ["center", centerPlacementAt(width / 2, CANVAS_PADDING + CENTER_CARD.height / 2)],
+  ]);
+  columns.forEach((column, columnIndex) => {
+    const direction = columnIndex === 0 ? -1 : 1;
+    column.forEach((node, index) => {
+      placement.set(node.nodeId, {
+        left: width / 2 + direction * columnOffset - EDGE_CARD.width / 2,
+        top: CANVAS_PADDING + CENTER_CARD.height + TREE_GAP + index * (EDGE_CARD.height + CARD_GAP),
+        width: EDGE_CARD.width,
+        height: EDGE_CARD.height,
+      });
+    });
+  });
+  return { canvasWidth: width, canvasHeight, placement, narrow: false, spineX: 0 };
+}
+
 /** 纵向堆叠:中心在上、边缘成列,左槽走轨道连线。 */
 function narrowLayout(width: number, edges: readonly FleetLayoutNode[]): FleetLayout {
   const cardWidth = Math.min(width - 64, 360);
@@ -178,7 +268,7 @@ function narrowLayout(width: number, edges: readonly FleetLayoutNode[]): FleetLa
   const placement = new Map<string, FleetNodePlacement>([
     ["center", { left: cardLeft, top: centerTop, width: cardWidth, height: CENTER_CARD.height }],
   ]);
-  let top = centerTop + CENTER_CARD.height + 34;
+  let top = centerTop + CENTER_CARD.height + Math.max(34, LINK_MIN - 96);
   let lastBottom = centerTop + CENTER_CARD.height;
   for (const node of edges) {
     placement.set(node.nodeId, { left: cardLeft, top, width: cardWidth, height: EDGE_CARD.height });

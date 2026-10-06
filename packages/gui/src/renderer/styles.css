@@ -945,14 +945,23 @@ html[data-theme="light"] ::selection {
   font-size: 0.95rem;
 }
 
-/* 中心能量核心:径向光晕低频呼吸 + 两圈细环缓慢明灭(只动 opacity) */
+/* 中心卡枢纽三数(第 3 轮):能量核心的读数板——比边缘卡的 metric 再大一档,
+ * 垂直占据卡身中段,数值是中心卡的第二主角。 */
+.fleet-core-metrics {
+  font-size: 1.3rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* 中心能量核心:径向光晕低频呼吸 + 两圈细环缓慢明灭(只动 opacity)。
+ * 第 3 轮把呼吸幅度拉宽(0.4→1):静止截图里也能看出核心在「活着」。 */
 .fleet-core-halo {
   animation: fleet-core-breathe 4.2s var(--ease) infinite;
 }
 @keyframes fleet-core-breathe {
   0%,
   100% {
-    opacity: 0.55;
+    opacity: 0.4;
   }
   50% {
     opacity: 1;
@@ -1066,6 +1075,23 @@ html[data-theme="light"] ::selection {
 @keyframes fleet-flow {
   to {
     stroke-dashoffset: -96;
+  }
+}
+
+/* 粒子列车(第 3 轮):圆头点 dash 沿中心→边缘推进,与流光同一时间轴但更快一档,
+ * 700ms 间隔的相邻截图里粒子位移肉眼可辨;间距 54px,一条 130–200px 的轨道上
+ * 常驻 2–4 颗。reduced-motion 由全局规则冻结(点停在轨道上,静态色不变)。 */
+.fleet-link .fleet-link-particles {
+  stroke: color-mix(in oklab, var(--link) 92%, white 8%);
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 54;
+  animation: fleet-particles calc(var(--fleet-flow-duration, 2.8s) / 2.2) linear infinite;
+  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--link) 75%, transparent));
+}
+@keyframes fleet-particles {
+  to {
+    stroke-dashoffset: -54.1;
   }
 }
 

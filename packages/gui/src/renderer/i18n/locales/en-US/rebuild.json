@@ -277,5 +277,8 @@
   "collaboration.legend.absent": "gray dashed = never synced",
   "collaboration.cutProgressAria": "cut progress: {ack} / {center}",
   "collaboration.lagBarAria": "{rev} revisions behind",
-  "collaboration.drawerAria": "Node details"
+  "collaboration.drawerAria": "Node details",
+  "collaboration.centerEdges": "edges {count}",
+  "collaboration.centerInFlight": "in-flight {count}",
+  "collaboration.centerHead": "head"
 }

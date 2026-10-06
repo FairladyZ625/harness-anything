@@ -399,6 +399,28 @@ export default {
       1,
       "the lagging link carries the flow beam (speed tracks lag)",
     );
+    // 第 3 轮:粒子列车与流光同轨更快一档——三帧动效里粒子位移肉眼可辨的前提。
+    assert.equal(
+      await page.locator(`g.fleet-link[data-node="${NODE_BETA}"] .fleet-link-particles`).count(),
+      1,
+      "fresh/lag links carry the particle train",
+    );
+    // 连线可见长度是第 3 轮的一等契约:中心-边缘边框间 ≥120px(SVG 路径全长)。
+    const linkLengths = await page.evaluate(() =>
+      [...globalThis.document.querySelectorAll("path.fleet-link-base")].map((path) =>
+        Math.round(path.getTotalLength()),
+      ),
+    );
+    assert.ok(
+      linkLengths.length >= 3 && linkLengths.every((length) => length >= 120),
+      `every center-edge link stays visibly long (>=120px): ${JSON.stringify(linkLengths)}`,
+    );
+    // 中心卡是能量核心的读数板:rev/边缘数/在飞数 + 带 head 标签的短 hash。
+    const centerCard = await page.getByTestId("collaboration-node-center").innerText();
+    assert.match(centerCard, /rev \d+/u, "the center card states the center revision");
+    assert.match(centerCard, /边缘 \d+/u, "the center card states the connected edge count");
+    assert.match(centerCard, /在飞 \d+/u, "the center card states fleet-wide in-flight executions");
+    assert.match(centerCard, /head [0-9a-f]{7,8}/u, "the head hash carries a label and stays truncated");
     // 连线状态图例:四态线样即第一语言,回答「为什么是灰的」。
     const legend = page.getByTestId("collaboration-link-legend");
     await legend.waitFor();
@@ -406,8 +428,11 @@ export default {
 
     // 3. 边缘节点详情(右侧滑入抽屉):在做什么 = 租约任务/人/会话/phase;内部状态如实「未提供」带人话原因。
     //    第 2 轮修复回归:超长 id 完整可见(换行,不是省略号),面板无横向溢出。
+    //    第 3 轮修复:截图与断言必须等滑入动画沉降(transform 归零)——第 2 轮的
+    //    「右侧没有内边距」截图实为动画末端面板尚未进屏,内容被窗口右缘裁掉。
     await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
     await page.getByRole("dialog").waitFor();
+    await drawerSettled(page);
     const details = page.getByTestId("collaboration-node-details");
     await details.waitFor();
     await assertDrawerFits(page);
@@ -494,6 +519,7 @@ export default {
     await page.setViewportSize({ width: 1440, height: originalViewport.height });
     await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
     await page.getByTestId("collaboration-node-details").waitFor();
+    await drawerSettled(page);
     await shot("collaboration-detail-1440");
     await page.getByTestId("collaboration-node-details-close").click();
     await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 10_000 });
@@ -506,6 +532,7 @@ export default {
     await shot("collaboration-overview-390");
     await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
     await page.getByTestId("collaboration-node-details").waitFor();
+    await drawerSettled(page);
     await assertDrawerFits(page);
     await shot("collaboration-detail-390");
     await page.getByTestId("collaboration-node-details-close").click();
@@ -607,6 +634,26 @@ async function waitForAttached(page, repoId) {
     if (Date.now() > deadline) throw new Error(`the isolated repo ${repoId} never reached cellState=attached`);
     await page.waitForTimeout(500);
   }
+}
+
+/** 抽屉滑入沉降:motion 的进出场动画只动 transform(x: 110% → 0);截图与视觉
+ * 断言前必须等平移归零,否则拍下的是被窗口右缘裁切的半进面板(第 2 轮「右侧
+ * 没有内边距」的截图实为动画末端)。等的是离散条件(矩阵 m41≈0),不是墙钟。 */
+async function drawerSettled(page) {
+  await page.waitForFunction(
+    () => {
+      const panel = globalThis.document.querySelector('[role="dialog"]');
+      if (panel === null) return false;
+      const transform = globalThis.getComputedStyle(panel).transform;
+      if (transform === "none") return true;
+      try {
+        return Math.abs(new globalThis.DOMMatrixReadOnly(transform).m41) < 1;
+      } catch {
+        return false;
+      }
+    },
+    { timeout: 10_000 },
+  );
 }
 
 /** 抽屉适配回归(第 2 轮修复):标题与字段必须全部落在面板宽度内,不许横向溢出

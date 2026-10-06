@@ -81,6 +81,15 @@ export function FleetTopology({
     [size.width, size.height, nodeIds, nodes],
   );
   const edges = nodes.filter((node) => node.role !== "center");
+  // 在飞执行数按整个舰队计(中心卡是枢纽,不是又一个普通节点)。
+  const fleetExecuting = nodes.reduce(
+    (total, node) =>
+      total +
+      (Array.isArray(node.leases)
+        ? node.leases.filter((lease) => lease.phase === "held" || lease.phase === "reserving").length
+        : 0),
+    0,
+  );
   const linksByNode = new Map<string, FleetOverviewLink[]>();
   for (const link of links) {
     const list = linksByNode.get(link.nodeId) ?? [];
@@ -100,74 +109,85 @@ export function FleetTopology({
       ref={containerRef}
       data-testid="collaboration-topology"
       data-focus={hoverNode ?? undefined}
-      className="fleet-canvas fleet-grid relative h-full w-full overflow-y-auto"
+      className="fleet-canvas fleet-grid relative flex h-full w-full flex-col overflow-y-auto"
     >
-      <svg
-        aria-hidden="true"
-        className="pointer-events-none absolute left-0 top-0"
-        width={layout.canvasWidth}
-        height={layout.canvasHeight}
-        viewBox={`0 0 ${layout.canvasWidth} ${layout.canvasHeight}`}
+      {/* 内容层按节点包围盒收紧尺寸,在(更高的)容器里垂直居中:flex 容器里的
+          auto 边距吃掉富余空间,内容比容器高时边距归零、从顶部开始滚动——
+          节点群永远在可视中心,不再有贴边的死空白带。 */}
+      <div
+        className="relative mx-auto my-auto shrink-0"
+        style={{ width: layout.canvasWidth, height: layout.canvasHeight }}
       >
-        <defs>
-          <radialGradient id="fleet-core-glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="var(--color-accent)" stopOpacity="0.5" />
-            <stop offset="45%" stopColor="var(--color-accent)" stopOpacity="0.18" />
-            <stop offset="100%" stopColor="var(--color-accent)" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        {core === null ? null : (
-          <g data-testid="collaboration-core" className="fleet-core">
-            <circle className="fleet-core-halo" cx={core.cx} cy={core.cy} r={170} fill="url(#fleet-core-glow)" />
-            <circle className="fleet-core-ring" cx={core.cx} cy={core.cy} r={122} />
-            <circle className="fleet-core-ring fleet-core-ring--outer" cx={core.cx} cy={core.cy} r={158} />
-          </g>
-        )}
-        {edges.map((node) => {
-          const placement = layout.placement.get(node.nodeId);
-          if (placement === undefined || centerPlacement === undefined) return null;
-          const nodeLinks = linksByNode.get(node.nodeId) ?? [];
-          const state = linkStateOf(nodeLinks);
-          const path = layout.narrow
-            ? spinePath(layout.spineX, centerPlacement, placement)
-            : curvePath(centerPlacement, placement);
-          const style: CSSProperties = {
-            "--fleet-flow-duration": flowDurationOf(
-              state,
-              nodeLinks[0]?.lagRevisions ?? node.replica?.lagRevisions ?? null,
-            ),
-          } as CSSProperties;
-          return (
-            <g
-              key={node.nodeId}
-              className="fleet-link"
-              data-node={node.nodeId}
-              data-state={state}
-              data-dim={dim(node.nodeId) ? "on" : undefined}
-              style={style}
-            >
-              <path className="fleet-link-base" d={path} />
-              {state === "fresh" || state === "lag" ? <path className="fleet-link-flow" d={path} /> : null}
+        <svg
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0"
+          width={layout.canvasWidth}
+          height={layout.canvasHeight}
+          viewBox={`0 0 ${layout.canvasWidth} ${layout.canvasHeight}`}
+        >
+          <defs>
+            <radialGradient id="fleet-core-glow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="var(--color-accent)" stopOpacity="0.5" />
+              <stop offset="45%" stopColor="var(--color-accent)" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="var(--color-accent)" stopOpacity="0" />
+            </radialGradient>
+          </defs>
+          {core === null ? null : (
+            <g data-testid="collaboration-core" className="fleet-core">
+              <circle className="fleet-core-halo" cx={core.cx} cy={core.cy} r={170} fill="url(#fleet-core-glow)" />
+              <circle className="fleet-core-ring" cx={core.cx} cy={core.cy} r={122} />
+              <circle className="fleet-core-ring fleet-core-ring--outer" cx={core.cx} cy={core.cy} r={158} />
             </g>
-          );
-        })}
-      </svg>
-      {nodes.map((node) => (
-        <TopologyNodeCard
-          key={node.nodeId}
-          node={node}
-          placement={layout.placement.get(node.nodeId)}
-          linkState={node.role === "center" ? null : linkStateOf(linksByNode.get(node.nodeId) ?? [])}
-          lagSeconds={Math.round((node.replica?.lagMs ?? linksByNode.get(node.nodeId)?.[0]?.lagMs ?? 0) / 1000)}
-          center={center}
-          centerRevision={centerRevision}
-          selected={node.nodeId === selectedNode}
-          dimmed={dim(node.nodeId)}
-          flashed={flashNodes.has(node.nodeId)}
-          onSelect={() => onSelectNode(node.nodeId)}
-          onHover={(hovering) => setHoverNode(hovering ? node.nodeId : null)}
-        />
-      ))}
+          )}
+          {edges.map((node) => {
+            const placement = layout.placement.get(node.nodeId);
+            if (placement === undefined || centerPlacement === undefined) return null;
+            const nodeLinks = linksByNode.get(node.nodeId) ?? [];
+            const state = linkStateOf(nodeLinks);
+            const path = layout.narrow
+              ? spinePath(layout.spineX, centerPlacement, placement)
+              : curvePath(centerPlacement, placement);
+            const style: CSSProperties = {
+              "--fleet-flow-duration": flowDurationOf(
+                state,
+                nodeLinks[0]?.lagRevisions ?? node.replica?.lagRevisions ?? null,
+              ),
+            } as CSSProperties;
+            return (
+              <g
+                key={node.nodeId}
+                className="fleet-link"
+                data-node={node.nodeId}
+                data-state={state}
+                data-dim={dim(node.nodeId) ? "on" : undefined}
+                style={style}
+              >
+                <path className="fleet-link-base" d={path} />
+                {state === "fresh" || state === "lag" ? <path className="fleet-link-flow" d={path} /> : null}
+                {state === "fresh" || state === "lag" ? <path className="fleet-link-particles" d={path} /> : null}
+              </g>
+            );
+          })}
+        </svg>
+        {nodes.map((node) => (
+          <TopologyNodeCard
+            key={node.nodeId}
+            node={node}
+            placement={layout.placement.get(node.nodeId)}
+            linkState={node.role === "center" ? null : linkStateOf(linksByNode.get(node.nodeId) ?? [])}
+            lagSeconds={Math.round((node.replica?.lagMs ?? linksByNode.get(node.nodeId)?.[0]?.lagMs ?? 0) / 1000)}
+            center={center}
+            centerRevision={centerRevision}
+            edgeCount={edges.length}
+            fleetExecuting={fleetExecuting}
+            selected={node.nodeId === selectedNode}
+            dimmed={dim(node.nodeId)}
+            flashed={flashNodes.has(node.nodeId)}
+            onSelect={() => onSelectNode(node.nodeId)}
+            onHover={(hovering) => setHoverNode(hovering ? node.nodeId : null)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -179,6 +199,8 @@ function TopologyNodeCard({
   lagSeconds,
   center,
   centerRevision,
+  edgeCount,
+  fleetExecuting,
   selected,
   dimmed,
   flashed,
@@ -191,6 +213,8 @@ function TopologyNodeCard({
   readonly lagSeconds: number;
   readonly center: FleetOverviewRead["center"];
   readonly centerRevision: number | null;
+  readonly edgeCount: number;
+  readonly fleetExecuting: number;
   readonly selected: boolean;
   readonly dimmed: boolean;
   readonly flashed: boolean;
@@ -232,38 +256,55 @@ function TopologyNodeCard({
       className={`fleet-node absolute flex flex-col gap-1.5 px-4 py-3 text-left ${stateClass}`}
     >
       <span className="flex items-center justify-between gap-2">
-        <span className="truncate font-semibold ui-body">
-          {node.role === "center" ? t("collaboration.centerNode") : node.nodeId}
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate font-semibold ui-body">
+            {node.role === "center" ? t("collaboration.centerNode") : node.nodeId}
+          </span>
+          {node.role === "center" ? (
+            <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{center.daemonId}</span>
+          ) : null}
         </span>
         <StatusTag
           tone={executing > 0 ? "active" : "neutral"}
           label={executing > 0 ? t("collaboration.nodeExecuting", { count: executing }) : t("collaboration.nodeIdle")}
         />
       </span>
-      <span className="flex min-w-0 items-baseline justify-between gap-2 font-mono text-text-muted fleet-metric">
-        {node.role === "center" ? (
-          <>
-            <span className="truncate">{center.daemonId}</span>
-            <span className="shrink-0">rev {centerRevision ?? "—"}</span>
-          </>
-        ) : (
-          <>
-            <span className="truncate" data-testid={`collaboration-node-owner-${node.nodeId}`}>
-              {fieldText(node.owner)}
-            </span>
-            <span className="shrink-0">
-              cut {node.replica === null ? "—" : `${node.replica.ackRevision ?? "—"}/${node.replica.centerRevision}`}
-            </span>
-          </>
-        )}
-      </span>
+      {node.role === "center" ? (
+        // 中心卡是能量核心的读数板:枢纽三数(修订/边缘/在飞)放大居中占据卡身,
+        // hash 带「head」标签截短,完整值进 title。
+        <span
+          data-testid="collaboration-core-metrics"
+          className="fleet-core-metrics flex flex-1 items-center justify-between gap-2 font-mono"
+        >
+          <span className="shrink-0" data-testid="collaboration-core-rev">
+            rev {centerRevision ?? "—"}
+          </span>
+          <span className="shrink-0">{t("collaboration.centerEdges", { count: edgeCount })}</span>
+          <span className="shrink-0">{t("collaboration.centerInFlight", { count: fleetExecuting })}</span>
+        </span>
+      ) : (
+        <span className="flex min-w-0 items-baseline justify-between gap-2 font-mono text-text-muted fleet-metric">
+          <span className="truncate" data-testid={`collaboration-node-owner-${node.nodeId}`}>
+            {fieldText(node.owner)}
+          </span>
+          <span className="shrink-0">
+            cut {node.replica === null ? "—" : `${node.replica.ackRevision ?? "—"}/${node.replica.centerRevision}`}
+          </span>
+        </span>
+      )}
       <span className="mt-auto flex items-center justify-between gap-2 border-t border-border pt-1.5 ui-micro text-text-faint">
         <span className="flex min-w-0 items-center gap-1.5">
           <i aria-hidden="true" className="fleet-state-dot" />
           <span className="truncate">{stateLabel}</span>
         </span>
         {node.role === "center" ? (
-          <span className="shrink-0 truncate font-mono">{center.commitSha ?? "unknown"}</span>
+          <span
+            className="shrink-0 truncate font-mono"
+            data-testid="collaboration-core-head"
+            title={center.commitSha ?? undefined}
+          >
+            {t("collaboration.centerHead")} {center.commitSha === null ? "unknown" : center.commitSha.slice(0, 8)}
+          </span>
         ) : linkState === "lag" && lagSeconds > 0 ? (
           <span className="shrink-0 font-mono fleet-metric-lag">{lagSeconds}s</span>
         ) : null}

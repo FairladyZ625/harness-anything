@@ -8,7 +8,6 @@ import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Section } from "../components/primitives/Section.tsx";
 import { Drawer } from "../components/primitives/Drawer.tsx";
 import { READ_ERROR_LABELS, warningLabel } from "./collaboration/fleet-labels.ts";
-import { suggestFleetCanvasHeight } from "./collaboration/fleet-topology-layout.ts";
 import { FleetTopology } from "./collaboration/FleetTopology.tsx";
 import { NodeDetails, nodeLabelOf } from "./collaboration/NodeDetails.tsx";
 
@@ -44,7 +43,6 @@ export function CollaborationView({
   readonly now?: string;
 }) {
   const nodes = overview?.nodes ?? [];
-  const edgesCount = nodes.filter((node) => node.role !== "center").length;
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [eventNode, setEventNode] = useState("all");
   const selected = selectedNode === null ? null : (nodes.find((node) => node.nodeId === selectedNode) ?? null);
@@ -118,11 +116,10 @@ export function CollaborationView({
               action={<LinkStateLegend />}
               variant="panel"
             >
-              {/* 画布高度随边缘节点数自适应(少节点不留死空白,多节点纵向长画布可滚动)。 */}
-              <div
-                style={{ height: `clamp(420px, ${suggestFleetCanvasHeight(edgesCount)}px, 68vh)` }}
-                className="fleet-canvas-clip"
-              >
+              {/* 画布高度:68vh(与第 2 轮一致,事件流保持在首屏内)+ 420px 地板;
+                  节点群按包围盒收紧并垂直居中在容器里(FleetTopology 内层),
+                  少节点不留死空白、多节点内部滚动。 */}
+              <div style={{ height: "max(420px, 68vh)" }} className="fleet-canvas-clip">
                 <FleetTopology
                   nodes={nodes}
                   links={overview.links}

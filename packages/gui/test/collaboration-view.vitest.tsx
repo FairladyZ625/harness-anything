@@ -223,6 +223,27 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
     expect(view.nodeCard("cc90-ubuntu")!.querySelector(".fleet-state-dot")).not.toBeNull();
   });
 
+  it("第 3 轮:中心卡是能量核心读数板(rev/边缘/在飞 + head 短 hash)", () => {
+    const view = renderView();
+    const card = view.nodeCard("center")!;
+    const metrics = card.querySelector('[data-testid="collaboration-core-metrics"]')!;
+    expect(metrics.textContent).toContain("rev 164");
+    expect(metrics.textContent).toContain("边缘 1");
+    // 在飞数按整个舰队计:夹具里中心 1 + 边缘 1 两笔 held 租约。
+    expect(metrics.textContent).toContain("在飞 2");
+    const head = card.querySelector('[data-testid="collaboration-core-head"]')!;
+    expect(head.textContent).toContain("head bd2251a");
+    expect(head.getAttribute("title")).toContain("bd2251a");
+    // 边缘卡保持原读数(owner + cut),不被中心卡的布局改写。
+    expect(view.nodeCard("cc90-ubuntu")!.textContent).toContain("cut 163/164");
+  });
+
+  it("第 3 轮:fresh/lag 连线携带粒子列车层,absent/unsynced 不携带", () => {
+    const view = renderView();
+    expect(view.host.querySelectorAll(".fleet-link-particles")).toHaveLength(1);
+    expect(view.host.querySelector('g.fleet-link[data-state="lag"] .fleet-link-particles')).not.toBeNull();
+  });
+
   it("执行中的节点带执行标记,事件行带进入动效类", () => {
     const view = renderView();
     expect(view.nodeCard("cc90-ubuntu")!.getAttribute("data-executing")).toBe("on");

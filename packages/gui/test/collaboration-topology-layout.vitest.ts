@@ -1,17 +1,21 @@
 // harness-test-tier: fast
 import { describe, expect, it } from "vitest";
 import {
+  borderLinkLength,
   borderPoint,
   CENTER_CARD,
   computeFleetLayout,
   curvePath,
   EDGE_CARD,
-  suggestFleetCanvasHeight,
+  LINK_MAX,
+  LINK_MIN,
   type FleetNodePlacement,
 } from "../src/renderer/views/collaboration/fleet-topology-layout.ts";
 
-/** 布局的护栏契约:任务计划的「节点数 1–12 都排得开,窗口宽度变化时重排」。 */
-const WIDTHS = [390, 640, 700, 889, 890, 939, 940, 1120, 1440, 1920];
+/** 布局的护栏契约:任务计划的「节点数 1–12 都排得开,窗口宽度变化时重排」,
+ * 加上第 3 轮的一等契约——中心与边缘卡之间的可见连线在每一形态每一宽度
+ * 都 ≥ LINK_MIN(流光/粒子要有能被看见的轨道)。 */
+const WIDTHS = [390, 592, 640, 700, 830, 880, 950, 1104, 1120, 1174, 1440, 1920];
 const MARGIN = 2;
 
 function edgeIds(count: number): { nodeId: string; role: "center" | "edge" }[] {
@@ -25,6 +29,20 @@ function assertRectsDisjoint(a: FleetNodePlacement, b: FleetNodePlacement, label
   const gapX = a.left + a.width + MARGIN <= b.left || b.left + b.width + MARGIN <= a.left;
   const gapY = a.top + a.height + MARGIN <= b.top || b.top + b.height + MARGIN <= a.top;
   expect(gapX || gapY, `${label} must not overlap: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`).toBe(true);
+}
+
+/** 每条中心→边缘连线的可见长度:非窄形态量边框间直线(即所画贝塞尔的弦,
+ * 曲线路径只会更长);窄形态量中点纵向差(S 形轨道的下界)。 */
+function linkLengthsOf(width: number, count: number, height = 620): number[] {
+  const layout = computeFleetLayout(width, height, edgeIds(count));
+  const center = layout.placement.get("center")!;
+  return [...layout.placement.values()]
+    .filter((placement) => placement !== center)
+    .map((placement) =>
+      layout.narrow
+        ? Math.abs(placement.top + placement.height / 2 - (center.top + center.height / 2))
+        : borderLinkLength(center, placement),
+    );
 }
 
 describe("舰队拓扑布局", () => {
@@ -51,45 +69,59 @@ describe("舰队拓扑布局", () => {
     }
   });
 
-  it("宽容器小舰队走雷达环:边缘围绕中心,不挤成一列", () => {
-    const layout = computeFleetLayout(1440, 420, edgeIds(3));
-    expect(layout.narrow).toBe(false);
-    const center = layout.placement.get("center")!;
-    const around = [...layout.placement.values()].filter((p) => p !== center);
-    // 环形:至少一个边缘在中心卡的正上方或正下方(横向投影与中心重叠)。
-    expect(
-      around.some((p) => p.left < center.left + center.width && center.left < p.left + p.width),
-      "a ring node sits above or below the center card",
-    ).toBe(true);
+  it("第 3 轮一等契约:每一形态、每一宽度档,中心-边缘可见连线都 ≥ LINK_MIN", () => {
+    for (const width of WIDTHS) {
+      for (let count = 1; count <= 12; count += 1) {
+        for (const length of linkLengthsOf(width, count))
+          expect(length, `width=${width} count=${count} visible link`).toBeGreaterThanOrEqual(LINK_MIN - 0.5);
+      }
+    }
   });
 
-  it("宽容器大舰队走双翼列:画布高度随节点数扩展", () => {
-    const six = computeFleetLayout(1120, 420, edgeIds(6));
-    const twelve = computeFleetLayout(1120, 420, edgeIds(12));
-    expect(twelve.canvasHeight).toBeGreaterThan(six.canvasHeight);
-    // 12 个分两翼各 6:6×124 + 5×20 + 上下 padding。
-    expect(twelve.canvasHeight).toBeGreaterThanOrEqual(6 * 124 + 5 * 20 + 32);
-  });
-
-  it("第 2 轮视觉修正:节点卡足够大,雷达环横向铺开,画布高度建议随节点数单调", () => {
-    // 卡片尺寸下限:节点是画布主角,退回小卡即回归「画布大而空」的缺陷。
-    expect(CENTER_CARD.width).toBeGreaterThanOrEqual(300);
-    expect(CENTER_CARD.height).toBeGreaterThanOrEqual(140);
-    expect(EDGE_CARD.width).toBeGreaterThanOrEqual(250);
-    expect(EDGE_CARD.height).toBeGreaterThanOrEqual(120);
-    // 1440 雷达环:边缘卡的横向跨度要吃掉画布宽度的大头(≥60%),不是挤在中间一撮。
-    const ring = computeFleetLayout(1440, 460, edgeIds(3));
+  it("宽容器小舰队(≤4)走雷达环:连线落在 [LINK_MIN, LINK_MAX] 带,队形横向铺开", () => {
+    for (const width of [1120, 1174, 1440]) {
+      for (let count = 1; count <= 4; count += 1) {
+        const layout = computeFleetLayout(width, 620, edgeIds(count));
+        const center = layout.placement.get("center")!;
+        // 环形态:中心卡不在画布顶端(队列树的中心贴顶)。
+        expect(center.top, `width=${width} count=${count} ring keeps the center mid-canvas`).toBeGreaterThan(40);
+        for (const length of linkLengthsOf(width, count))
+          expect(length, `width=${width} count=${count} ring link band`).toBeLessThanOrEqual(LINK_MAX + 0.5);
+      }
+    }
+    // 铺开回归(第 2 轮「指挥台要撑开的舰队」):边缘卡横向跨度吃掉画布大头。
+    const ring = computeFleetLayout(1174, 620, edgeIds(3));
     const center = ring.placement.get("center")!;
     const edges = [...ring.placement.values()].filter((placement) => placement !== center);
     const leftEdge = Math.min(...edges.map((placement) => placement.left));
     const rightEdge = Math.max(...edges.map((placement) => placement.left + placement.width));
     expect((rightEdge - leftEdge) / ring.canvasWidth).toBeGreaterThanOrEqual(0.6);
-    // 高度建议:节点越多画布越高,少节点时保持基础高度(不留死空白也不挤压)。
-    const heights = [0, 1, 4, 8, 12].map((count) => suggestFleetCanvasHeight(count));
-    expect(suggestFleetCanvasHeight(0)).toBeGreaterThanOrEqual(460);
-    for (let index = 1; index < heights.length; index += 1)
-      expect(heights[index]!).toBeGreaterThanOrEqual(heights[index - 1]!);
-    expect(suggestFleetCanvasHeight(12)).toBeGreaterThan(suggestFleetCanvasHeight(2));
+  });
+
+  it("中带宽走队列树:中心卡在上方,边缘两列排在下方,连线斜向且 ≥ LINK_MIN", () => {
+    const layout = computeFleetLayout(854, 620, edgeIds(3));
+    const center = layout.placement.get("center")!;
+    expect(layout.narrow).toBe(false);
+    expect(center.top).toBeLessThanOrEqual(40);
+    for (const placement of layout.placement.values())
+      if (placement !== center)
+        expect(placement.top, "tree edges sit below the center card").toBeGreaterThan(center.top);
+    for (const length of linkLengthsOf(854, 3)) expect(length).toBeGreaterThanOrEqual(LINK_MIN - 0.5);
+  });
+
+  it("宽容器大舰队(>4)走双翼列:画布高度随节点数扩展", () => {
+    const six = computeFleetLayout(1174, 420, edgeIds(6));
+    const twelve = computeFleetLayout(1174, 420, edgeIds(12));
+    expect(twelve.canvasHeight).toBeGreaterThan(six.canvasHeight);
+    // 12 个分两翼各 6:6×124 + 5×20 + 上下 padding。
+    expect(twelve.canvasHeight).toBeGreaterThanOrEqual(6 * 124 + 5 * 20 + 32);
+  });
+
+  it("第 2 轮视觉修正保持:节点卡足够大(节点是画布主角)", () => {
+    expect(CENTER_CARD.width).toBeGreaterThanOrEqual(300);
+    expect(CENTER_CARD.height).toBeGreaterThanOrEqual(140);
+    expect(EDGE_CARD.width).toBeGreaterThanOrEqual(250);
+    expect(EDGE_CARD.height).toBeGreaterThanOrEqual(120);
   });
 
   it("窄容器走纵向堆叠:卡片逐行下移,画布高度覆盖最后一张卡", () => {
@@ -107,17 +139,6 @@ describe("舰队拓扑布局", () => {
     expect(layout.canvasHeight).toBeGreaterThan(0);
   });
 
-  it("画布高度建议覆盖环形形态的实际高度,底部节点不被容器折线裁半", () => {
-    for (const count of [1, 2, 3, 4]) {
-      const suggested = suggestFleetCanvasHeight(count);
-      const layout = computeFleetLayout(1440, suggested, edgeIds(count));
-      expect(
-        layout.canvasHeight,
-        `container ${suggested}px must fit the ring canvas (${layout.canvasHeight}px) for ${count} edges`,
-      ).toBeLessThanOrEqual(suggested + MARGIN);
-    }
-  });
-
   it("borderPoint 把连线端点收到卡片边框", () => {
     const box: FleetNodePlacement = { left: 100, top: 100, width: 200, height: 100 };
     const right = borderPoint(box, { x: 500, y: 150 });
@@ -133,5 +154,15 @@ describe("舰队拓扑布局", () => {
     // 起点收在 from 卡边框(对角方向出下沿),终点收在 to 卡上沿。
     expect(path.startsWith("M 83.3 50.0 C ")).toBe(true);
     expect(path.endsWith("416.7 300.0")).toBe(true);
+  });
+
+  it("borderLinkLength 度量两卡边框间的可见连线(布局契约的尺子)", () => {
+    const a: FleetNodePlacement = { left: 0, top: 0, width: 300, height: 148 };
+    // beside 卡心在 (556, 74),与 a 卡心同高:纯水平方向,连线 = 中心距 − 两侧半宽。
+    const beside: FleetNodePlacement = { left: 430, top: 12, width: 252, height: 124 };
+    expect(borderLinkLength(a, beside)).toBeCloseTo(406 - 150 - 126, 5);
+    // below 卡心在 (150, 412),与 a 卡心同列:纯垂直方向,连线 = 中心距 − 两侧半高。
+    const below: FleetNodePlacement = { left: 24, top: 350, width: 252, height: 124 };
+    expect(borderLinkLength(a, below)).toBeCloseTo(338 - 74 - 62, 5);
   });
 });
