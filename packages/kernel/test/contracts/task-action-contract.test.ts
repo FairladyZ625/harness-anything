@@ -84,6 +84,7 @@ test("all public Task writes are complete executable Action contracts", () => {
   assert.deepEqual(explainEntityKind("agent").transitions.available, [
     "install",
     "delete",
+    "retire",
     "validate",
     "list",
     "inspect",
