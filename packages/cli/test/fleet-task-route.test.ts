@@ -287,7 +287,6 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     );
   }
   for (const argv of [
-    ["task", "show", "task_one"],
     ["work", "list", "--all", "--limit", "500"],
     ["work", "show", "task_one"],
   ]) {
@@ -308,5 +307,27 @@ test("fleet task routing requires both edge config and remote-edge registry mode
         }),
       argv.join(" "),
     );
+  }
+  // task show is edge-replica now: the CLI still routes it to the edge daemon, but its action no
+  // longer forms a legal center-forwarded repository-read frame.
+  {
+    const parsed = parseThinCommand(["task", "show", "task_one"], root);
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+      const routed = await fleetTaskRoute(parsed.command, env);
+      assert.ok(routed, "task show task_one");
+      assert.throws(
+        () =>
+          parseFleetFrame({
+            schema: "fleet.repository.read/v1",
+            messageId: "read",
+            repoId: "route-repo",
+            accessToken: null,
+            method: "repo.task.read",
+            payload: routed.action,
+          }),
+        /closed schema fleet\.repository\.read\/v1/u,
+      );
+    }
   }
 });

@@ -210,7 +210,7 @@ export function makeTaskProjectionReader(options: {
       ...entityQueryApi(context),
       readTaskIndex: taskQueries.readTaskIndex,
       readTaskChildCounts: taskQueries.readTaskChildCounts,
-      readTaskReadModel: taskQueries.readTaskReadModel,
+      readEdgeReadModel: taskQueries.readEdgeReadModel,
       readWorkspaceSummary: taskQueries.readWorkspaceSummary,
       readTaskRelations: taskQueries.readTaskRelations,
       readTaskRelationNeighborhood: taskQueries.readTaskRelationNeighborhood,

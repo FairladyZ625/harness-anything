@@ -35,7 +35,7 @@ import {
   runFleetUploadClient,
   runFleetWriteClient,
 } from "./fleet/edge.ts";
-import { answerEdgeTaskList } from "./fleet-edge-task-read.ts";
+import { answerEdgeTaskShow, answerEdgeTaskList, answerFreshEdgeTaskShow } from "./fleet-edge-task-read.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
 import {
@@ -140,10 +140,10 @@ export async function runFleetEdgeTask(
     };
   const declaration = commandDescriptorForAction(action.kind);
   if ("repositoryRead" in declaration && declaration.repositoryRead === true) {
-    if (action.kind === "task-list")
-      return answerEdgeTaskList({ ...payload, action }, () =>
-        runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes }),
-      );
+    const pullOnce = () =>
+      runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes });
+    if (action.kind === "task-list") return answerEdgeTaskList({ ...payload, action }, pullOnce);
+    if (action.kind === "task-show") return answerEdgeTaskShow({ ...payload, action }, pullOnce);
     const receipt = await runFleetRepositoryReadClient({
       ...peer,
       method: "repo.task.read",
@@ -194,16 +194,16 @@ export async function runFleetEdgeTask(
         } as Record<string, unknown>;
     }
     if (action.kind.startsWith("doc-") && taskId !== null && workspaceRoot !== null) {
-      const shown = await runFleetTaskCommandClient({
-        ...peer,
-        opId: randomUUID(),
-        taskId,
-        action: { kind: "task-show", taskId },
-        waitMs,
-      });
-      if (shown.outcome !== "applied" || typeof shown.receipt?.evidence !== "string")
-        throw new FleetEdgeTaskError(shown.code ?? "task_read_failed", "Task document authority is unavailable.");
-      const task = JSON.parse(shown.receipt.evidence) as FleetDeliveryTask;
+      const shown = await answerFreshEdgeTaskShow(
+        { ...payload, workspaceRoot, action: { kind: "task-show", taskId } },
+        () => runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes }),
+      );
+      if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
+        throw new FleetEdgeTaskError(
+          String(shown.code ?? "task_read_failed"),
+          "Task document authority is unavailable.",
+        );
+      const task = JSON.parse(shown.evidence) as FleetDeliveryTask;
       const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
       const packagePath = view && fleetExactTaskPackagePath(view, workspaceRoot, taskId);
       if (!view || !packagePath) throw new FleetEdgeTaskError("mirror_missing", "Task package is not materialized.");
@@ -279,22 +279,20 @@ export async function runFleetEdgeTask(
           return metadata.personId;
         },
         readTask: async () => {
-          const shown = await runFleetTaskCommandClient({
-            ...peer,
-            opId: randomUUID(),
-            repoId: payload.repoId,
-            taskId,
-            action: { kind: "task-show", taskId },
-            waitMs,
-            timeoutMs: 60_000,
-            accessToken: await readAccessToken?.(),
-          });
-          if (shown.outcome !== "applied" || typeof shown.receipt?.evidence !== "string")
+          const shown = await answerFreshEdgeTaskShow({ ...payload, action: { kind: "task-show", taskId } }, async () =>
+            runFleetReplicaPullClient({
+              ...peer,
+              viewRoot: payload.viewRoot,
+              diskQuotaBytes: payload.quotaBytes,
+              timeoutMs: 60_000,
+            }),
+          );
+          if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
             throw new FleetEdgeTaskError(
-              shown.code ?? "task_read_failed",
+              String(shown.code ?? "task_read_failed"),
               "Cannot authorize delivery from the current center task.",
             );
-          return JSON.parse(shown.receipt.evidence) as FleetDeliveryTask;
+          return JSON.parse(shown.evidence) as FleetDeliveryTask;
         },
       });
     let artifact: FleetDescriptor | undefined;

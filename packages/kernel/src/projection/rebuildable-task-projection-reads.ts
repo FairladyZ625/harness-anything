@@ -203,7 +203,10 @@ export function readProjection(
   });
 }
 
-function presentSnapshot(snapshot: TaskLifecycleSnapshot, status: TaskV2["status"] | null): TaskLifecycleSnapshot {
+export function presentSnapshot(
+  snapshot: TaskLifecycleSnapshot,
+  status: TaskV2["status"] | null,
+): TaskLifecycleSnapshot {
   return snapshot.task && status !== null && status !== snapshot.task.status
     ? { ...snapshot, task: { ...snapshot.task, status } }
     : snapshot;

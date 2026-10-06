@@ -1,4 +1,5 @@
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
+import { answerFreshEdgeTaskShow } from "./fleet-edge-task-read.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -194,17 +195,23 @@ export function openFleetEdgeRuntime(input: {
           : null;
       },
       taskContext: async (taskId, missionName, review) => {
-        const shown = await runFleetTaskCommandClient({
-          ...peer,
-          opId: `context_${Date.now()}`,
-          taskId,
-          repoId: request.repoId,
-          action: { kind: "task-show", taskId },
-          waitMs: 0,
-        });
-        if (shown.outcome !== "applied" || typeof shown.receipt?.evidence !== "string")
+        const shown = await answerFreshEdgeTaskShow(
+          {
+            viewRoot: request.viewRoot,
+            repoId: request.repoId,
+            workspaceRoot: request.workspaceRoot,
+            action: { kind: "task-show", taskId },
+          },
+          () =>
+            runFleetReplicaPullClient({
+              ...peer,
+              viewRoot: request.viewRoot,
+              diskQuotaBytes: request.quotaBytes,
+            }),
+        );
+        if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
           throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
-        const current = JSON.parse(shown.receipt.evidence) as TaskLifecycleSnapshot;
+        const current = JSON.parse(shown.evidence) as TaskLifecycleSnapshot;
         const executionId = review
           ? selectReviewTarget(taskId, review.executionId, current, false)?.executionId
           : current.lease?.phase === "held"

@@ -3,6 +3,7 @@
 // from rebuildable-task-projection.ts, which owns the governed writable open.
 import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
+import type { TaskProgressEventV1 } from "../domain/task-progress-event.ts";
 import {
   relationFreshnessAnchorForType,
   type EntityRelationRecord,
@@ -354,6 +355,15 @@ export function readTaskRuntimeBatchPage(
       nextCursor: remaining.length > limit && last ? encodePageCursor([last]) : null,
     },
   };
+}
+
+/** One task's progress events in revision order; the shared body of every progress read. */
+export function readTaskProgressRows(db: DatabaseSync, taskId: string): readonly TaskProgressEventV1[] {
+  return queryRows<{ readonly event_json: string }>(
+    db,
+    "SELECT event_json FROM task_progress WHERE task_id = ? ORDER BY workspace_revision",
+    taskId,
+  ).map((row) => JSON.parse(String(row.event_json)) as TaskProgressEventV1);
 }
 
 export function createTaskRelationProjectionTable(db: DatabaseSync): void {

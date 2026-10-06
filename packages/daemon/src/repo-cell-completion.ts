@@ -1,9 +1,9 @@
-import { taskPresentationReads } from "./task-presentation-read.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   completionGateIds,
+  type EdgeReplicaQueries,
   compileCompletionGateWitness,
   judgeCompletionEvidence,
   type CompletionEvidenceJudgment,
@@ -150,11 +150,11 @@ export async function showTask(cell: RepoCellActionContext, taskId: string): Pro
 
 export function taskShowFromProjection(
   rootDir: string,
-  projection: TaskProjectionQueries,
+  projection: EdgeReplicaQueries,
   taskId: string,
   directChildCount = projection.readTaskChildCounts([taskId])[taskId] ?? 0,
 ): WriteReceipt {
-  const read = taskPresentationReads(projection).read(taskId),
+  const read = projection.read(taskId),
     progress = projection.readProgress(taskId),
     rootSetting = resolveTaskRootThreshold(projectedTaskSettings(projection)),
     notFound = projectedTaskNotFound(read, taskId);
@@ -181,7 +181,7 @@ export function taskShowFromProjection(
       );
     return failed(`read:${taskId}`, notFound);
   }
-  const task = read.snapshot.task,
+  const task = projection.read(taskId, true).snapshot.task,
     execution = read.snapshot.executions.find(
       (candidate) => candidate.iteration === task?.iteration && candidate.submission !== null,
     ),
@@ -265,7 +265,7 @@ export function taskShowFromProjection(
       };
 }
 
-function projectedWorktreeSetup(projection: TaskProjectionQueries): readonly string[] {
+function projectedWorktreeSetup(projection: Pick<TaskProjectionQueries, "getEntity">): readonly string[] {
   const projected = projection.getEntity("settings", SETTINGS_ID)?.value;
   return projected === undefined ? [] : repositorySettings(projected as unknown as RepositorySettingsV1).worktree.setup;
 }

@@ -1,5 +1,5 @@
 import {
-  defineCenterForwardReadCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
   defineRepoReadCommand,
   defineCenterForwardWriteCommand,
   cliInput,
@@ -257,7 +257,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "task-show",
     repositoryRead: true,
     payloadFields: [{ field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" }],
