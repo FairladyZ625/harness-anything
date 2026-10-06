@@ -757,99 +757,70 @@ test("CI observation pull --task imports the run the frozen contract judges: the
   // still reads as covered. Unknown ranges answer "diverged" and fail the pull closed.
   const coverage: Readonly<Record<string, string>> = {
       [`${delivery}...sha-906`]: "ahead",
-      [`${delivery}...sha-905`]: "diverged",
+      [`${delivery}...sha-905`]: "ahead",
       [`${delivery}...sha-904`]: "ahead",
       [`${delivery}...sha-903`]: "ahead",
       [`${delivery}...sha-902`]: "ahead",
+      [`${delivery}...sha-side`]: "ahead",
     },
-    // Newest first as the contract orders them: 906 is a manual dispatch (not the frozen push
-    // event), 905 does not cover, 904 was cancelled (no verdict), so 903's failure is the verdict
-    // and the older green 902 never shadows it.
-    runs = [
-      {
-        databaseId: 906,
-        headBranch: "main",
-        headSha: "sha-906",
-        createdAt: "2026-09-15T06:00:00Z",
-        status: "completed",
-        conclusion: "success",
-        event: "workflow_dispatch",
-      },
-      {
-        databaseId: 905,
-        headBranch: "main",
-        headSha: "sha-905",
-        createdAt: "2026-09-15T05:00:00Z",
-        status: "completed",
-        conclusion: "success",
-        event: "push",
-      },
-      {
-        databaseId: 904,
-        headBranch: "main",
-        headSha: "sha-904",
-        createdAt: "2026-09-15T04:00:00Z",
-        status: "completed",
-        conclusion: "cancelled",
-        event: "push",
-      },
-      {
-        databaseId: 903,
-        headBranch: "main",
-        headSha: "sha-903",
-        createdAt: "2026-09-15T03:00:00Z",
-        status: "completed",
-        conclusion: "failure",
-        event: "push",
-      },
-      {
-        databaseId: 902,
-        headBranch: "main",
-        headSha: "sha-902",
-        createdAt: "2026-09-15T02:00:00Z",
-        status: "completed",
-        conclusion: "success",
-        event: "push",
-      },
-      {
-        databaseId: 901,
-        headBranch: "codex/x",
-        headSha: "sha-901",
-        createdAt: "2026-09-15T01:00:00Z",
-        status: "completed",
-        conclusion: "success",
-        event: "push",
-      },
-    ];
-  const runGh = async (_command: string, args: readonly string[]) => {
-    if (args[0] === "api") {
-      const status = coverage[String(args[1]).replace(/^.*\/compare\//u, "")] ?? "diverged";
-      // Exercise the production subprocess buffer with a historical compare whose
-      // patch exceeds it. gh must project the response before writing stdout.
-      return runProcessTextAsync(process.execPath, [
-        "-e",
-        `const response = { status: process.argv[1], files: [{ patch: "x".repeat(2 * 1024 * 1024) }] };
+    // Main's history page, tip first. sha-side is a merged branch's commit listed between main heads
+    // but off the first-parent chain: its green run must never be consulted ahead of 903's red.
+    commits = [
+      { sha: "sha-906", parents: ["sha-905"] },
+      { sha: "sha-905", parents: ["sha-904", "sha-side"] },
+      { sha: "sha-side", parents: ["sha-903"] },
+      { sha: "sha-904", parents: ["sha-903"] },
+      { sha: "sha-903", parents: ["sha-902"] },
+      { sha: "sha-902", parents: ["sha-901"] },
+      { sha: "sha-901", parents: [] },
+    ],
+    run = (databaseId: number, conclusion: string, extra: Record<string, unknown> = {}) => ({
+      databaseId,
+      path: ".github/workflows/rewrite-ci.yml",
+      headBranch: "main",
+      event: "push",
+      status: "completed",
+      conclusion,
+      ...extra,
+    }),
+    // Per head, newest first along the chain: 906 carries only a manual dispatch (not the frozen push
+    // event) and a pull-request branch run, 905 only another workflow, 904 was cancelled (no
+    // verdict), so 903's failure is the verdict and neither the older green 902 nor sha-side shadows it.
+    runsByHead: Readonly<Record<string, readonly unknown[]>> = {
+      "sha-906": [run(906, "success", { event: "workflow_dispatch" }), run(916, "success", { headBranch: "codex/x" })],
+      "sha-905": [run(905, "success", { path: ".github/workflows/other.yml" })],
+      "sha-904": [run(904, "cancelled")],
+      "sha-903": [run(903, "failure")],
+      "sha-902": [run(902, "success")],
+      "sha-side": [run(950, "success")],
+    },
+    conclusions: Readonly<Record<string, string>> = { "903": "failure" };
+  const api = async (args: readonly string[]) => {
+    const url = String(args[1]);
+    if (url.startsWith("repos/:owner/:repo/commits?")) return JSON.stringify(commits);
+    if (url.includes("/actions/runs?head_sha="))
+      return JSON.stringify(runsByHead[/head_sha=([^&]+)/u.exec(url)?.[1] ?? ""] ?? []);
+    const status = coverage[url.replace(/^.*\/compare\//u, "")] ?? "diverged";
+    // Exercise the production subprocess buffer with a historical compare whose
+    // patch exceeds it. gh must project the response before writing stdout.
+    return runProcessTextAsync(process.execPath, [
+      "-e",
+      `const response = { status: process.argv[1], files: [{ patch: "x".repeat(2 * 1024 * 1024) }] };
          process.stdout.write(JSON.stringify(process.argv[2] === "{status: .status}" ? { status: response.status } : response));`,
-        status,
-        args[args.indexOf("--jq") + 1] ?? "",
-      ]);
-    }
-    if (args[1] === "list") {
-      // GitHub applies the limit after its branch filter. A busy PR stream must not
-      // hide the older successful main witness from a task-scoped lookup.
-      return JSON.stringify(
-        args.includes("--branch") && args[args.indexOf("--branch") + 1] === "main"
-          ? runs
-          : Array.from({ length: 20 }, (_, index) => ({ ...runs[4], databaseId: 1000 + index })),
-      );
-    }
+      status,
+      args[args.indexOf("--jq") + 1] ?? "",
+    ]);
+  };
+  const runGh = async (_command: string, args: readonly string[]) => {
+    if (args[0] === "api") return api(args);
+    assert.notEqual(args[1], "list", "a task witness lookup never lists runs by branch");
     if (args[1] === "view")
       return JSON.stringify({
         workflowName: "rewrite-ci",
         headSha: `sha-${args[2]}`,
         headBranch: "main",
         status: "completed",
-        conclusion: runs.find((run) => String(run.databaseId) === args[2])?.conclusion,
+        conclusion: conclusions[String(args[2])],
         attempt: 1,
         event: "push",
       });
@@ -909,35 +880,45 @@ test("CI observation pull --task fails closed when no completed run covers the d
       }),
     },
   };
-  const runs = [
-    {
-      databaseId: 906,
-      headBranch: "main",
-      headSha: "sha-906",
-      createdAt: "2026-09-15T06:00:00Z",
-      status: "in_progress",
-      conclusion: null,
-      event: "push",
-    },
-    {
-      databaseId: 905,
-      headBranch: "main",
-      headSha: "sha-905",
-      createdAt: "2026-09-15T05:00:00Z",
-      status: "completed",
-      conclusion: "success",
-      event: "push",
-    },
-  ];
+  // 906 (tip) covers the delivery but is still running; 905 predates it, so the walk stops there and
+  // its completed green never answers for the delivery.
+  const commits = [
+      { sha: "sha-906", parents: ["sha-905"] },
+      { sha: "sha-905", parents: [] },
+    ],
+    runsByHead: Readonly<Record<string, readonly unknown[]>> = {
+      "sha-906": [
+        {
+          databaseId: 906,
+          path: ".github/workflows/rewrite-ci.yml",
+          headBranch: "main",
+          event: "push",
+          status: "in_progress",
+          conclusion: null,
+        },
+      ],
+      "sha-905": [
+        {
+          databaseId: 905,
+          path: ".github/workflows/rewrite-ci.yml",
+          headBranch: "main",
+          event: "push",
+          status: "completed",
+          conclusion: "success",
+        },
+      ],
+    };
   const coverage: Readonly<Record<string, string>> = {
     [`${delivery}...sha-906`]: "ahead",
     [`${delivery}...sha-905`]: "diverged",
   };
   const runGh = (async (_command: string, args: readonly string[]) => {
-    if (args[0] === "api")
-      return JSON.stringify({ status: coverage[String(args[1]).replace(/^.*\/compare\//u, "")] ?? "diverged" });
-    if (args[1] === "list") return JSON.stringify(runs);
-    throw new Error(`unexpected gh call: ${args.join(" ")}`);
+    const url = String(args[1]);
+    if (args[0] !== "api") throw new Error(`unexpected gh call: ${args.join(" ")}`);
+    if (url.startsWith("repos/:owner/:repo/commits?")) return JSON.stringify(commits);
+    if (url.includes("/actions/runs?head_sha="))
+      return JSON.stringify(runsByHead[/head_sha=([^&]+)/u.exec(url)?.[1] ?? ""] ?? []);
+    return JSON.stringify({ status: coverage[url.replace(/^.*\/compare\//u, "")] ?? "diverged" });
   }) as never;
   try {
     // The completed run does not cover; the in_progress run does, so next names the pending run.
@@ -1011,7 +992,7 @@ test("CI observation pull reports rate_limited with the reset hint instead of a 
     throw new Error(`unexpected gh call: ${args.join(" ")}`);
   };
   try {
-    // A primary rate limit on the compare call classifies with the parsed reset hint.
+    // A primary rate limit on the first GitHub API call classifies with the parsed reset hint.
     await assert.rejects(
       fetchCiObservations(
         cell as never,

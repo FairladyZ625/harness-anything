@@ -95,10 +95,10 @@ export async function fetchCiObservations(
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), "ha-ci-observe-"));
   try {
     const listed =
-        namedRuns === null
+        namedRuns === null && witness === null
           ? (
               await Promise.all(
-                (witness?.options.workflows ?? workflows).map(
+                workflows.map(
                   async (workflow) =>
                     JSON.parse(
                       await runGh(
@@ -108,7 +108,6 @@ export async function fetchCiObservations(
                           "list",
                           "--workflow",
                           `${workflow}.yml`,
-                          ...(witness === null ? [] : ["--branch", "main"]),
                           "--limit",
                           String(limit),
                           "--json",
@@ -121,7 +120,10 @@ export async function fetchCiObservations(
               )
             ).flat()
           : [],
-      witnessRun = witness === null ? null : await selectTaskWitnessRun(cell, witness, listed, runGh),
+      witnessRun =
+        witness === null
+          ? null
+          : await selectTaskWitnessRun(cell, witness, witness.options.workflows ?? workflows, runGh),
       runs: readonly Pick<CiWorkflowRun, "databaseId">[] =
         namedRuns?.map((databaseId) => ({ databaseId })) ??
         (witnessRun ? [witnessRun] : selectCiObservationRuns(listed, limit));
@@ -409,35 +411,82 @@ function taskWitnessContract(
 // Selects the run the frozen contract judges, exactly as completion does: completed main runs of
 // the frozen event, newest run first, the first covering run whose conclusion is a verdict
 // (cancelled/skipped carry none). A red verdict is imported and reported, never skipped for an
-// older green.
+// older green. Runs are looked up per head commit along main's first-parent history, newest first:
+// GitHub's branch-filtered run listing intermittently serves a days-old page, while head_sha
+// lookups stayed current (F-6AFABACF, F-50599A2B).
 async function selectTaskWitnessRun(
   cell: { readonly rootDir: string; readonly cellCodedError: RepoCellOperationalContext["cellCodedError"] },
   { taskId, delivery, options }: TaskWitness,
-  listed: readonly CiRunListEntry[],
+  workflows: readonly string[],
   runGh: RunGh,
 ): Promise<Pick<CiWorkflowRun, "databaseId">> {
-  const covers = async (head: string) =>
-      options.coverage === "exact" ? head === delivery : coversCommit(runGh, cell.rootDir, delivery, head),
-    mainRuns = listed
-      .filter((run) => run.headBranch === "main" && run.event === options.event)
-      .sort((left, right) => right.databaseId - left.databaseId),
-    completed = mainRuns.filter(
+  const cwd = cell.rootDir,
+    workflowPaths = new Set(workflows.map((workflow) => `.github/workflows/${workflow}.yml`)),
+    heads =
+      options.coverage === "exact"
+        ? [delivery]
+        : firstParentHistory(
+            JSON.parse(
+              await runGh(
+                "gh",
+                [
+                  "api",
+                  "repos/:owner/:repo/commits?sha=main&per_page=100",
+                  "--jq",
+                  "[.[] | {sha, parents: [.parents[].sha]}]",
+                ],
+                { cwd },
+              ),
+            ) as readonly { readonly sha: string; readonly parents: readonly string[] }[],
+          );
+  let pending: { readonly databaseId: number; readonly status: string } | undefined;
+  for (const head of heads) {
+    // Main's first-parent history is linear: once a head does not contain the delivery, no older one does.
+    if (options.coverage !== "exact" && !(await coversCommit(runGh, cwd, delivery, head))) break;
+    const runs = (
+      JSON.parse(
+        await runGh(
+          "gh",
+          [
+            "api",
+            `repos/:owner/:repo/actions/runs?head_sha=${head}&per_page=100`,
+            "--jq",
+            "[.workflow_runs[] | {databaseId: .id, path, headBranch: .head_branch, event, status, conclusion}]",
+          ],
+          { cwd },
+        ),
+      ) as readonly (Pick<CiRunListEntry, "databaseId" | "headBranch" | "event" | "status" | "conclusion"> & {
+        readonly path: string;
+      })[]
+    )
+      .filter((run) => run.headBranch === "main" && run.event === options.event && workflowPaths.has(run.path))
+      .sort((left, right) => right.databaseId - left.databaseId);
+    const verdict = runs.find(
       (run) => run.status === "completed" && run.conclusion !== "cancelled" && run.conclusion !== "skipped",
-    ),
-    pending = mainRuns.filter((run) => run.status !== "completed");
-  for (const run of completed) if (await covers(run.headSha)) return { databaseId: run.databaseId };
-  for (const run of pending)
-    if (await covers(run.headSha))
-      throw cell.cellCodedError(
-        "ci_witness_not_found",
-        `No completed main CI run covers delivery ${delivery} of ${taskId}. ` +
-          `next: run ${run.databaseId} is ${run.status}; retry after it concludes.`,
-      );
+    );
+    if (verdict) return { databaseId: verdict.databaseId };
+    pending ??= runs.find((run) => run.status !== "completed");
+  }
+  if (pending)
+    throw cell.cellCodedError(
+      "ci_witness_not_found",
+      `No completed main CI run covers delivery ${delivery} of ${taskId}. ` +
+        `next: run ${pending.databaseId} is ${pending.status}; retry after it concludes.`,
+    );
   throw cell.cellCodedError(
     "ci_witness_not_found",
     `No completed main CI run covers delivery ${delivery} of ${taskId}. ` +
       "next: no covering run exists yet; retry after the next main run completes.",
   );
+}
+
+// Main's push runs sit on its first-parent chain; the page lists the tip first.
+function firstParentHistory(page: readonly { readonly sha: string; readonly parents: readonly string[] }[]): string[] {
+  const parents = new Map(page.map((commit) => [commit.sha, commit.parents[0]]));
+  const chain: string[] = [];
+  for (let sha: string | undefined = page[0]?.sha; sha !== undefined && parents.has(sha); sha = parents.get(sha))
+    chain.push(sha);
+  return chain;
 }
 
 function taskWitnessSummary({ witness, runs }: CiObservationFetch): string {
