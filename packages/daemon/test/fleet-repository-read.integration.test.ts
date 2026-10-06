@@ -310,7 +310,14 @@ test(
     assert.ok(Buffer.byteLength(longToken) > 2048);
     f.owners.keycloak.interactiveSession("person-one", "node-one", f.owners.url, longToken);
     const cli = await runFleetEdgeTask(
-      { payload: { ...config, workspaceRoot: edgeRoot, action: { kind: "task-list", limit: 500 } } },
+      {
+        payload: {
+          ...config,
+          workspaceRoot: edgeRoot,
+          principalId: "person-one",
+          action: { kind: "task-list", limit: 500 },
+        },
+      },
       async () => longToken,
     );
     assert.equal(cli.ok, true, JSON.stringify(cli));
@@ -463,7 +470,7 @@ test(
       { code: "authorization_denied" },
     );
     const revokedCli = await runFleetEdgeTask(
-      { payload: { ...config, workspaceRoot: edgeRoot, action: { kind: "task-list" } } },
+      { payload: { ...config, workspaceRoot: edgeRoot, principalId: "person-one", action: { kind: "task-list" } } },
       async () => longToken,
     );
     assert.equal(revokedCli.ok, false);
