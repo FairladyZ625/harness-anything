@@ -59,7 +59,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     const rejectedTransition = await cell.run({ kind: "task-transition", taskId, status: "done" }, holder);
     assert.equal(rejectedTransition.code, "invalid_transition", JSON.stringify(rejectedTransition));
     assert.deepEqual(rejectedTransition.nextActions, [
-      `ha task start ${taskId} [--execution-id <execution-id>] [--ttl-ms <ttl-ms>] [--dry-run]`,
+      `ha task start ${taskId} [--stack-on <stack-on>] [--execution-id <execution-id>] [--ttl-ms <ttl-ms>] [--dry-run]`,
     ]);
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     const withoutLease = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
