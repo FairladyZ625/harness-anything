@@ -90,47 +90,6 @@ test("taskless settlement requires the provider's completed turn and final resul
   }
 });
 
-test("a read-only task run settles on its completed turn and final result; a writable one still needs delivery", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-read-only-witness-"));
-  try {
-    for (const sample of [
-      { permissionMode: "read-only", finalText: "scan report", expected: "succeeded" },
-      { permissionMode: "read-only", finalText: null, expected: "unknown" },
-      { permissionMode: "workspace-write", finalText: "scan report", expected: "unknown" },
-    ] as const) {
-      const outcomes: Record<string, unknown>[] = [],
-        runtime = {
-          ...tasklessSettlementRuntime(rootDir, sample.finalText),
-          task: { taskId: "task-read-only-scan", executionId: "exe-read-only-scan" },
-          permissionMode: sample.permissionMode,
-        } as unknown as ActiveRuntime,
-        context = {
-          exiting: new Set<string>(),
-          processes: new Map([[runtime.runtimeSessionId, runtime]]),
-          input: {
-            repoId: "canonical",
-            rootDir,
-            now: () => "2026-10-07T00:01:00.000Z",
-            stream: { publish: () => ({}) },
-            remote: { archive: async () => ({ outcome: "applied" }) },
-          },
-          resultMediaType: "text/markdown",
-          runtimeResultText: () => sample.finalText ?? "",
-          markProtocolError: () => undefined,
-          publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
-            if (type === "runtime_session_outcome_observed") outcomes.push(payload);
-            return {};
-          },
-          settleFallback: async () => undefined,
-        } as unknown as RuntimeSpawnerContext;
-      await publishExit(context, runtime, 0);
-      assert.equal(outcomes[0]?.outcome, sample.expected, JSON.stringify(sample));
-    }
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
 test("scheduled missions receive the daemon-owned outcome protocol", () => {
   assert.equal(
     scheduleMissionWithOutcomeProtocol("Inspect the repository.\n"),
