@@ -254,6 +254,8 @@ export function createDaemonHostRuntimeApi(
               verifyHuman: (auth) => context.oidc.bind(auth),
             },
           });
+          await context.waitForWarming(authorityRepoId);
+          context.requiredCell(context.cells, context.warming, context.unavailable, authorityRepoId);
           const replaced = context.fleetCenter !== null;
           if (context.fleetCenter) {
             const previous = context.fleetCenter;
