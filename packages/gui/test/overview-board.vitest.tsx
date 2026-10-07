@@ -476,6 +476,94 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
     restore();
   });
 
+  it("WIP 层分组过滤后关闭,再从内联行进入:过滤不遗留,被点行可见且详情就是被点任务", async () => {
+    const counted = defaultCounted();
+    const restore = stubBridge({ getTaskWip: () => wipSnapshot(counted) });
+    const container = mount();
+    // 断言中途失败也要卸载:放大层挂在 document.body,泄出去会顶掉下一例的 dialog 查询。
+    try {
+      await flushUntil(
+        () => container.querySelector('[data-testid="overview-region-drill"]')?.textContent?.includes("10/30") === true,
+      );
+      // 打开 WIP 层,把分组滤到「活跃」:可见集合只剩 1 条 active。
+      act(() =>
+        (container.querySelector('[data-drill-row="task_wipactive0"]')!.querySelector("button") as HTMLElement).click(),
+      );
+      const dialog = document.body.querySelector('[role="dialog"]')!;
+      act(() =>
+        (
+          [...dialog.querySelectorAll("[role='group'] button")].find((button) =>
+            textOf(button).startsWith("活跃"),
+          ) as HTMLElement
+        ).click(),
+      );
+      expect(dialog.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(1);
+      // 关层后从内联行点一条被该分组滤掉的 blocked 任务:进入即重置过滤,被点行必须可见、
+      // 被选中且详情就是它(回归:遗留过滤曾把选中复算回首行,详情显示别的任务)。
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      });
+      act(() =>
+        (
+          container.querySelector('[data-drill-row="task_wipblocked0"]')!.querySelector("button") as HTMLElement
+        ).click(),
+      );
+      const reopened = document.body.querySelector('[role="dialog"]')!;
+      expect(reopened.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
+      expect(reopened.querySelector("[data-focus-list] [data-dense-row][data-selected]")?.getAttribute("title")).toBe(
+        "task_wipblocked0",
+      );
+      const detail = textOf(reopened.querySelector("[data-focus-detail]"));
+      expect(detail).toContain("task_wipblocked0");
+      expect(detail).toContain("占位任务 blocked0");
+    } finally {
+      unmount();
+      restore();
+    }
+  });
+
+  it("WIP 层搜索过滤后关闭,再从内联行进入:搜索不遗留,被点行可见且详情就是被点任务", async () => {
+    const counted = defaultCounted();
+    const restore = stubBridge({ getTaskWip: () => wipSnapshot(counted) });
+    const container = mount();
+    try {
+      await flushUntil(
+        () => container.querySelector('[data-testid="overview-region-drill"]')?.textContent?.includes("10/30") === true,
+      );
+      // 打开 WIP 层,搜索只命中 in_review0 一条。
+      act(() =>
+        (
+          container.querySelector('[data-drill-row="task_wipblocked0"]')!.querySelector("button") as HTMLElement
+        ).click(),
+      );
+      const dialog = document.body.querySelector('[role="dialog"]')!;
+      const search = dialog.querySelector("[data-testid='overview-task-wip-search']") as HTMLInputElement;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "in_review0");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(dialog.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(1);
+      // 关层后从内联行点一条被该搜索滤掉的 active 任务:进入即重置搜索,被点行可见、被选中。
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      });
+      act(() =>
+        (container.querySelector('[data-drill-row="task_wipactive0"]')!.querySelector("button") as HTMLElement).click(),
+      );
+      const reopened = document.body.querySelector('[role="dialog"]')!;
+      expect(reopened.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
+      expect(reopened.querySelector("[data-focus-list] [data-dense-row][data-selected]")?.getAttribute("title")).toBe(
+        "task_wipactive0",
+      );
+      const detail = textOf(reopened.querySelector("[data-focus-detail]"));
+      expect(detail).toContain("task_wipactive0");
+      expect(detail).toContain("占位任务 active0");
+    } finally {
+      unmount();
+      restore();
+    }
+  });
+
   it("tab 切换换内容:跟进/置顶各自铺名单,评审 tab 没有行就不出现", async () => {
     const restore = stubBridge({ getTaskWip: () => wipSnapshot([]) });
     const container = mount();

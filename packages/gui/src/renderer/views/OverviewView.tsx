@@ -201,7 +201,12 @@ export function OverviewView({
 
   // 点行开层:内联名单把被点的行直接带成放大层的选中(id 不在集合时由层收敛到首行)。
   const openFocus = (key: DrillFocusKey, selectedId?: string) => {
-    if (selectedId !== undefined) setSelected((current) => ({ ...current, [key]: selectedId }));
+    if (selectedId !== undefined) {
+      setSelected((current) => ({ ...current, [key]: selectedId }));
+      // WIP 层的可见集合出自 wipFilter:上次遗留的分组/搜索会把被点行滤出集合,选中被
+      // focusSelected 复算回首行、详情显示错任务——进入即重置,被点行必然可见且被选中。
+      if (key === "wip") setWipFilter({ group: "all", search: "" });
+    }
     setFocus(key);
   };
 
