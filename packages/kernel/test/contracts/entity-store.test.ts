@@ -84,8 +84,8 @@ test("registered declaration Entity kinds explain the same contract shape from t
     },
     {
       catalogRef: "kernel/agent-action/v1",
-      available: ["install", "delete", "validate", "list", "inspect"],
-      declared: ["install", "delete", "validate", "list", "inspect"],
+      available: ["install", "delete", "retire", "validate", "list", "inspect"],
+      declared: ["install", "delete", "retire", "validate", "list", "inspect"],
     },
   );
   assert.deepEqual(

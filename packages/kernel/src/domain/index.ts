@@ -327,8 +327,10 @@ export {
   compileEntityUpdated,
   compileEntityTargetMissing,
   compileEntityDeleted,
+  compileAgentRetired,
   compileEntityUpsert,
   type EntityContentObservedBundle,
+  type AgentRetiredBundle,
   type EntityDeletedBundle,
   type EntityTargetMissingBundle,
   type EntityUpsertBundle,
@@ -336,6 +338,7 @@ export {
 export {
   contractForDeclarationEvent,
   entityDeletedWritePlan,
+  agentRetiredWritePlan,
   entityUpsertWritePlan,
   isEntityDeclarationEvent,
   isEntityEvent,

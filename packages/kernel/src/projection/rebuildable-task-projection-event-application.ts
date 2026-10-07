@@ -232,6 +232,14 @@ export function applyEvent(
       );
       if (event.type === "entity_deleted") {
         deleteEntityProjectionRow(db, event.payload.entityKind, event.payload.entityId);
+      } else if (event.type === "agent_retired") {
+        runSql(
+          db,
+          "UPDATE entity_projection SET workspace_revision = ?, value_json = json_set(value_json, '$.lifecycleState', 'retired') WHERE entity_kind = 'agent' AND entity_id = ? AND task_id = '' AND workspace_revision <= ?",
+          event.workspaceRevision,
+          event.payload.entityId,
+          event.workspaceRevision,
+        );
       } else markEntityProjectionMissing(db, event.payload.entityKind, event.payload.entityId, event.workspaceRevision);
       return;
     }

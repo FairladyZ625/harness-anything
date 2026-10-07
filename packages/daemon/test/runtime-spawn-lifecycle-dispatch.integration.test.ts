@@ -13,6 +13,7 @@ import {
   runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
+import { resolveAgentRuntimeDeclaration } from "../src/repo-cell-open.ts";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -468,6 +469,130 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
   }
 });
 
+test("runtime claim rejects a retired Agent through the spawn entry", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-retired-agent-"));
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Retired Agent Test");
+  git(root, "config", "user.email", "retired-agent@example.invalid");
+  git(root, "commit", "--allow-empty", "-qm", "base");
+  let onExit: ((code: number | null) => void) | null = null;
+  const binding = withPolicyGroup(
+    { actor: { principal: { personId: "person-retired-agent" }, executor: null }, source: "local" as const },
+    "admin",
+  );
+  const cell = await openRepoCell({
+    repoId: workspaceId("runtime-retired-agent"),
+    rootDir: canonicalRoot(root),
+    ownerId: "runtime-retired-agent-test",
+    runtimeInstances: () => [
+      {
+        schemaVersion: 2,
+        instanceId: definition.instanceId,
+        name: "Retired Agent Runtime",
+        kindId: definition.kindId,
+        installationId: definition.installationId,
+        providerId: definition.providerId,
+        models: [definition.model],
+        defaultModel: definition.model,
+        enabled: true,
+        permissionMode: "workspace-write",
+        codex: {},
+        authMode: definition.authMode,
+        authState: "configured" as const,
+        authReadiness: { status: "ready" as const, code: null, hint: null },
+        isolationState: "enforced" as const,
+      },
+    ],
+    prepareRuntimeLaunch: (_instanceId, request) => ({
+      definition,
+      installation,
+      executablePath: installation.executablePath,
+      args: [],
+      env: {},
+      cwd: request.cwd,
+      prompt: request.prompt,
+    }),
+    runtimeLaunch: () => ({
+      pid: process.pid,
+      onOutput: () => undefined,
+      onErrorOutput: () => undefined,
+      onExit: (listener) => {
+        onExit = listener;
+      },
+      terminate: () => undefined,
+    }),
+  });
+  try {
+    const installed = await cell.run(
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "retired-runtime-agent",
+          name: "Retired Runtime Agent",
+          instructions: "Run the retired runtime claim probe.",
+          runtimes: [{ type: "codex" }],
+        },
+        idempotencyKey: "retired-runtime-install",
+      },
+      binding,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const claimedBeforeRetire = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: definition.instanceId,
+        agentId: "retired-runtime-agent",
+        cwd: { scope: "repo-root" },
+        prompt: "This claim completes before retirement.",
+        taskId: null,
+        idempotencyKey: "claim-before-retire",
+      },
+      binding,
+    );
+    assert.equal(claimedBeforeRetire.outcome, "applied", JSON.stringify(claimedBeforeRetire));
+    const retired = await cell.run(
+      {
+        kind: "agent-retire",
+        agentId: "retired-runtime-agent",
+        reason: "stop accepting claims",
+        idempotencyKey: "retired-runtime-retire",
+      },
+      binding,
+    );
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    onExit?.(0);
+    let settled = false;
+    for (let attempt = 0; attempt < 20 && !settled; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      settled = makeTaskEventReader({ repoId: "runtime-retired-agent", rootDir: root })
+        .read()
+        .events.some(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === claimedBeforeRetire.runtimeSessionId,
+        );
+    }
+    assert.equal(settled, true);
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          agentId: "retired-runtime-agent",
+          cwd: { scope: "repo-root" },
+          prompt: "This claim must be rejected.",
+          taskId: null,
+          idempotencyKey: "retired-runtime-claim",
+        },
+        binding,
+      ),
+      (error: unknown) => error instanceof Error && (error as { code?: string }).code === "agent_retired",
+    );
+  } finally {
+    await cell.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test(
   "explicit runtime cancel terminates every detached native provider descendant group",
   { skip: process.platform === "win32" ? "requires POSIX process-group semantics" : false },
@@ -642,6 +767,27 @@ test(
     }
   },
 );
+
+test("runtime resolver preserves installed declarations across missing and orphaned projections", () => {
+  const declaration = {
+    schema: "agent-declaration/v1",
+    id: "projection-agent",
+    name: "Projection Agent",
+    instructions: "",
+    runtimes: [{ type: "codex" }],
+  } as const;
+  assert.equal(resolveAgentRuntimeDeclaration(declaration, null).id, declaration.id);
+  assert.equal(
+    resolveAgentRuntimeDeclaration(declaration, { freshness: "orphaned", value: { lifecycleState: "retired" } })
+      .lifecycleState,
+    undefined,
+  );
+  assert.equal(
+    resolveAgentRuntimeDeclaration(declaration, { freshness: "current", value: { lifecycleState: "configured" } })
+      .lifecycleState,
+    "configured",
+  );
+});
 
 test("dispatch reclaims an orphaned task lease instead of requiring a manual release", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-orphan-lease-"));

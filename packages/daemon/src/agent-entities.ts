@@ -31,6 +31,7 @@ import {
   entitySlug,
   parseAgentDeclarationV1,
   parseSquadDeclarationV1,
+  validateScheduleV1,
   validateAgentDeclarationV1,
   validateSquadDeclarationV1,
   type AgentDeclarationV1,
@@ -481,6 +482,7 @@ export function prepareAgentEntityInstall(input: {
     readonly models: readonly string[];
     readonly enabled: boolean;
   }[];
+  readonly projection?: Pick<TaskProjection, "getEntity">;
   readonly replay?: boolean;
 }): PreparedAgentEntityInstall {
   const kind = entityKind(input.action.kind);
@@ -501,6 +503,15 @@ export function prepareAgentEntityInstall(input: {
     );
   const declaration = decoded.declaration,
     current = repairableStoredDeclaration(input.entityStore ?? openEntityStore(input.rootDir), kind, declaration.id);
+  const projectedLifecycle =
+    kind === "agent" ? input.projection?.getEntity("agent", declaration.id)?.value.lifecycleState : undefined;
+  if (kind === "agent" && (current.value?.lifecycleState === "retired" || projectedLifecycle === "retired"))
+    throw agentInstallError(
+      "agent",
+      "agent_retired",
+      `Agent ${declaration.id} is retired and cannot be reinstalled.`,
+      "agent/lifecycle",
+    );
   if (
     input.action.expectedVersion !== undefined &&
     (!Number.isSafeInteger(input.action.expectedVersion) || Number(input.action.expectedVersion) < 0)
@@ -539,9 +550,22 @@ export function prepareAgentEntityInstall(input: {
   };
 }
 
+/** The center claim gate. Missing lifecycle data is the legacy active state. */
+type AgentState = "configured" | "active" | "retired";
+type ProjectedAgentLifecycle = AgentDeclarationV1 & { readonly lifecycleState?: AgentState };
+
+export function assertAgentDispatchable(agent: ProjectedAgentLifecycle): AgentState {
+  const state = agent.lifecycleState ?? "active";
+  if (state === "active") return state;
+  throw Object.assign(new Error(`Agent ${agent.id} is ${state} and cannot accept a new dispatch claim.`), {
+    code: state === "retired" ? "agent_retired" : "agent_not_active",
+  });
+}
+
 export function prepareAgentEntityDelete(input: {
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
   readonly entityStore: EntityStore;
+  readonly projection: Pick<TaskProjection, "readRuntimeDispatches" | "listEntities" | "readRelationQuery">;
 }): PreparedAgentEntityDelete {
   const kind = entityKind(input.action.kind),
     idField = kind === "agent" ? "agentId" : "squadId",
@@ -569,7 +593,53 @@ export function prepareAgentEntityDelete(input: {
       `${kind}/entity-revision`,
     );
   if (!reason.trim()) throw entityError("invalid_command", "reason is required.");
+  if (kind === "agent") {
+    const references = agentReferenceCounts(input.projection, entityId);
+    if (references.length)
+      throw attributeEntityActionCriterion(
+        Object.assign(new Error(`Agent ${entityId} is still referenced.`), {
+          code: "agent_referenced",
+          references,
+        }),
+        "delete",
+        "agent/no-references",
+      );
+  }
   return { entityId, baseBlobSha256: current.documentSha256 };
+}
+
+export function agentReferenceCounts(
+  projection: Pick<TaskProjection, "readRuntimeDispatches" | "listEntities" | "readRelationQuery">,
+  agentId: string,
+): readonly { readonly kind: string; readonly count: number }[] {
+  const dispatches = projection.readRuntimeDispatches().filter(({ payload }) => payload.agentId === agentId).length;
+  const squadMembers = projection.listEntities("squad").reduce((count, row) => {
+    try {
+      const squad = parseSquadDeclarationV1(row.value);
+      return count + (squad.leader === agentId ? 1 : 0) + squad.workers.filter((id) => id === agentId).length;
+    } catch {
+      return count;
+    }
+  }, 0);
+  const schedules = projection.listEntities("schedule").reduce((count, row) => {
+    const errors = validateScheduleV1(row.value);
+    if (errors.length) return count;
+    const target = (
+      row.value as { readonly spec: { readonly target: { readonly kind: string; readonly agentId?: string } } }
+    ).spec.target;
+    return count + (target.kind === "agent" && target.agentId === agentId ? 1 : 0);
+  }, 0);
+  const ref = `agent/${agentId}`,
+    relations =
+      projection.readRelationQuery({ source: ref, state: "active", limit: 500 }).rows.length +
+      projection.readRelationQuery({ target: ref, state: "active", limit: 500 }).rows.length;
+  const entries: readonly (readonly [string, number])[] = [
+    ["dispatch", dispatches],
+    ["squad", squadMembers],
+    ["schedule", schedules],
+    ["relation", relations],
+  ];
+  return entries.filter(([, count]) => count > 0).map(([kind, count]) => ({ kind, count }));
 }
 function repairableStoredDeclaration(
   entityStore: EntityStore,

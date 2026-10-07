@@ -12,6 +12,7 @@ import { presetDocumentBody } from "@harness-anything/preset/internal/preset-res
 import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/internal/preset-system";
 import { agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
+import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
   openDispatchStream,
@@ -483,6 +484,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
           : dispatchMission,
       prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt;
+    if (agent) assertAgentDispatchable(agent);
     // Dry-run preview ends exactly at the launch boundary: the same inputs, same
     // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
     if (dryRun)

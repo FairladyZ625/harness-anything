@@ -99,6 +99,7 @@ const runtimeAdmin = (kind: string): ActionDeclaration =>
 export const actionDeclarations = Object.freeze([
   canonical("repository-read", null, "repo-read", "none"),
   canonical("agent-delete", "agent/delete", "repo-write"),
+  canonical("agent-retire", "agent/retire", "repo-write"),
   canonical("agent-install", "agent/install", "repo-write"),
   local("agent-run", "repo-write", runtimeResidency),
   canonical("ci-observe-pull", null, "repo-write", "none"),

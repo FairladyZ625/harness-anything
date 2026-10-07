@@ -203,9 +203,9 @@ function taskSnapshot(t) {
   return root;
 }
 
-test("G0-2 traces all 141 declared writes, including queued task catalog ingress", () => {
+test("G0-2 traces all 142 declared writes, including queued task catalog ingress", () => {
   const result = auditDurableActionAuthorization(repoRoot);
-  assert.equal(result.rows.length, 141); // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: handoff export, claim, and revoke.
+  assert.equal(result.rows.length, 142); // agent-retire adds one executable durable write.
   assert.deepEqual(result.findings, []);
   assert.ok(result.rows.every((row) => row.receiptAuthorizationDecision));
 });

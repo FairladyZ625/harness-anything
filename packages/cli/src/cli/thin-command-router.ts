@@ -32,6 +32,7 @@ const dedicatedRouteParsers = new Map<string, RoutedParser>([
   ],
   ["work-list", parseWorkRead],
   ["work-show", parseWorkRead],
+  ["agent-retire", parseAgentRetire],
 ]);
 
 function parseRbacBootstrap(
@@ -347,6 +348,32 @@ function parseAgentRun(
       ...(!noStream ? { detach: true } : {}),
       ...(onExitCommand ? { onExitCommand } : {}),
       ...(noStream ? { noStream: true } : {}),
+    },
+    route.method,
+  );
+}
+
+function parseAgentRetire(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const agentId = args[2],
+    f = readFlags(route.id, args.slice(3), inputs);
+  if (!nonEmpty(agentId)) return rejected("missing_field", "Use ha agent retire <agent-id> --reason <text>.", json);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    {
+      kind: "agent-retire",
+      agentId,
+      reason: f.one.get("--reason"),
+      ...(f.one.get("--successor") ? { successor: f.one.get("--successor") } : {}),
     },
     route.method,
   );

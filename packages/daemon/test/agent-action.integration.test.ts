@@ -9,6 +9,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { compileEntityUpsert, makeTaskEventReader, openSqliteEventStore, sha256Bytes } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
+import { assertAgentDispatchable, prepareAgentEntityDelete } from "../src/agent-entities.ts";
 
 const binding = withPolicyGroup(
   {
@@ -370,6 +371,102 @@ test("Agent install accepts a single declaration file as the package source", as
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("Agent retire publishes lifecycle state, is idempotent by operation, and blocks reinstallation", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-retire-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("agent-retire"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "agent-retire-test",
+  });
+  try {
+    const installed = await cell.run(
+      { kind: "agent-install", declaration, expectedVersion: 0, idempotencyKey: "retire-install" },
+      binding,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const retired = await cell.run(
+      {
+        kind: "agent-retire",
+        agentId: declaration.id,
+        reason: "No longer accepting new claims.",
+        successor: "replacement-agent",
+        idempotencyKey: "retire-agent",
+      },
+      binding,
+    );
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    assert.deepEqual(retired.effects, ["entity-event/agent_retired"]);
+    const eventStore = openSqliteEventStore({
+      repoId: workspaceId("agent-retire"),
+      rootInput: rootDir,
+      readOnly: true,
+    });
+    try {
+      const event = eventStore.event(retired.opId);
+      assert.equal(event?.type, "agent_retired");
+      if (event?.type === "agent_retired") assert.equal(event.payload.successor, "replacement-agent");
+    } finally {
+      eventStore.close();
+    }
+    const repeated = await cell.run(
+      {
+        kind: "agent-retire",
+        agentId: declaration.id,
+        reason: "No longer accepting new claims.",
+        successor: "replacement-agent",
+        idempotencyKey: "retire-agent",
+      },
+      binding,
+    );
+    assert.equal(repeated.outcome, "op_rejected", JSON.stringify(repeated));
+    assert.equal(repeated.code, "agent_retired");
+    const revived = await cell.run({ kind: "agent-install", declaration, idempotencyKey: "retire-reinstall" }, binding);
+    assert.equal(revived.outcome, "op_rejected", JSON.stringify(revived));
+    assert.equal(revived.code, "agent_retired");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("configured Agents are rejected by the center dispatch gate", () => {
+  assert.throws(
+    () => assertAgentDispatchable({ ...declaration, lifecycleState: "configured" }),
+    (error: unknown) => error instanceof Error && (error as { code?: string }).code === "agent_not_active",
+  );
+});
+
+test("Agent deletion reports a dispatch header reference even without taskId", () => {
+  const entityStore = {
+    get: () => ({
+      kind: "agent",
+      id: declaration.id,
+      value: declaration,
+      documentPath: "agents/unified-agent.json",
+      documentSha256: "sha256:document",
+      workspaceRevision: 3,
+    }),
+  } as never;
+  assert.throws(
+    () =>
+      prepareAgentEntityDelete({
+        action: { kind: "agent-delete", agentId: declaration.id, expectedVersion: 3, reason: "remove" },
+        entityStore,
+        projection: {
+          readRuntimeDispatches: () => [{ payload: { agentId: declaration.id } }],
+          listEntities: () => [],
+          readRelationQuery: () => ({ rows: [] }),
+        },
+      }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "agent_referenced");
+      assert.deepEqual((error as { references?: unknown }).references, [{ kind: "dispatch", count: 1 }]);
+      return true;
+    },
+  );
 });
 
 test("owned-content objects preserve raw bytes and reject absent or oversized content", () => {

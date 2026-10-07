@@ -91,7 +91,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "agent-declaration/v1",
     refTemplate: "agent/{id}",
     statuses: [],
-    actions: ["install", "delete", "validate", "list", "inspect"],
+    actions: ["install", "delete", "retire", "validate", "list", "inspect"],
   },
   decision: {
     schemaId: "decision-package",

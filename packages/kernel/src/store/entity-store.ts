@@ -37,6 +37,7 @@ const entityEventCaches = new WeakMap<
     records: Map<string, { event: StoredEntityEventV1; contract: EntityStoreKindContract; record: StoredEntity }>;
   }
 >();
+const retiredAgentIds = new WeakMap<EntityEventSource, Set<string>>();
 
 function entityEventCache(source: EntityEventSource): Map<string, Map<string, StoredEntityEventV1>> {
   const cache = entityEventCaches.get(source) ?? {
@@ -44,11 +45,19 @@ function entityEventCache(source: EntityEventSource): Map<string, Map<string, St
     latestByKind: new Map<string, Map<string, StoredEntityEventV1>>(),
     records: new Map(),
   };
+  const retired = retiredAgentIds.get(source) ?? new Set<string>();
+  retiredAgentIds.set(source, retired);
   entityEventCaches.set(source, cache);
   for (;;) {
     const batch = source.readBatch(cache.cursor, 1024);
     for (const event of batch.events) {
       if (!isEntityEvent(event)) continue;
+      if (event.type === "agent_retired") {
+        retired.add(event.payload.entityId);
+        const latest = cache.latestByKind.get("agent") ?? new Map<string, StoredEntityEventV1>();
+        cache.latestByKind.set("agent", latest);
+        continue;
+      }
       const latest = cache.latestByKind.get(event.payload.entityKind) ?? new Map<string, StoredEntityEventV1>();
       cache.latestByKind.set(event.payload.entityKind, latest);
       const previous = latest.get(event.payload.entityId);
@@ -91,7 +100,15 @@ export function createEntityStore(
   const records = (kind: string): readonly StoredEntity[] => {
     const contract = contractForKind(kind);
     return [...latestEvents(kind).values()]
-      .map((event) => entityEventRecord(event, source, contract))
+      .map((event) => {
+        const record = entityEventRecord(event, source, contract);
+        return kind === "agent" && retiredAgentIds.get(source)?.has(record.id)
+          ? ({
+              ...record,
+              value: { ...(record.value as Record<string, unknown>), lifecycleState: "retired" },
+            } as StoredEntity)
+          : record;
+      })
       .sort((left, right) => left.id.localeCompare(right.id));
   };
   return {
@@ -99,7 +116,13 @@ export function createEntityStore(
     get: <T>(kind: string, id: string) => {
       const contract = contractForKind(kind),
         event = latestEvents(kind).get(id);
-      return event === undefined ? null : (entityEventRecord(event, source, contract) as StoredEntity<T>);
+      if (event === undefined) return null;
+      const record = entityEventRecord(event, source, contract);
+      return (
+        kind === "agent" && retiredAgentIds.get(source)?.has(id)
+          ? { ...record, value: { ...(record.value as Record<string, unknown>), lifecycleState: "retired" } }
+          : record
+      ) as StoredEntity<T>;
     },
     list: <T>(kind: string) => records(kind) as readonly StoredEntity<T>[],
   };

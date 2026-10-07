@@ -8,6 +8,7 @@ import {
   makeTaskEventStore,
   runtimeSessionActionIds,
   type AgentRuntimeEventV1,
+  type AgentDeclarationV1,
   type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
   type DispatchRecordLeaseSettlement,
@@ -143,6 +144,16 @@ export interface RepoCellOpenInput {
   /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
   /** Daemon-owned fallback for writes produced inside the cell rather than a request. */
   readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
+}
+
+export function resolveAgentRuntimeDeclaration(
+  declaration: AgentDeclarationV1,
+  projected: { readonly freshness: string; readonly value: { readonly lifecycleState?: string } } | null,
+): AgentDeclarationV1 & { readonly lifecycleState?: string } {
+  return {
+    ...declaration,
+    ...(projected && projected.freshness !== "orphaned" ? { lifecycleState: projected.value.lifecycleState } : {}),
+  };
 }
 
 export async function openRepoCell(input: RepoCellOpenInput): Promise<RepoCell> {
@@ -462,7 +473,24 @@ export async function openRepoWriterCell(
     keycloakCenter: input.keycloakCenter,
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
     ...(input.prepareWorkerGitEnvironment ? { prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment } : {}),
-    resolveAgent: (agentId) => readAgentDeclaration({ rootDir, agentId, entityStore: createEntityStore(store) }),
+    resolveAgent: (agentId) => {
+      const projected = projection.getEntity("agent", agentId);
+      const entityStore = createEntityStore(store),
+        declaration = readAgentDeclaration({
+          rootDir,
+          agentId,
+          entityStore: {
+            ...entityStore,
+            get: <T>(kind: string, id: string) => {
+              const record = entityStore.get<T>(kind, id);
+              if (record === null || kind !== "agent") return record;
+              const { lifecycleState: _lifecycleState, ...value } = record.value as Record<string, unknown>;
+              return { ...record, value } as typeof record;
+            },
+          },
+        });
+      return resolveAgentRuntimeDeclaration(declaration, projected);
+    },
     resolveSquadDispatch: (squadId, leaderId, workerId) =>
       resolveSquadDispatch({
         rootDir,
@@ -738,7 +766,7 @@ export async function openRepoWriterCell(
             baseBlobSha256: existing.payload.ownedContent.retirements[0]!.baseBlobSha256,
             reason: existing.payload.reason,
           };
-        const prepared = prepareAgentEntityDelete({ action, entityStore: createEntityStore(store) });
+        const prepared = prepareAgentEntityDelete({ action, entityStore: createEntityStore(store), projection });
         return { ...action, ...prepared };
       }
       if (contract.id !== "install") return action;

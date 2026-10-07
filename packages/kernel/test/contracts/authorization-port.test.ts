@@ -33,7 +33,7 @@ function decision(kind: string): AuthorizationDecision {
 test("retired People mutations are absent from the durable authorization inventory", () => {
   // dec_CDDCFA8BB91A47BCE07B229E93 CH2.
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: explicit handoff export, claim and revoke.
-  assert.equal(durablePolicyActions.length, 141);
+  assert.equal(durablePolicyActions.length, 142);
   assert.equal(durablePolicyActions.includes("people-add"), false);
   assert.equal(durablePolicyActions.includes("people-remove"), false);
 });
