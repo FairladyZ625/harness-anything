@@ -392,3 +392,5 @@ export type {
 } from "./domain/squad-run.ts";
 
 export { validSquadDispatchContext } from "./domain/squad-run.ts";
+
+export { publicRuntimeSession, publicRuntimeInstallation } from "./domain/runtime-public-query.ts";

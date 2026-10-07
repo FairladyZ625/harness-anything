@@ -1,6 +1,11 @@
 // harness-test-tier: integration
+import { sha256Bytes, publicRuntimeInstallation, publicRuntimeSession } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import test from "node:test";
+import path from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { makeOffer } from "../src/fleet/center-replica-offer.ts";
+import { readEdgeRuntimeResult } from "../src/runtime-result-read.ts";
 import { repositoryCutFixture, seedRepositoryFamilies } from "./edge-repository-cut.fixtures.ts";
 
 test("repository families survive real snapshot and delta update/delete with center query parity", async (t) => {
@@ -9,12 +14,17 @@ test("repository families survive real snapshot and delta update/delete with cen
   await f.transfer("snapshot");
   const parity = () => {
     const read = (q: typeof f.center) => ({
-      installations: q.readRuntimeInstallations(),
-      installation: q.readRuntimeInstallation("installation-1"),
-      sessions: q.readRuntimeSessions(),
-      session: q.readRuntimeSession("runtime-1"),
-      taskSessions: q.readRuntimeSessionsForTask("task-1"),
-      sessionsPage: q.readRuntimeSessionPage({ taskId: "task-1", limit: 1 }),
+      installations: q.readRuntimeInstallations().map(publicRuntimeInstallation),
+      installation: q.readRuntimeInstallation("installation-1")
+        ? publicRuntimeInstallation(q.readRuntimeInstallation("installation-1")!)
+        : null,
+      sessions: q.readRuntimeSessions().map(publicRuntimeSession),
+      session: q.readRuntimeSession("runtime-1") ? publicRuntimeSession(q.readRuntimeSession("runtime-1")!) : null,
+      taskSessions: q.readRuntimeSessionsForTask("task-1").map(publicRuntimeSession),
+      sessionsPage: {
+        ...q.readRuntimeSessionPage({ taskId: "task-1", limit: 1 }),
+        rows: q.readRuntimeSessionPage({ taskId: "task-1", limit: 1 }).rows.map(publicRuntimeSession),
+      },
       dispatches: q.readRuntimeDispatches(),
       dispatch: q.readRuntimeDispatchById("dispatch-1"),
       sessionDispatches: q.readRuntimeDispatchesBySession("runtime-1"),
@@ -32,7 +42,6 @@ test("repository families survive real snapshot and delta update/delete with cen
       lease: q.readLeaseIntervals("task-1"),
       squad: q.getEntity("squad", "squad-1"),
       runs: q.readSquadRuns(),
-      ready: q.squadRunProjectionReady(),
     });
     assert.deepEqual(f.read(read), read(f.center));
   };
@@ -45,6 +54,16 @@ test("repository families survive real snapshot and delta update/delete with cen
   assert.equal(f.read((q) => q.listPinnedEntities())[0]?.entityRef, "squad/squad-1");
   assert.ok(!f.source.manifest(100)!.some((e) => /event_source|archived_entity/u.test(e.path)));
   const model = f.center.readEdgeReadModel();
+  assert.equal(
+    JSON.stringify(model.rows).includes("/private/owner"),
+    false,
+    "shared public selection excludes cwd, transcript and installation host metadata before replication",
+  );
+  assert.equal(
+    f.center.readRuntimeSession("runtime-1")?.transcriptRef,
+    "file:/private/owner/session.jsonl",
+    "the control projection retains its accepted source metadata",
+  );
   assert.ok(
     !model.rows.repository.some((r) => r.table === "event_index" && r.values.op_id === "op-17"),
     "unrelated canonical events must not be exported",
@@ -119,4 +138,122 @@ test("repository families survive real snapshot and delta update/delete with cen
   t.diagnostic(
     "snapshot 100 -> delta update 101 -> delta delete 102: runtime installation/session/binding, settings/provenance/witness, schedule/CI/output, squad, pin, lease parity",
   );
+});
+
+test("runtime result CAS shares the snapshot and delta cut, rejects missing blocks and retains historical bytes", async (t) => {
+  const f = repositoryCutFixture(t);
+  seedRepositoryFamilies(f.db);
+  const first = Buffer.from("完整结果\n".repeat(10_000)),
+    second = Buffer.from("Second complete result\n".repeat(500)),
+    sha = sha256Bytes(first),
+    sha2 = sha256Bytes(second),
+    ref = (digest: string) => `artifact:runtime-result/sha256/${digest}`;
+  const event = (digest: string, body: Uint8Array) => ({
+    schema: "agent-runtime-event/v1",
+    type: "runtime_session_outcome_observed",
+    eventId: "result-event",
+    workspaceRevision: 50,
+    opId: "result-event",
+    actor: { principal: { personId: "owner" }, executor: null },
+    source: "local",
+    occurredAt: "2026-10-07T00:00:00Z",
+    payload: {
+      runtimeSessionId: "runtime-1",
+      outcome: "succeeded",
+      exitCode: 0,
+      resultRef: ref(digest),
+      result: { sha256: digest, size: body.byteLength, mediaType: "text/plain; charset=utf-8" },
+    },
+  });
+  f.db.prepare("INSERT INTO event_index VALUES ('result-event', 50, NULL, ?)").run(JSON.stringify(event(sha, first)));
+  assert.throws(() => f.source.activate(), /Runtime result.*unavailable/u, "an incomplete center cut is never offered");
+  assert.equal(f.source.latest(), null);
+  f.contents.set(sha, first);
+  f.db
+    .prepare(
+      "UPDATE runtime_session SET value_json = json_set(value_json, '$.resultRef', ?) WHERE runtime_session_id = 'runtime-1'",
+    )
+    .run(ref(sha2));
+  assert.throws(
+    () => f.source.activate(),
+    /has no content claim/u,
+    "a session reference cannot advertise a cut without its result claim",
+  );
+  f.db
+    .prepare(
+      "UPDATE runtime_session SET value_json = json_set(value_json, '$.resultRef', ?) WHERE runtime_session_id = 'runtime-1'",
+    )
+    .run(ref(sha));
+  await f.transfer("snapshot");
+  assert.equal(readEdgeRuntimeResult(f.viewRoot, "families", ref(sha)), first.toString());
+  const frozen = f.source.latest()!;
+  assert.deepEqual(f.source.activate(), frozen, "activating the same accepted cut never replaces its manifest");
+  await f.next();
+  await f.transfer("delta");
+  f.contents.set(sha2, second);
+  f.db
+    .prepare("UPDATE event_index SET event_json = ? WHERE op_id = 'result-event'")
+    .run(JSON.stringify(event(sha2, second)));
+  f.db
+    .prepare(
+      "UPDATE runtime_session SET value_json = json_set(value_json, '$.resultRef', ?) WHERE runtime_session_id = 'runtime-1'",
+    )
+    .run(ref(sha2));
+  await f.next();
+  await assert.rejects(f.transfer("delta", sha2), /transfer blob missing/u);
+  assert.equal(
+    readEdgeRuntimeResult(f.viewRoot, "families", ref(sha)),
+    first.toString(),
+    "incomplete transfer cannot switch current",
+  );
+  await f.transfer("delta");
+  assert.equal(readEdgeRuntimeResult(f.viewRoot, "families", ref(sha2)), second.toString());
+  assert.throws(() => readEdgeRuntimeResult(f.viewRoot, "families", ref(sha)), /not present in the current cut/u);
+  const oldCas = path.join(f.viewRoot, "repos", "families", "cas", "sha256", sha.slice(0, 2), sha);
+  assert.equal(
+    readFileSync(oldCas).toString(),
+    first.toString(),
+    "previous retained edge cut still owns its result bytes",
+  );
+  f.db.prepare("DELETE FROM event_index WHERE op_id = 'result-event'").run();
+  f.db.exec("UPDATE runtime_session SET value_json = json_remove(value_json, '$.resultRef')");
+  await f.next();
+  await f.transfer("delta");
+  assert.throws(() => readEdgeRuntimeResult(f.viewRoot, "families", ref(sha2)), /not present/u);
+  assert.equal(existsSync(oldCas), false, "edge GC can delete bytes after the last referencing cut is retired");
+  for (let i = 0; i < 61; i++) await f.next();
+  assert.equal(f.source.cut(100), null);
+  assert.ok(f.source.cut(101), "the oldest retained cut still references the initial result");
+  assert.deepEqual(
+    f.source.content({ sha256: sha, size: first.byteLength, mediaType: "text/plain; charset=utf-8" }),
+    first,
+    "center GC traces all retained manifests, including results absent from current and change puts",
+  );
+});
+
+test("a batched canonical advance offers only a complete head model, folding intermediate document deltas", async (t) => {
+  const f = repositoryCutFixture(t);
+  seedRepositoryFamilies(f.db);
+  await f.transfer("snapshot");
+  f.db.exec("UPDATE runtime_session SET value_json = json_set(value_json, '$.liveness', 'exited')");
+  await f.next(2);
+  assert.throws(
+    () =>
+      makeOffer(
+        { nodeId: "edge", viewId: "edge", repoId: "families" },
+        null,
+        f.source.cut(101)!,
+        f.source,
+        "2026-10-07T00:00:00Z",
+      ),
+    /no read model at its canonical revision/u,
+  );
+  const frames = await f.transfer("delta");
+  const begin = frames.find((frame) => frame.schema === "fleet.delta.begin/v1");
+  assert.equal(
+    begin?.schema === "fleet.delta.begin/v1" ? begin.toCut.revision : null,
+    102,
+    "revision 101 has no model at that cut and must never be advertised to the reader",
+  );
+  assert.equal(f.read((q) => q.readRuntimeSession("runtime-1"))?.liveness, "exited");
 });

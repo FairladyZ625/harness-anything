@@ -1,3 +1,4 @@
+import { privateRuntimeEventTypes, publicRuntimeDispatch } from "../domain/runtime-public-query.ts";
 import { isSettingsEvent, type SettingsEventV1 } from "../domain/settings-event.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { isAgentRuntimeEvent, type AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
@@ -57,6 +58,7 @@ const RUNTIME_SESSION_EVENTS_SQL = [
   "SELECT event_json FROM event_index WHERE workspace_revision > ?",
   "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
   "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+  `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
   "ORDER BY workspace_revision LIMIT ?",
 ].join(" ");
 const SCHEDULE_EVENTS_SQL = [
@@ -123,7 +125,9 @@ export function repositoryEventQueries(
             : queryRow(db, RUNTIME_DISPATCH_SQL, runtimeSessionIdValue, definitionSnapshotRef);
         if (!row) return null;
         const event = JSON.parse(String(row.event_json));
-        return isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested" ? event : null;
+        return isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested"
+          ? publicRuntimeDispatch(event)
+          : null;
       }),
     readRuntimeDispatches: () =>
       withRead((db) =>
@@ -132,7 +136,8 @@ export function repositoryEventQueries(
           .filter(
             (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
               isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
-          ),
+          )
+          .map(publicRuntimeDispatch),
       ),
     readRuntimeDispatchById: (dispatchId) =>
       withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_ID_SQL, dispatchId))),
@@ -199,7 +204,8 @@ export function repositoryEventQueries(
           throw new Error("runtime session event page requires a non-negative revision and a positive limit");
         return queryRows(db, RUNTIME_SESSION_EVENTS_SQL, afterRevision, runtimeSessionIdValue, limit)
           .map((row) => JSON.parse(String(row.event_json)))
-          .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event));
+          .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
+          .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
       }),
     readScheduleEvents: (scheduleId) =>
       withRead((db, cut) => {
@@ -253,9 +259,9 @@ function projectedDispatch(
   const outcomeRow = queryRow(db, RUNTIME_OUTCOME_BY_DISPATCH_SQL, event.payload.dispatchId),
     outcome = outcomeRow ? (JSON.parse(String(outcomeRow.event_json)) as { readonly schema: string }) : null;
   if (!outcome || !isAgentRuntimeEvent(outcome) || outcome.type !== "runtime_session_outcome_observed")
-    return { event, metrics: null, endedAt: null, outcome: null };
+    return { event: publicRuntimeDispatch(event), metrics: null, endedAt: null, outcome: null };
   return {
-    event,
+    event: publicRuntimeDispatch(event),
     metrics: outcome.payload.runtimeMetrics ?? null,
     endedAt: outcome.payload.endedAt ?? null,
     outcome: outcome.payload.outcome,

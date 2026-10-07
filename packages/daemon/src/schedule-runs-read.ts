@@ -1,6 +1,6 @@
+import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { createHash } from "node:crypto";
 import {
-  consumeKnownError,
   isScheduleEvent,
   nextScheduleOccurrence,
   type CanonicalEventV1,
@@ -35,7 +35,7 @@ export interface ScheduleRunsReadContext {
     };
     readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
   };
-  /** runtime-result artifact 内容读;缺省时报告正文为 null,引用照常投影。 */
+  /** 同 cut 的 runtime-result 内容读；存在引用时必须提供存储且 bytes 完整。 */
   readonly store?: {
     readonly readContentBlob: (sha256: string) => Uint8Array | null;
   };
@@ -82,21 +82,12 @@ function emptyOutputs(): ScheduleRunOutputsDto {
   return { facts: [], decisions: [], tasks: [] };
 }
 
-/** report artifact 的完整正文:sha 命中内容库则原样给出(不截断);未就绪/非 UTF-8 → null。 */
+/** A referenced result must belong to the complete cut; absent bytes are a failed read. */
 function reportTextOf(context: ScheduleRunsReadContext, reportRef: string | null): string | null {
   if (reportRef === null) return null;
   if (context.store === undefined)
     throw Object.assign(new Error("Runtime result store is unavailable."), { code: "replica_unavailable" });
-  const bytes = context.store.readContentBlob(reportRef.slice("artifact:runtime-result/sha256/".length));
-  if (!bytes)
-    throw Object.assign(new Error(`Runtime result ${reportRef} is unavailable.`), { code: "replica_unavailable" });
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch (error) {
-    // 非 UTF-8 的 runtime-result 不是读失败,是一份无法按文本渲染的产物:降级为只给引用。
-    consumeKnownError(error);
-    return null;
-  }
+  return readCanonicalRuntimeResult(context.store, reportRef);
 }
 
 /**

@@ -88,7 +88,16 @@ test("Schedule runs project claimed, settled, and each missed occurrence from ca
     ],
   );
 
-  const complete = readScheduleRuns(projection(events, base), base.scheduleId);
+  assert.throws(() => readScheduleRuns(projection(events, base), base.scheduleId), /store is unavailable/u);
+  assert.throws(
+    () => readScheduleRuns({ ...projection(events, base), store: { readContentBlob: () => null } }, base.scheduleId),
+    /unavailable at this cut/u,
+  );
+  const complete = readScheduleRuns(
+    { ...projection(events, base), store: { readContentBlob: () => Buffer.from("Complete report") } },
+    base.scheduleId,
+  );
+  assert.equal(complete.runs[2]!.reportText, "Complete report");
   assert.equal(complete.runs[2]!.claimFence, "claim-1");
   assert.equal(Object.hasOwn(complete.runs[2]!, "assignmentId"), false);
   assert.notDeepEqual(

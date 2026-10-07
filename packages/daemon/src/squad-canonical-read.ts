@@ -1,16 +1,10 @@
+import { cellCriterionError } from "./repo-cell-errors.ts";
 import {
   runtimeSessionSemanticState,
   type CanonicalSquadRun,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
-import {
-  activePhase,
-  compareRunSummaries,
-  listQuery,
-  matchesRunQuery,
-  runInActivityWindow,
-  squadReadError,
-} from "./squad-run-list.ts";
+import { activePhase, compareRunSummaries, listQuery, matchesRunQuery, runInActivityWindow } from "./squad-run-list.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type {
   SquadRunReadResult,
@@ -27,9 +21,15 @@ export function makeSquadCanonicalReader(input: {
   const { projection } = input;
   function state(id: string): CanonicalSquadRun {
     if (!/^squad_[a-f0-9]{24}$/u.test(id))
-      throw squadReadError("invalid_squad_run_id", "Use the canonical Squad run handle.");
+      throw cellCriterionError("invalid_squad_run_id", "Use the canonical Squad run handle.", "status", "squad/run-id");
     const row = projection.readSquadRun(id);
-    if (!row) throw squadReadError("squad_run_not_found", `Squad run ${id} does not exist at this cut.`);
+    if (!row)
+      throw cellCriterionError(
+        "squad_run_not_found",
+        `Squad run ${id} does not exist at this cut.`,
+        "status",
+        "squad/run-present",
+      );
     return row.state as unknown as CanonicalSquadRun;
   }
   function attempt(runtimeSessionId: string | null) {
@@ -50,16 +50,27 @@ export function makeSquadCanonicalReader(input: {
       status,
       startedAt: dispatch?.payload.startedAt ?? dispatch?.occurredAt ?? null,
       endedAt: session?.outcome ? session.lastObservedAt : null,
-      tokenUsage: { input: metrics?.inputTokens ?? 0, output: metrics?.outputTokens ?? 0 },
-      toolCallCount: metrics?.toolCallCount ?? 0,
-      compacted: false,
-      resultText: session?.resultRef?.startsWith("artifact:runtime-result/")
-        ? input.readResult(session.resultRef)
-        : null,
+      tokenUsage: { input: metrics?.inputTokens ?? null, output: metrics?.outputTokens ?? null },
+      toolCallCount: metrics?.toolCallCount ?? null,
+      compacted: null,
+      resultText: session?.resultRef ? input.readResult(session.resultRef) : null,
+    };
+  }
+  function identity(run: CanonicalSquadRun) {
+    const snapshot = projection.read(run.taskId).snapshot;
+    return {
+      executionId: run.executionId,
+      iteration: snapshot.executions.find((e) => e.executionId === run.executionId)?.iteration ?? null,
+      currentIteration: snapshot.task?.iteration ?? null,
+      runRevision: run.runRevision,
+      acceptedRevision: run.acceptedRevision,
+      acceptedAt: run.acceptedAt,
+      owner: run.owner,
     };
   }
   function summary(run: CanonicalSquadRun): SquadRunSummaryDto {
     return {
+      ...identity(run),
       squadRunId: run.squadRunId,
       squadId: run.squadId,
       taskId: run.taskId,
@@ -80,6 +91,7 @@ export function makeSquadCanonicalReader(input: {
       ok: true,
       ...cut,
       run: {
+        ...identity(run),
         squadRunId: run.squadRunId,
         squadId: run.squadId,
         taskId: run.taskId,
@@ -97,7 +109,12 @@ export function makeSquadCanonicalReader(input: {
             dispatchId: worker.dispatchId,
             runtimeSessionId: worker.runtimeSessionId,
             rejection: worker.rejection,
-            worktree: null,
+            taskId: worker.taskId,
+            executionId: worker.executionId,
+            worktree:
+              worker.branch !== null && worker.baseSha !== null
+                ? { branch: worker.branch, baseSha: worker.baseSha }
+                : null,
             ...observed,
           };
         }),

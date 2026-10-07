@@ -81,6 +81,14 @@ export function SquadRunDetail({
             {t("agentRuntime.sessionsTaskDetail")} ↗
           </EntityRefLink>
         </span>
+        <p data-testid="squad-run-observation" className="font-mono ui-micro text-text-faint">
+          {t("agentRuntime.squadRunObservation", {
+            at: formatTime(run.acceptedAt, { style: "date-time" }) ?? run.acceptedAt,
+            execution: run.executionId,
+            iteration: String(run.iteration ?? "—"),
+            current: String(run.currentIteration ?? "—"),
+          })}
+        </p>
         <p data-testid="squad-run-detail-mission" className="ui-micro text-text-muted">
           {run.mission}
         </p>

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
-import type { CanonicalEventStore } from "@harness-anything/kernel";
+import { sha256Bytes, type CanonicalEventStore } from "@harness-anything/kernel";
 
 export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "readContentBlob">, ref: string): string {
   const match = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref);
@@ -12,13 +12,13 @@ export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "rea
     throw Object.assign(new Error(`Runtime result ${ref} is unavailable at this cut.`), {
       code: "replica_unavailable",
     });
-  return new TextDecoder().decode(bytes);
+  return decodeRuntimeResult(bytes);
 }
 
 export function readEdgeRuntimeResult(viewRoot: string, repoId: string, ref: string): string {
   const match = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref);
   if (!match) throw Object.assign(new Error("Invalid runtime result reference."), { code: "replica_unavailable" });
-  return new TextDecoder().decode(readEdgeRuntimeResultBytes(viewRoot, repoId, match[1]!));
+  return decodeRuntimeResult(readEdgeRuntimeResultBytes(viewRoot, repoId, match[1]!));
 }
 export function readEdgeRuntimeResultBytes(viewRoot: string, repoId: string, sha256: string): Uint8Array {
   const view = locateFleetMirrorView(viewRoot, repoId),
@@ -27,5 +27,18 @@ export function readEdgeRuntimeResultBytes(viewRoot: string, repoId: string, sha
     throw Object.assign(new Error("Runtime result is not present in the current cut."), {
       code: "replica_unavailable",
     });
-  return readFileSync(path.join(viewRoot, "repos", repoId, "cas", "sha256", sha256.slice(0, 2), sha256));
+  const bytes = readFileSync(path.join(viewRoot, "repos", repoId, "cas", "sha256", sha256.slice(0, 2), sha256));
+  if (bytes.byteLength !== entry.size || sha256Bytes(bytes) !== sha256)
+    throw Object.assign(new Error("Runtime result content does not match the current cut."), {
+      code: "replica_unavailable",
+    });
+  return bytes;
+}
+
+function decodeRuntimeResult(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw Object.assign(new Error("Runtime result is not UTF-8 text."), { code: "replica_unavailable" });
+  }
 }

@@ -1,7 +1,17 @@
-import type { SquadRunPhase } from "@harness-anything/kernel";
+import type { CanonicalSquadRun, SquadRunPhase } from "@harness-anything/kernel";
 export type { SquadRunPhase } from "@harness-anything/kernel";
 
-export interface SquadRunSummaryDto {
+interface SquadRunObservationIdentity {
+  readonly executionId: string;
+  readonly iteration: number | null;
+  readonly currentIteration: number | null;
+  readonly runRevision: number;
+  readonly acceptedRevision: number;
+  readonly acceptedAt: string;
+  readonly owner: CanonicalSquadRun["owner"];
+}
+
+export interface SquadRunSummaryDto extends SquadRunObservationIdentity {
   readonly squadRunId: string;
   readonly squadId: string;
   readonly taskId: string;
@@ -48,9 +58,9 @@ export type SquadRunDecisionDto =
   | { readonly kind: "plan"; readonly dispatchCount: number };
 export type SquadRunTurnStatus = "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "lost";
 export interface SquadRunAttemptMetricsDto {
-  readonly tokenUsage: { readonly input: number; readonly output: number };
-  readonly toolCallCount: number;
-  readonly compacted: boolean;
+  readonly tokenUsage: { readonly input: number | null; readonly output: number | null };
+  readonly toolCallCount: number | null;
+  readonly compacted: boolean | null;
 }
 export interface SquadRunLeaderTurnDto {
   readonly turnId: string;
@@ -64,8 +74,8 @@ export interface SquadRunLeaderTurnDto {
   readonly startedAt: string | null;
   readonly endedAt: string | null;
   readonly tokenUsage: SquadRunAttemptMetricsDto["tokenUsage"];
-  readonly toolCallCount: number;
-  readonly compacted: boolean;
+  readonly toolCallCount: number | null;
+  readonly compacted: boolean | null;
 }
 export interface SquadRunWorkerAttemptDto {
   readonly attemptId: string;
@@ -74,8 +84,9 @@ export interface SquadRunWorkerAttemptDto {
   readonly leaderTurnId: string;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
+  readonly taskId: string | null;
+  readonly executionId: string | null;
   readonly worktree: {
-    readonly cwd: string;
     readonly branch: string;
     readonly baseSha: string;
   } | null;
@@ -84,13 +95,13 @@ export interface SquadRunWorkerAttemptDto {
   readonly startedAt: string | null;
   readonly endedAt: string | null;
   readonly tokenUsage: SquadRunAttemptMetricsDto["tokenUsage"];
-  readonly toolCallCount: number;
-  readonly compacted: boolean;
+  readonly toolCallCount: number | null;
+  readonly compacted: boolean | null;
 }
 /** `ha squad status` 的 statusDto 对 GUI 开放的编排流转扇出树(leaderTurnId 是
- * 父子边,turn.resultText 是该轮 receipt 原文):全部来自 SquadState、既有派工
+ * 父子边,turn.resultText 是该轮 receipt 原文):全部来自 canonical run observation、既有派工
  * 台账行及其 resultRef 指向的内容包,零新计算。 */
-export interface SquadRunDetailDto {
+export interface SquadRunDetailDto extends SquadRunObservationIdentity {
   readonly squadRunId: string;
   readonly squadId: string;
   readonly taskId: string;
@@ -165,6 +176,7 @@ export function validateSquadRunRead(value: unknown): readonly string[] {
     squadRunReadyStatus(value.status) &&
     squadRunRecord(value.run) &&
     exactSquadRunFields(value.run, [
+      ...observationIdentityFields,
       "squadRunId",
       "squadId",
       "taskId",
@@ -176,6 +188,7 @@ export function validateSquadRunRead(value: unknown): readonly string[] {
       "workerAttempts",
     ]) &&
     [value.run.squadRunId, value.run.squadId, value.run.taskId, value.run.mission].every(squadRunText) &&
+    validObservationIdentity(value.run) &&
     phases.includes(value.run.phase as SquadRunPhase) &&
     (value.run.error === null || squadRunText(value.run.error)) &&
     (value.run.currentLeaderRuntimeSessionId === null || squadRunText(value.run.currentLeaderRuntimeSessionId)) &&
@@ -223,33 +236,33 @@ function validSquadRunLeaderTurn(value: unknown): value is SquadRunLeaderTurnDto
 function validSquadRunWorkerAttempt(value: unknown): value is SquadRunWorkerAttemptDto {
   return (
     squadRunRecord(value) &&
-    exactSquadRunFieldsOptional(
-      value,
-      [
-        "attemptId",
-        "workerId",
-        "leaderTurnId",
-        "dispatchId",
-        "runtimeSessionId",
-        "rejection",
-        "status",
-        "startedAt",
-        "endedAt",
-        "tokenUsage",
-        "toolCallCount",
-        "compacted",
-      ],
-      ["worktree"],
-    ) &&
+    exactSquadRunFields(value, [
+      "taskId",
+      "executionId",
+      "worktree",
+      "attemptId",
+      "workerId",
+      "leaderTurnId",
+      "dispatchId",
+      "runtimeSessionId",
+      "rejection",
+      "status",
+      "startedAt",
+      "endedAt",
+      "tokenUsage",
+      "toolCallCount",
+      "compacted",
+    ]) &&
     [value.attemptId, value.workerId].every(squadRunText) &&
     squadRunText(value.leaderTurnId) &&
     (value.dispatchId === null || squadRunText(value.dispatchId)) &&
     (value.runtimeSessionId === null || squadRunText(value.runtimeSessionId)) &&
-    (value.worktree === undefined ||
-      value.worktree === null ||
+    (value.taskId === null || squadRunText(value.taskId)) &&
+    (value.executionId === null || squadRunText(value.executionId)) &&
+    (value.worktree === null ||
       (squadRunRecord(value.worktree) &&
-        exactSquadRunFields(value.worktree, ["cwd", "branch", "baseSha"]) &&
-        [value.worktree.cwd, value.worktree.branch, value.worktree.baseSha].every(squadRunText))) &&
+        exactSquadRunFields(value.worktree, ["branch", "baseSha"]) &&
+        [value.worktree.branch, value.worktree.baseSha].every(squadRunText))) &&
     (value.rejection === null || squadRunText(value.rejection)) &&
     (value.status === null || turnStatuses.includes(value.status as SquadRunTurnStatus)) &&
     (value.startedAt === null || squadRunIso(value.startedAt)) &&
@@ -262,21 +275,10 @@ function validSquadRunAttemptMetrics(value: Readonly<Record<string, unknown>>): 
   return (
     squadRunRecord(value.tokenUsage) &&
     exactSquadRunFields(value.tokenUsage, ["input", "output"]) &&
-    squadRunCount(value.tokenUsage.input) &&
-    squadRunCount(value.tokenUsage.output) &&
-    squadRunCount(value.toolCallCount) &&
-    typeof value.compacted === "boolean"
-  );
-}
-
-function exactSquadRunFieldsOptional(
-  value: Readonly<Record<string, unknown>>,
-  fields: readonly string[],
-  optionalFields: readonly string[],
-): boolean {
-  const allowed = [...fields, ...optionalFields];
-  return (
-    fields.every((field) => Object.hasOwn(value, field)) && Object.keys(value).every((field) => allowed.includes(field))
+    (value.tokenUsage.input === null || squadRunCount(value.tokenUsage.input)) &&
+    (value.tokenUsage.output === null || squadRunCount(value.tokenUsage.output)) &&
+    (value.toolCallCount === null || squadRunCount(value.toolCallCount)) &&
+    (value.compacted === null || typeof value.compacted === "boolean")
   );
 }
 
@@ -317,6 +319,7 @@ function validSquadRunSummary(value: unknown): value is SquadRunListRowDto {
   return (
     squadRunRecord(value) &&
     exactSquadRunFields(value, [
+      ...observationIdentityFields,
       "squadRunId",
       "squadId",
       "taskId",
@@ -328,6 +331,7 @@ function validSquadRunSummary(value: unknown): value is SquadRunListRowDto {
       "latestActivityAt",
     ]) &&
     [value.squadRunId, value.squadId, value.taskId, value.mission].every(squadRunText) &&
+    validObservationIdentity(value) &&
     phases.includes(value.phase as SquadRunPhase) &&
     [value.leaderTurnCount, value.workerAttemptCount, value.runningCount].every(squadRunCount) &&
     squadRunIso(value.latestActivityAt)
@@ -387,4 +391,32 @@ function serializeSquadRunContract(value: unknown, validate: (candidate: unknown
   const errors = validate(value);
   if (errors.length) throw new Error(errors.join("; "));
   return `${JSON.stringify(value)}\n`;
+}
+
+const observationIdentityFields = [
+  "executionId",
+  "iteration",
+  "currentIteration",
+  "runRevision",
+  "acceptedRevision",
+  "acceptedAt",
+  "owner",
+];
+function validObservationIdentity(value: Record<string, unknown>): boolean {
+  const owner = value.owner;
+  return (
+    squadRunText(value.executionId) &&
+    [value.iteration, value.currentIteration].every((v) => v === null || squadRunCount(v)) &&
+    squadRunCount(value.runRevision) &&
+    squadRunCount(value.acceptedRevision) &&
+    squadRunIso(value.acceptedAt) &&
+    squadRunRecord(owner) &&
+    exactSquadRunFields(owner, ["source", "personId"]) &&
+    squadRunText(owner.personId) &&
+    (owner.source === "local" ||
+      (squadRunRecord(owner.source) &&
+        exactSquadRunFields(owner.source, ["kind", "nodeId"]) &&
+        owner.source.kind === "node" &&
+        squadRunText(owner.source.nodeId)))
+  );
 }

@@ -175,7 +175,9 @@ export const SQUAD_DECLARATION_V1_SCHEMA = Object.freeze({
       description: "Maximum leader turns in one Squad run, including the initial, callback, and retry turns.",
       "x-error": "must be a positive integer.",
     },
-    roster: nonEmptyString("Human-readable roster."),
+    roster: nonEmptyString(
+      "Human-readable roster. Synthesis report paths for Squad runs must contain {squadRunId}, for example artifacts/reports/{squadRunId}.md.",
+    ),
   }),
 }) as EntityDocumentJsonSchema<SquadDeclarationV1>;
 

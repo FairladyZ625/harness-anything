@@ -381,8 +381,8 @@
   "agentRuntime.squadRunLeaderTurns": "{count} leader 轮",
   "agentRuntime.squadRunWorkerAttempts": "{count} worker 次尝试",
   "agentRuntime.squadRunPhasePlanning": "规划中",
-  "agentRuntime.squadRunPhaseLeaderRunning": "leader 运行中",
-  "agentRuntime.squadRunPhaseWorkersRunning": "worker 运行中",
+  "agentRuntime.squadRunPhaseLeaderRunning": "最后报告：leader 运行中",
+  "agentRuntime.squadRunPhaseWorkersRunning": "最后报告：worker 运行中",
   "agentRuntime.squadRunPhaseCancelled": "已取消",
   "agentRuntime.squadRunPhaseConverged": "已收敛",
   "agentRuntime.squadRunPhaseFailed": "已失败",
@@ -650,5 +650,6 @@
   "agentRuntime.handoffExported": "检查点已导出，提交为 {commit}。",
   "agentRuntime.handoffAccepted": "交接已受理；请查看目标会话的恢复结果。",
   "agentRuntime.handoffResumed": "目标已恢复同一原生会话。",
-  "agentRuntime.handoffEnable": "允许此 Codex 会话停稳后显式跨节点交接"
+  "agentRuntime.handoffEnable": "允许此 Codex 会话停稳后显式跨节点交接",
+  "agentRuntime.squadRunObservation": "最后报告 {at} · 执行 {execution} · 轮次 {iteration}（任务当前 {current}）"
 }

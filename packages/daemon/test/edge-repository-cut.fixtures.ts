@@ -21,6 +21,7 @@ import type { ReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 export function repositoryCutFixture(t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-families-"));
   let revision = 100;
+  const contents = new Map<string, Uint8Array>();
   const head = () => ({ ...lifecycleFixture().events[0]!, workspaceRevision: revision, opId: `cut-${revision}` });
   const center = makeTaskProjection({
     rootDir: root,
@@ -29,7 +30,7 @@ export function repositoryCutFixture(t: TestContext) {
       readBatch: () => {
         throw new Error("a completed projection read must not scan canonical events");
       },
-      readContentBlob: () => null,
+      readContentBlob: (sha: string) => contents.get(sha) ?? null,
     },
   });
   center.readCut();
@@ -46,10 +47,17 @@ export function repositoryCutFixture(t: TestContext) {
       watermark: revision,
       sourceRevision: revision,
       headEvent: head(),
-      events: after !== null && after < revision ? [head()] : [],
+      events:
+        after !== null && after < revision
+          ? Array.from({ length: revision - after }, (_, offset) => ({
+              ...head(),
+              workspaceRevision: after + offset + 1,
+              opId: `cut-${after + offset + 1}`,
+            }))
+          : [],
       documents: [],
     }),
-    readContentBlob: () => null,
+    readContentBlob: (sha: string) => contents.get(sha) ?? null,
     readEdgeReadModel: () => centerEdgeReadModel(center),
   });
   const viewRoot = path.join(root, "edge"),
@@ -64,18 +72,19 @@ export function repositoryCutFixture(t: TestContext) {
   });
   return {
     db,
+    contents,
     center,
     source,
     viewRoot,
-    next: async () => {
-      revision += 1;
+    next: async (count = 1) => {
+      revision += count;
       seal();
       source.kick();
       await source.waitForCut(revision);
     },
     read: <T>(query: (projection: TaskProjectionQueries) => T, principalId = "owner") =>
       withEdgeReadModel({ viewRoot, repoId: "families", principalId }, query),
-    transfer: async (kind: "snapshot" | "delta") => {
+    transfer: async (kind: "snapshot" | "delta", omitBlob?: string) => {
       const cut = source.activate();
       assert.ok(cut);
       const offer = { ...key, ...makeOffer(key, cursor, cut, source, "2026-10-07T00:00:00Z") };
@@ -86,7 +95,13 @@ export function repositoryCutFixture(t: TestContext) {
         digest: edgeReadAuthorizationShapeDigest({ repoId: "families", owner: "owner" }),
       })) {
         frames.push(frame);
-        receiver.receive(frame);
+        if (
+          !(
+            (frame.schema === "fleet.snapshot.chunk/v1" || frame.schema === "fleet.delta.chunk/v1") &&
+            frame.blobSha256 === omitBlob
+          )
+        )
+          receiver.receive(frame);
       }
       cursor = {
         revision: cut.revision,
@@ -103,12 +118,19 @@ export function seedRepositoryFamilies(db: DatabaseSync) {
     db.prepare("INSERT INTO runtime_installation VALUES (?, ?, ?)").run(
       `installation-${n}`,
       n,
-      JSON.stringify({ installationId: `installation-${n}`, version: "1" }),
+      JSON.stringify({ installationId: `installation-${n}`, hostRef: "/private/owner/provider-home", version: "1" }),
     );
     db.prepare("INSERT INTO runtime_session VALUES (?, ?, ?)").run(
       `runtime-${n}`,
       n,
-      JSON.stringify({ runtimeSessionId: `runtime-${n}`, installationId: `installation-${n}`, liveness: "live" }),
+      JSON.stringify({
+        runtimeSessionId: `runtime-${n}`,
+        installationId: `installation-${n}`,
+        liveness: "live",
+        transcriptRef: "file:/private/owner/session.jsonl",
+        attachable: true,
+        taskBindings: [],
+      }),
     );
     db.prepare("INSERT INTO runtime_session_task_binding VALUES (?, ?, ?, ?)").run(
       "task-1",
@@ -133,7 +155,6 @@ export function seedRepositoryFamilies(db: DatabaseSync) {
     1,
     JSON.stringify({ squadRunId: "squad_111111111111111111111111", phase: "planning" }),
   );
-  db.exec("UPDATE projection_meta SET squad_run_ready = 1");
   for (const [kind, id] of [
     ["squad", "squad-1"],
     ["schedule", "schedule-1"],
@@ -160,6 +181,24 @@ export function seedRepositoryFamilies(db: DatabaseSync) {
       workspaceRevision: 10 + n,
       payload: {
         runtimeSessionId: `runtime-${n}`,
+        instanceId: "instance-1",
+        installationId: "installation-1",
+        kindId: "codex",
+        idempotencyKey: `dispatch-${n}`,
+        definitionSnapshotRef: "artifact:runtime-definition/test",
+        definitionSnapshot: {
+          schema: "agent-definition-snapshot/v1",
+          configVersion: 1,
+          instanceId: "instance-1",
+          installationId: "installation-1",
+          kindId: "codex",
+          providerId: "openai",
+          model: "fixture",
+          reasoningEffort: null,
+          baseUrl: null,
+          authMode: "subscription",
+        },
+        cwd: "/private/owner/worktree",
         dispatchId: `dispatch-${n}`,
         taskId: "task-1",
         executionId: "execution-1",
@@ -175,6 +214,9 @@ export function seedRepositoryFamilies(db: DatabaseSync) {
         runtimeSessionId: "runtime-1",
         dispatchId: "dispatch-1",
         outcome: "succeeded",
+        exitCode: 0,
+        resultRef: null,
+        result: null,
         endedAt: "2026-10-07T01:00:00Z",
       },
     },
@@ -183,7 +225,7 @@ export function seedRepositoryFamilies(db: DatabaseSync) {
       type: "schedule_created",
       workspaceRevision: 14,
       entity: { kind: "schedule", id: "schedule-1" },
-      payload: { name: "schedule-1" },
+      payload: { schedule: { status: { lastRun: null } } },
     },
     {
       schema: "ci-run-observation/v3",
@@ -209,6 +251,13 @@ export function seedRepositoryFamilies(db: DatabaseSync) {
     db.prepare("INSERT INTO event_index VALUES (?, ?, NULL, ?)").run(
       `op-${event.workspaceRevision}`,
       event.workspaceRevision,
-      JSON.stringify({ actor, occurredAt: "2026-10-07T00:00:00Z", opId: `op-${event.workspaceRevision}`, ...event }),
+      JSON.stringify({
+        actor,
+        source: "local",
+        eventId: `event-${event.workspaceRevision}`,
+        occurredAt: "2026-10-07T00:00:00Z",
+        opId: `op-${event.workspaceRevision}`,
+        ...event,
+      }),
     );
 }

@@ -1,3 +1,10 @@
+import {
+  privateRuntimeEventTypes,
+  publicRuntimeDispatch,
+  publicRuntimeSession,
+  publicRuntimeInstallation,
+} from "../domain/runtime-public-query.ts";
+import type { AgentRuntimeEventV1, RuntimeSession, RuntimeInstallation } from "../domain/agent-runtime.ts";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 
 /** Shared business-table DDL; canonical journal/source and writer metadata are never replicated. */
@@ -83,7 +90,7 @@ const tables = [
     keys: ["op_id"],
     columns: ["op_id", "workspace_revision", "task_id", "event_json"],
     where: `WHERE
-      (json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') <> 'runtime_squad_run_observed')
+      (json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")}))
       OR json_extract(event_json, '$.schema') IN ('schedule-event/v1', 'ci-run-observation/v3')
       OR (json_extract(event_json, '$.schema') = 'settings-event/v1' AND workspace_revision =
         (SELECT workspace_revision FROM entity_projection WHERE entity_kind = 'settings' AND entity_id = 'repository'))
@@ -112,7 +119,7 @@ export function readRepositoryReadModelRows(db: DatabaseSync): readonly Reposito
           `SELECT ${table.columns.join(", ")} FROM ${table.name} ${"where" in table ? table.where : ""} ORDER BY ${table.keys.join(", ")}`,
         )
         .all() as RepositoryReadModelRow["values"][]
-    ).map((values) => ({ table: table.name, values })),
+    ).map((values) => ({ table: table.name, values: publicRow(table.name, values) })),
   );
 }
 
@@ -144,4 +151,28 @@ export function deleteRepositoryReadModelRow(db: DatabaseSync, entryPath: string
     ...values,
   );
   return true;
+}
+
+function publicRow(
+  table: RepositoryReadModelRow["table"],
+  values: RepositoryReadModelRow["values"],
+): RepositoryReadModelRow["values"] {
+  if (table === "runtime_session")
+    return {
+      ...values,
+      value_json: JSON.stringify(publicRuntimeSession(JSON.parse(String(values.value_json)) as RuntimeSession)),
+    };
+  if (table === "runtime_installation")
+    return {
+      ...values,
+      value_json: JSON.stringify(
+        publicRuntimeInstallation(JSON.parse(String(values.value_json)) as RuntimeInstallation),
+      ),
+    };
+  if (table === "event_index") {
+    const event = JSON.parse(String(values.event_json)) as AgentRuntimeEventV1;
+    if (event.schema === "agent-runtime-event/v1" && event.type === "runtime_dispatch_requested")
+      return { ...values, event_json: JSON.stringify(publicRuntimeDispatch(event)) };
+  }
+  return values;
 }

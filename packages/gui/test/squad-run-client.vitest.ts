@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { squadObservationFixture } from "./squad-run-fixtures.ts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { squadRunsClient } from "../src/renderer/squad-run-client.ts";
 
@@ -7,6 +8,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("squad run read client", () => {
   it("reads squad runs through the list bridge with exact payloads", async () => {
     const run = {
+      ...squadObservationFixture,
       squadRunId: "squad_" + "a".repeat(18),
       squadId: "squad-x",
       taskId: "task-x",
@@ -46,6 +48,7 @@ describe("squad run read client", () => {
       ok: true as const,
       status: "ready" as const,
       run: {
+        ...squadObservationFixture,
         squadRunId,
         squadId: "squad-x",
         taskId: "task-x",
@@ -72,11 +75,13 @@ describe("squad run read client", () => {
         workerAttempts: [
           {
             attemptId: "worker-1",
+            taskId: null,
+            executionId: null,
+            worktree: null,
             workerId: "terra",
             leaderTurnId: "leader-1",
             dispatchId: "dispatch-b",
             runtimeSessionId: "runtime-worker",
-            worktree: null,
             rejection: null,
             status: null,
             startedAt: null,

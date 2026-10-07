@@ -108,7 +108,7 @@ test("activation bootstraps one repo cut from the exact L2 manifest and reads co
   }
 });
 
-test("an existing cut receives its read model before a pull even without a new ledger event", () => {
+test("a cut requires its complete read model and a published cut is immutable on reopen", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-read-model-existing-"));
   try {
     const event = lifecycleFixture().events[0]!;
@@ -134,8 +134,8 @@ test("an existing cut receives its read model before a pull even without a new l
         readEdgeReadModel: () => model,
       });
     const source = open(null);
-    source.activate();
-    assert.deepEqual(source.manifest(1), []);
+    assert.throws(() => source.activate(), /Read model is unavailable/u);
+    assert.equal(source.latest(), null);
     source.close();
     const model = {
       sourceRevision: 1,
@@ -159,7 +159,11 @@ test("an existing cut receives its read model before a pull even without a new l
       reopened.manifest(1)?.map((entry) => entry.path),
       [".read-model/meta.json"],
     );
+    const published = reopened.latest();
     reopened.close();
+    const again = open({ ...model, rootThreshold: 99 });
+    assert.deepEqual(again.activate(), published, "local model changes never replace an accepted revision's manifest");
+    again.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

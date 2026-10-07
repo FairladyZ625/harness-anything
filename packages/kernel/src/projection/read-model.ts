@@ -20,7 +20,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
  * from the same DDL so the center's own queries run unchanged on the edge. Documents are not
  * published here: they already ride the cut as ledger content entries.
  */
-export const READ_MODEL_SCHEMA_GENERATION = 3 as const;
+export const READ_MODEL_SCHEMA_GENERATION = 4 as const;
 export const READ_MODEL_META_PATH = ".read-model/meta.json";
 export const TASK_READ_MODEL_PREFIX = ".read-model/tasks/";
 const TASK_GENERATION_PREFIX = ".read-model/task-generation/";

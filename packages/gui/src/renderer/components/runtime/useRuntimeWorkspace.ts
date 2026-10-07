@@ -348,7 +348,7 @@ export function useAgentSquadWorkspace(repoId: string) {
       return settled;
     },
     dispatch: async (request: DispatchRequest) => {
-      const settled = await channel.spawn(buildDispatchSpawnInput(request, overview.data?.instances ?? []));
+      const settled = await channel.spawn(buildDispatchSpawnInput(request, machine.data?.instances ?? []));
       // The spawn receipt is emitted before the provider can bind its task. Wait for that
       // asynchronous binding before refreshing the task/agent read facets; otherwise the first
       // refresh permanently caches the session as "unattributed" until a later user action.
@@ -379,7 +379,7 @@ export function useAgentSquadWorkspace(repoId: string) {
       try {
         return await runtimeCommandClient.preview(
           repoId,
-          buildDispatchSpawnInput(request, overview.data?.instances ?? []),
+          buildDispatchSpawnInput(request, machine.data?.instances ?? []),
         );
       } catch (cause) {
         consumeKnownError(cause);

@@ -1,3 +1,12 @@
+export const squadObservationFixture = {
+  executionId: "execution-squad",
+  iteration: 1,
+  currentIteration: 2,
+  runRevision: 3,
+  acceptedRevision: 42,
+  acceptedAt: "2026-08-26T00:00:00.000Z",
+  owner: { source: "local" as const, personId: "owner" },
+};
 /** Squad orchestration read fixtures shared by the runtime workspace interaction
  * suite: one summary row + list/detail envelopes kept DTO-complete in a single
  * place (tokenUsage/toolCallCount/compacted are required on every turn and
@@ -12,6 +21,7 @@ export const emptySquadRuns = {
   sourceRevision: 1,
 };
 export const squadRunSummaryRow = {
+  ...squadObservationFixture,
   squadRunId: "squad_" + "c".repeat(18),
   squadId: "core-squad",
   taskId: "task-bound",
@@ -35,6 +45,7 @@ export const squadRunDetailFixture = {
   ok: true as const,
   status: "ready" as const,
   run: {
+    ...squadObservationFixture,
     squadRunId: squadRunSummaryRow.squadRunId,
     squadId: "core-squad",
     taskId: "task-bound",
@@ -61,11 +72,13 @@ export const squadRunDetailFixture = {
     workerAttempts: [
       {
         attemptId: "worker-1",
+        taskId: null,
+        executionId: null,
+        worktree: null,
         workerId: "terra",
         leaderTurnId: "leader-1",
         dispatchId: "dispatch_bbb",
         runtimeSessionId: "runtime-bound",
-        worktree: null,
         rejection: null,
         status: "running" as const,
         startedAt: "2026-08-23T02:00:00.000Z",

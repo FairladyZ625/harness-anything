@@ -456,7 +456,7 @@ export function AgentSquadView({
       {dialog?.kind === "dispatch" && (
         <DispatchDialog
           subject={dialog.subject}
-          instances={workspace.overview.data?.instances ?? []}
+          instances={workspace.instances}
           tasks={tasks}
           prompts={dialog.prompts}
           initialMission={dialog.mission}

@@ -83,7 +83,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     beforeRestart: async (rootDir: string, repoId: string, writerFence: WriterEpochFenceDescriptor) => {
       await seedRuntime(rootDir, repoId, writerFence);
       await seedSchedule(rootDir, repoId, writerFence);
-      await seedSquadRunState(rootDir, repoId);
+      await seedSquadRunState(rootDir, repoId, writerFence);
     },
   });
   const previous = {

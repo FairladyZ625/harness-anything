@@ -100,7 +100,6 @@ test("requested lease session identities come from replicated dispatch events ac
   const reads = makeAgentRuntimeReadModel({
     projection,
     store: {} as never,
-    stream: {} as never,
     now: () => "2026-10-04T02:00:00.000Z",
     readDispatches: () => [], // remote center has the repository events but no edge-local dispatch files
   });
@@ -116,13 +115,12 @@ test("requested lease session identities come from replicated dispatch events ac
   assert.deepEqual(reads.sessionGroups({ groupBy: "task" }).sessionAgents, []);
 });
 
-test("session groups default to active plus 24h and group/filter/limit before returning exact totals", () => {
+test("session groups apply an explicit 24h window and group/filter/limit before returning exact totals", () => {
   const dispatchReads: string[][] = [];
   const projection = projectionFixture(),
     reads = makeAgentRuntimeReadModel({
       projection,
       store: {} as never,
-      stream: {} as never,
       now: () => "2026-08-26T12:00:00.000Z",
       readDispatches: ({ sessions: selected }) => {
         const taskIds = [...new Set(selected.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)))];
@@ -130,7 +128,7 @@ test("session groups default to active plus 24h and group/filter/limit before re
         return dispatches.filter(({ taskId }) => taskIds.includes(taskId));
       },
     }),
-    defaultResult = parseSessionGroupsProjection(reads.sessionGroups({}));
+    defaultResult = parseSessionGroupsProjection(reads.sessionGroups({ since: "2026-08-25T12:00:00.000Z" }));
   assert.deepEqual(
     defaultResult.groups.map(({ key }) => key),
     ["task-c", "task-a", "unattributed:no-dispatch"],
@@ -150,7 +148,11 @@ test("session groups default to active plus 24h and group/filter/limit before re
     { classification: "worker_stop", reason: "Worker completed the attempt successfully." },
   );
 
-  const searched = reads.sessionGroups({ groupBy: "agent", query: "dispatch-a sol succeeded" });
+  const searched = reads.sessionGroups({
+    since: "2026-08-25T12:00:00.000Z",
+    groupBy: "agent",
+    query: "dispatch-a sol succeeded",
+  });
   assert.deepEqual(
     searched.groups.map(({ key, label }) => ({ key, label })),
     [{ key: "sol", label: "Sol" }],
@@ -159,7 +161,7 @@ test("session groups default to active plus 24h and group/filter/limit before re
 
   // 会话 id 检索:GUI 面包屑显示的 id 必须命中该会话归属的组,前端轮次行过滤与
   // 这里共用 agentRuntimeSearchMatches 与同一字段表(commonSearch)。
-  const bySessionId = reads.sessionGroups({ groupBy: "agent", query: "runtime-a" });
+  const bySessionId = reads.sessionGroups({ since: "2026-08-25T12:00:00.000Z", groupBy: "agent", query: "runtime-a" });
   assert.deepEqual(
     bySessionId.groups.map(({ key }) => key),
     ["sol"],
@@ -183,7 +185,6 @@ test("session groups filter members by exact agent/squad attribution, not substr
   const reads = makeAgentRuntimeReadModel({
     projection: projectionFixture(),
     store: {} as never,
-    stream: {} as never,
     now: () => "2026-08-26T12:00:00.000Z",
     readDispatches: ({ sessions: selected }) => {
       const taskIds = new Set(selected.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)));
@@ -226,7 +227,6 @@ test("session group results reject secret-bearing or identity-incoherent output"
   const result = makeAgentRuntimeReadModel({
     projection: projectionFixture(),
     store: {} as never,
-    stream: {} as never,
     now: () => "2026-08-26T12:00:00.000Z",
     readDispatches: ({ sessions: selected }) => {
       const taskIds = new Set(selected.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)));
@@ -408,7 +408,6 @@ test("session-group activity is derived from time instants, so mixed ISO precisi
   const reads = makeAgentRuntimeReadModel({
     projection: mixedPrecisionProjection(),
     store: {} as never,
-    stream: {} as never,
     now: () => "2026-08-27T12:00:00.000Z",
     readDispatches: () => [],
   });
@@ -427,7 +426,6 @@ function statusReads() {
   return makeAgentRuntimeReadModel({
     projection: projectionFixture(),
     store: {} as never,
-    stream: {} as never,
     now: () => "2026-08-26T12:00:00.000Z",
     readDispatches: ({ sessions: selected }) => {
       const taskIds = new Set(selected.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)));
@@ -512,7 +510,6 @@ test("status narrowing selects members, not the group's latestStatus", () => {
       listEntities: () => [],
     } as unknown as TaskProjection,
     store: {} as never,
-    stream: {} as never,
     now: () => "2026-08-26T12:00:00.000Z",
     readDispatches: () => [],
   });
@@ -600,7 +597,6 @@ test("Decision reviewer sessions group by the persisted review target", () => {
         readTaskRuntimeBatch: () => ({ rows: [] }),
       } as unknown as TaskProjection,
       store: {} as never,
-      stream: {} as never,
       now: () => "2026-08-26T12:00:00.000Z",
       readDispatches: () => [row],
     });
@@ -620,30 +616,15 @@ test("Decision reviewer sessions group by the persisted review target", () => {
   );
 });
 
-test("exited sessions skip the dispatch-stream evidence read in session groups and overview", () => {
-  let evidenceReads = 0;
-  const reads = makeAgentRuntimeReadModel({
-    projection: { ...projectionFixture(), currentLease: () => null } as unknown as TaskProjection,
-    store: {} as never,
-    stream: { latestCursor: () => "stream:0" } as never,
-    now: () => "2026-08-26T12:00:00.000Z",
-    readActivityEvidence: () => {
-      evidenceReads += 1;
-      return {
-        lastObservedAt: "2026-08-26T11:30:00.000Z",
-        workerHostAlive: true,
-        process: null,
-        terminalOutcome: null,
-        runtimeMetrics: null,
-      };
-    },
-    readDispatches: () => dispatches,
-  });
-  reads.sessionGroups({ since: SINCE_ALL });
-  reads.overview({});
-  // fixture 四条会话里只有 runtime-c 不是 exited;两条读面各只为它读一次活动证据,
-  // exited 会话的时间/终态全部来自投影本身。
-  assert.equal(evidenceReads, 2);
+test("session groups and overview use only accepted events and sessions", () => {
+  const projection = {
+    ...projectionFixture(),
+    currentLease: () => null,
+    readRuntimeSessionEvents: () => [],
+  } as unknown as TaskProjection;
+  const reads = makeAgentRuntimeReadModel({ projection, store: {} as never, readDispatches: () => dispatches });
+  assert.deepEqual(reads.sessionGroups({ since: SINCE_ALL }), reads.sessionGroups({ since: SINCE_ALL }));
+  assert.ok(reads.overview({}).sessions.length > 0);
 });
 
 test("session groups list entity names once per kind, not once per member", () => {
@@ -658,11 +639,22 @@ test("session groups list entity names once per kind, not once per member", () =
     reads = makeAgentRuntimeReadModel({
       projection,
       store: {} as never,
-      stream: {} as never,
       now: () => "2026-08-26T12:00:00.000Z",
       readDispatches: () => dispatches,
     });
   const groups = reads.sessionGroups({ groupBy: "squad", since: SINCE_ALL }).groups;
   assert.equal(groups.find(({ key }) => key === "core-squad")?.label, "Core Squad");
   assert.deepEqual(listings, ["squad"]);
+});
+
+test("an unspecified activity window depends only on the accepted cut", () => {
+  const reads = makeAgentRuntimeReadModel({
+    projection: projectionFixture(),
+    store: {} as never,
+    readDispatches: () => dispatches,
+  });
+  assert.equal(
+    reads.sessionGroups({}).groups.some((group) => group.key === "task-b"),
+    true,
+  );
 });

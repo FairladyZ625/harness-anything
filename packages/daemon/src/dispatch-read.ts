@@ -75,12 +75,23 @@ export function readTaskDispatches(
     const notFound = projectedTaskNotFound(projection.read(singleTaskId), singleTaskId);
     if (notFound !== null) throw notFound;
   }
-  const rows = new Map<string, TaskDispatchRow>();
-  for (const task of batch.rows)
-    for (const session of task.sessions) {
-      const event = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-      if (event) rows.set(event.payload.dispatchId, canonicalDispatchRow(projection, event, session));
-    }
+  const rows = new Map<string, TaskDispatchRow>(),
+    tasks = new Set(batch.taskIds),
+    sessions = new Map(
+      batch.rows.flatMap((task) => task.sessions.map((session) => [session.runtimeSessionId, session] as const)),
+    );
+  if (
+    singleTaskId !== undefined &&
+    batch.status === "ready" &&
+    !batch.rows.find((row) => row.taskId === singleTaskId)?.packagePath
+  )
+    throw Object.assign(new Error(`Task ${singleTaskId} has no projected package.`), { code: "task_not_found" });
+  for (const event of projection.readRuntimeDispatches())
+    if (event.payload.taskId && tasks.has(event.payload.taskId))
+      rows.set(
+        event.payload.dispatchId,
+        canonicalDispatchRow(projection, event, sessions.get(event.payload.runtimeSessionId)),
+      );
   const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
     resumed = new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
     terminal = taskDispatchesOutcome(dispatches, resumed);
@@ -194,8 +205,8 @@ export function readRuntimeAttemptChain(
   projection: DispatchQueries & Pick<TaskProjectionQueries, "readRuntimeDispatchesBySession" | "readRuntimeSession">,
 ): AgentRuntimeAttemptChainDto | undefined {
   const target = projection.readRuntimeDispatchesBySession(runtimeSessionId)[0]?.event;
-  if (!target) return undefined;
-  const groupId = target.payload.attemptGroupId ?? target.payload.dispatchId;
+  if (!target?.payload.attemptGroupId) return undefined;
+  const groupId = target.payload.attemptGroupId;
   return {
     attemptGroupId: groupId,
     attempts: projection
@@ -277,6 +288,36 @@ function canonicalDispatchRow(
     dispatchId: payload.dispatchId,
     taskId: payload.taskId ?? "",
     executionId: payload.executionId ?? "",
+    ...(payload.reviewTarget?.kind === "decision" && payload.reviewTarget.decisionId
+      ? {
+          reviewTarget: {
+            kind: "decision" as const,
+            decisionId: payload.reviewTarget.decisionId,
+            digest: payload.reviewTarget.digest,
+          },
+        }
+      : payload.reviewTarget?.kind === "task" && payload.reviewTarget.taskId && payload.reviewTarget.executionId
+        ? {
+            reviewTarget: {
+              kind: "task" as const,
+              taskId: payload.reviewTarget.taskId,
+              executionId: payload.reviewTarget.executionId,
+              digest: payload.reviewTarget.digest,
+            },
+          }
+        : {}),
+    ...(typeof archive?.parentRuntimeSessionId === "string"
+      ? { parentRuntimeSessionId: archive.parentRuntimeSessionId }
+      : {}),
+    ...(typeof archive?.delegatedByAgentId === "string"
+      ? {
+          delegatedByAgentId: archive.delegatedByAgentId,
+          delegatedByAgentName:
+            typeof archive.delegatedByAgentName === "string"
+              ? archive.delegatedByAgentName
+              : archive.delegatedByAgentId,
+        }
+      : {}),
     runtimeSessionId: payload.runtimeSessionId,
     instanceId: payload.instanceId,
     attemptGroupId: groupId,

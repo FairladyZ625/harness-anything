@@ -1,5 +1,7 @@
 import {
   latestRuntimeActivityAt,
+  publicRuntimeSession,
+  publicRuntimeInstallation,
   runtimeSessionInActivityWindow,
   runtimeSessionMissingOutcomeEvidence,
   runtimeSessionOutcomeFromEvidence,
@@ -42,21 +44,24 @@ export function makeAgentRuntimeReadModel(input: {
   readonly store: CanonicalEventStore;
   readonly now?: () => string;
 }) {
-  const installationDto = (installation: RuntimeInstallation): AgentRuntimeInstallationDto => ({
-    installationId: installation.installationId,
-    kindId: runtimeKindForInstallation(installation).kindId,
-    protocolFamily: installation.protocolFamily,
-    version: installation.version,
-    attachCapability: installation.effectiveCapabilities.includes("attach") ? "supported" : "unsupported",
-    lastObservedAt: installation.lastObservedAt,
-  });
+  const installationDto = (raw: RuntimeInstallation): AgentRuntimeInstallationDto => {
+    const installation = publicRuntimeInstallation(raw);
+    return {
+      installationId: installation.installationId,
+      kindId: isRuntimeKindId(installation.kindId) ? installation.kindId : runtimeKindForInstallation(raw).kindId,
+      protocolFamily: installation.protocolFamily,
+      version: installation.version,
+      attachCapability: installation.effectiveCapabilities.includes("attach") ? "supported" : "unsupported",
+      lastObservedAt: installation.lastObservedAt,
+    };
+  };
   const sessionDto = (
     session: RuntimeSession,
     installation: RuntimeInstallation | null | undefined,
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
     includeAttemptChain = false,
   ): AgentRuntimeSessionDto => {
-    const observedSession = session,
+    const observedSession = publicRuntimeSession(session),
       outcome = input.projection
         .readRuntimeSessionEvents(session.runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
         .findLast(
@@ -87,7 +92,7 @@ export function makeAgentRuntimeReadModel(input: {
       liveness: observedSession.liveness,
       semanticState: runtimeSessionSemanticState(observedSession),
       attachCapability: "unsupported",
-      streamCursor: `lifecycle:${input.projection.readCut().watermark}`,
+      streamCursor: null,
       associations: session.taskBindings.map((binding) => {
         const lease = input.projection.currentLease(binding.taskId),
           actor = lease?.actor;
@@ -202,7 +207,7 @@ export function makeAgentRuntimeReadModel(input: {
       };
     },
     sessionGroups: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionGroupsResult => {
-      const query = sessionGroupsQuery(payload, input.now?.() ?? new Date().toISOString()),
+      const query = sessionGroupsQuery(payload),
         cut = input.projection.readCut(),
         dispatchEvents = input.projection.readRuntimeDispatches();
       const sessions = input.projection
@@ -399,10 +404,7 @@ function runtimeTaskLabels(projection: TaskProjection, taskIds: readonly string[
   return result;
 }
 
-function sessionGroupsQuery(
-  payload: Readonly<Record<string, unknown>>,
-  now: string,
-): {
+function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
   readonly groupBy: "task" | "squad" | "agent" | "day";
   readonly since: string;
   readonly tokens: readonly string[];
@@ -433,8 +435,7 @@ function sessionGroupsQuery(
     (status !== undefined && !isSessionGroupStatusSelection(status)) ||
     (sessionIds !== undefined &&
       (!Array.isArray(sessionIds) || sessionIds.some((id) => typeof id !== "string" || !id))) ||
-    (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000)) ||
-    !Number.isFinite(Date.parse(now))
+    (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000))
   )
     throw coded(
       "invalid_request",
@@ -443,10 +444,7 @@ function sessionGroupsQuery(
     );
   return {
     groupBy: groupBy === "squad" || groupBy === "agent" || groupBy === "day" ? groupBy : "task",
-    since:
-      typeof since === "string"
-        ? new Date(since).toISOString()
-        : new Date(Date.parse(now) - 24 * 60 * 60 * 1_000).toISOString(),
+    since: typeof since === "string" ? new Date(since).toISOString() : "1970-01-01T00:00:00.000Z",
     tokens: typeof query === "string" ? query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean) : [],
     agentId: typeof agentId === "string" ? agentId : null,
     squadId: typeof squadId === "string" ? squadId : null,

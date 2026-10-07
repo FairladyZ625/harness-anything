@@ -50,7 +50,7 @@ import { knowledgeQueryApi } from "./rebuildable-task-projection-knowledge-queri
 import { entityQueryApi } from "./rebuildable-task-projection-entity-api.ts";
 import { runtimeLeaseApi } from "./rebuildable-task-projection-runtime-api.ts";
 import { taskQueryApi } from "./rebuildable-task-projection-task-queries.ts";
-import { readStateDigest, readProjectionCut, transaction, watermark } from "./rebuildable-task-projection-sql.ts";
+import { readStateDigest, readProjectionCut, watermark } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
