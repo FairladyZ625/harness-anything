@@ -177,6 +177,8 @@ export const start: Transition = {
       issues.push(
         lifecycleContractIssue("invalid_proof", "execution rejoin must preserve the frozen delivery baseline"),
       );
+    if (command.stackOn !== undefined && (baseline?.kind !== "commit" || baseline.stackOn?.taskId !== command.stackOn))
+      issues.push(lifecycleContractIssue("invalid_proof", "stack start must freeze its declared upstream task"));
     return issues;
   },
   reduce: (snapshot, raw, rawProof) => {

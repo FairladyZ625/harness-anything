@@ -107,6 +107,7 @@ export function buildCommand(
       taskId,
       [lifecycleAction.targetIdField]: executionId,
       ...(Number.isSafeInteger(action.ttlMs) ? { ttlMs: action.ttlMs as number } : {}),
+      ...(typeof action.stackOn === "string" ? { stackOn: action.stackOn } : {}),
     } as Parameters<typeof normalizeTaskLifecycleCommand>[1]);
   }
   if (action.kind === "task-assign") {

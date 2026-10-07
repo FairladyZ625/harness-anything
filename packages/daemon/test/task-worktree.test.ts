@@ -755,3 +755,30 @@ function repositoryFixture(): { readonly base: string; readonly root: string } {
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
+
+test("an explicit stack checkout preserves its anchor and refuses an unrelated existing task branch", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-stack-checkout-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  git(rootDir, "checkout", "-qb", "reviewed-stack");
+  writeFileSync(path.join(rootDir, "stack.txt"), "reviewed stack\n");
+  git(rootDir, "add", "stack.txt");
+  git(rootDir, "commit", "-qm", "stack anchor");
+  const anchor = git(rootDir, "rev-parse", "HEAD");
+  git(rootDir, "checkout", "-q", "-");
+  const checkout = await checkoutTaskWorktree(rootDir, "task-stack", bindingOf("task-stack"), [], undefined, anchor);
+  assert.equal(checkout?.baseRef, anchor);
+  assert.equal(git(checkout!.cwd, "rev-parse", "HEAD"), anchor);
+  assert.equal(
+    (await checkoutTaskWorktree(rootDir, "task-stack", bindingOf("task-stack"), [], undefined, anchor))?.baseRef,
+    null,
+  );
+  git(rootDir, "branch", "task-unrelated");
+  await assert.rejects(
+    checkoutTaskWorktree(rootDir, "task-unrelated", bindingOf("task-unrelated"), [], undefined, anchor),
+  );
+  assert.equal(
+    git(path.join(rootDir, ".worktrees/task-unrelated"), "rev-parse", "HEAD"),
+    git(rootDir, "rev-parse", "HEAD"),
+  );
+});

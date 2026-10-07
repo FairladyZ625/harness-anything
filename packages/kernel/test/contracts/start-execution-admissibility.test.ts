@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { validExecutionDeliveryBaseline } from "../../src/domain/execution.ts";
 import { test } from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { isNativeExecution, submissionDigest } from "../../src/domain/execution.ts";
@@ -737,4 +738,60 @@ test("rejoining an active execution transfers its attribution to the new lease h
   assert.equal(rejoined.executions.length, 1);
   assert.deepEqual(rejoined.executions[0]?.actor, runtimeActor);
   assert.deepEqual(rejoined.lease?.actor, runtimeActor);
+});
+
+test("commit baselines accept an optional explicit stack binding and reject incomplete bindings", () => {
+  const baseline = { kind: "commit", commitSha: "a".repeat(40) };
+  assert.equal(validExecutionDeliveryBaseline(baseline), true);
+  assert.equal(
+    validExecutionDeliveryBaseline({ ...baseline, stackOn: { taskId: "upstream", executionId: "execution" } }),
+    true,
+  );
+  assert.equal(validExecutionDeliveryBaseline({ ...baseline, stackOn: { taskId: "upstream" } }), false);
+  assert.equal(
+    validExecutionDeliveryBaseline({ ...baseline, stackOn: { taskId: "", executionId: "execution" } }),
+    false,
+  );
+  assert.equal(
+    validExecutionDeliveryBaseline({ kind: "empty-tree", stackOn: { taskId: "upstream", executionId: "execution" } }),
+    false,
+  );
+});
+
+test("stack start refuses a proof that does not bind the declared upstream task", () => {
+  const next = command(2, {
+    type: "StartExecution",
+    taskId: "task-1",
+    executionId: "execution-1",
+    stackOn: "upstream",
+  });
+  const proof: StartExecutionProof = {
+    actorBinding: implementer,
+    deliveryBaseline: { kind: "commit", commitSha: "a".repeat(40) },
+    reservation: {
+      taskId: "task-1",
+      executionId: "execution-1",
+      expiresAt: "2026-08-17T01:00:00.000Z",
+      ttlMs: 1800000,
+      previousHolder: null,
+      reason: "initial_claim",
+      version: 0,
+    },
+  };
+  assert.ok(
+    validateTransition(planned(), next, proof).some(
+      (issue) => issue.message === "stack start must freeze its declared upstream task",
+    ),
+  );
+  assert.equal(
+    validateTransition(planned(), next, {
+      ...proof,
+      deliveryBaseline: {
+        kind: "commit",
+        commitSha: "a".repeat(40),
+        stackOn: { taskId: "upstream", executionId: "upstream-execution" },
+      },
+    }).length,
+    0,
+  );
 });

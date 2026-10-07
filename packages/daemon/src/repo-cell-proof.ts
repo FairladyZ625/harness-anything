@@ -28,6 +28,7 @@ import {
   type TaskProjection,
   type WriteReceipt,
 } from "@harness-anything/kernel";
+import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
@@ -156,17 +157,35 @@ export async function proofFor(
     // A rejoin re-proves the baseline the execution already froze; only a first start observes it.
     // A first start freezes the fork of the task's own delivery branch — the branch may predate this
     // execution by whole rework rounds, so where main sits now is not where the delivery began.
-    const rejoined = snapshot.executions.find((execution) => execution.executionId === executionId);
+    const rejoined = snapshot.executions.find((execution) => execution.executionId === executionId),
+      stacked = resolveStackedTaskBaseline(
+        projection,
+        command.taskId,
+        typeof commandFields.stackOn === "string" ? commandFields.stackOn : undefined,
+      );
+    if (stacked?.kind === "commit") {
+      const branch = taskWorktreeBinding(snapshot.task, presetSnapshotReader(projection))?.branch;
+      if (
+        !branch ||
+        !localGitObjectRefStore.isAncestor(
+          rootDir,
+          stacked.commitSha,
+          localGitObjectRefStore.resolveCommit(rootDir, `refs/heads/${branch}`),
+        )
+      )
+        throw cellCodedError("invalid_proof", "Stack start requires its delivery branch at the declared anchor.");
+    }
     return {
       actorBinding: command.actor,
       claimant: binding.taskClaimant,
       deliveryBaseline:
         rejoined !== undefined && isNativeExecution(rejoined) && rejoined.deliveryBaseline !== undefined
           ? rejoined.deliveryBaseline
-          : observeDeliveryBaseline(
+          : (stacked ??
+            observeDeliveryBaseline(
               rootDir,
               taskWorktreeBinding(snapshot.task, presetSnapshotReader(projection))?.branch,
-            ),
+            )),
       reservation: {
         taskId: command.taskId,
         executionId,

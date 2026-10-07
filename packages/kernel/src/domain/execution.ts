@@ -70,7 +70,11 @@ export function isSubmissionId(value: unknown): value is SubmissionId {
 }
 /** The project comparison point frozen when an execution first starts. */
 export type ExecutionDeliveryBaseline =
-  | { readonly kind: "commit"; readonly commitSha: string }
+  | {
+      readonly kind: "commit";
+      readonly commitSha: string;
+      readonly stackOn?: { readonly taskId: string; readonly executionId: string };
+    }
   | { readonly kind: "empty-tree" };
 
 export interface ExecutionV1 {
@@ -203,7 +207,14 @@ export function validSubmissionDelivery(value: Record<string, unknown>): boolean
 export function validExecutionDeliveryBaseline(value: unknown): value is ExecutionDeliveryBaseline {
   return (
     isRecord(value) &&
-    ((hasOnlyFields(value, ["kind", "commitSha"]) && value.kind === "commit" && isNativeCommitSha(value.commitSha)) ||
+    ((hasOnlyFields(value, value.stackOn === undefined ? ["kind", "commitSha"] : ["kind", "commitSha", "stackOn"]) &&
+      value.kind === "commit" &&
+      isNativeCommitSha(value.commitSha) &&
+      (value.stackOn === undefined ||
+        (isRecord(value.stackOn) &&
+          hasOnlyFields(value.stackOn, ["taskId", "executionId"]) &&
+          isNonEmptyString(value.stackOn.taskId) &&
+          isNonEmptyString(value.stackOn.executionId)))) ||
       (hasOnlyFields(value, ["kind"]) && value.kind === "empty-tree"))
   );
 }

@@ -58,6 +58,7 @@ export type UnassignTaskIntent = Intent<"UnassignTask">;
 export interface StartExecutionIntent extends Intent<"StartExecution"> {
   readonly executionId: string;
   readonly ttlMs?: number;
+  readonly stackOn?: string;
 }
 export interface TransitionTaskIntent extends Intent<"TransitionTask"> {
   readonly status: DomainStatus;

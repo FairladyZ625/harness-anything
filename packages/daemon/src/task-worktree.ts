@@ -130,6 +130,7 @@ export async function checkoutTaskWorktree(
   binding: TaskWorktreeBindingV1,
   setup: readonly string[],
   acceptedCommit?: string,
+  stackedCommit?: string,
 ): Promise<TaskWorktreeCheckout | null> {
   const cwd = path.join(rootDir, binding.path);
   return inWorktreeTurn(cwd, async () => {
@@ -155,6 +156,22 @@ export async function checkoutTaskWorktree(
       const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps: setup });
       await verify();
       return { cwd, branch: binding.branch, baseRef: fresh ? acceptedCommit : null, setup: prepared };
+    }
+    if (stackedCommit !== undefined) {
+      if (!/^[0-9a-f]{40}$/u.test(stackedCommit))
+        throw cellCodedError("invalid_proof", "Stack anchor requires a complete commit SHA.");
+      const fresh = !existsSync(cwd);
+      if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: stackedCommit });
+      const verify = async () => {
+        const branch = await runProcessTextAsync("git", ["-C", cwd, "branch", "--show-current"]);
+        if (branch.trim() !== binding.branch)
+          throw cellCodedError("invalid_proof", "Stack checkout must use the task branch.");
+        await runProcessTextAsync("git", ["-C", cwd, "merge-base", "--is-ancestor", stackedCommit, "HEAD"]);
+      };
+      await verify();
+      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps: setup });
+      await verify();
+      return { cwd, branch: binding.branch, baseRef: fresh ? stackedCommit : null, setup: prepared };
     }
     const fresh = !existsSync(cwd),
       defaultRef = repositoryBaseRef(rootDir);
@@ -228,10 +245,11 @@ export function prepareTaskStartWorktree(
   input: TaskWorktreeLifecycleInput,
   action: TaskWorktreeAction,
   source: unknown,
+  stackedCommit?: string,
 ): Promise<(receipt: WriteReceipt) => WriteReceipt> | null {
   if (source !== "local" || action.dryRun === true || action.kind !== "task-start" || typeof action.taskId !== "string")
     return null;
-  return checkoutOnStart(input, action.taskId).then(
+  return checkoutOnStart(input, action.taskId, stackedCommit).then(
     (checkout) => (receipt) =>
       receipt.outcome === "applied" ? withNotes(receipt, checkout.notes, checkout.warnings) : receipt,
   );
@@ -364,13 +382,19 @@ export function worktreeDirectories(rootDir: string): readonly string[] {
 async function checkoutOnStart(
   input: TaskWorktreeLifecycleInput,
   taskId: string,
+  stackedCommit?: string,
 ): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[] }> {
   const binding = openTaskWorktreeBinding(input.readTask(taskId), input.readPresetSnapshot);
-  if (!binding) return { notes: [], warnings: [] };
+  if (!binding) {
+    if (stackedCommit !== undefined)
+      throw cellCodedError("invalid_proof", "A stacked task requires a managed worktree.");
+    return { notes: [], warnings: [] };
+  }
   let checkout: TaskWorktreeCheckout | null;
   try {
-    checkout = await checkoutTaskWorktree(input.rootDir, taskId, binding, input.readSetup());
+    checkout = await checkoutTaskWorktree(input.rootDir, taskId, binding, input.readSetup(), undefined, stackedCommit);
   } catch (error) {
+    if (stackedCommit !== undefined) throw error;
     return { notes: [], warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`] };
   }
   if (!checkout)
