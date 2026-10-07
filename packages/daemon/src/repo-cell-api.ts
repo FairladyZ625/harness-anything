@@ -168,19 +168,6 @@ export interface RepoCellApiContext {
 
 export const repoCellSynchronousRead = Symbol("repoCellSynchronousRead");
 
-/** The squad run phase is the canonical outcome; the daemon stamps the terminal verdict on the
- * squad-status receipt so transports never re-derive exit semantics from the phase themselves. */
-function withSquadTerminalOutcome(action: RepoTaskAction, receipt: WriteReceipt): WriteReceipt {
-  if (action.kind !== "squad-status") return receipt;
-  const run = (receipt as unknown as { readonly run?: unknown }).run,
-    phase =
-      run && typeof run === "object" && !Array.isArray(run)
-        ? String((run as { readonly phase?: unknown }).phase)
-        : null;
-  if (phase !== "converged" && phase !== "failed" && phase !== "cancelled") return receipt;
-  return { ...receipt, outcome: phase, exitCode: phase === "converged" ? 0 : 1 } as unknown as WriteReceipt;
-}
-
 export interface RepoCellSynchronousRead {
   readonly [repoCellSynchronousRead]: <M extends RepoCellReadMethod>(
     method: M,
@@ -877,7 +864,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     if (isSquadControlResult(receipt)) return receipt;
     if (isSquadControlCommand(action.kind)) return squadControlRejected(action.kind, receipt);
     const completed = await continueBuiltin(action, binding, receipt);
-    return withSquadTerminalOutcome(action, await settleWriteReceipt(context, action, completed, signal));
+    return settleWriteReceipt(context, action, completed, signal);
   };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
