@@ -525,9 +525,8 @@ function findGui(processes, root) {
 }
 
 function projectionStatus(databasePath) {
-  const query =
-    "SELECT schema_version, watermark, scanned_revision, squad_run_ready, coalesce(scan_cursor, '') FROM projection_meta";
-  const [schemaVersion, watermark, scannedRevision, squadRunReady, scanCursor] = execFileSync(
+  const query = "SELECT schema_version, watermark, scanned_revision, coalesce(scan_cursor, '') FROM projection_meta";
+  const [schemaVersion, watermark, scannedRevision, scanCursor] = execFileSync(
     "/usr/bin/sqlite3",
     ["-readonly", "-separator", "\t", databasePath, query],
     { encoding: "utf8" },
@@ -538,9 +537,8 @@ function projectionStatus(databasePath) {
     schemaVersion: Number(schemaVersion),
     watermark: Number(watermark),
     scannedRevision: Number(scannedRevision),
-    squadRunReady: Number(squadRunReady),
     scanCursor: scanCursor || null,
-    ready: Number(watermark) === Number(scannedRevision) && Number(squadRunReady) === 1 && !scanCursor,
+    ready: Number(watermark) === Number(scannedRevision) && !scanCursor,
   };
 }
 
