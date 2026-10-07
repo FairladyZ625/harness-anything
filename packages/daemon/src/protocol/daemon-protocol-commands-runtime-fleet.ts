@@ -215,7 +215,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     id: "daemon-fleet-center-start",
     phase: "Fleet-Wiring",
     path: ["daemon", "fleet", "center", "start"],
-    summary: "Start the daemon-owned fleet TLS center serving the authoritative ledger to admitted edge nodes.",
+    summary: "Start or explicitly replace the daemon-owned fleet TLS center; replacement interrupts edge connections.",
     method: "daemon.fleet.center.start",
     inputs: [
       cliInput(

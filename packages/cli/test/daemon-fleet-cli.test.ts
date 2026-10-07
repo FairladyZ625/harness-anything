@@ -204,6 +204,28 @@ test(
         null,
       );
       assert.equal((pulled.cut as { revision: number }).revision, pulled.ackCut);
+      const replaced = run(fixture, "center", [
+        "daemon",
+        "fleet",
+        "center",
+        "start",
+        "--port",
+        String(port),
+        "--key",
+        fixture.key,
+        "--cert",
+        fixture.cert,
+        "--repo",
+        "fleet-demo",
+        "--quota-bytes",
+        String(quotaBytes + 1),
+      ]);
+      assert.equal(replaced.ok, true);
+      assert.equal(replaced.replaced, true);
+      assert.equal(replaced.serviceStatus, "listening");
+      assert.equal(replaced.port, port);
+      assert.equal(JSON.parse(readFileSync(configFile, "utf8")).quotaBytes, quotaBytes + 1);
+      assert.equal(retryReplicaPending(sync).ok, true);
       const viewRoot = path.join(fixture.viewRoot, "repos", "fleet-demo", "views", "edge-one");
       assert.equal(readCutFile(viewRoot, pulled.ackCut as number, docPath), docBody);
       assert.equal(

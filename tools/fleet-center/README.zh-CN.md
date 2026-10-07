@@ -46,7 +46,8 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 ```
 
 `down` 只停止本部署的隔离 daemon，有意保留仓库、TLS 物料与副本状态以备审计/恢复。
-主机重启后登录并执行 `up`；daemon 与 Fleet 监听器都是进程持有的，需要重新建立。
+主机重启后登录并执行 `up` 启动 daemon；Fleet 监听器自动恢复最后成功保存的配置。
+`down` 保留这一启用意图。
 
 人的身份与仓库权限来自 Keycloak；恢复出的仓库中的 `people.yaml` 不授予访问权限。本部署不向 remote center 放行本地仓库写入：
 写入来自持有节点凭据的 Fleet 边缘，而人通过连接到该 daemon 的桌面应用登录。
@@ -72,6 +73,13 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 
 Keycloak 启动后，管理员登录前后都可以启动监听器。已登录管理员只有持有该仓库的
 `daemon-fleet-center-start` 权限时，才可启动或重新启动监听器。
+
+`ha daemon fleet center start --port <port> --key <key.pem> --cert <cert.pem>
+--repo <repo-id> --quota-bytes <bytes>` 显式替换本 daemon 的现有监听器，同端口也适用。
+替换会中断边缘现有连接。授权、参数和 TLS 物料在关闭旧监听前检查，拒绝输入保留旧服务。
+成功回执包含 `replaced` 与 `serviceStatus: listening`。启动或保存失败明确报告当前无监听；
+保存失败关闭新监听。最后成功保存的意图供下次 daemon 启动恢复，不自动回退，
+也没有独立的 center-stop 命令。
 
 ### 注册一个节点
 

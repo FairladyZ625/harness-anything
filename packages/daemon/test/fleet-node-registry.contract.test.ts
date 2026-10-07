@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { keycloakNodeRegistry, startFleetCenterAdmission } from "../src/fleet-center-admission.ts";
+import { keycloakNodeRegistry, prepareFleetCenterAdmission } from "../src/fleet-center-admission.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 
 test("the node registry asks Keycloak who a node is and whether its credential is its own", async () => {
@@ -29,8 +29,8 @@ test("fleet center admission rejects unreadable TLS material before opening a li
   const root = mkdtempSync(path.join(tmpdir(), "fleet-material-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   await assert.rejects(
-    startFleetCenterAdmission({
-      host: {} as Parameters<typeof startFleetCenterAdmission>[0]["host"],
+    prepareFleetCenterAdmission({
+      host: {} as Parameters<typeof prepareFleetCenterAdmission>[0]["host"],
       userRoot: root,
       nodes: { authenticate: () => false, nodeOwner: () => null },
       payload: {

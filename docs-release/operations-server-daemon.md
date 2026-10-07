@@ -245,6 +245,14 @@ There is no compatibility path for a v1 registry.
 view-only display. See [Fleet center deployment](../tools/fleet-center/README.md)
 for its deployment and operating instructions.
 
+A successful `ha daemon fleet center start` saves listener intent per user root
+and daemon id. The daemon restores it on startup; `ha daemon stop` retains it.
+Run the same authorized center-start command with the new options to replace
+an active listener, on the same or a different port. This interrupts edge
+connections. Authorization and input validation precede closing the old listener.
+If startup or saving fails after closing it, the command reports no listener;
+the last successful intent remains for restart, with no automatic rollback.
+
 An edge mirror holds the documents the center's ledger has accepted, nothing
 else. `ha init` publishes the scaffold documents it writes under
 `harness/governance/` and `harness/context/` as ledger documents, so a new

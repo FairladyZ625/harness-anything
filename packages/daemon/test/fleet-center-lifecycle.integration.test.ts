@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, chmodSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -155,7 +155,10 @@ test("a save failure rejects start and closes its unrecorded listener", async (t
     port = await unusedPort(),
     file = fleetCenterConfigPath(f.userRoot, "save-failure");
   mkdirSync(file, { recursive: true });
-  await assert.rejects(host.fleet.startCenter({ ...f.request, port }, auth), /EISDIR|ENOTEMPTY|EPERM/u);
+  await assert.rejects(
+    host.fleet.startCenter({ ...f.request, port }, auth),
+    /not listening.*EISDIR|not listening.*ENOTEMPTY|not listening.*EPERM/u,
+  );
   await assert.rejects(handshake(port, f.certPath), { code: "ECONNREFUSED" });
   rmSync(file, { recursive: true });
   const retry = await host.fleet.startCenter({ ...f.request, port }, auth);
@@ -178,3 +181,107 @@ test("concurrent authorized starts publish only one daemon listener and one enab
   assert.equal(readFleetCenterConfig(f.userRoot, "concurrent")?.port, applied[0]!.value.port);
   await handshake(Number(applied[0]!.value.port), f.certPath);
 });
+
+test("restored centers replace the same and different ports only after valid input", async (t) => {
+  const f = await fixture(t),
+    initial = await f.open("replace"),
+    original = await initial.fleet.startCenter(f.request, auth);
+  await initial.close();
+  const restored = await f.open("replace"),
+    file = fleetCenterConfigPath(f.userRoot, "replace"),
+    saved = readFileSync(file, "utf8"),
+    port = Number(original.port);
+  const badCert = path.join(f.root, "invalid.crt");
+  writeFileSync(badCert, "not a certificate");
+  for (const invalid of [
+    { port: -1 },
+    { port: 65536 },
+    { quotaBytes: 0 },
+    { quotaBytes: 1.5 },
+    { bind: "" },
+    { bind: "invalid.invalid" },
+    { stateRoot: "" },
+    { keyPath: path.join(f.root, "missing.key") },
+    { certPath: badCert },
+    { repoId: "unknown" },
+    { stateRoot: badCert },
+    { keyPath: "bad\0path" },
+  ]) {
+    await assert.rejects(restored.fleet.startCenter({ ...f.request, ...invalid }, auth));
+    await handshake(port, f.certPath);
+    assert.equal(readFileSync(file, "utf8"), saved);
+  }
+  const same = await restored.fleet.startCenter({ ...f.request, port, quotaBytes: f.request.quotaBytes + 1 }, auth);
+  assert.equal(same.replaced, true);
+  assert.equal(same.serviceStatus, "listening");
+  assert.equal(same.port, port);
+  await handshake(port, f.certPath);
+  const otherPort = await unusedPort(),
+    different = await restored.fleet.startCenter({ ...f.request, port: otherPort }, auth);
+  assert.equal(different.replaced, true);
+  assert.equal(different.port, otherPort);
+  await assert.rejects(handshake(port, f.certPath), { code: "ECONNREFUSED" });
+  await handshake(otherPort, f.certPath);
+  await restored.close();
+  await f.open("replace");
+  await handshake(otherPort, f.certPath);
+  assert.equal(readFleetCenterConfig(f.userRoot, "replace")?.port, otherPort);
+});
+
+test("failed replacement startup leaves no listener and restart restores the last successful intent", async (t) => {
+  const f = await fixture(t),
+    host = await f.open("bind-failure"),
+    original = await host.fleet.startCenter(f.request, auth),
+    file = fleetCenterConfigPath(f.userRoot, "bind-failure"),
+    saved = readFileSync(file, "utf8"),
+    occupied = net.createServer();
+  await new Promise<void>((resolve) => occupied.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise<void>((resolve, reject) => occupied.close((error) => (error ? reject(error) : resolve()))));
+  const port = (occupied.address() as net.AddressInfo).port;
+  await assert.rejects(host.fleet.startCenter({ ...f.request, port }, auth), (error: Error & { code?: string }) => {
+    assert.equal(error.code, "fleet_center_start_failed");
+    assert.match(error.message, /not listening.*EADDRINUSE/u);
+    assert.match(error.message, /last successfully saved configuration.*no automatic rollback/u);
+    return true;
+  });
+  assert.equal(readFileSync(file, "utf8"), saved);
+  await assert.rejects(handshake(Number(original.port), f.certPath), { code: "ECONNREFUSED" });
+  await host.close();
+  await f.open("bind-failure");
+  await handshake(Number(original.port), f.certPath);
+});
+
+test(
+  "failed replacement save closes the new listener and preserves last successful intent for restart",
+  {
+    skip:
+      process.platform === "win32"
+        ? "requires POSIX directory-permission semantics; Windows exposes ACL permissions instead of chmod semantics"
+        : false,
+  },
+  async (t) => {
+    const f = await fixture(t),
+      host = await f.open("replace-save-failure"),
+      original = await host.fleet.startCenter(f.request, auth),
+      file = fleetCenterConfigPath(f.userRoot, "replace-save-failure"),
+      saved = readFileSync(file, "utf8"),
+      directory = path.dirname(file),
+      port = await unusedPort();
+    chmodSync(directory, 0o500);
+    try {
+      await assert.rejects(host.fleet.startCenter({ ...f.request, port }, auth), (error: Error & { code?: string }) => {
+        assert.equal(error.code, "fleet_center_start_failed");
+        assert.match(error.message, /not listening.*EACCES/u);
+        return true;
+      });
+      assert.equal(readFileSync(file, "utf8"), saved);
+      await assert.rejects(handshake(port, f.certPath), { code: "ECONNREFUSED" });
+      await assert.rejects(handshake(Number(original.port), f.certPath), { code: "ECONNREFUSED" });
+    } finally {
+      chmodSync(directory, 0o700);
+    }
+    await host.close();
+    await f.open("replace-save-failure");
+    await handshake(Number(original.port), f.certPath);
+  },
+);

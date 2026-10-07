@@ -11,6 +11,7 @@ import {
 import type { DaemonHost } from "./daemon-host.ts";
 import {
   keycloakNodeRegistry,
+  prepareFleetCenterAdmission,
   startFleetCenterAdmission,
   syncFleetEdgeMirror,
   type FleetCenterAdmissionRequest,
@@ -214,35 +215,35 @@ export function createDaemonHostRuntimeApi(
     },
     fleet: {
       startCenter: async (payload, auth) => {
-        const request = payload as unknown as FleetCenterAdmissionRequest["payload"],
-          authorityRepoId = request.repoId,
-          authorityRepo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
-            (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
-              repo.repoId === authorityRepoId &&
-              repo.state === "enabled" &&
-              repo.mode !== "remote-proxy" &&
-              repo.canonicalRoot !== null,
-          );
-        if (!authorityRepo)
-          throw context.hostCodedError(
-            "repo_namespace_unknown",
-            "Fleet center requires one enabled authority repository.",
-          );
-        const authorizationDecision = await requireAuthorizedHostAction({
-          kind: "daemon-fleet-center-start",
-          repoId: authorityRepo.repoId,
-          binding: await context.binding(authorityRepo.canonicalRoot, auth),
-          actionId: `daemon-fleet-center-start:${authorityRepo.repoId}`,
-          evaluatedAtCut: "fleet-center:current",
-        });
-        if (context.fleetCenter || centerStarting)
+        if (centerStarting)
           throw context.hostCodedError(
             "fleet_center_running",
-            "A fleet center is already listening on this daemon; stop the daemon before starting a replacement.",
+            "A fleet center start is already in progress on this daemon; wait for its receipt before retrying.",
           );
         centerStarting = true;
         try {
-          const started = await startFleetCenterAdmission({
+          const request = payload as unknown as FleetCenterAdmissionRequest["payload"],
+            authorityRepoId = request.repoId,
+            authorityRepo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+              (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
+                repo.repoId === authorityRepoId &&
+                repo.state === "enabled" &&
+                repo.mode !== "remote-proxy" &&
+                repo.canonicalRoot !== null,
+            );
+          if (!authorityRepo)
+            throw context.hostCodedError(
+              "repo_namespace_unknown",
+              "Fleet center requires one enabled authority repository.",
+            );
+          const authorizationDecision = await requireAuthorizedHostAction({
+            kind: "daemon-fleet-center-start",
+            repoId: authorityRepo.repoId,
+            binding: await context.binding(authorityRepo.canonicalRoot, auth),
+            actionId: `daemon-fleet-center-start:${authorityRepo.repoId}`,
+            evaluatedAtCut: "fleet-center:current",
+          });
+          const prepared = await prepareFleetCenterAdmission({
             host: context.host,
             userRoot: context.input.userRoot,
             writerEpochLease: context.writerEpochLease,
@@ -253,33 +254,50 @@ export function createDaemonHostRuntimeApi(
               verifyHuman: (auth) => context.oidc.bind(auth),
             },
           });
+          const replaced = context.fleetCenter !== null;
+          if (context.fleetCenter) {
+            const previous = context.fleetCenter;
+            context.fleetCenter = null;
+            await previous.close();
+          }
           try {
-            saveFleetCenterConfig(context.input.userRoot, context.input.daemonId, {
+            const started = await startFleetCenterAdmission(prepared);
+            try {
+              saveFleetCenterConfig(context.input.userRoot, context.input.daemonId, {
+                port: started.center.port,
+                bind: request.bind ?? "127.0.0.1",
+                keyPath: path.resolve(request.keyPath),
+                certPath: path.resolve(request.certPath),
+                repoId: request.repoId,
+                quotaBytes: request.quotaBytes,
+                stateRoot: path.resolve(started.stateRoot),
+              });
+            } catch (error) {
+              await started.center.close();
+              throw error;
+            }
+            context.fleetCenter = started.center;
+            return {
+              schema: "command-receipt/v2",
+              ok: true,
+              command: "daemon-fleet-center-start",
+              outcome: "applied",
               port: started.center.port,
               bind: request.bind ?? "127.0.0.1",
-              keyPath: path.resolve(request.keyPath),
-              certPath: path.resolve(request.certPath),
-              repoId: request.repoId,
+              stateRoot: started.stateRoot,
               quotaBytes: request.quotaBytes,
-              stateRoot: path.resolve(started.stateRoot),
-            });
+              replicas: started.center.status().replicas,
+              replaced,
+              serviceStatus: "listening",
+              authorizationDecision: authorizationDecision as unknown as JsonObject,
+            };
           } catch (error) {
-            await started.center.close();
-            throw error;
+            throw context.hostCodedError(
+              "fleet_center_start_failed",
+              `Fleet center is not listening; start failed: ${error instanceof Error ? error.message : String(error)}. ` +
+                "The last successfully saved configuration is retained for daemon restart; no automatic rollback was performed.",
+            );
           }
-          context.fleetCenter = started.center;
-          return {
-            schema: "command-receipt/v2",
-            ok: true,
-            command: "daemon-fleet-center-start",
-            outcome: "applied",
-            port: started.center.port,
-            bind: request.bind ?? "127.0.0.1",
-            stateRoot: started.stateRoot,
-            quotaBytes: request.quotaBytes,
-            replicas: started.center.status().replicas,
-            authorizationDecision: authorizationDecision as unknown as JsonObject,
-          };
         } finally {
           centerStarting = false;
         }

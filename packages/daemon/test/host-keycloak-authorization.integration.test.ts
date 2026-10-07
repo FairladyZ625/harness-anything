@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { connect } from "node:tls";
 import test from "node:test";
 import { fleetCenterConfigPath } from "../src/fleet-center-config.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -86,4 +87,17 @@ test("center start uses the signed-in person's authority repository permission w
     code: "authorization_denied",
   });
   assert.equal(readFileSync(configFile, "utf8"), enabled, "denied reconfiguration must not alter enabled intent");
+  await new Promise<void>((resolve, reject) => {
+    const socket = connect({
+      host: "127.0.0.1",
+      port: Number(result.port),
+      ca: readFileSync(certPath),
+      servername: "localhost",
+    });
+    socket.once("error", reject);
+    socket.once("secureConnect", () => {
+      socket.destroy();
+      resolve();
+    });
+  });
 });

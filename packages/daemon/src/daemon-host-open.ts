@@ -1,5 +1,9 @@
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
-import { keycloakNodeRegistry, startFleetCenterAdmission } from "./fleet-center-admission.ts";
+import {
+  keycloakNodeRegistry,
+  prepareFleetCenterAdmission,
+  startFleetCenterAdmission,
+} from "./fleet-center-admission.ts";
 import {
   authenticateRuntimeExecutionCredential,
   executionCredentialRejected,
@@ -799,17 +803,19 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       );
       if (!authorityRepo)
         throw hostCodedError("repo_namespace_unknown", "Saved fleet center authority repository is not enabled.");
-      const started = await startFleetCenterAdmission({
-        host,
-        userRoot: input.userRoot,
-        writerEpochLease: hostContext.writerEpochLease,
-        payload: config,
-        nodes: {
-          ...keycloakNodeRegistry(hostContext.keycloakCenter),
-          loginAuthority: (nodeId) => oidc.discovery(nodeId),
-          verifyHuman: (auth) => oidc.bind(auth),
-        },
-      });
+      const started = await startFleetCenterAdmission(
+        await prepareFleetCenterAdmission({
+          host,
+          userRoot: input.userRoot,
+          writerEpochLease: hostContext.writerEpochLease,
+          payload: config,
+          nodes: {
+            ...keycloakNodeRegistry(hostContext.keycloakCenter),
+            loginAuthority: (nodeId) => oidc.discovery(nodeId),
+            verifyHuman: (auth) => oidc.bind(auth),
+          },
+        }),
+      );
       fleetCenter = started.center;
     }
   } catch (error) {
