@@ -261,12 +261,17 @@ export function deriveCloseoutSubmission(
     commitOutputs = frozen.outputs.filter((output) => !output.startsWith("Artifact-Anchor: "));
   } else {
     // One delivery commit owns one manifest: the comparison cut derives from the commit's own fork
-    // point on the default branch, never from where the project HEAD happened to sit when the execution
+    // point on the default branch unless start explicitly pinned an approved upstream delivery; never
+    // from where the project HEAD happened to sit when the execution
     // started (F-70FB11C4). Advancing main cannot move a merge base, so the manifest stays identical
     // across submit, publication, and re-derivation. A repository without a remote, or without origin/HEAD,
     // anchors on the branch its main checkout has out: that local branch is where its deliveries land.
     let base: string;
-    if (mergeBase.ok && mergeBase.stdout !== commitSha) {
+    if (baseline?.kind === "commit" && baseline.stackOn) {
+      // A stacked execution owns the cut from its approved upstream delivery, including CEO merges.
+      // Main's merge-base would omit files brought in by those merges and include upstream work.
+      base = baseline.commitSha;
+    } else if (mergeBase.ok && mergeBase.stdout !== commitSha) {
       // Unpublished fork: everything reachable from the commit and not from the default branch.
       base = mergeBase.stdout;
     } else if (mergeBase.ok || baseline === undefined) {
