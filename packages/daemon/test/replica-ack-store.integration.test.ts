@@ -71,6 +71,81 @@ test("durable ACK store isolates view keys and commits exact proof with its L1-e
   }
 });
 
+test("same-revision re-delivery under a new transfer converges to current without touching the recorded proof", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-replica-ack-retransfer-")),
+    key = { nodeId: "node-a", viewId: "view-a", repoId: "repo-a" },
+    toCut = cut(8, "a"),
+    digest = "b".repeat(64);
+  try {
+    const store = openReplicaAckStore(root);
+    store.register(key, 5);
+    const lease = store.delivery.claim(key, "holder-a", Date.parse("2026-10-08T00:00:00.000Z"), 30_000)!;
+    store.offer(key, {
+      transferId: "transfer-delta",
+      fromCut: cut(5, "f"),
+      toCut,
+      manifestDigest: digest,
+      kind: "delta",
+      issuedAt: "2026-10-08T00:00:00.000Z",
+    });
+    assert.equal(
+      store.ack(key, "transfer-delta", toCut, digest, "2026-10-08T00:00:01.000Z", "2026-10-07T00:00:00.000Z", lease)
+        .outcome,
+      "applied",
+    );
+    // The delta base slid out of retention, so the center re-offers the same revision
+    // as a fresh snapshot under a new transfer id; its ACK must converge, not collide.
+    store.offer(key, {
+      transferId: "transfer-snapshot",
+      fromCut: null,
+      toCut,
+      manifestDigest: digest,
+      kind: "snapshot",
+      issuedAt: "2026-10-08T00:00:02.000Z",
+    });
+    const converged = store.ack(
+      key,
+      "transfer-snapshot",
+      toCut,
+      digest,
+      "2026-10-08T00:00:03.000Z",
+      "2026-10-07T00:00:00.000Z",
+      lease,
+    );
+    assert.equal(converged.outcome, "current");
+    assert.equal(converged.cursor?.revision, 8);
+    assert.equal(store.proof(key, 8)?.transferId, "transfer-delta");
+    assert.equal(store.offerFor(key), null);
+    // A re-offered cut that disagrees with the recorded proof at the same revision is rejected, not merged.
+    const divergentCut = cut(8, "c"),
+      divergentDigest = "d".repeat(64);
+    store.offer(key, {
+      transferId: "transfer-divergent",
+      fromCut: null,
+      toCut: divergentCut,
+      manifestDigest: divergentDigest,
+      kind: "snapshot",
+      issuedAt: "2026-10-08T00:00:04.000Z",
+    });
+    assert.equal(
+      store.ack(
+        key,
+        "transfer-divergent",
+        divergentCut,
+        divergentDigest,
+        "2026-10-08T00:00:05.000Z",
+        "2026-10-07T00:00:00.000Z",
+        lease,
+      ).outcome,
+      "op_rejected",
+    );
+    assert.equal(store.proof(key, 8)?.transferId, "transfer-delta");
+    store.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("delivery leases fence expiry across workers and isolate node/repo/view metrics", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-lease-"));
   const key = { nodeId: "node-a", repoId: "repo-a", viewId: "view-a" };
