@@ -311,5 +311,8 @@
   "components.pageRegions.timeline": "Progress timeline",
   "components.pageRegions.collapse": "Collapse {title}",
   "components.pageRegions.expand": "Expand {title}",
-  "components.pageRegions.expandGroup": "Collapsed page regions"
+  "components.pageRegions.expandGroup": "Collapsed page regions",
+  "components.repositoryRead.cut": "Local replica revision {revision} · last confirmed {at}",
+  "components.repositoryRead.lastReported": "Runtime status is the last report, not current liveness.",
+  "components.repositoryRead.unavailable": "Some repository reads are unavailable; they do not represent empty data."
 }

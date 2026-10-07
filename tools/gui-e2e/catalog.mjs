@@ -34,8 +34,10 @@ import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
 import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
 import overviewArtifactsShelf from "./scenarios/overview-artifacts-shelf.mjs";
 import taskDetailExplainerDefault from "./scenarios/task-detail-explainer-default.mjs";
+import edgeReadFreshness from "./scenarios/edge-read-freshness.mjs";
 
 export const catalog = [
+  edgeReadFreshness,
   runtimeHandoff,
   accountLogin,
   taskAssignment,

@@ -7,6 +7,7 @@ import type {
 import { readGuiActionResult } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
 import { isRendererRecord } from "./result-validation.ts";
+import { repositoryReadFrame } from "./repository-read-frame.ts";
 
 export interface DecisionListSuccess {
   readonly ok: true;
@@ -85,6 +86,7 @@ export function readDecisionListResult(value: unknown): DecisionListSuccess {
     throw decisionReadError(value);
   }
   return {
+    ...repositoryReadFrame(value),
     ok: true,
     decisions: result.decisions,
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
@@ -106,6 +108,7 @@ export function readDecisionSummaryListResult(value: unknown): DecisionSummaryLi
     throw decisionReadError(value);
   }
   return {
+    ...repositoryReadFrame(value),
     ok: true,
     projection: "summary",
     decisions: rows,

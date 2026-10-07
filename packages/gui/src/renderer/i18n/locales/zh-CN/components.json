@@ -311,5 +311,8 @@
   "components.pageRegions.timeline": "进展时间线",
   "components.pageRegions.collapse": "收起{title}",
   "components.pageRegions.expand": "展开{title}",
-  "components.pageRegions.expandGroup": "已收起的页面区域"
+  "components.pageRegions.expandGroup": "已收起的页面区域",
+  "components.repositoryRead.cut": "本地副本 revision {revision} · 最后确认 {at}",
+  "components.repositoryRead.lastReported": "运行状态为最后报告，不代表当前存活。",
+  "components.repositoryRead.unavailable": "部分仓库读不可用；不能将其视为空数据。"
 }

@@ -1,5 +1,5 @@
 import type { ArtifactGuiKind, ArtifactsListResult } from "@harness-anything/daemon/protocol";
-import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 
 // Renderer client for the artifacts timeline: one `repo.artifacts.list` read returns
@@ -31,7 +31,7 @@ export const artifactsClient = {
       typeof value.watermark !== "number" ||
       typeof value.sourceRevision !== "number"
     )
-      throw new Error(rendererErrorHint(value, "Artifacts list bridge returned an invalid result."));
+      throw rendererReadError(value, "Artifacts list bridge returned an invalid result.");
     return value as unknown as ArtifactsListResult;
   },
 };

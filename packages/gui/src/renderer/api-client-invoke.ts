@@ -1,9 +1,11 @@
 import {
   daemonGuiInvokeFacets,
+  daemonGuiReadMethods,
   type DaemonRpcMethodMap,
   type DaemonRpcResult,
 } from "@harness-anything/daemon/protocol";
 import { guiTransport } from "./gui-transport.ts";
+import { repositoryReadFailure } from "./repository-read-frame.ts";
 
 type GuiInvokeFacet = (typeof daemonGuiInvokeFacets)[number];
 type GuiRpcMethod = GuiInvokeFacet["method"] & keyof DaemonRpcMethodMap;
@@ -39,6 +41,7 @@ type GuiBridgeParams<Method extends GuiRpcMethod> = DaemonRpcMethodMap[Method]["
 const invokeFacetFields = new Map(
   daemonGuiInvokeFacets.map((facet) => [facet.method, new Set(Object.keys(facet.params.fields))]),
 );
+const readMethods = new Set<string>(daemonGuiReadMethods.map(({ method }) => method));
 
 export async function invoke<Method extends keyof DaemonRpcMethodMap>(
   method: Method & GuiRpcMethod,
@@ -57,5 +60,8 @@ export async function invoke<Method extends keyof DaemonRpcMethodMap>(
           ? { payload: params }
           : params
   ) as DaemonRpcMethodMap[Method]["params"];
-  return guiTransport().request(method, wireParams, bridgeMethod);
+  const result = await guiTransport().request(method, wireParams, bridgeMethod);
+  const failure = readMethods.has(method) ? repositoryReadFailure(result) : null;
+  if (failure) throw failure;
+  return result;
 }

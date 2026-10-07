@@ -61,10 +61,6 @@ export function SquadRunDetail({
     <div data-testid="squad-run-detail" className="flex flex-col gap-4 px-4 pt-3.5 pb-6">
       <header className="flex flex-col gap-1">
         <span className="flex min-w-0 flex-wrap items-center gap-2">
-          <LiveDot
-            state={run.currentLeaderRuntimeSessionId === null ? "idle" : "live"}
-            tip={t("agentRuntime.squadRunPhaseLeaderRunning")}
-          />
           <b className="min-w-0 truncate ui-body">{squadName ?? run.squadId}</b>
           <span className="shrink-0 font-mono ui-micro text-text-faint" title={run.squadRunId}>
             {run.squadRunId}
@@ -87,6 +83,7 @@ export function SquadRunDetail({
             execution: run.executionId,
             iteration: String(run.iteration ?? "—"),
             current: String(run.currentIteration ?? "—"),
+            revision: run.runRevision,
           })}
         </p>
         <p data-testid="squad-run-detail-mission" className="ui-micro text-text-muted">

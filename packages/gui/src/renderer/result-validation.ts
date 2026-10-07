@@ -27,6 +27,14 @@ export function rendererErrorHint(value: unknown, fallback: string): string {
     : fallback;
 }
 
+/** Direct bridge clients retain a rejection code just like the shared invoke client. */
+export function rendererReadError(value: unknown, fallback: string): Error {
+  const error = new Error(localErrorHint(value, rendererErrorHint(value, fallback)));
+  if (!isRendererRecord(value) || value.ok !== false) return error;
+  const code = isRendererRecord(value.error) ? (value.error.code ?? value.code) : value.code;
+  return typeof code === "string" ? Object.assign(error, { code }) : error;
+}
+
 export interface FactDomainTypeSummaryRow {
   readonly domainType: string;
   readonly registeredByFactId: string;

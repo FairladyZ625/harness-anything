@@ -651,5 +651,6 @@
   "agentRuntime.handoffAccepted": "Handoff accepted; inspect the target session for its resume result.",
   "agentRuntime.handoffResumed": "The target resumed the same native session.",
   "agentRuntime.handoffEnable": "Enable explicit handoff after this Codex session settles",
-  "agentRuntime.squadRunObservation": "Last reported {at} · execution {execution} · iteration {iteration} (task: {current})"
+  "agentRuntime.squadRunObservation": "Last reported {at} · execution {execution} · iteration {iteration} (task: {current}) · revision {revision}",
+  "agentRuntime.squadRunLastReport": "Last reported {at} · revision {revision}"
 }

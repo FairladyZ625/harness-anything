@@ -1,4 +1,6 @@
 import type { TaskAssignmentDirectory } from "@harness-anything/daemon/protocol";
+import type { RepositoryReadFrame } from "@harness-anything/daemon/protocol";
+import { repositoryReadFrame } from "./repository-read-frame.ts";
 import { validateDaemonTaskCompletion } from "@harness-anything/daemon/protocol";
 import type {
   AgendaRead,
@@ -67,7 +69,7 @@ export type {
   DecisionSummaryRow,
 } from "./api-client-decisions.ts";
 
-export interface TaskListSuccess {
+export interface TaskListSuccess extends Partial<RepositoryReadFrame> {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly rows: ReadonlyArray<TaskSnapshotProjectionRow>;
@@ -656,6 +658,7 @@ function readTaskListResult(value: unknown): TaskListSuccess {
     throw new Error(localErrorHint(value, "Task list bridge returned an invalid result."));
   }
   return {
+    ...repositoryReadFrame(value),
     ok: true,
     status: result.status as "ready" | "pending",
     rows: result.rows,
@@ -903,6 +906,7 @@ function readRelationGraphResult(value: unknown): RelationGraphSuccess {
     throw new Error(localErrorHint(value, "Relation graph bridge returned an invalid result."));
   }
   return {
+    ...repositoryReadFrame(value),
     ok: true,
     edges: result.edges.filter(isRelationGraphEdgeRow),
     coverageRows: result.coverageRows.filter(isRelationCoverageRow),
@@ -940,6 +944,7 @@ function readRelationFactFacetResult(value: unknown): RelationFactFacetSuccess {
     throw new Error(localErrorHint(value, "Relation fact facet bridge returned an invalid result."));
   }
   return {
+    ...repositoryReadFrame(value),
     ok: true,
     facet: "facts",
     page: result.page,
