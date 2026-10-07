@@ -44,8 +44,8 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
 }
 
 export function makeAgentActionRuntime(cell: RepoCellRuntimeContext): EntityActionCatalogRunner {
-  return async (contract, action, _binding, opId): Promise<WriteReceipt> => {
-    const revision = cell.store.readHead()?.revision ?? 0;
+  return (contract, action, _binding, opId): WriteReceipt => {
+    const revision = cell.projection.readCut().sourceRevision;
     if (contract.id === "list") return cell.readResult(opId, listAgents(cell), revision, null) as WriteReceipt;
     if (contract.id === "inspect")
       return cell.readResult(opId, inspectAgent(cell, squadRequiredText(action.agentId, "agentId")), revision, null);

@@ -30,7 +30,9 @@ function runFactActionNow(
       cell.input.repoId,
       taskId
         ? requireCurrentTaskProjection(cell.projection, taskId, "fact record").snapshot.revision
-        : (cell.store.readHead()?.revision ?? 0),
+        : action.kind === "fact-show" || action.kind === "fact-type-list"
+          ? cell.projection.readCut().sourceRevision
+          : (cell.store.readHead()?.revision ?? 0),
     ),
   );
 }

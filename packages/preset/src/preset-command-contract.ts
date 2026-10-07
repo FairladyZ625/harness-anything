@@ -44,7 +44,6 @@ const commandTopology = (
     }),
   });
 export const repoReadCommandTopology = commandTopology("repo-read", "direct", "direct"),
-  queryOnlyRepoReadCommandTopology = commandTopology("repo-read", "direct", "direct", "query-only"),
   // The center is the ledger's only writer, so its own authenticated principals write it directly;
   // an edge reaches the same queue through its assignment.
   ledgerWriteCommandTopology = commandTopology("repo-write", "direct", "rejected"),
@@ -197,7 +196,6 @@ const defineTopologyCommand =
   <const Command extends CliCommandDeclaration>(declaration: Command) =>
     defineCliCommand({ ...declaration, ...topology });
 export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopology),
-  defineQueryOnlyRepoReadCommand = defineTopologyCommand(queryOnlyRepoReadCommandTopology),
   defineLedgerWriteCommand = defineTopologyCommand(ledgerWriteCommandTopology),
   defineCenterForwardReadCommand = defineTopologyCommand(centerForwardReadCommandTopology),
   defineEdgeReplicaQueryOnlyReadCommand = defineTopologyCommand(edgeReplicaQueryOnlyReadCommandTopology),

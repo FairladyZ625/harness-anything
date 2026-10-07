@@ -108,9 +108,9 @@ export function makeEdgeReplicaQueries(source: EdgeReplicaQuerySource): EdgeRepl
       const page = listDecisionAgendaRowsPage(db, query);
       return { ...cut, decisions: page.rows, page: page.page };
     },
-    readDecisionGraph: () => ({ ...cut, ...readDecisionGraphRows(db) }),
+    readDecisionGraph: () => ({ ...cut, ...readDecisionGraphRows(db, cut.watermark) }),
     readDecisionIncomingRelations: (id) => readDecisionIncomingRelationRows(db, id),
-    readDecisionCoverage: (ids) => ({ ...cut, coverageRows: decisionCoverage(db, ids) }),
+    readDecisionCoverage: (ids) => ({ ...cut, coverageRows: decisionCoverage(db, ids, cut.watermark) }),
     readFact: (id) => ({ ...cut, fact: readFactRow(db, id) }),
     searchFacts: (query) => {
       const page = searchFactRowsPage(db, query);

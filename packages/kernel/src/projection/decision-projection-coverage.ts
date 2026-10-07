@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { coverageOf } from "../domain/decision-coverage.ts";
 import type { DecisionFulfillmentMode } from "../domain/decision-event.ts";
 import type { DecisionCoverageRow } from "./decision-projection-model.ts";
-import { projectionTables, queryRow, queryRows } from "./rebuildable-task-projection-sql.ts";
+import { projectionTables, queryRows } from "./rebuildable-task-projection-sql.ts";
 import { relationProjectionRowsAtCut } from "./relation-entity-projection.ts";
 
 // The active edges coverageOf can consult for the requested decisions: those leaving each decision
@@ -20,12 +20,12 @@ const COVERAGE_EDGES_SQL = [
 ].join(" ");
 
 /** Coverage of the requested decisions, computed from only the rows coverageOf consults for them. */
-export function decisionCoverage(db: DatabaseSync, decisionIds: readonly string[]): readonly DecisionCoverageRow[] {
+export function decisionCoverage(
+  db: DatabaseSync,
+  decisionIds: readonly string[],
+  basisRevision: number,
+): readonly DecisionCoverageRow[] {
   const requested = JSON.stringify(decisionIds),
-    basisRevision = Number(
-      queryRow<{ readonly watermark: number }>(db, "SELECT watermark FROM projection_meta WHERE singleton=1")!
-        .watermark,
-    ),
     decisions = queryRows<{
       readonly decision_id: string;
       readonly state: string;

@@ -114,7 +114,36 @@ test(
       { kind: "work-show", taskId: "show-1" } as never,
       localAuthFixture(),
     );
+    const familyActions = [
+      { kind: "relation-list" },
+      { kind: "relation-triples" },
+      { kind: "graph", ref: "task/show-1" },
+      { kind: "fact-type-list" },
+      { kind: "fact-show", factId: "F-MISSING" },
+      { kind: "decision-list" },
+      { kind: "decision-show", decisionId: "dec_MISSING" },
+      { kind: "decision-validate", all: true },
+      { kind: "entity-list", entityKind: "agent" },
+      { kind: "entity-get", entityKind: "agent", entityId: "test-agent" },
+      { kind: "agent-list" },
+      { kind: "agent-inspect", agentId: "test-agent" },
+      { kind: "squad-list" },
+      { kind: "squad-inspect", squadId: "missing" },
+    ];
+    const familyTruth = await Promise.all(
+      familyActions.map((action) => f.host.run("lease-repo", action as never, localAuthFixture())),
+    );
     await f.center.close();
+    for (const [index, action] of familyActions.entries()) {
+      const answer = await e.command(action),
+        truth = familyTruth[index]!;
+      assert.equal(answer.outcome, truth.outcome, `${action.kind}: ${JSON.stringify(answer)}`);
+      assert.equal(answer.code, truth.code, action.kind);
+      assert.ok(answer.cut, `${action.kind} must be answered at the replica cut`);
+      if (truth.outcome === "applied")
+        assert.deepEqual(JSON.parse(String(answer.evidence)), JSON.parse(String(truth.evidence)), action.kind);
+    }
+    t.diagnostic(`offline CLI shared query families=${familyActions.length}, center disconnected`);
     const work = await e.command({ kind: "work-show", taskId: "show-1" });
     assert.equal(work.outcome, "applied", JSON.stringify(work));
     assert.deepEqual(JSON.parse(String(work.evidence)), JSON.parse(String(workTruth.evidence)));

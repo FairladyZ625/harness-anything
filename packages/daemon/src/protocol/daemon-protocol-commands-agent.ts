@@ -257,7 +257,7 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "entity-get",
     phase: "Runtime-B",
     path: ["entity", "get", "<kind>"],
@@ -270,7 +270,7 @@ export const agentProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "entity-list",
     phase: "Runtime-B",
     path: ["entity", "list", "<kind>"],
@@ -279,7 +279,7 @@ export const agentProtocolCommands = Object.freeze([
     positional: "entityKind",
     inputs: [],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "agent-list",
     phase: "Runtime-B",
     path: ["agent", "list"],
@@ -287,7 +287,7 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "agent-inspect",
     phase: "Runtime-B",
     path: ["agent", "inspect", "<id>"],
@@ -341,7 +341,7 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--successor", "single", false, { code: "invalid_field" }),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "squad-list",
     phase: "Runtime-B",
     path: ["squad", "list"],
@@ -349,7 +349,7 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "squad-inspect",
     phase: "Runtime-B",
     path: ["squad", "inspect", "<id>"],

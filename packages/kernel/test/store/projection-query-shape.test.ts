@@ -207,7 +207,7 @@ for (const [label, read] of [
   [
     "readDecisionGraphRows",
     (db: DatabaseSync) => {
-      readDecisionGraphRows(db);
+      readDecisionGraphRows(db, 1);
     },
   ],
   [
@@ -351,7 +351,7 @@ test("readDecisionGraphRows still resolves evidenced coverage through the batche
   const { db } = countingDatabase();
   try {
     seed(db, 3, 3);
-    const graph = readDecisionGraphRows(db);
+    const graph = readDecisionGraphRows(db, 1);
     assert.equal(graph.decisionAnchors.length, 3);
     // Anchor refs stay sorted and carry the decision root plus its option and claim anchors.
     assert.deepEqual(graph.decisionAnchors[0]?.anchorRefs, [

@@ -5,7 +5,6 @@ import {
   cliInput,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
-  defineQueryOnlyRepoReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 
@@ -435,7 +434,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineQueryOnlyRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "relation-triples",
     phase: "Governed-Entity-W1-D",
     path: ["relation", "triples"],
@@ -446,7 +445,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       cliInput("--target-kind", "single", false, { code: "invalid_field" }),
     ],
   }),
-  defineQueryOnlyRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "relation-list",
     phase: "Governed-Entity-W1-D",
     path: ["relation", "list"],
@@ -551,7 +550,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "graph",
     phase: "W3",
     path: ["graph", "<ref>"],

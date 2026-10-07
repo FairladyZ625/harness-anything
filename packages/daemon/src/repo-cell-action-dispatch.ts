@@ -147,7 +147,7 @@ export function executeRepoAction(
   if (action.kind === "event-list") return cell.listEvents(action, binding);
   if (action.kind === "event-show") return cell.showEvent(action, binding);
   if (action.kind === "relation-triples") {
-    const revision = cell.store.readHead()?.revision ?? 0,
+    const revision = cell.projection.readCut().sourceRevision,
       rows = declaredRelationTriples({
         ...(typeof action.sourceKind === "string" ? { sourceKind: action.sourceKind } : {}),
         ...(typeof action.targetKind === "string" ? { targetKind: action.targetKind } : {}),
@@ -275,17 +275,23 @@ export function executeRepoAction(
       ),
     );
   }
-  const actionVersion = Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0);
   if (actionContract?.execution)
     return cell.entityActionExecutor.run(
       action,
       binding,
-      cell.operationId(action, binding, cell.input.repoId, actionVersion),
+      cell.operationId(
+        action,
+        binding,
+        cell.input.repoId,
+        actionContract.execution.read
+          ? cell.projection.readCut().sourceRevision
+          : Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0),
+      ),
       cell.entityActionRuntimes,
     );
   if (action.kind === "preset-upgrade") return cell.upgradePresetSnapshot(action, binding);
   if (/^entity-(?:get|list)$/u.test(action.kind)) {
-    const revision = cell.store.readHead()?.revision ?? 0,
+    const revision = cell.projection.readCut().sourceRevision,
       requestedKind = cell.requiredCellText(action.entityKind, "entityKind"),
       kind = resolveEntityReadKind(requestedKind, compiledArtifactKinds(cell.projection, cell.input.repoId));
     if (action.kind === "entity-list")

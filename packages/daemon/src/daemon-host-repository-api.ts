@@ -620,7 +620,7 @@ export function createDaemonHostRepositoryApi(
           });
         const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction),
           receipt = await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
-        if (getExecutableEntityAction(action.kind)?.target.kind === "schedule")
+        if (command.commandClass !== "repo-read" && getExecutableEntityAction(action.kind)?.target.kind === "schedule")
           await context.scheduleScheduler.refresh();
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
