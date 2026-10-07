@@ -9,10 +9,8 @@ import {
   submissionDigest,
   type AuthorizationDecision,
 } from "@harness-anything/kernel";
-import { presetDocumentBody } from "@harness-anything/preset/internal/preset-resolver";
-import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/internal/preset-system";
 import { agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
-import { resolveAgentSkills } from "./agent-skills.ts";
+import { resolveDispatchAgent } from "./runtime-spawn-agent.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
@@ -110,7 +108,6 @@ import {
 import { installHandoffRollout } from "./runtime-handoff-native.ts";
 import { taskWorktreeCheckoutNote, verifyHandoffWorktree, type TaskWorktreeCheckout } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
-import { workerLedgerPath } from "./worktree-setup.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
@@ -376,47 +373,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       };
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      squad =
-        squadId || targetAgentId
-          ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId, binding) ??
-            (() => {
-              if (squadId) throw runtimeSpawnError("squad_not_found", `Squad ${squadId} is unavailable.`);
-              throw runtimeSpawnError(
-                "squad_member_not_found",
-                `Agent ${targetAgentId} is not available in a squad led by ${agentId}.`,
-              );
-            })())
-          : null,
-      delegatedBy = squad?.worker ? squad.leader : null,
-      agent =
-        squad?.worker ??
-        squad?.leader ??
-        (agentId
-          ? (input.resolveAgent?.(agentId) ??
-            (() => {
-              throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
-            })())
-          : null),
-      resolvedSkills = (agent ? resolveAgentSkills({ rootDir: input.rootDir, skills: agent.skills }) : []).map(
-        (skill) => ({ ...skill, skillFile: workerLedgerPath(input.rootDir, cwd, skill.skillFile) }),
+      { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
+        input,
+        binding,
+        cwd,
+        agentId,
+        squadId,
+        targetAgentId,
       ),
-      preset = agent?.preset
-        ? (() => {
-            if (!input.readSettings)
-              throw runtimeSpawnError(
-                "settings_projection_unavailable",
-                "Agent preset resolution requires the repository Settings projection.",
-              );
-            const defaults = presetRuntimeDefaults(input.readSettings());
-            // The spawn prompt needs the preset's PRESET.md text only; a full resolve would
-            // re-hash the whole catalog for a body the catalog already decoded.
-            return presetDocumentBody({
-              userRoot: presetUserRoot(input.rootDir),
-              verticalId: defaults.verticalId,
-              presetId: agent.preset!,
-            });
-          })()
-        : undefined,
       runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
       localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
       runtimeInstances = input.runtimeInstances?.() ?? [],

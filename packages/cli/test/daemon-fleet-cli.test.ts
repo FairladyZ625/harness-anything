@@ -185,7 +185,7 @@ test(
       const observed = await spawnedRun(fixture, "edge", syncArgs),
         exposed = JSON.stringify({ argv: observed.argv, stdout: observed.stdout, stderr: observed.stderr });
       assert.equal(exposed.includes(machineCredential), false, "the machine credential stays off argv and output");
-      assert.equal(observed.status, 0, observed.stderr);
+      assert.equal(observed.status, 0, JSON.stringify({ stdout: observed.stdout, stderr: observed.stderr }));
       const first = JSON.parse(observed.stdout) as Record<string, unknown>,
         sync = (extra: readonly string[] = []) => run(fixture, "edge", [...syncArgs, ...extra]);
       const pulled = first.ok === false && first.code === "replica_pending" ? retryReplicaPending(sync) : first;
