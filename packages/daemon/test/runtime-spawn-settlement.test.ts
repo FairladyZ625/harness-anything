@@ -90,6 +90,63 @@ test("taskless settlement requires the provider's completed turn and final resul
   }
 });
 
+test("a read-only task attach requires its dispatch report, while a reviewer still requires registration", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-read-only-report-witness-"));
+  try {
+    for (const sample of [
+      { report: true, role: null, expected: "succeeded" },
+      { report: false, role: null, expected: "unknown" },
+      { report: true, role: "reviewer", expected: "unknown" },
+    ] as const) {
+      const outcomes: Record<string, unknown>[] = [],
+        runtime = {
+          ...tasklessSettlementRuntime(rootDir, "scan report"),
+          task: { taskId: "task-read-only-scan", executionId: "exe-read-only-scan" },
+          permissionMode: "read-only",
+          role: sample.role,
+          finalText: "scan report",
+        } as ActiveRuntime,
+        context = {
+          exiting: new Set<string>(),
+          processes: new Map([[runtime.runtimeSessionId, runtime]]),
+          input: {
+            repoId: "canonical",
+            rootDir,
+            now: () => "2026-10-07T00:01:00.000Z",
+            stream: { publish: () => ({}) },
+            projection: true,
+            remote: { archive: async () => ({ outcome: "applied" }) },
+          },
+          requiredRuntimeStore: () => ({ readEvent: () => null }),
+          requiredRuntimeProjection: () => ({
+            read: () => ({
+              packagePath: "tasks/task-read-only-scan",
+              snapshot: { executions: [], reviews: [] },
+            }),
+            readDocument: (documentPath: string) => ({
+              document:
+                sample.report && documentPath.endsWith("/artifacts/reports/dispatch_0123456789abcdef01234567.md")
+                  ? { path: documentPath }
+                  : null,
+            }),
+          }),
+          resultMediaType: "text/markdown",
+          runtimeResultText: () => "scan report",
+          markProtocolError: () => undefined,
+          publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
+            if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+            return {};
+          },
+          settleFallback: async () => undefined,
+        } as unknown as RuntimeSpawnerContext;
+      await publishExit(context, runtime, 0);
+      assert.equal(outcomes[0]?.outcome, sample.expected, JSON.stringify(sample));
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("scheduled missions receive the daemon-owned outcome protocol", () => {
   assert.equal(
     scheduleMissionWithOutcomeProtocol("Inspect the repository.\n"),
