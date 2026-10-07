@@ -1,6 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
+import tls from "node:tls";
+import { syncBuiltinESMExports } from "node:module";
+import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { recordHeadConfirmation } from "../src/fleet/replica-read-model.ts";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { makeTaskEventReader, sha256Text } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
@@ -14,8 +19,6 @@ import {
 } from "../src/fleet/edge.ts";
 
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
-import { readTaskDispatches } from "../src/dispatch-read.ts";
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { squadRunObservation } from "../src/squad-observation.ts";
@@ -471,13 +474,36 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     "B reads the full accepted leader result without owner streams or center access",
   );
   assert.ok(answer.cut);
-  const dispatches = withEdgeReadModel(
-    { viewRoot: b.viewRoot, repoId: "lease-repo", principalId: "person-one" },
-    (projection) => readTaskDispatches({ projection, taskId }),
-  );
+  const view = locateFleetMirrorView(b.viewRoot, "lease-repo")!;
+  recordHeadConfirmation(view.viewDir, view.revision, 0);
+  const connections = t.mock.method(tls, "connect");
+  syncBuiltinESMExports();
+  const response = await b.rpc.handle({
+    jsonrpc: "2.0",
+    id: 1001,
+    method: "repo.task.dispatches",
+    params: { repo: { repoId: "lease-repo" }, payload: { taskId } },
+  });
+  assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
+  const dispatches = parseDaemonGuiReadResult("repo.task.dispatches", response.result);
+  assert.equal(connections.mock.callCount(), 0, "GUI read makes zero TLS calls to center");
+  connections.mock.restore();
+  syncBuiltinESMExports();
+  assert.equal(dispatches.freshness?.state, "stale");
+  assert.match(dispatches.warning ?? "", /可能过期/u);
+  assert.ok(dispatches.cut);
+  assert.ok(dispatches.freshness);
   assert.equal(dispatches.dispatches.length, 2, "B reads both accepted runs while center is offline");
   assert.ok(dispatches.dispatches.some((row) => row.executionId === observed.payload.executionId));
   assert.ok(dispatches.dispatches.some((row) => row.executionId !== observed.payload.executionId));
+  b.signIn("person-other");
+  await assert.rejects(b.host.read("lease-repo", "repo.task.dispatches", { taskId }, localAuthFixture()), {
+    code: "authorization_denied",
+  });
+  b.signIn("person-one");
+  t.diagnostic(
+    `B GUI RPC offline dispatches=${dispatches.dispatches.length} freshness=${dispatches.freshness!.state} center TLS calls=0 owner mismatch=authorization_denied`,
+  );
   assert.equal(launches, 1);
   t.diagnostic(`A launch -> canonical observation ${observed.workspaceRevision} -> B offline status ${runId}`);
   await a.host.close();

@@ -309,6 +309,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       queryRead().guiTasks(taskListQueryFromPayload(payload, context.cellCodedError)),
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),
     "repo.works.index": () => workIndexFromProjection(context.projection),
+    "repo.workspace.summary.read": () => workspaceSummaryFromProjection(context.projection),
+    "repo.workspace.scope.read": (payload) =>
+      workspaceScopeFromProjection(context.projection, {
+        rootTaskId: context.requiredCellText(payload.rootTaskId, "rootTaskId"),
+        ...(payload.limit === undefined ? {} : { limit: Number(payload.limit) }),
+        ...(payload.cursor === undefined ? {} : { cursor: String(payload.cursor) }),
+      }),
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
     "repo.vertical.declaration.read": () =>

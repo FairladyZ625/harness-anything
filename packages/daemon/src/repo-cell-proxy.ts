@@ -1,3 +1,4 @@
+import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 import { readEdgeRuntimeResultBytes } from "./runtime-result-read.ts";
 import path from "node:path";
 import {
@@ -211,32 +212,32 @@ export async function openRepoCellProxy(
    * An edge-replica read on an edge is answered from the materialized replica of the center cut, under the
    * replica owner's authorization, and reports where the answer came from (dec_FB7DE6338E7D3D94ED2A4C05A2).
    */
-  const edgeReplicaRun = (action: RepoTaskAction, binding: RepoCellBinding) => {
-    // The replica's owner digest is this read's authorization (dec_8DC9FF499EDA47F3824AF75DF6): the
-    // principal, a person or that person's execution, must be the replica's admitted owner.
-    const config = edgeConfig!;
+  const edgeReplicaRead = <T>(
+    binding: RepoCellBinding | undefined,
+    read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame) => T,
+  ): T => {
+    if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
+    if (!edgeConfig) throw cellCodedError("replica_unavailable", "This edge has no Fleet replica configuration.");
     return withEdgeReadModel(
       {
-        viewRoot: config.viewRoot,
+        viewRoot: edgeConfig.viewRoot,
         repoId: input.repoId,
-        principalId: binding.actor.principal.personId,
-        ...(config.maxAgeMs === undefined ? {} : { maxAgeMs: config.maxAgeMs }),
-        ...(config.maxLagRevisions === undefined ? {} : { maxLagRevisions: config.maxLagRevisions }),
+        principalId: binding?.actor.principal.personId,
+        ...(edgeConfig.maxAgeMs === undefined ? {} : { maxAgeMs: edgeConfig.maxAgeMs }),
+        ...(edgeConfig.maxLagRevisions === undefined ? {} : { maxLagRevisions: edgeConfig.maxLagRevisions }),
       },
-      (projection, frame) =>
-        executeReadAtCut(projection, action, binding, (receipt) => ({
-          ...receipt,
-          cut: {
-            repoId: input.repoId,
-            revision: frame.cut.revision,
-            opId: receipt.opId,
-            headDigest: frame.cut.headDigest,
-          },
-          freshness: frame.freshness,
-          ...(frame.warning === null ? {} : { warnings: [...(receipt.warnings ?? []), frame.warning] }),
-        })),
+      read,
     );
   };
+  const edgeReplicaRun = (action: RepoTaskAction, binding: RepoCellBinding) =>
+    edgeReplicaRead(binding, (projection, frame) =>
+      executeReadAtCut(projection, action, binding, (receipt) => ({
+        ...receipt,
+        cut: { repoId: input.repoId, ...frame.cut, opId: receipt.opId },
+        freshness: frame.freshness,
+        ...(frame.warning === null ? {} : { warnings: [...(receipt.warnings ?? []), frame.warning] }),
+      })),
+    );
   const query = <T>(read: (projection: TaskProjectionQueries) => T): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
     const status = supervisor.status();
@@ -503,6 +504,18 @@ export async function openRepoCellProxy(
     },
     terminal,
     read: async (method, payload = {}, binding) => {
+      if (input.mode === "remote-edge" && method !== "repo.agent.skills.list")
+        return edgeReplicaRead(binding, (projection, frame) => {
+          if (
+            method === "repo.entity.locator.read" ||
+            method === "repo.entity.actions.explain" ||
+            method === "repo.entity.content.read" ||
+            method === "repo.ci.observatory.read" ||
+            (method === "repo.decisions.list" && payload.projection !== "summary")
+          )
+            throw cellCodedError("replica_unavailable", `${method} requires data outside the replica cut.`);
+          return { ...readAtCut(projection, method, payload, binding), ...frame };
+        }) as never;
       if (method === "repo.tasks.list")
         return query((projection) =>
           makeTaskQueryReadModel({

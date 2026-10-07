@@ -33,12 +33,7 @@ export interface EdgeTaskReadInput {
   readonly action: Readonly<Record<string, unknown>>;
 }
 
-/** Where an edge answer comes from: the replica cut and how current it is against the center. */
-export interface EdgeReadFrame {
-  readonly cut: EdgeReadCut;
-  readonly freshness: EdgeReadFreshness;
-  readonly warning: string | null;
-}
+import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 
 /** One synchronous edge read session: locate, authorize, judge freshness, query, close. */
 export function withEdgeReadModel<T>(
@@ -49,7 +44,7 @@ export function withEdgeReadModel<T>(
     readonly maxAgeMs?: number;
     readonly maxLagRevisions?: number;
   },
-  read: (projection: TaskProjectionQueries, frame: EdgeReadFrame) => T,
+  read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame) => T,
   now: () => number = Date.now,
 ): T {
   const view = locateFleetMirrorView(input.viewRoot, input.repoId);

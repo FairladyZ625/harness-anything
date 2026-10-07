@@ -1,3 +1,4 @@
+import { repositoryReadData, validateRepositoryReadFrame } from "./repository-read-frame.ts";
 import { validateTaskClaimableResult, validateTaskAssignmentDirectory } from "./daemon-protocol-validate-entities.ts";
 import {
   validateAgentRuntimeAttach,
@@ -290,7 +291,7 @@ export function parseDaemonGuiReadResult<M extends DaemonGuiRpcReadMethod>(
   method: M,
   value: unknown,
 ): DaemonGuiReadResultMap[M] {
-  const errors = resultValidators[method](value);
+  const errors = [...validateRepositoryReadFrame(value), ...resultValidators[method](repositoryReadData(value))];
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
   return value as DaemonGuiReadResultMap[M];
 }
@@ -300,12 +301,14 @@ export function parseDaemonGuiReadResponse<M extends DaemonGuiRpcReadMethod>(
 ): DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult {
   // Client inbound: rows are re-judged here because they crossed a process boundary; the
   // same-process exit (resultValidators) only re-checks the served shape.
+  const data = repositoryReadData(value);
   const errors =
     isJsonObject(value) && value.ok === false
       ? validateDaemonProtocolError(value)
-      : method === "repo.tasks.list"
-        ? validateDaemonTaskSnapshotList(value)
-        : resultValidators[method](value);
+      : [
+          ...validateRepositoryReadFrame(value),
+          ...(method === "repo.tasks.list" ? validateDaemonTaskSnapshotList(data) : resultValidators[method](data)),
+        ];
   if (errors.length) throw new DaemonProtocolContractError("invalid_result", errors.join("; "));
   return value as DaemonGuiReadResultMap[M] | DaemonProtocolErrorResult;
 }
