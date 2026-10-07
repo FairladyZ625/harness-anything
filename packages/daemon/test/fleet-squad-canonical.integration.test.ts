@@ -1,11 +1,23 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader, sha256Text } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient, runFleetRuntimeEventClient } from "../src/fleet/edge.ts";
+import {
+  runFleetReplicaPullClient,
+  runFleetRuntimeEventClient,
+  readFleetRepositoryMetadataClient,
+  runFleetUploadClient,
+  runFleetTaskCommandClient,
+} from "../src/fleet/edge.ts";
+
+import { openDaemonHost } from "../src/daemon-host.ts";
+import { latestSquadStates } from "../src/squad-run-state.ts";
+import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
+import { squadRunObservation } from "../src/squad-observation.ts";
+import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 
 test("owner edge Squad launch publishes a canonical run visible on another edge", { timeout: 180_000 }, async (t) => {
   const witness = {
@@ -72,7 +84,8 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   const created = await f.command("node-one", { kind: "task-create", title: "Canonical Squad run" });
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   const taskId = String(created.receipt!.taskId);
-  let launches = 0;
+  let launches = 0,
+    kills = 0;
   const a = await fleetEdgeHostFixture(t, f, {
     name: "owner",
     runtimeDiscover: () => [
@@ -91,7 +104,9 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
         onExit: () => undefined,
-        terminate: () => undefined,
+        terminate: () => {
+          kills += 1;
+        },
       };
     },
   });
@@ -169,6 +184,49 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       opId: `squad-observed-${runId}-${runRevision}`,
       payload: { ...observed.payload, runRevision, ...extra },
     });
+  const acceptedCount = f.eventCount();
+  f.owners.keycloak.revoke("person-one", "lease-repo", ["runtime-run"]);
+  await assert.rejects(observation(3, { phase: "cancelled" }), /authorization|denied|permission/iu);
+  assert.equal(f.eventCount(), acceptedCount);
+  f.owners.keycloak.permit("person-one", "lease-repo", ["runtime-run"]);
+  f.owners.reassign("node-one", "different-person");
+  await assert.rejects(observation(3, { phase: "cancelled" }), /owner|scope/iu);
+  f.owners.reassign("node-one", "person-one");
+  await assert.rejects(
+    observation(3, { ownerDispatchId: "dispatch_000000000000000000000000" }),
+    /owner|scope|dispatch/iu,
+  );
+  await assert.rejects(
+    runFleetRuntimeEventClient({
+      ...f.peer("node-one"),
+      repoId: "unregistered-repository",
+      eventType: observed.type,
+      opId: observed.opId,
+      payload: observed.payload,
+    }),
+    /repo_unavailable|repository|registered|assigned|authorization/iu,
+  );
+  assert.equal(f.eventCount(), acceptedCount);
+  const resultBody = "完整 leader 结果\n".repeat(6000),
+    leaderSession = observed.payload.leaderTurns[0]!.runtimeSessionId!,
+    resultRef = `artifact:runtime-result/sha256/${sha256Text(resultBody)}`;
+  await runFleetRuntimeEventClient({
+    ...f.peer("node-one"),
+    eventType: "runtime_session_outcome_observed",
+    opId: "squad-leader-complete-result",
+    resultBody,
+    payload: {
+      runtimeSessionId: leaderSession,
+      outcome: "succeeded",
+      exitCode: 0,
+      resultRef,
+      result: {
+        sha256: sha256Text(resultBody),
+        size: Buffer.byteLength(resultBody),
+        mediaType: "text/plain; charset=utf-8",
+      },
+    },
+  });
   await observation(3);
   const afterThird = f.eventCount();
   await assert.rejects(observation(2), /stale|conflict/iu);
@@ -212,8 +270,39 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   for (const action of [
     { ...childAction, idempotencyKey: `${runId}:late-child` },
     { kind: "task-start", taskId, executionId: observed.payload.executionId, squadRunId: runId },
+    {
+      kind: "task-release",
+      taskId,
+      executionId: observed.payload.executionId,
+      squadRunId: runId,
+      reason: "Late old owner",
+    },
+    {
+      kind: "task-artifact-add",
+      taskId,
+      squadRunId: runId,
+      destination: `artifacts/reports/${runId}.md`,
+      content: "Late synthesis",
+    },
   ]) {
-    const denied = await f.command("node-one", action);
+    const denied =
+      action.kind === "task-artifact-add"
+        ? await (async () => {
+            const { content, ...target } = action;
+            const [artifact] = await runFleetUploadClient({
+              ...f.peer("node-one"),
+              changes: [{ path: String(target.destination), body: String(content) }],
+            });
+            return runFleetTaskCommandClient({
+              ...f.peer("node-one"),
+              taskId,
+              action: target,
+              artifact,
+              waitMs: 5000,
+              opId: "old-run-synthesis",
+            });
+          })()
+        : await f.command("node-one", action);
     assert.notEqual(denied.outcome, "applied", JSON.stringify(denied));
     assert.match(JSON.stringify(denied), /execution_scope_mismatch/u);
   }
@@ -249,13 +338,97 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   );
   await f.host.replica("lease-repo").waitForCut(f.eventCount());
   await runFleetReplicaPullClient({ ...f.peer("node-two"), viewRoot: b.viewRoot, diskQuotaBytes: b.config.quotaBytes });
+  const metadata = await readFleetRepositoryMetadataClient(f.peer("node-one")),
+    authority = openPersistentWriterEpoch({ stateRoot: f.writerEpochStateRoot });
+  try {
+    assert.ok(authority.acquire("lease-repo").epoch > metadata.writerEpoch);
+    await assert.rejects(observation(4, { phase: "cancelled" }), /writer_epoch_stale|writer epoch/iu);
+  } finally {
+    authority.close();
+  }
+  const beforeRestart = f.eventCount();
   await f.center.close();
+  await f.closeHost(f.host);
+  const restartedHost = await f.openHost(),
+    restartedCenter = await f.openCenter(restartedHost, f.center.port);
+  assert.equal((await observation(4, { phase: "cancelled" })).receipt.replayed, true);
+  assert.equal(f.eventCount(), beforeRestart);
+  await restartedCenter.close();
+  const { schema: _readerSchema, ...readerConfiguration } = b.config;
+  await assert.rejects(
+    b.host.fleet.edgeRuntime(
+      {
+        ...readerConfiguration,
+        workspaceRoot: b.edgeRoot,
+        method: "repo.squad.control",
+        action: { kind: "squad-cancel", squadRunId: runId },
+      },
+      localAuthFixture(),
+    ),
+    /owner|control state/iu,
+  );
+  assert.equal(kills, 0, "querying node cannot cancel the owner's runtime");
+  await assert.rejects(
+    a.host.fleet.edgeRuntime(
+      {
+        ...configuration,
+        workspaceRoot: a.edgeRoot,
+        method: "repo.squad.control",
+        action: { kind: "squad-cancel", squadRunId: runId },
+      },
+      localAuthFixture(),
+    ),
+    /cancel|publication|connect/iu,
+  );
+  assert.equal(kills, 1, "owner kill precedes any offline publication failure");
   const answer = await b.command({ kind: "squad-status", squadRunId: runId });
   assert.equal(answer.outcome, "applied", JSON.stringify(answer));
   assert.equal(answer.squadRunId, runId);
   assert.equal(answer.status, "cancelled");
   assert.equal(answer.runRevision, 4);
+  assert.equal(
+    (answer.leaderTurns as { resultText: string }[])[0]!.resultText,
+    resultBody,
+    "B reads the full accepted leader result without owner streams or center access",
+  );
   assert.ok(answer.cut);
   assert.equal(launches, 1);
   t.diagnostic(`A launch -> canonical observation ${observed.workspaceRevision} -> B offline status ${runId}`);
+  await a.host.close();
+  const persisted = latestSquadStates(a.edgeRoot).get(runId)!;
+  assert.ok(persisted);
+  const pending = { ...persisted, revision: 5, phase: "cancelled" as const, error: "Owner recovered terminal report" };
+  appendRuntimeWorkerRecord(a.edgeRoot, persisted.stateDispatchId!, {
+    kind: "squad_run_state",
+    squadRunId: runId,
+    revision: 5,
+    state: pending,
+    observation: squadRunObservation(pending),
+  });
+  await f.closeHost(restartedHost);
+  const recoveryHost = await f.openHost(),
+    recoveryCenter = await f.openCenter(recoveryHost, f.center.port);
+  const recoveryCut = recoveryHost.replica("lease-repo");
+  recoveryCut.activate();
+  const beforeRecovery = f.eventCount();
+  const restoredOwner = await openDaemonHost({
+    daemonId: "owner-daemon",
+    userRoot: a.edgeUser,
+    runtimeLaunch: () => {
+      throw new Error("terminal recovery must not launch models");
+    },
+  });
+  t.after(() => restoredOwner.close());
+  await restoredOwner.attachmentsSettled();
+  await recoveryCut.waitForCut(beforeRecovery + 1);
+  const recovered = makeTaskEventReader({ repoId: "lease-repo", rootDir: f.repo }).read().events.at(-1)!;
+  assert.equal(recovered.type, "runtime_squad_run_observed");
+  assert.equal(recovered.payload.runRevision, 5);
+  assert.equal(recovered.payload.phase, "cancelled");
+  assert.equal(recovered.payload.executionId, observed.payload.executionId);
+  await restoredOwner.close();
+  await recoveryCenter.close();
+  t.diagnostic(
+    "owner daemon restart -> existing replica confirmation callback -> pending terminal revision5 accepted without a runtime request",
+  );
 });

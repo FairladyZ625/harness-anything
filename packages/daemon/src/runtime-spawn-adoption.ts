@@ -1,3 +1,4 @@
+import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
   readDispatchStream,
@@ -177,7 +178,7 @@ export function ownedByRuntimeSpawner(
   binding: RuntimeBinding,
   runtimeNode: RuntimeSpawnerInput["runtimeNode"],
 ): boolean {
-  if (runtimeNode === undefined) return (binding.source as { kind?: unknown } | null)?.kind === "local";
+  if (runtimeNode === undefined) return binding.source === "local";
   const source: unknown = binding.source;
   if (source === null || typeof source !== "object" || Array.isArray(source)) return false;
   const node = source as Record<string, unknown>;
@@ -231,4 +232,19 @@ function isBinding(value: unknown): value is RuntimeBinding {
     typeof (actor as { principal?: { personId?: unknown } }).principal?.personId === "string" &&
     binding.source !== undefined
   );
+}
+
+/** Instance load is an owner-process observation, never the last canonical live report. */
+export function locallyObservedRuntimeSessions(
+  sessions: readonly RuntimeSessionSelection[],
+  processes: ReadonlyMap<string, Pick<ActiveRuntime, "process">>,
+): readonly RuntimeSessionSelection[] {
+  return sessions.map((session) => {
+    const process = processes.get(session.runtimeSessionId)?.process;
+    return {
+      ...session,
+      liveness:
+        session.outcome !== null ? session.liveness : process && runtimePidIsAlive(process.pid) ? "live" : "unknown",
+    };
+  });
 }

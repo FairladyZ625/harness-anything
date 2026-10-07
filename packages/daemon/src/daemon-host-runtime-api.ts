@@ -282,6 +282,7 @@ export function createDaemonHostRuntimeApi(
         const receipt = await syncFleetEdgeMirror({
           payload: request,
         });
+        await context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile();
         await context.scheduleScheduler.refresh();
         return receipt;
       },

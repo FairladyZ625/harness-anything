@@ -777,6 +777,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         diskQuotaBytes: config.quotaBytes,
         sessionPool: replicaSessionPool,
         signal: controller.signal,
+        onConfirmed: () =>
+          edgeRuntimeFor({
+            ...config,
+            caPath,
+            viewRoot,
+            workspaceRoot: repo.canonicalRoot,
+            method: "repo.squad.control",
+            action: {},
+          }).reconcile(),
         onFailure: (error) =>
           input.recordLifecycle?.({
             event: "replica_sync_failed",

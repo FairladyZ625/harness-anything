@@ -1,3 +1,5 @@
+import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
+import { cellCodedError } from "./repo-cell-errors.ts";
 import { verifyRuntimeExecutionPrincipal, executionCredentialRejected } from "./runtime-execution-credential.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
@@ -866,4 +868,21 @@ export function withAuthorizationDecision(
         : null,
     nextActions: Object.freeze([...new Set([...(receipt.nextActions ?? []), ...authorizationDecision.nextActions])]),
   };
+}
+
+/** Re-authorize runtime continuations at their current queued repository cut. */
+export async function authorizeRuntimeRepoAction(
+  input: Parameters<typeof evaluateRepoCellAction>[0] & {
+    readonly projection: import("@harness-anything/kernel").TaskProjectionQueries;
+  },
+): Promise<RepoCellBinding> {
+  const { authorizationDecision: _previousDecision, ...binding } = input.binding,
+    authorizationDecision = await evaluateRepoCellAction({ ...input, binding });
+  if (authorizationDecision.outcome === "denied")
+    throw cellCodedError(
+      "authorization_denied",
+      authorizationDecision.nextActions.join(" ") || `${input.action.kind} requires repository write authority.`,
+    );
+  requireSquadBusinessAction(input.projection, input.action, binding);
+  return { ...binding, authorizationDecision };
 }

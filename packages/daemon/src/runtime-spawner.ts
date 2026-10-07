@@ -1,5 +1,4 @@
 import type { SquadDispatchContext } from "@harness-anything/kernel";
-import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -30,7 +29,7 @@ import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.t
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
+import { adoptRuntimes, locallyObservedRuntimeSessions } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -412,14 +411,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           })()
         : undefined,
       runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
-      localRuntimeSessions = runtimeSessions.map((session) => ({
-        ...session,
-        liveness:
-          processes.has(session.runtimeSessionId) &&
-          runtimePidIsAlive(processes.get(session.runtimeSessionId)!.process.pid)
-            ? ("live" as const)
-            : ("unknown" as const),
-      })),
+      localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
       runtimeInstances = input.runtimeInstances?.() ?? [],
       fallbackAttempt =
         inheritedFallback ??

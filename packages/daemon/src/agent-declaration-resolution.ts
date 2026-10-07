@@ -119,3 +119,13 @@ export function readAgentDeclaration(input: {
 export interface AgentDeclarationReader {
   readonly get: (kind: string, id: string) => { readonly value: unknown } | null;
 }
+
+export function resolveAgentRuntimeDeclaration(
+  declaration: AgentDeclarationV1,
+  projected: { readonly freshness: string; readonly value: { readonly lifecycleState?: string } } | null,
+): AgentDeclarationV1 & { readonly lifecycleState?: string } {
+  return {
+    ...declaration,
+    ...(projected && projected.freshness !== "orphaned" ? { lifecycleState: projected.value.lifecycleState } : {}),
+  };
+}

@@ -1,5 +1,6 @@
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
+import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { readEdgeRuntimeResult } from "./runtime-result-read.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { recordRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
@@ -162,8 +163,9 @@ export function openFleetEdgeRuntime(input: {
   const executionCredentials = new Map<string, { credential: string; expiresAt: string; personId: string }>();
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
   let tail = Promise.resolve();
-  const schedule = (work: () => void | Promise<void>): void => {
-    tail = tail.then(work).then(
+  const schedule = (work: () => void | Promise<void>): Promise<void> => {
+    const scheduled = tail.then(work);
+    tail = scheduled.then(
       () => undefined,
       (error: unknown) => {
         console.error("[fleet-edge-runtime] Pending runtime work failed:", error);
@@ -172,6 +174,7 @@ export function openFleetEdgeRuntime(input: {
         ready = null;
       },
     );
+    return scheduled;
   };
   const spawner = makeRuntimeSpawner({
     repoId: request.repoId,
@@ -463,6 +466,12 @@ export function openFleetEdgeRuntime(input: {
     return ready;
   };
   return {
+    reconcile: () =>
+      schedule(async () => {
+        if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
+        await ensureReady();
+        await squad.flushPublications();
+      }),
     run: async (
       method: FleetEdgeRuntimeRequest["payload"]["method"],
       action: JsonObject,

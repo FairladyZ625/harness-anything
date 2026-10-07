@@ -1,3 +1,4 @@
+import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { appendAuxiliaryRuntimeIngress } from "./repo-cell-runtime-ingress.ts";
@@ -11,7 +12,6 @@ import {
   makeTaskEventStore,
   runtimeSessionActionIds,
   type AgentRuntimeEventV1,
-  type AgentDeclarationV1,
   type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
   type DispatchRecordLeaseSettlement,
@@ -68,7 +68,7 @@ import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
-import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
+import { evaluateRepoCellAction, authorizeRuntimeRepoAction } from "./repo-cell-authorization.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
   PublicPublication,
@@ -147,16 +147,6 @@ export interface RepoCellOpenInput {
   /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
   /** Daemon-owned fallback for writes produced inside the cell rather than a request. */
   readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
-}
-
-export function resolveAgentRuntimeDeclaration(
-  declaration: AgentDeclarationV1,
-  projected: { readonly freshness: string; readonly value: { readonly lifecycleState?: string } } | null,
-): AgentDeclarationV1 & { readonly lifecycleState?: string } {
-  return {
-    ...declaration,
-    ...(projected && projected.freshness !== "orphaned" ? { lifecycleState: projected.value.lifecycleState } : {}),
-  };
 }
 
 export async function openRepoCell(input: RepoCellOpenInput): Promise<RepoCell> {
@@ -441,26 +431,16 @@ export async function openRepoWriterCell(
     action: RepoTaskAction,
     binding: RuntimeAttemptTerminal["binding"],
     actionId: string,
-  ): Promise<RepoCellBinding> => {
-    const { authorizationDecision: _previousDecision, ...unframed } = binding,
-      currentBinding = await onlineBinding(unframed),
-      revision = store.readHead()?.revision ?? 0,
-      authorizationDecision = await evaluateRepoCellAction({
-        repoId: input.repoId,
-        action,
-        binding: currentBinding,
-        actionId,
-        revision,
-        now: now(),
-      });
-    if (authorizationDecision.outcome === "denied")
-      throw cellCodedError(
-        "authorization_denied",
-        authorizationDecision.nextActions.join(" ") || `${action.kind} requires repository write authority.`,
-      );
-    requireSquadBusinessAction(projection, action, currentBinding);
-    return { ...currentBinding, authorizationDecision };
-  };
+  ): Promise<RepoCellBinding> =>
+    authorizeRuntimeRepoAction({
+      repoId: input.repoId,
+      action,
+      binding: await onlineBinding(binding),
+      actionId,
+      revision: store.readHead()?.revision ?? 0,
+      now: now(),
+      projection,
+    });
   const runtimeSpawner = makeRuntimeSpawner({
     repoId: input.repoId,
     rootDir,

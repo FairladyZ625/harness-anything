@@ -214,14 +214,22 @@ export function makeSquadCoordinator(input: {
         "squad/run-id",
       );
     const state = readSquadRunState(squadRunId);
-    if (!state)
+    if (!state) {
+      const observed = input.query((projection) => projection.readSquadRun(squadRunId));
+      if (observed)
+        throw cellCriterionError(
+          "execution_scope_mismatch",
+          `Squad run ${squadRunId} has no control state on this node. Owner: ${JSON.stringify(observed.state.owner)}. Use its owner's authorized cancel entry.`,
+          "cancel",
+          "squad/run-owner",
+        );
       throw cellCriterionError(
         "squad_run_not_found",
         `Squad run ${squadRunId} does not exist.`,
         "cancel",
         "squad/run-present",
-        ["Run ha squad status <squad-run-id> and choose an existing run."],
       );
+    }
     if (state.phase !== "cancelled")
       recordState(
         revise(state, {
@@ -881,7 +889,18 @@ export function makeSquadCoordinator(input: {
     publicationAcks.set(state.squadRunId, state.revision);
   }
   async function flushPublications(): Promise<void> {
-    for (const state of readStates()) await publishState(state);
+    for (const state of readStates()) {
+      // Keep an old pending active snapshot for local recovery, without letting it
+      // revive an obsolete execution or block a new run. Terminal reports remain publishable.
+      if (
+        !terminal(state) &&
+        !input.query((projection) =>
+          squadParentExecutionCurrent(projection.read(state.taskId).snapshot, state.executionId),
+        )
+      )
+        continue;
+      await publishState(state);
+    }
   }
 
   return { start, cancel, observeOutcome, reconcile, flushPublications };
