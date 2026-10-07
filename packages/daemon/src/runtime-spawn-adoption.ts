@@ -118,7 +118,13 @@ export async function adoptRuntimes(
         ...(processState ? { pid: processState.pid } : {}),
       });
       await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
-      if (session.liveness !== "live" && session.liveness !== "exited") {
+      if (
+        processState &&
+        !processState.exited &&
+        runtimePidIsAlive(processState.pid) &&
+        session.liveness !== "live" &&
+        session.liveness !== "exited"
+      ) {
         await context.publishRuntimeEvent(
           "runtime_session_liveness_changed",
           { runtimeSessionId: active.runtimeSessionId, liveness: "live" },

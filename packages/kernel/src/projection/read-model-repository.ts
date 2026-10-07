@@ -77,14 +77,14 @@ const tables = [
       "reason",
     ],
   },
-  { name: "projection_meta", keys: ["singleton"], columns: ["singleton", "squad_run_ready"] },
   // Only the event-backed query families below are exported, never the whole canonical event log.
   {
     name: "event_index",
     keys: ["op_id"],
     columns: ["op_id", "workspace_revision", "task_id", "event_json"],
     where: `WHERE
-      json_extract(event_json, '$.schema') IN ('agent-runtime-event/v1', 'schedule-event/v1', 'ci-run-observation/v3')
+      (json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') <> 'runtime_squad_run_observed')
+      OR json_extract(event_json, '$.schema') IN ('schedule-event/v1', 'ci-run-observation/v3')
       OR (json_extract(event_json, '$.schema') = 'settings-event/v1' AND workspace_revision =
         (SELECT workspace_revision FROM entity_projection WHERE entity_kind = 'settings' AND entity_id = 'repository'))
       OR (json_extract(event_json, '$.schema') IN ('fact-event/v1', 'decision-event/v1', 'task-event/v1')
@@ -99,8 +99,9 @@ export interface RepositoryReadModelRow {
 
 export function createRepositoryReadModelTables(db: DatabaseSync): void {
   db.exec(REPOSITORY_READ_TABLES_SQL);
-  db.exec(`CREATE TABLE IF NOT EXISTS projection_meta (singleton INTEGER PRIMARY KEY, squad_run_ready INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL);`);
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL);`,
+  );
 }
 
 export function readRepositoryReadModelRows(db: DatabaseSync): readonly RepositoryReadModelRow[] {

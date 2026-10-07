@@ -2,6 +2,8 @@ import {
   attributeEntityActionCriterion,
   getExecutableEntityAction,
   type TaskProjection,
+  type AgentRuntimeEventV1,
+  stableStringify,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { deriveActionResult, type EntityActionCatalogPreparer } from "./entity-action-catalog-executor.ts";
@@ -15,6 +17,7 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
       dispatchSource = dispatch?.source,
       ingressSource = binding.source,
       localOwner = dispatchSource === "local" && ingressSource === "local";
+    requireRuntimeDispatchOwner(dispatch, binding);
     if (!localOwner) {
       if (
         !dispatch ||
@@ -105,4 +108,22 @@ function requiredRuntimeActionText(value: unknown, field: string): string {
 function invalidRuntimeSessionAction(code: string, message: string, actionId?: string, criterionRef?: string): never {
   const error = Object.assign(new Error(message), { code });
   throw actionId && criterionRef ? attributeEntityActionCriterion(error, actionId, criterionRef) : error;
+}
+
+/** Shared occurrence source check; Squad observations also require the local principal. */
+export function requireRuntimeDispatchOwner(
+  dispatch: Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }> | null,
+  binding: RepoCellBinding,
+  strictLocalPrincipal = false,
+): void {
+  const local = dispatch?.source === "local" && binding.source === "local";
+  if (
+    !dispatch ||
+    (!local && stableStringify(dispatch.source) !== stableStringify(binding.source)) ||
+    ((!local || strictLocalPrincipal) && dispatch.actor.principal.personId !== binding.actor.principal.personId)
+  )
+    invalidRuntimeSessionAction(
+      "execution_scope_mismatch",
+      "Runtime publication must come from the canonical dispatch owner and source.",
+    );
 }

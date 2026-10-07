@@ -1,3 +1,5 @@
+import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
+import { appendAuxiliaryRuntimeIngress } from "./repo-cell-runtime-ingress.ts";
 import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import {
   bindWriterGenerationToken,
@@ -195,13 +197,12 @@ export async function openRepoWriterCell(
       readSession,
       canAttach: (session) =>
         session.liveness !== "exited" &&
-        (session.attachable ||
-          (() => {
-            const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-            return dispatch
-              ? readRuntimeSessionActivityEvidence(rootDir, dispatch.payload.dispatchId)?.workerHostAlive === true
-              : false;
-          })()) &&
+        (() => {
+          const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
+          return dispatch
+            ? readRuntimeSessionActivityEvidence(rootDir, dispatch.payload.dispatchId)?.workerHostAlive === true
+            : false;
+        })() &&
         Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
       now: () => new Date(now()),
     }),
@@ -555,8 +556,22 @@ export async function openRepoWriterCell(
   const squadCoordinator = makeSquadCoordinator({
     rootDir,
     readWorktreeSetup: () => readSettings().worktree.setup,
-    projection: () => projection,
-    store: () => store,
+    query: (read) => read(projection),
+    readResult: (ref) => readCanonicalRuntimeResult(store, ref),
+    publishObservation: async (observation, binding) => {
+      const action = {
+        kind: "event" as const,
+        type: "runtime_squad_run_observed" as const,
+        opId: `squad-observed:${observation.squadRunId}:${observation.runRevision}`,
+        payload: { ...observation },
+      };
+      const authorized = await authorizeRuntimeAction(
+        { kind: "runtime-run", executionRuntimeIngress: action },
+        binding,
+        action.opId,
+      );
+      appendAuxiliaryRuntimeIngress(extracted, action, authorized);
+    },
     createChildTask: async (child, binding) => createSquadChild(extracted, child, binding, authorizeRuntimeAction),
     releaseTaskLease: async (taskId, binding) => {
       const lease = projection.currentLease(taskId, now());
@@ -642,7 +657,7 @@ export async function openRepoWriterCell(
         );
     },
     runtimeSpawner: () => ({
-      spawn: async (payload, binding) => {
+      spawn: async (payload, binding, onPrepared) => {
         const action = { kind: "runtime-spawn", ...payload },
           revision = store.readHead()?.revision ?? 0,
           authorizationDecision = await evaluateRepoCellAction({
@@ -660,7 +675,7 @@ export async function openRepoWriterCell(
               authorizationDecision.nextActions.join(" ") || "Squad runtime dispatch requires repo-write authority.",
             ),
           );
-        return runtimeSpawner.spawnCoordinated(payload, { ...binding, authorizationDecision });
+        return runtimeSpawner.spawnCoordinated(payload, { ...binding, authorizationDecision }, onPrepared);
       },
       cancel: async (payload, binding) => {
         const action = { kind: "runtime-cancel", ...payload },
@@ -971,7 +986,6 @@ export async function openRepoWriterCell(
       cancelSquadOrphans: () =>
         cancelRejectedSquadChildren({
           rootDir,
-          projection,
           readTask: (taskId) => projection.read(taskId).snapshot.task,
           cancel: async (action, binding, actionId) =>
             operationalContext.lifecycleAction(action, await authorizeRuntimeAction(action, binding, actionId)),

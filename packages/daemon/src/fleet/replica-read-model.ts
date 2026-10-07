@@ -162,7 +162,9 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string): Edge
         for (const [entryPath, entry] of view.entries)
           if (entryPath !== READ_MODEL_META_PATH) {
             if (loaded.get(entryPath) === entry.sha256) continue;
-            if (isReadModelPath(entryPath)) applyEdgeReadModelEntry(db, entryPath, blob(entry.sha256).toString("utf8"));
+            if (entryPath.startsWith(".read-model/runtime-results/")) blob(entry.sha256);
+            else if (isReadModelPath(entryPath))
+              applyEdgeReadModelEntry(db, entryPath, blob(entry.sha256).toString("utf8"));
             else {
               // Ledger documents ride the cut as content entries; their projected DocumentState is
               // rebuilt here from the same bytes the mirror materializes, so decision and closeout
@@ -190,7 +192,9 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string): Edge
           }
         for (const entryPath of loaded.keys())
           if (!view.entries.has(entryPath)) {
-            if (isReadModelPath(entryPath)) deleteEdgeReadModelEntry(db, entryPath);
+            if (entryPath.startsWith(".read-model/runtime-results/")) {
+              /* CAS entries are retained with their cut. */
+            } else if (isReadModelPath(entryPath)) deleteEdgeReadModelEntry(db, entryPath);
             else forgetDocument.run(entryPath);
             forgetRow.run(entryPath);
           }

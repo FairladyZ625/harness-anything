@@ -1,3 +1,5 @@
+import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
+import { readEdgeRuntimeResult } from "./runtime-result-read.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { recordRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
 import { createHash } from "node:crypto";
@@ -62,7 +64,8 @@ export interface FleetEdgeRuntimeRequest {
       | "repo.agentRuntime.overview"
       | "repo.agentRuntime.sessions.await"
       | "repo.agentRuntime.sessions.read"
-      | "repo.schedule.run";
+      | "repo.schedule.run"
+      | "repo.squad.control";
     readonly action: JsonObject;
   };
 }
@@ -403,6 +406,7 @@ export function openFleetEdgeRuntime(input: {
             `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
       }
+      await squad.reconcile();
       const scheduled = terminal.schedule;
       if (!scheduled) return;
       const detail = await scheduleSettlementDetail(
@@ -430,6 +434,14 @@ export function openFleetEdgeRuntime(input: {
     ...(input.launch ? { launch: input.launch } : {}),
     schedule,
   });
+  const squad = makeFleetSquadCoordinator({
+    request,
+    peer,
+    spawner,
+    sync: syncScheduleMirror,
+    readWorktreeSetup: () => readSettings().worktree.setup,
+    readResult: (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, ref),
+  });
   // Adoption is shared by concurrent requests, but a failed connection must not become a
   // permanent property of the cached edge runtime.  The daemon keeps one runtime per
   // node, so retain the instance and discard only the rejected readiness attempt;
@@ -452,6 +464,7 @@ export function openFleetEdgeRuntime(input: {
       connectionSignal?: AbortSignal,
     ): Promise<JsonObject> => {
       await ensureReady();
+      if (method === "repo.squad.control") return squad.run(action);
       if (method === "repo.schedule.run") return runSchedule(action);
       if (method === "repo.agentRuntime.handoff")
         return runRuntimeHandoff({

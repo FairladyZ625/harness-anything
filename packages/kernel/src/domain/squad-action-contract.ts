@@ -255,7 +255,7 @@ const declarations: readonly SquadActionDeclaration[] = Object.freeze([
     read: false,
     compile: null,
     implementation: "catalog-runtime",
-    topology: "ledger-write",
+    topology: "local-arbiter",
     criteria: Object.freeze([
       criterion("squad/entity-present", "squad_not_found", "The requested Squad is installed."),
       criterion(

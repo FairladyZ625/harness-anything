@@ -1,3 +1,4 @@
+import { readEdgeRuntimeResultBytes } from "./runtime-result-read.ts";
 import path from "node:path";
 import {
   consumeKnownError,
@@ -53,7 +54,6 @@ import { readRepoInFlightWork } from "./repo-in-flight-work.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import type { RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { repoCellTaskQueryJudgmentsFor } from "./repo-cell.ts";
-import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { openWriterSupervisor } from "./writer-supervisor.ts";
 import { runtimeOutcomeSettled, runtimeSettlementGraceMs } from "./runtime-settlement.ts";
@@ -156,6 +156,11 @@ export async function openRepoCellProxy(
     // ledger does not depend on one existing (an edge whose own ledger is not attached).
     lazyLedgerStore = new Proxy({} as ReturnType<typeof makeTaskEventReader>, {
       get: (_target, property) => {
+        if (input.mode === "remote-edge" && property === "readContentBlob") {
+          const config = readFleetEdgeConfig(input.rootDir);
+          if (!config) throw cellCodedError("replica_unavailable", "Edge configuration is missing.");
+          return (sha256: string) => readEdgeRuntimeResultBytes(config.viewRoot, input.repoId, sha256);
+        }
         const store = ledgerReadStore(),
           value: unknown = Reflect.get(store, property, store);
         return typeof value === "function" ? value.bind(store) : value;
@@ -181,13 +186,12 @@ export async function openRepoCellProxy(
       readSession,
       canAttach: (session) =>
         session.liveness !== "exited" &&
-        (session.attachable ||
-          reader.withSession((projection) => {
-            const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-            return dispatch
-              ? readRuntimeSessionActivityEvidence(input.rootDir, dispatch.payload.dispatchId)?.workerHostAlive === true
-              : false;
-          })) &&
+        reader.withSession((projection) => {
+          const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
+          return dispatch
+            ? readRuntimeSessionActivityEvidence(input.rootDir, dispatch.payload.dispatchId)?.workerHostAlive === true
+            : false;
+        }) &&
         reader.withSession((projection) =>
           Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
         ),
@@ -279,18 +283,12 @@ export async function openRepoCellProxy(
       };
     let actionRuntimes: EntityActionCatalogRuntimes = Object.freeze({}),
       knownTaskIds: Set<string> | null = null;
-    const squadCoordinator = makeSquadCoordinator({
-        rootDir: input.rootDir,
-        readWorktreeSetup: () => [],
-        projection: () => writableProjection,
-        store: () => readStore,
-        reacquireTaskLease: unsupportedWrite,
-        releaseTaskLease: unsupportedWrite,
-        createChildTask: unsupportedWrite,
-        recordOwnershipCheck: unsupportedWrite,
-        publishSynthesisReport: unsupportedWrite,
-        runtimeSpawner: () => ({ spawn: unsupportedWrite, cancel: unsupportedWrite }),
-      }),
+    const squadCoordinator = {
+        start: unsupportedWrite,
+        cancel: unsupportedWrite,
+        reconcile: unsupportedWrite,
+        observeOutcome: unsupportedWrite,
+      },
       runtimeReads = makeAgentRuntimeReadModel({
         readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(input.rootDir, dispatchId),
         readAttemptChain: (runtimeSessionId) =>

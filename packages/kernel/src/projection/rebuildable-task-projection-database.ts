@@ -377,12 +377,11 @@ function createTables(db: DatabaseSync): void {
       scan_cursor TEXT,
       scanned_revision INTEGER NOT NULL,
       head_digest TEXT,
-      state_digest TEXT,
-      squad_run_ready INTEGER NOT NULL CHECK(squad_run_ready IN (0, 1))
+      state_digest TEXT
     );
     INSERT OR IGNORE INTO projection_meta(
-      singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest, squad_run_ready
-    ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL, 0);
+      singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest
+    ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL);
     CREATE TABLE IF NOT EXISTS event_source (
       workspace_revision INTEGER PRIMARY KEY,
       op_id TEXT NOT NULL UNIQUE,

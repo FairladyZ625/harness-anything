@@ -383,3 +383,10 @@ export {
   type TaskAssignment,
   type TaskClaimant,
 } from "./domain/task-assignment.ts";
+
+export type {
+  SquadRunPhase,
+  SquadDispatchContext,
+  SquadRunObservation,
+  CanonicalSquadRun,
+} from "./domain/squad-run.ts";

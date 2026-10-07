@@ -1,4 +1,5 @@
-export type SquadRunPhase = "planning" | "leader_running" | "workers_running" | "cancelled" | "converged" | "failed";
+import type { SquadRunPhase } from "@harness-anything/kernel";
+export type { SquadRunPhase } from "@harness-anything/kernel";
 
 export interface SquadRunSummaryDto {
   readonly squadRunId: string;

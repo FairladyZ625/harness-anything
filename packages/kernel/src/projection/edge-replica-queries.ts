@@ -9,7 +9,7 @@ import {
   readIntervals,
   effectiveLease,
 } from "./rebuildable-task-projection-runtime.ts";
-import { readSquadRun, readSquadRuns, squadRunProjectionReady } from "./rebuildable-task-projection-squad-runs.ts";
+import { readSquadRun, readSquadRuns } from "./rebuildable-task-projection-squad-runs.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { DocumentState } from "../domain/doc-sync-types.ts";
@@ -63,7 +63,6 @@ export function makeEdgeReplicaQueries(source: EdgeReplicaQuerySource): EdgeRepl
     readRuntimeSessions: () => readRuntimeSessions(db),
     readRuntimeSessionsForTask: (id) => readRuntimeSessionsForTask(db, id),
     readRuntimeSessionPage: (query) => readRuntimeSessionPage(db, query),
-    squadRunProjectionReady: () => squadRunProjectionReady(db),
     readSquadRun: (id) => readSquadRun(db, id),
     readSquadRuns: () => readSquadRuns(db),
     readLeaseIntervals: (id) => readIntervals(db, id),

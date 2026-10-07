@@ -558,7 +558,7 @@ function liveRow(
     startedAt: header.startedAt,
     endedAt: null,
     outcome,
-    status: lost ? "lost" : (outcome ?? (session?.liveness === "live" || processRunning ? "running" : "unknown")),
+    status: lost ? "lost" : (outcome ?? (processRunning ? "running" : "unknown")),
     resultRef: session?.resultRef ?? null,
     exitCode: session?.exitCode ?? null,
     ...(packagePath

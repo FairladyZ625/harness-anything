@@ -448,6 +448,7 @@ export function createJsonRpcProtocolServer(options: {
         if (isJsonObject(fleetAction) && fleetAction.kind === "fleet-runtime") {
           if (
             ![
+              "repo.squad.control",
               "repo.agentRuntime.spawn",
               "repo.agentRuntime.cancel",
               "repo.agentRuntime.handoff",

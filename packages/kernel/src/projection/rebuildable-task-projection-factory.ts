@@ -50,7 +50,6 @@ import { knowledgeQueryApi } from "./rebuildable-task-projection-knowledge-queri
 import { entityQueryApi } from "./rebuildable-task-projection-entity-api.ts";
 import { runtimeLeaseApi } from "./rebuildable-task-projection-runtime-api.ts";
 import { taskQueryApi } from "./rebuildable-task-projection-task-queries.ts";
-import { markRuntimeSessionsUnknown } from "./rebuildable-task-projection-runtime.ts";
 import { readStateDigest, readProjectionCut, transaction, watermark } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
@@ -78,7 +77,7 @@ export function makeTaskProjection(options: {
     throw new Error("task projection catch-up limit must be between 1 and 4096");
   if (localRuntimeStateFileSystem.exists(projectionPath)) {
     try {
-      withDatabase(projectionPath, readHead, (db) => transaction(db, () => markRuntimeSessionsUnknown(db)));
+      withDatabase(projectionPath, readHead, () => undefined);
     } catch (error) {
       if (error instanceof ProjectionSchemaMismatchError && error.observed < taskProjectionSchemaVersion) {
         consumeKnownError(error);
@@ -270,7 +269,6 @@ export function makeTaskProjectionReader(options: {
       readRuntimeSessions: runtimeQueries.readRuntimeSessions,
       readRuntimeSessionsForTask: runtimeQueries.readRuntimeSessionsForTask,
       readRuntimeSessionPage: runtimeQueries.readRuntimeSessionPage,
-      squadRunProjectionReady: runtimeQueries.squadRunProjectionReady,
       readSquadRun: runtimeQueries.readSquadRun,
       readSquadRuns: runtimeQueries.readSquadRuns,
     };

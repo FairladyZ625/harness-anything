@@ -23,6 +23,8 @@ export async function fleetEdgeHostFixture(
   f: FleetFixture,
   options: {
     readonly name?: string;
+    readonly runtimeLaunch?: Parameters<typeof openDaemonHost>[0]["runtimeLaunch"];
+    readonly runtimeDiscover?: Parameters<typeof openDaemonHost>[0]["runtimeDiscover"];
     readonly viewRoot?: string;
     readonly personId?: string;
     readonly nodeId?: string;
@@ -89,6 +91,8 @@ export async function fleetEdgeHostFixture(
   writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
+    ...(options.runtimeLaunch ? { runtimeLaunch: options.runtimeLaunch } : {}),
+    ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
     userRoot: edgeUser,
     oidc: new OidcSessionService(edgeUser, { fetch: f.owners.keycloak.fetch }),
   });

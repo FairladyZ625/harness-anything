@@ -1,3 +1,4 @@
+import { runtimeEventContentClaims, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -305,7 +306,24 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     // Only a projection read at exactly this revision may describe this cut; otherwise the cut keeps
     // the previous rows, whose meta still names the older revision they describe.
     if (!model || model.sourceRevision !== revision) return entries;
+    const results = new Map<string, FleetEntry>();
+    for (const row of model.rows.repository) {
+      if (row.table !== "event_index") continue;
+      const event = JSON.parse(String(row.values.event_json)) as AgentRuntimeEventV1;
+      if (event.schema !== "agent-runtime-event/v1" || event.type !== "runtime_session_outcome_observed") continue;
+      for (const claim of runtimeEventContentClaims(event)) {
+        const bytes = options.readContentBlob(claim.sha256);
+        if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
+          throw new Error(`Runtime result ${claim.sha256} is unavailable at revision ${revision}`);
+        if (!existsSync(readModelBlobPath(claim.sha256))) writeFileDurably(readModelBlobPath(claim.sha256), bytes);
+        results.set(claim.sha256, {
+          path: `.read-model/runtime-results/${claim.sha256}`,
+          blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
+        });
+      }
+    }
     return [
+      ...results.values(),
       ...entries.filter((entry) => !isReadModelPath(entry.path)),
       ...edgeReadModelEntries({
         sourceRevision: revision,
@@ -326,28 +344,6 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       });
     return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path));
   };
-  const publishReadModelForExistingCut = (current: SnapshotCut): SnapshotCut => {
-    const model = options.readEdgeReadModel?.();
-    if (!model || model.sourceRevision !== current.revision) return current;
-    const entries = manifest(current.revision);
-    if (!entries) return current;
-    const next = withReadModel(entries, current.revision),
-      bytes = stableStringify(next),
-      digest = sha256Text(bytes);
-    if (digest === current.manifest.digest) return current;
-    const store = db();
-    transact(store, () => {
-      writeManifest({ bytes, digest });
-      store.prepare("UPDATE cut SET manifest_digest = ?, entry_count = ?, total_bytes = ? WHERE revision = ?").run(
-        digest,
-        next.length,
-        next.reduce((sum, entry) => sum + entry.blob.size, 0),
-        current.revision,
-      );
-      return [];
-    });
-    return cut(current.revision)!;
-  };
   const settle = (cut: SnapshotCut) => {
     const rows = waiters.get(cut.revision);
     if (!rows) return;
@@ -363,7 +359,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       settle(first);
       return false;
     }
-    const published = publishReadModelForExistingCut(initial),
+    const published = initial,
       basis = options.readBasis(published.revision),
       started = monotonicNow(),
       store = db();
@@ -415,7 +411,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     const current = latest();
     if (current) {
       kick();
-      return publishReadModelForExistingCut(current);
+      return current;
     }
     const basis = options.readBasis(null),
       cut =

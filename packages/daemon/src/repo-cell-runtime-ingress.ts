@@ -1,3 +1,4 @@
+import { requireSquadRuntimeOwner, requireSquadRuntimeAdmission } from "./squad-runtime-ingress.ts";
 import { admitHandoffDispatch } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
 import {
@@ -18,6 +19,7 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 const auxiliaryEventTypes = Object.freeze([
   "runtime_installation_observed",
   "runtime_dispatch_requested",
+  "runtime_squad_run_observed",
   "runtime_dispatch_outcome_unknown",
   "runtime_handoff_exported",
   "runtime_handoff_revoked",
@@ -50,6 +52,7 @@ export function appendAuxiliaryRuntimeIngress(
     );
   if (action.resultBody !== undefined && action.type !== "runtime_dispatch_requested")
     throw cell.cellCodedError("invalid_runtime_event", "Only a runtime dispatch can carry auxiliary content bytes.");
+  requireSquadRuntimeOwner(cell, action, binding);
   const existing = cell.store.readEvent(action.opId);
   if (existing) {
     if (
@@ -161,6 +164,7 @@ export function appendAuxiliaryRuntimeIngress(
         "Runtime dispatch identity is not derived from its repository idempotency key.",
       );
   }
+  requireSquadRuntimeAdmission(cell, action, binding);
   const value = {
     schema: "agent-runtime-event/v1",
     eventId: `event-${createHash("sha256").update(action.opId).digest("hex")}`,

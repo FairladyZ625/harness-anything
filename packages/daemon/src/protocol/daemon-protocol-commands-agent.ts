@@ -4,6 +4,7 @@ import {
   defineHostAdminCommand,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
   defineRuntimeLocalWriteCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
@@ -109,7 +110,7 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "squad-status",
     phase: "Runtime-B",
     path: ["squad", "status", "<squad-run-id>"],
@@ -357,7 +358,7 @@ export const agentProtocolCommands = Object.freeze([
     positional: "squadId",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
+  defineRuntimeLocalWriteCommand({
     id: "squad-run",
     phase: "Runtime-B",
     path: ["squad", "run", "<id>"],

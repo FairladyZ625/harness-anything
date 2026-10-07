@@ -1,3 +1,5 @@
+import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
+import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
@@ -380,9 +382,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         entityId: context.requiredCellText(payload.squadId, "squadId"),
         projection: context.projection,
       }),
-    "repo.squad.runs.list": (payload: Readonly<Record<string, unknown>>) => context.squadCoordinator.list(payload),
+    "repo.squad.runs.list": (payload: Readonly<Record<string, unknown>>) =>
+      makeSquadCanonicalReader({
+        projection: context.projection,
+        readResult: (ref) => readCanonicalRuntimeResult(context.store, ref),
+      }).list(payload),
     "repo.squad.run.read": (payload: Readonly<Record<string, unknown>>) =>
-      context.squadCoordinator.read(context.requiredCellText(payload.squadRunId, "squadRunId")),
+      makeSquadCanonicalReader({
+        projection: context.projection,
+        readResult: (ref) => readCanonicalRuntimeResult(context.store, ref),
+      }).read(context.requiredCellText(payload.squadRunId, "squadRunId")),
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
     "repo.tasks.completion.read": (payload) =>
       readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId")),

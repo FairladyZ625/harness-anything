@@ -656,6 +656,7 @@ const scheduleActionShapes: Readonly<Record<string, Check>> = {
 const runtimeEventType = one(
   "runtime_installation_observed",
   "runtime_dispatch_requested",
+  "runtime_squad_run_observed",
   "runtime_session_started",
   "runtime_session_provider_bound",
   "runtime_session_task_bound",

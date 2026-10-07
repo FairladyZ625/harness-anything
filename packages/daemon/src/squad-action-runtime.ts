@@ -1,3 +1,5 @@
+import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
+import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import {
   createEntityStore,
   parseAgentDeclarationV1,
@@ -16,8 +18,8 @@ import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
 export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActionCatalogRunner {
-  return async (contract, action, binding, opId): Promise<WriteReceipt> => {
-    const revision = cell.store.readHead()?.revision ?? 0;
+  return (contract, action, binding, opId): WriteReceipt => {
+    const revision = cell.projection.readCut().watermark;
     if (contract.id === "list") return cell.readResult(opId, listSquads(cell), revision, null) as WriteReceipt;
     if (contract.id === "inspect")
       return cell.readResult(opId, inspectSquad(cell, squadRequiredText(action.squadId, "squadId")), revision, null);
@@ -31,7 +33,10 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
       return cell.readResult(opId, report as object, revision, null);
     }
     if (contract.id === "status") {
-      const raw = cell.squadCoordinator.status(squadRequiredText(action.squadRunId, "squadRunId"));
+      const raw = makeSquadCanonicalReader({
+        projection: cell.projection,
+        readResult: (ref) => readCanonicalRuntimeResult(cell.store, ref),
+      }).status(squadRequiredText(action.squadRunId, "squadRunId"));
       return coordinatorReceipt(cell, raw, opId, revision, []);
     }
     throw cell.cellCodedError("invalid_store", `Squad Action ${contract.id} has no catalog runtime implementation.`);

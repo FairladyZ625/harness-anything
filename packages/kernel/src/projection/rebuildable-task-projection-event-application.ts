@@ -1,3 +1,4 @@
+import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
 import { parse as parseYaml } from "yaml";
@@ -490,6 +491,7 @@ export function applyEvent(
     return;
   }
   if (isAgentRuntimeEvent(event)) {
+    projectSquadRunEvent(db, event);
     const taskId = runtimeExecutionLinkForEvent(event)?.taskId ?? null;
     runSql(
       db,

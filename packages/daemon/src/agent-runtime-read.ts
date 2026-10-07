@@ -408,7 +408,10 @@ export function sessionWithActivityEvidence(
   session: RuntimeSession,
   evidence: RuntimeSessionActivityEvidence | undefined,
 ): RuntimeSession {
-  if (!evidence) return session;
+  if (!evidence)
+    return session.outcome !== null || session.liveness === "exited"
+      ? session
+      : { ...session, liveness: "unknown", attachable: false };
   const lastObservedAt = latestRuntimeActivityAt([session.lastObservedAt, evidence.lastObservedAt]);
   if (session.outcome !== null) return { ...session, lastObservedAt };
   // Process exit and locally persisted settlement remain observable even if canonical writes
@@ -426,8 +429,8 @@ export function sessionWithActivityEvidence(
       lastObservedAt,
     };
   }
-  if (session.liveness === "exited" || session.liveness === "live") return { ...session, lastObservedAt };
-  if (!evidence.workerHostAlive) return { ...session, lastObservedAt };
+  if (session.liveness === "exited") return { ...session, attachable: false, lastObservedAt };
+  if (!evidence.workerHostAlive) return { ...session, liveness: "unknown", attachable: false, lastObservedAt };
   return {
     ...session,
     liveness: "live",

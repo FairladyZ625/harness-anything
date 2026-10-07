@@ -7,4 +7,5 @@
 // Version 27 replays entity owned documents and retirements into the canonical document read model.
 // Version 28 stores each relation_edge's own updated_at instead of joining event_index for it, so the
 // same relation page query runs unchanged on an edge replica that carries no event rows.
-export const taskProjectionSchemaVersion = 28;
+// Version 29 derives Squad runs only from canonical events and removes local readiness.
+export const taskProjectionSchemaVersion = 29;

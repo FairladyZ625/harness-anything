@@ -1,4 +1,10 @@
 import {
+  validSquadDispatchContext,
+  validSquadRunObservation,
+  type SquadDispatchContext,
+  type SquadRunObservation,
+} from "./squad-run.ts";
+import {
   hasOnlyFields,
   hasRequiredFields,
   isNonEmptyString,
@@ -20,6 +26,7 @@ export const transcriptReachabilityStates = ["by_session_id", "dispatch_stream_o
 export const agentRuntimeEventTypes = [
   "runtime_installation_observed",
   "runtime_dispatch_requested",
+  "runtime_squad_run_observed",
   "runtime_session_started",
   "runtime_session_provider_bound",
   "runtime_session_task_bound",
@@ -320,6 +327,7 @@ function runtimeActivityTime(stamp: string): number {
 }
 
 interface RuntimePayloads {
+  readonly runtime_squad_run_observed: Readonly<SquadRunObservation>;
   readonly runtime_installation_observed: {
     readonly installationId: string;
     readonly kindId: string;
@@ -351,6 +359,7 @@ interface RuntimePayloads {
     readonly agentId?: string;
     readonly agentName?: string;
     readonly squadId?: string;
+    readonly squadRun?: SquadDispatchContext;
     readonly cwd?: string;
     readonly role?: string;
     readonly reviewTarget?: {
@@ -434,6 +443,7 @@ const envelopeFields = [
   "payload",
 ] as const;
 const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
+  runtime_squad_run_observed: [],
   runtime_installation_observed: [
     "installationId",
     "kindId",
@@ -480,6 +490,15 @@ function validateAgentRuntimePayloadFields(
   value: unknown,
   allowUnknownFields: boolean,
 ): readonly string[] {
+  if (type === "runtime_squad_run_observed")
+    return validSquadRunObservation(value) ? [] : ["Squad run observation is invalid"];
+  if (
+    type === "runtime_dispatch_requested" &&
+    isRecord(value) &&
+    value.squadRun !== undefined &&
+    !validSquadDispatchContext(value.squadRun)
+  )
+    return ["Squad dispatch context is invalid"];
   const optionalFields =
     type === "runtime_session_outcome_observed"
       ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics"]
@@ -500,6 +519,7 @@ function validateAgentRuntimePayloadFields(
               "agentId",
               "agentName",
               "squadId",
+              "squadRun",
               "cwd",
               "role",
               "reviewTarget",
@@ -730,6 +750,7 @@ export function reduceRuntimeSession(
     };
   }
   if (
+    event.type === "runtime_squad_run_observed" ||
     event.type === "runtime_dispatch_requested" ||
     event.type === "runtime_dispatch_outcome_unknown" ||
     event.type === "runtime_handoff_exported" ||

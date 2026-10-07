@@ -84,9 +84,12 @@ function emptyOutputs(): ScheduleRunOutputsDto {
 
 /** report artifact 的完整正文:sha 命中内容库则原样给出(不截断);未就绪/非 UTF-8 → null。 */
 function reportTextOf(context: ScheduleRunsReadContext, reportRef: string | null): string | null {
-  if (reportRef === null || context.store === undefined) return null;
+  if (reportRef === null) return null;
+  if (context.store === undefined)
+    throw Object.assign(new Error("Runtime result store is unavailable."), { code: "replica_unavailable" });
   const bytes = context.store.readContentBlob(reportRef.slice("artifact:runtime-result/sha256/".length));
-  if (!bytes) return null;
+  if (!bytes)
+    throw Object.assign(new Error(`Runtime result ${reportRef} is unavailable.`), { code: "replica_unavailable" });
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch (error) {

@@ -20,7 +20,7 @@ import type {
 } from "./projection-reads.ts";
 import { discardDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
-import { markRuntimeSessionsUnknown, readSnapshot, readSnapshots } from "./rebuildable-task-projection-runtime.ts";
+import { readSnapshot, readSnapshots } from "./rebuildable-task-projection-runtime.ts";
 import {
   prepareQuery,
   queryPreparedRows,
@@ -249,7 +249,6 @@ export function rebuildProjection(
   }
   const result = withDatabase(projectionPath, readHead, (db) =>
     transaction(db, () => {
-      markRuntimeSessionsUnknown(db);
       const current = watermark(db),
         digest = readStateDigest(db, readHead()?.revision ?? 0);
       if (digest === null) throw new Error("projection rebuild did not reach a source-complete state digest");

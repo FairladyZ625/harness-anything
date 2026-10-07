@@ -31,6 +31,7 @@ export async function fleetNodeClaimFixture(
   now?: () => string,
   loginAuthority?: Parameters<typeof listenFleetTls>[0]["loginAuthority"],
   seedCenterSettings = false,
+  runtimeOptions: Pick<Parameters<typeof openDaemonHost>[0], "runtimeDiscover" | "runtimeLaunch"> = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
@@ -103,7 +104,12 @@ export async function fleetNodeClaimFixture(
     return center;
   };
   const openHost = async (): Promise<DaemonHost> => {
-    const host = await openDaemonHost({ daemonId: "lease-center", userRoot, ...(now ? { now } : {}) });
+    const host = await openDaemonHost({
+      ...runtimeOptions,
+      daemonId: "lease-center",
+      userRoot,
+      ...(now ? { now } : {}),
+    });
     const wrapped = wrapRun ? { ...host, run: wrapRun(host.run) } : host;
     hosts.push(wrapped);
     await host.attachmentsSettled();

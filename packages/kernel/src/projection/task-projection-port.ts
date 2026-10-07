@@ -232,10 +232,6 @@ export interface TaskProjection {
   readonly readRuntimeSessions: () => readonly RuntimeSession[];
   readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
   readonly readRuntimeSessionPage: (query: RuntimeSessionPageQuery) => RuntimeSessionPageRead;
-  readonly squadRunProjectionReady: () => boolean;
-  readonly replaceSquadRuns: (rows: readonly SquadRunProjectionRow[]) => void;
-  readonly markSquadRunProjectionDirty: () => void;
-  readonly upsertSquadRun: (row: SquadRunProjectionRow) => void;
   readonly readSquadRun: (squadRunId: string) => SquadRunProjectionRow | null;
   readonly readSquadRuns: () => readonly SquadRunProjectionRow[];
 }
@@ -254,9 +250,6 @@ export type TaskProjectionQueries = Omit<
   | "activateLease"
   | "renewLease"
   | "releaseLease"
-  | "replaceSquadRuns"
-  | "markSquadRunProjectionDirty"
-  | "upsertSquadRun"
 >;
 
 export interface TaskProjectionReader {

@@ -1,3 +1,5 @@
+import type { SquadDispatchContext } from "@harness-anything/kernel";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -174,6 +176,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     handoff?: RuntimeHandoffCheckpoint,
     handoffRollout?: Uint8Array,
     onDispatched?: (dispatchId: string, runtimeSessionId: string) => void,
+    onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
   ): Promise<JsonObject> => {
     const dryRun = payload.dryRun === true;
     const { requestedDispatchId, resumed, inherited, handoffEnabled } = resolveRuntimeResume(input, payload, handoff);
@@ -429,7 +432,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         agent,
         model,
         instances: runtimeInstances,
-        sessions: runtimeSessions,
+        sessions: runtimeSessions.map((session) => ({
+          ...session,
+          liveness:
+            processes.has(session.runtimeSessionId) &&
+            runtimePidIsAlive(processes.get(session.runtimeSessionId)!.process.pid)
+              ? "live"
+              : "unknown",
+        })),
       }),
       runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
       // Model resolution order: --model override > the runtimes row matching the selected
@@ -745,6 +755,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         throw error;
       }
     }
+    if (onPrepared) {
+      openStream();
+      onPrepared(newDispatchId, runtimeSessionId);
+    }
     let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
     try {
       await publishRuntimeEvent(
@@ -774,6 +788,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             definitionSnapshotRef,
             definitionSnapshot: definition,
             startedAt: streamStartedAt,
+            ...(payload.squadRun ? { squadRun: payload.squadRun as unknown as SquadDispatchContext } : {}),
             ...(handoffEnabled ? { handoffEnabled: true } : {}),
             ...(providerSessionId ? { resumeProviderSessionId: providerSessionId } : {}),
             ...(handoff ? { handoffCheckpointId: handoff.dispatchId, acceptedCommit: handoff.commit } : {}),
@@ -944,7 +959,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     ) => spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree, checkpoint, rollout),
     spawn: (payload: JsonObject, binding: RuntimeBinding, worktree: TaskWorktreeCheckout | null = null) =>
       spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree),
-    spawnCoordinated: (payload: JsonObject, binding: RuntimeBinding) =>
+    spawnCoordinated: (
+      payload: JsonObject,
+      binding: RuntimeBinding,
+      onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
+    ) =>
       spawnAttempt(
         payload,
         binding,
@@ -952,6 +971,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         undefined,
         payload.targetAgentId === undefined ? "runtime" : "commander",
+        null,
+        undefined,
+        undefined,
+        undefined,
+        onPrepared,
       ),
     spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) =>
       spawnAttempt(
