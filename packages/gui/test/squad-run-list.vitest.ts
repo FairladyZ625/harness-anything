@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { squadObservationFixture } from "./squad-run-fixtures.ts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -9,6 +10,7 @@ beforeAll(() => setActiveLocale("en-US"));
 
 const noop = () => undefined;
 const squadRunSummary = {
+  ...squadObservationFixture,
   squadRunId: "squad_" + "a".repeat(18),
   squadId: "squad_465504" + "a".repeat(12),
   taskId: "task_5fc508",

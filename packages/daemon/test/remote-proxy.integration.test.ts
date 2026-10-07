@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -64,18 +65,21 @@ test(
             observedAt: "2026-09-02T00:00:00.000Z",
           },
         ],
-        runtimeLaunch: () => ({
-          pid: 9021,
-          onOutput: (listener) => {
-            providerOutput = listener;
-            queueMicrotask(() =>
-              listener(`${JSON.stringify({ type: "thread.started", thread_id: "proxy-provider-session" })}\n`),
-            );
-          },
-          onErrorOutput: () => undefined,
-          onExit: () => undefined,
-          terminate: () => undefined,
-        }),
+        runtimeLaunch: (_prepared, persistence) => {
+          appendRuntimeWorkerRecord(repoRoot, persistence.dispatchId, { kind: "process_started", pid: process.pid });
+          return {
+            pid: process.pid,
+            onOutput: (listener) => {
+              providerOutput = listener;
+              queueMicrotask(() =>
+                listener(`${JSON.stringify({ type: "thread.started", thread_id: "proxy-provider-session" })}\n`),
+              );
+            },
+            onErrorOutput: () => undefined,
+            onExit: () => undefined,
+            terminate: () => undefined,
+          };
+        },
       }),
       tcpB = daemonTcpTransport(hostB, uid),
       hostA = await openDaemonHost({

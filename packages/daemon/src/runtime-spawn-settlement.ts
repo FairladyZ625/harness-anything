@@ -283,7 +283,6 @@ export async function publishExit(
             : "failed",
         reason: outcome === "succeeded" ? null : attemptOutcome.reason,
         endedAt,
-        resultRef,
         // active.binding is the actor that owns this dispatch's settlement fence: direct task
         // dispatches store the handed-off RuntimeSession binding, while Schedule and squad paths
         // retain their coordinator binding.
@@ -299,6 +298,7 @@ export async function publishExit(
         result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
         resultRef = `artifact:runtime-result/sha256/${sha256}`;
       });
+    const fallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState;
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
@@ -310,6 +310,14 @@ export async function publishExit(
         dispatchId: active.dispatchId,
         endedAt,
         runtimeMetrics,
+        attempt: {
+          classification: attemptOutcome.classification,
+          reason: attemptOutcome.reason,
+          ...(attemptOutcome.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
+          ...(attemptOutcome.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
+          fallbackState:
+            fallbackState === "exhausted" ? "exhausted" : fallbackState === "scheduled" ? "scheduled" : null,
+        },
       },
       body,
       reason: attemptOutcome.reason,

@@ -1,3 +1,13 @@
+import { cellCodedError } from "./repo-cell-errors.ts";
+import { requiredCellText } from "./repo-cell-settlement.ts";
+import { operationId } from "./repo-cell-proof.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
+import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
+import { repositoryReadData } from "./protocol/repository-read-frame.ts";
+import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
+import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
+import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { recordRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
 import { createHash } from "node:crypto";
@@ -7,13 +17,11 @@ import {
   assertTransitionDocumentReady,
   entitySlug,
   normalizeRelativeDocumentPath,
-  openEntityStore,
   readSettingsFacet,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
   validateScheduleV1,
   type AgentRuntimeEventV1,
-  type EntityStore,
   type ScheduleV1,
   type TaskWorktreeBindingV1,
 } from "@harness-anything/kernel";
@@ -28,7 +36,7 @@ import {
   runFleetReplicaPullClient,
   runFleetRuntimeArchiveClient,
   runFleetRuntimeEventClient,
-  runFleetRuntimeReadClient,
+  awaitFleetRuntimeSessionsClient,
   runFleetScheduleCommandClient,
   runFleetTaskCommandClient,
   type FleetPeerOptions,
@@ -40,7 +48,7 @@ import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } fro
 import type { RuntimeAgent } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
+import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import {
   livingDeliverableProtocol,
@@ -68,7 +76,8 @@ export interface FleetEdgeRuntimeRequest {
       | "repo.agentRuntime.overview"
       | "repo.agentRuntime.sessions.await"
       | "repo.agentRuntime.sessions.read"
-      | "repo.schedule.run";
+      | "repo.schedule.run"
+      | "repo.squad.control";
     readonly action: JsonObject;
   };
 }
@@ -109,7 +118,7 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
   let cursor: string | null = null;
   do {
     const result = await readPage({ limit: runtimeOverviewPageLimit, ...(cursor === null ? {} : { cursor }) });
-    const issues = validateAgentRuntimeOverview(result);
+    const issues = validateAgentRuntimeOverview(repositoryReadData(result));
     if (issues.length) throw edgeRuntimeError("runtime_read_invalid", issues.join("; "));
     const overview = result as AgentRuntimeOverviewResult;
     if (!overview.page)
@@ -163,13 +172,15 @@ export function openFleetEdgeRuntime(input: {
     // Every node reads the same Settings: the edge's materialized harness.yaml is the center's facet.
     readSettings = () =>
       readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8"));
+  let replicaOwner: string | undefined;
+  const readReplica = (method: Parameters<typeof readEdgeRuntimeRepository>[1], payload: JsonObject) =>
+    readEdgeRuntimeRepository({ ...request, principalId: replicaOwner }, method, payload);
   const executionCredentials = new Map<string, { credential: string; expiresAt: string; personId: string }>();
-  let entityStore: EntityStore | undefined;
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
-  const getEntityStore = (): EntityStore => (entityStore ??= openEntityStore(request.workspaceRoot));
   let tail = Promise.resolve();
-  const schedule = (work: () => void | Promise<void>): void => {
-    tail = tail.then(work).then(
+  const schedule = (work: () => void | Promise<void>): Promise<void> => {
+    const scheduled = tail.then(work);
+    tail = scheduled.then(
       () => undefined,
       (error: unknown) => {
         console.error("[fleet-edge-runtime] Pending runtime work failed:", error);
@@ -178,6 +189,7 @@ export function openFleetEdgeRuntime(input: {
         ready = null;
       },
     );
+    return scheduled;
   };
   const spawner = makeRuntimeSpawner({
     repoId: request.repoId,
@@ -208,16 +220,9 @@ export function openFleetEdgeRuntime(input: {
           : null;
       },
       taskContext: async (taskId, missionName, review) => {
-        // Lease and reviewer ownership come only from the center response, never this replica.
-        const runtimeContext = taskRuntimeContext(
-          await runFleetRuntimeReadClient({
-            ...runtimeReadPeer,
-            repoId: request.repoId,
-            method: "repo.tasks.runtimeContext.read",
-            payload: { taskId },
-          }),
-          taskId,
-        );
+        // Pull only in write preparation; repository values themselves use the shared local query.
+        await pullRuntimeReplica();
+        const runtimeContext = taskRuntimeContext(readReplica("repo.tasks.runtimeContext.read", { taskId }), taskId);
         const current = runtimeContext.snapshot;
         if (!current.task) throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
         const executionId = review
@@ -226,7 +231,7 @@ export function openFleetEdgeRuntime(input: {
             ? current.lease.executionId
             : undefined;
         if (!executionId) throw edgeRuntimeError("execution_missing", "The task has no current execution.");
-        const view = locateFleetMirrorView(request.viewRoot, request.repoId);
+        const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId);
         const materializedRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot;
         const packagePathsFor = (logical: string): string[] => {
           const packagePath = logical.slice(0, -"/INDEX.md".length);
@@ -254,9 +259,8 @@ export function openFleetEdgeRuntime(input: {
           );
         const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/")),
           planPath = path.join(packageRoot, "task_plan.md"),
-          // The causal block, the task profile, and the worktree binding are assembled at the center's
-          // canonical cut in this same round trip — a stale edge mirror is never summarized as fact,
-          // and the edge has no projection to derive a binding from.
+          // Causal context, profile and worktree binding share the just-confirmed replica cut.
+          // Authored task files remain the explicitly synchronized local workspace.
           { causalContext, profileId, worktree } = runtimeContext,
           livingProtocol = livingDeliverableProtocol(profileId);
         let plan: string;
@@ -324,14 +328,7 @@ export function openFleetEdgeRuntime(input: {
         };
       },
       readRuntimeSessions: () =>
-        readFleetRuntimeSessionsPaged((payload) =>
-          runFleetRuntimeReadClient({
-            ...runtimeReadPeer,
-            repoId: request.repoId,
-            method: "repo.agentRuntime.overview",
-            payload,
-          }),
-        ),
+        readFleetRuntimeSessionsPaged(async (payload) => readReplica("repo.agentRuntime.overview", payload)),
       publish: async (draft) => {
         const response = await runFleetRuntimeEventClient({
           ...peer,
@@ -342,6 +339,9 @@ export function openFleetEdgeRuntime(input: {
           ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
           ...(draft.dispatchContext === undefined ? {} : { dispatchContext: draft.dispatchContext }),
         });
+        // A returned dispatch is immediately usable by local status/foreground wait. This
+        // acknowledgement belongs to write preparation; subsequent reads remain offline.
+        if (draft.type === "runtime_session_started") await pullRuntimeReplica();
         const { executionCredential, executionExpiresAt, executionPrincipalId, ...receipt } = response.receipt;
         if (
           typeof executionCredential === "string" &&
@@ -376,14 +376,26 @@ export function openFleetEdgeRuntime(input: {
     prepareLaunch: input.ports.prepareRuntimeLaunch,
     prepareWorkerGitEnvironment: input.ports.prepareWorkerGitEnvironment,
     resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
-    resolveSquadDispatch: (squadId, leaderId, workerId) =>
-      resolveSquadDispatch({
-        rootDir: request.workspaceRoot,
-        ...(squadId ? { squadId } : {}),
-        leaderId,
-        ...(workerId ? { workerId } : {}),
-        entityStore: getEntityStore(),
-      }),
+    resolveSquadDispatch: (squadId, leaderId, workerId, binding) =>
+      withEdgeReadModel(
+        {
+          viewRoot: request.viewRoot,
+          repoId: request.repoId,
+          nodeId: request.nodeId,
+          principalId: binding.actor.principal.personId,
+        },
+        (projection) =>
+          resolveSquadDispatch({
+            rootDir: request.workspaceRoot,
+            ...(squadId ? { squadId } : {}),
+            leaderId,
+            ...(workerId ? { workerId } : {}),
+            entityStore: {
+              get: (kind, id) => projection.getEntity(kind, id),
+              list: (kind) => projection.listEntities(kind),
+            },
+          }),
+      ),
     onAttemptTerminal: async (terminal) => {
       if (terminal.task) {
         const waitMs = runtimeReadTimeoutMs ?? 30_000,
@@ -412,13 +424,10 @@ export function openFleetEdgeRuntime(input: {
             `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
       }
+      await squad.reconcile();
       const scheduled = terminal.schedule;
       if (!scheduled) return;
-      const detail = await scheduleSettlementDetail(
-        request.workspaceRoot,
-        scheduled,
-        terminal.resultRef ?? terminal.reason,
-      );
+      const detail = await scheduleSettlementDetail(request.workspaceRoot, scheduled, terminal.reason);
       const response = await runFleetScheduleCommandClient({
         ...peer,
         repoId: request.repoId,
@@ -439,6 +448,18 @@ export function openFleetEdgeRuntime(input: {
     ...(input.launch ? { launch: input.launch } : {}),
     schedule,
   });
+  const squad = makeFleetSquadCoordinator({
+    request,
+    peer,
+    spawner,
+    controlBinding: edgeBinding(request),
+    sync: async () => {
+      await pullRuntimeReplica();
+    },
+    prepareWorkspace: prepareRuntimeWorkspace,
+    readWorktreeSetup: () => readSettings().worktree.setup,
+    readResult: (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref),
+  });
   // Adoption is shared by concurrent requests, but a failed connection must not become a
   // permanent property of the cached edge runtime.  The daemon keeps one runtime per
   // node, so retain the instance and discard only the rejected readiness attempt;
@@ -446,7 +467,9 @@ export function openFleetEdgeRuntime(input: {
   let ready: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
-      const attempt = spawner.adopt();
+      const attempt = pullRuntimeReplica()
+        .then(() => spawner.adopt())
+        .then(() => squad.reconcile());
       ready = attempt.catch((error: unknown) => {
         ready = null;
         throw error;
@@ -455,12 +478,54 @@ export function openFleetEdgeRuntime(input: {
     return ready;
   };
   return {
+    reconcile: () =>
+      schedule(async () => {
+        if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
+        await ensureReady();
+        await squad.flushPublications();
+        await pullRuntimeReplica();
+      }),
     run: async (
       method: FleetEdgeRuntimeRequest["payload"]["method"],
       action: JsonObject,
       connectionSignal?: AbortSignal,
     ): Promise<JsonObject> => {
+      if (method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read")
+        return readReplica(method, action);
+      if (
+        method === "repo.schedule.run" &&
+        ["schedule-list", "schedule-show", "schedule-runs", "schedule-reckon"].includes(String(action.kind))
+      )
+        return withEdgeReadModel(
+          { ...request, principalId: replicaOwner },
+          (projection, frame, view) =>
+            ({
+              ...readScheduleAction(
+                {
+                  rootDir: request.workspaceRoot,
+                  projection: projection as TaskProjection,
+                  now,
+                  input: { repoId: request.repoId },
+                  operationId,
+                  requiredCellText,
+                  cellCodedError,
+                  store: { readContentBlob: (sha256) => readEdgeViewBlob(request.viewRoot, view, sha256) },
+                },
+                action as { kind: string },
+                {
+                  actor: { principal: { personId: replicaOwner! }, executor: null },
+                  source: { kind: "node", nodeId: request.nodeId },
+                },
+              ),
+              ...frame,
+            }) as unknown as JsonObject,
+        );
+      // Local termination cannot wait for adoption's canonical publications.
+      if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
+      if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, edgeBinding(request));
       await ensureReady();
+      await squad.flushPublications();
+      if (method === "repo.squad.control") return squad.run(action);
       if (method === "repo.schedule.run") return runSchedule(action);
       if (method === "repo.agentRuntime.handoff")
         return runRuntimeHandoff({
@@ -483,15 +548,13 @@ export function openFleetEdgeRuntime(input: {
         });
       return method === "repo.agentRuntime.spawn"
         ? spawner.spawn(action, edgeBinding(request))
-        : method === "repo.agentRuntime.cancel"
-          ? spawner.cancel(action, edgeBinding(request))
-          : ((await runFleetRuntimeReadClient({
-              ...runtimeReadPeer,
-              repoId: request.repoId,
-              method,
-              payload: action,
-              connectionSignal,
-            })) as JsonObject);
+        : ((await awaitFleetRuntimeSessionsClient({
+            ...runtimeReadPeer,
+            repoId: request.repoId,
+            method,
+            payload: action,
+            connectionSignal,
+          })) as JsonObject);
     },
     close: () => {
       spawner.close();
@@ -516,10 +579,8 @@ export function openFleetEdgeRuntime(input: {
       });
     if (command.outcome !== "applied") return scheduleResult(actionKind, command);
     const receipt = command.receipt as JsonObject;
-    if (["schedule-list", "schedule-reckon", "schedule-runs", "schedule-show"].includes(actionKind))
-      return scheduleResult(actionKind, command);
     if (actionKind !== "schedule-run-now") {
-      await syncScheduleMirror();
+      await prepareRuntimeWorkspace();
       return scheduleResult(actionKind, command);
     }
     const scheduleValue = receipt.schedule;
@@ -603,17 +664,26 @@ export function openFleetEdgeRuntime(input: {
     };
   }
 
-  async function syncScheduleMirror(): Promise<void> {
+  async function pullRuntimeReplica() {
     const pulled = await runFleetReplicaPullClient({
       ...peer,
       viewRoot: request.viewRoot,
       diskQuotaBytes: request.quotaBytes,
     });
+    replicaOwner = pulled.current.authorizationOwner;
+    return pulled;
+  }
+
+  async function prepareRuntimeWorkspace(): Promise<void> {
+    const pulled = await pullRuntimeReplica();
     const materialized = applyFleetMirrorCut(request.viewRoot, request.repoId, request.workspaceRoot, "pull", {
       viewId: pulled.replica.viewId,
     });
     if (materialized.outcome === "pull_blocked")
-      throw edgeRuntimeError("pull_blocked", "Schedule definition was canonical but its edge mirror is blocked.");
+      throw edgeRuntimeError(
+        "pull_blocked",
+        "The runtime workspace cannot materialize the canonical cut because local changes conflict.",
+      );
   }
 }
 
@@ -651,7 +721,10 @@ function taskRuntimeContext(
         readonly workspace: import("./protocol/daemon-protocol-gui-types.ts").TaskWorkspaceView | null;
       },
     };
-  throw edgeRuntimeError("runtime_read_invalid", `Center returned an invalid runtime context read for task ${taskId}.`);
+  throw edgeRuntimeError(
+    "runtime_read_invalid",
+    `Replica returned an invalid runtime context read for task ${taskId}.`,
+  );
 }
 
 /**
@@ -659,11 +732,14 @@ function taskRuntimeContext(
  * mirrored view, under the same bundled layer every node ships.
  */
 function mirroredAgentDeclaration(
-  request: Pick<FleetEdgeRuntimeRequest["payload"], "viewRoot" | "repoId" | "workspaceRoot">,
+  request: Pick<FleetEdgeRuntimeRequest["payload"], "viewRoot" | "repoId" | "workspaceRoot" | "nodeId">,
   agentId: string,
 ): RuntimeAgent {
   const logical = `agents/${agentId}.json`;
-  if (entitySlug(agentId) && locateFleetMirrorView(request.viewRoot, request.repoId)?.entries.has(logical))
+  if (
+    entitySlug(agentId) &&
+    locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId)?.entries.has(logical)
+  )
     return parseAgentDeclarationV1(
       JSON.parse(readFileSync(path.join(resolveHarnessLayout(request.workspaceRoot).authoredRoot, logical), "utf8")),
     );

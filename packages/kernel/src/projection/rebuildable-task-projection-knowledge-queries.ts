@@ -175,7 +175,7 @@ export function knowledgeQueryApi(
         const cut = readProjectionCut(db, readHead);
         return {
           status: cut.status,
-          ...readDecisionGraphRows(db),
+          ...readDecisionGraphRows(db, cut.watermark),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
@@ -187,7 +187,7 @@ export function knowledgeQueryApi(
         const cut = readProjectionCut(db, readHead);
         return {
           status: cut.status,
-          coverageRows: decisionCoverage(db, decisionIds),
+          coverageRows: decisionCoverage(db, decisionIds, cut.watermark),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

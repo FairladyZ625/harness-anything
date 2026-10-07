@@ -4,6 +4,8 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import type { DaemonTaskRuntimeContextResult } from "../src/protocol/daemon-protocol-runtime-context.ts";
+import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -40,8 +42,8 @@ for (const explicit of [false, true])
       });
       assert.equal(started.ok, true, JSON.stringify(started));
       await fixture.waitPublished(String(started.opId));
-      const shown = await fixture.edgeTask("node-one", { kind: "task-show", taskId: created.taskId });
-      const snapshot = JSON.parse(String(shown.evidence));
+      const snapshot = readEdgeRuntimeRepository(config, "repo.tasks.runtimeContext.read", { taskId: created.taskId })
+        .snapshot as { workspace: { path: string } };
       const cwd = path.join(edgeRoot, snapshot.workspace.path);
       mkdirSync(path.dirname(cwd), { recursive: true });
       git(edgeRoot, "worktree", "add", "-b", created.taskId, cwd, "origin/main");
@@ -165,9 +167,8 @@ for (const explicit of [false, true])
       }
       const submitted = await invoke(explicit ? ["--commit", commitSha] : []);
       assert.equal(submitted.code, 0, JSON.stringify(submitted));
-      const accepted = JSON.parse(
-        String((await fixture.edgeTask("node-one", { kind: "task-show", taskId: created.taskId })).evidence),
-      );
+      const accepted = readEdgeRuntimeRepository(config, "repo.tasks.runtimeContext.read", { taskId: created.taskId })
+        .snapshot as unknown as DaemonTaskRuntimeContextResult["snapshot"];
       assert.equal(accepted.executions[0].submission.commitSha, commitSha);
       assert.deepEqual(accepted.executions[0].submission.deliverables, ["delivery.ts"]);
       assert.deepEqual(accepted.executions[0].submission.outputs, []);

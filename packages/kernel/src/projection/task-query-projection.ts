@@ -1,3 +1,4 @@
+import { publicRuntimeSession } from "../domain/runtime-public-query.ts";
 // No @write-boundary-exemption marker is needed here: this module never opens a
 // database itself — it receives the already-open rebuildable projection handle
 // from rebuildable-task-projection.ts, which owns the governed writable open.
@@ -338,7 +339,7 @@ export function readTaskRuntimeBatchPage(
   );
   for (const row of sessionRows) {
     const values = sessions.get(row.task_id) ?? [];
-    values.push(JSON.parse(row.value_json) as RuntimeSession);
+    values.push(publicRuntimeSession(JSON.parse(row.value_json) as RuntimeSession));
     sessions.set(row.task_id, values);
   }
   return {

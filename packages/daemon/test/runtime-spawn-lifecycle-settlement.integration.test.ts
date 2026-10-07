@@ -1002,6 +1002,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       true,
       "daemon restart loss must be durable in the dispatch stream",
     );
+    // Public dispatch status comes from the canonical outcome; process_lost remains local evidence.
     assert.deepEqual(
       {
         status: lostRow.status,
@@ -1011,7 +1012,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         liveness: lostSession.liveness,
       },
       {
-        status: "lost",
+        status: "failed",
         outcome: "failed",
         exitCode: null,
         resultRef: lostSession.resultRef,

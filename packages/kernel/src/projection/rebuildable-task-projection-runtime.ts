@@ -7,12 +7,7 @@ import {
   type TaskLifecycleSnapshot,
 } from "../domain/task-lifecycle.contract.ts";
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
-import {
-  markRuntimeSessionUnknown,
-  runtimeSessionEntityV1,
-  type RuntimeInstallation,
-  type RuntimeSession,
-} from "../domain/agent-runtime.ts";
+import { type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
 import { validateTaskV2 } from "../domain/task.ts";
 import {
   canonicalJson,
@@ -406,38 +401,6 @@ export function refreshRuntimeSessionAssociations(db: DatabaseSync, session: Run
       binding.executionId,
       binding.boundAt,
     );
-}
-export function markRuntimeSessionsUnknown(db: DatabaseSync): number {
-  const rows = queryRows(
-    db,
-    [
-      "SELECT runtime_session_id, value_json FROM runtime_session",
-      "WHERE json_extract(value_json, '$.liveness') NOT IN ('exited', 'unknown')",
-      "OR (json_extract(value_json, '$.liveness') = 'unknown'",
-      "AND json_extract(value_json, '$.attachable') <> 0)",
-    ].join(" "),
-  );
-  let changed = 0;
-  for (const row of rows) {
-    const current = JSON.parse(String(row.value_json)) as RuntimeSession,
-      next = markRuntimeSessionUnknown(current);
-    if (next !== current) {
-      runSql(
-        db,
-        "UPDATE runtime_session SET value_json = ? WHERE runtime_session_id = ?",
-        canonicalJson(next),
-        String(row.runtime_session_id),
-      );
-      runSql(
-        db,
-        "UPDATE entity_projection SET value_json = ? WHERE entity_kind = 'runtime-session' AND entity_id = ?",
-        canonicalJson(runtimeSessionEntityV1(next)),
-        String(row.runtime_session_id),
-      );
-      changed += 1;
-    }
-  }
-  return changed;
 }
 function holder(lease: LeaseV1): LeaseHolder {
   return {

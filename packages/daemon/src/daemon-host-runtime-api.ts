@@ -324,6 +324,7 @@ export function createDaemonHostRuntimeApi(
         const receipt = await syncFleetEdgeMirror({
           payload: request,
         });
+        await context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile();
         await context.scheduleScheduler.refresh();
         return receipt;
       },
@@ -343,6 +344,10 @@ export function createDaemonHostRuntimeApi(
             "repo_mode_read_only",
             "Fleet runtime launch requires the matching enabled remote-edge registration.",
           );
+        if (request.method === "repo.agentRuntime.overview" || request.method === "repo.agentRuntime.sessions.read")
+          return context.host.read(request.repoId, request.method, request.action, auth) as unknown as Promise<
+            Record<string, unknown>
+          >;
         const result = await context.edgeRuntimeFor(request).run(request.method, request.action, auth.connectionSignal);
         await context.scheduleScheduler.refresh();
         return result;

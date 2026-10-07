@@ -1,12 +1,10 @@
 import { relationFreshnessWords, relationStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import {
   defineCenterForwardWriteCommand,
-  defineCenterForwardReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   cliInput,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
-  defineQueryOnlyRepoReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 
@@ -306,8 +304,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "task-review",
+    repositoryRead: true,
     phase: "W3",
     path: ["task", "review", "<task-id>"],
     summary: "Lint the legacy review contract without approving completion.",
@@ -318,7 +317,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "work-list",
     repositoryRead: true,
     phase: "W3",
@@ -338,7 +337,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "work-show",
     repositoryRead: true,
     phase: "W3",
@@ -436,7 +435,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineQueryOnlyRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "relation-triples",
     phase: "Governed-Entity-W1-D",
     path: ["relation", "triples"],
@@ -447,7 +446,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       cliInput("--target-kind", "single", false, { code: "invalid_field" }),
     ],
   }),
-  defineQueryOnlyRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "relation-list",
     phase: "Governed-Entity-W1-D",
     path: ["relation", "list"],
@@ -552,7 +551,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "graph",
     phase: "W3",
     path: ["graph", "<ref>"],
@@ -577,7 +576,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "task-read-set",
     repositoryRead: true,
     phase: "Governed-Entity-W2-B",

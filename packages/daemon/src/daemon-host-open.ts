@@ -262,6 +262,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             "execution_credential_rejected",
             "Execution credential belongs to a different repository.",
           );
+        // An edge holds no center authority; its reads authorize against the replica owner instead.
         const base = {
           actor: runtimeExecutionActor(execution),
           source: execution.source,
@@ -269,7 +270,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           writerEpoch: auth.writerEpoch,
           withWriterEpochFence: auth.withWriterEpochFence,
           writerEpochFence: auth.writerEpochFence,
-          keycloakAuthorization: { center: await keycloakCenter() },
+          ...(cell.status().mode === "remote-edge"
+            ? {}
+            : { keycloakAuthorization: { center: await keycloakCenter() } }),
         };
         return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
       }
@@ -780,6 +783,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         diskQuotaBytes: config.quotaBytes,
         sessionPool: replicaSessionPool,
         signal: controller.signal,
+        onConfirmed: () =>
+          edgeRuntimeFor({
+            ...config,
+            caPath,
+            viewRoot,
+            workspaceRoot: repo.canonicalRoot,
+            method: "repo.squad.control",
+            action: {},
+          }).reconcile(),
         onFailure: (error) =>
           input.recordLifecycle?.({
             event: "replica_sync_failed",

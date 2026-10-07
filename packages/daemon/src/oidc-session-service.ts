@@ -54,6 +54,8 @@ interface StoredSession {
   readonly sessionExpiresAt: number;
   readonly roles: readonly string[];
   readonly loginTarget?: string;
+  /** The Keycloak issuer this session was issued by; binding a request reads it instead of asking the center. */
+  readonly authority?: { readonly url: string; readonly realm: string };
 }
 
 /** What one use of the session finds. `unavailable` is set when Keycloak could not be asked to renew it. */
@@ -253,7 +255,7 @@ export class OidcSessionService {
     const user = (await userResponse.json()) as Record<string, unknown>,
       subject = requiredString(user.sub, "sub"),
       personId = typeof user.harness_person_id === "string" ? user.harness_person_id : subject;
-    const session = this.#issued(tokens, { subject, personId, ...(loginTarget ? { loginTarget } : {}) });
+    const session = this.#issued(tokens, { subject, personId, ...(loginTarget ? { loginTarget } : {}) }, authority);
     if (generation === undefined) this.#writeSession(session);
     else
       await this.serialize(async () => {
@@ -344,7 +346,7 @@ export class OidcSessionService {
     }
     const { session } = await this.#use();
     if (!session) return auth;
-    const authority = await this.#loginAuthority(session.loginTarget);
+    const authority = session.authority ?? (await this.#loginAuthority(session.loginTarget));
     return {
       ...auth,
       oidcPrincipal: {
@@ -632,7 +634,7 @@ export class OidcSessionService {
         session: undefined,
         unavailable: unavailable(`Keycloak session renewal returned HTTP ${response.status}.`),
       };
-    const renewed = this.#issued((await response.json()) as Record<string, unknown>, session);
+    const renewed = this.#issued((await response.json()) as Record<string, unknown>, session, authority);
     this.#writeSession(renewed);
     return { session: renewed };
   }
@@ -640,6 +642,7 @@ export class OidcSessionService {
   #issued(
     tokens: Record<string, unknown>,
     identity: { readonly subject: string; readonly personId: string; readonly loginTarget?: string },
+    authority: OidcLoginAuthority,
   ): StoredSession {
     const accessToken = requiredString(tokens.access_token, "access_token"),
       now = this.#ports.now();
@@ -653,6 +656,7 @@ export class OidcSessionService {
       sessionExpiresAt: now + requiredNumber(tokens.refresh_expires_in, "refresh_expires_in") * 1_000,
       roles: realmRoles(decodeJwtPayload(accessToken)),
       ...(identity.loginTarget ? { loginTarget: identity.loginTarget } : {}),
+      authority: { url: authority.url, realm: authority.realm },
     };
   }
 

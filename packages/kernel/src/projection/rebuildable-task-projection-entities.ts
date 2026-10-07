@@ -11,7 +11,7 @@ import {
 } from "../domain/entity-kind-projection.ts";
 import { entityKindContracts, type EntityKindContract } from "../domain/entity-kind-registry.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
-import type { EntityProjectionRow } from "./task-projection-port.ts";
+import type { EntityProjectionRow, PinnedEntityProjectionRow } from "./task-projection-port.ts";
 import type { EntityFreshness, EntityVersion } from "../domain/entity-freshness.ts";
 
 const UPSERT_ENTITY_SQL = [
@@ -159,4 +159,15 @@ function entityProjectionRow(row: Readonly<Record<string, unknown>>): EntityProj
       typeof row.current_version === "string" || typeof row.current_version === "number" ? row.current_version : null,
     value: value as Readonly<Record<string, unknown>>,
   };
+}
+
+export function listPinnedEntityRows(db: DatabaseSync): readonly PinnedEntityProjectionRow[] {
+  return queryRows(
+    db,
+    "SELECT entity_ref, pinned_at, pinned_by FROM pinned_entities ORDER BY pinned_at DESC, entity_ref ASC",
+  ).map((row) => ({
+    entityRef: String(row.entity_ref),
+    pinnedAt: String(row.pinned_at),
+    pinnedBy: String(row.pinned_by),
+  }));
 }

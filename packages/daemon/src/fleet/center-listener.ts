@@ -39,7 +39,7 @@ import {
 } from "./center-transport.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { FLEET_SESSION_SEND_WINDOW_BYTES, FLEET_CHUNK_BYTES, type FleetFrameV1 } from "./contract.ts";
+import { FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./contract.ts";
 import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";
 
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
@@ -220,8 +220,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       owner = await options.nodeOwner(nodeId);
     if (!owner) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
     const replica = options.host.replica(a.repoId),
-      // Mirroring is reading: the node owner's repository-read admits the replica, the same authority
-      // a center-forwarded read checks (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
+      // The node owner's repository-read authority admits the replica
+      // (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
       decision = await options.host.authorize(a.repoId, "repository-read", {
         transportKind: "fleet-tls" as const,
         nodePrincipal: { nodeId, personId: owner },
@@ -553,6 +553,35 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
         });
       }
+      if ([...window.offers.values()].some((delivery) => keyId(delivery.key) === id))
+        throw new FleetFault(
+          "replica_delivery_busy",
+          "This session already has a delivery for the node/repository",
+          true,
+        );
+      const ttlMs = 30_000;
+      const lease = ackStore.delivery.claim(key, window.holderId, Date.parse(now()), ttlMs);
+      if (!lease) {
+        ackStore.delivery.record(key, { failureCode: "replica_delivery_busy" });
+        throw new FleetFault(
+          "replica_delivery_busy",
+          "This node/repository already has an active delivery lease",
+          true,
+        );
+      }
+      const release = () => {
+        ackStore.delivery.release(lease);
+        connectionSignal?.removeEventListener("abort", release);
+      };
+      connectionSignal?.addEventListener("abort", release, { once: true });
+      if (connectionSignal?.aborted) {
+        release();
+        throw new FleetFault("connection_closed", "Delivery connection closed", true);
+      }
+      const guard = () => {
+        if (!ackStore.delivery.renew(lease, Date.parse(now()), ttlMs))
+          throw new FleetFault("replica_delivery_fenced", "Delivery lease expired or was replaced", true);
+      };
       let active = ackStore.offerFor(key);
       if (
         active &&
@@ -565,9 +594,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       const next = active ?? makeOffer(key, cursor, latest, replica, now());
       const offer = active ?? ackStore.offer(key, next);
-      window.offers.set(offer.transferId, key);
+      window.offers.set(offer.transferId, { key, lease, release });
+      ackStore.delivery.record(key, { started: offer.kind });
       return {
         key: id,
+        beforeSend: guard,
+        onSent: (bytes) => ackStore.delivery.record(key, { bytes }),
+        onFailure: (error) => {
+          ackStore.delivery.record(key, { failureCode: runtimeErrorCode(error) ?? "replica_delivery_failed" });
+          release();
+        },
         frames: offerFrames(offer, replica, {
           owner,
           digest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
@@ -793,42 +829,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         receipt,
       });
     }
-    if (frame.schema === "fleet.repository.read/v1") {
-      if (frame.executionCredential && frame.method !== "repo.task.read")
-        throw new FleetFault("execution_credential_rejected", "Execution reads must name their task action.");
-      const node = await nodeContext(nodeId, frame.repoId);
-      const principal = await principalAuth(node, frame.accessToken ?? undefined, frame.executionCredential);
-      let result;
-      try {
-        result =
-          frame.method === "repo.task.read"
-            ? await options.host.run(node.repoId, frame.payload as { readonly kind: string }, principal)
-            : await options.host.read(node.repoId, frame.method, frame.payload, principal);
-      } catch (error) {
-        const code = runtimeErrorCode(error);
-        if (code) throw new FleetFault(code, runtimeErrorMessage(error));
-        throw error;
-      }
-      const bytes = Buffer.from(JSON.stringify(result));
-      return {
-        key: null,
-        frames: (async function* () {
-          for (let offset = 0; offset < bytes.length; offset += FLEET_CHUNK_BYTES) {
-            const end = Math.min(offset + FLEET_CHUNK_BYTES, bytes.length);
-            yield {
-              schema: "fleet.repository.read.result/v1" as const,
-              messageId: mid(frame.messageId, `read-${offset}`),
-              inReplyTo: frame.messageId,
-              offset,
-              dataBase64: bytes.subarray(offset, end).toString("base64"),
-              done: end === bytes.length,
-            };
-          }
-        })(),
-      };
-    }
-
-    if (frame.schema === "fleet.runtime.read/v1") {
+    if (frame.schema === "fleet.runtime.await/v1") {
       const a = await nodeContext(nodeId, frame.repoId);
       if (frame.repoId !== a.repoId)
         throw new FleetFault(
@@ -841,10 +842,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       };
       let result;
       try {
-        result =
-          frame.method === "repo.agentRuntime.sessions.await"
-            ? await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding)
-            : await options.host.read(a.repoId, frame.method, frame.payload, binding);
+        result = await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding);
       } catch (error) {
         const code = runtimeErrorCode(error);
         if (
@@ -857,21 +855,33 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw error;
       }
       return immediate({
-        schema: "fleet.runtime.read.result/v1",
+        schema: "fleet.runtime.await.result/v1",
         messageId: mid(frame.messageId, "runtime-read"),
         inReplyTo: frame.messageId,
         result: result as unknown as Readonly<Record<string, unknown>>,
       });
     }
     if (frame.schema === "fleet.ack/v1") {
-      const key = window.offers.get(frame.transferId);
-      if (!key || key.nodeId !== nodeId)
+      const delivery = window.offers.get(frame.transferId),
+        key = delivery?.key;
+      if (!key || !delivery || key.nodeId !== nodeId)
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
+      if (!ackStore.delivery.renew(delivery.lease, Date.parse(now()), 30_000))
+        throw new FleetFault("replica_delivery_fenced", "ACK belongs to an expired or replaced delivery lease", true);
       const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
       if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
-      const result = ackStore.ack(key, frame.transferId, frame.cut, frame.manifestDigest, now(), cutEventAt);
+      const result = ackStore.ack(
+        key,
+        frame.transferId,
+        frame.cut,
+        frame.manifestDigest,
+        now(),
+        cutEventAt,
+        delivery.lease,
+      );
       if (result.outcome === "op_rejected" || !result.cursor)
         throw new FleetFault("invalid_ack", "ACK cut or manifest differs from its exact active offer.");
+      delivery.release();
       window.offers.delete(frame.transferId);
       window.keys.delete(keyId(key));
       return immediate({
@@ -940,7 +950,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       for (const [id, key] of knownKeys) keys.set(id, key);
       return {
         replicas: [...keys.values()].map((key) =>
-          replicaStatus(options.host.replica(key.repoId), ackStore, key, options.replicaDiskQuotaBytes ?? null),
+          replicaStatus(
+            options.host.replica(key.repoId),
+            ackStore,
+            key,
+            options.replicaDiskQuotaBytes ?? null,
+            Date.parse(now()),
+          ),
         ),
       };
     },

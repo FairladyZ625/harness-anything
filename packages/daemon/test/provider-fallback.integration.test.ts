@@ -58,6 +58,8 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     prompts = new Map<string, string[]>(),
     models = new Map<string, string | undefined>();
   let pid = 9000;
+  let availableInstances = instances;
+  const rejectedLaunches = new Set<string>();
   mkdirSync(root);
   git(root, "init", "-q");
   git(root, "config", "user.name", "Provider Fallback Test");
@@ -73,16 +75,20 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         daemonId: "provider-fallback",
         endpoint: path.join(userRoot, "provider-fallback.sock"),
       },
-      runtimeInstances: () => instances,
-      prepareRuntimeLaunch: async (instanceId, request) => ({
-        definition: definition(instanceId, request.model ?? `${instanceId}-model`),
-        installation,
-        executablePath: installation.executablePath,
-        args: ["exec", "--json", "-"],
-        env: {},
-        cwd: request.cwd,
-        prompt: request.prompt,
-      }),
+      runtimeInstances: () => availableInstances,
+      prepareRuntimeLaunch: async (instanceId, request) => {
+        if (rejectedLaunches.has(instanceId))
+          throw new Error("fixture continuation launch rejected OPENAI_API_KEY=sk-continuation-secret");
+        return {
+          definition: definition(instanceId, request.model ?? `${instanceId}-model`),
+          installation,
+          executablePath: installation.executablePath,
+          args: ["exec", "--json", "-"],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
       runtimeLaunch: (prepared) => {
         const instanceId = prepared.definition.instanceId,
           behavior = behaviors.get(instanceId);
@@ -119,7 +125,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
+      return rows.length === 2 && rows[1]?.outcome === "unknown" ? rows : null;
     });
     assertAttemptChain(completed, ["provider-rate-first", "provider-success-second"]);
     assert.deepEqual(
@@ -150,6 +156,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       ],
     );
 
+    availableInstances = instances.filter((instance) =>
+      ["provider-rate-a", "provider-rate-b"].includes(instance.instanceId),
+    );
     await installAgent(cell, "fallback-exhausted", [{ instance: "provider-rate-a" }, { instance: "provider-rate-b" }]);
     await startTask(cell, root, "task_provider_fallback_exhausted", "execution-provider-fallback-exhausted");
     await cell.spawnRuntime(
@@ -171,7 +180,10 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
             taskId: "task_provider_fallback_exhausted",
           })
         ).dispatches;
-      return task?.snapshot.task?.status === "active" && task.snapshot.lease === null && rows.length === 2
+      return task?.snapshot.task?.status === "active" &&
+        task.snapshot.lease === null &&
+        rows.length === 2 &&
+        rows[1]?.fallbackState === "exhausted"
         ? { task, rows }
         : null;
     });
@@ -210,6 +222,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     assert.equal(restartedTask.outcome, "applied", JSON.stringify(restartedTask));
 
+    availableInstances = instances;
     await installAgent(cell, "fallback-explicit-priority", [
       { instance: "provider-rate-a" },
       { instance: "provider-rate-b" },
@@ -243,6 +256,52 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       "an explicit provider must continue only through later configured providers",
     );
 
+    await startTask(cell, root, "task_provider_three_attempts", "execution-three-attempts");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-explicit-priority",
+        cwd: { scope: "repo-root" },
+        prompt: "Continue across two failed providers.",
+        taskId: "task_provider_three_attempts",
+        idempotencyKey: "three-attempts",
+      },
+      binding,
+    );
+    const threeAttempts = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_three_attempts" })).dispatches;
+      return rows.length === 3 && rows[2]?.outcome === "unknown" ? rows : null;
+    });
+    assertAttemptChain(threeAttempts, ["provider-rate-a", "provider-rate-b", "provider-rate-c"]);
+
+    availableInstances = instances.filter((instance) =>
+      ["provider-rate-a", "provider-rate-c"].includes(instance.instanceId),
+    );
+    await installAgent(cell, "fallback-launch-rejected", [
+      { instance: "provider-rate-a" },
+      { instance: "provider-rate-c" },
+    ]);
+    await startTask(cell, root, "task_provider_launch_rejected", "execution-launch-rejected");
+    rejectedLaunches.add("provider-rate-c");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-launch-rejected",
+        cwd: { scope: "repo-root" },
+        prompt: "Report a rejected continuation.",
+        taskId: "task_provider_launch_rejected",
+        idempotencyKey: "launch-rejected",
+      },
+      binding,
+    );
+    const rejected = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_launch_rejected" })).dispatches;
+      return rows.length === 1 && rows[0]?.fallbackState === "exhausted" ? rows[0] : null;
+    });
+    assert.match(rejected.reason ?? "", /fixture continuation launch rejected/u);
+    assert.doesNotMatch(JSON.stringify(rejected), /sk-continuation-secret/u);
+    assert.equal(rejected.outcome, "failed");
+    rejectedLaunches.clear();
+    availableInstances = instances;
+
     await installAgent(cell, "fallback-worker-stop", [
       { instance: "provider-stop-first" },
       { instance: "provider-unused-second" },
@@ -260,7 +319,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const stopped = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_worker_stop" })).dispatches;
-      return rows.length === 1 && rows[0]?.status === "unknown" ? rows : null;
+      return rows.length === 1 && rows[0]?.outcome === "unknown" ? rows : null;
     });
     assert.equal(stopped[0]?.classification, "worker_stop");
     assert.equal(stopped[0]?.fallbackState, null);
@@ -317,7 +376,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
+      return rows.length === 2 && rows[1]?.outcome === "unknown" ? rows : null;
     });
     assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
 
@@ -337,7 +396,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
+      return rows.length === 2 && rows[1]?.outcome === "unknown" ? rows : null;
     });
     assertAttemptChain(bare, ["provider-bare-first", "provider-bare-second"]);
     assert.equal(models.get("provider-bare-first"), "bare-model");
@@ -365,7 +424,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.status === "unknown" ? rows : null;
+      return rows.length === 2 && rows[1]?.outcome === "unknown" ? rows : null;
     });
     assertAttemptChain(stderrBounded, ["provider-stderr-first", "provider-stderr-second"]);
     assert.equal(stderrBounded[0]?.classification, "provider_fault");

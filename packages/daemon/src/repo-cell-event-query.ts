@@ -4,7 +4,7 @@ import type {
   ReceiptDiagnostic,
   WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { canonicalEventEntityRefs } from "@harness-anything/kernel";
+import type { EventListQuery, TaskProjectionQueries } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export const DEFAULT_EVENT_LIST_LIMIT = 50;
@@ -13,6 +13,7 @@ export const EVENT_LIST_LIMIT_MAX = 500;
 export interface EventQueryCell {
   readonly input: { readonly repoId: string };
   readonly store: CanonicalEventStore;
+  readonly projection: TaskProjectionQueries;
   readonly operationId: (
     action: RepoTaskAction,
     binding: RepoCellBinding,
@@ -22,34 +23,6 @@ export interface EventQueryCell {
   readonly readResult: (opId: string, value: object, revision: number, worktreeVisible: boolean | null) => WriteReceipt;
   readonly cellCodedError: (code: string, message: string, diagnostic?: ReceiptDiagnostic) => Error;
   readonly requiredCellText: (value: unknown, name: string) => string;
-}
-
-export interface EventListQuery {
-  readonly type?: string;
-  readonly entity?: string;
-  readonly actor?: string;
-  readonly after?: string;
-  readonly before?: string;
-  readonly limit: number;
-  /** Exclusive upper revision bound decoded from --cursor; absent means "newest page". */
-  readonly revisionBound?: number;
-}
-
-export interface EventListRow {
-  readonly revision: number;
-  readonly opId: string;
-  readonly eventId: string;
-  readonly schema: string;
-  readonly type: string;
-  readonly occurredAt: string;
-  readonly actor: { readonly personId: string; readonly executorId: string | null };
-  readonly entityRefs: readonly string[];
-}
-
-export interface EventListPage {
-  readonly rows: readonly EventListRow[];
-  readonly hasMore: boolean;
-  readonly nextCursor: string | null;
 }
 
 export function eventListQueryFromAction(
@@ -95,49 +68,6 @@ export function eventListQueryFromAction(
   };
 }
 
-export const eventEntityRefs = canonicalEventEntityRefs;
-
-export function eventMatches(event: CanonicalEventV1, query: EventListQuery): boolean {
-  if (query.type !== undefined && event.type !== query.type) return false;
-  if (query.after !== undefined && event.occurredAt < query.after) return false;
-  if (query.before !== undefined && event.occurredAt > query.before) return false;
-  if (query.actor !== undefined) {
-    const actor = event.actor;
-    if (actor.executor?.id !== query.actor && actor.principal.personId !== query.actor) return false;
-  }
-  if (query.entity !== undefined) {
-    const refs = eventEntityRefs(event);
-    if (!refs.includes(query.entity) && !refs.some((ref) => ref.split("/").at(-1) === query.entity)) return false;
-  }
-  return true;
-}
-
-/**
- * Pushes filtering into the canonical store and asks for one look-ahead match to prove another page exists.
- */
-export function selectLedgerEvents(
-  store: Pick<CanonicalEventStore, "queryEvents">,
-  query: EventListQuery,
-): EventListPage {
-  if (!store.queryEvents) throw new Error("canonical event store does not support indexed event queries");
-  const selected = store.queryEvents({ ...query, limit: query.limit + 1 });
-  const rows = selected.slice(0, query.limit).map((event) => ({
-    revision: event.workspaceRevision,
-    opId: event.opId,
-    eventId: event.eventId,
-    schema: event.schema,
-    type: event.type,
-    occurredAt: event.occurredAt,
-    actor: { personId: event.actor.principal.personId, executorId: event.actor.executor?.id ?? null },
-    entityRefs: eventEntityRefs(event),
-  }));
-  return {
-    rows,
-    hasMore: selected.length > query.limit,
-    nextCursor: selected.length > query.limit && rows.length ? String(rows.at(-1)!.revision) : null,
-  };
-}
-
 export function findLedgerEvent(
   store: Pick<CanonicalEventStore, "readEvent" | "readEventById">,
   id: string,
@@ -150,8 +80,8 @@ export function findLedgerEvent(
 
 export function listEvents(cell: EventQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const query = eventListQueryFromAction(cell, action),
-    revision = cell.store.readHead()?.revision ?? 0,
-    page = selectLedgerEvents(cell.store, query);
+    revision = cell.projection.readCut().sourceRevision,
+    page = cell.projection.readEventList(query);
   return cell.readResult(
     cell.operationId(action, binding, cell.input.repoId, revision),
     {

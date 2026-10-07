@@ -4,6 +4,7 @@ import {
   defineHostAdminCommand,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
   defineRuntimeLocalWriteCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
@@ -109,7 +110,7 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "squad-status",
     phase: "Runtime-B",
     path: ["squad", "status", "<squad-run-id>"],
@@ -256,7 +257,7 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "entity-get",
     phase: "Runtime-B",
     path: ["entity", "get", "<kind>"],
@@ -269,7 +270,7 @@ export const agentProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "entity-list",
     phase: "Runtime-B",
     path: ["entity", "list", "<kind>"],
@@ -278,7 +279,7 @@ export const agentProtocolCommands = Object.freeze([
     positional: "entityKind",
     inputs: [],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "agent-list",
     phase: "Runtime-B",
     path: ["agent", "list"],
@@ -286,7 +287,7 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "agent-inspect",
     phase: "Runtime-B",
     path: ["agent", "inspect", "<id>"],
@@ -340,7 +341,7 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--successor", "single", false, { code: "invalid_field" }),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "squad-list",
     phase: "Runtime-B",
     path: ["squad", "list"],
@@ -348,7 +349,7 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "squad-inspect",
     phase: "Runtime-B",
     path: ["squad", "inspect", "<id>"],
@@ -357,7 +358,7 @@ export const agentProtocolCommands = Object.freeze([
     positional: "squadId",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
+  defineRuntimeLocalWriteCommand({
     id: "squad-run",
     phase: "Runtime-B",
     path: ["squad", "run", "<id>"],

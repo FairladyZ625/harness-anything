@@ -9,6 +9,7 @@ import {
 } from "./contract.ts";
 import { type ReplicaAckStore, type ReplicaDeliveryKey, type ReplicaOffer } from "./replica-ack-store.ts";
 import type { ReplicaCutSource, SnapshotCut } from "./replica-cut-store.ts";
+import { parseEdgeReadModelMeta, READ_MODEL_META_PATH } from "@harness-anything/kernel";
 
 export function makeOffer(
   key: ReplicaDeliveryKey,
@@ -17,26 +18,31 @@ export function makeOffer(
   replica: ReplicaCutSource,
   issuedAt: string,
 ): Omit<ReplicaOffer, keyof ReplicaDeliveryKey> {
+  const model = replica.manifest(latest.revision)?.find((entry) => entry.path === READ_MODEL_META_PATH);
+  if (
+    model &&
+    parseEdgeReadModelMeta(Buffer.from(replica.content(model.blob)).toString("utf8")).sourceRevision !== latest.revision
+  )
+    throw new FleetFault("replica_pending", "The target cut has no read model at its canonical revision.", true);
   let fromCut: FleetCut | null = null,
-    to = latest,
     kind: "snapshot" | "delta" = "snapshot";
   if (cursor) {
-    const retained = replica.cut(cursor.revision),
-      next = replica.cut(cursor.revision + 1);
+    const retained = replica.cut(cursor.revision);
     if (
       retained &&
       retained.headDigest === cursor.headDigest &&
       retained.manifest.digest === cursor.manifestDigest &&
-      next &&
-      replica.changes(cursor.revision, next.revision) !== null
+      latest.revision > cursor.revision &&
+      replica.changes(cursor.revision, latest.revision) !== null
     ) {
       fromCut = wireCut(retained);
-      to = next;
+      // Intermediate revisions may carry only document changes. Fold the existing
+      // delta log through the exact head whose read model is complete.
       kind = "delta";
     }
   }
-  const toCut = wireCut(to),
-    manifestDigest = to.manifest.digest;
+  const toCut = wireCut(latest),
+    manifestDigest = latest.manifest.digest;
   return {
     transferId: digestId(
       key.nodeId,

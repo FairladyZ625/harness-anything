@@ -43,6 +43,7 @@ test("daemon status omits projection cuts while a repository close is still sett
       },
     });
   await host.attachmentsSettled();
+  await host.settleMaterialization("host-closing-status", "closing status fixture ready");
   try {
     const attached = host.status().repos.find((repo) => repo.repoId === "host-closing-status")!;
     assert.equal(attached.state, "attached");
@@ -50,7 +51,10 @@ test("daemon status omits projection cuts while a repository close is still sett
     assert.equal(typeof attached.ledgerRevision, "number");
 
     const unregistering = host.admin({ kind: "unbind", repoId: "host-closing-status" }, auth);
-    await closeReached;
+    await Promise.race([
+      closeReached,
+      unregistering.then((receipt) => assert.fail(`unbind returned before close: ${JSON.stringify(receipt)}`)),
+    ]);
     const closing = host.status().repos.find((repo) => repo.repoId === "host-closing-status")!;
     assert.equal(closing.state, "closed");
     assert.equal(closing.projectionWatermark, undefined);

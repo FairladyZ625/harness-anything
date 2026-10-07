@@ -193,6 +193,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-artifact-add",
+    payloadFields: [{ field: "squadRunId", type: "string", required: false, regex: "^squad_[a-f0-9]{24}$" }],
     phase: "W3",
     path: ["task", "artifact", "add", "<task-id>"],
     summary: "Publish a file or locally executed command transcript through canonical doc sync.",

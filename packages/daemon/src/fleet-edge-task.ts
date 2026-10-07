@@ -1,3 +1,4 @@
+import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 // Edge-side product write path: routes one `ha task ...` write command through
 // the fleet TLS channel, attaches to the center's wait queue for as long as the
 // caller is willing to wait, reconnects with full-jitter exponential backoff
@@ -31,12 +32,9 @@ import {
   readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
   runFleetTaskCommandClient,
-  runFleetRepositoryReadClient,
-  runFleetRuntimeReadClient,
   runFleetUploadClient,
   runFleetWriteClient,
 } from "./fleet/edge.ts";
-import { answerEdgeTaskShow, answerEdgeTaskList } from "./fleet-edge-task-read.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
 import {
@@ -51,6 +49,7 @@ import {
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
+import { readEdgeRepository } from "./fleet-edge-task-read.ts";
 
 const BACKOFF_MIN_MS = 250,
   BACKOFF_MAX_MS = 30_000;
@@ -86,13 +85,18 @@ export class FleetEdgeTaskError extends Error {
 type EdgeWriteCut = { readonly revision: number; readonly headDigest: string };
 const recentAppliedCuts = new Map<string, EdgeWriteCut>();
 
-function edgeReadStateKey(viewRoot: string, repoId: string): string {
-  return `${viewRoot}\u0000${repoId}`;
+function edgeReadStateKey(viewRoot: string, repoId: string, nodeId: string): string {
+  return `${viewRoot}\u0000${repoId}\u0000${nodeId}`;
 }
 
-function rememberAppliedCut(viewRoot: string, repoId: string, cut: EdgeWriteCut | null | undefined): void {
+function rememberAppliedCut(
+  viewRoot: string,
+  repoId: string,
+  nodeId: string,
+  cut: EdgeWriteCut | null | undefined,
+): void {
   if (!cut || !Number.isSafeInteger(cut.revision) || typeof cut.headDigest !== "string") return;
-  const key = edgeReadStateKey(viewRoot, repoId),
+  const key = edgeReadStateKey(viewRoot, repoId, nodeId),
     previous = recentAppliedCuts.get(key);
   if (!previous || cut.revision >= previous.revision) recentAppliedCuts.set(key, cut);
 }
@@ -130,6 +134,50 @@ function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string,
   return paths.size === 1 ? [...paths][0]! : null;
 }
 
+/** Repository read declarations that the edge answers from its own replica cell. */
+export function isFleetEdgeRepositoryRead(action: FleetTaskAction): boolean {
+  return commandDescriptorForAction(action.kind).admission["remote-edge"] === "edge-replica";
+}
+
+/** A repository read on an edge: answered by the host's edge cell after this edge's own writes land. */
+export async function runFleetEdgeRepositoryRead(
+  input: FleetEdgeTaskRequest,
+  readLocal: () => Promise<Record<string, unknown>>,
+): Promise<Record<string, unknown>> {
+  const payload = input.payload,
+    minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId, payload.nodeId));
+  return readEdgeRepository(
+    {
+      viewRoot: payload.viewRoot,
+      repoId: payload.repoId,
+      nodeId: payload.nodeId,
+      action: payload.action,
+      ...(minCut ? { minCut } : {}),
+    },
+    () =>
+      runFleetReplicaPullClient({
+        hostname: payload.host,
+        port: payload.port,
+        ca: readFileSync(payload.caPath, "utf8"),
+        servername: payload.servername,
+        nodeId: payload.nodeId,
+        credential: payload.credential,
+        repoId: payload.repoId,
+        viewRoot: payload.viewRoot,
+        diskQuotaBytes: payload.quotaBytes,
+      }),
+    async () => {
+      const receipt = await readLocal();
+      return {
+        schema: "command-receipt/v2",
+        command: payload.action.kind,
+        ok: receipt.outcome === "applied",
+        ...receipt,
+      };
+    },
+  );
+}
+
 export async function runFleetEdgeTask(
   input: FleetEdgeTaskRequest,
   readAccessToken?: () => Promise<string | undefined>,
@@ -154,28 +202,6 @@ export async function runFleetEdgeTask(
       ...(payload.executionCredential ? { executionCredential: payload.executionCredential } : {}),
       repoId: payload.repoId,
     };
-  const declaration = commandDescriptorForAction(action.kind);
-  if ("repositoryRead" in declaration && declaration.repositoryRead === true) {
-    const pullOnce = () =>
-      runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes });
-    const minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId));
-    if (action.kind === "task-list")
-      return answerEdgeTaskList({ ...payload, action, ...(minCut ? { minCut } : {}) }, pullOnce);
-    if (action.kind === "task-show")
-      return answerEdgeTaskShow({ ...payload, action, ...(minCut ? { minCut } : {}) }, pullOnce);
-    const receipt = await runFleetRepositoryReadClient({
-      ...peer,
-      method: "repo.task.read",
-      payload: action,
-      accessToken: await readAccessToken?.(),
-    });
-    return {
-      schema: "command-receipt/v2",
-      command: action.kind,
-      ok: receipt.outcome === "applied",
-      ...receipt,
-    };
-  }
   const workspaceRoot = payload.workspaceRoot ?? null;
   // One edge/view has one registered harness materialization. Hold its round fence
   // across gate check, candidate scan/upload, center command, pull, and local
@@ -186,7 +212,7 @@ export async function runFleetEdgeTask(
     // staged, unhandled divergence, its transitions stay blocked — the edge
     // refuses before any upload or center round-trip.
     if (!readOnly && workspaceRoot !== null && taskId !== null && action.kind !== "task-create") {
-      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
+      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId);
       const exactPackage = view === null ? null : fleetExactTaskPackagePath(view, workspaceRoot, taskId);
       const belongs = (conflictPath: string): boolean =>
         exactPackage === null
@@ -212,8 +238,8 @@ export async function runFleetEdgeTask(
           },
         } as Record<string, unknown>;
     }
-    if (action.kind.startsWith("doc-") && taskId !== null && workspaceRoot !== null) {
-      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
+    if (action.kind === "doc-submit" && taskId !== null && workspaceRoot !== null) {
+      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId);
       const packagePath = view && fleetExactTaskPackagePath(view, workspaceRoot, taskId);
       if (!view || !packagePath) throw new FleetEdgeTaskError("mirror_missing", "Task package is not materialized.");
       if (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))
@@ -224,14 +250,6 @@ export async function runFleetEdgeTask(
       const scan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
       if (!scan) throw new FleetEdgeTaskError("mirror_missing", "Task document scan is unavailable.");
       const changes = scan.changes.filter((change) => change.path.startsWith(`${packagePath}/`));
-      if (action.kind !== "doc-submit")
-        return {
-          schema: "command-receipt/v2",
-          command: action.kind,
-          outcome: "applied",
-          ok: true,
-          rows: changes.map((change) => ({ path: change.path, state: "eligible" })),
-        };
       const admission = await readFleetRepositoryMetadataClient({ ...peer, taskId, actionKind: "doc-submit" });
       if (admission.actionAllowed !== true)
         throw new FleetEdgeTaskError("authorization_denied", "Task document submission is not authorized.");
@@ -288,15 +306,25 @@ export async function runFleetEdgeTask(
           return metadata.personId;
         },
         readTask: async () => {
-          const current = await runFleetRuntimeReadClient({
+          const pulled = await runFleetReplicaPullClient({
             ...peer,
-            repoId: payload.repoId,
-            method: "repo.tasks.runtimeContext.read",
-            payload: { taskId },
+            viewRoot: payload.viewRoot,
+            diskQuotaBytes: payload.quotaBytes,
           });
+          const current = readEdgeRuntimeRepository(
+            {
+              viewRoot: payload.viewRoot,
+              repoId: payload.repoId,
+              nodeId: payload.nodeId,
+              workspaceRoot,
+              principalId: pulled.current.authorizationOwner,
+            },
+            "repo.tasks.runtimeContext.read",
+            { taskId },
+          );
           if (!current || typeof current !== "object" || !("snapshot" in current))
-            throw new FleetEdgeTaskError("task_read_failed", "Center returned no current task for delivery.");
-          return current.snapshot as FleetDeliveryTask;
+            throw new FleetEdgeTaskError("task_read_failed", "Replica returned no current task for delivery.");
+          return current.snapshot as unknown as FleetDeliveryTask;
         },
       });
     let artifact: FleetDescriptor | undefined;
@@ -398,7 +426,7 @@ export async function runFleetEdgeTask(
       }
     }
     const receipt = result.receipt ?? { outcome: result.outcome, code: result.code };
-    if (applied) rememberAppliedCut(payload.viewRoot, payload.repoId, result.appliedCut);
+    if (applied) rememberAppliedCut(payload.viewRoot, payload.repoId, payload.nodeId, result.appliedCut);
     const ok = applied && (mirror === null || mirror.outcome !== "pull_blocked");
     return {
       schema: "command-receipt/v2",
@@ -455,7 +483,7 @@ export async function runFleetEdgeTask(
     readonly mirrorBaseCut: { readonly revision: number; readonly headDigest: string };
   } | null> {
     if (taskId === null || workspaceRoot === null || action.kind === "task-create") return null;
-    const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
+    const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId);
     if (view === null) return null;
     // The pre-pull base-cache scan over this same view and tree is exactly the
     // dirty-detection the carry set needs; reuse it instead of scanning twice.

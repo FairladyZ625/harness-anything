@@ -1,3 +1,4 @@
+import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
   readDispatchStream,
@@ -25,10 +26,19 @@ export async function adoptRuntimes(
   context: RuntimeSpawnerContext,
   onProgress?: (completed: number) => void,
 ): Promise<void> {
-  const sessions = context.input.remote
-    ? await context.input.remote.readRuntimeSessions()
-    : context.requiredRuntimeProjection(context.input).readRuntimeSessions();
-  const byId = new Map(sessions.map((session) => [session.runtimeSessionId, session]));
+  // Reconstruct owner handles even when the center cannot answer. Publication errors remain
+  // errors; they cannot erase independently verified local process control.
+  const [sessionRead] = await Promise.allSettled([
+    Promise.resolve().then(() =>
+      context.input.remote
+        ? context.input.remote.readRuntimeSessions()
+        : context.requiredRuntimeProjection(context.input).readRuntimeSessions(),
+    ),
+  ]);
+  const byId = new Map(
+    sessionRead.status === "fulfilled" ? sessionRead.value.map((session) => [session.runtimeSessionId, session]) : [],
+  );
+  const failures: unknown[] = sessionRead.status === "rejected" ? [sessionRead.reason] : [];
   let completed = 0;
   for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
     if (context.processes.has(header.runtimeSessionId) || context.exiting.has(header.runtimeSessionId)) continue;
@@ -39,7 +49,7 @@ export async function adoptRuntimes(
       : null;
     if (fallbackSummary) context.reconcileFallback(fallbackSummary);
     const session = byId.get(header.runtimeSessionId);
-    if (!session || session.outcome !== null) {
+    if (sessionRead.status === "fulfilled" && (!session || session.outcome !== null)) {
       removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
       continue;
     }
@@ -108,58 +118,68 @@ export async function adoptRuntimes(
       providerSessionId: stream.providerSessionId,
     });
     context.processes.set(active.runtimeSessionId, active);
-    try {
-      context.input.recordLifecycle?.({
-        event: "runtime_spawn",
-        runtimeSessionId: active.runtimeSessionId,
-        dispatchId: active.dispatchId,
-        // A session adopted without a recorded process has no pid to report; the drain count follows
-        // live pids, so reporting a placeholder would keep counting a runtime that does not exist.
-        ...(processState ? { pid: processState.pid } : {}),
-      });
-      await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
-      if (session.liveness !== "live" && session.liveness !== "exited") {
-        await context.publishRuntimeEvent(
-          "runtime_session_liveness_changed",
-          { runtimeSessionId: active.runtimeSessionId, liveness: "live" },
-          `${active.dispatchOpId}-adopt-${String(context.input.daemonGeneration)}`,
-          active.binding,
-        );
+    const processAlive = !!processState && !processState.exited && runtimePidIsAlive(processState.pid);
+    if (processAlive && fullStream) attachActiveRuntime(context, active);
+    const [publication] = await Promise.allSettled([
+      (async () => {
+        context.input.recordLifecycle?.({
+          event: "runtime_spawn",
+          runtimeSessionId: active.runtimeSessionId,
+          dispatchId: active.dispatchId,
+          // A session adopted without a recorded process has no pid to report; the drain count follows
+          // live pids, so reporting a placeholder would keep counting a runtime that does not exist.
+          ...(processState ? { pid: processState.pid } : {}),
+        });
+        await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
+        if (processAlive && session?.liveness !== "live" && session?.liveness !== "exited") {
+          await context.publishRuntimeEvent(
+            "runtime_session_liveness_changed",
+            { runtimeSessionId: active.runtimeSessionId, liveness: "live" },
+            `${active.dispatchOpId}-adopt-${String(context.input.daemonGeneration)}`,
+            active.binding,
+          );
+        }
+        if (!processAlive) {
+          const reason = processState
+            ? `runtime process ${String(processState.pid)} is no longer alive after daemon restart`
+            : "runtime process was never recorded before daemon restart";
+          active.lossReason = processState?.exited ? null : reason;
+          active.lossExitCode = processState?.exitCode ?? null;
+          active.lossSignal = processState?.signal ?? null;
+          removeRuntimeCallbackRelay(context.input.rootDir, active.dispatchId);
+          if (!processState?.exited)
+            appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
+              kind: "process_lost",
+              occurredAt: context.input.now(),
+              reason,
+              exitCode: active.lossExitCode,
+              signal: active.lossSignal,
+            });
+          await consumeDurableOutput(context, active);
+          await context.publishExit(active, active.lossExitCode, session?.liveness === "exited");
+        }
+      })(),
+    ]);
+    if (publication.status === "rejected") {
+      if (!processAlive) {
+        if (context.processes.get(active.runtimeSessionId) === active)
+          context.processes.delete(active.runtimeSessionId);
+        active.process.release?.();
       }
-      if (!processState || processState.exited || !runtimePidIsAlive(processState.pid)) {
-        const reason = processState
-          ? `runtime process ${String(processState.pid)} is no longer alive after daemon restart`
-          : "runtime process was never recorded before daemon restart";
-        active.lossReason = processState?.exited ? null : reason;
-        active.lossExitCode = processState?.exitCode ?? null;
-        active.lossSignal = processState?.signal ?? null;
-        removeRuntimeCallbackRelay(context.input.rootDir, active.dispatchId);
-        if (!processState?.exited)
-          appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
-            kind: "process_lost",
-            occurredAt: context.input.now(),
-            reason,
-            exitCode: active.lossExitCode,
-            signal: active.lossSignal,
-          });
-        await consumeDurableOutput(context, active);
-        await context.publishExit(active, active.lossExitCode, session.liveness === "exited");
-      } else if (fullStream) attachActiveRuntime(context, active);
-    } catch (error) {
-      if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
-      active.process.release?.();
-      throw error;
+      failures.push(publication.reason);
+    } else {
+      // Settlement must finish before it can renew the startup inactivity budget.
+      onProgress?.(++completed);
     }
-    // Settlement must finish before it can renew the startup inactivity budget.
-    onProgress?.(++completed);
   }
+  if (failures.length > 0) throw failures[0];
 }
 
 export function ownedByRuntimeSpawner(
   binding: RuntimeBinding,
   runtimeNode: RuntimeSpawnerInput["runtimeNode"],
 ): boolean {
-  if (runtimeNode === undefined) return true;
+  if (runtimeNode === undefined) return binding.source === "local";
   const source: unknown = binding.source;
   if (source === null || typeof source !== "object" || Array.isArray(source)) return false;
   const node = source as Record<string, unknown>;
@@ -213,4 +233,19 @@ function isBinding(value: unknown): value is RuntimeBinding {
     typeof (actor as { principal?: { personId?: unknown } }).principal?.personId === "string" &&
     binding.source !== undefined
   );
+}
+
+/** Instance load is an owner-process observation, never the last canonical live report. */
+export function locallyObservedRuntimeSessions(
+  sessions: readonly RuntimeSessionSelection[],
+  processes: ReadonlyMap<string, Pick<ActiveRuntime, "process">>,
+): readonly RuntimeSessionSelection[] {
+  return sessions.map((session) => {
+    const process = processes.get(session.runtimeSessionId)?.process;
+    return {
+      ...session,
+      liveness:
+        session.outcome !== null ? session.liveness : process && runtimePidIsAlive(process.pid) ? "live" : "unknown",
+    };
+  });
 }

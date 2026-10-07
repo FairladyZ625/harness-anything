@@ -1,3 +1,4 @@
+import type { SquadDispatchContext } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -8,10 +9,8 @@ import {
   submissionDigest,
   type AuthorizationDecision,
 } from "@harness-anything/kernel";
-import { presetDocumentBody } from "@harness-anything/preset/internal/preset-resolver";
-import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/internal/preset-system";
 import { agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
-import { resolveAgentSkills } from "./agent-skills.ts";
+import { resolveDispatchAgent } from "./runtime-spawn-agent.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
@@ -28,7 +27,7 @@ import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.t
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
+import { adoptRuntimes, locallyObservedRuntimeSessions } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -109,7 +108,6 @@ import {
 import { installHandoffRollout } from "./runtime-handoff-native.ts";
 import { taskWorktreeCheckoutNote, verifyHandoffWorktree, type TaskWorktreeCheckout } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
-import { workerLedgerPath } from "./worktree-setup.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
@@ -175,6 +173,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     handoff?: RuntimeHandoffCheckpoint,
     handoffRollout?: Uint8Array,
     onDispatched?: (dispatchId: string, runtimeSessionId: string) => void,
+    onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
   ): Promise<JsonObject> => {
     const dryRun = payload.dryRun === true;
     const { requestedDispatchId, resumed, inherited, handoffEnabled } = resolveRuntimeResume(input, payload, handoff);
@@ -374,48 +373,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       };
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      squad =
-        squadId || targetAgentId
-          ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId) ??
-            (() => {
-              if (squadId) throw runtimeSpawnError("squad_not_found", `Squad ${squadId} is unavailable.`);
-              throw runtimeSpawnError(
-                "squad_member_not_found",
-                `Agent ${targetAgentId} is not available in a squad led by ${agentId}.`,
-              );
-            })())
-          : null,
-      delegatedBy = squad?.worker ? squad.leader : null,
-      agent =
-        squad?.worker ??
-        squad?.leader ??
-        (agentId
-          ? (input.resolveAgent?.(agentId) ??
-            (() => {
-              throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
-            })())
-          : null),
-      resolvedSkills = (agent ? resolveAgentSkills({ rootDir: input.rootDir, skills: agent.skills }) : []).map(
-        (skill) => ({ ...skill, skillFile: workerLedgerPath(input.rootDir, cwd, skill.skillFile) }),
+      { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
+        input,
+        binding,
+        cwd,
+        agentId,
+        squadId,
+        targetAgentId,
       ),
-      preset = agent?.preset
-        ? (() => {
-            if (!input.readSettings)
-              throw runtimeSpawnError(
-                "settings_projection_unavailable",
-                "Agent preset resolution requires the repository Settings projection.",
-              );
-            const defaults = presetRuntimeDefaults(input.readSettings());
-            // The spawn prompt needs the preset's PRESET.md text only; a full resolve would
-            // re-hash the whole catalog for a body the catalog already decoded.
-            return presetDocumentBody({
-              userRoot: presetUserRoot(input.rootDir),
-              verticalId: defaults.verticalId,
-              presetId: agent.preset!,
-            });
-          })()
-        : undefined,
       runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
+      localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
       runtimeInstances = input.runtimeInstances?.() ?? [],
       fallbackAttempt =
         inheritedFallback ??
@@ -427,7 +394,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           idempotencyKey,
           mission,
           runtimeInstances,
-          runtimeSessions,
+          localRuntimeSessions,
         ),
       fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
       runtimeInstanceId = await resolveRuntimeInstanceId({
@@ -436,7 +403,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         agent,
         model,
         instances: runtimeInstances,
-        sessions: runtimeSessions,
+        sessions: localRuntimeSessions,
       }),
       runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
       // Model resolution order: --model override > the runtimes row matching the selected
@@ -672,7 +639,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         outcome: "failed",
         reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
         endedAt: input.now(),
-        resultRef: null,
         binding: activeBinding,
       });
     };
@@ -752,6 +718,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         throw error;
       }
     }
+    if (onPrepared) {
+      openStream();
+      onPrepared(newDispatchId, runtimeSessionId);
+    }
     let requested!: Awaited<ReturnType<typeof publishRuntimeEvent>>;
     try {
       await publishRuntimeEvent(
@@ -781,6 +751,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             definitionSnapshotRef,
             definitionSnapshot: definition,
             startedAt: streamStartedAt,
+            ...(payload.squadRun ? { squadRun: payload.squadRun as unknown as SquadDispatchContext } : {}),
             ...(handoffEnabled ? { handoffEnabled: true } : {}),
             ...(providerSessionId ? { resumeProviderSessionId: providerSessionId } : {}),
             ...(handoff ? { handoffCheckpointId: handoff.dispatchId, acceptedCommit: handoff.commit } : {}),
@@ -951,7 +922,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     ) => spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree, checkpoint, rollout),
     spawn: (payload: JsonObject, binding: RuntimeBinding, worktree: TaskWorktreeCheckout | null = null) =>
       spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree),
-    spawnCoordinated: (payload: JsonObject, binding: RuntimeBinding) =>
+    spawnCoordinated: (
+      payload: JsonObject,
+      binding: RuntimeBinding,
+      onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
+    ) =>
       spawnAttempt(
         payload,
         binding,
@@ -959,6 +934,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         undefined,
         payload.targetAgentId === undefined ? "runtime" : "commander",
+        null,
+        undefined,
+        undefined,
+        undefined,
+        onPrepared,
       ),
     spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) =>
       spawnAttempt(
@@ -1054,6 +1034,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   function reconcileFallback(stream: ReturnType<typeof readDispatchStream>): void {
     scheduleFallbackContinuation({
       input,
+      publishRuntimeEvent: extracted.publishRuntimeEvent,
       closed: () => fallbackClosed,
       launch: async (
         payload,

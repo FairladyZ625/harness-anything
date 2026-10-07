@@ -93,7 +93,7 @@ export function makeScheduleActionRuntime(
       entity: { schedule: runtime },
     }) as Promise<WriteReceipt>;
   };
-  const runtime: EntityActionCatalogRunner = async (contract, rawAction, binding): Promise<WriteReceipt> => {
+  const runtime: EntityActionCatalogRunner = (contract, rawAction, binding): WriteReceipt | Promise<WriteReceipt> => {
     const action = resolveScheduleAction(cell.rootDir, rawAction);
     if (contract.execution.read) return readScheduleAction(cell, action, binding);
     if (binding.authorizationDecision?.outcome !== "allowed")
@@ -297,21 +297,27 @@ function publishScheduleDraft(
       } as WriteReceipt);
 }
 
-function readScheduleAction(
-  cell: RepoCellRuntimeContext,
+export function readScheduleAction(
+  cell: Pick<
+    RepoCellRuntimeContext,
+    "rootDir" | "projection" | "now" | "operationId" | "requiredCellText" | "cellCodedError"
+  > & {
+    readonly input: { readonly repoId: string };
+    readonly store: Pick<RepoCellRuntimeContext["store"], "readContentBlob">;
+  },
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): WriteReceipt {
   if (action.kind === "schedule-reckon") {
-    const revision = cell.store.readHead()?.revision ?? 0,
-      result = readReckoningSignals(cell.store, cell.projection, cell.now(), Number(action.windowHours ?? 24)),
+    const revision = cell.projection.readCut().sourceRevision,
+      result = readReckoningSignals(cell.projection, cell.now(), Number(action.windowHours ?? 24)),
       opId = cell.operationId(action, binding, cell.input.repoId, revision);
     return scheduleReadReceipt(opId, revision, JSON.stringify(result), {
       summary: `${result.signals.length} reckoning signal(s)`,
     });
   }
   if (action.kind === "schedule-list") {
-    const revision = cell.store.readHead()?.revision ?? 0,
+    const revision = cell.projection.readCut().sourceRevision,
       schedules = cell.projection.listEntities("schedule").map((row) => {
         const projection = inspectScheduleProjection(row);
         if (!projection.valid) return projection.invalid;

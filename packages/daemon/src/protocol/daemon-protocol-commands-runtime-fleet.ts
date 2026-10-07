@@ -1,6 +1,6 @@
 import {
   cliInput,
-  defineCenterForwardReadCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
   defineCenterForwardWriteCommand,
   defineHostAdminCommand,
   defineRepoReadCommand,
@@ -434,7 +434,7 @@ export const scheduleProtocolCommands = Object.freeze([
       scheduleIdInput(),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "schedule-list",
     phase: "Schedule-S3",
     path: ["schedule", "list"],
@@ -442,7 +442,7 @@ export const scheduleProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "schedule-reckon",
     phase: "Schedule-S5",
     path: ["schedule", "reckon"],
@@ -458,7 +458,7 @@ export const scheduleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "schedule-runs",
     phase: "Schedule-S5",
     path: ["schedule", "runs", "<schedule-id>"],
@@ -475,7 +475,7 @@ export const scheduleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "schedule-show",
     phase: "Schedule-S3",
     path: ["schedule", "show", "<schedule-id>"],

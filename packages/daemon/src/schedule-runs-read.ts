@@ -1,9 +1,10 @@
+import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { createHash } from "node:crypto";
 import {
-  consumeKnownError,
   isScheduleEvent,
   nextScheduleOccurrence,
   type CanonicalEventV1,
+  type RuntimeSession,
   type ScheduleActiveRunV1,
   type ScheduleLastRunV1,
   type ScheduleMissedReason,
@@ -34,8 +35,9 @@ export interface ScheduleRunsReadContext {
       readonly sourceRevision: number;
     };
     readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
+    readonly readRuntimeSession: (runtimeSessionId: string) => Pick<RuntimeSession, "resultRef"> | null;
   };
-  /** runtime-result artifact 内容读;缺省时报告正文为 null,引用照常投影。 */
+  /** 同 cut 的 runtime-result 内容读；存在引用时必须提供存储且 bytes 完整。 */
   readonly store?: {
     readonly readContentBlob: (sha256: string) => Uint8Array | null;
   };
@@ -57,11 +59,20 @@ export function readScheduleRuns(context: ScheduleRunsReadContext, scheduleId: s
       context.projection.readScheduleOutputEvents(runtimeSessionIds),
       new Set(runtimeSessionIds),
     ),
-    runs = rows.slice(0, limit).map((row) => ({
-      ...row,
-      reportText: reportTextOf(context, row.reportRef),
-      outputs: row.runtimeSessionId === null ? emptyOutputs() : (outputs.get(row.runtimeSessionId) ?? emptyOutputs()),
-    }));
+    runs = rows.slice(0, limit).map((row) => {
+      // Settlement can precede the runtime outcome. Only the canonical session
+      // exposes a result reference committed with its content claim and bytes.
+      const reportRef =
+        row.runtimeSessionId === null
+          ? null
+          : (context.projection.readRuntimeSession(row.runtimeSessionId)?.resultRef ?? null);
+      return {
+        ...row,
+        reportRef,
+        reportText: reportTextOf(context, reportRef),
+        outputs: row.runtimeSessionId === null ? emptyOutputs() : (outputs.get(row.runtimeSessionId) ?? emptyOutputs()),
+      };
+    });
   return {
     ok: true,
     status: read.status,
@@ -82,18 +93,12 @@ function emptyOutputs(): ScheduleRunOutputsDto {
   return { facts: [], decisions: [], tasks: [] };
 }
 
-/** report artifact 的完整正文:sha 命中内容库则原样给出(不截断);未就绪/非 UTF-8 → null。 */
+/** A referenced result must belong to the complete cut; absent bytes are a failed read. */
 function reportTextOf(context: ScheduleRunsReadContext, reportRef: string | null): string | null {
-  if (reportRef === null || context.store === undefined) return null;
-  const bytes = context.store.readContentBlob(reportRef.slice("artifact:runtime-result/sha256/".length));
-  if (!bytes) return null;
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch (error) {
-    // 非 UTF-8 的 runtime-result 不是读失败,是一份无法按文本渲染的产物:降级为只给引用。
-    consumeKnownError(error);
-    return null;
-  }
+  if (reportRef === null) return null;
+  if (context.store === undefined)
+    throw Object.assign(new Error("Runtime result store is unavailable."), { code: "replica_unavailable" });
+  return readCanonicalRuntimeResult(context.store, reportRef);
 }
 
 /**
@@ -192,7 +197,6 @@ function activeRow(active: ScheduleActiveRunV1): ScheduleRunRowDto {
 }
 
 function settledRow(last: ScheduleLastRunV1, claim: ScheduleActiveRunV1 | null): ScheduleRunRowDto {
-  const reportRef = scheduleReportRef(last.detail);
   return {
     occurrenceId: last.occurrenceId,
     kind: claim?.kind ?? "scheduled",
@@ -203,11 +207,9 @@ function settledRow(last: ScheduleLastRunV1, claim: ScheduleActiveRunV1 | null):
     claimFence: last.claimFence,
     outcome: last.outcome,
     durationMs: claim === null ? null : Math.max(0, Date.parse(last.endedAt) - Date.parse(claim.claimedAt)),
-    reportRef,
+    reportRef: null,
     reportText: null,
-    // settle detail = 结果 artifact 引用(成功路径)或失败原因;前者已在 reportRef,
-    // detail 只保留真实失败细节,不重复引用串。
-    detail: reportRef === null ? (last.detail ?? null) : null,
+    detail: last.detail ?? null,
     missedReason: null,
     dispatchId: last.dispatchId ?? null,
     runtimeSessionId: last.runtimeSessionId ?? null,
@@ -249,10 +251,6 @@ function missedOccurrences(trigger: ScheduleTriggerV1, from: string, to: string,
 function missedOccurrenceId(scheduleId: string, scheduledFor: string, reason: ScheduleMissedReason): string {
   const digest = createHash("sha256").update(`${scheduleId}\0${scheduledFor}\0${reason}`).digest("hex");
   return `missed_${digest.slice(0, 24)}`;
-}
-
-function scheduleReportRef(detail: string | undefined): string | null {
-  return detail && /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u.test(detail) ? detail : null;
 }
 
 function scheduleRunsError(code: string, message: string): Error {

@@ -1,4 +1,4 @@
-import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import type { GovernedEntityRow } from "./graph/governedEntities.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 
@@ -83,7 +83,7 @@ const bridge = (): EntityKindBridge => {
 export async function readEntityKindCatalog(repoId: string): Promise<EntityKindCatalog> {
   const value = await bridge().readEntityKinds({ repoId });
   if (!isRendererRecord(value) || value.schema !== "entity-kind-catalog/v1" || !Array.isArray(value.kinds))
-    throw new Error(rendererErrorHint(value, "Entity kind catalog bridge returned an invalid result."));
+    throw rendererReadError(value, "Entity kind catalog bridge returned an invalid result.");
   return value as unknown as EntityKindCatalog;
 }
 
@@ -134,6 +134,6 @@ export async function readGovernedEntityRows(repoId: string): Promise<readonly G
   if (!value?.readEntityRows) throw new Error("Entity row bridge is unavailable.");
   const result = await value.readEntityRows({ repoId });
   if (!isRendererRecord(result) || result.schema !== "entity-row-list/v1" || !Array.isArray(result.rows))
-    throw new Error(rendererErrorHint(result, "Entity row bridge returned an invalid result."));
+    throw rendererReadError(result, "Entity row bridge returned an invalid result.");
   return result.rows as readonly GovernedEntityRow[];
 }

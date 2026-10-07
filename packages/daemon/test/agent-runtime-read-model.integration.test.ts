@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import fs, { mkdtempSync, rmSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,7 +16,7 @@ import {
   type FrozenWritePlan,
   type RuntimeSession,
 } from "@harness-anything/kernel";
-import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
+import { makeAgentRuntimeReadModel, sessionWithActivityEvidence } from "../src/agent-runtime-read.ts";
 import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
@@ -40,13 +41,12 @@ import type { DaemonHost } from "../src/daemon-host.ts";
 import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
 import { validateAgentRuntimeSession } from "../src/agent-runtime-contract.ts";
-import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 
 const actor = { principal: { personId: "person-runtime" }, executor: null } as const;
 test("runtime read facets expose safe overview/session/events through the shared contract registry", () =>
-  withRuntime(({ store, projection, stream, events }) => {
-    const reads = makeAgentRuntimeReadModel({ store, projection, stream, runtimeInstances: () => [instanceSummary] }),
+  withRuntime(({ store, projection, events }) => {
+    const reads = makeAgentRuntimeReadModel({ store, projection }),
       overview = parseDaemonGuiReadResult("repo.agentRuntime.overview", reads.overview({}));
     assert.deepEqual(
       daemonGuiReadMethods.filter(({ phase }) => phase === "Runtime-B").map(({ method }) => method),
@@ -80,7 +80,7 @@ test("runtime read facets expose safe overview/session/events through the shared
       jsonRpcMethodContracts.some(({ method }) => method === "repo.agentRuntime.attach"),
       true,
     );
-    assert.deepEqual(overview.instances, [instanceSummary]);
+    assert.deepEqual(overview.instances, [], "local instance configuration has its machine catalog read");
     assert.deepEqual(overview.sessions[0]?.liveness, "live");
     assert.deepEqual(overview.sessions[0]?.associations[0], {
       taskId: "task-runtime",
@@ -93,7 +93,7 @@ test("runtime read facets expose safe overview/session/events through the shared
       ["runtime-session"],
     );
     assert.deepEqual(overview.sessions[0]?.definitionSnapshot, definition);
-    assert.equal(overview.sessions[0]?.definitionSnapshotPersisted, false);
+    assert.equal(overview.sessions[0]?.definitionSnapshotPersisted, true);
     assert.deepEqual(secretKeys(overview), []);
     assert.deepEqual(
       reads.session({ runtimeSessionId: "runtime-session" }).session.runtimeSessionId,
@@ -105,7 +105,7 @@ test("runtime read facets expose safe overview/session/events through the shared
     });
     assert.deepEqual(
       lifecycle.events.map(({ type }) => type),
-      ["runtime_session_task_bound"],
+      [],
     );
     assert.equal(lifecycle.cursor, `lifecycle:${store.read().revision}`);
     assert.notEqual(validateAgentRuntimeOverview({ ...overview, credential: "secret" }).length, 0);
@@ -117,7 +117,7 @@ test("runtime read facets expose safe overview/session/events through the shared
   }));
 
 test("historical runtime sessions with no snapshot event degrade without failing the overview", () =>
-  withRuntime(({ store, projection, stream }) => {
+  withRuntime(({ store, projection }) => {
     const withoutDispatchSnapshot = new Proxy(projection, {
         get: (target, property, receiver) => {
           if (property === "readRuntimeDispatch" || property === "readRuntimeDispatches")
@@ -126,14 +126,14 @@ test("historical runtime sessions with no snapshot event degrade without failing
           return typeof value === "function" ? value.bind(target) : value;
         },
       }),
-      overview = makeAgentRuntimeReadModel({ store, projection: withoutDispatchSnapshot, stream }).overview({});
+      overview = makeAgentRuntimeReadModel({ store, projection: withoutDispatchSnapshot }).overview({});
     assert.equal(overview.sessions[0]?.definitionSnapshot, null);
     assert.equal(overview.sessions[0]?.definitionSnapshotPersisted, false);
     assert.deepEqual(validateAgentRuntimeOverview(overview), []);
   }));
 
 test("unscoped overview hides exited history and short session ids resolve or list candidates", () =>
-  withRuntime(({ store, projection, stream }) => {
+  withRuntime(({ store, projection }) => {
     // The shared event() builder stamps seconds from the revision digit, which breaks past 9;
     // this fixture appends past that, so it stamps its own occurredAt.
     const paddedEvent = (
@@ -184,7 +184,7 @@ test("unscoped overview hides exited history and short session ids resolve or li
     }
     revision += 1;
     append(paddedEvent("runtime_session_exited", { runtimeSessionId: "runtime-exited-old" }, revision));
-    const reads = makeAgentRuntimeReadModel({ store, projection, stream });
+    const reads = makeAgentRuntimeReadModel({ store, projection });
     // The unscoped overview is the `ha runtime status` default: exited history stays out;
     // live, stale, and unknown sessions all stay in.
     assert.deepEqual(
@@ -257,7 +257,7 @@ test("one stream parser validates agent-runtime and terminal facets by method", 
 });
 
 test("runtime overview batches definitions while a single-session read selects one dispatch", () =>
-  withRuntime(({ store, projection, stream }) => {
+  withRuntime(({ store, projection }) => {
     let fullTaskListReads = 0,
       taskStatusReads = 0,
       cutReads = 0,
@@ -274,7 +274,7 @@ test("runtime overview batches definitions while a single-session read selects o
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
-    const reads = makeAgentRuntimeReadModel({ store, projection: measured, stream });
+    const reads = makeAgentRuntimeReadModel({ store, projection: measured });
     reads.overview({});
     reads.session({ runtimeSessionId: "runtime-session" });
     assert.deepEqual(
@@ -284,7 +284,7 @@ test("runtime overview batches definitions while a single-session read selects o
   }));
 
 test("runtime session reads resolve a task dispatch after observing its projection cut", () =>
-  withRuntime(({ store, projection, stream }) => {
+  withRuntime(({ store, projection }) => {
     let cutObserved = false;
     const original = projection.readCut.bind(projection);
     const measured = new Proxy(projection, {
@@ -307,7 +307,6 @@ test("runtime session reads resolve a task dispatch after observing its projecti
       },
       projection: measured,
       store,
-      stream,
     });
     assert.equal(
       synchronizedReads.session({ taskId: "task-runtime", dispatchId: "dispatch-runtime" }).session.runtimeSessionId,
@@ -316,8 +315,8 @@ test("runtime session reads resolve a task dispatch after observing its projecti
   }));
 
 test("fleet runtime adoption keeps every overview response below the negotiated frame ceiling", async (t) =>
-  withRuntime(async ({ store, projection, stream }) => {
-    const base = makeAgentRuntimeReadModel({ store, projection, stream }).overview({}),
+  withRuntime(async ({ store, projection }) => {
+    const base = makeAgentRuntimeReadModel({ store, projection }).overview({}),
       sessions = Array.from({ length: 192 }, (_, index) => ({
         ...base.sessions[0]!,
         runtimeSessionId: `runtime-${String(index).padStart(4, "0")}-${"x".repeat(256)}`,
@@ -354,8 +353,8 @@ test("fleet runtime adoption keeps every overview response below the negotiated 
   }));
 
 test("fleet runtime pagination rejects malformed pages and repeated cursors", () =>
-  withRuntime(async ({ store, projection, stream }) => {
-    const base = makeAgentRuntimeReadModel({ store, projection, stream }).overview({ limit: 16 });
+  withRuntime(async ({ store, projection }) => {
+    const base = makeAgentRuntimeReadModel({ store, projection }).overview({ limit: 16 });
     await assert.rejects(
       readFleetRuntimeSessionsPaged(async () => ({ ...base, status: "invalid" })),
       (error: unknown) => (error as { readonly code?: string }).code === "runtime_read_invalid",
@@ -747,31 +746,6 @@ const definition: AgentDefinitionSnapshot = {
   baseUrl: "https://runtime.example/v1",
   authMode: "api-key",
 };
-const instanceSummary = {
-  schemaVersion: 2,
-  instanceId: definition.instanceId,
-  name: "Runtime fixture",
-  kindId: definition.kindId,
-  installationId: definition.installationId,
-  providerId: definition.providerId,
-  models: [definition.model],
-  defaultModel: definition.model,
-  enabled: true,
-  permissionMode: "bypass",
-  configuration: {
-    reasoningEffort: definition.reasoningEffort,
-    fast: false,
-    baseUrl: definition.baseUrl,
-    baseUrlConfigured: true,
-    wire_api: null,
-    requires_openai_auth: null,
-    http_headers: null,
-  },
-  authMode: definition.authMode,
-  authState: "configured",
-  authReadiness: { status: "ready", code: null, hint: null },
-  isolationState: "enforced",
-} as const;
 function secretKeys(value: unknown, found: string[] = []): string[] {
   if (Array.isArray(value)) {
     value.forEach((item) => secretKeys(item, found));
@@ -834,12 +808,12 @@ test("runtime overview pages at the server before DTO and dispatch expansion", (
       readRuntimeInstallations: () => [],
       readRuntimeDispatches: () => ((batchDispatchReads += 1), dispatches),
       readRuntimeDispatch: () => ((exactDispatchReads += 1), null),
+      readRuntimeSessionEvents: () => [],
       currentLease: () => null,
     };
   const overview = makeAgentRuntimeReadModel({
     store: {} as never,
     projection: projection as never,
-    stream: { latestCursor: () => "stream:0" } as never,
   }).overview({ limit: 12 });
   assert.equal(overview.sessions.length, 12);
   assert.equal(unboundedReads, 0);
@@ -971,11 +945,11 @@ test("an installation-backed session DTO remains byte-for-byte unchanged", () =>
         kindId: "claude",
         definitionSnapshotRef: "artifact:runtime-definition/test",
         definitionSnapshot: historicalDefinition("installation-present"),
-        definitionSnapshotPersisted: false,
+        definitionSnapshotPersisted: true,
         liveness: "live",
         semanticState: "running",
-        attachCapability: "supported",
-        streamCursor: "stream:0",
+        attachCapability: "unsupported",
+        streamCursor: null,
         associations: [],
         activity: {
           lastObservedAt: "2026-09-03T00:00:03.000Z",
@@ -990,64 +964,31 @@ test("an installation-backed session DTO remains byte-for-byte unchanged", () =>
     assert.equal(Object.hasOwn(session, "installationError"), false);
   }));
 
-test("live dispatch evidence repairs an unknown session and advances its observed time", () =>
-  withMissingInstallationRuntime(true, ({ store, projection, stream }) => {
-    const unknownProjection = new Proxy(projection, {
-        get: (target, property, receiver) => {
-          if (property === "readRuntimeSessions")
-            return () =>
-              target.readRuntimeSessions().map((session) => ({
-                ...session,
-                liveness: "unknown" as const,
-                attachable: false,
-              }));
-          if (property === "readRuntimeSession")
-            return (runtimeSessionId: string) => {
-              const session = target.readRuntimeSession(runtimeSessionId);
-              return session ? { ...session, liveness: "unknown" as const, attachable: false } : null;
-            };
-          const value = Reflect.get(target, property, receiver);
-          return typeof value === "function" ? value.bind(target) : value;
-        },
-      }),
-      reads = makeAgentRuntimeReadModel({
-        readActivityEvidence: () => ({
-          lastObservedAt: "2026-09-06T01:45:42.460Z",
-          workerHostAlive: true,
-          process: null,
-          terminalOutcome: null,
-          runtimeMetrics: null,
-        }),
-        store,
-        projection: unknownProjection,
-        stream,
-      });
-    for (const session of [
-      reads.overview({}).sessions[0]!,
-      reads.session({ runtimeSessionId: "runtime-historical" }).session,
-    ]) {
-      assert.equal(session.liveness, "live");
-      assert.equal(session.semanticState, "running");
-      assert.equal(session.attachCapability, "supported");
-      assert.equal(session.activity.lastObservedAt, "2026-09-06T01:45:42.460Z");
-    }
+test("local activity evidence cannot rewrite a public session and missing local proof disables attach", () =>
+  withMissingInstallationRuntime(true, ({ reads, projection }) => {
+    const canonical = projection.readRuntimeSession("runtime-historical")!;
+    const localUnknown = sessionWithActivityEvidence(canonical, undefined);
+    assert.equal(localUnknown.liveness, "unknown");
+    assert.equal(localUnknown.attachable, false);
+    const live = sessionWithActivityEvidence(
+      { ...canonical, liveness: "unknown" },
+      {
+        lastObservedAt: "2026-09-06T01:45:42.460Z",
+        workerHostAlive: true,
+        process: null,
+        terminalOutcome: null,
+        runtimeMetrics: null,
+      },
+    );
+    assert.equal(live.liveness, "live");
+    const publicSession = reads.session({ runtimeSessionId: canonical.runtimeSessionId }).session;
+    assert.equal(publicSession.liveness, canonical.liveness);
+    assert.equal(publicSession.activity.lastObservedAt, canonical.lastObservedAt);
+    assert.equal(publicSession.attachCapability, "unsupported");
   }));
 
-test("runtime overview remains available without a local dispatch stream", () =>
-  withMissingInstallationRuntime(true, ({ rootDir, store, projection, stream }) => {
-    const reads = makeAgentRuntimeReadModel({
-      readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(rootDir, dispatchId),
-      store,
-      projection,
-      stream,
-    });
-    const overview = reads.overview({});
-    assert.equal(overview.ok, true);
-    assert.equal(overview.sessions[0]?.runtimeSessionId, "runtime-historical");
-  }));
-
-test("session reads carry the dispatch stream's latest runtime metrics", () =>
-  withMissingInstallationRuntime(true, ({ rootDir, store, projection, stream }) => {
+test("public runtime overview and detail ignore local provider telemetry and expose accepted outcome metrics", () =>
+  withMissingInstallationRuntime(true, ({ rootDir, store, projection }) => {
     openDispatchStream(rootDir, {
       dispatchId: "dispatch_000000000000000000000001",
       taskId: null,
@@ -1058,38 +999,38 @@ test("session reads carry the dispatch stream's latest runtime metrics", () =>
     });
     appendRuntimeWorkerRecord(rootDir, "dispatch_000000000000000000000001", {
       kind: "runtime_metrics",
-      inputTokens: 1_200,
-      cacheReadTokens: 340,
-      outputTokens: 260,
-      totalTokens: 1_800,
-      toolCallCount: 17,
+      inputTokens: 999,
+      cacheReadTokens: 0,
+      outputTokens: 999,
+      totalTokens: 1998,
+      toolCallCount: 999,
       compacted: true,
-      raw: { input_tokens: 1_200, output_tokens: 260 },
     });
-    const reads = makeAgentRuntimeReadModel({
-      readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(rootDir, dispatchId),
-      store,
-      projection,
-      stream,
-    });
-    const single = reads.session({ runtimeSessionId: "runtime-historical" });
-    assert.deepEqual(single.session.metrics, {
-      inputTokens: 1_200,
-      cacheReadTokens: 340,
-      outputTokens: 260,
-      totalTokens: 1_800,
-      toolCallCount: 17,
-      compacted: true,
+    const reads = makeAgentRuntimeReadModel({ store, projection });
+    assert.equal(reads.session({ runtimeSessionId: "runtime-historical" }).session.metrics, undefined);
+    const metrics = {
+      inputTokens: 40,
+      cacheReadTokens: 10,
+      outputTokens: 20,
+      totalTokens: 60,
+      toolCallCount: 2,
       usageUnavailable: false,
-    });
-    assert.deepEqual(validateAgentRuntimeSession(single), []);
-    assert.notEqual(
-      validateAgentRuntimeSession({
-        ...single,
-        session: { ...single.session, metrics: { ...single.session.metrics!, inputTokens: -1 } },
-      }).length,
-      0,
+    };
+    const event = historicalEvent(
+      "runtime_session_outcome_observed",
+      {
+        runtimeSessionId: "runtime-historical",
+        outcome: "unknown",
+        exitCode: null,
+        resultRef: `artifact:runtime-result/sha256/${"a".repeat(64)}`,
+        result: null,
+        runtimeMetrics: metrics,
+      },
+      4,
     );
+    store.append({ event, plan: runtimeWritePlan(event), blobs: [] });
+    projection.apply(event);
+    assert.deepEqual(reads.overview({ limit: 16 }).sessions[0]?.metrics, { ...metrics, compacted: null });
   }));
 
 function withMissingInstallationRuntime(
@@ -1120,7 +1061,7 @@ function withMissingInstallationRuntime(
       readSession: (runtimeSessionId) => projection!.readRuntimeSession(runtimeSessionId),
       canAttach: () => true,
     });
-    use({ reads: makeAgentRuntimeReadModel({ store, projection, stream }), store, projection, stream, rootDir });
+    use({ reads: makeAgentRuntimeReadModel({ store, projection }), store, projection, stream, rootDir });
   } finally {
     projection?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -1205,3 +1146,30 @@ function historicalEvent<T extends AgentRuntimeEventV1["type"]>(
     payload,
   } as AgentRuntimeEventV1;
 }
+
+test("all public runtime facets answer with owner control files trapped and the canonical SQLite port available", (t) =>
+  withRuntime(({ store, projection }) => {
+    const reads = makeAgentRuntimeReadModel({ store, projection });
+    const read = () => [
+      reads.overview({}),
+      reads.session({ runtimeSessionId: "runtime-session" }),
+      reads.events({ runtimeSessionId: "runtime-session", afterCursor: "lifecycle:0" }),
+      reads.sessionGroups({}),
+    ];
+    const before = read();
+    const canonicalExists = fs.existsSync,
+      canonicalStat = fs.statSync;
+    for (const method of ["readFileSync", "openSync", "readdirSync", "statSync", "existsSync", "unlinkSync"] as const)
+      t.mock.method(fs, method, (file: string) => {
+        if (file === projection.path && method === "existsSync") return canonicalExists(file);
+        if (file === projection.path && method === "statSync") return canonicalStat(file);
+        throw new Error(`public runtime reader touched ${method}: ${file}`);
+      });
+    syncBuiltinESMExports();
+    try {
+      assert.deepEqual(read(), before);
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+  }));

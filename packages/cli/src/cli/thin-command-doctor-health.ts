@@ -71,11 +71,27 @@ export function renderDoctorHealth(
     console.log(JSON.stringify({ ...receipt, checks, ok: receipt.outcome === "applied" && !failed }));
     return failed ? 1 : 0;
   }
+  const replica = Object.hasOwn(receipt, "currentCut") ? receipt : null;
   const lines = [
     `doctor health: scope repoId=${String(scope.repoId ?? "?")} ` +
       `product ${String(scope.productBaseRef ?? "default branch")} tip=${String(scope.productBaseTip ?? "none")} ` +
       `ledger ${String(scope.ledgerBaseRef ?? "default branch")} tip=${String(scope.ledgerBaseTip ?? "none")}`,
     `${String(scope.note ?? "")}`,
+    ...(replica
+      ? [
+          "  replica:",
+          ...[
+            "currentCut",
+            "centerCut",
+            "lag",
+            "lastSuccessAt",
+            "failureCode",
+            "rebuildCount",
+            "schemaGeneration",
+            "authorizationShapeDigest",
+          ].map((key) => `    ${key}: ${JSON.stringify(replica[key] ?? null)}`),
+        ]
+      : []),
     ...checks.map(
       (check) => `  [${check.status}] ${check.id} (${check.count}) — ${check.summary}\n    next: ${check.next}`,
     ),

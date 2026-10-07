@@ -158,30 +158,44 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
   const current = pollSquadStatus(root, env, String(started.squadRunId));
   assert.equal(current.status, "converged", JSON.stringify(current));
   assert.equal(current.workerCallbackCount, 3, JSON.stringify(current));
-  assert.equal(Array.isArray(current.leaders), true);
-  const leaderRuntimeSessionIds = current.leaderRuntimeSessionIds as string[];
+  assert.equal(Array.isArray(current.leaderTurns), true);
+  const leaderRuntimeSessionIds = (current.leaderTurns as Array<{ runtimeSessionId: string }>).map(
+    (turn) => turn.runtimeSessionId,
+  );
   assert.equal(leaderRuntimeSessionIds.length, 3, JSON.stringify(current));
   assert.equal(new Set(leaderRuntimeSessionIds).size, 3);
 
-  const workers = current.workers as Array<Record<string, unknown>>;
+  const workers = current.workerAttempts as Array<Record<string, unknown>>;
   assert.equal(workers.length, 3, JSON.stringify(current));
-  assert.equal(workers.filter((worker) => worker.agentId === "terra").length, 2, JSON.stringify(current));
+  assert.equal(workers.filter((worker) => worker.workerId === "terra").length, 2, JSON.stringify(current));
   assert.equal(
-    workers.some((worker) => worker.agentId === "terra" && worker.status === "failed"),
+    workers.some((worker) => worker.workerId === "terra" && worker.status === "failed"),
     true,
     JSON.stringify(current),
   );
   assert.equal(
     workers.every(
       (worker) =>
-        typeof worker.reportPath === "string" &&
-        typeof worker.resultRef === "string" &&
-        typeof worker.exitCode === "number",
+        typeof worker.runtimeSessionId === "string" &&
+        typeof worker.dispatchId === "string" &&
+        typeof worker.taskId === "string",
     ),
     true,
     JSON.stringify(current),
   );
 
+  for (const worker of workers) {
+    const detail = run(root, env, ["runtime", "status", String(worker.runtimeSessionId)]);
+    const session = detail.session as Record<string, unknown>,
+      activity = session.activity as Record<string, unknown>;
+    assert.equal(typeof activity.exitCode, "number");
+    assert.equal(typeof activity.resultRef, "string");
+    const dispatchResult = runMaybe(root, env, ["task", "dispatches", String(worker.taskId)]);
+    assert.equal(dispatchResult.status, 1, JSON.stringify(dispatchResult.receipt));
+    assert.equal(dispatchResult.receipt.outcome, worker.status === "failed" ? "failed" : "unknown");
+    const dispatches = dispatchResult.receipt.dispatches as Array<Record<string, unknown>>;
+    assert.equal(typeof dispatches.find((row) => row.dispatchId === worker.dispatchId)?.reportPath, "string");
+  }
   const calls = readFileSync(providerLog, "utf8")
       .trim()
       .split("\n")
@@ -227,9 +241,10 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
   const afterRestart = run(root, env, ["squad", "status", String(started.squadRunId)]);
   assert.equal(afterRestart.status, "converged", JSON.stringify(afterRestart));
   assert.equal(afterRestart.workerCallbackCount, 3);
-  const synthesisLeader = (afterRestart.leaders as Array<Record<string, unknown>>).at(-1);
+  const synthesisLeader = (afterRestart.leaderTurns as Array<Record<string, unknown>>).at(-1);
   assert.equal(synthesisLeader?.runtimeSessionId, leaderRuntimeSessionIds.at(-1));
-  assert.deepEqual(synthesisLeader?.decision, { kind: "converged", report: synthesisBody });
+  assert.deepEqual(synthesisLeader?.decision, { kind: "converged" });
+  assert.match(String(synthesisLeader?.resultText), /Worker receipts verified/);
   process.stdout.write(
     `squad-event-flow ${JSON.stringify({
       squadRunId: current.squadRunId,
@@ -391,17 +406,23 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
       String(positive.squadRunId),
       (status) =>
         status.status === "workers_running" &&
-        (status.workers as Array<Record<string, unknown>> | undefined)?.length === 3 &&
-        (status.workers as Array<Record<string, unknown>>).every((worker) => worker.runtimeSessionId !== null),
+        (status.workerAttempts as Array<Record<string, unknown>> | undefined)?.length === 3 &&
+        (status.workerAttempts as Array<Record<string, unknown>>).every((worker) => worker.runtimeSessionId !== null),
     ),
-    positiveWorkers = positiveStatus.workers as Array<Record<string, unknown>>;
+    positiveWorkers = positiveStatus.workerAttempts as Array<Record<string, unknown>>;
   assert.deepEqual(
-    positiveWorkers.map(({ workerId, instanceId, provider, rejection }) => ({
-      workerId,
-      instanceId,
-      model: (provider as Record<string, unknown> | undefined)?.model,
-      rejection,
-    })),
+    positiveWorkers.map(({ workerId, runtimeSessionId, rejection }) => {
+      const session = run(root, env, ["runtime", "status", String(runtimeSessionId)]).session as Record<
+        string,
+        unknown
+      >;
+      return {
+        workerId,
+        instanceId: session.instanceId,
+        model: (session.definitionSnapshot as Record<string, unknown>).model,
+        rejection,
+      };
+    }),
     [
       { workerId: "mixed-reconcile", instanceId: "test-codex-sol", model: "gpt-5.6-terra", rejection: null },
       {
@@ -414,11 +435,13 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
     ],
     JSON.stringify(positiveStatus),
   );
-  assert.equal((positiveStatus.leaders as Array<Record<string, unknown>>)[0]?.instanceId, "claude-lee");
-  assert.equal(
-    ((positiveStatus.leaders as Array<Record<string, unknown>>)[0]?.provider as Record<string, unknown>).model,
-    "fable",
-  );
+  const positiveLeader = run(root, env, [
+    "runtime",
+    "status",
+    String((positiveStatus.leaderTurns as Array<Record<string, unknown>>)[0]?.runtimeSessionId),
+  ]).session as Record<string, unknown>;
+  assert.equal(positiveLeader.instanceId, "claude-lee");
+  assert.equal((positiveLeader.definitionSnapshot as Record<string, unknown>).model, "fable");
   const positiveCancellation = run(root, env, ["squad", "cancel", String(positive.squadRunId)]);
   assert.equal(positiveCancellation.outcome, "completed");
   for (const field of ["opId", "acceptance", "proof", "status"])
@@ -441,10 +464,10 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
       "negative mixed mission",
     ]),
     negativeStatus = pollSquadUntil(root, env, String(negative.squadRunId), (status) => {
-      const workers = status.workers as Array<Record<string, unknown>> | undefined;
-      return (status.leaders as unknown[] | undefined)?.length === 2 && workers?.[0]?.rejection !== null;
+      const workers = status.workerAttempts as Array<Record<string, unknown>> | undefined;
+      return (status.leaderTurns as unknown[] | undefined)?.length === 2 && workers?.[0]?.rejection !== null;
     }),
-    rejection = String((negativeStatus.workers as Array<Record<string, unknown>>)[0]?.rejection),
+    rejection = String((negativeStatus.workerAttempts as Array<Record<string, unknown>>)[0]?.rejection),
     leaderCalls = readFileSync(leaderLog, "utf8")
       .trim()
       .split("\n")
@@ -456,7 +479,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
     rejection,
     "Agent mixed-missing requires agy, but no enabled instance of those runtime kinds is available on this node.",
   );
-  assert.deepEqual((negativeStatus.leaders as Array<Record<string, unknown>>)[1]?.trigger, {
+  assert.deepEqual((negativeStatus.leaderTurns as Array<Record<string, unknown>>)[1]?.trigger, {
     kind: "worker_rejected",
     attemptId: "worker-1",
   });
@@ -473,7 +496,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
         squadRunId: negative.squadRunId,
         status: negativeStatus.status,
         rejection,
-        trigger: (negativeStatus.leaders as Array<Record<string, unknown>>)[1]?.trigger,
+        trigger: (negativeStatus.leaderTurns as Array<Record<string, unknown>>)[1]?.trigger,
       },
     })}\n`,
   );
@@ -610,7 +633,7 @@ test(
     for (const field of ["opId", "acceptance", "proof", "status"]) assert.equal(Object.hasOwn(started, field), false);
     const current = pollSquadStatus(root, env, String(started.squadRunId));
     assert.equal(current.status, "converged", JSON.stringify(current));
-    const workers = current.workers as Array<Record<string, unknown>>;
+    const workers = current.workerAttempts as Array<Record<string, unknown>>;
     assert.deepEqual(
       workers.map((worker) => worker.workerId),
       ["terra", "luna"],
@@ -618,11 +641,18 @@ test(
     // The bearer-reuse workers emit their protocol and exit cleanly but commit nothing in their
     // squad checkouts, so their dispatches settle unknown rather than success (F-4C182EEE).
     assert.equal(
-      workers.every((worker) => worker.status === "unknown" && worker.exitCode === 0),
+      workers.every((worker) => worker.status === "unknown"),
       true,
     );
     const configPath = path.join(userRoot, "runtime-instances", "squad-api", "home", ".codex", "config.toml");
     assert.match(readFileSync(configPath, "utf8"), /experimental_bearer_token = "squad-secret"/u);
+    for (const worker of workers) {
+      const session = run(root, env, ["runtime", "status", String(worker.runtimeSessionId)]).session as Record<
+        string,
+        unknown
+      >;
+      assert.equal((session.activity as Record<string, unknown>).exitCode, 0);
+    }
     process.stdout.write(`squad-api-key-flow ${JSON.stringify({ squadRunId: current.squadRunId, workers })}\n`);
   },
 );

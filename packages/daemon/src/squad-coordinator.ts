@@ -1,14 +1,15 @@
+import { squadReadError } from "./squad-run-list.ts";
+import { requireSquadParentExecution, squadParentExecutionCurrent } from "./squad-runtime-ingress.ts";
+import { squadRunObservation } from "./squad-observation.ts";
+import type { SquadRunObservation } from "@harness-anything/kernel";
 import { randomUUID } from "node:crypto";
 import {
   consumeKnownError,
-  createEntityStore,
   isSameExecution,
   localGitObjectRefStore,
   parseAgentDeclarationV1,
   parseSquadDeclarationV1,
-  runtimeSessionSemanticState,
   type AgentRuntimeEventV1,
-  type CanonicalEventStore,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord } from "./dispatch-stream.ts";
@@ -39,47 +40,38 @@ import {
   type WorkerPlan,
 } from "./squad-leader-decision.ts";
 import {
-  ensureSquadRunProjection as ensureRunProjection,
-  squadState,
+  latestSquadStates,
+  squadPublicationAcks,
   terminal,
   validSquadRunId,
   type SquadState,
 } from "./squad-run-state.ts";
-import {
-  activePhase,
-  detailDto,
-  statusDto,
-  summaryDto,
-  compareRunSummaries,
-  invalidSquadRunProjection,
-  listQuery,
-  matchesRunQuery,
-  runInActivityWindow,
-  squadReadError,
-} from "./squad-run-list.ts";
-import type {
-  SquadRunInvalidSummaryDto,
-  SquadRunListRowDto,
-  SquadRunPhase,
-  SquadRunReadResult,
-  SquadRunsListResult,
-} from "./squad-run-contract.ts";
-import { isAvailableSquadRunSummary } from "./squad-run-contract.ts";
 import { checkWorkerOwnership, overlappingWorkerPaths, type WorkerOwnershipCheck } from "./squad-worker-ownership.ts";
 
 type RuntimeOutcomeEvent = Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>;
 
 export function makeSquadCoordinator(input: {
   readonly rootDir: string;
+  readonly publishObservation: (observation: SquadRunObservation, binding: RuntimeBinding) => Promise<void>;
   /** Settings `worktree.setup`: what the Squad's task worktree and each worker worktree run once. */
   readonly readWorktreeSetup: () => readonly string[];
-  readonly projection: () => TaskProjection;
-  readonly store: () => CanonicalEventStore;
-  readonly reacquireTaskLease: (taskId: string, binding: RuntimeBinding) => Promise<void>;
-  readonly releaseTaskLease: (taskId: string, binding: RuntimeBinding) => Promise<void>;
+  readonly query: <T>(read: (projection: TaskProjection) => T) => T;
+  readonly readResult: (ref: string) => string;
+  readonly reacquireTaskLease: (
+    taskId: string,
+    binding: RuntimeBinding,
+    parent?: Pick<SquadState, "squadRunId" | "taskId" | "executionId">,
+  ) => Promise<void>;
+  readonly releaseTaskLease: (
+    taskId: string,
+    binding: RuntimeBinding,
+    executionId: string,
+    squadRunId: string,
+  ) => Promise<void>;
   readonly createChildTask: (
     child: {
       readonly parentTaskId: string;
+      readonly squadRunId: string;
       readonly key: string;
       readonly workerId: string;
       readonly prompt: string;
@@ -90,6 +82,7 @@ export function makeSquadCoordinator(input: {
   readonly recordOwnershipCheck: (
     child: {
       readonly parentTaskId: string;
+      readonly squadRunId: string;
       readonly taskId: string;
       readonly executionId: string;
       readonly check: WorkerOwnershipCheck;
@@ -107,13 +100,26 @@ export function makeSquadCoordinator(input: {
     binding: RuntimeBinding,
   ) => Promise<void>;
   readonly runtimeSpawner: () => {
-    readonly spawn: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
+    readonly spawn: (
+      payload: JsonObject,
+      binding: RuntimeBinding,
+      onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
+    ) => Promise<JsonObject>;
     readonly cancel: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
   };
 }) {
+  const states = new Map(latestSquadStates(input.rootDir)),
+    publicationAcks = squadPublicationAcks(input.rootDir);
   const start = async (action: JsonObject, binding: RuntimeBinding): Promise<JsonObject> => {
     const taskId = requiredSquadText(action.taskId, "taskId"),
-      activeRun = readStates().find((state) => state.taskId === taskId && !terminal(state));
+      activeRun = readStates().find(
+        (state) =>
+          state.taskId === taskId &&
+          !terminal(state) &&
+          input.query((projection) =>
+            squadParentExecutionCurrent(projection.read(state.taskId).snapshot, state.executionId),
+          ),
+      );
     if (activeRun)
       throw cellCriterionError(
         "squad_run_active",
@@ -124,14 +130,19 @@ export function makeSquadCoordinator(input: {
       );
     const squadId = requiredSquadText(action.squadId, "squadId"),
       runtimeInstanceId = requiredSquadText(action.runtimeInstanceId, "runtimeInstanceId"),
-      cwd = await resolveSquadCwd(input.rootDir, action.cwd, input.projection, taskId, input.readWorktreeSetup()),
+      cwd = await resolveSquadCwd(input.rootDir, action.cwd, input.query, taskId, input.readWorktreeSetup()),
       squad = squadForRun(squadId),
       baseSha = localGitObjectRefStore.headCommit(cwd);
     let mission: string;
+    let publicMission: string;
     await input.reacquireTaskLease(taskId, binding);
     try {
-      const taskMission = deriveTaskMission(input.rootDir, cwd, input.projection(), taskId, "squad.run");
+      const taskMission = input.query((projection) =>
+        deriveTaskMission(input.rootDir, cwd, projection, taskId, "squad.run"),
+      );
       mission = optionalText(action.prompt) ?? taskMission.mission;
+      publicMission =
+        optionalText(action.prompt) ?? input.query((projection) => projection.read(taskId).snapshot.task!.title);
     } catch (error) {
       throw cellCriterionError(
         errorCode(error, "squad_task_unavailable"),
@@ -148,10 +159,12 @@ export function makeSquadCoordinator(input: {
         stateDispatchId: null,
         squadId,
         taskId,
+        executionId: input.query((projection) => projection.currentLease(taskId))!.executionId,
         runtimeInstanceId,
         cwd,
         baseSha,
         mission,
+        publicMission,
         model: optionalText(action.model),
         effort: optionalText(action.effort),
         permissionMode: optionalText(action.permissionMode),
@@ -183,48 +196,13 @@ export function makeSquadCoordinator(input: {
         summary: `squad-run ${squadId}: ${squadRunId}`,
       };
     } catch (error) {
-      const failed = revise(state, {
-        phase: "failed",
-        error: errorText(error),
-      });
+      const prepared = states.get(squadRunId);
+      const failed = revise(prepared ?? state, { phase: "failed", error: errorText(error) });
+      if (prepared?.stateDispatchId) await writeState(failed);
       throw cellCriterionError(errorCode(error, "squad_leader_failed"), failed.error!, "run", "squad/leader-dispatch", [
         `Inspect the runtime instance and leader Agent, then retry ha squad run ${squadId}.`,
       ]);
     }
-  };
-
-  const status = (squadRunId: string): JsonObject => {
-    if (!validSquadRunId(squadRunId))
-      throw cellCriterionError(
-        "invalid_squad_run_id",
-        "Use the squad_<24 lowercase hex characters> handle returned by ha squad run.",
-        "status",
-        "squad/run-id",
-      );
-    const state = readSquadRunState(squadRunId);
-    if (!state)
-      throw cellCriterionError(
-        "squad_run_not_found",
-        `Squad run ${squadRunId} does not exist.`,
-        "status",
-        "squad/run-present",
-        ["Run ha squad run <squad-id> --instance <runtime-instance-id> --task <task-id> first."],
-      );
-    if ("projectionState" in state)
-      return {
-        ...state,
-        status: "invalid",
-        summary: state.projectionError.hint,
-        nextAction: state.projectionError.hint,
-      };
-    const detail = statusDto(state, dispatchRows(state)),
-      phase = visiblePhase(state);
-    return {
-      ...detail,
-      status: phase,
-      ...(terminal({ ...state, phase }) ? { exitCode: phase === "converged" ? 0 : 1 } : {}),
-      summary: `squad-run ${state.squadId}: ${phase}`,
-    };
   };
 
   const cancel = async (squadRunId: string, binding: RuntimeBinding): Promise<JsonObject> => {
@@ -236,24 +214,24 @@ export function makeSquadCoordinator(input: {
         "squad/run-id",
       );
     const state = readSquadRunState(squadRunId);
-    if (!state)
+    if (!state) {
+      const observed = input.query((projection) => projection.readSquadRun(squadRunId));
+      if (observed)
+        throw cellCriterionError(
+          "execution_scope_mismatch",
+          `Squad run ${squadRunId} has no control state on this node. Owner: ${JSON.stringify(observed.state.owner)}. Use its owner's authorized cancel entry.`,
+          "cancel",
+          "squad/run-owner",
+        );
       throw cellCriterionError(
         "squad_run_not_found",
         `Squad run ${squadRunId} does not exist.`,
         "cancel",
         "squad/run-present",
-        ["Run ha squad status <squad-run-id> and choose an existing run."],
       );
-    if ("projectionState" in state)
-      throw cellCriterionError(
-        state.projectionError.code,
-        state.projectionError.hint,
-        "cancel",
-        "squad/run-projection-valid",
-        ["Repair or rebuild the Squad run projection, then retry the cancellation."],
-      );
+    }
     if (state.phase !== "cancelled")
-      writeState(
+      recordState(
         revise(state, {
           currentLeaderRuntimeSessionId: null,
           workerWaits: [],
@@ -271,16 +249,21 @@ export function makeSquadCoordinator(input: {
         input.runtimeSpawner().cancel({ runtimeSessionId }, binding),
       ),
     );
+    const [publication] = await Promise.allSettled([publishState(states.get(squadRunId)!)]);
     const failures = results.filter((result) => result.status === "rejected");
     if (failures.length > 0)
       throw cellCriterionError(
         "squad_cancel_incomplete",
-        `Squad run ${squadRunId} is durably cancelled, but ${String(failures.length)} runtime cancellation(s) failed.`,
+        `Squad run ${squadRunId} recorded cancellation, but ${String(failures.length)} runtime cancellation(s) failed.` +
+          (publication?.status === "rejected"
+            ? ` Canonical publication is unconfirmed: ${errorText(publication.reason)}`
+            : ""),
         "cancel",
         "squad/cancellation-complete",
         [`Retry ha squad cancel ${squadRunId}; already-cancelled runtimes are idempotent.`],
       );
     const retained = await reclaimWorkerCheckouts(state.cwd, state.workerAttempts);
+    if (publication?.status === "rejected") throw publication.reason;
     return {
       squadRunId,
       status: "cancelled",
@@ -289,7 +272,9 @@ export function makeSquadCoordinator(input: {
   };
 
   function squadForRun(squadId: string) {
-    const entityStore = createEntityStore(input.store()),
+    const entityStore = {
+        get: (kind: string, id: string) => input.query((projection) => projection.getEntity(kind, id)),
+      },
       stored = entityStore.get("squad", squadId);
     if (!stored)
       throw cellCriterionError(
@@ -329,77 +314,38 @@ export function makeSquadCoordinator(input: {
     return squad;
   }
 
-  const list = (payload: Readonly<Record<string, unknown>>): SquadRunsListResult => {
-    const query = listQuery(payload),
-      cut = input.projection().readTaskStatuses([]),
-      // 一次 list 内按 taskId memo 派工台账读:同 task 的多个 run 共享一次读,读放大按 task 数结算。
-      dispatchesByTaskId = new Map<string, readonly TaskDispatchRow[]>(),
-      matching = readListRows(dispatchesByTaskId)
-        .filter(
-          (run) =>
-            !isAvailableSquadRunSummary(run) ||
-            activePhase(run.phase) ||
-            query.since === null ||
-            runInActivityWindow(run, query.since),
-        )
-        .filter((run) => matchesRunQuery(run, query.tokens))
-        .sort(compareRunSummaries),
-      selected = matching.slice(0, query.limit);
-    return {
-      ok: true,
-      status: cut.status,
-      runs: selected,
-      totals: { runs: matching.length },
-      truncated: selected.length < matching.length,
-      watermark: cut.watermark,
-      sourceRevision: cut.sourceRevision,
-    };
-  };
-
-  // GUI 读面(G12 §2c):把 `ha squad status` 的 statusDto 内容对 GUI 开放为编排
-  // 流转详情——leader 轮次、worker 派工链、error 全部来自既有 SquadState 与派工
-  // 台账行,零新计算;不存在/非法句柄走读面错误(protocol error),不伪造空详情。
-  const read = (squadRunId: string): SquadRunReadResult => {
-    if (!validSquadRunId(squadRunId))
-      throw squadReadError(
-        "invalid_squad_run_id",
-        "Use the squad_<24 lowercase hex characters> handle returned by ha squad run.",
-      );
-    const state = readSquadRunState(squadRunId);
-    if (!state) throw squadReadError("squad_run_not_found", `Squad run ${squadRunId} does not exist.`);
-    const cut = input.projection().readTaskStatuses([]);
-    if ("projectionState" in state)
-      return {
-        ok: true,
-        status: cut.status,
-        run: state,
-        watermark: cut.watermark,
-        sourceRevision: cut.sourceRevision,
-      };
-    return detailDto(state, dispatchRows(state), visiblePhase(state), cut, receiptText);
-  };
-
   const observeOutcome = async (event: RuntimeOutcomeEvent): Promise<void> => {
     await observeRuntimeSession(event.payload.runtimeSessionId);
   };
 
   const reconcile = async (): Promise<void> => {
+    await flushPublications();
     for (const candidate of readStates()) {
       if (terminal(candidate)) continue;
+      if (
+        !input.query((projection) =>
+          squadParentExecutionCurrent(projection.read(candidate.taskId).snapshot, candidate.executionId),
+        )
+      )
+        continue;
       let state = readSquadRunState(candidate.squadRunId);
-      if (!state || "projectionState" in state || terminal(state)) continue;
+      if (!state || terminal(state)) continue;
+      if (state.phase === "planning" && state.leaderTurns.length === 0) {
+        await spawnLeader(state, { kind: "initial" });
+        continue;
+      }
       const currentLeader = state.currentLeaderRuntimeSessionId;
       if (currentLeader && terminalRow(state, currentLeader)) {
         await observeRuntimeSession(currentLeader);
         state = readSquadRunState(candidate.squadRunId);
-        if (!state || "projectionState" in state || terminal(state)) continue;
+        if (!state || terminal(state)) continue;
       }
       const lastTurn = state.leaderTurns.at(-1);
       if (!state.currentLeaderRuntimeSessionId && lastTurn?.decision?.kind === "plan")
         state = await dispatchPlan(state, lastTurn.decision, lastTurn.turnId);
       const discovered = discoverWorkerCallbacks(state);
       if (discovered !== state) {
-        writeState(discovered);
+        await writeState(discovered);
       }
       if (
         !discovered.currentLeaderRuntimeSessionId &&
@@ -413,8 +359,14 @@ export function makeSquadCoordinator(input: {
   async function observeRuntimeSession(runtimeSessionId: string): Promise<void> {
     for (const candidate of readStates()) {
       if (terminal(candidate)) continue;
+      if (
+        !input.query((projection) =>
+          squadParentExecutionCurrent(projection.read(candidate.taskId).snapshot, candidate.executionId),
+        )
+      )
+        continue;
       const state = readSquadRunState(candidate.squadRunId);
-      if (!state || "projectionState" in state || terminal(state)) continue;
+      if (!state || terminal(state)) continue;
       if (state.currentLeaderRuntimeSessionId === runtimeSessionId) {
         await continueLeader(state, runtimeSessionId);
         return;
@@ -438,7 +390,7 @@ export function makeSquadCoordinator(input: {
         pendingLeaderTriggers: [...state.pendingLeaderTriggers, trigger],
       }),
     );
-    writeState(updated);
+    await writeState(updated);
     if (!updated.currentLeaderRuntimeSessionId && !hasRunningWorkers(updated)) await spawnPendingLeader(updated);
   }
 
@@ -477,12 +429,12 @@ export function makeSquadCoordinator(input: {
       currentLeaderRuntimeSessionId: null,
       error: null,
     });
-    writeState(updated);
+    await writeState(updated);
 
     if (decision.kind === "plan") updated = await dispatchPlan(updated, decision, turn.turnId);
 
     updated = discoverWorkerCallbacks(updated);
-    writeState(updated);
+    await writeState(updated);
     if (updated.pendingLeaderTriggers.length && !hasRunningWorkers(updated)) {
       await spawnPendingLeader(updated);
       return;
@@ -494,7 +446,7 @@ export function makeSquadCoordinator(input: {
         : convergenceError(updated, decision);
       if (error === null) {
         try {
-          await input.reacquireTaskLease(updated.taskId, updated.binding);
+          await input.reacquireTaskLease(updated.taskId, updated.binding, updated);
           await input.publishSynthesisReport(
             {
               taskId: updated.taskId,
@@ -514,12 +466,12 @@ export function makeSquadCoordinator(input: {
         phase: error ? "failed" : "converged",
         error,
       });
-      writeState(ended);
+      await writeState(ended);
       await reclaimWorkerCheckouts(ended.cwd, ended.workerAttempts);
       return;
     }
     if (running) {
-      writeState(revise(updated, { phase: "workers_running", error: null }));
+      await writeState(revise(updated, { phase: "workers_running", error: null }));
       return;
     }
     await retryLeader(updated, turn, "Leader returned no work and did not declare convergence.");
@@ -545,7 +497,7 @@ export function makeSquadCoordinator(input: {
       );
       updated = active ? recordWorkerWait(updated, active.attempt) : await spawnWorker(updated, plan, turnId);
     }
-    await input.releaseTaskLease(updated.taskId, updated.binding);
+    await input.releaseTaskLease(updated.taskId, updated.binding, updated.executionId, updated.squadRunId);
     return updated;
   }
 
@@ -561,7 +513,7 @@ export function makeSquadCoordinator(input: {
       pendingLeaderTriggers: [{ kind: "leader_retry", turnId: turn.turnId, reason }, ...state.pendingLeaderTriggers],
       phase: "planning",
     });
-    writeState(retrying);
+    await writeState(retrying);
     await spawnPendingLeader(retrying);
   }
 
@@ -583,25 +535,26 @@ export function makeSquadCoordinator(input: {
       worktree: null,
       rejection: null,
     };
-    const save = (current: SquadState): SquadState => {
+    const save = async (current: SquadState): Promise<SquadState> => {
       const updated = revise(current, {
         workerAttempts: [...current.workerAttempts.filter((row) => row.attemptId !== attemptId), attempt],
         phase: "workers_running",
       });
-      writeState(updated);
+      await writeState(updated);
       return updated;
     };
-    state = save(state);
+    state = await save(state);
     try {
       for (const { attempt: other, row } of workerRows(state)) {
         if (other.attemptId === attemptId || other.rejection || row?.outcome) continue;
         const overlap = overlappingWorkerPaths(attempt.ownedPaths, other.ownedPaths);
         if (overlap) throw new Error(`Ownership conflict with ${other.taskId ?? other.attemptId}: ${overlap}`);
       }
-      await input.reacquireTaskLease(state.taskId, state.binding);
+      await input.reacquireTaskLease(state.taskId, state.binding, state);
       const taskId = await input.createChildTask(
         {
           parentTaskId: state.taskId,
+          squadRunId: state.squadRunId,
           key: `${state.squadRunId}:${leaderTurnId}:${attemptId}`,
           workerId: plan.workerId,
           prompt: plan.prompt,
@@ -610,12 +563,15 @@ export function makeSquadCoordinator(input: {
         state.binding,
       );
       attempt = { ...attempt, taskId };
-      state = save(state);
-      const accepted = readTaskDispatches({
-        rootDir: input.rootDir,
-        projection: input.projection(),
-        taskId,
-      }).dispatches.find((row) => row.agentId === plan.workerId);
+      state = await save(state);
+      const accepted = input
+        .query((projection) =>
+          readTaskDispatches({
+            projection,
+            taskId,
+          }),
+        )
+        .dispatches.find((row) => row.agentId === plan.workerId);
       if (accepted) {
         attempt = {
           ...attempt,
@@ -625,12 +581,12 @@ export function makeSquadCoordinator(input: {
         };
         return save(state);
       }
-      const childLease = input.projection().read(taskId).snapshot.lease;
+      const childLease = input.query((projection) => projection.read(taskId).snapshot).lease;
       // A previous dispatch can hand off its lease before recording its receipt. The spawner
       // validates the stable runtime identity; the coordinator must not reclaim that lease.
       if (childLease?.phase !== "held" || isSameExecution(childLease.actor, state.binding.actor))
-        await input.reacquireTaskLease(taskId, state.binding);
-      const executionId = input.projection().read(taskId).snapshot.lease?.executionId;
+        await input.reacquireTaskLease(taskId, state.binding, state);
+      const executionId = input.query((projection) => projection.read(taskId).snapshot).lease?.executionId;
       if (!executionId) throw new Error(`Child ${taskId} has no execution lease.`);
       const worktree =
         state.permissionMode === "read-only"
@@ -644,11 +600,21 @@ export function makeSquadCoordinator(input: {
               { rootDir: input.rootDir, taskId, steps: input.readWorktreeSetup() },
             );
       attempt = { ...attempt, worktree, executionId };
-      state = save(state);
+      state = await save(state);
       const receipt = await input.runtimeSpawner().spawn(
           {
             agentId: state.leaderAgentId,
             squadId: state.squadId,
+            squadRun: state.stateDispatchId
+              ? { squadRunId: state.squadRunId, ownerDispatchId: state.stateDispatchId, turnId: attemptId }
+              : {
+                  squadRunId: state.squadRunId,
+                  squadId: state.squadId,
+                  taskId: state.taskId,
+                  executionId: state.executionId,
+                  mission: state.publicMission,
+                  leaderAgentId: state.leaderAgentId,
+                },
             targetAgentId: plan.workerId,
             prompt: workerPrompt(plan.prompt, worktree, attempt.ownedPaths),
             cwd: cwdPayload(input.rootDir, worktree?.cwd ?? state.cwd),
@@ -665,14 +631,16 @@ export function makeSquadCoordinator(input: {
       attempt = completed;
       return save(state);
     } catch (error) {
-      const lease = attempt.taskId ? input.projection().read(attempt.taskId).snapshot.lease : null;
+      const lease = attempt.taskId
+        ? input.query((projection) => projection.read(attempt.taskId!).snapshot).lease
+        : null;
       if (lease && isSameExecution(lease.actor, state.binding.actor))
-        await input.releaseTaskLease(attempt.taskId!, state.binding);
+        await input.releaseTaskLease(attempt.taskId!, state.binding, attempt.executionId!, state.squadRunId);
       attempt = { ...attempt, rejection: errorText(error) };
-      const updated = revise(save(state), {
+      const updated = revise(await save(state), {
         pendingLeaderTriggers: [...state.pendingLeaderTriggers, { kind: "worker_rejected", attemptId }],
       });
-      writeState(updated);
+      await writeState(updated);
       return updated;
     }
   }
@@ -703,13 +671,14 @@ export function makeSquadCoordinator(input: {
     try {
       if (state.leaderTurns.length >= state.leaderTurnBudget)
         throw new Error(`leader turn budget ${state.leaderTurnBudget} exhausted`);
-      await input.reacquireTaskLease(state.taskId, state.binding);
+      await input.reacquireTaskLease(state.taskId, state.binding, state);
       for (const attempt of state.workerAttempts) {
         if (!attempt.worktree || !attempt.taskId || !attempt.executionId || attempt.ownershipCheck) continue;
         const check = await checkWorkerOwnership(attempt.worktree, attempt.ownedPaths);
         await input.recordOwnershipCheck(
           {
             parentTaskId: state.taskId,
+            squadRunId: state.squadRunId,
             taskId: attempt.taskId,
             executionId: attempt.executionId,
             check,
@@ -721,7 +690,7 @@ export function makeSquadCoordinator(input: {
             row.attemptId === attempt.attemptId ? { ...row, ownershipCheck: check } : row,
           ),
         });
-        writeState(state);
+        await writeState(state);
       }
       return await spawnLeader(state, trigger);
     } catch (error) {
@@ -730,14 +699,15 @@ export function makeSquadCoordinator(input: {
         currentLeaderRuntimeSessionId: null,
         error: errorText(error),
       });
-      writeState(failed);
+      await writeState(failed);
       await reclaimWorkerCheckouts(failed.cwd, failed.workerAttempts);
       return failed;
     }
   }
 
   async function spawnLeader(state: SquadState, trigger: LeaderTrigger): Promise<SquadState> {
-    if (trigger.kind !== "initial") await input.reacquireTaskLease(state.taskId, state.binding);
+    input.query((projection) => requireSquadParentExecution(projection, state.taskId, state.executionId));
+    if (trigger.kind !== "initial") await input.reacquireTaskLease(state.taskId, state.binding, state);
     const drainedTriggers = trigger.kind === "initial" ? [] : state.pendingLeaderTriggers,
       turnId = `leader-${state.leaderTurns.length + 1}`,
       prompt =
@@ -749,6 +719,17 @@ export function makeSquadCoordinator(input: {
           runtimeInstanceId: state.runtimeInstanceId,
           agentId: state.leaderAgentId,
           squadId: state.squadId,
+          squadRun:
+            trigger.kind !== "initial" && state.stateDispatchId
+              ? { squadRunId: state.squadRunId, ownerDispatchId: state.stateDispatchId, turnId }
+              : {
+                  squadRunId: state.squadRunId,
+                  squadId: state.squadId,
+                  taskId: state.taskId,
+                  executionId: state.executionId,
+                  mission: state.publicMission,
+                  leaderAgentId: state.leaderAgentId,
+                },
           ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),
           prompt,
           cwd: cwdPayload(input.rootDir, state.cwd),
@@ -764,6 +745,12 @@ export function makeSquadCoordinator(input: {
               : `${state.squadRunId}:leader:${triggerKey(trigger)}`,
         },
         state.binding,
+        trigger.kind === "initial"
+          ? (dispatchId) => {
+              state = { ...state, stateDispatchId: dispatchId };
+              recordState(state);
+            }
+          : undefined,
       ),
       dispatchId = requiredReceiptText(receipt, "dispatchId"),
       runtimeSessionId = requiredReceiptText(receipt, "runtimeSessionId"),
@@ -784,7 +771,7 @@ export function makeSquadCoordinator(input: {
         phase: "leader_running",
         error: null,
       });
-    writeState(updated);
+    await writeState(updated);
     return updated;
   }
 
@@ -843,31 +830,15 @@ export function makeSquadCoordinator(input: {
 
   function dispatchRows(state: SquadState): readonly TaskDispatchRow[] {
     const childIds = state.workerAttempts.flatMap((attempt) => (attempt.taskId ? [attempt.taskId] : [])),
-      result = readTaskDispatches({
-        rootDir: input.rootDir,
-        projection: input.projection(),
-        ...(childIds.length ? { taskIds: [state.taskId, ...childIds] } : { taskId: state.taskId }),
-      });
+      result = input.query((projection) =>
+        readTaskDispatches({
+          projection,
+          ...(childIds.length ? { taskIds: [state.taskId, ...childIds] } : { taskId: state.taskId }),
+        }),
+      );
     if ("unavailableTaskIds" in result && result.unavailableTaskIds.length)
       throw squadReadError("task_not_found", `Task ${result.unavailableTaskIds[0]} has no projected package path.`);
     return result.dispatches;
-  }
-
-  /** A run's dispatch set includes its parent and independent children. */
-  function summaryDispatchRows(
-    state: SquadState,
-    cache: Map<string, readonly TaskDispatchRow[]>,
-  ): readonly TaskDispatchRow[] {
-    const taskIds = [
-        state.taskId,
-        ...state.workerAttempts.flatMap((attempt) => (attempt.taskId ? [attempt.taskId] : [])),
-      ],
-      cacheKey = JSON.stringify([...new Set(taskIds)].sort()),
-      memoized = cache.get(cacheKey);
-    if (memoized !== undefined) return memoized;
-    const rows = dispatchRows(state);
-    cache.set(cacheKey, rows);
-    return rows;
   }
 
   function terminalRow(state: SquadState, runtimeSessionId: string): TaskDispatchRow | undefined {
@@ -875,68 +846,26 @@ export function makeSquadCoordinator(input: {
   }
 
   function resultText(resultRef: string | null | undefined): string {
-    const match = resultRef ? /^artifact:runtime-result\/sha256\/([0-9a-f]{64})$/u.exec(resultRef) : null;
-    if (!match) throw new Error("TaskDispatchRow has no runtime result reference.");
-    const blob = input.store().readContentBlob(match[1]!);
-    if (!blob) throw new Error(`Runtime result ${resultRef} is unavailable.`);
-    return new TextDecoder().decode(blob);
+    if (!resultRef) throw new Error("TaskDispatchRow has no runtime result reference.");
+    return input.readResult(resultRef);
   }
 
-  /** 读面专用:receipt 缺失(未结算/台账缺行/内容包裁剪)呈 null 不抛——fail-closed
-   * 语义由上面的 resultText 独占;解码与控制路径同款,不二次解释字节。 */
-  function receiptText(row: TaskDispatchRow | undefined): string | null {
-    const match = row?.resultRef ? /^artifact:runtime-result\/sha256\/([0-9a-f]{64})$/u.exec(row.resultRef) : null;
-    if (!match) return null;
-    const blob = input.store().readContentBlob(match[1]!);
-    return blob ? new TextDecoder().decode(blob) || null : null;
+  function readSquadRunState(id: string): SquadState | null {
+    return states.get(id) ?? null;
   }
-
-  function readSquadRunState(squadRunId: string): SquadState | SquadRunInvalidSummaryDto | null {
-    if (!validSquadRunId(squadRunId)) return null;
-    ensureSquadRunProjection();
-    const row = input.projection().readSquadRun(squadRunId),
-      state = squadState(row?.state);
-    return row !== null && state === null ? invalidSquadRunProjection(squadRunId) : state;
-  }
-
   function readStates(): readonly SquadState[] {
-    ensureSquadRunProjection();
-    return input
-      .projection()
-      .readSquadRuns()
-      .flatMap((row) => {
-        const state = squadState(row.state);
-        return state ? [state] : [];
-      });
+    return [...states.values()];
   }
 
-  function readListRows(dispatchesByTaskId: Map<string, readonly TaskDispatchRow[]>): readonly SquadRunListRowDto[] {
-    ensureSquadRunProjection();
-    return input
-      .projection()
-      .readSquadRuns()
-      .map((row) => {
-        const state = squadState(row.state);
-        return state
-          ? summaryDto(state, summaryDispatchRows(state, dispatchesByTaskId), visiblePhase(state), input.projection())
-          : invalidSquadRunProjection(row.squadRunId);
-      });
-  }
-
-  function ensureSquadRunProjection(): void {
-    ensureRunProjection(input.rootDir, input.projection());
-  }
-
-  function writeState(state: SquadState): void {
+  function recordState(state: SquadState): void {
     if (!state.stateDispatchId) throw new Error("Squad state has no owning dispatch stream.");
-    ensureSquadRunProjection();
-    const projection = input.projection();
-    projection.markSquadRunProjectionDirty();
+    states.set(state.squadRunId, state);
     appendRuntimeWorkerRecord(input.rootDir, state.stateDispatchId, {
       kind: "squad_run_state",
       squadRunId: state.squadRunId,
       revision: state.revision,
       state,
+      observation: squadRunObservation(state),
     });
     if (state.phase === "cancelled")
       appendRuntimeWorkerRecord(input.rootDir, state.stateDispatchId, {
@@ -944,16 +873,37 @@ export function makeSquadCoordinator(input: {
         squadRunId: state.squadRunId,
         revision: state.revision,
       });
-    projection.upsertSquadRun({ squadRunId: state.squadRunId, revision: state.revision, state });
+  }
+  async function writeState(state: SquadState): Promise<void> {
+    recordState(state);
+    await publishState(state);
+  }
+  async function publishState(state: SquadState): Promise<void> {
+    if (state.revision === 0 || (publicationAcks.get(state.squadRunId) ?? -1) >= state.revision) return;
+    await input.publishObservation(squadRunObservation(state), state.binding);
+    appendRuntimeWorkerRecord(input.rootDir, state.stateDispatchId!, {
+      kind: "squad_run_publication_ack",
+      squadRunId: state.squadRunId,
+      revision: state.revision,
+    });
+    publicationAcks.set(state.squadRunId, state.revision);
+  }
+  async function flushPublications(): Promise<void> {
+    for (const state of readStates()) {
+      // Keep an old pending active snapshot for local recovery, without letting it
+      // revive an obsolete execution or block a new run. Terminal reports remain publishable.
+      if (
+        !terminal(state) &&
+        !input.query((projection) =>
+          squadParentExecutionCurrent(projection.read(state.taskId).snapshot, state.executionId),
+        )
+      )
+        continue;
+      await publishState(state);
+    }
   }
 
-  function visiblePhase(state: SquadState): SquadRunPhase {
-    if (terminal(state) || state.currentLeaderRuntimeSessionId === null) return state.phase;
-    const leader = input.projection().readRuntimeSession(state.currentLeaderRuntimeSessionId);
-    return leader && runtimeSessionSemanticState(leader) === "cancelled" ? "cancelled" : state.phase;
-  }
-
-  return { start, status, cancel, list, read, observeOutcome, reconcile };
+  return { start, cancel, observeOutcome, reconcile, flushPublications };
 }
 
 function revise(

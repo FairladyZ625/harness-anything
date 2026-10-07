@@ -1,5 +1,5 @@
 import type { GuiActionResult } from "../api/renderer-dto.ts";
-import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import type { EntityLocator, EntityLocatorReadOutcome } from "./entity-locator-renderer.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 import { invoke } from "./api-client-invoke.ts";
@@ -52,7 +52,7 @@ export async function readEntityLocatorContent(repoId: string, locator: EntityLo
   if (!channel) throw new Error("Entity locator bridge is unavailable.");
   const value = await channel({ repoId, locatorKind: locator.kind, locatorValue: locator.value });
   if (!isRendererRecord(value) || value.schema !== "entity-locator-read/v1" || typeof value.outcome !== "string")
-    throw new Error(rendererErrorHint(value, "Entity locator bridge returned an invalid result."));
+    throw rendererReadError(value, "Entity locator bridge returned an invalid result.");
   return value as unknown as EntityLocatorContent;
 }
 

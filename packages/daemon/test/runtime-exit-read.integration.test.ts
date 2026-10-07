@@ -10,9 +10,8 @@ import { binding } from "../src/daemon-host-binding.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
-import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
+import { makeAgentRuntimeReadModel, readObservedRuntimeSession } from "../src/agent-runtime-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
-import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 
 const dispatchId = "dispatch_000000000000000000000007";
 
@@ -49,6 +48,7 @@ for (const role of ["implementation", "reviewer"] as const) {
       readCut: () => ({ status: "ready", watermark: 3, sourceRevision: 3 }),
       readRuntimeSession: () => session,
       readRuntimeSessions: () => [session],
+      readRuntimeSessionEvents: () => [],
       readRuntimeInstallation: () => null,
       readRuntimeInstallations: () => [],
       readRuntimeDispatch: () => dispatch,
@@ -59,8 +59,6 @@ for (const role of ["implementation", "reviewer"] as const) {
     const reads = makeAgentRuntimeReadModel({
       projection,
       store: { readContentBlob: () => null } as never,
-      stream: { latestCursor: () => "stream:0" } as never,
-      readActivityEvidence: (id) => readRuntimeSessionActivityEvidence(rootDir, id),
       now: () => "2099-01-01T00:00:00.000Z",
     });
     const writer = openDispatchStream(rootDir, {
@@ -74,12 +72,16 @@ for (const role of ["implementation", "reviewer"] as const) {
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
     assert.equal(reads.session({ runtimeSessionId: session.runtimeSessionId }).session.liveness, "live");
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 0, signal: null });
-    const exited = reads.session({ runtimeSessionId: session.runtimeSessionId });
-    assert.equal(exited.session.liveness, "exited");
-    assert.equal(exited.session.attachCapability, "unsupported");
-    assert.notEqual(exited.session.activity.outcome, "succeeded");
-    assert.equal(exited.settlement?.outcome, "unknown");
-    assert.equal(exited.settlement?.code, "runtime_settlement_failed");
+    const exited = readObservedRuntimeSession(projection, rootDir, session.runtimeSessionId)!;
+    assert.equal(exited.liveness, "exited");
+    assert.equal(exited.attachable, false);
+    assert.equal(exited.outcome, null);
+    assert.equal(exited.exitCode, 0);
+    assert.equal(
+      reads.session({ runtimeSessionId: session.runtimeSessionId }).session.liveness,
+      "live",
+      "public queries retain the last accepted observation when settlement is denied",
+    );
     const body = "Worker finished.\nRuntime archive publication failed: authentication_required",
       sha256 = createHash("sha256").update(body).digest("hex"),
       resultRef = `artifact:runtime-result/sha256/${sha256}`;
@@ -100,27 +102,20 @@ for (const role of ["implementation", "reviewer"] as const) {
       },
       "2026-10-03T11:54:11.000Z",
     );
-    const failed = reads.session({ runtimeSessionId: session.runtimeSessionId });
-    assert.equal(failed.session.liveness, "exited");
-    assert.equal(failed.session.semanticState, "failed");
-    assert.equal(failed.session.activity.reasonCode, "runtime_archive_failed");
-    assert.equal(failed.session.activity.exitCode, 0);
-    assert.deepEqual(failed.result, { ref: resultRef, text: body });
-    assert.equal(failed.settlement?.outcome, "failed");
-    assert.equal(failed.settlement?.exitCode, 1);
-    assert.match(failed.settlement?.reason ?? "", /authentication_required/);
-    assert.equal(reads.overview({}).sessions[0]?.liveness, "exited");
-    assert.equal(reads.overview({}).sessions[0]?.semanticState, "failed");
-    const groups = reads.sessionGroups({ since: "2026-01-01T00:00:00.000Z" });
-    assert.ok(JSON.stringify(groups).includes('"failed"'));
-    assert.equal(session.liveness, "live", "read evidence must not write the canonical projection");
+    const failed = readObservedRuntimeSession(projection, rootDir, session.runtimeSessionId)!;
+    assert.equal(failed.liveness, "exited");
+    assert.equal(failed.outcome, "failed");
+    assert.equal(failed.reasonCode, "runtime_archive_failed");
+    assert.equal(failed.exitCode, 0);
+    assert.equal(failed.resultRef, resultRef);
+    assert.equal(reads.overview({}).sessions[0]?.liveness, "live");
+    assert.equal(reads.session({ runtimeSessionId: session.runtimeSessionId }).result, null);
+    assert.equal(session.liveness, "live", "local evidence must not write the canonical projection");
     assert.equal(session.outcome, null);
-    session = { ...session, liveness: "exited", attachable: false };
-    assert.equal(reads.session({ runtimeSessionId: session.runtimeSessionId }).session.semanticState, "failed");
-    session = { ...session, outcome: "cancelled" };
-    const canonical = reads.session({ runtimeSessionId: session.runtimeSessionId });
-    assert.equal(canonical.session.activity.outcome, "cancelled");
-    assert.equal(canonical.result, null, "local terminal text must not replace a canonical outcome");
+    session = { ...session, liveness: "exited", attachable: false, outcome: "cancelled" };
+    const canonical = readObservedRuntimeSession(projection, rootDir, session.runtimeSessionId)!;
+    assert.equal(canonical.outcome, "cancelled");
+    assert.equal(canonical.resultRef, null, "local terminal text must not replace a canonical outcome");
   });
 }
 

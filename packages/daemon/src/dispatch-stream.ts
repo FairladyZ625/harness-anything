@@ -193,6 +193,7 @@ const summaryKinds = new Set([
   "fallback_state",
   "squad_run_state",
   "squad_run_cancelled",
+  "squad_run_publication_ack",
   "runtime_metrics",
   "execution_principal",
 ]);
@@ -430,13 +431,15 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
   return summarizeDispatch(header, records, stat.mtimeMs);
 }
 
-export function readDispatchStreamHeaders(rootDir: string): readonly DispatchStreamHeader[] {
+export function readDispatchStreamHeaders(rootDir: string, includeArchived = false): readonly DispatchStreamHeader[] {
   const root = dispatchStreamRoot(resolveHarnessLayout(rootDir));
-  if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
-  return readdirSync(root)
-    .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
-    .map((name) => readDispatchStreamHeaderAt(path.join(root, name), name.slice(0, -6)))
-    .filter((header): header is DispatchStreamHeader => header !== null);
+  return (includeArchived ? [root, path.join(root, "archive")] : [root]).flatMap((directory) => {
+    if (!statSync(directory, { throwIfNoEntry: false })?.isDirectory()) return [];
+    return readdirSync(directory)
+      .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
+      .map((name) => readDispatchStreamHeaderAt(path.join(directory, name), name.slice(0, -6)))
+      .filter((header): header is DispatchStreamHeader => header !== null);
+  });
 }
 
 /** Replay every retained stream when rebuilding projections that have no other durable source. */

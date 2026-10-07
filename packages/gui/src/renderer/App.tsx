@@ -89,6 +89,7 @@ import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.
 import { guiTransport } from "./gui-transport.ts";
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
+import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
 /**
  * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
  * 只有这些视图挂载时才读完整投影;
@@ -148,6 +149,10 @@ function AppShell() {
   // 全部来自上面两条既有查询,不加第二条读路。
   const ledgerReadError = [workspaceSummaryQuery.error, tasksQuery.error].find(
     (error): error is Error => error instanceof Error,
+  );
+  const ledgerUnavailable = [workspaceSummaryQuery.error, tasksQuery.error].some(
+    (error) =>
+      error && "code" in error && (error.code === "replica_unavailable" || error.code === "authorization_denied"),
   );
   const ledgerStatusBar: LedgerStatusBarInput = {
     revision: tasksQuery.data?.sourceRevision ?? null,
@@ -566,13 +571,16 @@ function AppShell() {
             </div>
           ) : null}
           <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
+          <RepositoryReadNotice repoId={activeRepoId} />
           <PageEntryBoundary
             key={projectId}
             identity={pageEntryIdentity(projectId, location)}
             className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden"
           >
             <div className="content-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              {selected && selectedWorkRootId === null ? (
+              {ledgerUnavailable ? (
+                <WorkspaceSummaryPending error={ledgerReadError} />
+              ) : selected && selectedWorkRootId === null ? (
                 renderTaskDetail(selected, {
                   onBack: () => updateLocation({ selectedId: null }),
                   fromViewLabel: navLabel(view),

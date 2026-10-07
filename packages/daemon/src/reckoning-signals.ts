@@ -1,4 +1,4 @@
-import type { CanonicalEventStore, CanonicalEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
+import type { CanonicalEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
 
 const DAY_MS = 86_400_000,
   SHORT_LIVED_DECISION_MS = 7 * DAY_MS;
@@ -18,8 +18,7 @@ export interface ReckoningResult {
 }
 
 export function readReckoningSignals(
-  store: Pick<CanonicalEventStore, "queryEvents">,
-  projection: Pick<TaskProjection, "readRuntimeSessions">,
+  projection: Pick<TaskProjection, "readRuntimeSessions" | "readReckoningEvents">,
   generatedAt: string,
   windowHours = 24,
 ): ReckoningResult {
@@ -27,14 +26,11 @@ export function readReckoningSignals(
     since = until - windowHours * 3_600_000,
     // A superseded decision is short-lived when accepted up to seven days earlier, so the read reaches that far back.
     oldest = since - SHORT_LIVED_DECISION_MS;
-  if (!store.queryEvents) throw new Error("reckoning requires indexed event queries");
-  const query = store.queryEvents,
-    range = (type: string, after: number) =>
-      query({
+  const range = (type: Parameters<TaskProjection["readReckoningEvents"]>[0]["type"], after: number) =>
+      projection.readReckoningEvents({
         type,
         after: new Date(after).toISOString(),
         before: new Date(until).toISOString(),
-        limit: Number.MAX_SAFE_INTEGER,
       }),
     // ledgerSignals reads exactly these types; accepts reach back so a superseded decision's lifetime is known.
     events = [

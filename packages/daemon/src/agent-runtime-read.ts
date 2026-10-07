@@ -1,5 +1,7 @@
 import {
   latestRuntimeActivityAt,
+  publicRuntimeSession,
+  publicRuntimeInstallation,
   runtimeSessionInActivityWindow,
   runtimeSessionMissingOutcomeEvidence,
   runtimeSessionOutcomeFromEvidence,
@@ -22,13 +24,10 @@ import {
   type AgentRuntimeSessionGroupsResult,
   type AgentRuntimeSessionGroupStatus,
   type AgentRuntimeSessionResult,
-  isAgentDefinitionSnapshot,
 } from "./agent-runtime-contract.ts";
 import { buildAgentRuntimeSessionGroups } from "./agent-runtime-session-groups.ts";
-import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { runtimeKindForInstallation } from "./runtime-inventory.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
-import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import { readRuntimeSessionActivityEvidence, type RuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
@@ -41,38 +40,35 @@ export function makeAgentRuntimeReadModel(input: {
     readonly events: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   }) => readonly TaskDispatchRow[];
   readonly readAttemptChain?: (runtimeSessionId: string) => AgentRuntimeAttemptChainDto | undefined;
-  readonly readActivityEvidence?: (dispatchId: string) => RuntimeSessionActivityEvidence | undefined;
   readonly projection: TaskProjection;
-  readonly store: CanonicalEventStore;
-  readonly stream: AgentRuntimeStreamHub;
-  readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  readonly store: Pick<CanonicalEventStore, "readContentBlob">;
   readonly now?: () => string;
 }) {
-  const activityEvidenceFor = (
-    session: RuntimeSession,
-    dispatch?: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>,
-  ): RuntimeSessionActivityEvidence | undefined => {
-    if (!input.readActivityEvidence) return undefined;
-    const event =
-      dispatch ?? input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-    return event ? input.readActivityEvidence(event.payload.dispatchId) : undefined;
+  const installationDto = (raw: RuntimeInstallation): AgentRuntimeInstallationDto => {
+    const installation = publicRuntimeInstallation(raw);
+    return {
+      installationId: installation.installationId,
+      kindId: isRuntimeKindId(installation.kindId) ? installation.kindId : runtimeKindForInstallation(raw).kindId,
+      protocolFamily: installation.protocolFamily,
+      version: installation.version,
+      attachCapability: installation.effectiveCapabilities.includes("attach") ? "supported" : "unsupported",
+      lastObservedAt: installation.lastObservedAt,
+    };
   };
-  const installationDto = (installation: RuntimeInstallation): AgentRuntimeInstallationDto => ({
-    installationId: installation.installationId,
-    kindId: runtimeKindForInstallation(installation).kindId,
-    protocolFamily: installation.protocolFamily,
-    version: installation.version,
-    attachCapability: installation.effectiveCapabilities.includes("attach") ? "supported" : "unsupported",
-    lastObservedAt: installation.lastObservedAt,
-  });
   const sessionDto = (
     session: RuntimeSession,
     installation: RuntimeInstallation | null | undefined,
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
-    evidence: RuntimeSessionActivityEvidence | undefined,
     includeAttemptChain = false,
   ): AgentRuntimeSessionDto => {
-    const observedSession = sessionWithActivityEvidence(session, evidence),
+    const observedSession = publicRuntimeSession(session),
+      outcome = input.projection
+        .readRuntimeSessionEvents(session.runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
+        .findLast(
+          (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
+            event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_outcome_observed",
+        ),
+      metrics = outcome?.payload.runtimeMetrics,
       attemptChain = includeAttemptChain ? input.readAttemptChain?.(session.runtimeSessionId) : undefined,
       installationError = installation
         ? null
@@ -89,30 +85,14 @@ export function makeAgentRuntimeReadModel(input: {
         ? runtimeKindForInstallation(installation).kindId
         : historicalRuntimeKindId(session, definition.snapshot),
       ...(installationError ? { installationState: "missing" as const, installationError } : {}),
-      // 消耗面板的数据面:与 liveness 同一份 dispatch stream summary,零额外读。
-      ...(evidence?.runtimeMetrics
-        ? {
-            metrics: {
-              inputTokens: evidence.runtimeMetrics.inputTokens,
-              cacheReadTokens: evidence.runtimeMetrics.cacheReadTokens,
-              outputTokens: evidence.runtimeMetrics.outputTokens,
-              totalTokens: evidence.runtimeMetrics.totalTokens,
-              toolCallCount: evidence.runtimeMetrics.toolCallCount,
-              compacted: evidence.runtimeMetrics.compacted,
-              usageUnavailable: evidence.runtimeMetrics.usageUnavailable === true,
-            },
-          }
-        : {}),
+      ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
       definitionSnapshotRef: session.definitionSnapshotRef,
       definitionSnapshot: definition.snapshot,
       definitionSnapshotPersisted: definition.persisted,
       liveness: observedSession.liveness,
       semanticState: runtimeSessionSemanticState(observedSession),
-      attachCapability:
-        observedSession.attachable && installation?.effectiveCapabilities.includes("attach")
-          ? "supported"
-          : "unsupported",
-      streamCursor: input.stream.latestCursor(session.runtimeSessionId),
+      attachCapability: "unsupported",
+      streamCursor: null,
       associations: session.taskBindings.map((binding) => {
         const lease = input.projection.currentLease(binding.taskId),
           actor = lease?.actor;
@@ -139,34 +119,9 @@ export function makeAgentRuntimeReadModel(input: {
     session: RuntimeSession,
     dispatch?: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>,
   ): { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean } => {
-    const match = /^artifact:runtime-definition\/sha256\/([0-9a-f]{64})$/u.exec(session.definitionSnapshotRef);
-    if (match) {
-      const bytes = input.store.readContentBlob(match[1]!);
-      if (bytes) {
-        let text: string, decoded: unknown;
-        try {
-          text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-          decoded = JSON.parse(text);
-        } catch {
-          throw coded(
-            "runtime_definition_snapshot_invalid",
-            `Runtime definition snapshot ${session.definitionSnapshotRef} is not canonical UTF-8 JSON.`,
-          );
-        }
-        const snapshot = isAgentDefinitionSnapshot(decoded) ? decoded : null;
-        if (snapshot === null)
-          throw coded(
-            "runtime_definition_snapshot_invalid",
-            `Runtime definition snapshot ${session.definitionSnapshotRef} does not match its session.`,
-          );
-        // blob 按它自己的 sha 取出(内容寻址),快照与 session/installation 的绑定
-        // 在写入时已由 kernel agent-runtime 校验;这里不再重算哈希自比。
-        return { snapshot, persisted: true };
-      }
-    }
     const event =
       dispatch ?? input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-    return { snapshot: event?.payload.definitionSnapshot ?? null, persisted: false };
+    return { snapshot: event?.payload.definitionSnapshot ?? null, persisted: event !== null && event !== undefined };
   };
   // Git-style short-id resolution for `ha runtime status <id>`: an exact id reads directly; a
   // unique prefix reads that session; ambiguity lists the candidates instead of guessing.
@@ -228,15 +183,12 @@ export function makeAgentRuntimeReadModel(input: {
         installations: installations
           .filter((installation) => !query.taskId || installationIds.has(installation.installationId))
           .map(installationDto),
-        instances: query.taskId ? [] : [...(input.runtimeInstances?.() ?? [])],
+        instances: [],
         sessions: sessions.map((session) =>
           sessionDto(
             session,
             installationsById.get(session.installationId),
             definitionFor(session, dispatchEventFor(session)),
-            // Canonically settled sessions already have their final outcome. An exit without
-            // that outcome still needs stream evidence when settlement publication was denied.
-            session.outcome !== null ? undefined : activityEvidenceFor(session, dispatchEventFor(session)),
           ),
         ),
         ...(paged === null
@@ -255,28 +207,11 @@ export function makeAgentRuntimeReadModel(input: {
       };
     },
     sessionGroups: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionGroupsResult => {
-      const query = sessionGroupsQuery(payload, input.now?.() ?? new Date().toISOString()),
+      const query = sessionGroupsQuery(payload),
         cut = input.projection.readCut(),
-        dispatchEvents = input.projection.readRuntimeDispatches(),
-        // The dispatch event per (session, definition snapshot) that the activity-evidence lookup
-        // needs; first by revision matches the readRuntimeDispatch point query it replaces.
-        dispatchBySessionKey = new Map<
-          string,
-          Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>
-        >();
-      for (const event of dispatchEvents) {
-        const key = `${event.payload.runtimeSessionId}\0${event.payload.definitionSnapshotRef}`;
-        if (!dispatchBySessionKey.has(key)) dispatchBySessionKey.set(key, event);
-      }
-      const dispatchEventFor = (session: RuntimeSession) =>
-        dispatchBySessionKey.get(`${session.runtimeSessionId}\0${session.definitionSnapshotRef}`);
+        dispatchEvents = input.projection.readRuntimeDispatches();
       const sessions = input.projection
           .readRuntimeSessions()
-          .map((session) =>
-            session.outcome !== null
-              ? session
-              : sessionWithActivityEvidence(session, activityEvidenceFor(session, dispatchEventFor(session))),
-          )
           .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
         sessionIds = new Set(sessions.map(({ runtimeSessionId }) => runtimeSessionId)),
         windowedDispatchEvents = dispatchEvents.filter((event) => sessionIds.has(event.payload.runtimeSessionId)),
@@ -327,24 +262,19 @@ export function makeAgentRuntimeReadModel(input: {
             ? `Runtime dispatch ${target.dispatchId} for task ${target.taskId} has no projected session.`
             : `Runtime session ${runtimeSessionIdValue} was not found.`,
         );
-      const evidence = activityEvidenceFor(session),
-        dto = sessionDto(
+      const dto = sessionDto(
           session,
           input.projection.readRuntimeInstallation(session.installationId),
           definitionFor(session),
-          evidence,
           true,
         ),
-        result =
-          session.outcome === null && session.resultRef === null && evidence?.terminalOutcome
-            ? { ref: evidence.terminalOutcome.payload.resultRef, text: evidence.terminalOutcome.body }
-            : resultFor(session);
+        result = resultFor(session);
       return {
         ok: true,
         status: cut.status,
         session: dto,
         result,
-        settlement: runtimeSessionSettlement(dto, result?.text ?? null, input.now?.() ?? new Date().toISOString()),
+        settlement: runtimeSessionSettlement(dto, result?.text ?? null, session.lastObservedAt),
         watermark: cut.watermark,
         sourceRevision: cut.sourceRevision,
       };
@@ -408,7 +338,10 @@ export function sessionWithActivityEvidence(
   session: RuntimeSession,
   evidence: RuntimeSessionActivityEvidence | undefined,
 ): RuntimeSession {
-  if (!evidence) return session;
+  if (!evidence)
+    return session.outcome !== null || session.liveness === "exited"
+      ? session
+      : { ...session, liveness: "unknown", attachable: false };
   const lastObservedAt = latestRuntimeActivityAt([session.lastObservedAt, evidence.lastObservedAt]);
   if (session.outcome !== null) return { ...session, lastObservedAt };
   // Process exit and locally persisted settlement remain observable even if canonical writes
@@ -426,8 +359,8 @@ export function sessionWithActivityEvidence(
       lastObservedAt,
     };
   }
-  if (session.liveness === "exited" || session.liveness === "live") return { ...session, lastObservedAt };
-  if (!evidence.workerHostAlive) return { ...session, lastObservedAt };
+  if (session.liveness === "exited") return { ...session, attachable: false, lastObservedAt };
+  if (!evidence.workerHostAlive) return { ...session, liveness: "unknown", attachable: false, lastObservedAt };
   return {
     ...session,
     liveness: "live",
@@ -471,10 +404,7 @@ function runtimeTaskLabels(projection: TaskProjection, taskIds: readonly string[
   return result;
 }
 
-function sessionGroupsQuery(
-  payload: Readonly<Record<string, unknown>>,
-  now: string,
-): {
+function sessionGroupsQuery(payload: Readonly<Record<string, unknown>>): {
   readonly groupBy: "task" | "squad" | "agent" | "day";
   readonly since: string;
   readonly tokens: readonly string[];
@@ -505,8 +435,7 @@ function sessionGroupsQuery(
     (status !== undefined && !isSessionGroupStatusSelection(status)) ||
     (sessionIds !== undefined &&
       (!Array.isArray(sessionIds) || sessionIds.some((id) => typeof id !== "string" || !id))) ||
-    (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000)) ||
-    !Number.isFinite(Date.parse(now))
+    (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000))
   )
     throw coded(
       "invalid_request",
@@ -515,10 +444,7 @@ function sessionGroupsQuery(
     );
   return {
     groupBy: groupBy === "squad" || groupBy === "agent" || groupBy === "day" ? groupBy : "task",
-    since:
-      typeof since === "string"
-        ? new Date(since).toISOString()
-        : new Date(Date.parse(now) - 24 * 60 * 60 * 1_000).toISOString(),
+    since: typeof since === "string" ? new Date(since).toISOString() : "1970-01-01T00:00:00.000Z",
     tokens: typeof query === "string" ? query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean) : [],
     agentId: typeof agentId === "string" ? agentId : null,
     squadId: typeof squadId === "string" ? squadId : null,

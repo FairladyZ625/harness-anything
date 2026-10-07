@@ -732,6 +732,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "squad.runs.list",
+    repositoryRead: true,
     phase: "Runtime-B",
     method: "repo.squad.runs.list",
     requiresRepo: true,
@@ -751,6 +752,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "squad.run.read",
+    repositoryRead: true,
     phase: "Runtime-B",
     method: "repo.squad.run.read",
     requiresRepo: true,

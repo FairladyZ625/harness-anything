@@ -1,3 +1,4 @@
+import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { executionDelegationPath, readExecutionDelegations } from "./execution-delegation-store.ts";
 import {
   assertCurrentWriter,
@@ -219,6 +220,7 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
+        requireSquadBusinessAction(context.projection, action, binding);
         // Ingested reads are their own accepted commands, recorded before the execution interval
         // opens: a failed execution must never adopt one of them as its accepted outcome.
         ingest?.(queuedDecision);

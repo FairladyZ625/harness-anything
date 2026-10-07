@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
+import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
@@ -149,7 +150,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   assert.equal(snapshot.lease.actor.principal.personId, "person-owner");
   assert.deepEqual(snapshot.lease.source, { kind: "node", nodeId: fixture.subject.nodeId });
   fixture.setOwner("person-owner");
-  await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+  await runtime.reconcile();
   assert.equal(await eventually(async () => outcomes().length > 0), true);
   assert.equal(outcomes()[0]?.outcome, "failed", JSON.stringify(outcomes()));
   // Ownership is rejected before archive publication. This injected process has no
@@ -249,13 +250,13 @@ for (const restart of [false, true])
       await center.close();
       terminal();
       await archiveFailure;
-      await assert.rejects(() => runtime.run("repo.agentRuntime.overview", { limit: 1 }));
+      await assert.rejects(() => runtime.reconcile());
       if (restart) {
         runtime.close();
         runtime = createRuntime();
       }
       await fixture.center(center.port);
-      await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+      await runtime.reconcile();
       const outcomes = () =>
         makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
           .read()
@@ -267,10 +268,21 @@ for (const restart of [false, true])
           .map((event) => event.payload);
       assert.equal(await eventually(async () => outcomes().length > 0), true);
       assert.equal(outcomes().length, 1, "recovery publishes one canonical terminal outcome");
-      await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+      await runtime.reconcile();
       runtime.close();
       runtime = createRuntime();
-      await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+      await runtime.reconcile();
+      readEdgeRuntimeRepository(
+        {
+          viewRoot,
+          workspaceRoot,
+          repoId: fixture.subject.repoId,
+          nodeId: fixture.subject.nodeId,
+          principalId: "person-owner",
+        },
+        "repo.agentRuntime.overview",
+        { limit: 1 },
+      );
       assert.equal(outcomes().length, 1, "later reads and restart must not duplicate the terminal event");
       const released = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
         .read()

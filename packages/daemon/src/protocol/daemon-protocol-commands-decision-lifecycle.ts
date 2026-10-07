@@ -1,16 +1,16 @@
 import {
+  defineEdgeReplicaQueryOnlyReadCommand,
   cliInput,
   decisionProposalDefaultJsonFields,
   decisionProposalJsonFields,
   decisionProposalRequiredJsonFields,
   defineLedgerWriteCommand,
   defineLocalArbiterCommand,
-  defineRepoReadCommand,
   workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 export const decisionLifecycleProtocolCommands = Object.freeze([
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "decision-validate",
     actionKind: "decision-validate",
     phase: "DecisionFact-B",
@@ -23,7 +23,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "decision-verify",
     actionKind: "decision-validate",
     phase: "DecisionFact-B",

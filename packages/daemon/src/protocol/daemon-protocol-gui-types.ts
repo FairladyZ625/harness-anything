@@ -343,7 +343,7 @@ function nonNegativeInteger(value: unknown): boolean {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
 
-export type DaemonGuiReadResultMap = {
+type DaemonGuiReadDataMap = {
   readonly "daemon.gui.system.read": JsonObject;
   readonly "daemon.gui.control.receipt": JsonObject;
   readonly "observe.tail": ObserveTailResult;
@@ -398,8 +398,8 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.tasks.completion.read": DaemonTaskCompletionResult;
   /** What a node that launches a task-bound dispatch needs from the center, assembled at the serving cut:
    * the bounded causal-context block the worker prompt carries, the task's frozen profile id, and its
-   * worktree binding (dec_57370FF2021DADF04E3B21724D CH1) — fleet edges read it through
-   * `fleet.runtime.read/v1`. */
+   * worktree binding (dec_57370FF2021DADF04E3B21724D CH1). Fleet edges use the same
+   * query against their authorized replica cut. */
   readonly "repo.tasks.runtimeContext.read": DaemonTaskRuntimeContextResult;
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
   readonly "repo.artifacts.list": ArtifactsListResult;
@@ -422,12 +422,14 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.fleet.overview.read": import("../fleet/fleet-overview-read.ts").FleetOverviewResult;
 };
 
+/** Replica answers retain the shared read shape and identify the cut that answered it. */
+export type DaemonGuiReadResultMap = {
+  readonly [M in keyof DaemonGuiReadDataMap]: DaemonGuiReadDataMap[M] &
+    Partial<import("./repository-read-frame.ts").RepositoryReadFrame>;
+};
+
 /** Host-owned aggregate reads (fleet topology needs the center handle + daemon build facts). */
-export type DaemonHostOnlyGuiReadMethod =
-  | "repo.workspace.summary.read"
-  | "repo.workspace.scope.read"
-  | "observe.tail"
-  | "repo.fleet.overview.read";
+export type DaemonHostOnlyGuiReadMethod = "observe.tail" | "repo.fleet.overview.read";
 
 /** Historical cell-routable read union. Host-owned aggregate reads use the full RPC union below. */
 export type DaemonGuiReadMethod = Exclude<keyof DaemonGuiReadResultMap, DaemonHostOnlyGuiReadMethod>;

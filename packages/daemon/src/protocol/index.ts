@@ -1,3 +1,4 @@
+export { validateRepositoryReadFrame, type RepositoryReadFrame } from "./repository-read-frame.ts";
 export type { TaskAssignmentDirectory } from "./daemon-protocol-gui-types.ts";
 export type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./artifacts-gui-contract.ts";
 export { admitUseCaseProjectionSelector } from "./daemon-protocol-gui-types.ts";

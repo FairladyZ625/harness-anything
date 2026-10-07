@@ -5,7 +5,6 @@ import {
   openEntityStore,
   parseAgentDeclarationV1,
   type AgentDeclarationV1,
-  type EntityStore,
 } from "@harness-anything/kernel";
 
 export interface AgentDeclarationResolution {
@@ -85,11 +84,11 @@ export function storedAgentDeclarationOutcome<T>(input: {
 export function readAgentDeclarationResolution(input: {
   readonly rootDir: string;
   readonly agentId: string;
-  readonly entityStore?: EntityStore;
+  readonly entityStore?: AgentDeclarationReader;
 }): AgentDeclarationResolution | null {
   if (!entitySlug(input.agentId)) return null;
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
-  let stored: ReturnType<EntityStore["get"]>;
+  let stored: ReturnType<AgentDeclarationReader["get"]>;
   try {
     stored = entityStore.get("agent", input.agentId);
   } catch (error) {
@@ -106,7 +105,7 @@ export function readAgentDeclarationResolution(input: {
 export function readAgentDeclaration(input: {
   readonly rootDir: string;
   readonly agentId: string;
-  readonly entityStore?: EntityStore;
+  readonly entityStore?: AgentDeclarationReader;
 }): AgentDeclarationV1 {
   const resolved = readAgentDeclarationResolution(input);
   if (!resolved)
@@ -114,4 +113,19 @@ export function readAgentDeclaration(input: {
       code: "agent_not_found",
     });
   return resolved.declaration;
+}
+
+/** Declaration consumers need only canonical values, not a writable event store. */
+export interface AgentDeclarationReader {
+  readonly get: (kind: string, id: string) => { readonly value: unknown } | null;
+}
+
+export function resolveAgentRuntimeDeclaration(
+  declaration: AgentDeclarationV1,
+  projected: { readonly freshness: string; readonly value: { readonly lifecycleState?: string } } | null,
+): AgentDeclarationV1 & { readonly lifecycleState?: string } {
+  return {
+    ...declaration,
+    ...(projected && projected.freshness !== "orphaned" ? { lifecycleState: projected.value.lifecycleState } : {}),
+  };
 }

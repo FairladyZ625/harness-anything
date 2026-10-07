@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { latestSquadStates } from "../src/squad-run-state.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -9,7 +10,8 @@ import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RuntimeLauncher } from "../src/runtime-spawn-types.ts";
-import type { WorkerAttempt } from "../src/squad-leader-decision.ts";
+import type { SquadRunReadResult } from "../src/squad-run-contract.ts";
+type WorkerAttempt = SquadRunReadResult["run"]["workerAttempts"][number];
 import { appendRuntimeWorkerRecord, readDispatchStreamHeader } from "../src/dispatch-stream.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { evidence, git } from "./task-surface.fixtures.ts";
@@ -34,8 +36,8 @@ type Status = {
   squadRunId: string;
   status: string;
   error: string | null;
-  leaders: Array<{ dispatchId: string; runtimeSessionId: string }>;
-  workers: WorkerAttempt[];
+  leaderTurns: Array<{ dispatchId: string; runtimeSessionId: string }>;
+  workerAttempts: WorkerAttempt[];
   workerCallbackCount: number;
   pendingLeaderCallbackCount: number;
 };
@@ -45,11 +47,11 @@ test(
   { timeout: 30_000 },
   async (t) => {
     const fixture = await openFixture(t, "delivery");
-    const planningLeader = (await fixture.status()).leaders[0].runtimeSessionId;
+    const planningLeader = (await fixture.status()).leaderTurns[0].runtimeSessionId;
     assert.equal(fixture.task(fixture.taskId).snapshot.lease?.actor.executor?.id, `runtime-session:${planningLeader}`);
     await fixture.plan(["src/a.txt"], ["docs/"]);
     const running = await fixture.waitStatus(
-      (state) => state.workers.length === 2 && state.workers.every((w) => w.runtimeSessionId),
+      (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
     );
     const planningEvents = makeTaskEventReader({ repoId: fixture.repoId, rootDir: fixture.root }).read().events;
     const leaderRelease = planningEvents.findIndex(
@@ -79,12 +81,12 @@ test(
       binding,
     );
     assert.equal(staleLeaderWrite.code, "executor_binding_invalid");
-    const [first, second] = running.workers;
+    const [first, second] = running.workerAttempts;
     assert.ok(first.taskId && second.taskId && first.executionId && second.executionId);
     assert.notEqual(first.taskId, second.taskId);
     assert.notEqual(first.executionId, second.executionId);
     assert.notEqual(first.taskId, fixture.taskId);
-    for (const child of running.workers) {
+    for (const child of running.workerAttempts) {
       const row = fixture.task(child.taskId!);
       assert.equal(row.snapshot.lease?.executionId, child.executionId);
       assert.match(
@@ -93,27 +95,53 @@ test(
       );
     }
     const heads: string[] = [];
-    for (const [index, child] of running.workers.entries()) {
+    for (const [index, child] of running.workerAttempts.entries()) {
       assert.ok(child.worktree);
       const target = index === 0 ? "src/a.txt" : "docs/b.txt";
-      mkdirSync(path.dirname(path.join(child.worktree.cwd, target)), { recursive: true });
-      writeFileSync(path.join(child.worktree.cwd, target), `child ${index}\n`);
-      if (index === 1) writeFileSync(path.join(child.worktree.cwd, "outside.txt"), "ownership finding\n");
-      git(child.worktree.cwd, "add", ".");
-      git(child.worktree.cwd, "commit", "-qm", `docs: child ${index} delivery`);
-      heads.push(git(child.worktree.cwd, "rev-parse", "HEAD"));
+      mkdirSync(
+        path.dirname(
+          path.join(fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd, target),
+        ),
+        { recursive: true },
+      );
+      writeFileSync(
+        path.join(fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd, target),
+        `child ${index}\n`,
+      );
+      if (index === 1)
+        writeFileSync(
+          path.join(fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd, "outside.txt"),
+          "ownership finding\n",
+        );
+      git(fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd, "add", ".");
+      git(
+        fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd,
+        "commit",
+        "-qm",
+        `docs: child ${index} delivery`,
+      );
+      heads.push(
+        git(fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd, "rev-parse", "HEAD"),
+      );
       await fixture.submit(child, heads[index]);
       fixture.finish(child.dispatchId!, "child delivery");
       if (index === 0) {
         await fixture.waitStatus((state) => state.workerCallbackCount === 1);
-        assert.equal((await fixture.status()).leaders.length, 1, "one live child keeps the leader suspended");
+        assert.equal((await fixture.status()).leaderTurns.length, 1, "one live child keeps the leader suspended");
       }
     }
-    const resumed = await fixture.waitStatus((state) => state.leaders.length === 2);
+    const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
     assert.equal(resumed.workerCallbackCount, 2);
-    assert.deepEqual(resumed.workers[1].ownershipCheck?.outsidePaths, ["outside.txt"]);
-    assert.equal(git(second.worktree!.cwd, "rev-parse", "HEAD"), heads[1], "finding does not roll back delivery");
-    for (const child of resumed.workers) {
+    assert.deepEqual(
+      latestSquadStates(fixture.root).get(resumed.squadRunId)?.workerAttempts[1].ownershipCheck?.outsidePaths,
+      ["outside.txt"],
+    );
+    assert.equal(
+      git(fixture.providers.find((provider) => provider.dispatchId === second.dispatchId)!.cwd, "rev-parse", "HEAD"),
+      heads[1],
+      "finding does not roll back delivery",
+    );
+    for (const child of resumed.workerAttempts) {
       assert.equal(fixture.task(child.taskId!).snapshot.lease, null);
       const submitted = makeTaskEventReader({ repoId: fixture.repoId, rootDir: fixture.root })
         .read()
@@ -121,10 +149,11 @@ test(
       assert.equal(submitted.length, 1);
     }
     // Duplicate process notifications must not create another leader turn.
-    for (const child of resumed.workers) fixture.providers.find((p) => p.dispatchId === child.dispatchId)!.exit!(0);
+    for (const child of resumed.workerAttempts)
+      fixture.providers.find((p) => p.dispatchId === child.dispatchId)!.exit!(0);
     await fixture.cell.settlePendingMaterialization("duplicate child notifications");
-    assert.equal((await fixture.status()).leaders.length, 2);
-    const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaders[1].dispatchId)!;
+    assert.equal((await fixture.status()).leaderTurns.length, 2);
+    const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
     assert.match(leader.prompt, /outside\.txt/u);
     assert.match(leader.prompt, /git push origin <task-id>/u);
     assert.match(leader.prompt, /gh pr create/u);
@@ -182,7 +211,7 @@ test(
     await fixture.reopen();
     const recovered = await fixture.status();
     assert.equal(recovered.status, "converged");
-    assert.equal(recovered.leaders.length, 2);
+    assert.equal(recovered.leaderTurns.length, 2);
     assert.equal(fixture.providers.length, launches, "reopening the center must not dispatch another leader");
   },
 );
@@ -196,9 +225,9 @@ for (const restart of [false, true])
       const fixture = await openFixture(t, `publication-owner-${restart}`);
       await fixture.plan(["a.txt"], ["b.txt"]);
       const running = await fixture.waitStatus(
-        (state) => state.workers.length === 2 && state.workers.every((w) => w.runtimeSessionId),
+        (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
       );
-      const child = running.workers[0],
+      const child = running.workerAttempts[0],
         taskId = "task-direct-targeted",
         created = await fixture.cell.run(
           {
@@ -238,7 +267,10 @@ for (const restart of [false, true])
       assert.equal(directHeader.squadId, childHeader.squadId);
       assert.equal(childHeader.publicationOwner, "commander");
       assert.equal(directHeader.publicationOwner, "runtime");
-      for (const directory of [child.worktree!.cwd, cwd]) {
+      for (const directory of [
+        fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd,
+        cwd,
+      ]) {
         writeFileSync(path.join(directory, "a.txt"), "delivery\n");
         git(directory, "add", "a.txt");
         git(directory, "commit", "-qm", "feat: targeted delivery");
@@ -270,14 +302,14 @@ test("failed child wakes the leader with the failure after its sibling settles",
   const fixture = await openFixture(t, "failure");
   await fixture.plan(["a.txt"], ["b.txt"]);
   const running = await fixture.waitStatus(
-    (state) => state.workers.length === 2 && state.workers.every((w) => w.runtimeSessionId),
+    (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
   );
-  fixture.finish(running.workers[0].dispatchId!, "child could not complete", 1);
+  fixture.finish(running.workerAttempts[0].dispatchId!, "child could not complete", 1);
   await fixture.waitStatus((state) => state.workerCallbackCount === 1);
-  assert.equal((await fixture.status()).leaders.length, 1);
-  fixture.finish(running.workers[1].dispatchId!, "sibling completed");
-  const resumed = await fixture.waitStatus((state) => state.leaders.length === 2);
-  const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaders[1].dispatchId)!;
+  assert.equal((await fixture.status()).leaderTurns.length, 1);
+  fixture.finish(running.workerAttempts[1].dispatchId!, "sibling completed");
+  const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
+  const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
   assert.match(leader.prompt, /failed/u);
   fixture.finish(
     leader.dispatchId,
@@ -293,22 +325,24 @@ test("failed child wakes the leader with the failure after its sibling settles",
 test("overlapping worker declarations reject the second child before execution", { timeout: 30_000 }, async (t) => {
   const fixture = await openFixture(t, "overlap");
   await fixture.plan(["src/"], ["SRC/a.txt"]);
-  const state = await fixture.waitStatus((value) => value.workers.length === 2);
-  assert.ok(state.workers[0].runtimeSessionId);
-  assert.match(state.workers[1].rejection ?? "", /Ownership conflict/u);
-  assert.equal(state.workers[1].taskId, null);
-  assert.equal(state.workers[1].runtimeSessionId, null);
+  const state = await fixture.waitStatus(
+    (value) => value.workerAttempts.length === 2 && value.workerAttempts[1].rejection !== null,
+  );
+  assert.ok(state.workerAttempts[0].runtimeSessionId);
+  assert.match(state.workerAttempts[1].rejection ?? "", /Ownership conflict/u);
+  assert.equal(state.workerAttempts[1].taskId, null);
+  assert.equal(state.workerAttempts[1].runtimeSessionId, null);
   fixture.finish(
-    state.workers[0].dispatchId!,
+    state.workerAttempts[0].dispatchId!,
     "first child completed\n```bash\ncloseout/submission/review/consent\n```",
   );
-  const resumed = await fixture.waitStatus((value) => value.leaders.length === 2);
-  const callback = fixture.providers.find((provider) => provider.dispatchId === resumed.leaders[1].dispatchId)!;
+  const resumed = await fixture.waitStatus((value) => value.leaderTurns.length === 2);
+  const callback = fixture.providers.find((provider) => provider.dispatchId === resumed.leaderTurns[1].dispatchId)!;
   assert.match(callback.prompt, /worker_rejected/u);
   assert.match(callback.prompt, /Ownership conflict/u);
   assert.match(callback.prompt, /closeout\/submission\/review\/consent/u);
   fixture.finish(
-    resumed.leaders[1].dispatchId,
+    resumed.leaderTurns[1].dispatchId,
     JSON.stringify({
       schema: "squad-decision/v1",
       action: "converged",
@@ -325,17 +359,19 @@ test(
     const fixture = await openFixture(t, "runtime-caller", true);
     await fixture.plan(["a.txt"], ["b.txt"]);
     const running = await fixture.waitStatus(
-      (state) => state.workers.length === 2 && state.workers.every((w) => w.runtimeSessionId),
+      (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
     );
-    for (const child of running.workers) {
+    for (const child of running.workerAttempts) {
       assert.ok(child.taskId && child.executionId);
       assert.equal(fixture.task(child.taskId).snapshot.task?.metadata?.parentTaskId, fixture.taskId);
       fixture.finish(child.dispatchId!, "runtime caller child delivery");
     }
-    const resumed = await fixture.waitStatus((state) => state.leaders.length === 2 && state.workerCallbackCount === 2);
+    const resumed = await fixture.waitStatus(
+      (state) => state.leaderTurns.length === 2 && state.workerCallbackCount === 2,
+    );
     assert.equal(resumed.pendingLeaderCallbackCount, 0, "same-cut child outcomes are consumed by one leader turn");
     fixture.finish(
-      resumed.leaders[1].dispatchId,
+      resumed.leaderTurns[1].dispatchId,
       JSON.stringify({
         schema: "squad-decision/v1",
         action: "converged",
@@ -618,7 +654,7 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
     plan: async (first: string[], second: string[]) => {
       const state = await status();
       finish(
-        state.leaders[0].dispatchId,
+        state.leaderTurns[0].dispatchId,
         JSON.stringify({
           schema: "runtime-batch/v1",
           dispatches: [

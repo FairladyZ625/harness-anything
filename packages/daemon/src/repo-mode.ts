@@ -57,8 +57,11 @@ export function admitRepoMode(
   if (route === "via-node" && node) return repoModeAdmission(true, "repo_mode_admitted");
   if (route === "via-node") return rejection("repo_mode_requires_center_ingress");
   if (route === "via-center-forward") return rejection("repo_mode_read_only");
-  // The edge CLI answers these from the replica; the daemon's own projection on an edge is not the ledger.
-  if (route === "edge-replica") return rejection("repo_mode_read_only");
+  // The edge cell answers these from its replica for its own local principal; a node never reads through it.
+  if (route === "edge-replica")
+    return mode === "remote-edge" && !node
+      ? repoModeAdmission(true, "repo_mode_admitted")
+      : rejection("repo_mode_read_only");
   if (mode === "remote-edge") return rejection("repo_mode_read_only");
   return rejection("repo_mode_command_rejected");
 }

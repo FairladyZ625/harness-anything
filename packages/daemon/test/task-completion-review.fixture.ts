@@ -10,11 +10,11 @@ import path from "node:path";
 import {
   makeTaskEventReader,
   openSqliteEventStore,
-  ownedContentForDeclarationEvent,
   requireEntityStoreKindContract,
   sha256Text,
   type AgentDefinitionSnapshot,
   type EntityUpsertEventV1,
+  type EntityOwnedContentV1,
 } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -578,8 +578,6 @@ function appendLegacyReviewerDeclaration(repoId: string, rootDir: string): void 
       mediaType: contract.entityStore.document.mediaType,
       policyId: contract.entityStore.document.policyId,
     },
-    // No ownedContent field: ownedContentForDeclarationEvent recovers the accepted pre-manifest
-    // shape (exactly one declaration document) from the claim, same as the kernel window fixture.
     seed: EntityUpsertEventV1 = {
       schema: "entity-event/v1",
       eventId: "event-legacy-closeout-reviewer",
@@ -591,7 +589,20 @@ function appendLegacyReviewerDeclaration(repoId: string, rootDir: string): void 
       type: "entity_upserted",
       payload: { entityKind: "agent", entityId: "closeout-reviewer", declarationDocumentClaim: claim },
     },
-    event = { ...seed, payload: { ...seed.payload, ownedContent: ownedContentForDeclarationEvent(seed) } },
+    // This historical declaration owns exactly its declaration file. Keep the fixture manifest
+    // explicit: the current declaration compiler correctly rejects the legacy runtime fields.
+    ownedContent: EntityOwnedContentV1 = {
+      schema: "entity-owned-content/v1",
+      ownerRef: `agent/${value.id}`,
+      schemaId: contract.schema.$id,
+      schemaVersion: 1,
+      content: [{ sha256: claim.sha256, byteLength: claim.size, mediaType: claim.mediaType }],
+      bindings: [{ path: claim.path, contentSha256: claim.sha256, policyId: claim.policyId }],
+      directories: [],
+      retirements: [],
+      directoryRetirements: [],
+    },
+    event = { ...seed, payload: { ...seed.payload, ownedContent } },
     fence = { repoId, holder: "direct-store", epoch: 1 } as const,
     writer = openSqliteEventStore({ repoId, rootInput: rootDir });
   try {

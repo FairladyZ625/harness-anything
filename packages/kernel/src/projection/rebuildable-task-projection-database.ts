@@ -8,6 +8,7 @@ import { createFactProjectionTables } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
+import { REPOSITORY_READ_TABLES_SQL } from "./read-model-repository.ts";
 import { TASK_INDEX_TABLES_SQL } from "./read-model.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
@@ -362,6 +363,13 @@ function configureDatabase(db: DatabaseSync): void {
 function createTables(db: DatabaseSync): void {
   /* @gate-identity check-bypass-write-boundary/bypass-write-009 */
   db.exec(`
+    CREATE TABLE IF NOT EXISTS archived_entity (
+      entity_kind TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      workspace_revision INTEGER NOT NULL,
+      row_json TEXT NOT NULL,
+      PRIMARY KEY(entity_kind, entity_id)
+    );
     CREATE TABLE IF NOT EXISTS projection_meta (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1),
       schema_version INTEGER NOT NULL,
@@ -369,12 +377,11 @@ function createTables(db: DatabaseSync): void {
       scan_cursor TEXT,
       scanned_revision INTEGER NOT NULL,
       head_digest TEXT,
-      state_digest TEXT,
-      squad_run_ready INTEGER NOT NULL CHECK(squad_run_ready IN (0, 1))
+      state_digest TEXT
     );
     INSERT OR IGNORE INTO projection_meta(
-      singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest, squad_run_ready
-    ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL, 0);
+      singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest
+    ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL);
     CREATE TABLE IF NOT EXISTS event_source (
       workspace_revision INTEGER PRIMARY KEY,
       op_id TEXT NOT NULL UNIQUE,
@@ -451,31 +458,8 @@ function createTables(db: DatabaseSync): void {
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS runtime_installation (
-      installation_id TEXT PRIMARY KEY,
-      workspace_revision INTEGER NOT NULL,
-      value_json TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS runtime_session (
-      runtime_session_id TEXT PRIMARY KEY,
-      workspace_revision INTEGER NOT NULL,
-      value_json TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS runtime_session_task_binding (
-      task_id TEXT NOT NULL,
-      runtime_session_id TEXT NOT NULL,
-      execution_id TEXT NOT NULL,
-      bound_at TEXT NOT NULL,
-      PRIMARY KEY(task_id, runtime_session_id, execution_id)
-    );
-    CREATE INDEX IF NOT EXISTS runtime_session_task_binding_session
-      ON runtime_session_task_binding(runtime_session_id, task_id, execution_id);
-    CREATE TABLE IF NOT EXISTS squad_run_projection (
-      squad_run_id TEXT PRIMARY KEY,
-      revision INTEGER NOT NULL,
-      state_json TEXT NOT NULL
-    );
 ${TASK_INDEX_TABLES_SQL}
+${REPOSITORY_READ_TABLES_SQL}
     CREATE TABLE IF NOT EXISTS task_generation (
       task_id TEXT PRIMARY KEY,
       generation TEXT NOT NULL CHECK(generation IN ('v0','v1'))
@@ -486,11 +470,6 @@ ${TASK_INDEX_TABLES_SQL}
       task_id TEXT NOT NULL,
       execution_id TEXT NOT NULL,
       event_json TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS pinned_entities (
-      entity_ref TEXT PRIMARY KEY,
-      pinned_at TEXT NOT NULL,
-      pinned_by TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS entity_projection (
       entity_kind TEXT NOT NULL,
@@ -504,13 +483,6 @@ ${TASK_INDEX_TABLES_SQL}
     );
     CREATE INDEX IF NOT EXISTS entity_projection_task
       ON entity_projection(entity_kind, task_id, workspace_revision, entity_id);
-    CREATE TABLE IF NOT EXISTS archived_entity (
-      entity_kind TEXT NOT NULL,
-      entity_id TEXT NOT NULL,
-      workspace_revision INTEGER NOT NULL,
-      row_json TEXT NOT NULL,
-      PRIMARY KEY(entity_kind, entity_id)
-    );
     CREATE TABLE IF NOT EXISTS edge (
       task_id TEXT NOT NULL,
       edge_id TEXT NOT NULL,
@@ -524,17 +496,6 @@ ${TASK_INDEX_TABLES_SQL}
       execution_id TEXT GENERATED ALWAYS AS (json_extract(lease_json, '$.executionId')) STORED
     );
     CREATE INDEX IF NOT EXISTS lease_cas_execution ON lease_cas(execution_id);
-    CREATE TABLE IF NOT EXISTS lease_interval (
-      task_id TEXT NOT NULL,
-      execution_id TEXT NOT NULL,
-      acquired_revision INTEGER NOT NULL,
-      released_revision INTEGER,
-      holder_json TEXT NOT NULL,
-      previous_holder_json TEXT,
-      lease_expires_at TEXT NOT NULL,
-      reason TEXT NOT NULL,
-      PRIMARY KEY(task_id, execution_id, acquired_revision)
-    );
   `);
   // This table is a disposable lookup over runtime_session.value_json, so adding it must not
   // invalidate the self-contained projection database (event_source lives in the same file).

@@ -1,3 +1,11 @@
+import {
+  createRepositoryReadModelTables,
+  readRepositoryReadModelRows,
+  repositoryReadModelPath,
+  applyRepositoryReadModelRow,
+  deleteRepositoryReadModelRow,
+  type RepositoryReadModelRow,
+} from "./read-model-repository.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { createDecisionProjectionTables } from "./decision-projection-schema.ts";
 import { createFactProjectionTables } from "./fact-event-projection.ts";
@@ -12,7 +20,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
  * from the same DDL so the center's own queries run unchanged on the edge. Documents are not
  * published here: they already ride the cut as ledger content entries.
  */
-export const READ_MODEL_SCHEMA_GENERATION = 2 as const;
+export const READ_MODEL_SCHEMA_GENERATION = 6 as const;
 export const READ_MODEL_META_PATH = ".read-model/meta.json";
 export const TASK_READ_MODEL_PREFIX = ".read-model/tasks/";
 const TASK_GENERATION_PREFIX = ".read-model/task-generation/";
@@ -103,6 +111,7 @@ export function createEdgeReadModelTables(db: DatabaseSync): void {
       LEASE_CAS_TABLES_SQL,
     ].join("\n"),
   );
+  createRepositoryReadModelTables(db);
   createRelationGraphProjectionTables(db);
   createTaskRelationProjectionTable(db);
   createDecisionProjectionTables(db);
@@ -228,6 +237,7 @@ export interface PresetSnapshotReadModelRow {
 }
 /** The center's own rows, published table by table; every table describes the same revision. */
 export interface EdgeReadModelRows {
+  readonly repository: readonly RepositoryReadModelRow[];
   readonly tasks: readonly TaskReadModelRow[];
   readonly taskGeneration: readonly TaskGenerationRow[];
   readonly taskProgress: readonly TaskProgressRow[];
@@ -267,6 +277,14 @@ const pathSegment = (value: string, label: string): string => {
     throw new Error(`read model ${label} is not path-safe: ${value}`);
   return value;
 };
+
+// Entity kinds are identities (including namespace slashes), not filesystem segments.
+const entityKeySegment = (value: string): string => `k${Buffer.from(value, "utf8").toString("base64url")}`;
+function decodeEntityKeySegment(value: string): string {
+  const decoded = Buffer.from(value.slice(1), "base64url").toString("utf8");
+  if (entityKeySegment(decoded) !== value) throw new Error("entity read model key is not canonical base64url");
+  return decoded;
+}
 
 export function readTaskReadModelRows(db: DatabaseSync): readonly TaskReadModelRow[] {
   return (
@@ -417,6 +435,7 @@ export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
       valueJson: text(row, "value_json"),
     });
   return {
+    repository: readRepositoryReadModelRows(db),
     tasks: readTaskReadModelRows(db),
     taskGeneration: all(db, "SELECT task_id, generation FROM task_generation ORDER BY task_id").map((row) => ({
       taskId: text(row, "task_id"),
@@ -501,6 +520,7 @@ export function edgeReadModelEntries(model: {
       sourceRevision: model.sourceRevision,
       rootThreshold: model.rootThreshold,
     }),
+    ...model.rows.repository.map((row) => entry(repositoryReadModelPath(row), row)),
     ...model.rows.tasks.map((row) => entry(taskReadModelPath(pathSegment(row.taskId, "task id")), row)),
     ...model.rows.taskGeneration.map((row) =>
       entry(`${TASK_GENERATION_PREFIX}${pathSegment(row.taskId, "task id")}.json`, row),
@@ -510,7 +530,7 @@ export function edgeReadModelEntries(model: {
     ),
     ...model.rows.entities.map((row) =>
       entry(
-        `${ENTITY_READ_MODEL_PREFIX}${pathSegment(row.entityKind, "entity kind")}/${pathSegment(row.ownerId || "_", "entity owner")}/${pathSegment(row.entityId, "entity id")}.json`,
+        `${ENTITY_READ_MODEL_PREFIX}${[row.entityKind, row.ownerId, row.entityId].map(entityKeySegment).join("/")}.json`,
         row,
       ),
     ),
@@ -587,6 +607,7 @@ const refreshTaskRelationsOf = (db: DatabaseSync, taskId: string): void => {
 /** Applies one published row file into the edge tables; the entry's path names its table and key. */
 export function applyEdgeReadModelEntry(db: DatabaseSync, entryPath: string, entryText: string): void {
   const row = parseEntry(entryText);
+  if (applyRepositoryReadModelRow(db, entryPath, row as unknown as RepositoryReadModelRow)) return;
   if (entryPath.startsWith(TASK_READ_MODEL_PREFIX)) {
     upsertTaskReadModelRow(db, entryText);
     return;
@@ -757,6 +778,7 @@ export function applyEdgeReadModelEntry(db: DatabaseSync, entryPath: string, ent
 
 /** Removes the row a published path described, re-deriving anything that was folded from it. */
 export function deleteEdgeReadModelEntry(db: DatabaseSync, entryPath: string): void {
+  if (deleteRepositoryReadModelRow(db, entryPath)) return;
   const key = (prefix: string): string => entryPath.slice(prefix.length, -".json".length);
   if (entryPath.startsWith(TASK_READ_MODEL_PREFIX)) {
     deleteTaskReadModelRow(db, key(TASK_READ_MODEL_PREFIX));
@@ -771,11 +793,13 @@ export function deleteEdgeReadModelEntry(db: DatabaseSync, entryPath: string): v
     return;
   }
   if (entryPath.startsWith(ENTITY_READ_MODEL_PREFIX)) {
-    const [entityKind, ownerId, ...rest] = key(ENTITY_READ_MODEL_PREFIX).split("/");
+    const parts = key(ENTITY_READ_MODEL_PREFIX).split("/");
+    if (parts.length !== 3) throw new Error("entity read model key requires three components");
+    const [entityKind, ownerId, entityId] = parts.map(decodeEntityKeySegment);
     db.prepare("DELETE FROM entity_projection WHERE entity_kind = ? AND task_id = ? AND entity_id = ?").run(
-      entityKind,
-      ownerId === "_" ? "" : ownerId,
-      rest.join("/"),
+      entityKind!,
+      ownerId!,
+      entityId!,
     );
     return;
   }

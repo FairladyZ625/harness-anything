@@ -205,6 +205,7 @@ export interface RepoCell {
   readonly observeTail: (
     payload: unknown,
     daemon: { readonly userRoot: string; readonly daemonId: string },
+    binding?: RepoCellBinding,
   ) => Promise<ObserveTailResult>;
   readonly replica: ReplicaCutSource;
   readonly verifyReadiness: () => Promise<{

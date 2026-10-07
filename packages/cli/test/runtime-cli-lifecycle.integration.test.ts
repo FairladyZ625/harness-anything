@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } fro
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { eventuallyValue } from "../../daemon/test/fixtures/runtime-ingress.ts";
 import { livingDeliverableProtocol, taskQueryGuidance } from "@harness-anything/daemon/internal/runtime-spawn-mission";
 import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
@@ -163,6 +164,14 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   assert.equal(
     (running.dispatches as Array<Record<string, unknown>>).find((row) => row.dispatchId === detachedDispatchId)?.status,
     "running",
+  );
+  // Cancellation terminates promptly; witness the output this test expects to archive first.
+  await eventuallyValue(
+    () =>
+      readDispatchRecords(root, detachedDispatchId).find((record) => {
+        const event = record.event as { item?: { id?: string } } | undefined;
+        return record.kind === "provider_event" && event?.item?.id === "live";
+      }) ?? null,
   );
   assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "cancelled");
   assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "already-exited");
@@ -777,7 +786,8 @@ for (const afterResult of [false, true])
           unknown
         >[];
         const row = dispatches.find((candidate) => candidate.dispatchId === dispatchId)!;
-        assert.deepEqual({ status: row.status, outcome: row.outcome }, { status: "lost", outcome: "failed" });
+        // Public dispatch status is the accepted outcome; process loss remains in the owner's stream below.
+        assert.deepEqual({ status: row.status, outcome: row.outcome }, { status: "failed", outcome: "failed" });
         assert.match(JSON.stringify(result.receipt), /no longer alive/u);
         const records = readDispatchRecords(root, dispatchId);
         assert.ok(records.some((record) => record.kind === "process_lost"));

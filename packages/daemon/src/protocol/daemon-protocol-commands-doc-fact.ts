@@ -1,14 +1,12 @@
 import {
-  defineCenterForwardReadCommand,
-  defineQueryOnlyRepoReadCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
   defineCenterForwardWriteCommand,
   cliInput,
   defineLedgerWriteCommand,
-  defineRepoReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 export const docFactProtocolCommands = Object.freeze([
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "doc-status",
     phase: "DocSync-B",
     path: ["doc", "status"],
@@ -23,7 +21,7 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "doc-sync-dry-run",
     actionKind: "doc-dry-run",
     phase: "DocSync-B",
@@ -88,8 +86,9 @@ export const docFactProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "doc-show",
+    repositoryRead: true,
     phase: "DocSync-B",
     path: ["doc", "show"],
     summary: "Show a canonical projected document; --raw prints only the document body.",
@@ -258,7 +257,7 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineQueryOnlyRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "fact-type-list",
     phase: "DecisionFact-A",
     path: ["fact", "type", "list"],
@@ -357,7 +356,7 @@ export const docFactProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineQueryOnlyRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "fact-show",
     phase: "DecisionFact-A",
     path: ["fact", "show", "<fact-id>"],

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { materializeCellReplica } from "./edge-repository-cut.fixtures.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -11,7 +12,7 @@ import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { daemonStdioLogPath, openDaemonLifecycleLog } from "../src/lifecycle-log.ts";
 import { readObserveTail } from "../src/observe-tail.ts";
 import { createDaemonHostRepositoryApi } from "../src/daemon-host-repository-api.ts";
-import { validateObserveTailResult } from "../src/protocol/daemon-protocol-gui-types.ts";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { validateDaemonRpcCall } from "../src/protocol/daemon-protocol-rpc-validation.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { daemonRequestLogPath, openDaemonRequestLog } from "../src/request-log.ts";
@@ -143,18 +144,27 @@ test("observe.tail exposes the 3x3 mode matrix and advances only when the source
       "remote-center",
       "daemon-log",
     );
+    const edgeCut = await materializeCellReplica(rootDir, repoId, actor.principal.personId, cell.replica);
     await cell.close();
     cell = undefined;
 
-    seedEdgeView(rootDir, repoId, 7);
     cell = await openRepoCell({
       repoId,
       rootDir: canonicalRoot(rootDir),
       ownerId: "observe-tail-edge",
       mode: "remote-edge",
     });
-    const edgeEvents = await cell.observeTail({ kind: "events", direction: "history" }, { userRoot, daemonId });
-    assertUnavailable(edgeEvents, "remote-edge", "events", "edge-mirror-has-no-events", 7);
+    const edgeEvents = await cell.observeTail(
+      { kind: "events", direction: "history" },
+      { userRoot, daemonId },
+      binding,
+    );
+    assertAvailable(edgeEvents, "remote-edge", "events");
+    assert.equal(edgeEvents.cut.revision, edgeCut.revision);
+    assert.throws(
+      () => parseDaemonGuiReadResult("observe.tail", { ...edgeEvents, freshness: null }),
+      /complete replica cut/,
+    );
     assertAvailable(
       await cell.observeTail({ kind: "repo-log", direction: "history" }, { userRoot, daemonId }),
       "remote-edge",
@@ -221,7 +231,7 @@ test("observe.tail follows a conn-log file identity across rotation and reports 
     assert.equal(afterRetention.status, "gap");
     assert.equal(afterRetention.gap.reason, "cursor-file-not-retained");
     assert.equal(afterRetention.gap.requestedFileId, beforeRetention.liveCursor.fileId);
-    assert.deepEqual(validateObserveTailResult(afterRetention), []);
+    assert.doesNotThrow(() => parseDaemonGuiReadResult("observe.tail", afterRetention));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -583,7 +593,7 @@ function assertAvailable(result, mode, kind) {
   assert.equal(result.mode, mode);
   assert.equal(result.kind, kind);
   assert.ok(result.status === "ready" || result.status === "pending", JSON.stringify(result));
-  assert.deepEqual(validateObserveTailResult(result), []);
+  assert.doesNotThrow(() => parseDaemonGuiReadResult("observe.tail", result));
 }
 
 function assertUnavailable(result, mode, kind, reason, centerRevision) {
@@ -592,7 +602,7 @@ function assertUnavailable(result, mode, kind, reason, centerRevision) {
   assert.equal(result.status, "unavailable");
   assert.equal(result.unavailable.reason, reason);
   assert.equal(result.unavailable.centerRevision, centerRevision);
-  assert.deepEqual(validateObserveTailResult(result), []);
+  assert.doesNotThrow(() => parseDaemonGuiReadResult("observe.tail", result));
 }
 
 test("observe.tail respects scan budget on large JSONL files and pages backward safely", async () => {
@@ -650,31 +660,6 @@ test("observe.tail respects scan budget on large JSONL files and pages backward 
     rmSync(userRoot, { recursive: true, force: true });
   }
 });
-
-function seedEdgeView(rootDir, repoId, revision) {
-  const viewRoot = path.join(rootDir, ".fleet-view");
-  const viewDir = path.join(viewRoot, "repos", repoId, "views", "observe-view");
-  mkdirSync(path.join(viewDir, "cuts", String(revision)), { recursive: true });
-  writeFileSync(
-    path.join(viewDir, "current.json"),
-    `${JSON.stringify({ cut: { revision, headDigest: "head-observe" }, manifestDigest: "manifest-observe" })}\n`,
-  );
-  writeFileSync(path.join(viewDir, "cuts", String(revision), "manifest.json"), `${JSON.stringify({ entries: [] })}\n`);
-  writeFileSync(
-    path.join(rootDir, "fleet-edge.json"),
-    `${JSON.stringify({
-      schema: "fleet-edge-config/v1",
-      repoId,
-      host: "127.0.0.1",
-      port: 1,
-      caPath: path.join(rootDir, "unused-ca.pem"),
-      nodeId: "observe-node",
-      credential: "unused-test-credential",
-      viewRoot,
-      quotaBytes: 1024,
-    })}\n`,
-  );
-}
 
 function initRepo(rootDir) {
   git(rootDir, "init", "--quiet");

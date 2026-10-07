@@ -1,4 +1,4 @@
-import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 
 /**
@@ -66,7 +66,7 @@ export async function readEntityOwnedContent(
   if (!channel) throw new Error("Entity content bridge is unavailable.");
   const value = await channel({ repoId, entityKind, entityId, ...(path === "" ? {} : { path }) });
   if (!isRendererRecord(value) || value.schema !== "entity-content-read/v1" || typeof value.outcome !== "string")
-    throw new Error(rendererErrorHint(value, "Entity content bridge returned an invalid result."));
+    throw rendererReadError(value, "Entity content bridge returned an invalid result.");
   return value as unknown as EntityContentRead;
 }
 

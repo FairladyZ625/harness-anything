@@ -1,3 +1,5 @@
+import { withFleetReplicaPullLock } from "../fleet-edge-mirror.ts";
+import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
 import {
   closeSync,
   cpSync,
@@ -16,7 +18,7 @@ import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
 import type { FleetReplicaSessionPool } from "./edge-replica-sync.ts";
 import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
-import { recordHeadConfirmation, recordRepoReadDenied } from "./replica-read-model.ts";
+import { recordHeadConfirmation, recordNodeReadDenied } from "./replica-read-model.ts";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, writeFileDurably } from "../durable-file.ts";
 import {
@@ -210,7 +212,7 @@ function finish(
     expected = begin.schema === "fleet.snapshot.begin/v1" ? begin.manifest.digest : begin.resultManifestDigest,
     already = readJson<Current>(path.join(viewRoot, "current.json"));
   if (JSON.stringify(already?.cut) === JSON.stringify(cut) && already?.manifestDigest === expected) {
-    recordHeadConfirmation(viewRoot, cut.revision);
+    recordHeadConfirmation(viewRoot, cut);
     rmSync(staging, { recursive: true, force: true });
     return ack(begin.transferId, cut, expected);
   }
@@ -313,7 +315,7 @@ function finish(
     active = readJson<Current>(path.join(viewRoot, "current.json"));
   if (!reopened || !active || reopened.manifestDigest !== digest || JSON.stringify(active.cut) !== JSON.stringify(cut))
     throw new Error("atomic view verification failed");
-  recordHeadConfirmation(viewRoot, cut.revision);
+  recordHeadConfirmation(viewRoot, cut);
   collect(viewRoot, casRoot, cut.revision);
   rmSync(staging, { recursive: true, force: true });
   return ack(begin.transferId, cut, digest);
@@ -525,53 +527,10 @@ export async function runFleetRuntimeArchiveClient(
     session.close();
   }
 }
-export async function runFleetRepositoryReadClient(
-  options: FleetPeerOptions & {
-    readonly method: import("./contract.ts").FleetRepositoryReadMethod;
-    readonly accessToken?: string;
-    readonly payload: Readonly<Record<string, unknown>>;
-  },
-): Promise<Readonly<Record<string, unknown>>> {
-  const session = await openPeer(options);
-  try {
-    const messageId = session.messageId();
-    session.send({
-      schema: "fleet.repository.read/v1",
-      ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
-      accessToken: options.accessToken ?? null,
-      messageId,
-      repoId: options.repoId,
-      method: options.method,
-      payload: options.payload,
-    });
-    const chunks: Buffer[] = [];
-    let offset = 0;
-    for (;;) {
-      const response = await session.next();
-      if (
-        response.schema !== "fleet.repository.read.result/v1" ||
-        response.inReplyTo !== messageId ||
-        response.offset !== offset
-      )
-        throw new Error("repository read chunk does not continue this response");
-      const chunk = Buffer.from(response.dataBase64, "base64");
-      chunks.push(chunk);
-      offset += chunk.length;
-      if (response.done) return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Readonly<Record<string, unknown>>;
-    }
-  } finally {
-    session.close();
-  }
-}
-export async function runFleetRuntimeReadClient(
+export async function awaitFleetRuntimeSessionsClient(
   options: FleetPeerOptions & {
     readonly repoId: string;
-    readonly method:
-      | "repo.agentRuntime.overview"
-      | "repo.agentRuntime.sessions.await"
-      | "repo.agentRuntime.sessions.read"
-      | "repo.tasks.runtimeContext.read"
-      | "repo.tasks.claimable";
+    readonly method: "repo.agentRuntime.sessions.await";
     readonly connectionSignal?: AbortSignal;
     readonly payload: Readonly<Record<string, unknown>>;
   },
@@ -585,15 +544,15 @@ export async function runFleetRuntimeReadClient(
     // keep their existing bounds; disconnecting its caller closes the peer.
     const response = await session.request(
       {
-        schema: "fleet.runtime.read/v1",
+        schema: "fleet.runtime.await/v1",
         messageId: session.messageId(),
         repoId: options.repoId,
         method: options.method,
         payload: options.payload,
       },
-      options.method === "repo.agentRuntime.sessions.await" ? null : options.timeoutMs,
+      null,
     );
-    if (response.schema !== "fleet.runtime.read.result/v1") throw new Error("runtime read result expected");
+    if (response.schema !== "fleet.runtime.await.result/v1") throw new Error("runtime read result expected");
     return response.result;
   } finally {
     options.connectionSignal?.removeEventListener("abort", close);
@@ -790,28 +749,21 @@ export async function runFleetScheduleCommandClient(
     session.close();
   }
 }
-// A view has one staging directory, and the daemon (the only process that pulls) runs the background
-// sync next to explicit pulls, so pulls into the same view take turns instead of interleaving transfers.
-const viewPulls = new Map<string, Promise<unknown>>();
+// Serialize one node's durable view across both daemon sessions and processes.
 export async function runFleetReplicaPullClient(
   options: FleetReplicaPullClientOptions,
 ): Promise<FleetReplicaPullClientResult> {
-  const key = path.resolve(options.viewRoot),
-    previous = viewPulls.get(key) ?? Promise.resolve(),
-    turn = previous.then(
-      () => pullReplica(options),
-      () => pullReplica(options),
-    );
-  viewPulls.set(key, turn);
-  try {
-    return await turn;
-  } catch (error) {
-    if (error instanceof FleetRemoteError && error.code === "authorization_denied")
-      recordRepoReadDenied(options.viewRoot, options.repoId);
-    throw error;
-  } finally {
-    if (viewPulls.get(key) === turn) viewPulls.delete(key);
-  }
+  const viewDir = path.join(options.viewRoot, "repos", options.repoId, "views", options.nodeId);
+  return withFleetReplicaPullLock(viewDir, async () => {
+    try {
+      return await pullReplica(options);
+    } catch (error) {
+      recordReplicaHealth(viewDir, { syncFailure: replicaFailure(error, "replica_pull_failed") });
+      if (error instanceof FleetRemoteError && error.code === "authorization_denied")
+        recordNodeReadDenied(options.viewRoot, options.repoId, options.nodeId);
+      throw error;
+    }
+  });
 }
 async function pullReplica(options: FleetReplicaPullClientOptions): Promise<FleetReplicaPullClientResult> {
   const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint),
@@ -846,7 +798,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
           );
           recordHeadConfirmation(
             path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId),
-            inbound.cut.revision,
+            inbound.cut,
           );
           failed = false;
           return { replica: last ?? inbound, current };

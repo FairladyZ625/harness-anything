@@ -1,3 +1,4 @@
+import { runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import {
   makePersonActionExplanationService,
   makeSquadActionExplanationService,
@@ -13,7 +14,6 @@ import {
   validateEntityActionExplainRequest,
   validateEntityActionExplanationSet,
   type BaseEntity,
-  type CanonicalEventStore,
   type AuthorizationDecision,
   type EntityActionExplainRequestV1,
   type EntityActionExplanationFailureCode,
@@ -31,7 +31,6 @@ import { readCompletionContext } from "./task-completion-read.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export interface TaskActionExplanationReadDependencies {
-  readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
   readonly binding?: RepoCellBinding;
   readonly rootDir: string;
@@ -63,7 +62,7 @@ export function readTaskActionExplanation(
       repositoryId: dependencies.rootDir,
     });
 
-  const headRevision = dependencies.store.readHead()?.revision ?? 0,
+  const headRevision = dependencies.projection.readCut().sourceRevision,
     cut = `canonical:${headRevision}`,
     evaluatedAt = dependencies.now(),
     taskService = makeTaskActionExplanationService({
@@ -113,8 +112,7 @@ export function readTaskActionExplanation(
      * not a Map over the whole ledger. */
     witnessAt = (revision: number) => {
       if (!Number.isSafeInteger(revision) || revision < 1) return undefined;
-      const [event] = dependencies.projection.readCanonicalEvents(revision - 1, 1).events;
-      return event !== undefined && event.workspaceRevision === revision ? event : undefined;
+      return dependencies.projection.readEventWitness(revision) ?? undefined;
     },
     cache = new Map<string, EntityActionExplanationSubjectV1>(),
     subjects = parsed.map(({ ref, parsed: entity }) => {
@@ -270,7 +268,7 @@ export function readTaskActionExplanation(
 /** Resolve Person identity and action decisions online before entering the synchronous read cut. */
 export async function preparePersonActionExplanationBinding(
   input: {
-    readonly store: CanonicalEventStore;
+    readonly revision: number;
     readonly repoId: string;
     readonly now: () => string;
     readonly binding?: RepoCellBinding;
@@ -300,7 +298,7 @@ export async function preparePersonActionExplanationBinding(
     };
   const decisions = new Map<string, AuthorizationDecision>(),
     personExistsIds = new Set<string>(),
-    revision = input.store.readHead()?.revision ?? 0;
+    revision = input.revision;
   for (const entity of refs) {
     const contract = getEntityKindContract(entity.kind);
     if (!contract?.actionCatalog) throw new Error(`The ${entity.kind} Entity Action catalog is unavailable.`);
@@ -336,6 +334,11 @@ export async function preparePersonActionExplanationBinding(
             revision,
             now: input.now(),
             targetOverride: entity.ref,
+          }).catch((cause: unknown) => {
+            throw Object.assign(
+              new Error(`Live action authorization is unavailable: ${runtimeErrorMessage(cause)}`, { cause }),
+              { code: "keycloak_unavailable" },
+            );
           });
         decisions.set(`${entity.ref}:${action.id}`, decision);
       }),

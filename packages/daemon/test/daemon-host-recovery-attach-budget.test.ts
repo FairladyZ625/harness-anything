@@ -242,11 +242,13 @@ test("an attach that lands after its registration changed mode is discarded and 
     assert.equal(latched.causeClass, "infrastructure");
     // Past the reprobe throttle the still-enabled repo reopens under the registry's current mode.
     clock = "2026-09-10T00:00:30.000Z";
-    // A declared local read exercises recovery without requiring a Fleet center.
-    assert.equal((await host.run("mode-attach", { kind: "settings-read" }, auth)).outcome, "applied");
+    // Recovery attaches the new mode, but public reads require its own replica.
+    const read = await host.run("mode-attach", { kind: "settings-read" }, auth);
+    assert.equal(read.outcome, "op_rejected", JSON.stringify(read));
+    assert.equal(read.code, "replica_unavailable", JSON.stringify(read));
     assert.equal(host.status().repos.find((repo) => repo.repoId === "mode-attach")?.state, "attached");
     assert.equal(host.status().repos.find((repo) => repo.repoId === "mode-attach")?.mode, "remote-edge");
-    assert.equal((await host.run("mode-attach", { kind: "task-list" }, auth)).code, "repo_mode_read_only");
+    assert.equal((await host.run("mode-attach", { kind: "task-list" }, auth)).code, "replica_unavailable");
     assert.equal(
       (await host.run("mode-attach", { kind: "task-create", taskId: "task_mode_attach", title: "Mode attach" }, auth))
         .code,

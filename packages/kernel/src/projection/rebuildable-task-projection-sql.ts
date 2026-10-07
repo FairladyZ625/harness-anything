@@ -10,6 +10,8 @@ import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 // SQL execution, projection watermark, canonical serialization, and state digest primitives.
 const stateDigestTables = [
   ["event_index", "op_id"],
+  ["event_summary", "workspace_revision"],
+  ["artifact_entity_state", "entity_kind, entity_id"],
   ["document", "path"],
   ["preset_snapshot", "digest"],
   ["runtime_installation", "installation_id"],

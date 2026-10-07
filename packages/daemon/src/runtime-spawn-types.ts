@@ -117,7 +117,6 @@ export interface RuntimeAttemptTerminal {
   readonly outcome: ScheduleRunOutcome;
   readonly reason: string | null;
   readonly endedAt: string;
-  readonly resultRef: string | null;
   readonly binding: RuntimeBinding;
 }
 
@@ -327,7 +326,8 @@ export interface RuntimeSpawnerInput {
   readonly resolveSquadDispatch?: (
     squadId: string | undefined,
     leaderId: string,
-    workerId?: string,
+    workerId: string | undefined,
+    binding: RuntimeBinding,
   ) => SquadDispatchSelection;
   readonly launch?: RuntimeLauncher;
   readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void;

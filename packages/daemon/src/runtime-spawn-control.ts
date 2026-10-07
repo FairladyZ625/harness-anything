@@ -7,8 +7,6 @@ import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
-const cancelDurableDrainTimeoutMs = 1_000;
-
 export async function cancelRuntime(
   context: RuntimeSpawnerContext,
   payload: JsonObject,
@@ -21,20 +19,28 @@ export async function cancelRuntime(
   const runtimeSessionId = requiredRuntimeSpawnText(payload.runtimeSessionId, "runtimeSessionId"),
     hash = createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}`).digest("hex"),
     opId = `runtime-cancel-${hash.slice(0, 32)}`;
-  const headers = readDispatchStreamHeaders(context.input.rootDir),
+  // Terminal streams retain their owner binding after archival; repeated cancellation still verifies it.
+  const headers = readDispatchStreamHeaders(context.input.rootDir, true),
     matchingHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId),
     missingOwnedProcess =
       matchingHeader !== undefined &&
       matchingHeader.binding !== undefined &&
       ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode) &&
       !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process;
-  if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) await adoptRuntimes(context);
+  if (!matchingHeader?.binding || !ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode))
+    throw runtimeSpawnError(
+      "execution_scope_mismatch",
+      "This runtime has no owner dispatch on this node; cancel it through its owner.",
+    );
+  if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) {
+    const [adoption] = await Promise.allSettled([adoptRuntimes(context)]);
+    if (adoption.status === "rejected" && !context.processes.has(runtimeSessionId)) throw adoption.reason;
+  }
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
     active.cancelOpId = opId;
     active.cancelRequested = true;
-    await consumeDurableOutput(context, active, cancelDurableDrainTimeoutMs);
     if (active.process.terminateTree) await active.process.terminateTree();
     else active.process.terminate();
     // Cancel holds the write queue: lines flushed during termination drain into work queued behind

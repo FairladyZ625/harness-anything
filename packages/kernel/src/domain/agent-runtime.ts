@@ -1,4 +1,10 @@
 import {
+  validSquadDispatchContext,
+  validSquadRunObservation,
+  type SquadDispatchContext,
+  type SquadRunObservation,
+} from "./squad-run.ts";
+import {
   hasOnlyFields,
   hasRequiredFields,
   isNonEmptyString,
@@ -20,6 +26,7 @@ export const transcriptReachabilityStates = ["by_session_id", "dispatch_stream_o
 export const agentRuntimeEventTypes = [
   "runtime_installation_observed",
   "runtime_dispatch_requested",
+  "runtime_squad_run_observed",
   "runtime_session_started",
   "runtime_session_provider_bound",
   "runtime_session_task_bound",
@@ -320,6 +327,7 @@ function runtimeActivityTime(stamp: string): number {
 }
 
 interface RuntimePayloads {
+  readonly runtime_squad_run_observed: Readonly<SquadRunObservation>;
   readonly runtime_installation_observed: {
     readonly installationId: string;
     readonly kindId: string;
@@ -351,6 +359,7 @@ interface RuntimePayloads {
     readonly agentId?: string;
     readonly agentName?: string;
     readonly squadId?: string;
+    readonly squadRun?: SquadDispatchContext;
     readonly cwd?: string;
     readonly role?: string;
     readonly reviewTarget?: {
@@ -399,6 +408,13 @@ interface RuntimePayloads {
     readonly dispatchId?: string;
     readonly endedAt?: string;
     readonly runtimeMetrics?: RuntimeDispatchMetrics;
+    readonly attempt?: {
+      readonly classification: "provider_fault" | "provider_quota" | "worker_stop" | "gate_red";
+      readonly reason: string;
+      readonly faultClass?: "quota_exhausted" | "rate_limited";
+      readonly resetAt?: string;
+      readonly fallbackState: "scheduled" | "exhausted" | null;
+    };
   };
   readonly runtime_handoff_exported: {
     readonly dispatchId: string;
@@ -434,6 +450,7 @@ const envelopeFields = [
   "payload",
 ] as const;
 const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
+  runtime_squad_run_observed: [],
   runtime_installation_observed: [
     "installationId",
     "kindId",
@@ -480,9 +497,18 @@ function validateAgentRuntimePayloadFields(
   value: unknown,
   allowUnknownFields: boolean,
 ): readonly string[] {
+  if (type === "runtime_squad_run_observed")
+    return validSquadRunObservation(value) ? [] : ["Squad run observation is invalid"];
+  if (
+    type === "runtime_dispatch_requested" &&
+    isRecord(value) &&
+    value.squadRun !== undefined &&
+    !validSquadDispatchContext(value.squadRun)
+  )
+    return ["Squad dispatch context is invalid"];
   const optionalFields =
     type === "runtime_session_outcome_observed"
-      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics"]
+      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "attempt"]
       : type === "runtime_session_started"
         ? ["taskBinding"]
         : type === "runtime_dispatch_requested"
@@ -500,6 +526,7 @@ function validateAgentRuntimePayloadFields(
               "agentId",
               "agentName",
               "squadId",
+              "squadRun",
               "cwd",
               "role",
               "reviewTarget",
@@ -582,7 +609,25 @@ function validateAgentRuntimePayloadFields(
   if (
     type === "runtime_session_outcome_observed" &&
     ((value.endedAt !== undefined && !timestamp(String(value.endedAt))) ||
-      (value.runtimeMetrics !== undefined && !validRuntimeDispatchMetrics(value.runtimeMetrics)))
+      (value.runtimeMetrics !== undefined && !validRuntimeDispatchMetrics(value.runtimeMetrics)) ||
+      (value.attempt !== undefined &&
+        (!isRecord(value.attempt) ||
+          !hasOnlyFields(value.attempt, [
+            "classification",
+            "reason",
+            "fallbackState",
+            ...["faultClass", "resetAt"].filter((field) => Object.hasOwn(value.attempt as object, field)),
+          ]) ||
+          !["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(
+            String(value.attempt.classification),
+          ) ||
+          !isNonEmptyString(value.attempt.reason) ||
+          (value.attempt.faultClass !== undefined &&
+            !["quota_exhausted", "rate_limited"].includes(String(value.attempt.faultClass))) ||
+          (value.attempt.resetAt !== undefined && !timestamp(String(value.attempt.resetAt))) ||
+          (value.attempt.fallbackState !== null &&
+            value.attempt.fallbackState !== "scheduled" &&
+            value.attempt.fallbackState !== "exhausted"))))
   )
     return ["runtime dispatch settlement metadata is invalid"];
   return [];
@@ -730,6 +775,7 @@ export function reduceRuntimeSession(
     };
   }
   if (
+    event.type === "runtime_squad_run_observed" ||
     event.type === "runtime_dispatch_requested" ||
     event.type === "runtime_dispatch_outcome_unknown" ||
     event.type === "runtime_handoff_exported" ||

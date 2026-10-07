@@ -29,7 +29,7 @@ const task = (
 const projection = (rows: readonly ReturnType<typeof task>[], events: readonly Record<string, unknown>[] = []) =>
   ({
     readTaskIndex: () => ({ status: "ready", rows, watermark: 12, sourceRevision: 12, warnings: [] }),
-    readCanonicalEvents: (afterRevision: number, limit: number) => ({
+    readEventSummaries: (afterRevision: number, limit: number) => ({
       status: "ready",
       events: events.filter((event) => Number(event.workspaceRevision) > afterRevision).slice(0, limit),
       watermark: events.at(-1)?.workspaceRevision ?? 0,
@@ -94,7 +94,7 @@ test("workspace scope reports a missing ancestor instead of inventing a breadcru
         sourceRevision: 9,
         warnings: ["projection_missing"],
       }),
-      readCanonicalEvents: () => ({ status: "pending", events: [], watermark: 0, sourceRevision: 0 }),
+      readEventSummaries: () => ({ status: "pending", events: [], watermark: 0, sourceRevision: 0 }),
     } as never,
     { rootTaskId: "root" },
   );
@@ -126,9 +126,8 @@ test("workspace scope cursor drains mixed-case task ids in sort order", () => {
   assert.deepEqual(taskIds, ["task_a", "task_A"]);
 });
 
-test("workspace scope returns only bounded summaries and drops large event payload fields", () => {
+test("workspace scope filters projected summaries by membership", () => {
   const rows = [task("root", null, "active", "work"), task("member", "root", "active")],
-    largeTests = Array.from({ length: 2_407 }, (_, index) => ({ name: `test-${index}`, output: "x".repeat(200) })),
     events = [
       {
         eventId: "outside",
@@ -137,7 +136,7 @@ test("workspace scope returns only bounded summaries and drops large event paylo
         occurredAt: "2026-09-20T00:00:00.000Z",
         workspaceRevision: 1,
         taskId: "outside",
-        payload: { title: "outside", tests: largeTests },
+        summary: "outside",
       },
       {
         eventId: "inside",
@@ -146,7 +145,7 @@ test("workspace scope returns only bounded summaries and drops large event paylo
         occurredAt: "2026-09-20T00:01:00.000Z",
         workspaceRevision: 2,
         taskId: "member",
-        payload: { title: "inside", tests: largeTests },
+        summary: "inside",
       },
     ];
   const result = workspaceScopeFromProjection(projection(rows, events), { rootTaskId: "root" });

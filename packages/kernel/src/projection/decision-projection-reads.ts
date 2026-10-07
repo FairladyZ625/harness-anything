@@ -409,7 +409,10 @@ export function readDecisionIncomingRelationRows(
   );
 }
 
-export function readDecisionGraphRows(db: DatabaseSync): {
+export function readDecisionGraphRows(
+  db: DatabaseSync,
+  basisRevision: number,
+): {
   readonly edges: readonly DecisionRelationEdgeRow[];
   readonly decisionAnchors: readonly DecisionAnchorRow[];
   readonly coverageRows: readonly DecisionCoverageRow[];
@@ -431,6 +434,7 @@ export function readDecisionGraphRows(db: DatabaseSync): {
     coverageRows: decisionCoverage(
       db,
       decisionAnchors.map(({ decisionId }) => decisionId),
+      basisRevision,
     ),
   };
 }

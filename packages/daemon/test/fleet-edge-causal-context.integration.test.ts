@@ -21,7 +21,7 @@ import { eventually } from "./schedule-actions.fixtures.ts";
 import { evidence } from "./task-surface.fixtures.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test(
-  "remote-edge dispatch serves the causal block fresh from the center, never its stale mirror",
+  "remote-edge dispatch serves causal context from the newly confirmed replica cut",
   { timeout: 60_000 },
   async (t) => {
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", "# English\n# 中文\n");

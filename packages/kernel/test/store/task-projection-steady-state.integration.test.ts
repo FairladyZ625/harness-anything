@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { canonicalEventWritePlan, type AgentRuntimeEventV1 } from "../../src/index.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
@@ -294,30 +295,112 @@ test("stale persistent event projection schema is discarded and replayed from th
     t.diagnostic(JSON.stringify({ case: "complete-stream-schema-rebuild", sourceRevision: 1, watermark: 1 }));
   });
 });
-test("squad run cache rows are replaceable, monotonic, and cleared for stream replay on rebuild", async () => {
+test("canonical Squad and live session rows are byte-stable on reopen and cold rebuild", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }),
-      projection = makeTaskProjection({ rootDir, eventStore }),
-      initial = {
-        squadRunId: "squad_0123456789abcdef01234567",
-        revision: 2,
-        state: { schema: "squad-run/v1", phase: "leader_running" },
-      };
-    assert.equal(projection.squadRunProjectionReady(), false);
-    projection.replaceSquadRuns([initial]);
-    assert.equal(projection.squadRunProjectionReady(), true);
-    assert.deepEqual(projection.readSquadRun(initial.squadRunId), initial);
-    projection.upsertSquadRun({ ...initial, revision: 1, state: { phase: "stale" } });
-    assert.deepEqual(projection.readSquadRun(initial.squadRunId), initial);
-    projection.markSquadRunProjectionDirty();
-    assert.equal(projection.squadRunProjectionReady(), false);
-    projection.upsertSquadRun({ ...initial, revision: 3, state: { phase: "converged" } });
-    assert.equal(projection.squadRunProjectionReady(), true);
-    assert.equal(projection.readSquadRun(initial.squadRunId)?.revision, 3);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
+    let projection = makeTaskProjection({ rootDir, eventStore });
+    const identity = {
+      squadRunId: "squad_0123456789abcdef01234567",
+      squadId: "core",
+      taskId: "task-1",
+      executionId: "execution-1",
+      mission: "Public mission",
+      leaderAgentId: "leader",
+    };
+    const dispatch = {
+      dispatchId: "dispatch_0123456789abcdef01234567",
+      runtimeSessionId: "runtime-1",
+      instanceId: "one",
+      installationId: "one",
+      kindId: "codex",
+      idempotencyKey: "initial",
+      definitionSnapshotRef: "artifact:runtime-definition/test",
+      taskId: "task-1",
+      executionId: "execution-1",
+      definitionSnapshot: {
+        schema: "agent-definition-snapshot/v1",
+        configVersion: 1,
+        instanceId: "one",
+        installationId: "one",
+        kindId: "codex",
+        providerId: "openai",
+        model: "test",
+        reasoningEffort: null,
+        baseUrl: null,
+        authMode: "subscription",
+      },
+      squadRun: identity,
+    };
+    const events = [
+      { type: "runtime_dispatch_requested", payload: dispatch },
+      {
+        type: "runtime_session_started",
+        payload: {
+          runtimeSessionId: "runtime-1",
+          instanceId: "one",
+          installationId: "one",
+          kindId: "codex",
+          definitionSnapshotRef: dispatch.definitionSnapshotRef,
+          launchGeneration: 1,
+          attachable: true,
+        },
+      },
+      {
+        type: "runtime_squad_run_observed",
+        payload: {
+          ...identity,
+          ownerDispatchId: dispatch.dispatchId,
+          runRevision: 3,
+          phase: "leader_running",
+          error: null,
+          currentLeaderRuntimeSessionId: "runtime-1",
+          leaderTurns: [
+            {
+              turnId: "leader-1",
+              trigger: { kind: "initial" },
+              dispatchId: dispatch.dispatchId,
+              runtimeSessionId: "runtime-1",
+              decision: null,
+            },
+          ],
+          workerAttempts: [],
+          workerCallbackCount: 0,
+          pendingLeaderCallbackCount: 0,
+          synthesisReportPath: null,
+        },
+      },
+    ];
+    for (const [index, value] of events.entries()) {
+      const event = {
+        schema: "agent-runtime-event/v1",
+        eventId: `runtime-${index}`,
+        workspaceRevision: index + 1,
+        opId: `runtime-${index}`,
+        actor: { principal: { personId: "owner" }, executor: null },
+        source: "local",
+        occurredAt: "2026-10-07T00:00:00Z",
+        ...value,
+      } as AgentRuntimeEventV1;
+      eventStore.append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
+      projection.apply(event);
+    }
+    const bytes = () =>
+      JSON.stringify({
+        run: projection.readSquadRuns(),
+        session: projection.readRuntimeSessions(),
+        entity: projection.getEntity("runtime-session", "runtime-1"),
+        model: projection.readEdgeReadModel(),
+      });
+    const before = bytes();
+    assert.equal(projection.readRuntimeSession("runtime-1")?.liveness, "live");
+    assert.equal(projection.readSquadRun(identity.squadRunId)?.state.runRevision, 3);
+    projection.close();
+    projection = makeTaskProjection({ rootDir, eventStore });
+    assert.equal(bytes(), before, "reopen cannot infer owner death or rewrite the accepted cut");
     projection.rebuild();
-    assert.equal(projection.squadRunProjectionReady(), false);
-    assert.deepEqual(projection.readSquadRuns(), []);
+    assert.equal(bytes(), before, "canonical events alone reconstruct the same run/session/entity/read model");
+    projection.close();
   });
 });
 // The title's "64-item/100ms" is pinned by check-implementation-contracts.mjs and no longer

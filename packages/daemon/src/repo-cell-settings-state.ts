@@ -8,7 +8,6 @@ import {
   INITIAL_SETTINGS_V1,
   SETTINGS_LOCAL_PATH,
   compileSettingsChangedEvent,
-  isSettingsEvent,
   parseLocalSettings,
   readSettingsFacet,
   repositorySettings,
@@ -16,8 +15,6 @@ import {
   serializeLocalSettings,
   validateRepositorySettings,
   writeRepositorySettingsFacet,
-  type CanonicalEventStore,
-  type CanonicalEventV1,
   type CloseoutGate,
   type CloseoutOverridesV1,
   type CloseoutSettingsV1,
@@ -136,52 +133,19 @@ export function readEffectiveReviewReturnBudget(
   };
 }
 
-/**
- * The `settings read` attribution: the latest `settings_changed` event carries the provenance
- * (occurredAt, actor, workspace revision). When projection and readEventAtRevision are available,
- * it resolves the latest settings entity revision in O(1) via primary-key lookup. When projection
- * has no settings entity, it immediately reports "initial". Otherwise it derives attribution through
- * the bounded `readBatch` window. The actor compacts to `person:<personId>` or `<executor-kind>:<id>`.
- */
+/** Attribution is read at the same projection cut as the settings value, on both center and edge. */
 export function settingsLastChanged(
-  store: Pick<CanonicalEventStore, "readBatch"> & {
-    readonly readEventAtRevision?: (revision: number) => CanonicalEventV1 | null;
-  },
-  projection?: Pick<TaskProjectionQueries, "getEntity">,
+  projection: Pick<TaskProjectionQueries, "readSettingsEvent">,
 ): DaemonSettingsLastChange | "initial" {
-  if (projection) {
-    const entity = projection.getEntity("settings", "repository");
-    if (!entity) return "initial";
-    if (typeof store.readEventAtRevision === "function") {
-      const event = store.readEventAtRevision(entity.workspaceRevision);
-      if (event && isSettingsEvent(event)) {
-        return {
-          occurredAt: event.occurredAt,
-          actor:
-            event.actor.executor === null
-              ? `person:${event.actor.principal.personId}`
-              : `${event.actor.executor.kind}:${event.actor.executor.id}`,
-          revision: event.workspaceRevision,
-        };
-      }
-    }
-  }
-  let latest: CanonicalEventV1 | undefined,
-    cursor: string | null = null;
-  for (;;) {
-    const batch = store.readBatch(cursor, 1024);
-    for (const event of batch.events) if (isSettingsEvent(event)) latest = event;
-    cursor = batch.cursor;
-    if (batch.done) break;
-  }
-  if (latest === undefined) return "initial";
+  const event = projection.readSettingsEvent();
+  if (!event) return "initial";
   return {
-    occurredAt: latest.occurredAt,
+    occurredAt: event.occurredAt,
     actor:
-      latest.actor.executor === null
-        ? `person:${latest.actor.principal.personId}`
-        : `${latest.actor.executor.kind}:${latest.actor.executor.id}`,
-    revision: latest.workspaceRevision,
+      event.actor.executor === null
+        ? `person:${event.actor.principal.personId}`
+        : `${event.actor.executor.kind}:${event.actor.executor.id}`,
+    revision: event.workspaceRevision,
   };
 }
 

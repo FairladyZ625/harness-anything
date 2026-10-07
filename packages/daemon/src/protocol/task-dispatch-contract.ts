@@ -14,7 +14,7 @@ export interface TaskDispatchRow {
     readonly outputTokens: number;
     readonly totalTokens: number;
     readonly toolCallCount: number;
-    readonly compacted: boolean;
+    readonly compacted: boolean | null;
   };
   readonly dispatchId: string;
   readonly taskId: string;

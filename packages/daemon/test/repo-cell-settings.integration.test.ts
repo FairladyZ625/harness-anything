@@ -565,7 +565,7 @@ function git(root: string, ...args: string[]): void {
   execFileSync("git", ["-C", root, ...args], { stdio: "pipe" });
 }
 
-test("settingsLastChanged resolves in O(1) through projection entity and matches scan fallback", async () => {
+test("settingsLastChanged uses the canonical projection cut without scanning the store", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-settings-last-changed-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -594,16 +594,11 @@ test("settingsLastChanged resolves in O(1) through projection entity and matches
     const store = makeTaskEventStore({ repoId: workspaceId("settings-perf"), rootDir: canonicalRoot(root) });
     const projection = makeTaskProjection({ rootDir: canonicalRoot(root), eventStore: store });
     try {
-      const fastAttribution = settingsLastChanged(store, projection);
+      const fastAttribution = settingsLastChanged(projection);
       assert.deepEqual(fastAttribution, read.lastChanged);
 
-      // 2. Fallback scan without projection
-      const fallbackAttribution = settingsLastChanged(store);
-      assert.deepEqual(fallbackAttribution, read.lastChanged);
-
-      // 3. Uninitialized / empty projection returns "initial"
-      const emptyProjection = { getEntity: () => null };
-      assert.equal(settingsLastChanged(store, emptyProjection), "initial");
+      // An uninitialized projection has no settings event.
+      assert.equal(settingsLastChanged({ readSettingsEvent: () => null }), "initial");
     } finally {
       projection.close();
     }

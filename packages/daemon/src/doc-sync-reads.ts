@@ -65,7 +65,7 @@ export function readAction(input: Input): WriteReceipt {
       readDetail(input, paths, current, lease, scope),
     );
   const reads = paths.map((candidate) => input.projection.readDocument(candidate)),
-    revision = input.store.readHead()?.revision ?? 0,
+    revision = current.revision,
     ready = reads.every((read) => read.status === "ready");
   const receiptDetail = readDetail(input, paths, current, lease, []),
     worktreeVisible = observe(
@@ -294,7 +294,7 @@ export function listProjectedTaskDocuments(
     task = requireCurrentTaskProjection(projection, taskId, "task documents list"),
     packagePath = task.packagePath;
   const prefix = `${packagePath}/`,
-    basis = projection.readReplicaBasis(null),
+    basis = projection.readDocuments(prefix),
     worktree = worktreeDocumentIndex(taskPackageWorktreeRoot(rootDir, packagePath), packagePath),
     worktreeByPath = new Map(worktree.map((row) => [row.path, row])),
     documents = [

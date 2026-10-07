@@ -9,7 +9,7 @@ import test from "node:test";
 import { makeTaskEventStore, registerDaemonRepo, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
 import {
   canonicalRoot,
@@ -368,10 +368,11 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       return instances.listPublic();
     },
     prepareRuntimeLaunch: instances.prepareLaunch,
-    runtimeLaunch: (prepared) => {
+    runtimeLaunch: (prepared, persistence) => {
+      appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: process.pid });
       launched = { definition: prepared.definition, prompt: prepared.prompt };
       return {
-        pid: 4306,
+        pid: process.pid,
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
         onExit: () => undefined,
@@ -1007,10 +1008,11 @@ test("Codex API-key bearer remains confined to the private provider config", asy
       ownerId: "spawn-test",
       runtimeInstances: instances.listPublic,
       prepareRuntimeLaunch: instances.prepareLaunch,
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: (prepared, persistence) => {
+        appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: process.pid });
         assert.doesNotMatch(JSON.stringify(prepared), new RegExp(secret, "u"));
         return {
-          pid: 456,
+          pid: process.pid,
           onOutput: (listener) => {
             queueMicrotask(() =>
               listener(

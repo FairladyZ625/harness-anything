@@ -40,7 +40,6 @@ test("Schedule runs project claimed, settled, and each missed occurrence from ca
           attemptIndex: active.attemptIndex,
           dispatchId: active.dispatchId,
           runtimeSessionId: active.runtimeSessionId,
-          detail: `artifact:runtime-result/sha256/${"a".repeat(64)}`,
         },
       },
     },
@@ -67,7 +66,8 @@ test("Schedule runs project claimed, settled, and each missed occurrence from ca
         },
       }).event,
     ],
-    result = readScheduleRuns(projection(events, base), base.scheduleId, 2);
+    context = projection(events, base, { "runtime-1": `artifact:runtime-result/sha256/${"a".repeat(64)}` }),
+    result = readScheduleRuns(context, base.scheduleId, 2);
 
   assert.deepEqual(validateScheduleRuns(result), []);
   assert.deepEqual(result.totals, { runs: 3, missed: 2, failed: 0 });
@@ -88,7 +88,20 @@ test("Schedule runs project claimed, settled, and each missed occurrence from ca
     ],
   );
 
-  const complete = readScheduleRuns(projection(events, base), base.scheduleId);
+  const pending = readScheduleRuns(projection(events, base), base.scheduleId);
+  assert.equal(pending.runs[2]!.outcome, "succeeded");
+  assert.equal(pending.runs[2]!.reportRef, null);
+  assert.equal(pending.runs[2]!.reportText, null);
+  assert.throws(() => readScheduleRuns(context, base.scheduleId), /store is unavailable/u);
+  assert.throws(
+    () => readScheduleRuns({ ...context, store: { readContentBlob: () => null } }, base.scheduleId),
+    /unavailable at this cut/u,
+  );
+  const complete = readScheduleRuns(
+    { ...context, store: { readContentBlob: () => Buffer.from("Complete report") } },
+    base.scheduleId,
+  );
+  assert.equal(complete.runs[2]!.reportText, "Complete report");
   assert.equal(complete.runs[2]!.claimFence, "claim-1");
   assert.equal(Object.hasOwn(complete.runs[2]!, "assignmentId"), false);
   assert.notDeepEqual(
@@ -121,7 +134,7 @@ test("Schedule runs project occurrence outputs, attempt, failure detail, and rep
           attemptIndex: 2,
           dispatchId: "dispatch-out",
           runtimeSessionId: "runtime-out",
-          detail: `artifact:runtime-result/sha256/${sha}`,
+          detail: "Occurrence worktree retained for review.",
         },
       },
     },
@@ -155,7 +168,7 @@ test("Schedule runs project occurrence outputs, attempt, failure detail, and rep
     report = "# Report\n\nProbe outcome: failed step `sessions`.\n",
     result = readScheduleRuns(
       {
-        projection: projection(events, base).projection,
+        projection: projection(events, base, { "runtime-out": `artifact:runtime-result/sha256/${sha}` }).projection,
         store: { readContentBlob: (hash) => (hash === sha ? Buffer.from(report, "utf8") : null) },
       },
       base.scheduleId,
@@ -168,6 +181,7 @@ test("Schedule runs project occurrence outputs, attempt, failure detail, and rep
   assert.equal(row.attemptIndex, 2);
   assert.equal(row.reportRef, `artifact:runtime-result/sha256/${sha}`);
   assert.equal(row.reportText, report);
+  assert.equal(row.detail, "Occurrence worktree retained for review.");
   assert.deepEqual(row.outputs, { facts: ["F-OUT1"], decisions: ["dec_out"], tasks: ["task_out"] });
 
   // A failure whose detail is a reason (not the report ref) keeps it as detail.
@@ -274,10 +288,15 @@ function runEvent(
   return compileScheduleRunEvent(eventInput(revision, type, value)).event;
 }
 
-function projection(events: readonly CanonicalEventV1[], value: ScheduleV1 | null) {
+function projection(
+  events: readonly CanonicalEventV1[],
+  value: ScheduleV1 | null,
+  resultRefs: Readonly<Record<string, string>> = {},
+) {
   return {
     projection: {
       getEntity: () => value,
+      readRuntimeSession: (id: string) => ({ resultRef: resultRefs[id] ?? null }),
       readScheduleEvents: (scheduleId: string) => ({
         status: "ready" as const,
         events: events.filter((event) => event.schema === "schedule-event/v1" && event.entity.id === scheduleId),

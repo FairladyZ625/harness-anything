@@ -1,13 +1,13 @@
+import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
+import { openGuiCatalog } from "./gui-catalog.ts";
+import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
 import { repositoryReadDescriptor } from "./repository-read-contract.ts";
-import { catalogWithNodeAdapters } from "./gui-catalog.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { runFleetRepositoryReadClient } from "./fleet/edge.ts";
 import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readTaskAssignmentDirectory } from "./task-assignment-directory.ts";
-import { doctorBuildDrift, unavailableCenterDoctor, type DoctorCheck } from "./repo-cell-doctor.ts";
-import { existsSync, realpathSync, readFileSync } from "node:fs";
+import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   readDaemonRegistry,
@@ -60,7 +60,7 @@ function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCel
     method !== "daemon.gui.system.read" &&
     method !== "daemon.gui.control.receipt" &&
     method !== "observe.tail" &&
-    method !== "repo.workspace.summary.read" &&
+    method !== "repo.fleet.overview.read" &&
     method !== "repo.gui.catalog.snapshot" &&
     method !== "repo.gui.catalog.preset.read" &&
     method !== "repo.terminal.sessions.list"
@@ -558,13 +558,12 @@ export function createDaemonHostRepositoryApi(
       const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
         modeAdmission = context.admitHostMode(repoId, command, auth);
       if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
-      if (
-        action.kind === "doctor-health" &&
-        readDaemonRegistry({ userRoot: context.input.userRoot }).repos.some(
+      if (action.kind === "doctor-health") {
+        const edge = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
           (repo) => repo.repoId === repoId && repo.mode === "remote-edge",
-        )
-      )
-        return unavailableCenterDoctor(repoId);
+        );
+        if (edge?.canonicalRoot) return edgeReplicaDoctor(edge.canonicalRoot, repoId);
+      }
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
       if (!cell)
@@ -603,10 +602,16 @@ export function createDaemonHostRepositoryApi(
           undefined,
           command.commandClass === "repo-read" ? undefined : repoId,
         );
+        // An edge read is authorized by the replica's owner digest inside the edge read session.
+        const edgeRead =
+          command.admission["remote-edge"] === "edge-replica" &&
+          command.repoCellExecution === "query-only" &&
+          cell.status().mode === "remote-edge";
         if (
-          ("repositoryRead" in command && command.repositoryRead === true) ||
-          action.kind === "doc-status" ||
-          action.kind === "doc-dry-run"
+          !edgeRead &&
+          (("repositoryRead" in command && command.repositoryRead === true) ||
+            action.kind === "doc-status" ||
+            action.kind === "doc-dry-run")
         )
           await requireAuthorizedHostAction({
             kind: "repository-read",
@@ -617,7 +622,7 @@ export function createDaemonHostRepositoryApi(
           });
         const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction),
           receipt = await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
-        if (getExecutableEntityAction(action.kind)?.target.kind === "schedule")
+        if (command.commandClass !== "repo-read" && getExecutableEntityAction(action.kind)?.target.kind === "schedule")
           await context.scheduleScheduler.refresh();
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
@@ -695,35 +700,51 @@ export function createDaemonHostRepositoryApi(
     read: async (repoId, method, payload, auth) => {
       const repositoryRead = repositoryReadDescriptor(method, payload);
       const edge =
-        repositoryRead &&
+        (method.startsWith("repo.") || (method === "observe.tail" && payload.kind === "events")) &&
+        method !== "repo.terminal.sessions.list" &&
+        method !== "repo.agent.skills.list" &&
+        // Live Keycloak directory/eligibility operations keep their actual authority source.
+        method !== "repo.tasks.claimable" &&
+        method !== "repo.tasks.assignmentDirectory" &&
         readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
           (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
         );
-      if (edge?.canonicalRoot) {
-        const principal = await context.binding(edge.canonicalRoot, auth);
-        const config = readFleetEdgeConfig(edge.canonicalRoot);
-        if (!config || config.repoId !== repoId)
+      if (edge && edge.canonicalRoot) {
+        const binding = await context.binding(edge.canonicalRoot, auth);
+        const cell = context.cells.get(repoId);
+        if (cell && (method === "repo.gui.catalog.snapshot" || method === "repo.gui.catalog.preset.read")) {
+          // Installed presets/adapters/files are node-local; defaults come from one authorized replica cut.
+          const settings = await cell.read("repo.settings.read", {}, binding),
+            frame = settings as typeof settings & RepositoryReadFrame,
+            catalog = openGuiCatalog({ repoId, rootDir: edge.canonicalRoot, readSettings: () => settings.settings }),
+            result =
+              method === "repo.gui.catalog.snapshot"
+                ? await catalog.snapshot()
+                : await catalog.preset(payload as never);
+          return parseDaemonGuiReadResult(method, {
+            ...result,
+            cut: frame.cut,
+            freshness: frame.freshness,
+            warning: frame.warning,
+          });
+        }
+        if (method === "repo.fleet.overview.read")
           throw context.hostCodedError(
-            "fleet_edge_config_invalid",
-            `Repository ${repoId} has no matching Fleet center configuration.`,
+            "replica_unavailable",
+            "Live Fleet topology is an operation of the center transport host; this edge has no local center session or delivery ledger.",
           );
-        const result = await runFleetRepositoryReadClient({
-          hostname: config.host,
-          port: config.port,
-          ca: readFileSync(config.caPath),
-          servername: config.servername,
-          nodeId: config.nodeId,
-          credential: config.credential,
-          repoId,
-          timeoutMs: config.waitTimeoutMs,
-          method,
-          payload,
-          accessToken: principal.keycloakAuthorization?.session?.accessToken,
-        });
-        return parseDaemonGuiReadResult(
-          method,
-          method === "repo.gui.catalog.snapshot" && isJsonObject(result) ? catalogWithNodeAdapters(result) : result,
-        );
+        if (cell && method === "observe.tail")
+          return parseDaemonGuiReadResult(
+            method,
+            await cell.observeTail(
+              payload,
+              { userRoot: context.input.userRoot, daemonId: context.input.daemonId },
+              binding,
+            ),
+          );
+        if (!cell || !isRepoCellReadMethod(method))
+          throw context.hostCodedError("replica_unavailable", `${method} has no edge replica query.`);
+        return parseDaemonGuiReadResult(method, await cell.read(method, payload, binding));
       }
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
@@ -760,10 +781,14 @@ export function createDaemonHostRepositoryApi(
       else if (method === "repo.tasks.assignmentDirectory")
         result = await readTaskAssignmentDirectory(repoId, String(payload.taskId), binding);
       else if (method === "observe.tail")
-        result = await cell.observeTail(payload, {
-          userRoot: context.input.userRoot,
-          daemonId: context.input.daemonId,
-        });
+        result = await cell.observeTail(
+          payload,
+          {
+            userRoot: context.input.userRoot,
+            daemonId: context.input.daemonId,
+          },
+          binding,
+        );
       else if (method === "repo.workspace.summary.read") result = cell.workspaceSummary();
       else if (method === "repo.workspace.scope.read") result = cell.workspaceScope(payload as never);
       else if (method === "repo.gui.catalog.snapshot") result = await cell.catalog.snapshot();

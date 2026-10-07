@@ -1,6 +1,7 @@
 import type { DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { invoke } from "./api-client-invoke.ts";
+import { repositoryReadFrame } from "./repository-read-frame.ts";
 
 /**
  * The renderer's only door to a named use-case projection (dec_5B135F46 CH4 layer two).
@@ -29,5 +30,5 @@ export async function readUseCaseProjection(request: UseCaseProjectionRequest): 
     throw new Error(
       rendererErrorHint(value, `Use-case projection bridge answered ${String(value.name)} for ${request.name}.`),
     );
-  return value.projection;
+  return isRendererRecord(value.projection) ? { ...value.projection, ...repositoryReadFrame(value) } : value.projection;
 }

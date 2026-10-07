@@ -156,7 +156,7 @@ export interface CanonicalEventQuery {
   readonly revisionBound?: number;
   readonly limit: number;
 }
-export function canonicalEventEntityRefs(event: CanonicalEventV1): readonly string[] {
+export function canonicalEventEntityRefs(event: PersistedCanonicalEventV1): readonly string[] {
   const refs = new Set<string>(),
     envelope = event as unknown as Readonly<Record<string, unknown>>,
     payload =

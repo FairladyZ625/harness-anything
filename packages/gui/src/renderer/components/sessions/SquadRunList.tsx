@@ -7,7 +7,7 @@ import { shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
 import { RowTime } from "../primitives/DenseRow.tsx";
-import { LiveDot } from "../runtime/parts.tsx";
+import { formatTime } from "../../model/time.ts";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 
 /**
@@ -131,10 +131,6 @@ function RunSection({
       >
         <span className="flex w-full flex-col gap-0.5 px-4 pt-3 pb-2 text-left">
           <span className="flex min-w-0 items-center gap-1.5">
-            <LiveDot
-              state={run.runningCount > 0 ? "live" : "idle"}
-              tip={t("agentRuntime.liveSessions", { count: run.runningCount })}
-            />
             <b className="min-w-0 truncate ui-meta">{squadNames.get(run.squadId) ?? run.squadId}</b>
             <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(run.squadId, 12)}</span>
             <span className={`ml-auto shrink-0 font-mono ui-micro ${PHASE_TONE[run.phase]}`}>
@@ -150,6 +146,12 @@ function RunSection({
           </span>
           <p className="max-w-full truncate ui-micro text-text-muted" title={run.mission}>
             {run.mission}
+          </p>
+          <p data-testid="squad-run-last-report" className="ui-micro text-text-faint">
+            {t("agentRuntime.squadRunLastReport", {
+              at: formatTime(run.acceptedAt, { style: "date-time-seconds" }) ?? run.acceptedAt,
+              revision: run.runRevision,
+            })}
           </p>
         </span>
       </button>

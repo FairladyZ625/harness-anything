@@ -1,7 +1,8 @@
+import { consumeKnownError } from "@harness-anything/kernel";
+import { type ReplicaDeliveryLease, replicaDeliveryLeases } from "./replica-delivery-lease.ts";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { consumeKnownError } from "@harness-anything/kernel";
 import type { FleetCut } from "./contract.ts";
 
 export interface ReplicaDeliveryKey {
@@ -26,6 +27,7 @@ export interface ReplicaAckProof extends ReplicaDeliveryKey {
   readonly cutEventAt: string;
 }
 export interface ReplicaAckStore {
+  readonly delivery: ReturnType<typeof replicaDeliveryLeases>;
   readonly register: (key: ReplicaDeliveryKey, revision: number) => number;
   readonly registrationRevision: (key: ReplicaDeliveryKey) => number | null;
   readonly offer: (key: ReplicaDeliveryKey, input: Omit<ReplicaOffer, keyof ReplicaDeliveryKey>) => ReplicaOffer;
@@ -38,6 +40,7 @@ export interface ReplicaAckStore {
     manifestDigest: string,
     ackedAt: string,
     cutEventAt: string,
+    lease: ReplicaDeliveryLease,
   ) => { readonly outcome: "applied" | "current" | "op_rejected"; readonly cursor: ReplicaAckProof | null };
   readonly cursor: (key: ReplicaDeliveryKey) => ReplicaAckProof | null;
   readonly proof: (key: ReplicaDeliveryKey, revision: number) => ReplicaAckProof | null;
@@ -151,7 +154,8 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
     clearOffer = (key: ReplicaDeliveryKey) => {
       check(key).prepare("DELETE FROM active_offer WHERE node_id=? AND view_id=?").run(key.nodeId, key.viewId);
     };
-  const ack = (
+  const delivery = replicaDeliveryLeases(db);
+  const ackAtCut = (
     key: ReplicaDeliveryKey,
     transferId: string,
     cut: FleetCut,
@@ -183,27 +187,37 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
       return { outcome: "op_rejected" as const, cursor: null };
     const prior = cursor(key);
     if (prior && cut.revision < prior.revision) return { outcome: "current" as const, cursor: prior };
+    store
+      .prepare("INSERT INTO ack_proof VALUES(?,?,?,?,?,?,?,?)")
+      .run(key.nodeId, key.viewId, cut.revision, cut.headDigest, digest, transferId, ackedAt, cutEventAt);
+    store
+      .prepare(
+        "INSERT INTO ack_cursor VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(node_id,view_id) DO UPDATE SET revision=excluded.revision,head_digest=excluded.head_digest,manifest_digest=excluded.manifest_digest,transfer_id=excluded.transfer_id,acked_at=excluded.acked_at,cut_event_at=excluded.cut_event_at WHERE excluded.revision>ack_cursor.revision",
+      )
+      .run(key.nodeId, key.viewId, cut.revision, cut.headDigest, digest, transferId, ackedAt, cutEventAt);
+    store.prepare("DELETE FROM active_offer WHERE node_id=? AND view_id=?").run(key.nodeId, key.viewId);
+    return { outcome: "applied" as const, cursor: cursor(key) };
+  };
+  const ack: ReplicaAckStore["ack"] = (key, transferId, cut, digest, ackedAt, cutEventAt, lease) => {
+    const store = check(key);
+    // Lease fencing and ACK advancement share this transport-only SQLite transaction.
     store.exec("BEGIN IMMEDIATE");
     try {
-      store
-        .prepare("INSERT INTO ack_proof VALUES(?,?,?,?,?,?,?,?)")
-        .run(key.nodeId, key.viewId, cut.revision, cut.headDigest, digest, transferId, ackedAt, cutEventAt);
-      store
-        .prepare(
-          "INSERT INTO ack_cursor VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(node_id,view_id) DO UPDATE SET revision=excluded.revision,head_digest=excluded.head_digest,manifest_digest=excluded.manifest_digest,transfer_id=excluded.transfer_id,acked_at=excluded.acked_at,cut_event_at=excluded.cut_event_at WHERE excluded.revision>ack_cursor.revision",
-        )
-        .run(key.nodeId, key.viewId, cut.revision, cut.headDigest, digest, transferId, ackedAt, cutEventAt);
-      store.prepare("DELETE FROM active_offer WHERE node_id=? AND view_id=?").run(key.nodeId, key.viewId);
+      const valid =
+        key.nodeId === lease.nodeId &&
+        key.repoId === lease.repoId &&
+        key.viewId === lease.viewId &&
+        delivery.renew(lease, Date.parse(ackedAt), 30_000);
+      const result = valid
+        ? ackAtCut(key, transferId, cut, digest, ackedAt, cutEventAt)
+        : { outcome: "op_rejected" as const, cursor: null };
       store.exec("COMMIT");
+      return result;
     } catch (error) {
-      try {
-        store.exec("ROLLBACK");
-      } catch (rollbackError) {
-        consumeKnownError(rollbackError);
-      }
+      consumeKnownError(error);
+      store.exec("ROLLBACK");
       throw error;
     }
-    return { outcome: "applied" as const, cursor: cursor(key) };
   };
   const keys = () => {
     const root = path.join(rootDir, "replica", "repos");
@@ -220,6 +234,7 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
     );
   };
   return {
+    delivery,
     register,
     registrationRevision,
     offer,

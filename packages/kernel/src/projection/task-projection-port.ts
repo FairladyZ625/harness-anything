@@ -1,3 +1,6 @@
+import type { ArtifactEntityState } from "../domain/artifact-entity-state.ts";
+import type { EventListQuery, EventListPage } from "../domain/event-list.ts";
+import type { SettingsEventV1 } from "../domain/settings-event.ts";
 import type { DecisionDocumentState } from "../domain/decision-event-types.ts";
 import type {
   AgentRuntimeEventV1,
@@ -179,6 +182,31 @@ export interface TaskProjection {
     afterRevision: number,
     limit: number,
   ) => readonly AgentRuntimeEventV1[];
+  readonly readArtifactEntityState: (kind: string, id: string) => ArtifactEntityState | null;
+  readonly readEventList: (query: EventListQuery) => EventListPage;
+  readonly readEventSummaries: (
+    afterRevision: number,
+    limit: number,
+  ) => {
+    readonly status: "ready" | "pending";
+    readonly events: readonly import("../domain/canonical-event-summary.ts").CanonicalEventSummary[];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  };
+  readonly readEventWitness: (
+    revision: number,
+  ) => Pick<CanonicalEventV1, "workspaceRevision" | "occurredAt" | "actor" | "source"> | null;
+  readonly readDocuments: (prefix: string) => {
+    readonly status: "ready" | "pending";
+    readonly documents: readonly {
+      readonly path: string;
+      readonly blobSha256: string;
+      readonly size: number;
+      readonly mediaType: string;
+    }[];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  };
   readonly readCanonicalEvents: (
     afterRevision: number,
     limit: number,
@@ -194,7 +222,13 @@ export interface TaskProjection {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
+  readonly readReckoningEvents: (query: {
+    readonly type: "fact_recorded" | "decision_superseded" | "decision_retired" | "decision_accepted";
+    readonly after: string;
+    readonly before: string;
+  }) => readonly CanonicalEventV1[];
   readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
+  readonly readSettingsEvent: () => SettingsEventV1 | null;
   readonly readCiRunObservations: (limit: number) => {
     readonly status: "ready" | "pending";
     readonly events: readonly import("../domain/ci-run-observation-event.ts").CiRunObservationEventV3[];
@@ -230,10 +264,6 @@ export interface TaskProjection {
   readonly readRuntimeSessions: () => readonly RuntimeSession[];
   readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
   readonly readRuntimeSessionPage: (query: RuntimeSessionPageQuery) => RuntimeSessionPageRead;
-  readonly squadRunProjectionReady: () => boolean;
-  readonly replaceSquadRuns: (rows: readonly SquadRunProjectionRow[]) => void;
-  readonly markSquadRunProjectionDirty: () => void;
-  readonly upsertSquadRun: (row: SquadRunProjectionRow) => void;
   readonly readSquadRun: (squadRunId: string) => SquadRunProjectionRow | null;
   readonly readSquadRuns: () => readonly SquadRunProjectionRow[];
 }
@@ -252,9 +282,6 @@ export type TaskProjectionQueries = Omit<
   | "activateLease"
   | "renewLease"
   | "releaseLease"
-  | "replaceSquadRuns"
-  | "markSquadRunProjectionDirty"
-  | "upsertSquadRun"
 >;
 
 export interface TaskProjectionReader {

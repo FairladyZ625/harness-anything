@@ -1,9 +1,7 @@
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "@harness-anything/daemon/client";
 import {
   eventObjectTarget,
   makeTaskEventStore,
-  makeTaskProjection,
   type AgentRuntimeEventV1,
   type FrozenWritePlan,
 } from "@harness-anything/kernel";
@@ -20,78 +18,104 @@ export interface Failure {
 }
 export const SEEDED_SQUAD_RUN_ID = "squad_aabbccddeeff001122334455";
 
-/** 种一个已收敛的 squad run 状态(G12 §2c):与 `ha squad run` 的持久化路径同构 ——
- * 派工流头部 + squad_run_state 记录;worker 派工刻意不落流,断言读面以 null 呈现。 */
-export async function seedSquadRunState(rootDir: string, repoId: string): Promise<string> {
-  const squadRunId = SEEDED_SQUAD_RUN_ID,
-    leaderDispatchId = "dispatch_0000000000000000000000a1",
-    workerDispatchId = "dispatch_0000000000000000000000b2";
-  openDispatchStream(rootDir, {
-    dispatchId: leaderDispatchId,
-    taskId: "task-gui-smoke",
-    executionId: "execution-gui",
-    runtimeSessionId: "runtime-squad-leader",
-    instanceId: "codex-gui",
-    startedAt: "2026-08-13T00:05:00.000Z",
-    agentId: "terra",
-    agentName: "terra",
-  });
-  appendRuntimeWorkerRecord(rootDir, leaderDispatchId, {
-    kind: "squad_run_state",
-    squadRunId,
-    revision: 3,
-    state: {
-      schema: "squad-run/v1",
+/** Seed accepted events; the public reader must work without owner control files. */
+export async function seedSquadRunState(
+  rootDir: string,
+  repoId: string,
+  writerFence: WriterEpochFenceDescriptor,
+): Promise<string> {
+  const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
+    squadRunId = SEEDED_SQUAD_RUN_ID,
+    dispatchId = "dispatch_0000000000000000000000a1",
+    identity = {
       squadRunId,
-      stateDispatchId: leaderDispatchId,
       squadId: "core-squad",
       taskId: "task-gui-smoke",
-      runtimeInstanceId: "codex-gui",
-      cwd: rootDir,
+      executionId: "execution-gui",
       mission: "Resident GUI squad run",
-      model: null,
-      effort: null,
       leaderAgentId: "terra",
-      roster: "terra » terra",
-      workers: ["terra"],
-      leaderTurnBudget: 8,
-      binding: { actor: { principal: { personId: "person-gui" }, executor: null }, source: "local" },
-      leaderTurns: [
-        {
-          turnId: "leader-1",
-          trigger: { kind: "initial" },
-          dispatchId: leaderDispatchId,
-          runtimeSessionId: "runtime-squad-leader",
-          decision: { kind: "converged" },
-        },
-      ],
-      leaderProviderSessionId: null,
-      currentLeaderRuntimeSessionId: null,
-      workerAttempts: [
-        {
-          attemptId: "worker-1",
-          workerId: "terra",
-          leaderTurnId: "leader-1",
-          dispatchId: workerDispatchId,
-          runtimeSessionId: "runtime-squad-worker",
-          rejection: null,
-        },
-      ],
-      observedWorkerRuntimeSessionIds: [],
-      workerWaits: [],
-      pendingLeaderTriggers: [],
-      phase: "converged",
-      revision: 3,
-      error: null,
     },
-  });
-  // 首次 daemon 已把「无 squad run」的缓存标成 ready;fixture 直接落流绕过了
-  // production writeState 的 upsert,因此在重启前显式标脏,让 resident daemon
-  // 按真实 recovery 路径从 squad_run_state 重放。
-  const store = makeTaskEventStore({ rootDir, repoId }),
-    projection = makeTaskProjection({ rootDir, eventStore: store });
-  projection.markSquadRunProjectionDirty();
-  projection.close();
+    definitionSnapshot = {
+      schema: "agent-definition-snapshot/v1",
+      configVersion: 1,
+      instanceId: "codex-gui",
+      installationId: "installation-gui",
+      kindId: "codex",
+      providerId: "openai",
+      model: "gpt-gui",
+      reasoningEffort: null,
+      baseUrl: null,
+      authMode: "subscription",
+    },
+    values = [
+      {
+        type: "runtime_dispatch_requested",
+        payload: {
+          dispatchId,
+          runtimeSessionId: "runtime-squad-leader",
+          instanceId: "codex-gui",
+          installationId: "installation-gui",
+          kindId: "codex",
+          idempotencyKey: "squad-gui",
+          definitionSnapshotRef: "artifact:runtime-definition/squad-gui",
+          definitionSnapshot,
+          taskId: identity.taskId,
+          executionId: identity.executionId,
+          squadRun: identity,
+        },
+      },
+      {
+        type: "runtime_squad_run_observed",
+        payload: {
+          ...identity,
+          ownerDispatchId: dispatchId,
+          runRevision: 3,
+          phase: "converged",
+          error: null,
+          currentLeaderRuntimeSessionId: null,
+          leaderTurns: [
+            {
+              turnId: "leader-1",
+              trigger: { kind: "initial" },
+              dispatchId,
+              runtimeSessionId: "runtime-squad-leader",
+              decision: { kind: "converged" },
+            },
+          ],
+          workerAttempts: [
+            {
+              attemptId: "worker-1",
+              workerId: "terra",
+              leaderTurnId: "leader-1",
+              taskId: null,
+              executionId: null,
+              dispatchId: null,
+              runtimeSessionId: null,
+              rejection: null,
+              branch: null,
+              baseSha: null,
+            },
+          ],
+          workerCallbackCount: 0,
+          pendingLeaderCallbackCount: 0,
+          synthesisReportPath: `artifacts/reports/${squadRunId}.md`,
+        },
+      },
+    ];
+  for (const value of values) {
+    const revision = store.read().revision + 1,
+      event = {
+        schema: "agent-runtime-event/v1",
+        eventId: `squad-gui-${revision}`,
+        opId: `squad-gui-${revision}`,
+        workspaceRevision: revision,
+        actor: { principal: { personId: "person-gui" }, executor: null },
+        source: "local",
+        occurredAt: "2026-08-13T00:05:00.000Z",
+        ...value,
+      } as AgentRuntimeEventV1;
+    store.append({ event, plan: runtimeWritePlan(event), blobs: [] });
+  }
   await store.drain();
   return squadRunId;
 }

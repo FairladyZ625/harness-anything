@@ -6,6 +6,7 @@ import { ciQueryKeys, eventsQueryKeys } from "./overview-data.ts";
 import { runtimeQueryKeys } from "./agent-runtime-client.ts";
 import { LEDGER_PROBE_FOCUS_REFETCH, QUERY_PACING_MS } from "./query-pacing.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
+import { repositoryReadFrame } from "./repository-read-frame.ts";
 
 export const TASK_LIST_PAGE_LIMIT = 500;
 
@@ -127,7 +128,7 @@ async function readTaskPage(repoId: string, facets: LedgerReadFacets): Promise<T
  *   - 游标是不可变主键 task_id,续读期间任何已存在 task 的改动都不会被跳过;续读期间
  *     新建的 task 其 revision 必然大于所报水位,由随后的增量读补齐。
  */
-function joinLedgerCut(
+export function joinLedgerCut(
   previous: TaskListSuccess | undefined,
   read: TaskListSuccess,
   mode: "restart" | "resume" | "delta",
@@ -140,6 +141,7 @@ function joinLedgerCut(
   const watermark = advanced ? read.watermark : Math.min(base.watermark, read.watermark);
   const sourceRevision = advanced ? read.sourceRevision : Math.min(base.sourceRevision, read.sourceRevision);
   return {
+    ...repositoryReadFrame(advanced || read.watermark < base.watermark ? read : base),
     ok: true,
     status: complete ? read.status : "pending",
     warnings: read.warnings,

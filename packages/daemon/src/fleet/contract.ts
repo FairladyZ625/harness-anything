@@ -1,5 +1,3 @@
-import { repositoryReadDescriptor, validRepositoryReadPayload } from "../repository-read-contract.ts";
-import type { DaemonGuiRpcReadMethod } from "../protocol/daemon-protocol-gui-types.ts";
 import { TextDecoder } from "node:util";
 import {
   actionDeclarations,
@@ -29,7 +27,6 @@ export type FleetCut = Readonly<{ revision: number; headDigest: string }>;
 export type FleetMirrorBaseCut = FleetCut;
 export type FleetBlob = Readonly<{ sha256: string; size: number; mediaType: string }>;
 export type FleetDescriptor = FleetBlob & Readonly<{ ref: string }>;
-export type FleetRepositoryReadMethod = DaemonGuiRpcReadMethod | "repo.task.read";
 export type FleetTaskCommandKind = string;
 export interface FleetLoginAuthority {
   readonly url: string;
@@ -49,17 +46,6 @@ export interface FleetRuntimeDispatchContext {
 }
 type Msg<S extends string, P extends object = object> = Readonly<{ schema: S; messageId: string }> & Readonly<P>;
 export type FleetFrameV1 =
-  | Msg<
-      "fleet.repository.read/v1",
-      {
-        executionCredential?: string;
-        repoId: string;
-        accessToken: string | null;
-        method: FleetRepositoryReadMethod;
-        payload: Readonly<Record<string, unknown>>;
-      }
-    >
-  | Msg<"fleet.repository.read.result/v1", { inReplyTo: string; offset: number; dataBase64: string; done: boolean }>
   | Msg<"fleet.session.hello/v1", { protocolVersion: ContractVersion; nodeId: string; credential: string }>
   | Msg<
       "fleet.session.ready/v1",
@@ -188,19 +174,14 @@ export type FleetFrameV1 =
   | Msg<"fleet.runtime.archive/v1", { writerEpoch: number; repoId: string; archive: Readonly<Record<string, unknown>> }>
   | Msg<"fleet.runtime.archive.result/v1", { inReplyTo: string; receipt: Readonly<Record<string, unknown>> }>
   | Msg<
-      "fleet.runtime.read/v1",
+      "fleet.runtime.await/v1",
       {
         repoId: string;
-        method:
-          | "repo.agentRuntime.overview"
-          | "repo.agentRuntime.sessions.read"
-          | "repo.agentRuntime.sessions.await"
-          | "repo.tasks.runtimeContext.read"
-          | "repo.tasks.claimable";
+        method: "repo.agentRuntime.sessions.await";
         payload: Readonly<Record<string, unknown>>;
       }
     >
-  | Msg<"fleet.runtime.read.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
+  | Msg<"fleet.runtime.await.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
   | Msg<"fleet.replica.pull/v1", { repoId: string }>
   | Msg<"fleet.replica.watch/v1", { repoId: string; afterRevision: number }>
   | Msg<"fleet.replica.head-hint/v1", { inReplyTo: string; repoId: string; cut: FleetCut }>
@@ -541,13 +522,6 @@ const scheduleActionShapes: Readonly<Record<string, Check>> = {
       "kind",
       "scheduleId",
     ]),
-    "schedule-list": optionalShape({ kind: one("schedule-list"), scheduleId: id }, ["kind", "scheduleId"]),
-    "schedule-reckon": optionalShape({ kind: one("schedule-reckon"), windowHours: positiveInt }, ["kind"]),
-    "schedule-runs": optionalShape({ kind: one("schedule-runs"), scheduleId: id, limit: positiveInt }, [
-      "kind",
-      "scheduleId",
-    ]),
-    "schedule-show": optionalShape({ kind: one("schedule-show"), scheduleId: id }, ["kind", "scheduleId"]),
     "schedule-update": (value) =>
       optionalShape(
         {
@@ -656,6 +630,7 @@ const scheduleActionShapes: Readonly<Record<string, Check>> = {
 const runtimeEventType = one(
   "runtime_installation_observed",
   "runtime_dispatch_requested",
+  "runtime_squad_run_observed",
   "runtime_session_started",
   "runtime_session_provider_bound",
   "runtime_session_task_bound",
@@ -792,45 +767,13 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.runtime.event.result/v1": shape({ ...reply, event: record, receipt: record }),
   "fleet.runtime.archive/v1": shape({ ...common, writerEpoch: uint, repoId: id, archive: record }),
   "fleet.runtime.archive.result/v1": shape({ ...reply, receipt: record }),
-  "fleet.repository.read/v1": (value) =>
-    optionalShape(
-      {
-        ...common,
-        repoId: id,
-        executionCredential: text,
-        accessToken: nullable(accessToken),
-        method: (method) =>
-          typeof method === "string" &&
-          (method === "repo.task.read" ||
-            method === "repo.projection.read" ||
-            repositoryReadDescriptor(method) !== undefined),
-        payload: record,
-      },
-      ["schema", "messageId", "repoId", "accessToken", "method", "payload"],
-    )(value) &&
-    record(value) &&
-    (value.method === "repo.task.read"
-      ? record(value.payload) &&
-        taskAction(value.payload) &&
-        (() => {
-          const declaration = fleetCommand(String(value.payload.kind));
-          return declaration !== undefined && "repositoryRead" in declaration && declaration.repositoryRead === true;
-        })()
-      : validRepositoryReadPayload(String(value.method), value.payload)),
-  "fleet.repository.read.result/v1": shape({ ...reply, offset: uint, dataBase64: base64, done: boolean }),
-  "fleet.runtime.read/v1": shape({
+  "fleet.runtime.await/v1": shape({
     ...common,
     repoId: id,
-    method: one(
-      "repo.agentRuntime.overview",
-      "repo.agentRuntime.sessions.read",
-      "repo.agentRuntime.sessions.await",
-      "repo.tasks.runtimeContext.read",
-      "repo.tasks.claimable",
-    ),
+    method: one("repo.agentRuntime.sessions.await"),
     payload: record,
   }),
-  "fleet.runtime.read.result/v1": shape({ ...reply, result: record }),
+  "fleet.runtime.await.result/v1": shape({ ...reply, result: record }),
   "fleet.replica.pull/v1": shape({ ...common, repoId: id }),
   "fleet.replica.watch/v1": shape({ ...common, repoId: id, afterRevision: uint }),
   "fleet.replica.head-hint/v1": shape({ ...reply, repoId: id, cut }),

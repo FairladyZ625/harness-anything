@@ -1,5 +1,5 @@
 import type { GuiActionResult } from "../api/renderer-dto.ts";
-import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 import { invoke } from "./api-client-invoke.ts";
 
@@ -49,7 +49,7 @@ export async function readVerticalDeclaration(repoId: string): Promise<VerticalD
     !isRendererRecord(value.declaration) ||
     !Array.isArray(value.declaration.entityKinds)
   )
-    throw new Error(rendererErrorHint(value, "Vertical declaration bridge returned an invalid result."));
+    throw rendererReadError(value, "Vertical declaration bridge returned an invalid result.");
   return value as unknown as VerticalDeclarationRead;
 }
 

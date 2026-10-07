@@ -1,3 +1,4 @@
+import { reduceArtifactEntityState, type ArtifactEntityState } from "@harness-anything/kernel";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -26,11 +27,9 @@ import {
   entityDirectoryFootprint,
   entityOwnedDirectories,
   entityRetiredDirectories,
-  isEntityDeclarationEvent,
   ENTITY_CONTENT_POLICY_ID,
   isEntityEvent,
   MAX_ENTITY_CONTENT_OBJECT_BYTES,
-  ownedContentForDeclarationEvent,
   normalizeRelativeDocumentPath,
   type ArtifactDescriptor,
   type AuthorizationDecision,
@@ -626,10 +625,24 @@ export function readCurrentArtifact(
   kind: string,
   entityId: string,
 ): (ArtifactEntityCurrent & { readonly ownedContent: EntityOwnedContentV1 | null }) | null {
+  return describeCurrentArtifact(
+    artifactEntityFold(store).entities.get(`${kind}\0${entityId}`) ?? null,
+    store,
+    contracts,
+    kind,
+    entityId,
+  );
+}
+
+export function describeCurrentArtifact(
+  state: ArtifactEntityState | null,
+  store: Pick<CanonicalEventStore, "readContentBlob">,
+  contracts: readonly CompiledArtifactKindContract[],
+  kind: string,
+  entityId: string,
+): (ArtifactEntityCurrent & { readonly ownedContent: EntityOwnedContentV1 | null }) | null {
   const contract = contracts.find(({ typeIdentity }) => typeIdentity === kind);
-  if (!contract) return null;
-  const state = artifactEntityFold(store).entities.get(`${kind}\0${entityId}`);
-  if (!state) return null;
+  if (!contract || !state) return null;
   // The descriptor is decoded on the way out instead of being held in the fold: one blob read answers the entity
   // that was actually asked for, so an unreadable blob stays an error about that entity, and the fold never has
   // to be rebuilt because the reader is holding a different compiled contract than the one that filled it.
@@ -654,18 +667,14 @@ export function readCurrentArtifact(
   };
 }
 
-function artifactDeclarationDocument(store: CanonicalEventStore, sha256: string): unknown {
+function artifactDeclarationDocument(store: Pick<CanonicalEventStore, "readContentBlob">, sha256: string): unknown {
   const bytes = store.readContentBlob(sha256);
   if (!bytes) throw new Error(`Artifact descriptor blob ${sha256} is unavailable.`);
   return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 }
 
 /** One entity as the accepted events left it, including the tombstone a delete leaves behind. */
-interface ArtifactEntityFoldState {
-  readonly revision: number;
-  readonly declarationClaimSha: string | null;
-  readonly ownedContent: EntityOwnedContentV1 | null;
-}
+type ArtifactEntityFoldState = ArtifactEntityState;
 
 interface ArtifactEntityFold {
   /** The ledger revision this fold has already consumed. */
@@ -713,16 +722,13 @@ function foldArtifactEntityEvent(fold: ArtifactEntityFold, event: CanonicalEvent
   if (!isEntityEvent(event)) return;
   const entityKey = `${event.payload.entityKind}\0${event.payload.entityId}`,
     boundBefore = fold.boundSource.get(entityKey),
-    before = fold.entities.get(entityKey),
-    // Every entity event moves the entity's revision, because the fence the next command has to present is the
-    // last accepted event of any type, not the last one that carried a descriptor.
-    revision = Math.max(before?.revision ?? 0, event.workspaceRevision);
+    before = fold.entities.get(entityKey) ?? null;
+  fold.entities.set(entityKey, reduceArtifactEntityState(before, event));
   if (event.type === "entity_deleted") {
     // A delete releases the source so re-importing that path mints a new instance instead of resurrecting the
     // old one, and leaves the entity behind without a descriptor rather than removing what it was deleted at.
     if (boundBefore !== undefined) releaseArtifactSource(fold, event.payload.entityKind, boundBefore);
     fold.boundSource.delete(entityKey);
-    fold.entities.set(entityKey, { revision, declarationClaimSha: null, ownedContent: null });
     return;
   }
   if ("sourceIdentity" in event.payload) {
@@ -731,20 +737,6 @@ function foldArtifactEntityEvent(fold: ArtifactEntityFold, event: CanonicalEvent
       releaseArtifactSource(fold, event.payload.entityKind, boundBefore);
     fold.boundSource.set(entityKey, bound);
   }
-  // Both observations and descriptor updates carry the full descriptor blob; folding only observations would make
-  // every later update start from a stale descriptor and silently drop the previous update.
-  if (isEntityDeclarationEvent(event) && (event.type === "entity_content_observed" || event.type === "entity_updated"))
-    fold.entities.set(entityKey, {
-      revision,
-      declarationClaimSha: event.payload.declarationDocumentClaim.sha256,
-      ownedContent: ownedContentForDeclarationEvent(event),
-    });
-  else
-    fold.entities.set(entityKey, {
-      revision,
-      declarationClaimSha: before?.declarationClaimSha ?? null,
-      ownedContent: before?.ownedContent ?? null,
-    });
 }
 
 function releaseArtifactSource(fold: ArtifactEntityFold, entityKind: string, sourceIdentity: string): void {

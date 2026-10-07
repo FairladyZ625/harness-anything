@@ -153,53 +153,48 @@ test("fresh claimable query applies three scopes, live membership, task permissi
   await assert.rejects(query());
 });
 
-test(
-  "authenticated TLS node reads fresh canonical candidates under all configured scopes",
-  { timeout: 60_000 },
-  async (t) => {
-    const { fleetNodeClaimFixture } = await import("./fleet-node-claim.fixtures.ts");
-    const { runFleetRuntimeReadClient } = await import("../src/fleet/edge.ts");
-    const f = await fleetNodeClaimFixture(t);
-    const query = (nodeId = "node-one") =>
-      runFleetRuntimeReadClient({ ...f.peer(nodeId), method: "repo.tasks.claimable", payload: {} });
-    const revisions = new Map<string, number>();
-    for (const suffix of ["named", "person", "free"]) {
-      const created = await f.command("node-one", { kind: "task-create", taskId: `task-${suffix}`, title: suffix });
-      assert.equal(created.outcome, "applied");
-      revisions.set(`task-${suffix}`, Number(created.receipt?.projection?.revision ?? created.revision ?? 1));
-    }
-    for (const [suffix, target] of [
-      ["named", { nodeId: "node-one" }],
-      ["person", { personId: "person-one" }],
-    ] as const) {
-      assert.equal(
-        (
-          await f.command("node-one", {
-            kind: "task-assign",
-            taskId: `task-${suffix}`,
-            expectedVersion: revisions.get(`task-${suffix}`),
-            ...target,
-          })
-        ).outcome,
-        "applied",
-      );
-    }
-    const ids = (result: Record<string, unknown>) => (result.tasks as { taskId: string }[]).map((task) => task.taskId);
-    assert.deepEqual(ids(await query()), ["task-named"]);
-    assert.deepEqual(ids(await query("node-two")), []);
-    for (const [scope, expected] of [
-      ["reserved", ["task-named", "task-person"]],
-      ["startable", ["task-named", "task-person", "task-free"]],
-    ] as const) {
-      const changed = await f.command("node-one", { kind: "settings-update", fleetClaimScope: scope });
-      assert.equal(changed.outcome, "applied", JSON.stringify(changed));
-      const before = f.eventCount();
-      assert.deepEqual(ids(await query()), expected);
-      assert.equal(f.eventCount(), before, "candidate reads append no accepted write");
-    }
-    assert.equal((await f.command("center-node", { kind: "task-start", taskId: "task-free" })).outcome, "applied");
-    assert.deepEqual(ids(await query()), ["task-named", "task-person"]);
-    f.owners.keycloak.revoke("person-one", "lease-repo", ["task-start"]);
-    await assert.rejects(query(), /permission|denied/i);
-  },
-);
+test("live node authorization reads claim candidates under all configured scopes", { timeout: 60_000 }, async (t) => {
+  const { fleetNodeClaimFixture } = await import("./fleet-node-claim.fixtures.ts");
+  const f = await fleetNodeClaimFixture(t);
+  const query = (nodeId = "node-one") =>
+    f.host.read("lease-repo", "repo.tasks.claimable", {}, f.owners.auth({ nodeId }));
+  const revisions = new Map<string, number>();
+  for (const suffix of ["named", "person", "free"]) {
+    const created = await f.command("node-one", { kind: "task-create", taskId: `task-${suffix}`, title: suffix });
+    assert.equal(created.outcome, "applied");
+    revisions.set(`task-${suffix}`, Number(created.receipt?.projection?.revision ?? created.revision ?? 1));
+  }
+  for (const [suffix, target] of [
+    ["named", { nodeId: "node-one" }],
+    ["person", { personId: "person-one" }],
+  ] as const) {
+    assert.equal(
+      (
+        await f.command("node-one", {
+          kind: "task-assign",
+          taskId: `task-${suffix}`,
+          expectedVersion: revisions.get(`task-${suffix}`),
+          ...target,
+        })
+      ).outcome,
+      "applied",
+    );
+  }
+  const ids = (result: Record<string, unknown>) => (result.tasks as { taskId: string }[]).map((task) => task.taskId);
+  assert.deepEqual(ids(await query()), ["task-named"]);
+  assert.deepEqual(ids(await query("node-two")), []);
+  for (const [scope, expected] of [
+    ["reserved", ["task-named", "task-person"]],
+    ["startable", ["task-named", "task-person", "task-free"]],
+  ] as const) {
+    const changed = await f.command("node-one", { kind: "settings-update", fleetClaimScope: scope });
+    assert.equal(changed.outcome, "applied", JSON.stringify(changed));
+    const before = f.eventCount();
+    assert.deepEqual(ids(await query()), expected);
+    assert.equal(f.eventCount(), before, "candidate reads append no accepted write");
+  }
+  assert.equal((await f.command("center-node", { kind: "task-start", taskId: "task-free" })).outcome, "applied");
+  assert.deepEqual(ids(await query()), ["task-named", "task-person"]);
+  f.owners.keycloak.revoke("person-one", "lease-repo", ["task-start"]);
+  await assert.rejects(query(), /permission|denied/i);
+});

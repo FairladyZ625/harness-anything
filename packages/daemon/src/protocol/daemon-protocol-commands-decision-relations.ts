@@ -1,7 +1,7 @@
 import {
   cliInput,
   defineLedgerWriteCommand,
-  defineQueryOnlyRepoReadCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 export const decisionRelationProtocolCommands = Object.freeze([
@@ -68,7 +68,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineQueryOnlyRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "decision-list",
     phase: "DecisionFact-B",
     path: ["decision", "list"],
@@ -119,7 +119,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineQueryOnlyRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "decision-show",
     phase: "DecisionFact-B",
     path: ["decision", "show", "<id>"],

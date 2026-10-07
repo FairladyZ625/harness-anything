@@ -16,13 +16,12 @@ const workerBranchSeparator = "--";
 export async function resolveSquadCwd(
   rootDir: string,
   value: unknown,
-  projection: () => TaskProjection,
+  query: <T>(read: (projection: TaskProjection) => T) => T,
   taskId: string,
   setup: readonly string[],
 ): Promise<string> {
   if (value !== undefined) return resolveCwd(rootDir, value);
-  const read = projection(),
-    binding = openTaskWorktreeBinding(read.read(taskId).snapshot.task, presetSnapshotReader(read)),
+  const binding = query((read) => openTaskWorktreeBinding(read.read(taskId).snapshot.task, presetSnapshotReader(read))),
     checkout = binding ? await checkoutTaskWorktree(rootDir, taskId, binding, setup) : null;
   if (checkout && !checkout.setup.ok)
     throw new Error(worktreeSetupFailure(checkout.cwd, checkout.setup, `start the Squad run for ${taskId} again`));

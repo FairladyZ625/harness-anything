@@ -70,6 +70,11 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     "a remote-edge registration for another root cannot authorize this workspace",
   );
   registry("remote-edge");
+  for (const kind of ["schedule-list", "schedule-show", "schedule-runs"]) {
+    const read = command("repo.task.read", { kind, scheduleId: "edge-schedule" });
+    assert.equal(await fleetScheduleRoute(read, env), null, `${kind} must avoid the network runtime route`);
+    assert.deepEqual((await fleetTaskRoute(read, env))?.action, { kind, scheduleId: "edge-schedule" });
+  }
   const undeclaredRead = command("repo.tasks.documents.list", {
     kind: "task-documents-list",
     taskId: "task_one",
@@ -86,13 +91,11 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     (await fleetTaskRoute(command("repo.task.run", { kind: "task-settle", taskId: "task_one" }), env))?.action,
     { kind: "task-settle", taskId: "task_one" },
   );
-  const docStatus = await fleetDocRoute(
-    command("repo.task.read", { kind: "doc-status", paths: ["context/notes.md"] }),
-    env,
-  );
-  assert.equal(docStatus?.method, "daemon.fleet.doc.sync");
-  assert.equal(docStatus?.payload.dryRun, true);
-  assert.deepEqual(docStatus?.payload.paths, ["context/notes.md"]);
+  for (const kind of ["doc-status", "doc-dry-run"]) {
+    const read = command("repo.task.read", { kind, paths: ["context/notes.md"] });
+    assert.equal(await fleetDocRoute(read, env), null);
+    assert.deepEqual((await fleetTaskRoute(read, env))?.action, { kind, paths: ["context/notes.md"] });
+  }
   const docSubmitAll = await fleetDocRoute(command("repo.task.run", { kind: "doc-submit", paths: [], all: true }), env);
   assert.equal(docSubmitAll?.payload.dryRun, false);
   assert.deepEqual(docSubmitAll?.payload.paths, []);
@@ -286,16 +289,13 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       }),
     );
   }
-  for (const argv of [
-    ["work", "list", "--all", "--limit", "500"],
-    ["work", "show", "task_one"],
-  ]) {
+  for (const argv of [["work", "show", "task_one"]]) {
     const parsed = parseThinCommand(argv, root);
     assert.equal(parsed.ok, true);
     if (!parsed.ok) continue;
     const routed = await fleetTaskRoute(parsed.command, env);
     assert.ok(routed, argv.join(" "));
-    assert.doesNotThrow(
+    assert.throws(
       () =>
         parseFleetFrame({
           schema: "fleet.repository.read/v1",
@@ -305,17 +305,20 @@ test("fleet task routing requires both edge config and remote-edge registry mode
           method: "repo.task.read",
           payload: routed.action,
         }),
-      argv.join(" "),
+      /closed schema fleet\.repository\.read\/v1/u,
     );
   }
-  // task show is edge-replica now: the CLI still routes it to the edge daemon, but its action no
-  // longer forms a legal center-forwarded repository-read frame.
-  {
-    const parsed = parseThinCommand(["task", "show", "task_one"], root);
+  // task show and work list are edge-replica now: the CLI still routes them to the edge daemon, but
+  // their actions no longer form a legal center-forwarded repository-read frame.
+  for (const argv of [
+    ["task", "show", "task_one"],
+    ["work", "list", "--all", "--limit", "500"],
+  ]) {
+    const parsed = parseThinCommand(argv, root);
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
       const routed = await fleetTaskRoute(parsed.command, env);
-      assert.ok(routed, "task show task_one");
+      assert.ok(routed, argv.join(" "));
       assert.throws(
         () =>
           parseFleetFrame({

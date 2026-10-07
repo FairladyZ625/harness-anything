@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { squadObservationFixture } from "./squad-run-fixtures.ts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -19,6 +20,7 @@ const squadRunDetail: SquadRunReadResult = {
   ok: true,
   status: "ready",
   run: {
+    ...squadObservationFixture,
     squadRunId: "squad_" + "b".repeat(18),
     squadId: "squad_465504" + "a".repeat(12),
     taskId: "task_5fc508",
@@ -61,11 +63,13 @@ const squadRunDetail: SquadRunReadResult = {
     workerAttempts: [
       {
         attemptId: "worker-1",
+        taskId: null,
+        executionId: null,
+        worktree: null,
         workerId: "terra",
         leaderTurnId: "leader-1",
         dispatchId: "dispatch_000000000000000000000003",
         runtimeSessionId: "runtime-worker-1",
-        worktree: null,
         rejection: null,
         status: "succeeded",
         startedAt: "2026-08-25T18:05:00.000Z",
@@ -74,11 +78,13 @@ const squadRunDetail: SquadRunReadResult = {
       },
       {
         attemptId: "worker-2",
+        taskId: null,
+        executionId: null,
+        worktree: null,
         workerId: "sol",
         leaderTurnId: "leader-1",
         dispatchId: null,
         runtimeSessionId: null,
-        worktree: null,
         rejection: "Runtime dispatch was rejected.",
         status: null,
         startedAt: null,
@@ -245,6 +251,7 @@ const telemetryDetail: SquadRunReadResult = {
   ok: true,
   status: "ready",
   run: {
+    ...squadObservationFixture,
     squadRunId: "squad_" + "e".repeat(18),
     squadId: "squad_465504" + "a".repeat(12),
     taskId: "task_5fc508",
@@ -269,11 +276,13 @@ const telemetryDetail: SquadRunReadResult = {
     workerAttempts: [
       {
         attemptId: "wa-terra",
+        taskId: null,
+        executionId: null,
+        worktree: null,
         workerId: "terra",
         leaderTurnId: "lt-1",
         dispatchId: "dispatch_000000000000000000000002",
         runtimeSessionId: "runtime-worker-terra",
-        worktree: null,
         rejection: null,
         status: "succeeded",
         startedAt: "2026-09-13T10:01:00.000Z",
@@ -282,11 +291,13 @@ const telemetryDetail: SquadRunReadResult = {
       },
       {
         attemptId: "wa-sol",
+        taskId: null,
+        executionId: null,
+        worktree: null,
         workerId: "sol",
         leaderTurnId: "lt-1",
         dispatchId: "dispatch_000000000000000000000003",
         runtimeSessionId: "runtime-worker-sol",
-        worktree: null,
         rejection: null,
         status: "running",
         startedAt: "2026-09-13T10:01:30.000Z",
@@ -295,11 +306,13 @@ const telemetryDetail: SquadRunReadResult = {
       },
       {
         attemptId: "wa-luna",
+        taskId: null,
+        executionId: null,
+        worktree: null,
         workerId: "luna",
         leaderTurnId: "lt-1",
         dispatchId: null,
         runtimeSessionId: null,
-        worktree: null,
         rejection: "Runtime dispatch was rejected.",
         status: null,
         startedAt: null,

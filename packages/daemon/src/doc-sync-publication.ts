@@ -1,3 +1,4 @@
+import { runtimeDispatchTaskMatches } from "./runtime-session-action-runtime.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -95,7 +96,6 @@ export function archiveRuntimeDispatch(
     occurrence = input.projection
       .readRuntimeDispatches()
       .find((event) => event.payload.dispatchId === value.dispatchId),
-    session = input.projection.readRuntimeSession(value.runtimeSessionId),
     runtimeExecutorId = `runtime-session:${value.runtimeSessionId}`,
     runtimeActor =
       input.binding.actor.executor?.id === runtimeExecutorId ||
@@ -110,20 +110,14 @@ export function archiveRuntimeDispatch(
       occurrence.payload.reviewTarget.digest === decision.digest,
     matchingTask =
       decision === null &&
-      (session?.taskBindings.some(
-        (binding) => binding.taskId === value.taskId && binding.executionId === value.executionId,
-      ) === true ||
-        input.projection
-          .readLeaseIntervals(value.taskId!)
-          .some(
-            (interval) =>
-              interval.executionId === value.executionId &&
-              interval.holder.actor.executor?.id === runtimeExecutorId &&
-              interval.holder.actor.principal.personId === input.binding.actor.principal.personId,
-          ) ||
-        (occurrence?.payload.taskId === value.taskId &&
-          occurrence.payload.executionId === value.executionId &&
-          JSON.stringify(occurrence.source) === JSON.stringify(input.binding.source)));
+      runtimeDispatchTaskMatches({
+        projection: input.projection,
+        dispatch: occurrence,
+        binding: input.binding,
+        runtimeSessionId: value.runtimeSessionId,
+        taskId: value.taskId!,
+        executionId: value.executionId,
+      });
   if (
     occurrence?.payload.runtimeSessionId !== value.runtimeSessionId ||
     occurrence.payload.instanceId !== value.instanceId ||

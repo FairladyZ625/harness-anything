@@ -7,6 +7,10 @@ import test from "node:test";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
+import { readScheduleRuns } from "../src/schedule-runs-read.ts";
+import { readEdgeRuntimeResultBytes } from "../src/runtime-result-read.ts";
 import { fleetFixture, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { definition, eventually, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
@@ -57,23 +61,38 @@ for (const restart of [false, true])
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
     const scheduleId = "recovery-schedule";
     const subject = { nodeId: fixture.subject.nodeId, repoId: fixture.subject.repoId };
+    const outcomeArrived = Promise.withResolvers<void>(),
+      releaseOutcome = Promise.withResolvers<void>();
+    t.after(() => releaseOutcome.resolve());
     const startCenter = (port?: number) =>
       fixture.hold(
         listenFleetTls({
-          host: fixture.host,
+          host: {
+            ...fixture.host,
+            runtimeIngress: async (...args) => {
+              if (args[1].kind === "event" && args[1].type === "runtime_session_outcome_observed") {
+                outcomeArrived.resolve();
+                await releaseOutcome.promise;
+              }
+              return fixture.host.runtimeIngress(...args);
+            },
+          },
           stateRoot: fixture.stateRoot,
           ...fixture.writerOptions,
           key: fixture.key,
           cert: fixture.cert,
           port,
           replicaDiskQuotaBytes: 64 * 1024 * 1024,
-          authenticate: (nodeId, credential) => nodeId === subject.nodeId && credential === "machine-secret",
+          authenticate: (nodeId, credential) =>
+            [subject.nodeId, "node-two"].includes(nodeId) && credential === "machine-secret",
           nodeOwner: fixture.owners.nodeOwner,
+          onError: ({ error }) => t.diagnostic(`center publication: ${String(error)}`),
         }),
       );
     const center = await startCenter();
     const workspaceRoot = path.join(fixture.root, "schedule-edge");
     initHarnessRepo(workspaceRoot, "fleet");
+    const reportBody = "完整 schedule result\n".repeat(6000) + "HARNESS-OUTCOME: succeeded";
     let terminal: (() => void) | undefined;
     const createRuntime = () =>
       openFleetEdgeRuntime({
@@ -112,7 +131,7 @@ for (const restart of [false, true])
                   { type: "thread.started", thread_id: "schedule-recovery-provider" },
                   {
                     type: "item.completed",
-                    item: { id: "final", type: "agent_message", text: "HARNESS-OUTCOME: succeeded" },
+                    item: { id: "final", type: "agent_message", text: reportBody },
                   },
                   { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
                 ];
@@ -182,15 +201,68 @@ for (const restart of [false, true])
       runtime.close();
       runtime = createRuntime();
     }
-    await startCenter(center.port);
+    const restoredCenter = await startCenter(center.port);
+    const recovery = runtime.reconcile();
+    const recovered = Promise.allSettled([recovery]);
+    const observerRoot = path.join(fixture.root, "schedule-reader-view");
+    await outcomeArrived.promise;
+    try {
+      // Settlement has reached the center, but the outcome's claim and bytes cannot
+      // append until this barrier opens. A second node must still receive a complete cut.
+      const events = makeTaskEventReader({ repoId: subject.repoId, rootDir: fixture.repo }).read().events;
+      assert.ok(events.some((event) => event.type === "schedule_run_settled"));
+      assert.equal(
+        events.some((event) => event.type === "runtime_session_outcome_observed"),
+        false,
+      );
+      await runFleetReplicaPullClient({
+        host: "127.0.0.1",
+        port: restoredCenter.port,
+        ca: fixture.cert,
+        servername: "localhost",
+        nodeId: "node-two",
+        credential: "machine-secret",
+        repoId: subject.repoId,
+        viewRoot: observerRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+      });
+      const pending = withEdgeReadModel(
+        { viewRoot: observerRoot, repoId: subject.repoId, nodeId: "node-two", principalId: "person-owner" },
+        (projection) => readScheduleRuns({ projection }, scheduleId),
+      );
+      assert.equal(pending.runs[0]?.outcome, "succeeded");
+      assert.equal(pending.runs[0]?.reportRef, null);
+      assert.equal(pending.runs[0]?.reportText, null);
+      t.diagnostic(
+        `barrier cut revision=${events.at(-1)?.workspaceRevision}: settled schedule, no outcome, no dangling result`,
+      );
+    } finally {
+      releaseOutcome.resolve();
+      await recovered;
+    }
+    await recovery;
     let shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
     assert.equal(
       await eventually(async () => {
+        await runtime.reconcile();
+        // This fixture owns no background sync loop. Refresh the completed cut explicitly;
+        // schedule-show itself must never pull or trigger terminal publication.
+        await fixture.host.replica(subject.repoId).waitForCut(fixture.eventCount());
+        await runFleetReplicaPullClient({
+          port: restoredCenter.port,
+          ca: fixture.cert,
+          servername: "localhost",
+          nodeId: subject.nodeId,
+          credential: "machine-secret",
+          repoId: subject.repoId,
+          viewRoot: path.join(fixture.root, "schedule-view"),
+          diskQuotaBytes: 64 * 1024 * 1024,
+        });
         shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
         return (shown.schedule as { status: { activeRun: unknown } }).status.activeRun === null;
       }),
       true,
-      "terminal settlement becomes visible at the center",
+      `terminal settlement becomes visible locally: ${JSON.stringify(shown)}`,
     );
     assert.equal((shown.schedule as { status: { activeRun: unknown } }).status.activeRun, null, JSON.stringify(shown));
     assert.equal(
@@ -230,4 +302,36 @@ for (const restart of [false, true])
       "recovery and subsequent reads do not replace or duplicate settlement",
     );
     assert.equal(fixture.eventCount(), revision, "a recovered claim must not settle again");
+    await fixture.host.replica(subject.repoId).waitForCut(fixture.eventCount());
+    await runFleetReplicaPullClient({
+      host: "127.0.0.1",
+      port: restoredCenter.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: "node-two",
+      credential: "machine-secret",
+      repoId: subject.repoId,
+      viewRoot: observerRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+    });
+    await restoredCenter.close();
+    const result = withEdgeReadModel(
+      { viewRoot: observerRoot, repoId: subject.repoId, nodeId: "node-two", principalId: "person-owner" },
+      (projection) =>
+        readScheduleRuns(
+          {
+            projection,
+            store: {
+              readContentBlob: (sha) => readEdgeRuntimeResultBytes(observerRoot, subject.repoId, "node-two", sha),
+            },
+          },
+          scheduleId,
+        ),
+    );
+    assert.equal(
+      result.runs[0]?.reportText,
+      reportBody,
+      "a reader node without owner stream reads the full uploaded schedule result while offline",
+    );
+    t.diagnostic(`B offline schedule report bytes=${Buffer.byteLength(reportBody)} from the accepted result cut`);
   });

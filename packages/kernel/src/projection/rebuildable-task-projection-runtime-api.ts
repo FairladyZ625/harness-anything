@@ -15,14 +15,7 @@ import {
   readRuntimeSessionsForTask,
   reserve,
 } from "./rebuildable-task-projection-runtime.ts";
-import {
-  markSquadRunProjectionDirty,
-  readSquadRun,
-  readSquadRuns,
-  replaceSquadRuns,
-  squadRunProjectionReady,
-  upsertSquadRun,
-} from "./rebuildable-task-projection-squad-runs.ts";
+import { readSquadRun, readSquadRuns } from "./rebuildable-task-projection-squad-runs.ts";
 import { prepareQuery, transaction } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
@@ -38,10 +31,6 @@ export function runtimeLeaseApi(
   | "readRuntimeSessionPage"
   | "readRuntimeSessions"
   | "readRuntimeSessionsForTask"
-  | "squadRunProjectionReady"
-  | "replaceSquadRuns"
-  | "markSquadRunProjectionDirty"
-  | "upsertSquadRun"
   | "readSquadRun"
   | "readSquadRuns"
   | "readLeaseIntervals"
@@ -64,13 +53,6 @@ export function runtimeLeaseApi(
     readRuntimeSessions: () => withDatabase(projectionPath, readHead, readRuntimeSessions),
     readRuntimeSessionsForTask: (taskId) =>
       withDatabase(projectionPath, readHead, (db) => readRuntimeSessionsForTask(db, taskId)),
-    squadRunProjectionReady: () => withDatabase(projectionPath, readHead, squadRunProjectionReady),
-    replaceSquadRuns: (rows) =>
-      withDatabase(projectionPath, readHead, (db) => transaction(db, () => replaceSquadRuns(db, rows))),
-    markSquadRunProjectionDirty: () =>
-      withDatabase(projectionPath, readHead, (db) => transaction(db, () => markSquadRunProjectionDirty(db))),
-    upsertSquadRun: (row) =>
-      withDatabase(projectionPath, readHead, (db) => transaction(db, () => upsertSquadRun(db, row))),
     readSquadRun: (squadRunId) => withDatabase(projectionPath, readHead, (db) => readSquadRun(db, squadRunId)),
     readSquadRuns: () => withDatabase(projectionPath, readHead, readSquadRuns),
     readLeaseIntervals: (taskId) => withDatabase(projectionPath, readHead, (db) => readIntervals(db, taskId)),

@@ -6,7 +6,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentRuntimeSessionResult } from "../src/agent-runtime-contract.ts";
-import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
+import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
+import { locallyObservedRuntimeSessions } from "../src/runtime-spawn-adoption.ts";
+import { readObservedRuntimeSession } from "../src/agent-runtime-read.ts";
+import { openDispatchStream, appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
+import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
+import type { AgentDefinitionSnapshot, RuntimeSession } from "@harness-anything/kernel";
 import type { RepoCellStatus } from "../src/repo-cell-types.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -147,5 +153,92 @@ test("the real writer relays completed runtime restorations before ready without
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("owner adoption checks dead PID before publishing live and preserves live control when publication is offline", async () => {
+  for (const alive of [false, true]) {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-owner-evidence-")),
+      dispatchId = "dispatch_0123456789abcdef01234567",
+      runtimeSessionId = "runtime-owner-evidence",
+      pid = alive ? process.pid : 2_147_483_647,
+      accepted = {
+        runtimeSessionId,
+        instanceId: "owner-instance",
+        providerSessionId: null,
+        outcome: null,
+        liveness: "unknown",
+        attachable: true,
+        taskBindings: [],
+        lastObservedAt: "2026-10-07T00:00:00Z",
+      } as unknown as RuntimeSession,
+      projection = {
+        readRuntimeSession: () => accepted,
+        readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+      } as never,
+      hub = makeAgentRuntimeStreamHub({
+        readSession: () => readObservedRuntimeSession(projection, rootDir, runtimeSessionId),
+        canAttach: (session) => session.attachable && session.liveness === "live",
+      }),
+      published: string[] = [];
+    openDispatchStream(rootDir, {
+      dispatchId,
+      runtimeSessionId,
+      taskId: null,
+      executionId: null,
+      instanceId: accepted.instanceId,
+      startedAt: accepted.lastObservedAt,
+      dispatchOpId: "owner-dispatch",
+      kindId: "codex",
+      permissionMode: "read-only",
+      binding: {
+        actor: { principal: { personId: "owner" }, executor: null },
+        source: { kind: "node", nodeId: "owner" },
+      },
+      cwd: rootDir,
+      prompt: "Owner recovery",
+      model: "test",
+      reasoningEffort: null,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid });
+    const runtime = makeRuntimeSpawner({
+      repoId: "owner-evidence",
+      rootDir,
+      daemonGeneration: 2,
+      runtimeNode: { nodeId: "owner" },
+      now: () => accepted.lastObservedAt,
+      stream: hub,
+      prepareLaunch: async () => {
+        throw new Error("adoption must not relaunch");
+      },
+      schedule: async (work) => {
+        await work();
+      },
+      remote: {
+        readRuntimeSessions: async () => [accepted],
+        publish: async (draft) => {
+          published.push(`${draft.type}:${String(draft.payload.liveness ?? "")}`);
+          throw new Error("center unavailable");
+        },
+      } as never,
+    });
+    try {
+      await assert.rejects(runtime.adopt(), /center unavailable/u);
+      assert.equal(
+        published.some((value) => value === "runtime_session_liveness_changed:live"),
+        alive,
+      );
+      assert.equal(hub.attach(runtimeSessionId, "stream:0").initial.ok, alive);
+      const selected = locallyObservedRuntimeSessions(
+        [{ ...accepted, liveness: "live" }],
+        new Map([[runtimeSessionId, { process: { pid } as RuntimeProcess }]]),
+      );
+      assert.equal(selected[0]!.liveness, alive ? "live" : "unknown");
+      assert.equal(accepted.liveness, "unknown", "local evidence cannot mutate the canonical observation");
+    } finally {
+      runtime.close();
+      hub.close();
+      rmSync(rootDir, { recursive: true, force: true });
+    }
   }
 });

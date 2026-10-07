@@ -50,6 +50,7 @@ function ledger() {
   };
   return {
     db,
+    revision: () => revision,
     reads,
     decision(
       decisionId: string,
@@ -274,13 +275,13 @@ test("a claim evidenced only by a superseded Fact is not covered", () => {
     fixture.fact("F-NEW00001");
     fixture.decision("dec_LIVENESS", [{ id: "C1", fulfillment: "evidenced" }]);
     fixture.edge("rel_evidence", "decision/dec_LIVENESS/C1", "fact/F-OLD00001", "evidenced-by");
-    const covered = readDecisionGraphRows(fixture.db).coverageRows;
+    const covered = readDecisionGraphRows(fixture.db, fixture.revision()).coverageRows;
     assert.equal(covered[0]?.status, "covered");
     assert.equal(covered[0]?.coveringFactRef, "fact/F-OLD00001");
 
     // `ha fact record --supersedes` writes the edge on the newer Fact, so the Fact owns it.
     fixture.edge("rel_supersede", "fact/F-NEW00001", "fact/F-OLD00001", "supersedes-fact");
-    const [row] = readDecisionGraphRows(fixture.db).coverageRows;
+    const [row] = readDecisionGraphRows(fixture.db, fixture.revision()).coverageRows;
     assert.equal(row?.status, "uncovered", JSON.stringify(row));
     assert.equal(row?.coveringFactRef, undefined);
     assert.deepEqual(row?.relationPath, []);
@@ -300,15 +301,18 @@ test("each decision's coverage equals coverageOf over every projected row", () =
       ).map(({ decision_id }) => decision_id);
     for (const decisionId of decisionIds)
       assert.deepEqual(
-        decisionCoverage(fixture.db, [decisionId]),
+        decisionCoverage(fixture.db, [decisionId], fixture.revision()),
         everyRow.filter((row) => row.decisionRef === `decision/${decisionId}`),
         decisionId,
       );
-    assert.deepEqual(readDecisionGraphRows(fixture.db).coverageRows, everyRow);
+    assert.deepEqual(readDecisionGraphRows(fixture.db, fixture.revision()).coverageRows, everyRow);
 
     // The scenario reaches every verdict the judgment can give, so the equality above is not vacuous.
     const target = new Map(
-      decisionCoverage(fixture.db, ["dec_TARGET"]).map((row) => [row.claimRef.split("/").at(-1), row]),
+      decisionCoverage(fixture.db, ["dec_TARGET"], fixture.revision()).map((row) => [
+        row.claimRef.split("/").at(-1),
+        row,
+      ]),
     );
     assert.deepEqual([...target.keys()], ["C1", "C11", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]);
     assert.deepEqual(Object.fromEntries([...target].map(([claim, row]) => [claim, row.status])), {
@@ -328,10 +332,10 @@ test("each decision's coverage equals coverageOf over every projected row", () =
     assert.equal(target.get("C5")?.coveringFactRef, "fact/F-ROOT0001");
     assert.deepEqual(target.get("C6")?.refutingFactRefs, ["fact/F-REFUTE01"]);
     assert.deepEqual(target.get("C9")?.refutingFactRefs, []);
-    assert.equal(decisionCoverage(fixture.db, ["dec_REFUTED"])[0]?.status, "uncovered");
-    assert.equal(decisionCoverage(fixture.db, ["dec_STANDING"])[0]?.fulfillment, "standing_policy");
-    assert.equal(decisionCoverage(fixture.db, ["dec_STANDING"])[0]?.status, "covered");
-    assert.deepEqual(decisionCoverage(fixture.db, ["dec_MISSING"]), []);
+    assert.equal(decisionCoverage(fixture.db, ["dec_REFUTED"], fixture.revision())[0]?.status, "uncovered");
+    assert.equal(decisionCoverage(fixture.db, ["dec_STANDING"], fixture.revision())[0]?.fulfillment, "standing_policy");
+    assert.equal(decisionCoverage(fixture.db, ["dec_STANDING"], fixture.revision())[0]?.status, "covered");
+    assert.deepEqual(decisionCoverage(fixture.db, ["dec_MISSING"], fixture.revision()), []);
   } finally {
     fixture.db.close();
   }
@@ -344,7 +348,7 @@ test("one decision's coverage reads the same rows however many unrelated decisio
       coverageScenario(fixture);
       unrelated(fixture, noise);
       fixture.reads.length = 0;
-      const rows = decisionCoverage(fixture.db, ["dec_TARGET"]),
+      const rows = decisionCoverage(fixture.db, ["dec_TARGET"], fixture.revision()),
         reads = [...fixture.reads];
       return {
         rows,

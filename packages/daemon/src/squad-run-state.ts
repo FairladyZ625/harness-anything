@@ -1,4 +1,4 @@
-import { isTerminalStatus, type TaskProjection, type TaskV2 } from "@harness-anything/kernel";
+import { isTerminalStatus, type TaskV2 } from "@harness-anything/kernel";
 import { readAllDispatchStreamSummaries } from "./dispatch-stream.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
@@ -12,10 +12,13 @@ export type SquadState = {
   readonly stateDispatchId: string | null;
   readonly squadId: string;
   readonly taskId: string;
+  readonly executionId: string;
   readonly runtimeInstanceId: string;
   readonly cwd: string;
   readonly baseSha: string | null;
   readonly mission: string;
+  /** User-authored prompt or canonical task title; excludes generated local execution instructions. */
+  readonly publicMission: string;
   readonly model: string | null;
   readonly effort: string | null;
   readonly permissionMode?: string | null;
@@ -53,6 +56,8 @@ export function squadState(value: unknown): SquadState | null {
     (row.baseSha === undefined || row.baseSha === null || typeof row.baseSha === "string") &&
     validSquadRunId(row.squadRunId) &&
     typeof row.stateDispatchId === "string" &&
+    typeof row.executionId === "string" &&
+    typeof row.publicMission === "string" &&
     Array.isArray(row.leaderTurns) &&
     Array.isArray(row.workerAttempts) &&
     Array.isArray(row.observedWorkerRuntimeSessionIds) &&
@@ -97,18 +102,18 @@ export function latestSquadStates(rootDir: string): ReadonlyMap<string, SquadSta
   return states;
 }
 
-type SquadRunProjection = Pick<TaskProjection, "squadRunProjectionReady" | "replaceSquadRuns" | "readSquadRuns">;
-
-/** Rebuild only when missing or interrupted; the dispatch streams remain the authority. */
-export function ensureSquadRunProjection(rootDir: string, projection: SquadRunProjection): void {
-  if (projection.squadRunProjectionReady()) return;
-  projection.replaceSquadRuns(
-    [...latestSquadStates(rootDir).values()].map((state) => ({
-      squadRunId: state.squadRunId,
-      revision: state.revision,
-      state,
-    })),
-  );
+/** ACKs share the control stream, so a missing ACK always resends the same operation after restart. */
+export function squadPublicationAcks(rootDir: string): Map<string, number> {
+  const acks = new Map<string, number>();
+  for (const stream of readAllDispatchStreamSummaries(rootDir))
+    for (const record of stream.records)
+      if (
+        record.kind === "squad_run_publication_ack" &&
+        typeof record.squadRunId === "string" &&
+        Number.isSafeInteger(record.revision)
+      )
+        acks.set(record.squadRunId, Math.max(acks.get(record.squadRunId) ?? -1, Number(record.revision)));
+  return acks;
 }
 
 /** A child task a rejected attempt left behind, with the run's binding — the authority that created it. */
@@ -152,7 +157,6 @@ export function rejectedSquadAttemptChildren(states: Iterable<SquadState>): read
 /** How a caller with the cell's write surface cancels one orphan: the action to apply, with its run's own binding. */
 export interface SquadOrphanCancellation {
   readonly rootDir: string;
-  readonly projection: SquadRunProjection;
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
   readonly cancel: (
     action: RepoTaskAction,
@@ -167,11 +171,7 @@ export interface SquadOrphanCancellation {
  * unattended at attach, and one child's failure must not strand the rest or the worktree sweep behind it.
  */
 export async function cancelRejectedSquadChildren(input: SquadOrphanCancellation): Promise<void> {
-  ensureSquadRunProjection(input.rootDir, input.projection);
-  const states = input.projection.readSquadRuns().flatMap((row) => {
-    const state = squadState(row.state);
-    return state ? [state] : [];
-  });
+  const states = [...latestSquadStates(input.rootDir).values()];
   for (const child of rejectedSquadAttemptChildren(states)) {
     const task = input.readTask(child.taskId);
     if (!task || isTerminalStatus(task.status)) continue;

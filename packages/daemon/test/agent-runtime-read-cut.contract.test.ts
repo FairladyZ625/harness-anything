@@ -27,7 +27,7 @@ test("runtime lifecycle cursors stay at the projection cut while the canonical s
     projection.apply(events[0]!);
     projection.apply(events[1]!);
 
-    const reads = makeAgentRuntimeReadModel({ store, projection, stream: {} as never }),
+    const reads = makeAgentRuntimeReadModel({ store, projection }),
       lagged = reads.events({ runtimeSessionId: "runtime-session", afterCursor: "lifecycle:0" });
     assert.deepEqual(lagged, {
       ok: true,

@@ -17,7 +17,10 @@ export async function fleetScheduleRoute(
     (command.method !== "repo.task.run" && command.method !== "repo.task.read") ||
     !daemonProtocolCommands.some(
       (candidate) =>
-        candidate.method === command.method && candidate.id === command.action.kind && candidate.path[0] === "schedule",
+        candidate.method === command.method &&
+        candidate.id === command.action.kind &&
+        candidate.path[0] === "schedule" &&
+        candidate.admission["remote-edge"] !== "edge-replica",
     )
   )
     return null;
@@ -81,8 +84,6 @@ const fleetRuntimeMethods = [
   "repo.agentRuntime.spawn",
   "repo.agentRuntime.cancel",
   "repo.agentRuntime.handoff",
-  "repo.agentRuntime.overview",
-  "repo.agentRuntime.sessions.read",
   "repo.agentRuntime.sessions.await",
 ] as const;
 
@@ -96,7 +97,10 @@ export async function fleetRuntimeRoute(
   command: ThinCommand,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, unknown> | null> {
-  if (!(fleetRuntimeMethods as readonly string[]).includes(command.method)) return null;
+  const squadControl =
+    command.method === "repo.task.run" &&
+    (command.action.kind === "squad-run" || command.action.kind === "squad-cancel");
+  if (!squadControl && !(fleetRuntimeMethods as readonly string[]).includes(command.method)) return null;
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
   const {
@@ -118,7 +122,11 @@ export async function fleetRuntimeRoute(
     viewRoot: config.viewRoot,
     quotaBytes: config.quotaBytes,
     workspaceRoot: config.workspaceRoot,
-    action: { kind: "fleet-runtime", method: command.method, payload: action },
+    action: {
+      kind: "fleet-runtime",
+      method: squadControl ? "repo.squad.control" : command.method,
+      payload: squadControl ? { ...action, kind: command.action.kind } : action,
+    },
   };
 }
 // The fleet modules stay lazy for the same reason the autostart seam does: the
@@ -138,8 +146,10 @@ export async function fleetTaskRoute(
     descriptor.method !== command.method ||
     (descriptor.admission["remote-edge"] !== "via-center-forward" &&
       descriptor.admission["remote-edge"] !== "edge-replica") ||
-    (descriptor.path[0] === "doc" && typeof command.action.taskId !== "string") ||
-    descriptor.path[0] === "schedule"
+    (descriptor.path[0] === "doc" &&
+      descriptor.admission["remote-edge"] !== "edge-replica" &&
+      typeof command.action.taskId !== "string") ||
+    (descriptor.path[0] === "schedule" && descriptor.admission["remote-edge"] !== "edge-replica")
   )
     return null;
   const config = await fleetEdgeRegistration(command, env);
@@ -250,7 +260,7 @@ export async function fleetDocRoute(
   if (!hasCommandDescriptor(kind)) return null;
   const descriptor = commandDescriptorForAction(kind);
   if (descriptor.method !== command.method || descriptor.admission["remote-edge"] !== "via-center-forward") return null;
-  const sync = kind === "doc-status" || kind === "doc-dry-run" || kind === "doc-submit",
+  const sync = kind === "doc-submit",
     conflict = kind.startsWith("doc-conflict-");
   if (!sync && !conflict) return null;
   const config = await fleetEdgeRegistration(command, env);
@@ -268,7 +278,7 @@ export async function fleetDocRoute(
     workspaceRoot: config.workspaceRoot,
   };
   if (sync) {
-    payload.dryRun = kind !== "doc-submit";
+    payload.dryRun = false;
     payload.paths = Array.isArray(command.action.paths)
       ? command.action.paths.filter((value): value is string => typeof value === "string")
       : [];

@@ -1,21 +1,25 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import test from "node:test";
-import { type RuntimeSession, type TaskProjection } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchLiveIndex } from "../src/dispatch-stream.ts";
-import { readTaskDispatches, readTaskDispatchSession } from "../src/dispatch-read.ts";
+import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
+import {
+  readRuntimeAttemptChain,
+  readSessionGroupDispatches,
+  readTaskDispatches,
+  readTaskDispatchSession,
+  taskDispatchRowsSettled,
+} from "../src/dispatch-read.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   runtimeSessionId = "runtime-1",
   taskId = "task-1";
-
+type Dispatch = Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>;
 function session(
   liveness: RuntimeSession["liveness"],
   outcome: RuntimeSession["outcome"],
-  evidence: Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">> = {},
+  evidence: Partial<RuntimeSession> = {},
 ): RuntimeSession {
   return {
     runtimeSessionId,
@@ -23,23 +27,43 @@ function session(
     installationId: "installation-1",
     kindId: "codex",
     definitionSnapshotRef: "artifact:runtime-definition/test",
-    providerSessionId: null,
+    providerSessionId: "provider-session",
     transcriptRef: null,
     launchGeneration: 1,
     liveness,
     attachable: false,
     taskBindings: [],
     outcome,
-    exitCode: evidence.exitCode ?? null,
-    resultRef: evidence.resultRef ?? null,
-    ...(evidence.reasonCode ? { reasonCode: evidence.reasonCode } : {}),
+    exitCode: null,
+    resultRef: null,
     lastObservedAt: "2026-08-23T00:00:00.000Z",
+    ...evidence,
   };
 }
-
-function projectionFor(current: RuntimeSession): TaskProjection {
-  return {
-    read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
+function fixture(
+  current = session("live", null),
+  options: { archive?: Record<string, unknown>; successor?: Dispatch; metrics?: Record<string, unknown> } = {},
+) {
+  const event = {
+    schema: "agent-runtime-event/v1",
+    type: "runtime_dispatch_requested",
+    occurredAt: "2026-08-23T00:00:00.000Z",
+    payload: {
+      dispatchId,
+      runtimeSessionId,
+      taskId,
+      executionId: "execution-1",
+      instanceId: "instance-1",
+      agentId: "terra",
+      definitionSnapshotRef: current.definitionSnapshotRef,
+      attemptGroupId: dispatchId,
+      attemptIndex: 0,
+      reviewTarget: { kind: "decision", decisionId: "decision-1", digest: "a".repeat(64) },
+    },
+  } as unknown as Dispatch;
+  const events = options.successor ? [event, options.successor] : [event];
+  const projection = {
+    read: () => ({ watermark: 1, sourceRevision: 1, packagePath: "tasks/task-1", snapshot: { task: { taskId } } }),
     readTaskRuntimeBatch: () => ({
       status: "ready",
       taskIds: [taskId],
@@ -47,112 +71,154 @@ function projectionFor(current: RuntimeSession): TaskProjection {
       watermark: 1,
       sourceRevision: 1,
     }),
-    readRuntimeDispatch: () => ({ payload: { dispatchId } }),
-    readRuntimeDispatchByResumeSource: () => null,
-    readReplicaBasis: () => {
-      throw new Error("dispatch reads must not enumerate the replica document basis");
+    readRuntimeSession: () => current,
+    readRuntimeDispatch: () => event,
+    readRuntimeDispatches: () => events,
+    readRuntimeDispatchById: (id: string) => {
+      const event = events.find((e) => e.payload.dispatchId === id);
+      return event ? { event } : null;
     },
-    readDocument: () => ({ document: null }),
+    readRuntimeDispatchByResumeSource: () => (options.successor ? { event: options.successor } : null),
+    readRuntimeDispatchesBySession: () => [{ event }],
+    readRuntimeDispatchesByAttemptGroup: () => events.map((event) => ({ event })),
+    readRuntimeSessionEvents: () =>
+      options.metrics
+        ? [
+            {
+              schema: "agent-runtime-event/v1",
+              type: "runtime_session_outcome_observed",
+              payload: { runtimeMetrics: options.metrics },
+            },
+          ]
+        : [],
+    readDocument: (path: string) => ({
+      document:
+        options.archive && path.endsWith(".json")
+          ? { body: JSON.stringify({ schema: "runtime-dispatch/v1", ...options.archive }) }
+          : null,
+    }),
   } as unknown as TaskProjection;
+  return { projection, event, rows: () => readTaskDispatches({ projection, taskId }).dispatches };
 }
 
-function statusFor(current: RuntimeSession): string {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-"));
-  try {
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      startedAt: "2026-08-23T00:00:00.000Z",
-    });
-    const result = readTaskDispatches({ rootDir, projection: projectionFor(current), taskId });
-    const row = result.dispatches.find((candidate) => candidate.dispatchId === dispatchId);
-    assert.ok(row, "dispatch row missing");
-    return row.status;
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-}
-
-// A dispatch stream with no archived record reports status from the session field that is
-// actually maintained. `outcome` stays null for every session that nobody waited on, so
-// defaulting it to "running" reported exited sessions as live forever.
-test("a dispatch whose session has exited reports unknown, not running", () => {
-  assert.equal(statusFor(session("exited", null)), "unknown");
-  assert.equal(statusFor(session("unknown", null)), "unknown");
-  assert.equal(statusFor(session("stale", null)), "unknown");
-});
-
-test("dispatch rows expose daemon resume admission and withdraw it after a successful resume", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-resume-"));
-  try {
-    const writer = openDispatchStream(rootDir, {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      agentId: "terra",
-      startedAt: "2026-08-23T00:00:00.000Z",
-    });
-    writer.appendProviderBinding("provider-session", "2026-08-23T00:00:01.000Z");
-    const first = readTaskDispatches({ rootDir, projection: projectionFor(session("exited", "failed")), taskId });
-    assert.deepEqual(first.dispatches[0]?.resume, { dispatchId, agentId: "terra" });
-    openDispatchStream(rootDir, {
-      dispatchId: "dispatch_fedcba987654321001234567",
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId: "runtime-resumed",
-      instanceId: "instance-1",
-      resumedFromDispatchId: dispatchId,
-      startedAt: "2026-08-23T00:01:00.000Z",
-    });
-    const repeated = readTaskDispatches({ rootDir, projection: projectionFor(session("exited", "failed")), taskId });
-    assert.equal(repeated.dispatches[0]?.resume, undefined);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+test("accepted liveness and terminal evidence determine public dispatch status without a local stream", () => {
+  for (const [liveness, outcome, expected] of [
+    ["live", null, "running"],
+    ["exited", null, "unknown"],
+    ["unknown", null, "unknown"],
+    ["stale", null, "unknown"],
+    ["live", "failed", "failed"],
+    ["exited", "cancelled", "cancelled"],
+    ["exited", "unknown", "unknown"],
+  ] as const) {
+    const row = fixture(session(liveness, outcome)).rows()[0]!;
+    assert.equal(row.status, expected);
+    assert.equal(row.eventStreamRef, null);
+    assert.equal(taskDispatchRowsSettled([row]), outcome !== null);
   }
 });
 
-// A read that resolves one taskId answers from the projection: an id the projection does not
-// hold is a not-found answer naming that id, never a bare untyped throw that callers must
-// guess at (bootstrap_failed downstream).
-test("a single-task query for an id the projection does not have answers task_not_found naming the id", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-not-found-"));
+test("public dispatch, session group and attempt chain queries tolerate a filesystem trap", (t) => {
+  const f = fixture(session("live", null));
+  for (const method of ["readFileSync", "openSync", "readdirSync", "statSync", "existsSync", "unlinkSync"] as const)
+    t.mock.method(fs, method, () => {
+      throw new Error(`public reader touched ${method}`);
+    });
+  syncBuiltinESMExports();
   try {
-    const projection = {
-      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: null } }),
-      readTaskRuntimeBatch: () => ({
-        status: "ready",
-        taskIds: [taskId],
-        rows: [],
-        watermark: 1,
-        sourceRevision: 1,
-      }),
-      readReplicaBasis: () => {
-        throw new Error("dispatch reads must not enumerate the replica document basis");
-      },
-      readRuntimeDispatchByResumeSource: () => null,
-      readDocument: () => ({ document: null }),
-    } as unknown as TaskProjection;
-    assert.throws(
-      () => readTaskDispatches({ rootDir, projection, taskId: "task_9bfc3029" }),
-      (error: Error & { code?: string }) =>
-        error.code === "task_not_found" &&
-        /Task task_9bfc3029 does not exist in the canonical event stream\./u.test(error.message),
+    assert.equal(f.rows().length, 1);
+    assert.equal(
+      readSessionGroupDispatches({ projection: f.projection, sessions: [session("live", null)], events: [f.event] })
+        .length,
+      1,
     );
+    assert.equal(readRuntimeAttemptChain(runtimeSessionId, f.projection)?.attempts.length, 1);
+    assert.deepEqual(readTaskDispatchSession(f.projection, taskId, dispatchId), { runtimeSessionId });
+    assert.equal(readTaskDispatchSession(f.projection, "other-task", dispatchId), null);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
   }
 });
 
-test("a single-task query for a task without a projected package answers task_not_found naming the id", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-no-package-"));
-  try {
+test("resume is derived from canonical provider identity and withdrawn by an accepted successor", () => {
+  const f = fixture(session("exited", "failed"));
+  assert.deepEqual(f.rows()[0]?.resume, { dispatchId, agentId: "terra" });
+  const successor = {
+    ...f.event,
+    payload: {
+      ...f.event.payload,
+      dispatchId: "dispatch_fedcba987654321001234567",
+      runtimeSessionId: "runtime-2",
+      attemptIndex: 1,
+    },
+  };
+  const resumed = fixture(session("exited", "failed"), { successor });
+  assert.equal(resumed.rows()[0]?.resume, undefined);
+  assert.equal(resumed.rows()[0]?.nextDispatchId, successor.payload.dispatchId);
+  assert.equal(resumed.rows()[0]?.fallbackState, "dispatched");
+  assert.equal(readRuntimeAttemptChain(runtimeSessionId, resumed.projection)?.attempts.length, 2);
+});
+
+test("only accepted outcome metrics appear and unknown live telemetry stays absent", () => {
+  assert.equal(fixture().rows()[0]?.metrics, undefined);
+  const metrics = {
+    inputTokens: 40,
+    cacheReadTokens: 10,
+    outputTokens: 20,
+    totalTokens: 60,
+    toolCallCount: 2,
+    usageUnavailable: false,
+  };
+  assert.deepEqual(fixture(session("exited", "succeeded"), { metrics }).rows()[0]?.metrics, {
+    ...metrics,
+    compacted: null,
+  });
+});
+
+test("canonical archive preserves result, artifact, delegation and provider quota evidence", () => {
+  const resultRef = `artifact:runtime-result/sha256/${"a".repeat(64)}`;
+  const row = fixture(session("exited", null), {
+    archive: {
+      resultRef,
+      exitCode: 1,
+      outcome: "failed",
+      classification: "provider_quota",
+      reason: "quota exhausted",
+      parentRuntimeSessionId: "runtime-parent",
+      delegatedByAgentId: "leader",
+      providerSessionId: "provider-session",
+    },
+  }).rows()[0]!;
+  assert.equal(row.resultRef, resultRef);
+  assert.equal(row.status, "failed");
+  assert.equal(row.parentRuntimeSessionId, "runtime-parent");
+  assert.equal(row.delegatedByAgentId, "leader");
+  assert.equal(row.dispatchPath, `tasks/task-1/artifacts/dispatches/${dispatchId}.json`);
+  assert.equal(row.reportPath, undefined);
+  assert.match(row.nextAction!, /--resume-dispatch/u);
+  assert.equal(row.reviewTarget?.kind, "decision");
+});
+
+test("unknown outcome is not promoted by a zero exit and result reference", () => {
+  assert.equal(
+    fixture(
+      session("exited", "unknown", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
+    ).rows()[0]?.status,
+    "unknown",
+  );
+});
+
+test("point dispatch lookup cannot attribute a canonical dispatch to a different task", () => {
+  const f = fixture();
+  assert.equal(readTaskDispatchSession(f.projection, "wrong-task", dispatchId), null);
+  assert.equal(readTaskDispatchSession(f.projection, taskId, "missing"), null);
+});
+
+test("missing task and missing package are reported explicitly", () => {
+  for (const task of [null, { taskId }]) {
     const projection = {
-      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId, title: "Packless" } } }),
+      ...fixture().projection,
       readTaskRuntimeBatch: () => ({
         status: "ready",
         taskIds: [taskId],
@@ -160,485 +226,35 @@ test("a single-task query for a task without a projected package answers task_no
         watermark: 1,
         sourceRevision: 1,
       }),
-      readReplicaBasis: () => {
-        throw new Error("dispatch reads must not enumerate the replica document basis");
-      },
-      readDocument: () => ({ document: null }),
-      readRuntimeDispatchByResumeSource: () => null,
+      read: () => ({ snapshot: { task }, packagePath: null, watermark: 1, sourceRevision: 1 }),
     } as unknown as TaskProjection;
-    assert.throws(
-      () => readTaskDispatches({ rootDir, projection, taskId }),
-      (error: Error & { code?: string }) => error.code === "task_not_found" && error.message.includes(taskId),
-    );
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    assert.throws(() => readTaskDispatches({ projection, taskId }), /Task task-1/u);
   }
 });
 
-test("a daemon restart loss is a terminal lost dispatch", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-lost-"));
-  try {
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      startedAt: "2026-08-23T00:00:00.000Z",
-    });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 12345 });
-    const result = readTaskDispatches({ rootDir, projection: projectionFor(session("exited", "unknown")), taskId });
-    assert.equal(result.dispatches[0]?.status, "lost");
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
+test("accepted dispatch before session binding is visible without a live index", () => {
+  const f = fixture();
+  const projection = {
+    ...f.projection,
+    readTaskRuntimeBatch: () => ({
+      status: "ready",
+      taskIds: [taskId],
+      rows: [{ taskId, packagePath: "tasks/task-1", sessions: [] }],
+      watermark: 1,
+      sourceRevision: 1,
+    }),
+  } as unknown as TaskProjection;
+  const row = readTaskDispatches({ projection, taskId }).dispatches[0]!;
+  assert.equal(row.dispatchId, dispatchId);
+  assert.equal(row.status, "unknown");
 });
 
-test("a dispatch whose session is live still reports running", () => {
-  assert.equal(statusFor(session("live", null)), "running");
-});
-
-test("runtime metrics project to task dispatch rows and remain optional for legacy streams", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-metrics-"));
-  try {
-    const writer = openDispatchStream(rootDir, {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      startedAt: "2026-08-23T00:00:00.000Z",
-    });
-    writer.appendProviderEvent(
-      { type: "item.completed", item: { text: "x".repeat(32 * 1024) } },
-      "2026-08-23T00:00:30.000Z",
-    );
-    writer.appendRuntimeMetrics?.(
-      {
-        inputTokens: 110,
-        cacheReadTokens: 20,
-        outputTokens: 25,
-        totalTokens: 135,
-        toolCallCount: 10,
-        compacted: true,
-        raw: { input_tokens: 80, cache_read_input_tokens: 20, output_tokens: 25 },
-      },
-      "2026-08-23T00:01:00.000Z",
-    );
-    const row = readTaskDispatches({ rootDir, projection: projectionFor(session("exited", "succeeded")), taskId })
-      .dispatches[0];
-    assert.deepEqual(row?.metrics, {
-      inputTokens: 110,
-      cacheReadTokens: 20,
-      outputTokens: 25,
-      totalTokens: 135,
-      toolCallCount: 10,
-      compacted: true,
-    });
-
-    for (let index = 0; index < 40; index += 1)
-      appendRuntimeWorkerRecord(rootDir, dispatchId, {
-        kind: "squad_run_state",
-        state: { phase: "workers_running", report: "x".repeat(4096), index },
-      });
-    const restartedRow = readTaskDispatches({
-      rootDir,
-      projection: projectionFor(session("exited", "succeeded")),
-      taskId,
-    }).dispatches[0];
-    assert.deepEqual(restartedRow?.metrics, row?.metrics);
-
-    const legacyRoot = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-legacy-"));
-    try {
-      openDispatchStream(legacyRoot, {
-        dispatchId,
-        taskId,
-        executionId: "execution-1",
-        runtimeSessionId,
-        instanceId: "instance-1",
-        startedAt: "2026-08-23T00:00:00.000Z",
-      });
-      const legacyRow = readTaskDispatches({
-        rootDir: legacyRoot,
-        projection: projectionFor(session("exited", "succeeded")),
-        taskId,
-      }).dispatches[0];
-      assert.equal(legacyRow && Object.hasOwn(legacyRow, "metrics"), false);
-    } finally {
-      rmSync(legacyRoot, { recursive: true, force: true });
-    }
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("an observed outcome outranks liveness", () => {
-  assert.equal(statusFor(session("exited", "succeeded")), "succeeded");
-  assert.equal(statusFor(session("live", "cancelled")), "cancelled");
-});
-
-test("a settled unknown outcome stays unknown even with a zero exit and a result reference", () => {
-  const resultRef = "artifact:runtime-result/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  assert.equal(statusFor(session("exited", "unknown", { exitCode: 0, resultRef })), "unknown");
-  assert.equal(statusFor(session("exited", "unknown", { exitCode: 1, resultRef })), "failed");
-  assert.equal(
-    statusFor(session("exited", "unknown", { exitCode: 0, resultRef, reasonCode: "lease_conflict" })),
-    "failed",
-  );
-});
-
-test("an exited session without an exit/result pair remains unknown", () => {
-  assert.equal(statusFor(session("exited", "unknown", { resultRef: null, exitCode: null })), "unknown");
-});
-
-test("an unbound detached dispatch is read from the live index", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-unbound-"));
-  try {
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      startedAt: "2026-08-23T00:00:00.000Z",
-    });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 12345 });
-    const projection = {
-      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
-      readTaskRuntimeBatch: () => ({
-        status: "ready",
-        taskIds: [taskId],
-        rows: [{ taskId, packagePath: "tasks/task-1", sessions: [] }],
-        watermark: 1,
-        sourceRevision: 1,
-      }),
-      readReplicaBasis: () => {
-        throw new Error("dispatch reads must not enumerate the replica document basis");
-      },
-      readDocument: () => ({ document: null }),
-      readRuntimeDispatchByResumeSource: () => null,
-    } as unknown as TaskProjection;
-    const result = readTaskDispatches({ rootDir, projection, taskId });
-    assert.equal(result.dispatches.find((row) => row.dispatchId === dispatchId)?.status, "running");
-    assert.equal(readDispatchLiveIndex(rootDir, [taskId]).entries.length, 1, "unbound dispatch must remain indexed");
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("a projected task binding removes the live index entry", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-bound-"));
-  try {
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      startedAt: "2026-08-23T00:00:00.000Z",
-    });
-    const result = readTaskDispatches({ rootDir, projection: projectionFor(session("live", null)), taskId });
-    assert.equal(result.dispatches.find((row) => row.dispatchId === dispatchId)?.status, "running");
-    assert.deepEqual(readDispatchLiveIndex(rootDir, [taskId]).entries, []);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("live and archived rows carry the parent runtime session edge only when present", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-parent-session-"));
-  try {
-    const parentRuntimeSessionId = "runtime_0123456789abcdef01234567";
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      startedAt: "2026-08-28T00:00:00.000Z",
-      delegatedByAgentId: "parent-leader",
-      delegatedByAgentName: "Parent Leader",
-      squadId: "parent-squad",
-      parentRuntimeSessionId,
-    });
-    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 12345 });
-    const live = readTaskDispatches({ rootDir, projection: projectionFor(session("live", null)), taskId });
-    const liveRow = live.dispatches.find((row) => row.dispatchId === dispatchId);
-    assert.equal(liveRow?.parentRuntimeSessionId, parentRuntimeSessionId);
-    assert.equal(liveRow?.delegatedByAgentId, "parent-leader");
-    assert.equal(liveRow?.squadId, "parent-squad");
-
-    const archived = {
-      schema: "runtime-dispatch/v1",
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      delegatedByAgentId: "parent-leader",
-      delegatedByAgentName: "Parent Leader",
-      squadId: "parent-squad",
-      parentRuntimeSessionId,
-      providerSessionId: "provider-1",
-      startedAt: "2026-08-28T00:00:00.000Z",
-      endedAt: "2026-08-28T00:01:00.000Z",
-      outcome: "succeeded",
-      exitCode: 0,
-      resultRef: "artifact:runtime-result/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    };
-    const projection = {
-      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
-      readTaskRuntimeBatch: () => ({
-        status: "ready",
-        taskIds: [taskId],
-        rows: [{ taskId, packagePath: "tasks/task-1", sessions: [session("exited", "succeeded")] }],
-        watermark: 1,
-        sourceRevision: 1,
-      }),
-      readRuntimeDispatch: () => ({ payload: { dispatchId } }),
-      readRuntimeDispatchByResumeSource: () => null,
-      readDocument: () => ({ document: { body: JSON.stringify(archived) } }),
-      readReplicaBasis: () => {
-        throw new Error("dispatch reads must not enumerate the replica document basis");
-      },
-    } as unknown as TaskProjection;
-    const settled = readTaskDispatches({ rootDir, projection, taskId });
-    const settledRow = settled.dispatches.find((row) => row.dispatchId === dispatchId);
-    assert.equal(settledRow?.parentRuntimeSessionId, parentRuntimeSessionId);
-    assert.equal(settledRow?.squadId, "parent-squad");
-
-    // Historical archives predate the edge: the row must simply not carry the key.
-    const legacy = { ...archived } as Record<string, unknown>;
-    delete legacy.parentRuntimeSessionId;
-    const legacyProjection = {
-      ...projection,
-      readDocument: () => ({ document: { body: JSON.stringify(legacy) } }),
-    } as unknown as TaskProjection;
-    const legacyRow = readTaskDispatches({ rootDir, projection: legacyProjection, taskId }).dispatches.find(
-      (row) => row.dispatchId === dispatchId,
-    );
-    assert.equal(Object.hasOwn(legacyRow ?? {}, "parentRuntimeSessionId"), false);
-    assert.equal(legacyRow?.squadId, "parent-squad");
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("archived dispatch rows expose terminal result and task artifact references", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-archive-"));
-  try {
-    const archived = {
-      schema: "runtime-dispatch/v1",
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      providerSessionId: "provider-1",
-      startedAt: "2026-08-23T00:00:00.000Z",
-      endedAt: "2026-08-23T00:01:00.000Z",
-      outcome: "succeeded",
-      exitCode: 0,
-      resultRef: "artifact:runtime-result/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    };
-    const projection = {
-      read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
-      readTaskRuntimeBatch: () => ({
-        status: "ready",
-        taskIds: [taskId],
-        rows: [{ taskId, packagePath: "tasks/task-1", sessions: [session("exited", "succeeded")] }],
-        watermark: 1,
-        sourceRevision: 1,
-      }),
-      readRuntimeDispatch: () => ({ payload: { dispatchId } }),
-      readRuntimeDispatchByResumeSource: () => null,
-      readDocument: () => ({ document: { body: JSON.stringify(archived) } }),
-      readReplicaBasis: () => {
-        throw new Error("dispatch reads must not enumerate the replica document basis");
-      },
-    } as unknown as TaskProjection;
-    const withoutReport = readTaskDispatches({ rootDir, projection, taskId });
-    assert.equal(Object.hasOwn(withoutReport.dispatches[0] ?? {}, "reportPath"), false);
-    const reportPath = "tasks/task-1/artifacts/reports/dispatch_a1b2c3d4e5f60718293a4b5c.md",
-      absoluteReportPath = path.join(rootDir, "harness", ...reportPath.split("/"));
-    mkdirSync(path.dirname(absoluteReportPath), { recursive: true });
-    writeFileSync(absoluteReportPath, "# Runtime result\n");
-    const result = readTaskDispatches({ rootDir, projection, taskId });
-    assert.deepEqual(result.dispatches[0], {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      attemptGroupId: dispatchId,
-      attemptIndex: 0,
-      provider: { instance: "instance-1", model: null },
-      classification: null,
-      reason: null,
-      resume: { dispatchId, agentId: null },
-      fallbackState: null,
-      nextDispatchId: null,
-      providerSessionId: "provider-1",
-      eventStreamRef: null,
-      startedAt: archived.startedAt,
-      endedAt: archived.endedAt,
-      outcome: "succeeded",
-      status: "succeeded",
-      resultRef: archived.resultRef,
-      exitCode: 0,
-      dispatchPath: "tasks/task-1/artifacts/dispatches/dispatch_a1b2c3d4e5f60718293a4b5c.json",
-      reportPath,
-    });
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-// The single-dispatch point read (session lookups by taskId+dispatchId) resolves straight from
-// the stream header: building the whole task dispatch list to JS-find one row scanned every
-// candidate's summary and archived document per call.
-test("single-dispatch point reads resolve from the stream header without building the task list", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-point-read-"));
-  try {
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      startedAt: "2026-08-23T00:00:00.000Z",
-    });
-    assert.deepEqual(readTaskDispatchSession(rootDir, taskId, dispatchId), { runtimeSessionId });
-    // A dispatch attributed to another task never resolves, and neither does an unattributed one.
-    assert.equal(readTaskDispatchSession(rootDir, "task-other", dispatchId), null);
-    assert.equal(readTaskDispatchSession(rootDir, "not-a-dispatch-id", "whatever"), null);
-    assert.equal(readTaskDispatchSession(rootDir, taskId, "dispatch_000000000000000000000000"), null);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-// A provider's startup preamble has no size bound: Devin CLI emitted ~66KB of init logs
-// before its provider_binding, pushing the record past the summary's head windows while the
-// tail window only reaches the last 128KB. The summary must still recover the binding.
-test("a provider_binding written after a long provider preamble still exposes resume", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-blindspot-"));
-  try {
-    const writer = openDispatchStream(rootDir, {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      agentId: "terra",
-      startedAt: "2026-08-23T00:00:00.000Z",
-    });
-    for (let index = 0; index < 3; index += 1)
-      writer.appendProviderEvent({ type: "stderr", chunk: "x".repeat(24 * 1024), index }, "2026-08-23T00:00:30.000Z");
-    writer.appendProviderBinding("provider-session", "2026-08-23T00:00:31.000Z");
-    for (let index = 0; index < 6; index += 1)
-      writer.appendProviderEvent(
-        { type: "item.completed", item: { text: "y".repeat(24 * 1024), index } },
-        "2026-08-23T00:01:00.000Z",
-      );
-    const row = readTaskDispatches({ rootDir, projection: projectionFor(session("exited", "failed")), taskId })
-      .dispatches[0];
-    assert.equal(row?.providerSessionId, "provider-session");
-    assert.deepEqual(row?.resume, { dispatchId, agentId: "terra" });
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-// The settled archive is the durable record: even when the volatile stream is gone entirely
-// or never exposes a binding, an archived providerSessionId keeps the dispatch resumable.
-test("an archived providerSessionId restores resume without a stream binding", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-archive-resume-"));
-  try {
-    const archived = {
-      schema: "runtime-dispatch/v1",
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      agentId: "terra",
-      providerSessionId: "provider-archived",
-      startedAt: "2026-08-23T00:00:00.000Z",
-      endedAt: "2026-08-23T00:01:00.000Z",
-      outcome: "failed",
-      exitCode: 1,
-    };
-    const projectionForArchive = (body: Record<string, unknown>) =>
-      ({
-        read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
-        readTaskRuntimeBatch: () => ({
-          status: "ready",
-          taskIds: [taskId],
-          rows: [{ taskId, packagePath: "tasks/task-1", sessions: [session("exited", "failed")] }],
-          watermark: 1,
-          sourceRevision: 1,
-        }),
-        readRuntimeDispatch: () => ({ payload: { dispatchId } }),
-        readRuntimeDispatchByResumeSource: () => null,
-        readDocument: () => ({ document: { body: JSON.stringify(body) } }),
-        readReplicaBasis: () => {
-          throw new Error("dispatch reads must not enumerate the replica document basis");
-        },
-      }) as unknown as TaskProjection;
-
-    const withoutStream = readTaskDispatches({
-      rootDir,
-      projection: projectionForArchive(archived),
-      taskId,
-    }).dispatches[0];
-    assert.equal(withoutStream?.providerSessionId, "provider-archived");
-    assert.deepEqual(withoutStream?.resume, { dispatchId, agentId: "terra" });
-
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId,
-      executionId: "execution-1",
-      runtimeSessionId,
-      instanceId: "instance-1",
-      startedAt: "2026-08-23T00:00:00.000Z",
-    });
-    const unboundStream = readTaskDispatches({
-      rootDir,
-      projection: projectionForArchive(archived),
-      taskId,
-    }).dispatches[0];
-    assert.equal(unboundStream?.providerSessionId, "provider-archived");
-    assert.deepEqual(unboundStream?.resume, { dispatchId, agentId: "terra" });
-
-    // Negative control: without any providerSessionId the dispatch stays non-resumable.
-    const noSession = { ...archived } as Record<string, unknown>;
-    delete noSession.providerSessionId;
-    const negative = readTaskDispatches({
-      rootDir,
-      projection: projectionForArchive(noSession),
-      taskId,
-    }).dispatches[0];
-    assert.equal(negative?.providerSessionId, null);
-    assert.equal(Object.hasOwn(negative ?? {}, "resume"), false);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("single-dispatch point reads never resolve an unattributed dispatch", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-point-unattributed-"));
-  try {
-    openDispatchStream(rootDir, {
-      dispatchId,
-      taskId: null,
-      executionId: null,
-      runtimeSessionId,
-      instanceId: "instance-1",
-      startedAt: "2026-08-23T00:00:00.000Z",
-    });
-    assert.equal(readTaskDispatchSession(rootDir, taskId, dispatchId), null);
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
+test("a dispatch without canonical attempt-group attribution does not advertise an empty chain", () => {
+  const f = fixture(),
+    { attemptGroupId: _group, ...payload } = f.event.payload;
+  const projection = {
+    ...f.projection,
+    readRuntimeDispatchesBySession: () => [{ event: { ...f.event, payload } }],
+  } as TaskProjection;
+  assert.equal(readRuntimeAttemptChain(runtimeSessionId, projection), undefined);
 });

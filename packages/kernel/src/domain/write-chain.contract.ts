@@ -17,6 +17,7 @@ export type {
   AuthorizationDecision,
   DocSyncReceiptDetail,
   EntityActionUnmetCriterionV1,
+  EdgeReadFreshness,
   LedgerCutIdentity,
   ReceiptDiagnostic,
   ReceiptProof,

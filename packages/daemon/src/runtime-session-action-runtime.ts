@@ -2,6 +2,8 @@ import {
   attributeEntityActionCriterion,
   getExecutableEntityAction,
   type TaskProjection,
+  type AgentRuntimeEventV1,
+  stableStringify,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { deriveActionResult, type EntityActionCatalogPreparer } from "./entity-action-catalog-executor.ts";
@@ -105,4 +107,50 @@ function requiredRuntimeActionText(value: unknown, field: string): string {
 function invalidRuntimeSessionAction(code: string, message: string, actionId?: string, criterionRef?: string): never {
   const error = Object.assign(new Error(message), { code });
   throw actionId && criterionRef ? attributeEntityActionCriterion(error, actionId, criterionRef) : error;
+}
+
+/** Shared occurrence source check; Squad observations also require the local principal. */
+export function requireRuntimeDispatchOwner(
+  dispatch: Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }> | null,
+  binding: RepoCellBinding,
+  strictLocalPrincipal = false,
+): void {
+  const local = dispatch?.source === "local" && binding.source === "local";
+  if (
+    !dispatch ||
+    (!local && stableStringify(dispatch.source) !== stableStringify(binding.source)) ||
+    ((!local || strictLocalPrincipal) && dispatch.actor.principal.personId !== binding.actor.principal.personId)
+  )
+    invalidRuntimeSessionAction(
+      "execution_scope_mismatch",
+      "Runtime publication must come from the canonical dispatch owner and source.",
+    );
+}
+
+/** Historical task attribution shared by dispatch archives and run observations. */
+export function runtimeDispatchTaskMatches(input: {
+  readonly projection: Pick<TaskProjection, "readRuntimeSession" | "readLeaseIntervals">;
+  readonly dispatch: Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }> | null | undefined;
+  readonly binding: RepoCellBinding;
+  readonly runtimeSessionId: string;
+  readonly taskId: string;
+  readonly executionId: string | null;
+}): boolean {
+  const { projection, dispatch, binding, runtimeSessionId, taskId, executionId } = input;
+  return (
+    projection
+      .readRuntimeSession(runtimeSessionId)
+      ?.taskBindings.some((scope) => scope.taskId === taskId && scope.executionId === executionId) === true ||
+    projection
+      .readLeaseIntervals(taskId)
+      .some(
+        (interval) =>
+          interval.executionId === executionId &&
+          interval.holder.actor.executor?.id === `runtime-session:${runtimeSessionId}` &&
+          interval.holder.actor.principal.personId === binding.actor.principal.personId,
+      ) ||
+    (dispatch?.payload.taskId === taskId &&
+      dispatch.payload.executionId === executionId &&
+      stableStringify(dispatch.source) === stableStringify(binding.source))
+  );
 }

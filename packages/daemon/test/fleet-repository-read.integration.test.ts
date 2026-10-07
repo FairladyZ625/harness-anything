@@ -20,12 +20,11 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
-import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { runFleetRepositoryReadClient, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
-import { catalogWithNodeAdapters } from "../src/gui-catalog.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { repositoryReadData } from "../src/protocol/repository-read-frame.ts";
 
 test(
-  "viewer edges read the center cut, page to the tail, and lose revoked repository authority at the center and at the next edge sync",
+  "viewer GUI reads page from a replica cut and withhold it after the next sync reports revocation",
   { timeout: 120_000 },
   async (t) => {
     let edge: Awaited<ReturnType<typeof openDaemonHost>> | undefined;
@@ -100,6 +99,7 @@ test(
         expiresAt: Date.now() + 3_600_000,
         roles: [],
         loginTarget: edgeRoot,
+        authority: { url: f.owners.url, realm: "harness" },
       }),
     );
     assert.equal(existsSync(path.join(edgeUser, "rbac/config.json")), false);
@@ -153,7 +153,10 @@ test(
       });
       assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
       assert.notEqual((response.result as { ok?: boolean }).ok, false, JSON.stringify(response));
-      return response.result as never;
+      const frame = response.result as { cut?: { revision: number }; freshness?: { state: string } };
+      assert.ok(frame.cut);
+      assert.ok(frame.freshness);
+      return repositoryReadData(response.result) as never;
     };
     const refusedRead = async (code: RegExp) => {
       const response = await rpc.handle({
@@ -200,8 +203,22 @@ test(
     const refusedCatalogReread = async (code: RegExp) => {
       assert.match(JSON.stringify(await rereadCatalog()), code);
     };
+    const pull = async () => {
+      f.host.replica("lease-repo").activate();
+      await f.host.replica("lease-repo").waitForCut(f.eventCount());
+      return runFleetReplicaPullClient({
+        ...f.peer("node-one"),
+        viewRoot: config.viewRoot,
+        diskQuotaBytes: config.quotaBytes,
+      });
+    };
+    await pull();
     const first = await read("lease-repo", "repo.tasks.list", { limit: 50 }, auth);
-    assert.equal(first.rows.length, 50, "GUI host read must reach the center rather than the empty edge projection");
+    assert.equal(
+      first.rows.length,
+      50,
+      "GUI host read must use the replica rather than the empty edge canonical projection",
+    );
     assert.ok(first.watermark > 0);
     assert.ok(first.page.nextCursor);
     const tail = await read("lease-repo", "repo.tasks.list", { cursor: first.page.nextCursor }, auth);
@@ -211,14 +228,6 @@ test(
     const centerAgents = await f.host.read("lease-repo", "repo.projection.read", agentQuery, auth);
     assert.deepEqual(await read("lease-repo", "repo.projection.read", agentQuery, auth), centerAgents);
     assert.equal(centerAgents.name, "runtime-session-groups");
-    await assert.rejects(
-      runFleetRepositoryReadClient({
-        ...f.peer("node-one"),
-        method: "repo.projection.read",
-        payload: { name: "schedule-plane" },
-      }),
-      /closed schema/,
-    );
     const bootstrap = await rpc.handle({
       jsonrpc: "2.0",
       id: 3,
@@ -246,8 +255,6 @@ test(
     assert.match(JSON.stringify(lifetime), /authorization_denied/);
     const before = f.eventCount();
     for (const nodeId of ["node-one", "node-two"]) {
-      const result = await runFleetRepositoryReadClient({ ...f.peer(nodeId), method: "repo.tasks.list", payload: {} });
-      assert.equal(result.watermark, first.watermark);
       // task list and task show are answered from the edge replica; forwarding either is not a
       // fleet frame at all anymore.
       await assert.rejects(
@@ -268,96 +275,36 @@ test(
     ] as const) {
       assert.deepEqual(await read("lease-repo", method, {}, auth), await f.host.read("lease-repo", method, {}, auth));
     }
-    for (const method of ["repo.tasks.documents.list", "repo.tasks.completion.read"] as const) {
+    for (const method of ["repo.tasks.completion.read"] as const) {
       assert.deepEqual(
         await read("lease-repo", method, { taskId: "task-read-000" }, auth),
         await f.host.read("lease-repo", method, { taskId: "task-read-000" }, auth),
       );
     }
-    const explanation = await read(
-      "lease-repo",
-      "repo.entity.actions.explain",
-      {
-        schema: "entity-action-explain-request/v1",
-        mode: "object",
-        entityKind: null,
-        refs: ["task/task-read-000"],
-      },
-      auth,
-    );
-    assert.equal(explanation.subjects.length, 1);
-    assert.ok(explanation.subjects[0]!.actions.length > 0);
-    const content = { entityKind: "task", entityId: "task-read-000" };
-    assert.deepEqual(
-      await read("lease-repo", "repo.entity.content.read", content, auth),
-      await f.host.read("lease-repo", "repo.entity.content.read", content, auth),
-    );
-    for (const kind of ["work-list", "work-show"] as const) {
-      assert.equal(
-        (await f.command("node-one", { kind, ...(kind === "work-show" ? { taskId: "task-read-000" } : {}) })).outcome,
-        "applied",
-      );
-    }
-    assert.deepEqual(
-      await read("lease-repo", "repo.workspace.scope.read", { rootTaskId: "task-read-000" }, auth),
-      await f.host.read("lease-repo", "repo.workspace.scope.read", { rootTaskId: "task-read-000" }, auth),
-    );
-    const longToken = [
-      Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url"),
-      Buffer.from(JSON.stringify({ sub: "person-one", fixture: "a".repeat(2048) })).toString("base64url"),
-      Buffer.alloc(256, 97).toString("base64url"),
-    ].join(".");
-    assert.ok(Buffer.byteLength(longToken) > 2048);
-    f.owners.keycloak.interactiveSession("person-one", "node-one", f.owners.url, longToken);
-    const cli = await runFleetEdgeTask(
-      {
-        payload: {
-          ...config,
-          workspaceRoot: edgeRoot,
-          principalId: "person-one",
-          action: { kind: "task-list", limit: 500 },
-        },
-      },
-      async () => longToken,
-    );
-    assert.equal(cli.ok, true, JSON.stringify(cli));
-    assert.equal(JSON.parse(String(cli.evidence)).rows.length, 53);
-    let chunks = 0;
-    const all = await runFleetRepositoryReadClient({
-      ...f.peer("node-two"),
-      method: "repo.tasks.list",
-      payload: { limit: 500 },
-      onFrame: (frame) => {
-        if (frame.schema === "fleet.repository.read.result/v1") chunks += 1;
+    // Owned entity content now has a shared projection; offline files and empty directories are
+    // covered by fleet-edge-gui-content.integration.test.ts instead of an unavailable assertion.
+    await assert.rejects(f.command("node-one", { kind: "work-show", taskId: "task-read-000" }), /closed schema/);
+    const { schema: _configSchema, ...cliConfig } = config;
+    const cli = await rpc.handle({
+      jsonrpc: "2.0",
+      id: 10,
+      method: "daemon.fleet.task.run",
+      params: {
+        payload: { ...cliConfig, workspaceRoot: edgeRoot, action: { kind: "work-show", taskId: "task-read-000" } },
       },
     });
-    assert.equal((all.rows as unknown[]).length, 53);
-    assert.ok(chunks > 1, "a complete query page may span several Fleet frames");
+    assert.ok(cli && !Array.isArray(cli) && "result" in cli, JSON.stringify(cli));
+    assert.equal((cli.result as { ok: boolean }).ok, true, JSON.stringify(cli));
+    assert.ok((cli.result as { cut: unknown }).cut);
+    const all = await read("lease-repo", "repo.tasks.list", { limit: 500 }, auth);
+    assert.equal(all.rows.length, 53);
     assert.equal(f.eventCount(), before, "reads append no canonical event");
-    const initialCatalog = await read("lease-repo", "repo.gui.catalog.snapshot", {}, auth);
-    assert.equal(initialCatalog.defaults.presetId, "standard-task");
-    const initialReread = await rereadCatalog();
-    assert.ok(initialReread && !Array.isArray(initialReread) && "result" in initialReread);
-    assert.equal((initialReread.result as { outcome?: string }).outcome, "applied");
-    const presetChange = await f.host.run(
-      "lease-repo",
-      { kind: "settings-update", defaultPreset: "docs-task", idempotencyKey: "catalog-preset-change" },
-      auth,
-    );
-    assert.equal(presetChange.outcome, "applied", JSON.stringify(presetChange));
-    const changedCatalog = await read("lease-repo", "repo.gui.catalog.snapshot", {}, auth);
-    assert.equal(changedCatalog.defaults.presetId, "docs-task");
-    const changedReread = await rereadCatalog();
-    assert.ok(changedReread && !Array.isArray(changedReread) && "result" in changedReread);
-    assert.equal((changedReread.result as { outcome?: string }).outcome, "applied");
-    const refreshedCatalog = await read("lease-repo", "repo.gui.catalog.snapshot", {}, auth);
-    assert.equal(refreshedCatalog.defaults.presetId, "docs-task");
-    assert.equal((changedReread.result as { afterDigest?: string }).afterDigest, refreshedCatalog.catalogDigest);
-    assert.deepEqual(changedCatalog.adapters, initialCatalog.adapters);
-    assert.deepEqual(catalogWithNodeAdapters({ ...changedCatalog, adapters: [] }).adapters, changedCatalog.adapters);
-    const preset = await read("lease-repo", "repo.gui.catalog.preset.read", { presetId: "docs-task" }, auth);
-    assert.equal(preset.preset.id, "docs-task");
+    const catalog = await read("lease-repo", "repo.gui.catalog.snapshot", {}, auth);
+    assert.ok(catalog.catalogDigest);
+    assert.doesNotMatch(JSON.stringify(await rereadCatalog()), /replica_unavailable/);
+    assert.ok((await read("lease-repo", "repo.gui.catalog.preset.read", { presetId: "standard-task" }, auth)).preset);
     assert.equal((await f.command("center-node", { kind: "task-start", taskId: "task-read-000" })).outcome, "applied");
+    await pull();
     const updated = await read("lease-repo", "repo.tasks.list", {}, auth);
     assert.ok(updated.watermark > first.watermark);
     const changed = updated.rows.find((row) => row.taskId === "task-read-000")!;
@@ -406,21 +353,13 @@ test(
       auth,
     );
     assert.equal(secret.outcome, "applied", JSON.stringify(secret));
+    // Cross-repository authorization is enforced when acquiring the view, before any rows reach the edge.
     await assert.rejects(
-      runFleetRepositoryReadClient({
+      runFleetReplicaPullClient({
         ...f.peer("node-two"),
         repoId: "other-repo",
-        method: "repo.tasks.list",
-        payload: {},
-      }),
-      { code: "authorization_denied" },
-    );
-    await assert.rejects(
-      runFleetRepositoryReadClient({
-        ...f.peer("node-two"),
-        repoId: "other-repo",
-        method: "repo.projection.read",
-        payload: agentQuery,
+        viewRoot: config.viewRoot,
+        diskQuotaBytes: config.quotaBytes,
       }),
       { code: "authorization_denied" },
     );
@@ -438,27 +377,23 @@ test(
       diskQuotaBytes: 64 * 1024 * 1024,
     });
     assert.equal(viewerPull.current.cut.revision > 0, true);
-    await assert.rejects(
-      runFleetRepositoryReadClient({
-        ...f.peer("node-two"),
-        accessToken: "token-person-one",
-        method: "repo.tasks.list",
-        payload: {},
-      }),
-      { code: "human_confirmation_required" },
-    );
     f.owners.keycloak.account("person-outsider");
     f.owners.keycloak.node("node-two", "person-outsider");
     await assert.rejects(
-      runFleetRepositoryReadClient({ ...f.peer("node-two"), method: "repo.tasks.list", payload: {} }),
+      runFleetReplicaPullClient({
+        ...f.peer("node-two"),
+        viewRoot: config.viewRoot,
+        diskQuotaBytes: config.quotaBytes,
+      }),
       { code: "authorization_denied" },
     );
     f.owners.keycloak.node("node-two", "person-one");
     f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
-    await refusedRead(/authorization_denied/);
-    await refusedAgentRead(/authorization_denied/);
-    await refusedCatalogRead(/authorization_denied/);
-    await refusedCatalogReread(/authorization_denied/);
+    assert.equal(
+      (await read("lease-repo", "repo.tasks.list", {}, auth)).rows.length,
+      53,
+      "a grant change reaches the local view at the next sync, not through GUI center forwarding",
+    );
     // The edge answers task list from rows already delivered to it; a revocation reaches those rows at
     // the node's next sync, which the center refuses and the edge records by withholding them.
     await assert.rejects(
@@ -469,12 +404,20 @@ test(
       }),
       { code: "authorization_denied" },
     );
-    const revokedCli = await runFleetEdgeTask(
-      { payload: { ...config, workspaceRoot: edgeRoot, principalId: "person-one", action: { kind: "task-list" } } },
-      async () => longToken,
-    );
-    assert.equal(revokedCli.ok, false);
-    assert.equal(revokedCli.code, "authorization_denied");
+    await refusedRead(/replica_unavailable/);
+    await refusedAgentRead(/replica_unavailable/);
+    await refusedCatalogRead(/replica_unavailable/);
+    await refusedCatalogReread(/replica_unavailable/);
+    const { schema: _schema, ...edgePayload } = config;
+    const revokedCli = await rpc.handle({
+      jsonrpc: "2.0",
+      id: 9,
+      method: "daemon.fleet.task.run",
+      params: { payload: { ...edgePayload, workspaceRoot: edgeRoot, action: { kind: "task-list" } } },
+    });
+    assert.ok(revokedCli && !Array.isArray(revokedCli) && "result" in revokedCli, JSON.stringify(revokedCli));
+    assert.equal((revokedCli.result as { ok?: boolean }).ok, false);
+    assert.equal((revokedCli.result as { code?: string }).code, "authorization_denied");
     // task-show no longer crosses the fleet channel at all; the edge's own answer is the one
     // the revoked-cli assertion above already proves withheld.
     await assert.rejects(
@@ -483,11 +426,18 @@ test(
     );
     f.owners.keycloak.permit("person-one", "lease-repo", ["repository-read"]);
     f.owners.keycloak.nodeClients.delete("harness-node-node-one");
-    await refusedRead(/node_owner_unregistered/);
+    await assert.rejects(
+      runFleetReplicaPullClient({
+        ...f.peer("node-one"),
+        viewRoot: config.viewRoot,
+        diskQuotaBytes: config.quotaBytes,
+      }),
+      { code: "node_owner_unregistered" },
+    );
     await f.center.close();
-    await refusedRead(/ECONNREFUSED|closed|connect/);
-    await refusedAgentRead(/ECONNREFUSED|closed|connect/);
-    await refusedCatalogRead(/ECONNREFUSED|closed|connect/);
-    await refusedCatalogReread(/ECONNREFUSED|closed|connect/);
+    await refusedRead(/replica_unavailable/);
+    await refusedAgentRead(/replica_unavailable/);
+    await refusedCatalogRead(/replica_unavailable/);
+    await refusedCatalogReread(/replica_unavailable/);
   },
 );

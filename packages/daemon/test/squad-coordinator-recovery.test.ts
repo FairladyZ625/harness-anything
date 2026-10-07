@@ -5,13 +5,7 @@ import { appendFileSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type {
-  ActorIdentity,
-  AgentRuntimeEventV1,
-  CanonicalEventStore,
-  RuntimeSession,
-  TaskProjection,
-} from "@harness-anything/kernel";
+import type { ActorIdentity, AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
 import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
 import { latestSquadStates, rejectedSquadAttemptChildren } from "../src/squad-run-state.ts";
 import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
@@ -54,7 +48,8 @@ type RecoveryFixture = {
   readonly childLeaseActors: Map<string, ActorIdentity>;
   readonly persistState: (patch: Readonly<Record<string, unknown>>) => void;
   readonly state: () => Readonly<Record<string, unknown>>;
-  readonly resetProjection: () => void;
+  readonly restartCoordinator: () => void;
+  readonly status: () => Record<string, unknown>;
   readonly completeLeader: (runtimeSessionId: string, result: string) => void;
   readonly completeWorker: (
     runtimeSessionId: string,
@@ -66,6 +61,9 @@ type RecoveryFixture = {
 function makeRecoveryFixture(
   rootDir: string,
   options: {
+    readonly publishObservation?: (observation: unknown) => Promise<void>;
+    readonly cancelRuntime?: () => Promise<void>;
+    readonly parentIteration?: () => number;
     readonly leaderOutcome: RuntimeSession["outcome"];
     readonly leaderResult?: string;
     readonly leaderTurnBudget: number;
@@ -91,11 +89,14 @@ function makeRecoveryFixture(
         runtimeSession(worker.runtimeSessionId, worker.outcome, null, `provider-${worker.workerId}`),
       ),
     ],
+    agentBySession = new Map<string, string>([
+      [LEADER_SESSION_ID, "leader"],
+      ...workers.map((w) => [w.runtimeSessionId, w.workerId] as const),
+    ]),
     dispatchBySession = new Map<string, string>([
       [LEADER_SESSION_ID, LEADER_DISPATCH_ID],
       ...workers.map((worker) => [worker.runtimeSessionId, worker.dispatchId] as const),
     ]),
-    rows: { squadRunId: string; revision: number; state: Readonly<Record<string, unknown>> }[] = [],
     spawns: JsonObject[] = [],
     cancellations: JsonObject[] = [],
     publications: RecoveryFixture["publications"] = [],
@@ -135,6 +136,8 @@ function makeRecoveryFixture(
     stateDispatchId: LEADER_DISPATCH_ID,
     squadId: "core-squad",
     taskId: TASK_ID,
+    executionId: `execution-${TASK_ID}`,
+    publicMission: "Finish the work",
     runtimeInstanceId: INSTANCE_ID,
     cwd: rootDir,
     mission: "Finish the work",
@@ -187,71 +190,85 @@ function makeRecoveryFixture(
   });
 
   const projection = {
-      read: (taskId: string) => ({
-        watermark: 1,
-        sourceRevision: 1,
-        snapshot: {
-          task: { taskId },
-          lease: {
-            taskId,
-            executionId: `execution-${taskId}`,
-            phase: "held",
-            actor: childLeaseActors.get(taskId) ?? state.binding.actor,
-          },
-        },
-      }),
-      readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
-      readTaskRuntimeBatch: (query: { readonly taskIds: readonly string[] }) => ({
-        status: "ready",
-        taskIds: query.taskIds,
-        rows: query.taskIds.map((taskId) => ({
+    read: (taskId: string) => ({
+      watermark: 1,
+      sourceRevision: 1,
+      snapshot: {
+        task: {
           taskId,
-          title: "Squad recovery",
-          packagePath: `tasks/${taskId}`,
-          sessions: sessions.filter((session) => sessionTasks.get(session.runtimeSessionId) === taskId),
-        })),
-        page: { nextTaskId: null, remainingCount: 0 },
-        watermark: 1,
-        sourceRevision: 1,
-      }),
-      readRuntimeDispatch: (runtimeSessionId: string) => {
-        const dispatchId = dispatchBySession.get(runtimeSessionId);
-        return dispatchId
-          ? ({
-              type: "runtime_dispatch_requested",
-              occurredAt: "2026-08-27T00:00:00.000Z",
-              payload: { dispatchId, runtimeSessionId },
-            } as Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>)
-          : null;
+          title: "Recovery",
+          status: "active",
+          currentNode: "implementation",
+          iteration: options.parentIteration?.() ?? 0,
+        },
+        executions: [
+          {
+            schema: "execution/v1",
+            executionId: `execution-${taskId}`,
+            iteration: 0,
+            state: "active",
+            origin: "native",
+          },
+        ],
+        lease: {
+          taskId,
+          executionId: `execution-${taskId}`,
+          phase: "held",
+          actor: childLeaseActors.get(taskId) ?? state.binding.actor,
+        },
       },
-      readRuntimeDispatchByResumeSource: () => null,
-      readDocument: () => ({ status: "ready", document: null, watermark: 1, sourceRevision: 1 }),
-      squadRunProjectionReady: () => rows.length > 0,
-      replaceSquadRuns: (value: typeof rows) => {
-        rows.length = 0;
-        rows.push(...value);
-      },
-      markSquadRunProjectionDirty: () => undefined,
-      upsertSquadRun: (row: (typeof rows)[number]) => {
-        const known = rows.findIndex((candidate) => candidate.squadRunId === row.squadRunId);
-        if (known === -1) rows.push(row);
-        else if (rows[known]!.revision <= row.revision) rows[known] = row;
-      },
-      readSquadRun: (squadRunId: string) => rows.find((row) => row.squadRunId === squadRunId) ?? null,
-      readSquadRuns: () => rows,
-      readRuntimeSession: (runtimeSessionId: string) =>
-        sessions.find((session) => session.runtimeSessionId === runtimeSessionId) ?? null,
-    } as unknown as TaskProjection,
-    store = {
-      read: () => ({ schema: "canonical-event-stream/v1", revision: 0, events: [] }),
-      readContentBlob: (sha256: string) => resultBodies.get(sha256) ?? null,
-    } as CanonicalEventStore;
-  return {
-    coordinator: makeSquadCoordinator({
+    }),
+    readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
+    readTaskRuntimeBatch: (query: { readonly taskIds: readonly string[] }) => ({
+      status: "ready",
+      taskIds: query.taskIds,
+      rows: query.taskIds.map((taskId) => ({
+        taskId,
+        title: "Squad recovery",
+        packagePath: `tasks/${taskId}`,
+        sessions: sessions.filter((session) => sessionTasks.get(session.runtimeSessionId) === taskId),
+      })),
+      page: { nextTaskId: null, remainingCount: 0 },
+      watermark: 1,
+      sourceRevision: 1,
+    }),
+    readRuntimeDispatch: (runtimeSessionId: string) => {
+      const dispatchId = dispatchBySession.get(runtimeSessionId);
+      return dispatchId
+        ? ({
+            type: "runtime_dispatch_requested",
+            occurredAt: "2026-08-27T00:00:00.000Z",
+            schema: "agent-runtime-event/v1",
+            payload: {
+              dispatchId,
+              runtimeSessionId,
+              taskId: sessionTasks.get(runtimeSessionId),
+              executionId: `execution-${sessionTasks.get(runtimeSessionId)}`,
+              instanceId: INSTANCE_ID,
+              agentId: agentBySession.get(runtimeSessionId),
+            },
+          } as Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>)
+        : null;
+    },
+    readRuntimeDispatches: () => [...dispatchBySession.keys()].map((id) => projection.readRuntimeDispatch(id)),
+    readRuntimeDispatchByResumeSource: () => null,
+    readDocument: () => ({ status: "ready", document: null, watermark: 1, sourceRevision: 1 }),
+    readRuntimeSessionEvents: () => [],
+    readRuntimeDispatchesByAttemptGroup: () => [],
+    readRuntimeSession: (runtimeSessionId: string) =>
+      sessions.find((session) => session.runtimeSessionId === runtimeSessionId) ?? null,
+  } as unknown as TaskProjection;
+  const buildCoordinator = () =>
+    makeSquadCoordinator({
       rootDir,
       readWorktreeSetup: () => [],
-      projection: () => projection,
-      store: () => store,
+      query: (read) => read(projection),
+      readResult: (ref) => {
+        const body = resultBodies.get(ref.split("/").at(-1)!);
+        if (!body) throw new Error(`content_not_ready: ${ref}`);
+        return new TextDecoder().decode(body);
+      },
+      publishObservation: options.publishObservation ?? (async () => undefined),
       reacquireTaskLease: (taskId) => {
         assert.deepEqual(
           childLeaseActors.get(taskId) ?? state.binding.actor,
@@ -307,6 +324,7 @@ function makeRecoveryFixture(
           const dispatchId = `dispatch_${(100 + nextSpawn).toString(16).padStart(24, "0")}`,
             runtimeSessionId = `runtime-spawn-${nextSpawn}`;
           dispatchBySession.set(runtimeSessionId, dispatchId);
+          agentBySession.set(runtimeSessionId, String(payload.targetAgentId ?? "leader"));
           const taskId = String(payload.taskId);
           sessionTasks.set(runtimeSessionId, taskId);
           openDispatchStream(rootDir, {
@@ -326,12 +344,33 @@ function makeRecoveryFixture(
           receipts.set(key, receipt);
           return Promise.resolve(receipt);
         },
-        cancel: (payload) => {
+        cancel: async (payload) => {
           cancellations.push(payload);
-          return Promise.resolve({ ok: true, outcome: "applied" });
+          await options.cancelRuntime?.();
+          return { ok: true, outcome: "applied" };
         },
       }),
-    }),
+    });
+  let coordinator = buildCoordinator();
+  const readState = () => {
+    const value = latestSquadStates(rootDir).get(SQUAD_RUN_ID);
+    assert.ok(value);
+    return value;
+  };
+  return {
+    get coordinator() {
+      return coordinator;
+    },
+    status: () => {
+      const current = readState();
+      return {
+        ...current,
+        status: current.phase,
+        leaders: current.leaderTurns,
+        workers: current.workerAttempts,
+        pendingLeaderCallbackCount: current.pendingLeaderTriggers.length + current.workerWaits.length,
+      };
+    },
     spawns,
     cancellations,
     publications,
@@ -340,23 +379,19 @@ function makeRecoveryFixture(
     released,
     childLeaseActors,
     persistState: (patch) => {
-      const current = rows.find((row) => row.squadRunId === SQUAD_RUN_ID)!;
-      const next = { ...current.state, ...patch, revision: current.revision + 1 };
+      const current = readState();
+      const next = { ...current, ...patch, revision: current.revision + 1 };
       appendRuntimeWorkerRecord(rootDir, LEADER_DISPATCH_ID, {
         kind: "squad_run_state",
         squadRunId: SQUAD_RUN_ID,
         revision: next.revision,
         state: next,
       });
-      rows.length = 0;
+      coordinator = buildCoordinator();
     },
-    state: () => {
-      const state = rows.find((row) => row.squadRunId === SQUAD_RUN_ID)?.state;
-      assert.ok(state);
-      return state;
-    },
-    resetProjection: () => {
-      rows.length = 0;
+    state: readState,
+    restartCoordinator: () => {
+      coordinator = buildCoordinator();
     },
     completeLeader: (runtimeSessionId, result) => {
       const index = sessions.findIndex((session) => session.runtimeSessionId === runtimeSessionId);
@@ -442,7 +477,7 @@ test("a malformed leader result re-asks the same leader session instead of faili
     assert.equal(fixture.spawns[0]?.providerSessionId, "provider-leader");
     assert.equal(fixture.spawns[0]?.idempotencyKey, `${SQUAD_RUN_ID}:leader:retry:leader-1`);
     assert.match(String(fixture.spawns[0]?.prompt), /Leader result was not JSON\./u);
-    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    const status = fixture.status();
     assert.equal(status.status, "leader_running", String(status.error));
     assert.equal(status.error, null);
     assert.deepEqual((status.leaders as { trigger: unknown }[])[1]?.trigger, {
@@ -491,7 +526,7 @@ test("a cancelled leader is immediately visible and settles cancellation for the
         },
       ],
     });
-    assert.equal(fixture.coordinator.status(SQUAD_RUN_ID).status, "cancelled");
+    assert.equal(fixture.status().status, "leader_running", "control state waits for the outcome callback");
 
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
@@ -511,7 +546,7 @@ test("a failed leader runtime turn is recorded and re-asked instead of terminati
 
     assert.equal(fixture.spawns.length, 1);
     assert.match(String(fixture.spawns[0]?.prompt), /Leader turn leader-1 ended with failed\./u);
-    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    const status = fixture.status();
     assert.equal(status.status, "leader_running", String(status.error));
   });
 });
@@ -527,7 +562,7 @@ test("an empty runtime batch is rejected with an error visible to the leader", a
 
     assert.equal(fixture.spawns.length, 1);
     assert.match(String(fixture.spawns[0]?.prompt), /Leader runtime-batch\/v1 dispatches must be a non-empty array\./u);
-    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    const status = fixture.status();
     assert.equal(status.status, "leader_running", String(status.error));
   });
 });
@@ -541,7 +576,7 @@ test("convergence without a worker publishes the synthesis report", async () => 
     });
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
-    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    const status = fixture.status();
     assert.equal(status.status, "converged", String(status.error));
     assert.equal(status.error, null);
     assert.equal(fixture.publications.length, 1);
@@ -567,7 +602,7 @@ test("convergence fails when the leader decision has no synthesis report", async
     });
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
-    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    const status = fixture.status();
     assert.equal(status.status, "failed");
     assert.equal(status.error, "Leader declared convergence without a non-empty synthesis report.");
     assert.equal(fixture.publications.length, 0);
@@ -592,7 +627,7 @@ test("convergence publishes the decision report for the terminal leader runtime 
     });
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
-    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    const status = fixture.status();
     assert.equal(status.status, "converged", String(status.error));
     assert.equal(status.error, null);
     assert.deepEqual(fixture.publications, [
@@ -642,7 +677,7 @@ test("redispatch of an active worker waits while non-overlapping work still star
     assert.equal(fixture.spawns[0]?.targetAgentId, "terra");
     assert.equal(Object.hasOwn(fixture.spawns[0]!, "runtimeInstanceId"), false);
     assert.equal(Object.hasOwn(fixture.spawns[0]!, "model"), false);
-    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    const status = fixture.status();
     assert.equal(status.status, "workers_running");
     assert.equal(status.error, null);
     assert.deepEqual(
@@ -659,7 +694,7 @@ test("redispatch of an active worker waits while non-overlapping work still star
     assert.equal(fixture.spawns.length, 1, "the other child must finish before the callback");
     fixture.completeWorker("runtime-spawn-1");
     await fixture.coordinator.observeOutcome(outcomeEvent("runtime-spawn-1"));
-    const resumed = fixture.coordinator.status(SQUAD_RUN_ID);
+    const resumed = fixture.status();
     assert.deepEqual((resumed.leaders as { readonly trigger: unknown }[])[1]?.trigger, {
       kind: "worker_wait",
       runtimeSessionId: active.runtimeSessionId,
@@ -711,7 +746,7 @@ test("reconcile resumes a durable leader retry left pending between daemon turns
     await fixture.coordinator.reconcile();
 
     assert.equal(fixture.spawns.length, 1);
-    const status = fixture.coordinator.status(SQUAD_RUN_ID);
+    const status = fixture.status();
     assert.equal(status.status, "leader_running", String(status.error));
   });
 });
@@ -744,9 +779,9 @@ test("squad cancel persists a terminal phase before stopping every member and re
       fixture.cancellations.map((payload) => payload.runtimeSessionId),
       [LEADER_SESSION_ID, "runtime-worker-sol"],
     );
-    fixture.resetProjection();
+    fixture.restartCoordinator();
     await fixture.coordinator.reconcile();
-    assert.equal(fixture.coordinator.status(SQUAD_RUN_ID).status, "cancelled");
+    assert.equal(fixture.status().status, "cancelled");
     assert.equal(fixture.spawns.length, 0, "a durable cancellation must not resume after reconciliation");
   });
 });
@@ -763,7 +798,7 @@ test("malformed leader results exhaust the declared budget after exactly that ma
     for (let completedTurns = 1; completedTurns <= leaderTurnBudget; completedTurns += 1) {
       const previousReacquired = fixture.reacquired();
       await fixture.coordinator.observeOutcome(outcomeEvent(runtimeSessionId));
-      const status = fixture.coordinator.status(SQUAD_RUN_ID);
+      const status = fixture.status();
       assert.equal(
         (status.leaders as unknown[]).length,
         completedTurns === leaderTurnBudget ? leaderTurnBudget : completedTurns + 1,
@@ -800,7 +835,7 @@ test("one callback turn drains more worker outcomes than the leader turn budget"
       fixture.completeWorker(worker.runtimeSessionId);
       await fixture.coordinator.observeOutcome(outcomeEvent(worker.runtimeSessionId));
     }
-    let status = fixture.coordinator.status(SQUAD_RUN_ID);
+    let status = fixture.status();
     assert.equal(status.status, "leader_running");
     assert.equal(status.pendingLeaderCallbackCount, workers.length);
     assert.equal(fixture.spawns.length, 0, "callbacks queue while the leader is running");
@@ -808,7 +843,7 @@ test("one callback turn drains more worker outcomes than the leader turn budget"
     fixture.completeLeader(LEADER_SESSION_ID, JSON.stringify({ schema: "squad-decision/v1", action: "waiting" }));
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
-    status = fixture.coordinator.status(SQUAD_RUN_ID);
+    status = fixture.status();
     assert.equal(status.status, "leader_running", String(status.error));
     assert.equal(status.pendingLeaderCallbackCount, 0);
     assert.equal((status.leaders as unknown[]).length, 2);
@@ -827,7 +862,7 @@ test("one callback turn drains more worker outcomes than the leader turn budget"
     );
     await fixture.coordinator.observeOutcome(outcomeEvent(callbackSessionId));
 
-    status = fixture.coordinator.status(SQUAD_RUN_ID);
+    status = fixture.status();
     assert.equal(status.status, "converged", String(status.error));
     assert.equal((status.leaders as unknown[]).length, 2);
     assert.equal(status.error, null);
@@ -863,7 +898,7 @@ test("a leader retry remains primary while coalescing queued worker outcomes", a
 
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
-    let status = fixture.coordinator.status(SQUAD_RUN_ID);
+    let status = fixture.status();
     assert.equal(status.status, "leader_running", String(status.error));
     assert.equal(status.pendingLeaderCallbackCount, 0);
     assert.deepEqual((status.leaders as { readonly trigger: unknown }[])[1]?.trigger, {
@@ -885,7 +920,7 @@ test("a leader retry remains primary while coalescing queued worker outcomes", a
       JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: SYNTHESIS_BODY }),
     );
     await fixture.coordinator.observeOutcome(outcomeEvent(retrySessionId));
-    status = fixture.coordinator.status(SQUAD_RUN_ID);
+    status = fixture.status();
     assert.equal(status.status, "converged", String(status.error));
   });
 });
@@ -903,11 +938,11 @@ test("a rejected worker attempt does not block a later dispatch to the same work
         rejectWorkerOnce: "sol",
       });
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
-    const retryLeaderSessionId = String(fixture.coordinator.status(SQUAD_RUN_ID).currentLeaderRuntimeSessionId);
+    const retryLeaderSessionId = String(fixture.status().currentLeaderRuntimeSessionId);
     fixture.completeLeader(retryLeaderSessionId, plan);
     await fixture.coordinator.observeOutcome(outcomeEvent(retryLeaderSessionId));
 
-    const status = fixture.coordinator.status(SQUAD_RUN_ID),
+    const status = fixture.status(),
       attempts = status.workers as Array<{
         readonly workerId: string;
         readonly dispatchId: string | null;
@@ -993,12 +1028,12 @@ test("independent child dispatches coalesce duplicate outcomes and projection re
     await fixture.coordinator.observeOutcome(outcomeEvent(attempts[0]!.runtimeSessionId));
     await fixture.coordinator.observeOutcome(outcomeEvent(attempts[0]!.runtimeSessionId));
     assert.equal(fixture.spawns.length, 2, "first outcome cannot wake the leader while its sibling runs");
-    fixture.resetProjection();
+    fixture.restartCoordinator();
     await fixture.coordinator.reconcile();
     assert.equal(fixture.spawns.length, 2);
 
     fixture.completeWorker(attempts[1]!.runtimeSessionId);
-    fixture.resetProjection();
+    fixture.restartCoordinator();
     await fixture.coordinator.reconcile();
     assert.equal(fixture.spawns.length, 3);
     assert.equal(fixture.spawns[2]!.taskId, TASK_ID);
@@ -1006,7 +1041,7 @@ test("independent child dispatches coalesce duplicate outcomes and projection re
     for (const attempt of attempts) {
       await fixture.coordinator.observeOutcome(outcomeEvent(attempt.runtimeSessionId));
     }
-    fixture.resetProjection();
+    fixture.restartCoordinator();
     await fixture.coordinator.reconcile();
     assert.equal(fixture.spawns.length, 3, "duplicate events and projection rebuild must not add a leader turn");
   });
@@ -1025,14 +1060,14 @@ test("one outcome callback drains every child terminal already visible in the sa
     for (const attempt of attempts) await fixture.coordinator.observeOutcome(outcomeEvent(attempt.runtimeSessionId));
     assert.equal(fixture.spawns.length, 3);
     assert.match(String(fixture.spawns[2]!.prompt), /sources=worker_outcome:2/u);
-    assert.equal(fixture.coordinator.status(SQUAD_RUN_ID).pendingLeaderCallbackCount, 0);
+    assert.equal(fixture.status().pendingLeaderCallbackCount, 0);
   });
 });
 
 test("reconcile replays a persisted leader plan before any child attempt was recorded", async () => {
   await withRootDir(async (rootDir) => {
     const fixture = makeRecoveryFixture(rootDir, { leaderOutcome: "succeeded", leaderTurnBudget: 3 });
-    fixture.coordinator.status(SQUAD_RUN_ID);
+    fixture.status();
     const turns = fixture.state().leaderTurns as Readonly<Record<string, unknown>>[];
     fixture.persistState({
       currentLeaderRuntimeSessionId: null,
@@ -1042,7 +1077,7 @@ test("reconcile replays a persisted leader plan before any child attempt was rec
     await fixture.coordinator.reconcile();
     assert.equal(fixture.children.size, 2);
     assert.equal(fixture.spawns.length, 2);
-    fixture.resetProjection();
+    fixture.restartCoordinator();
     await fixture.coordinator.reconcile();
     assert.equal(fixture.children.size, 2);
     assert.equal(fixture.spawns.length, 2);
@@ -1066,7 +1101,7 @@ test("accepted child dispatch survives a missing attempt receipt without reacqui
     assert.equal(fixture.spawns.length, 2, "canonical dispatch evidence must restore the missing receipt");
     assert.equal(fixture.reacquired() - beforeReacquire, 1, "only the parent is reacquired for child preparation");
     assert.deepEqual(fixture.state().workerAttempts, attempts);
-    fixture.resetProjection();
+    fixture.restartCoordinator();
     await fixture.coordinator.reconcile();
     assert.equal(fixture.spawns.length, 2);
   });
@@ -1088,7 +1123,7 @@ test("failed and cancelled child outcomes wake the leader once after the complet
     assert.equal(fixture.spawns.length, 3);
     assert.match(String(fixture.spawns[2]!.prompt), /status=failed/u);
     assert.match(String(fixture.spawns[2]!.prompt), /status=cancelled/u);
-    fixture.resetProjection();
+    fixture.restartCoordinator();
     await fixture.coordinator.reconcile();
     assert.equal(fixture.spawns.length, 3);
   });
@@ -1109,7 +1144,7 @@ for (const matchingRuntime of [true, false]) {
           leaderTurnBudget: 3,
           pendingChildLeaseActor: actor,
         });
-      fixture.coordinator.status(SQUAD_RUN_ID);
+      fixture.status();
       const turns = fixture.state().leaderTurns as Readonly<Record<string, unknown>>[];
       fixture.persistState({
         currentLeaderRuntimeSessionId: null,
@@ -1127,7 +1162,7 @@ for (const matchingRuntime of [true, false]) {
         assert.equal(attempt.runtimeSessionId, "runtime-spawn-1");
         assert.equal(attempt.rejection, null);
         assert.equal(fixture.reacquired(), 1, "only parent preparation can reacquire here");
-        fixture.resetProjection();
+        fixture.restartCoordinator();
         await fixture.coordinator.reconcile();
         assert.equal(fixture.spawns.length, 1, "resumed child is dispatched exactly once");
       } else {
@@ -1145,6 +1180,8 @@ test("rejectedSquadAttemptChildren names only ended runs' rejected children that
     const binding = { actor: { principal: { personId: "person-squad" }, executor: null }, source: "local" },
       base = {
         schema: "squad-run/v1",
+        executionId: `execution-${TASK_ID}`,
+        publicMission: "Finish the work",
         squadRunId: SQUAD_RUN_ID,
         stateDispatchId: LEADER_DISPATCH_ID,
         squadId: "core-squad",
@@ -1238,4 +1275,90 @@ test("rejectedSquadAttemptChildren names only ended runs' rejected children that
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("publication ACK loss replays the same snapshot on restart and persisted ACK suppresses further sends", async () => {
+  await withRootDir(async (rootDir) => {
+    const observed: unknown[] = [];
+    let loseAck = true;
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: null,
+      leaderTurnBudget: 3,
+      publishObservation: async (value) => {
+        observed.push(value);
+        if (loseAck) throw new Error("ACK lost");
+      },
+    });
+    await assert.rejects(fixture.coordinator.flushPublications(), /ACK lost/u);
+    fixture.restartCoordinator();
+    loseAck = false;
+    await fixture.coordinator.flushPublications();
+    assert.deepEqual(observed[1], observed[0]);
+    fixture.restartCoordinator();
+    await fixture.coordinator.flushPublications();
+    assert.equal(observed.length, 2, "acknowledged snapshots are not sent on every restart");
+    fixture.persistState({ error: "first pending" });
+    fixture.persistState({ error: "second pending" });
+    await fixture.coordinator.flushPublications();
+    assert.equal((observed.at(-1) as { runRevision: number }).runRevision, 3);
+    assert.equal(observed.length, 3, "only the latest complete pending snapshot needs publication");
+  });
+});
+
+test("cancel attempts every local kill before publishing and preserves both failure reports", async () => {
+  await withRootDir(async (rootDir) => {
+    const order: string[] = [];
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: null,
+      leaderTurnBudget: 3,
+      workers: [
+        {
+          workerId: "sol",
+          dispatchId: "dispatch_000000000000000000000002",
+          runtimeSessionId: "runtime-worker",
+          outcome: null,
+        },
+      ],
+      cancelRuntime: async () => {
+        order.push("kill");
+        throw new Error("kill failed");
+      },
+      publishObservation: async () => {
+        order.push("publish");
+        throw new Error("offline");
+      },
+    });
+    await assert.rejects(
+      fixture.coordinator.cancel(SQUAD_RUN_ID, {
+        actor: { principal: { personId: "person-squad" }, executor: null },
+        source: "local",
+      }),
+      /2 runtime cancellation.*Canonical publication is unconfirmed.*offline/u,
+    );
+    assert.deepEqual(order, ["kill", "kill", "publish"]);
+    assert.equal(fixture.state().phase, "cancelled");
+  });
+});
+
+test("a restored old execution never dispatches into the new task iteration", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "succeeded",
+      leaderResult: workerPlanResult(),
+      leaderTurnBudget: 3,
+      parentIteration: () => 1,
+      publishObservation: async () => {
+        throw new Error("obsolete active observation must not block recovery");
+      },
+    });
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.spawns.length, 0);
+    assert.equal(fixture.children.size, 0);
+    assert.equal(fixture.reacquired(), 0);
+    assert.equal(
+      fixture.state().phase,
+      "leader_running",
+      "the old run retains its last observation without pretending the process stopped",
+    );
+  });
 });

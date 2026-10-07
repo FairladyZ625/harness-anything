@@ -147,7 +147,7 @@ export function executeRepoAction(
   if (action.kind === "event-list") return cell.listEvents(action, binding);
   if (action.kind === "event-show") return cell.showEvent(action, binding);
   if (action.kind === "relation-triples") {
-    const revision = cell.store.readHead()?.revision ?? 0,
+    const revision = cell.projection.readCut().sourceRevision,
       rows = declaredRelationTriples({
         ...(typeof action.sourceKind === "string" ? { sourceKind: action.sourceKind } : {}),
         ...(typeof action.targetKind === "string" ? { targetKind: action.targetKind } : {}),
@@ -275,17 +275,23 @@ export function executeRepoAction(
       ),
     );
   }
-  const actionVersion = Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0);
   if (actionContract?.execution)
     return cell.entityActionExecutor.run(
       action,
       binding,
-      cell.operationId(action, binding, cell.input.repoId, actionVersion),
+      cell.operationId(
+        action,
+        binding,
+        cell.input.repoId,
+        actionContract.execution.read
+          ? cell.projection.readCut().sourceRevision
+          : Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0),
+      ),
       cell.entityActionRuntimes,
     );
   if (action.kind === "preset-upgrade") return cell.upgradePresetSnapshot(action, binding);
   if (/^entity-(?:get|list)$/u.test(action.kind)) {
-    const revision = cell.store.readHead()?.revision ?? 0,
+    const revision = cell.projection.readCut().sourceRevision,
       requestedKind = cell.requiredCellText(action.entityKind, "entityKind"),
       kind = resolveEntityReadKind(requestedKind, compiledArtifactKinds(cell.projection, cell.input.repoId));
     if (action.kind === "entity-list")
@@ -492,8 +498,7 @@ export function declareExecutionExecutor(
       }),
       completionContext: {
         ...readCompletionContext(cell.projection, taskId, declaration.snapshot, current.status),
-        hasDispatchLineage:
-          readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).length > 0,
+        hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
       },
     }),
     appended = cell.store.append(compiled),
@@ -557,8 +562,7 @@ export function annotateExecution(
       }),
       completionContext: {
         ...readCompletionContext(cell.projection, taskId, annotation.snapshot, current.status),
-        hasDispatchLineage:
-          readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).length > 0,
+        hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
       },
     }),
     appended = cell.store.append(compiled),
@@ -588,7 +592,7 @@ function dispatchedExecutor(
     // so a review session offered as a candidate would let the reviewer become the declared author.
     // Filtering before the execution cut keeps the lineage fallback able to reach an earlier
     // iteration's authoring dispatch when the current execution only ever hosted review sessions.
-    rows = readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).filter(
+    rows = readTaskLineageDispatches({ projection: cell.projection, taskId }).filter(
       (dispatch) => !isReviewerDispatch(cell.projection, dispatch.dispatchId),
     ),
     exactRows = rows.filter((dispatch) => dispatch.executionId === executionId),

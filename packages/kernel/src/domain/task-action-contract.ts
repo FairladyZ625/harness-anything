@@ -52,6 +52,7 @@ const reviewFields = Object.freeze(
   ),
 );
 const createPacketFields = Object.freeze([
+  field("squadRunId", "string", false, undefined, "^squad_[a-f0-9]{24}$"),
   field("title", "string", true),
   wire(field("taskId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
   field("idempotencyKey"),
@@ -103,6 +104,7 @@ const optionalPacketFields = (fields: readonly EntityActionInputField[]) =>
   fields.map((item) => Object.freeze({ ...item, required: false }));
 
 const createInput = input([
+  field("squadRunId", "string", false, undefined, "^squad_[a-f0-9]{24}$"),
   cli("title", "string", false, "--title", "single", {}, "missing_field"),
   wire(cli("taskId", "string", false, "--id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
   cli("idempotencyKey", "string", false, "--idempotency-key"),
@@ -430,6 +432,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
   }),
   lifecycle("start", {
     input: input([
+      field("squadRunId", "string", false, undefined, "^squad_[a-f0-9]{24}$"),
       taskId,
       wire(cli("stackOn", "string", false, "--stack-on"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       expectedVersion,
@@ -693,6 +696,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input([
       taskId,
       cli("reason", "string", false, "--reason"),
+      field("squadRunId", "string", false, undefined, "^squad_[a-f0-9]{24}$"),
+      wire(field("executionId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       wire(field("terminalExecutionId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       wire(field("terminalRuntimeSessionId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
     ]),

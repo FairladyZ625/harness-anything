@@ -34,6 +34,8 @@ function replica(nodeId: string, overrides: Partial<FleetReplicaStatus> = {}): F
     catchUpBytes: 0,
     delivery: "current",
     activeTransfers: 0,
+    deliveryLease: null,
+    transferMetrics: { transferBytes: 0, snapshotStarts: 0, deltaStarts: 0, errors: 0, lastFailureCode: null },
     sendWindowBytes: 0,
     sendQuotaBytes: 0,
     diskQuotaBytes: null,
@@ -122,6 +124,8 @@ test("the overview joins daemon facts: center node from daemon identity, edges f
   );
   const ubuntu = result.nodes.find((node) => node.nodeId === "cc90-ubuntu")!;
   assert.equal(ubuntu.replica?.ackRevision, 164);
+  assert.equal(ubuntu.replica?.deliveryLease, null);
+  assert.deepEqual(ubuntu.replica?.transferMetrics, replica("cc90-ubuntu").transferMetrics);
   assert.equal(ubuntu.owner.kind, "value");
   assert.deepEqual(
     ubuntu.leases instanceof Array && ubuntu.leases.map((row) => [row.taskId, row.agentLabel, row.runtimeSessionId]),

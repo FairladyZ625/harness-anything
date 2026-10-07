@@ -13,7 +13,7 @@ import {
   runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
-import { resolveAgentRuntimeDeclaration } from "../src/repo-cell-open.ts";
+import { resolveAgentRuntimeDeclaration } from "../src/agent-declaration-resolution.ts";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -54,7 +54,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
     grantTestPolicyGroups(["person-spawn"], "admin");
     let launched: unknown,
       intentWasDurable = false,
-      observerSawUnknown = false,
+      observerPreservedAcceptedLiveness = false,
       firstExit: ((code: number | null) => void) | null = null,
       launchCount = 0;
     const cell = await openRepoCell({
@@ -124,7 +124,9 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
             eventStore: makeTaskEventReader({ repoId: "runtime-spawn", rootDir: root }),
           }),
           thisLaunch = launchCount++;
-        observerSawUnknown ||= observer.readRuntimeSessions().some((candidate) => candidate.liveness === "unknown");
+        observerPreservedAcceptedLiveness ||= observer
+          .readRuntimeSessions()
+          .some((candidate) => candidate.liveness === "live");
         appendRuntimeWorkerRecord(root, persistence.dispatchId, {
           kind: "process_started",
           occurredAt: "2026-08-30T05:42:44.000Z",
@@ -167,7 +169,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           error.code === "invalid_runtime_spawn" &&
           error.message ===
             'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "handoffEnabled", "runtimeInstanceId", ' +
-              '"dispatchId", "agentId", "targetAgentId", "squadId", "role", "model", "effort", "fast", "permissionMode", "cwd", ' +
+              '"dispatchId", "agentId", "targetAgentId", "squadId", "squadRun", "role", "model", "effort", "fast", "permissionMode", "cwd", ' +
               '"prompt", "promptSource", "missionName", "onExitCommand", "taskId", "executionId", "reviewTarget", "idempotencyKey", ' +
               '"providerSessionId", "dryRun".',
       );
@@ -198,7 +200,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       );
       assert.equal(receipt.outcome, "applied");
       assert.equal(intentWasDurable, true);
-      assert.equal(observerSawUnknown, true);
+      assert.equal(observerPreservedAcceptedLiveness, true);
       assert.deepEqual(launched, {
         definition,
         installation,
@@ -437,9 +439,17 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         cwd: canonicalRoot(root),
         prompt: "Hard task",
       });
-      const current = (await cell.read("repo.agentRuntime.overview", {})).instances[0];
-      assert.equal(current?.kindId, "codex");
-      if (current?.kindId === "codex") assert.equal(current.codex.reasoningEffort, "high");
+      const current = await cell.read("repo.agentRuntime.overview", {});
+      assert.deepEqual(
+        current.instances,
+        [],
+        "public repository observations do not expose machine instance configuration",
+      );
+      assert.equal(
+        session.definitionSnapshot?.reasoningEffort,
+        "high",
+        "later launch overrides cannot rewrite an accepted definition",
+      );
       await assert.rejects(
         cell.spawnRuntime(
           {

@@ -72,7 +72,7 @@ export interface AgentRuntimeSessionMetricsDto {
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly toolCallCount: number;
-  readonly compacted: boolean;
+  readonly compacted: boolean | null;
   /** True when the provider reports no token usage, so the counters mean absence, not consumption. */
   readonly usageUnavailable: boolean;
 }
@@ -93,7 +93,7 @@ export interface AgentRuntimeSessionDto {
   readonly liveness: "live" | "stale" | "unknown" | "exited";
   readonly semanticState?: RuntimeSessionSemanticState;
   readonly attachCapability: "supported" | "unsupported";
-  readonly streamCursor: string;
+  readonly streamCursor: string | null;
   readonly associations: readonly AgentRuntimeAssociationDto[];
   readonly attemptChain?: AgentRuntimeAttemptChainDto;
   readonly activity: {
@@ -483,7 +483,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     liveness.includes(String(value.liveness)) &&
     (value.semanticState === undefined || semanticStates.includes(String(value.semanticState))) &&
     attachCapabilities.includes(String(value.attachCapability)) &&
-    /^stream:\d+$/u.test(String(value.streamCursor)) &&
+    (value.streamCursor === null || /^stream:\d+$/u.test(String(value.streamCursor))) &&
     Array.isArray(value.associations) &&
     value.associations.every(validAssociation) &&
     (value.attemptChain === undefined || validAgentRuntimeAttemptChain(value.attemptChain)) &&
@@ -532,7 +532,8 @@ function validSessionMetrics(value: unknown): value is AgentRuntimeSessionMetric
     isAgentRuntimeContractRecord(value) &&
     hasExactAgentRuntimeContractFields(value, [...sessionMetricsCounters, "compacted", "usageUnavailable"]) &&
     sessionMetricsCounters.every((field) => Number.isSafeInteger(value[field]) && Number(value[field]) >= 0) &&
-    ["compacted", "usageUnavailable"].every((field) => typeof value[field] === "boolean")
+    (value.compacted === null || typeof value.compacted === "boolean") &&
+    typeof value.usageUnavailable === "boolean"
   );
 }
 

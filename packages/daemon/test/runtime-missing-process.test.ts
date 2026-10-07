@@ -70,7 +70,7 @@ test("recovery adoption preserves a runtime already owned by this daemon", async
 });
 
 for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
-  test(`adoption recovers without orphan ownership after ${failurePoint}`, async () => {
+  test(`adoption of a missing process handles ${failurePoint} without orphan ownership`, async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-retry-"));
     try {
       const dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
@@ -87,7 +87,7 @@ for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
         exiting: new Set(failurePoint === "in-flight" ? [runtimeSessionId] : []),
         consumeLine: async () => undefined,
         publishRuntimeEvent: async () => {
-          if (unavailable && failurePoint === "liveness") throw new Error("center disconnected");
+          assert.fail("a missing process must never publish live before settlement");
         },
         publishExit: async (active: { runtimeSessionId: string }) => {
           if (context.exiting.has(active.runtimeSessionId)) return;
@@ -96,6 +96,12 @@ for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
           context.processes.delete(active.runtimeSessionId);
         },
       };
+      if (failurePoint === "liveness") {
+        await adoptRuntimes(context as never);
+        assert.equal(settled, 1);
+        assert.equal(context.processes.size, 0);
+        return;
+      }
       if (failurePoint === "in-flight") await adoptRuntimes(context as never);
       else await assert.rejects(adoptRuntimes(context as never), /center disconnected/);
       assert.equal(context.processes.size, 0, "failed or in-flight adoption must not leave an owned runtime");

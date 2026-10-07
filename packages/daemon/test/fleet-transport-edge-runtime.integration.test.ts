@@ -6,14 +6,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import type { AgentRuntimeSessionDto } from "../src/agent-runtime-contract.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
+import { openFleetEdgeRuntime, readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { listenFleetTls } from "../src/fleet/center.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import {
   fleetFixture,
@@ -25,7 +23,7 @@ import {
 } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { eventually } from "./schedule-actions.fixtures.ts";
+import { eventually, scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 const replicaQuota = 64 * 1024 * 1024;
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
 // teardown does not run on the timeout path. Every fixture therefore owns its OS resources and every test hands
@@ -80,7 +78,7 @@ test(
     initRepo(edgeRoot);
     writeFileSync(
       path.join(edgeRoot, "harness/harness.yaml"),
-      "schema: harness-anything/v1\nname: fleet-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+      readFileSync(path.join(fixture.repo, "harness/harness.yaml")),
     );
     git(edgeRoot, "add", "harness");
     git(edgeRoot, "commit", "-qm", "edge harness");
@@ -93,7 +91,7 @@ test(
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
-    applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull");
+    assert.equal(applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull").outcome, "applied");
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId: fixture.subject.repoId,
@@ -370,7 +368,13 @@ test(
         "the accepted exit and released task lease stay authoritative while outcome is missing",
       );
 
-      await edgeHost.fleet.edgeRuntime(
+      // Public queries require a repository principal and cannot drive recovery writes.
+      await assert.rejects(
+        edgeHost.read(fixture.subject.repoId, "repo.agentRuntime.overview", { limit: 1 }, localAuth),
+        { code: "authentication_required" },
+      );
+      // The supported sync path reconciles with node authority, without an interactive login.
+      const sync = await edgeHost.fleet.edgeSync(
         {
           host: "127.0.0.1",
           port: center.port,
@@ -381,11 +385,10 @@ test(
           viewRoot,
           quotaBytes: replicaQuota,
           workspaceRoot: edgeRoot,
-          method: "repo.agentRuntime.overview",
-          action: { limit: 1 },
         },
         localAuth,
       );
+      assert.equal(sync.outcome, "applied", JSON.stringify(sync));
       const recoveredSession = await waitForOutcome(resumed.runtimeSessionId);
       assert.deepEqual(
         {
@@ -395,7 +398,7 @@ test(
         // The recovered verdict is the settled unknown: no delivery was witnessed on the edge,
         // and recovery restores the published outcome rather than restating success.
         { liveness: "exited", outcome: "unknown" },
-        "a supported edge request should recover the outcome after the center accepted exited",
+        "edge sync without an interactive login recovers the outcome after the center accepted exited",
       );
       assert.match(String(recoveredSession?.session.activity.resultRef), /^artifact:runtime-result\/sha256\//u);
       assert.equal(
@@ -636,7 +639,7 @@ test(
     );
   },
 );
-test("remote-edge runtime retries startup adoption after the center recovers", { timeout: 60_000 }, async (t) => {
+test("remote-edge control retries startup adoption after the center recovers", { timeout: 60_000 }, async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
   const initialCenter = await fixture.center(),
@@ -674,171 +677,110 @@ test("remote-edge runtime retries startup adoption after the center recovers", {
       prepareRuntimeLaunch: async () => {
         throw new Error("runtime launch is not part of startup recovery");
       },
+      prepareWorkerGitEnvironment: async () => null,
     },
   });
   fixture.track(() => runtime.close());
+  await assert.rejects(runtime.run("repo.agentRuntime.overview", { limit: 1 }), { code: "replica_unavailable" });
+  const awaitMissing = () => runtime.run("repo.agentRuntime.sessions.await", { runtimeSessionIds: ["missing"] });
   await assert.rejects(
-    runtime.run("repo.agentRuntime.overview", { limit: 1 }),
+    awaitMissing(),
     (error: unknown) =>
       /ECONNREFUSED/u.test(String((error as Error).message)) ||
       String((error as { readonly code?: unknown }).code) === "ECONNREFUSED",
   );
 
   await fixture.center(unavailablePort);
-  const recovered = await runtime.run("repo.agentRuntime.overview", { limit: 1 });
-  assert.equal((recovered.sessions as readonly unknown[]).length, 0);
-
-  const concurrent = await Promise.all([
-    runtime.run("repo.agentRuntime.overview", { limit: 1 }),
-    runtime.run("repo.agentRuntime.overview", { limit: 1 }),
-  ]);
+  const concurrent = await Promise.all([awaitMissing(), awaitMissing()]);
   assert.equal(concurrent.length, 2);
-  assert.ok(concurrent.every((result) => Array.isArray(result.sessions)));
+  for (const result of concurrent) {
+    assert.deepEqual(result.sessions, []);
+    assert.deepEqual(result.unavailable, [{ runtimeSessionId: "missing", code: "runtime_session_not_found" }]);
+  }
+  const recovered = await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+  assert.deepEqual(recovered.sessions, []);
+  assert.ok(recovered.cut, "successful control preparation materializes the owner-bound read cut");
 });
-test("fleet runtime waits over five seconds for every configured overview page", { timeout: 30_000 }, async (t) => {
-  const fixture = await fleetFixture(t);
-  t.after(() => fixture.close());
-  const definition: AgentDefinitionSnapshot = {
-      schema: "agent-definition-snapshot/v1",
-      configVersion: 1,
-      instanceId: "slow-page-codex",
-      installationId: "slow-page-installation",
-      kindId: "codex",
-      providerId: "openai",
-      model: "gpt-5.6-sol",
-      reasoningEffort: null,
-      baseUrl: null,
-      authMode: "subscription",
-    },
-    template: AgentRuntimeSessionDto = {
-      runtimeSessionId: "runtime-slow-00",
-      providerSessionId: null,
-      instanceId: definition.instanceId,
-      installationId: definition.installationId,
-      kindId: definition.kindId,
-      definitionSnapshotRef: "artifact:runtime-definition/slow-page",
-      definitionSnapshot: definition,
-      definitionSnapshotPersisted: false,
-      liveness: "live",
-      semanticState: "running",
-      attachCapability: "supported",
-      streamCursor: "stream:0",
-      associations: [],
-      activity: {
-        lastObservedAt: "2026-08-24T12:00:00.000Z",
-        outcome: null,
-        exitCode: null,
-        resultRef: null,
-        missingEvidence: null,
+test(
+  "fleet runtime pages every session from an owner-bound replica while the center is offline",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const center = await fixture.center(),
+      workspaceRoot = path.join(fixture.root, "paged-runtime-edge"),
+      viewRoot = path.join(fixture.root, "paged-runtime-view");
+    mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(workspaceRoot, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: paged-runtime-edge\n" +
+        "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    const runtime = openFleetEdgeRuntime({
+      request: {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+        viewRoot,
+        quotaBytes: replicaQuota,
+        workspaceRoot,
+        method: "repo.agentRuntime.spawn",
+        action: {},
       },
-    },
-    sessions = Array.from({ length: 17 }, (_, index) => ({
-      ...template,
-      runtimeSessionId: `runtime-slow-${String(index).padStart(2, "0")}`,
-    })),
-    pagePayloads: Array<Record<string, unknown>> = [],
-    responseWaits: number[] = [];
-  const slowHost = {
-    ...fixture.host,
-    read: async (...args: Parameters<typeof fixture.host.read>) => {
-      const [repoId, method, payload, auth] = args;
-      if (method !== "repo.agentRuntime.overview") return fixture.host.read(repoId, method, payload, auth);
-      const startedAt = performance.now();
-      await delay(5_100);
-      responseWaits.push(performance.now() - startedAt);
-      const query = payload as Record<string, unknown>,
-        limit = Number(query.limit),
-        cursor = typeof query.cursor === "string" ? query.cursor : null,
-        start = cursor === null ? 0 : Number(cursor.slice("slow-page:".length)),
-        selected = sessions.slice(start, start + limit),
-        next = start + selected.length;
-      pagePayloads.push(query);
-      return {
-        ok: true,
-        status: "ready",
-        installations: [],
-        instances: [],
-        sessions: selected,
-        page: {
-          limit,
-          cursor,
-          nextCursor: next < sessions.length ? `slow-page:${next}` : null,
-          remainingCount: Math.max(0, sessions.length - next),
-        },
-        watermark: 1,
-        sourceRevision: 1,
-      };
-    },
-  };
-  const center = await fixture.hold(
-    listenFleetTls({
-      host: slowHost,
-      ...fixture.writerOptions,
-      stateRoot: path.join(fixture.root, "slow-runtime-center"),
-      key: fixture.key,
-      cert: fixture.cert,
-      replicaDiskQuotaBytes: replicaQuota,
-      authenticate: (nodeId, credential) => nodeId === fixture.subject.nodeId && credential === "machine-secret",
-      nodeOwner: fixture.owners.nodeOwner,
-    }),
-  );
-  const workspaceRoot = path.join(fixture.root, "slow-runtime-edge"),
-    viewRoot = path.join(fixture.root, "slow-runtime-view");
-  mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(workspaceRoot, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: slow-runtime-edge\n" +
-      "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-  writeFileSync(
-    path.join(workspaceRoot, "fleet-edge.json"),
-    `${JSON.stringify({
-      schema: "fleet-edge-config/v1",
-      host: "127.0.0.1",
-      port: center.port,
-      caPath: fixture.certFile,
-      nodeId: fixture.subject.nodeId,
-      credential: "machine-secret",
-      repoId: fixture.subject.repoId,
-      viewRoot,
-      quotaBytes: replicaQuota,
-      waitTimeoutMs: 6_200,
-    })}\n`,
-  );
-  const runtime = openFleetEdgeRuntime({
-    request: {
-      host: "127.0.0.1",
-      port: center.port,
-      caPath: fixture.certFile,
-      nodeId: fixture.subject.nodeId,
-      credential: "machine-secret",
-      repoId: fixture.subject.repoId,
-      viewRoot,
-      quotaBytes: replicaQuota,
-      workspaceRoot,
-      method: "repo.agentRuntime.overview",
-      action: { limit: 1 },
-    },
-    daemonGeneration: 1,
-    daemonRoute: {
-      userRoot: path.join(fixture.root, "slow-runtime-user"),
-      daemonId: "slow-runtime-edge",
-      endpoint: path.join(fixture.root, "slow-runtime.sock"),
-    },
-    ports: {
-      runtimeInstances: () => [],
-      prepareRuntimeLaunch: async () => {
-        throw new Error("runtime launch is not part of the read test");
+      daemonGeneration: 1,
+      daemonRoute: {
+        userRoot: path.join(fixture.root, "paged-runtime-user"),
+        daemonId: "paged-runtime-edge",
+        endpoint: path.join(fixture.root, "paged-runtime.sock"),
       },
-    },
-  });
-  fixture.track(() => void runtime.close());
-  const overview = await runtime.run("repo.agentRuntime.overview", { limit: 1 });
-  assert.equal((overview.sessions as readonly unknown[]).length, 1);
-  assert.deepEqual(pagePayloads.slice(0, 2), [{ limit: 16 }, { limit: 16, cursor: "slow-page:16" }]);
-  assert.equal(responseWaits.length, 3);
-  assert.equal(
-    responseWaits.every((elapsed) => elapsed >= 5_000),
-    true,
-  );
-});
+      ports: scheduleRuntimePorts(),
+      launch: () => ({
+        pid: 90210,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+      }),
+    });
+    fixture.track(() => runtime.close());
+    const sessionIds: string[] = [];
+    for (let index = 0; index < 17; index += 1) {
+      const launched = await runtime.run("repo.agentRuntime.spawn", {
+        runtimeInstanceId: definition.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Remain active for the replica pagination probe.",
+        idempotencyKey: `replica-page-${index}`,
+      });
+      assert.equal(launched.outcome, "applied", JSON.stringify(launched));
+      sessionIds.push(String(launched.runtimeSessionId));
+    }
+    await runtime.reconcile();
+    await center.close();
+    const payloads: Record<string, unknown>[] = [],
+      pageSizes: number[] = [];
+    const sessions = await readFleetRuntimeSessionsPaged(async (payload) => {
+      payloads.push(payload);
+      const result = await runtime.run("repo.agentRuntime.overview", payload);
+      assert.ok(result.cut);
+      assert.ok(result.freshness);
+      pageSizes.push((result.sessions as unknown[]).length);
+      return result;
+    });
+    assert.deepEqual(sessions.map((session) => session.runtimeSessionId).sort(), sessionIds.sort());
+    assert.deepEqual(pageSizes, [16, 1], "read through the terminal page exactly once");
+    assert.deepEqual(payloads, [
+      { limit: 16 },
+      { limit: 16, cursor: `runtime-session:${sessions[15]!.runtimeSessionId}` },
+    ]);
+    const detail = await runtime.run("repo.agentRuntime.sessions.read", {
+      runtimeSessionId: sessions[16]!.runtimeSessionId,
+    });
+    assert.equal((detail.session as { runtimeSessionId: string }).runtimeSessionId, sessions[16]!.runtimeSessionId);
+    t.diagnostic(
+      `offline replica: ${sessions.length} sessions, pages=${pageSizes.join("+")}, detail=${sessions[16]!.runtimeSessionId}`,
+    );
+  },
+);

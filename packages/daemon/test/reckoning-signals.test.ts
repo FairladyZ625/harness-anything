@@ -109,7 +109,8 @@ test("the signal read uses an indexed time range and keeps an acceptance before 
     reads: unknown[] = [];
   const result = readReckoningSignals(
     {
-      queryEvents: (query) => {
+      readRuntimeSessions: () => [],
+      readReckoningEvents: (query) => {
         reads.push(query);
         return ledger.filter(
           (event) =>
@@ -119,7 +120,6 @@ test("the signal read uses an indexed time range and keeps an acceptance before 
         );
       },
     },
-    { readRuntimeSessions: () => [] },
     new Date(now).toISOString(),
   );
   assert.deepEqual(
@@ -128,13 +128,12 @@ test("the signal read uses an indexed time range and keeps an acceptance before 
   );
   // Only the types the signals read are queried, and only accepts reach back past the window.
   const before = new Date(now).toISOString(),
-    windowStart = new Date(now - DAY).toISOString(),
-    limit = Number.MAX_SAFE_INTEGER;
+    windowStart = new Date(now - DAY).toISOString();
   assert.deepEqual(reads, [
-    { type: "fact_recorded", after: windowStart, before, limit },
-    { type: "decision_superseded", after: windowStart, before, limit },
-    { type: "decision_retired", after: windowStart, before, limit },
-    { type: "decision_accepted", after: new Date(now - 8 * DAY).toISOString(), before, limit },
+    { type: "fact_recorded", after: windowStart, before },
+    { type: "decision_superseded", after: windowStart, before },
+    { type: "decision_retired", after: windowStart, before },
+    { type: "decision_accepted", after: new Date(now - 8 * DAY).toISOString(), before },
   ]);
 });
 
@@ -155,12 +154,12 @@ test("out-of-order imported timestamps cannot hide a recent correction", () => {
     })) as unknown as CanonicalEventV1[];
   const result = readReckoningSignals(
     {
-      queryEvents: (query) =>
+      readRuntimeSessions: () => [],
+      readReckoningEvents: (query) =>
         [correction, ...imports].filter(
           (event) => event.type === query.type && event.occurredAt >= query.after! && event.occurredAt <= query.before!,
         ),
     },
-    { readRuntimeSessions: () => [] },
     new Date(now).toISOString(),
   );
   assert.deepEqual(

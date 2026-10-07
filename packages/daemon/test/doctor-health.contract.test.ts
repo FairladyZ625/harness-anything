@@ -113,9 +113,14 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
     }
     const receipt = (await host.run("doctor-edge", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    assert.equal((receipt.checks as { status: string }[]).length, 6);
-    assert.ok((receipt.checks as { status: string }[]).every((check) => check.status === "indeterminate"));
-    assert.match(JSON.stringify(receipt.scope), /center-local.*unavailable.*remote-edge/u);
+    const edgeChecks = receipt.checks as { id: string; status: string }[];
+    assert.equal(edgeChecks.length, 7);
+    assert.equal(edgeChecks.find((check) => check.id === "edge-replica")?.status, "fail");
+    assert.equal(receipt.failureCode, "fleet_edge_config_invalid");
+    assert.ok(
+      edgeChecks.filter((check) => check.id !== "edge-replica").every((check) => check.status === "indeterminate"),
+    );
+    assert.match(JSON.stringify(receipt.scope), /Local replica observations/u);
   } finally {
     await host.close();
     await removeTemporaryDirectory(parent);

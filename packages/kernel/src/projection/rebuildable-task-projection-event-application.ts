@@ -1,3 +1,7 @@
+import { projectArtifactEntityState } from "./artifact-entity-state-projection.ts";
+import { readyDeferredEvents } from "./projection-deferred-events.ts";
+import { projectEventSummary } from "./event-summary-projection.ts";
+import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
 import { parse as parseYaml } from "yaml";
@@ -135,6 +139,8 @@ export function applyEvent(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
+  projectEventSummary(db, event);
+  projectArtifactEntityState(db, event);
   if (isEntityPinEvent(event)) {
     runSql(
       db,
@@ -490,6 +496,7 @@ export function applyEvent(
     return;
   }
   if (isAgentRuntimeEvent(event)) {
+    projectSquadRunEvent(db, event);
     const taskId = runtimeExecutionLinkForEvent(event)?.taskId ?? null;
     runSql(
       db,
@@ -1009,39 +1016,6 @@ export function catchUpRound(
     accessedItems: batch?.accessedItems ?? 0,
     sqliteTransactions: 1,
   };
-}
-
-function readyDeferredEvents(
-  db: DatabaseSync,
-  batch: readonly PersistedCanonicalEventV1[],
-  limit: number,
-  allowRevisionGaps: boolean,
-): readonly PersistedCanonicalEventV1[] {
-  const current = watermark(db),
-    candidates = new Map<number, PersistedCanonicalEventV1>();
-  for (const row of queryRows(
-    db,
-    [
-      "SELECT workspace_revision, event_json FROM event_source",
-      "WHERE workspace_revision > ? AND workspace_revision <= ?",
-      "ORDER BY workspace_revision",
-    ].join(" "),
-    current,
-    current + limit,
-  ))
-    candidates.set(Number(row.workspace_revision), JSON.parse(String(row.event_json)) as PersistedCanonicalEventV1);
-  for (const event of batch)
-    if (event.workspaceRevision <= current + limit) candidates.set(event.workspaceRevision, event);
-  const ready: PersistedCanonicalEventV1[] = [];
-  for (let revision = current + 1; revision <= current + limit; revision += 1) {
-    const event = candidates.get(revision);
-    if (event === undefined) {
-      if (!allowRevisionGaps) break;
-      continue;
-    }
-    ready.push(event);
-  }
-  return ready;
 }
 
 function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {

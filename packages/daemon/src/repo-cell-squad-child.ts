@@ -1,3 +1,4 @@
+import { squadParentExecutionCurrent } from "./squad-runtime-ingress.ts";
 import {
   DOC_POLICY_ID,
   isSameExecution,
@@ -64,6 +65,7 @@ export async function createSquadChild(
   cell: RepoCellActionContext,
   child: {
     readonly parentTaskId: string;
+    readonly squadRunId: string;
     readonly key: string;
     readonly workerId: string;
     readonly prompt: string;
@@ -78,6 +80,7 @@ export async function createSquadChild(
       : null;
   const action = {
       kind: "task-create",
+      squadRunId: child.squadRunId,
       title: `Squad assignment for ${child.workerId}`,
       parentTaskId: child.parentTaskId,
       idempotencyKey: child.key,
@@ -96,6 +99,7 @@ export async function publishSquadChildDocument(
   cell: RepoCellActionContext,
   document: {
     readonly parentTaskId: string;
+    readonly squadRunId: string;
     readonly taskId: string;
     readonly path: string;
     readonly body: string;
@@ -110,7 +114,7 @@ export async function publishSquadChildDocument(
         ? null
         : cell.projection.currentLease(document.parentTaskId, cell.now()),
     sha256 = sha256Text(document.body),
-    action = { kind: "doc-submit", taskId: document.taskId },
+    action = { kind: "doc-submit", taskId: document.taskId, squadRunId: document.squadRunId },
     intent = parseDocWriteIntent(
       {
         schema: "doc-write-intent/v1",
@@ -153,12 +157,17 @@ export async function publishSquadChildDocument(
 export async function reacquireSquadTaskLease(input: {
   readonly taskId: string;
   readonly binding: RepoCellBinding;
+  readonly executionId?: string;
   readonly snapshot: TaskLifecycleSnapshot;
   readonly start: (executionId?: string) => Promise<{
     readonly outcome: string;
     readonly code?: string;
   }>;
 }): Promise<void> {
+  if (input.executionId !== undefined && !squadParentExecutionCurrent(input.snapshot, input.executionId))
+    throw Object.assign(new Error("Squad cannot reacquire a different parent execution."), {
+      code: "execution_scope_mismatch",
+    });
   const execution = input.snapshot.executions.find(
     (candidate) => candidate.iteration === input.snapshot.task?.iteration && candidate.state === "active",
   );

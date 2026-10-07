@@ -1,8 +1,41 @@
 import type { StatusWordRegistration } from "./status-vocabulary.ts";
 import { closeoutStatusWordRegister } from "./status-word-register-closeout.ts";
+import { squadRunStatusWordRegister } from "./status-word-register-squad.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
+  {
+    word: "scheduled",
+    entity: "RuntimeSession",
+    field: "attempt.fallbackState",
+    meaning:
+      "The accepted terminal attempt has scheduled a provider continuation; its successor dispatch proves launch.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "exhausted",
+    entity: "RuntimeSession",
+    field: "attempt.fallbackState",
+    meaning: "The accepted terminal attempt has no remaining eligible provider or its continuation could not launch.",
+    divergence: "entity-scoped",
+  },
+  ...squadRunStatusWordRegister,
+  // dec_D8497012F42A999E054D7ADF6A CH1/CH2; unavailable reads carry an error instead.
+  {
+    word: "fresh",
+    entity: "WriteReceipt",
+    field: "freshness.state",
+    meaning: "The edge replica satisfies the configured revision or head-confirmation freshness budget.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "stale",
+    entity: "WriteReceipt",
+    field: "freshness.state",
+    meaning: "The edge replica remains readable but exceeds its configured freshness budget.",
+    divergence: "divergent",
+    resolution: "Replica data freshness, not runtime process liveness; scoped by the receipt freshness field.",
+  },
   // ---- CiTest.status (structured CI test observation) ----
   {
     word: "passed",
