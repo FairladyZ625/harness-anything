@@ -24,7 +24,7 @@ test(
   "remote-edge dispatch serves the causal block fresh from the center, never its stale mirror",
   { timeout: 60_000 },
   async (t) => {
-    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
+    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", "# English\n# 中文\n");
     t.after(() => fixture.close());
     const center = await fixture.center(),
       edgeRoot = path.join(fixture.root, "causal-edge"),
@@ -222,6 +222,7 @@ test(
     assert.ok(explicitPrompt.includes(`ha task read-set ${fixture.subject.taskId}`));
     assert.match(explicitPrompt, /已注入的 <task-context>/u);
     assert.match(explicitPrompt, /# Living Deliverable Protocol/u);
+    assert.match(explicitPrompt, /# PR Body Delivery Protocol/u);
     assert.match(explicitPrompt, /资料不足[\s\S]*owner/u);
     assert.ok(explicitPrompt.endsWith("Explicit edge mission."));
     const explicitBlock = causalBlock(explicitPrompt);
@@ -277,6 +278,7 @@ test(
     );
     assert.equal(taskBound.outcome, "applied", JSON.stringify(taskBound));
     const taskBoundPrompt = launchedPrompts.at(-1) ?? "";
+    assert.match(taskBoundPrompt, /# PR Body Delivery Protocol/u);
     assert.doesNotMatch(taskBoundPrompt, /ha (?:graph|work show|task create)/u);
     assert.ok(taskBoundPrompt.includes(`ha task read-set ${fixture.subject.taskId}`));
     assert.match(taskBoundPrompt, /资料不足[\s\S]*owner/u);
@@ -304,7 +306,7 @@ for (const probe of [
   { name: "contract unresolved", code: "runtime_task_package_unavailable", message: /scaffold is not resolvable/u },
 ]) {
   test(`edge task context rejects ${probe.name}`, { timeout: 60_000 }, async (t) => {
-    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
+    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", "# English\n# 中文\n");
     t.after(() => fixture.close());
     const missionLogical = "tasks/task-fleet-fleet/artifacts/missions/probe.md";
     mkdirSync(path.join(fixture.repo, "harness/tasks/task-fleet-fleet/artifacts/missions"), { recursive: true });

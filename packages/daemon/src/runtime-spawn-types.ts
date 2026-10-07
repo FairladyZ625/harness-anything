@@ -262,6 +262,8 @@ export interface RemoteRuntimePersistence {
      * tasks owe no living explainer page, so explicit-prompt remote dispatch gates the protocol on
      * this value exactly like the local paths do. */
     readonly profileId: string | null;
+    /** Package-relative PR body slot from the mirrored task contract; null when absent. */
+    readonly prBodyPath: string | null;
     /** The causal-context block the center assembled for this task at the serving
      * cut; null when the task has no causal neighborhood. The block is also
      * embedded in the mission so task-bound remote spawns carry it verbatim. */

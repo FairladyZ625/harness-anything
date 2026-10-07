@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   assertTransitionDocumentReady,
   entitySlug,
+  normalizeRelativeDocumentPath,
   openEntityStore,
   readSettingsFacet,
   requireTransitionDocumentKind,
@@ -41,7 +42,12 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
-import { livingDeliverableProtocol, runtimeMissionName, taskQueryGuidance } from "./runtime-spawn-mission.ts";
+import {
+  livingDeliverableProtocol,
+  prBodyDeliveryProtocol,
+  runtimeMissionName,
+  taskQueryGuidance,
+} from "./runtime-spawn-mission.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -262,7 +268,8 @@ export function openFleetEdgeRuntime(input: {
             `Task ${taskId} has no readable mirrored task plan; run ha daemon fleet edge sync, then retry.`,
           );
         }
-        const planContract = mirroredPlanContract(packageRoot, taskId);
+        const { planContract, prBodyPath } = mirroredPlanContract(packageRoot, taskId),
+          prProtocol = prBodyDeliveryProtocol(prBodyPath);
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
         const mission = missionName
             ? (() => {
@@ -291,6 +298,7 @@ export function openFleetEdgeRuntime(input: {
           missionAfterPackage = [
             taskQueryGuidance(taskId),
             ...(livingProtocol === null ? [] : [livingProtocol]),
+            ...(prProtocol === null ? [] : [prProtocol]),
             ...(causalContext === null ? [] : [causalContext]),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ];
@@ -304,6 +312,7 @@ export function openFleetEdgeRuntime(input: {
             : {}),
           packageRoot,
           profileId,
+          prBodyPath,
           mission: (reachedPackageRoot) =>
             [
               `Your task package is ${reachedPackageRoot}.\n` +
@@ -733,7 +742,13 @@ function mirroredPlanContract(packageRoot: string, taskId: string) {
       "runtime_task_package_unavailable",
       `Task ${taskId} plan scaffold is not resolvable from the mirrored package; run ha daemon fleet edge sync, then retry.`,
     );
-  return contract;
+  const prBodyDescriptor = Array.isArray(descriptor)
+    ? descriptor.find((row) => row?.slot === "task.pr-body" && typeof row.path === "string")
+    : undefined;
+  return {
+    planContract: contract,
+    prBodyPath: prBodyDescriptor ? normalizeRelativeDocumentPath(prBodyDescriptor.path) : null,
+  };
 }
 
 function edgeRuntimeError(code: string, message: string): Error {

@@ -100,3 +100,18 @@ test("the guidance points at the injected <task-context> block and the protocol 
   assert.doesNotMatch(protocol, /#faf7f0|零外网依赖/u);
   assert.match(protocol, /closeout 时冻结/u);
 });
+
+test("PR body protocol follows the document slot, including lightweight explicit dispatch", () => {
+  const mission = explicitPromptMission("task_x", null, "Go.", "lightweight", "artifacts/pr-body.md");
+  assert.match(mission, /# PR Body Delivery Protocol/u);
+  assert.match(mission, /Architectural Justification/u);
+  assert.match(mission, /cost-budget\.mjs/u);
+  assert.match(mission, /production-delta\.mjs/u);
+  assert.match(mission, /check-pr-body-bilingual\.mjs --file/u);
+  assert.match(mission, /Artifact-Anchor/u);
+  assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "baseline"), /# PR Body Delivery Protocol/u);
+  assert.doesNotMatch(
+    explicitPromptMission(null, null, "Go.", "baseline", "artifacts/pr-body.md"),
+    /PR Body Delivery/u,
+  );
+});
