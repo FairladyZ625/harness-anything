@@ -10,7 +10,7 @@ export const sharedExecutionDiscipline = `# Harness Execution Discipline
   change virtual-machine or network-interface configuration. If required infrastructure is unavailable,
   stop and report the blocker.
 - Report only evidence observed in this run. Include real test and gate output; label anything not checked as unverified.
-- Submit receipts only through \`ha doc sync --submit --task <task-id>\` when the dispatch allows ledger writes.
+- Submit receipts only through \`ha doc sync --submit --task <task-id>\` and then \`ha task submit <task-id>\` when the dispatch allows ledger writes.
 - When the work needs a person's answer (a question, hands-on acceptance, consent, or whether to reopen),
   report the exact ask through the currently permitted task progress, fact, closeout, or review report and ask the
   owner to register the awaits Relation. Ledger, doc, or fact write permission does not grant relation writes.
@@ -70,7 +70,7 @@ const workerDiscipline = `# Worker Role
 - Own the bounded implementation or research package you were assigned; do not silently change its goal.
 - Follow task-specific stop conditions and raise one evidence-backed objection when the proposed route conflicts with code or established decisions.
 - Complete proportionate verification, leave a local commit when code changes are requested, and hand back changed paths, evidence, residual risks, and unverified items.
-- When the mission assigns you a task package and you are not a Squad child, your hand-back is that package's \`closeout.md\`: replace every placeholder in its four sections with human-readable delivery, verification, residual-risk, and same-mechanism evidence. Do not hand-copy delivery SHA, baseline SHA, or production delta: the execution cut and gate calculation freeze those values. Then submit it with \`ha doc sync --submit --task <task-id>\`. Do not restate it in \`artifacts/report.md\`; write a separate report only for material the closeout cannot hold.`;
+- When the mission assigns you a task package and you are not a Squad child, your hand-back is that package's \`closeout.md\`: replace every placeholder in its four sections with human-readable delivery, verification, residual-risk, and same-mechanism evidence. Do not hand-copy delivery SHA, baseline SHA, or production delta: the execution cut and gate calculation freeze those values. Then sync it with \`ha doc sync --submit --task <task-id>\` and publish the execution submission with \`ha task submit <task-id>\`; without that submission the run settles as delivered-unknown. Do not restate it in \`artifacts/report.md\`; write a separate report only for material the closeout cannot hold.`;
 
 const commanderDiscipline = `<very_important>
 # Commander Context

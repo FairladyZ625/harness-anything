@@ -187,6 +187,10 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /hand-back is that package's `closeout\.md`/u);
     assert.match(prompt, /human-readable delivery, verification, residual-risk, and same-mechanism evidence/su);
     assert.match(prompt, /Do not hand-copy delivery SHA, baseline SHA, or production delta/u);
+    assert.match(
+      prompt,
+      /`ha doc sync --submit --task <task-id>` and publish the execution submission with `ha task submit <task-id>`/u,
+    );
     assert.doesNotMatch(prompt, /full 40-character delivery commit SHA/u);
     assert.match(prompt, /`ha doc sync --submit --task <task-id>`/u);
     assert.match(prompt, /Do not restate it in `artifacts\/report\.md`/u);

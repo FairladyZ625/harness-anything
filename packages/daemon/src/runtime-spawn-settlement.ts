@@ -432,6 +432,9 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
   // the provider's completed turn and final result, both durably replayed from the worker stream
   // when a successor daemon adopts the runtime.
   if (!active.task) return active.providerOutcome === "succeeded" && active.finalText !== null;
+  // A read-only run cannot write the repository or the ledger: its delivery is the completed turn and
+  // its final result, the same evidence class as a taskless run.
+  if (active.permissionMode === "read-only") return active.providerOutcome === "succeeded" && active.finalText !== null;
   // A reviewer's positive delivery is the registered review, never branch commits: a report file
   // can exist (and be committed) while the review itself was never registered. Only the node
   // holding the task projection can witness registration; an edge settles unknown rather than
