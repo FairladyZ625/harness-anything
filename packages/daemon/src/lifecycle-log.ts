@@ -34,7 +34,8 @@ export type DaemonLifecycleEvent =
   | "materializer_effect_denied"
   | "materializer_candidate_blocked"
   | "materializer_inventory_failed"
-  | "rbac_resume_failed";
+  | "rbac_resume_failed"
+  | "fleet_center_restore_failed";
 export interface DaemonLifecycleEntry {
   readonly event: DaemonLifecycleEvent;
   readonly repoId?: string;

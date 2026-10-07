@@ -1,3 +1,5 @@
+import path from "node:path";
+import { saveFleetCenterConfig } from "./fleet-center-config.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { readDaemonRegistry } from "@harness-anything/kernel";
@@ -63,6 +65,7 @@ export function createDaemonHostRuntimeApi(
       context.host.read(repoId, "repo.agentRuntime.sessions.read", { runtimeSessionId }, auth),
     codedError: context.hostCodedError,
   });
+  let centerStarting = false;
   return {
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
@@ -232,35 +235,54 @@ export function createDaemonHostRuntimeApi(
           actionId: `daemon-fleet-center-start:${authorityRepo.repoId}`,
           evaluatedAtCut: "fleet-center:current",
         });
-        if (context.fleetCenter)
+        if (context.fleetCenter || centerStarting)
           throw context.hostCodedError(
             "fleet_center_running",
             "A fleet center is already listening on this daemon; stop the daemon before starting a replacement.",
           );
-        const started = await startFleetCenterAdmission({
-          host: context.host,
-          userRoot: context.input.userRoot,
-          writerEpochLease: context.writerEpochLease,
-          payload: request,
-          nodes: {
-            ...keycloakNodeRegistry(context.keycloakCenter),
-            loginAuthority: (nodeId) => context.oidc.discovery(nodeId),
-            verifyHuman: (auth) => context.oidc.bind(auth),
-          },
-        });
-        context.fleetCenter = started.center;
-        return {
-          schema: "command-receipt/v2",
-          ok: true,
-          command: "daemon-fleet-center-start",
-          outcome: "applied",
-          port: started.center.port,
-          bind: request.bind ?? "127.0.0.1",
-          stateRoot: started.stateRoot,
-          quotaBytes: request.quotaBytes,
-          replicas: started.center.status().replicas,
-          authorizationDecision: authorizationDecision as unknown as JsonObject,
-        };
+        centerStarting = true;
+        try {
+          const started = await startFleetCenterAdmission({
+            host: context.host,
+            userRoot: context.input.userRoot,
+            writerEpochLease: context.writerEpochLease,
+            payload: request,
+            nodes: {
+              ...keycloakNodeRegistry(context.keycloakCenter),
+              loginAuthority: (nodeId) => context.oidc.discovery(nodeId),
+              verifyHuman: (auth) => context.oidc.bind(auth),
+            },
+          });
+          try {
+            saveFleetCenterConfig(context.input.userRoot, context.input.daemonId, {
+              port: started.center.port,
+              bind: request.bind ?? "127.0.0.1",
+              keyPath: path.resolve(request.keyPath),
+              certPath: path.resolve(request.certPath),
+              repoId: request.repoId,
+              quotaBytes: request.quotaBytes,
+              stateRoot: path.resolve(started.stateRoot),
+            });
+          } catch (error) {
+            await started.center.close();
+            throw error;
+          }
+          context.fleetCenter = started.center;
+          return {
+            schema: "command-receipt/v2",
+            ok: true,
+            command: "daemon-fleet-center-start",
+            outcome: "applied",
+            port: started.center.port,
+            bind: request.bind ?? "127.0.0.1",
+            stateRoot: started.stateRoot,
+            quotaBytes: request.quotaBytes,
+            replicas: started.center.status().replicas,
+            authorizationDecision: authorizationDecision as unknown as JsonObject,
+          };
+        } finally {
+          centerStarting = false;
+        }
       },
       edgeSync: async (payload, auth) => {
         const request = payload as unknown as FleetEdgeSyncRequest["payload"],
