@@ -9,7 +9,7 @@ import { resolveContainedPath } from "./contained-path.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeDaemonRoute, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
-import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
+import { assertTaskTransitionDocumentReady, locateTaskTransitionDocument } from "./transition-document-access.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
@@ -241,16 +241,44 @@ export function livingDeliverableProtocol(profileId: string | null | undefined):
   ].join("\n");
 }
 
+/** PR delivery is owed by the declared document slot, independently of the task profile. */
+export function prBodyDeliveryProtocol(documentPath: string | null): string | null {
+  if (documentPath === null) return null;
+  return [
+    "# PR Body Delivery Protocol",
+    `- 本任务持有 task.pr-body 文档槽：\`${documentPath}\`（任务包内路径）。`,
+    "- 在 closeout 与 ha task submit 之前，按 .github/pull_request_template.md 完整填写该正文；" +
+      "保留全部模板标题与 English / 中文 两块，填写真实交付事实，包括 Architectural Justification / 架构辩护。",
+    "- 涉及写入路径时，在同一隔离环境分别对 base 与 head 运行 node tools/gates/cost-budget.mjs，" +
+      "将实测 200/2000 的 G1 全操作、五指标前后计数填入 Per-Write Cost 表；不得用预算值或猜测值代替。",
+    "- Production-Delta 用 node tools/gates/production-delta.mjs --base origin/main 实算；" +
+      "机读声明只写真实适用项。未运行的验证、CI 与现场验收明确标为 unverified。",
+    `- 运行 node tools/check-pr-body-bilingual.mjs --file <任务包根>/${documentPath}，` +
+      "并逐项比对模板标题，确认没有遗漏、占位内容或未填写骨架。",
+    "- 随 ha doc sync --submit --task 同步正文，在 closeout Summary 写正文 Artifact-Anchor: " +
+      `artifact:${documentPath}（需要固定 revision 时使用该正文被接受的 revision）。再同步 closeout 并执行 ha task submit。`,
+    "- submit 回执中的 prBody 指向已冻结正文；CEO 开 PR 直接使用该正文。worker 不 push、不开 PR。",
+  ].join("\n");
+}
+
+export function taskPrBodyPath(projection: TaskProjection, taskId: string): string | null {
+  const document = locateTaskTransitionDocument({ projection, taskId, slot: "task.pr-body" });
+  return document.path === null ? null : path.posix.relative(document.packagePath, document.path);
+}
+
 /** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance and living-deliverable contract as a derived mission. */
 export function explicitPromptMission(
   taskId: string | null,
   causalContext: string | null,
   prompt: string,
   profileId: string | null | undefined = undefined,
+  prBodyPath: string | null = null,
 ): string {
-  const protocol = taskId === null ? null : livingDeliverableProtocol(profileId);
+  const protocol = taskId === null ? null : livingDeliverableProtocol(profileId),
+    prProtocol = taskId === null ? null : prBodyDeliveryProtocol(prBodyPath);
   return [
     ...(taskId === null ? [] : [taskQueryGuidance(taskId), ...(protocol === null ? [] : [protocol])]),
+    ...(prProtocol === null ? [] : [prProtocol]),
     ...(causalContext === null ? [] : [causalContext]),
     prompt,
   ].join("\n\n");
@@ -289,6 +317,7 @@ export function deriveTaskMission(
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
     snapshot = projection.read(taskId).snapshot,
     livingProtocol = livingDeliverableProtocol(snapshot.task?.metadata?.profileId),
+    prProtocol = prBodyDeliveryProtocol(taskPrBodyPath(projection, taskId)),
     priorIteration = snapshot.task && snapshot.task.iteration > 0 ? snapshot.task.iteration - 1 : null,
     returnDocument =
       priorIteration === null
@@ -300,6 +329,7 @@ export function deriveTaskMission(
       ...(returnDocument ? [`# Owner rework instruction\n\n${returnDocument.body.trim()}`] : []),
       taskQueryGuidance(taskId),
       ...(livingProtocol === null ? [] : [livingProtocol]),
+      ...(prProtocol === null ? [] : [prProtocol]),
       ...(causalContextResolved === null ? [] : [causalContextResolved]),
       ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.trim()}`] : []),
     ].join("\n\n");

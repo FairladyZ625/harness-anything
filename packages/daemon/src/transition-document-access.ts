@@ -18,7 +18,7 @@ import { safeTemplatePath } from "@harness-anything/preset/internal/preset-mater
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import type { CatalogSource } from "@harness-anything/preset/internal/preset-resolver-types";
 
-export type TaskTransitionDocumentSlot = "task.plan" | "task.closeout";
+export type TaskTransitionDocumentSlot = "task.plan" | "task.closeout" | "task.pr-body";
 
 export interface TaskTransitionDocument {
   readonly packagePath: string;
@@ -128,7 +128,7 @@ export function taskTransitionDocumentState(input: {
   };
 }
 
-function locateTaskTransitionDocument(input: {
+export function locateTaskTransitionDocument(input: {
   readonly projection: EdgeReplicaQueries;
   readonly taskId: string;
   readonly slot: TaskTransitionDocumentSlot;

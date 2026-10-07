@@ -48,6 +48,7 @@ import {
   resolveRuntimeInstanceId,
   runtimeMissionName,
   explicitPromptMission,
+  taskPrBodyPath,
 } from "./runtime-spawn-mission.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import {
@@ -340,7 +341,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       mission =
         explicitMission === undefined
           ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
-          : explicitPromptMission(taskId, causalContext, explicitMission, missionProfileId);
+          : explicitPromptMission(
+              taskId,
+              causalContext,
+              explicitMission,
+              missionProfileId,
+              remoteTask ? remoteTask.prBodyPath : taskId ? taskPrBodyPath(projection!, taskId) : null,
+            );
     const remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
       existing = input.remote ? null : store!.readEvent(dispatchOpId);
     if (!dryRun && remoteExisting) {
