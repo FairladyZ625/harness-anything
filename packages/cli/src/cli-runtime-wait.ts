@@ -265,10 +265,8 @@ export async function waitForSquadRun(command: ThinCommand, squadRunId: string):
     if (isDaemonGone(status))
       return daemonGoneReceipt("squad-run", status.cause, "running", { squadRunId }, `squad-run ${squadRunId}`);
     if (status.ok !== true) return status;
-    // The daemon stamps outcome/exitCode once the run's phase is terminal; the transport only
-    // waits for that verdict to appear.
-    if (typeof status.outcome === "string" && Number.isInteger(status.exitCode))
-      return { ...status, command: "squad-run" };
+    // The read outcome remains applied; the daemon supplies exitCode only for a terminal run.
+    if (Number.isInteger(status.exitCode)) return { ...status, outcome: status.status, command: "squad-run" };
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }

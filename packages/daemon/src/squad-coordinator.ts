@@ -222,6 +222,7 @@ export function makeSquadCoordinator(input: {
     return {
       ...detail,
       status: phase,
+      ...(terminal({ ...state, phase }) ? { exitCode: phase === "converged" ? 0 : 1 } : {}),
       summary: `squad-run ${state.squadId}: ${phase}`,
     };
   };

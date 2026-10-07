@@ -10,6 +10,17 @@ import { daemonPidPath } from "@harness-anything/daemon/internal/daemon-singleto
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { writeDaemonStoppedMarker } from "@harness-anything/daemon/internal/client/daemon-autostart";
 
+import { makeTaskProjection, makeTaskEventReader } from "@harness-anything/kernel";
+import {
+  canonicalRoot,
+  workspaceId,
+  makeDaemonCommandReceipt,
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { openBootstrappedRepoCell, waitForFixturePublication } from "../../daemon/test/repo-settings.fixture.ts";
+import { initRepo } from "../../daemon/test/task-surface.fixtures.ts";
+import { withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
+import { seedSquadWaitState, type SquadState } from "../../daemon/test/squad-terminal-wait.fixtures.ts";
+
 const cli = path.resolve("packages/cli/src/index.ts"),
   runtimeSessionId = "runtime-wait-reconnect",
   // Every wall clock in this file is a hang guard, never a speed assertion: each case judges that
@@ -795,8 +806,10 @@ test("detached squad run names a squad status wait that blocks until the run set
     reply(socket, request.id, {
       ok: true,
       command: "squad-status",
+      status: statusReads < 2 ? "leader_running" : "converged",
       summary: `squad-run core-squad: ${statusReads < 2 ? "leader_running" : "converged"}`,
-      ...(statusReads < 2 ? {} : { outcome: "converged", exitCode: 0 }),
+      outcome: "applied",
+      ...(statusReads < 2 ? {} : { exitCode: 0 }),
     });
   };
   const detached = runWait(
@@ -842,6 +855,147 @@ test("detached squad run names a squad status wait that blocks until the run set
   } finally {
     waited.stop();
     await fixture.close();
+  }
+});
+
+test("both squad waits exit on real center receipts and keep nonterminal runs waiting", async (t) => {
+  const squadRunId = "squad_0123456789abcdef01234567",
+    binding = withPolicyGroup(
+      { actor: { principal: { personId: "wait-owner" }, executor: null }, source: "local" as const },
+      "admin",
+    );
+  for (const phase of ["converged", "failed", "cancelled"] as const) {
+    for (const initiallyTerminal of [true, false]) {
+      const fixture = await openFixtureDaemon(`squad-${phase}-${initiallyTerminal}`);
+      t.after(() => fixture.close());
+      initRepo(fixture.root);
+      const repoId = workspaceId("runtime-wait"),
+        cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(fixture.root), ownerId: "squad-wait" }),
+        projection = makeTaskProjection({
+          rootDir: fixture.root,
+          eventStore: makeTaskEventReader({ repoId, rootDir: fixture.root }),
+        }),
+        pending: { socket: net.Socket; id: number }[] = [];
+      t.after(() => cell.close());
+      const created = await cell.run(
+        { kind: "task-create", taskId: "task-squad", title: "Squad wait witness", presetId: "docs-task" },
+        binding,
+      );
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForFixturePublication(cell, created.opId, binding);
+      let runRequests = 0;
+      const state: SquadState = {
+        schema: "squad-run/v1",
+        squadRunId,
+        stateDispatchId: "dispatch_000000000000000000000001",
+        squadId: "core-squad",
+        taskId: "task-squad",
+        runtimeInstanceId: "fixture-runtime",
+        cwd: fixture.root,
+        baseSha: null,
+        mission: "terminal wait witness",
+        model: null,
+        effort: null,
+        leaderAgentId: "leader",
+        roster: "leader -> worker",
+        workers: ["worker"],
+        leaderTurnBudget: 4,
+        binding,
+        leaderTurns: [],
+        leaderProviderSessionId: null,
+        currentLeaderRuntimeSessionId: null,
+        workerAttempts: [
+          { attemptId: "worker-1", workerId: "worker", dispatchId: null, runtimeSessionId: null, rejection: null },
+        ],
+        observedWorkerRuntimeSessionIds: [],
+        workerWaits: [],
+        pendingLeaderTriggers: [],
+        phase: initiallyTerminal ? phase : "workers_running",
+        revision: 1,
+        error: phase === "failed" ? "leader failed" : null,
+      };
+      const publishState = (next: SquadState) => {
+        seedSquadWaitState(fixture.root, next);
+        projection.markSquadRunProjectionDirty();
+      };
+      publishState(state);
+      fixture.onRequest = (socket, request) => {
+        if (request.method === "protocol.hello") return reply(socket, request.id, { ok: true });
+        if (request.method === "repo.task.run") {
+          runRequests += 1;
+          assert.equal(request.params.payload.action.kind, "squad-run");
+          return reply(socket, request.id, {
+            schema: "squad-control-result/v1",
+            ok: true,
+            command: "squad-run",
+            outcome: "completed",
+            squadRunId,
+            phase: "planning",
+            summary: "squad-run core-squad: planning",
+          });
+        }
+        assert.equal(request.method, "repo.task.read");
+        const { executor: _executor, ...action } = request.params.payload.action as Record<string, unknown>;
+        assert.deepEqual(action, { kind: "squad-status", squadRunId });
+        pending.push({ socket, id: request.id });
+      };
+      const invocations = [
+        runWait(fixture, ["squad", "run", "core-squad", "--instance", "fixture-runtime", "--task", "task-squad"]),
+        runWait(fixture, ["squad", "status", squadRunId, "--wait"]),
+      ];
+      const answer = async () => {
+        const receipt = makeDaemonCommandReceipt(
+          "squad-status",
+          await cell.run({ kind: "squad-status", squadRunId }, binding),
+        );
+        assert.equal(receipt.ok, true, JSON.stringify(receipt));
+        assert.equal(receipt.outcome, "applied", "a successful read retains its write-receipt outcome");
+        for (const request of pending.splice(0)) reply(request.socket, request.id, receipt);
+        return receipt;
+      };
+      try {
+        await waitForObserved(() => pending.length === 2 || invocations.some((invocation) => invocation.closed));
+        assert.equal(pending.length, 2);
+        if (!initiallyTerminal) {
+          const running = await answer();
+          assert.equal(running.status, "workers_running");
+          assert.equal(running.exitCode, undefined, "a nonterminal read must not carry a wait verdict");
+          await waitForObserved(() => pending.length === 2 || invocations.some((invocation) => invocation.closed));
+          assert.equal(pending.length, 2, "both waits read again after the observed nonterminal receipt");
+          assert.ok(invocations.every((invocation) => !invocation.closed));
+          publishState({ ...state, phase, revision: 2 });
+        }
+        const terminal = await answer();
+        // Start both hang guards before awaiting either process, so every child is reaped even on failure.
+        const results = await Promise.all(invocations.map((invocation) => invocation.result(hangGuardMs)));
+        for (const result of results) {
+          assert.equal(result.code, phase === "converged" ? 0 : 1, result.stderr);
+          assert.equal(result.receipt.status, phase);
+          assert.equal(result.receipt.outcome, phase);
+          assert.equal(result.receipt.exitCode, result.code);
+          assert.equal(result.receipt.command, "squad-run");
+          assert.equal(
+            JSON.parse(String(result.receipt.evidence)).error,
+            state.error,
+            "failure evidence survives the wait envelope",
+          );
+          assert.deepEqual(
+            result.receipt.workers,
+            terminal.workers,
+            "run convergence does not complete worker subtasks",
+          );
+        }
+        assert.equal(runRequests, 1, "two readers share one center run without redispatch");
+        t.diagnostic(
+          `${phase} initiallyTerminal=${initiallyTerminal}: squad run=${results[0].code}, squad status --wait=${results[1].code}; center outcome=${terminal.outcome}, status=${terminal.status}, exitCode=${terminal.exitCode}`,
+        );
+      } finally {
+        invocations.forEach((invocation) => invocation.stop());
+        projection.close();
+        await cell.close();
+        await fixture.close();
+      }
+    }
   }
 });
 
