@@ -1,3 +1,6 @@
+import { consentedApprovedReviewForExecution } from "./review.ts";
+import type { ExecutionDeliveryBaseline } from "./execution.ts";
+import type { TaskLifecycleSnapshot } from "./task-lifecycle-contract-internal-types.ts";
 import {
   parseAwaitsRequest,
   relationConsumability,
@@ -178,11 +181,24 @@ export function dispatchPrerequisitesOf(
   relations: readonly BlockingRelation[],
   decisions: readonly DispatchDecision[],
   projection: BlockingProjectionState = {},
+  snapshots: readonly TaskLifecycleSnapshot[] = [],
 ): DispatchPrerequisiteAssessment {
-  const blocking = blockingOf(tasks, relations, projection).find((row) => row.taskId === taskId),
+  const assessments = blockingOf(tasks, relations, projection),
+    reachable = new Set([taskId]),
+    snapshotById = new Map(
+      snapshots.flatMap((snapshot) => (snapshot.task ? [[snapshot.task.taskId, snapshot] as const] : [])),
+    );
+  // Each new task is visited once; the closure includes cycles, which blockingOf refuses.
+  for (const id of reachable)
+    for (const edge of relations)
+      if (edge.relationType === "depends-on" && edge.state !== "retired" && edge.sourceRef === `task/${id}`) {
+        const target = /^task\/([^/]+)$/u.exec(edge.targetRef)?.[1];
+        if (target && tasks.find((task) => task.taskId === target)?.status !== "done") reachable.add(target);
+      }
+  const blocking = assessments.find((row) => row.taskId === taskId),
     decisionById = new Map(decisions.map((decision) => [decision.decisionId, decision])),
     warnings = [
-      ...(blocking?.warnings ?? []),
+      ...assessments.filter((row) => reachable.has(row.taskId)).flatMap((row) => row.warnings),
       ...(!tasks.some((task) => task.taskId === taskId) ? [`task ${taskId} is missing from projection`] : []),
     ],
     proposedDecisionIds: string[] = [];
@@ -203,9 +219,41 @@ export function dispatchPrerequisitesOf(
       proposedDecisionIds.push(decisionId);
     }
   }
-  const unfinishedDependencyIds = (blocking?.blockers ?? []).flatMap((blocker) =>
-    blocker.kind === "depends-on" ? [blocker.targetTaskId] : [],
-  );
+  const stackedTargets = new Map<string, string>();
+  for (const id of reachable) {
+    const source = snapshotById.get(id),
+      execution = source?.executions.findLast((candidate) => candidate.iteration === source.task?.iteration),
+      baseline = execution?.schema === "execution/v1" ? execution.deliveryBaseline : undefined;
+    if (baseline?.kind !== "commit" || !baseline.stackOn) continue;
+    const targetId = baseline.stackOn.taskId,
+      target = snapshotById.get(targetId),
+      approved = target ? stackedDeliveryBaseline(target) : undefined,
+      declared = relations.some(
+        (edge) =>
+          edge.relationType === "depends-on" &&
+          edge.sourceRef === `task/${id}` &&
+          edge.targetRef === `task/${targetId}` &&
+          edge.direction === "directed" &&
+          relationIsCurrent(edge),
+      );
+    if (
+      declared &&
+      approved?.kind === "commit" &&
+      baseline.commitSha === approved.commitSha &&
+      baseline.stackOn.executionId === approved.stackOn?.executionId
+    )
+      stackedTargets.set(id, targetId);
+    else warnings.push(`stacked dependency ${targetId} no longer binds a consented current delivery`);
+  }
+  const unfinishedDependencyIds = assessments
+    .filter((row) => reachable.has(row.taskId))
+    .flatMap((row) =>
+      row.blockers.flatMap((blocker) =>
+        blocker.kind === "depends-on" && stackedTargets.get(blocker.sourceTaskId) !== blocker.targetTaskId
+          ? [blocker.targetTaskId]
+          : [],
+      ),
+    );
   return {
     taskId,
     state:
@@ -246,4 +294,22 @@ function findCycleNodes(graph: ReadonlyMap<string, readonly string[]>): Readonly
   };
   for (const id of graph.keys()) visit(id);
   return cycles;
+}
+
+/** The current, consented implementation cut is the only admissible explicit stack anchor. */
+export function stackedDeliveryBaseline(snapshot: TaskLifecycleSnapshot): ExecutionDeliveryBaseline | undefined {
+  if (snapshot.task?.status !== "in_review" && snapshot.task?.status !== "done") return undefined;
+  const execution = snapshot.executions.findLast((candidate) => candidate.iteration === snapshot.task?.iteration);
+  if (
+    execution?.schema !== "execution/v1" ||
+    !execution.submission?.commitSha ||
+    (execution.state !== "submitted" && execution.state !== "accepted") ||
+    !consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution, snapshot.reviewDispositions)
+  )
+    return undefined;
+  return {
+    kind: "commit",
+    commitSha: execution.submission.commitSha,
+    stackOn: { taskId: snapshot.task.taskId, executionId: execution.executionId },
+  };
 }

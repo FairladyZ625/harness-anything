@@ -434,6 +434,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       field("squadRunId", "string", false, undefined, "^squad_[a-f0-9]{24}$"),
       taskId,
+      wire(cli("stackOn", "string", false, "--stack-on"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       expectedVersion,
       wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       wire(

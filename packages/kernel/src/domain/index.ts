@@ -66,7 +66,7 @@ export type {
   CompletionEvidenceResult,
   CompletionEvidenceV1,
 } from "./completion-evidence.ts";
-export { blockingOf, dispatchPrerequisitesOf } from "./task-blocking.ts";
+export { blockingOf, dispatchPrerequisitesOf, stackedDeliveryBaseline } from "./task-blocking.ts";
 export type { BlockingLabel } from "./task-blocking.ts";
 
 export {

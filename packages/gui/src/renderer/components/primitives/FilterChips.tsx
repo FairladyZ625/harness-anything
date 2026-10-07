@@ -2,13 +2,19 @@ import type { ReactNode } from "react";
 
 /**
  * 筛选按钮(标准 §4):每个带计数,选中态为青色(accent 是唯一行动强调色)。
+ * count 允许字符串(如 WIP 的「23/30」占用串);数字消费者不受影响。
  */
 export function FilterChips<T extends string>({
   chips,
   value,
   onChange,
 }: {
-  readonly chips: readonly { readonly key: T; readonly label: ReactNode; readonly count: number }[];
+  readonly chips: readonly {
+    readonly key: T;
+    readonly label: ReactNode;
+    readonly count: number | string;
+    readonly testId?: string;
+  }[];
   readonly value: T;
   readonly onChange: (key: T) => void;
 }) {
@@ -20,6 +26,7 @@ export function FilterChips<T extends string>({
           <button
             key={chip.key}
             type="button"
+            data-testid={chip.testId}
             aria-pressed={active}
             onClick={() => onChange(chip.key)}
             className={`h-7 rounded-xs border px-3 ui-meta ${

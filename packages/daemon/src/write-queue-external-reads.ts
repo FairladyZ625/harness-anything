@@ -9,6 +9,7 @@ import { fetchCiObservations, ingestCiObservations } from "./ci-observation-acti
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { prepareTaskStartWorktree } from "./task-worktree.ts";
 import { acceptedGateWitness, gateWaived, witnessAdapters, witnessCollections } from "./repo-cell-witness-adapters.ts";
 
@@ -31,7 +32,20 @@ export function readBeforeWriteQueue(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<QueuedPublication> | null {
-  const started = prepareTaskStartWorktree(taskWorktreeInput(context), action, binding.source);
+  const baseline =
+    action.kind === "task-start" && typeof action.taskId === "string"
+      ? resolveStackedTaskBaseline(
+          context.projection,
+          action.taskId,
+          typeof action.stackOn === "string" ? action.stackOn : undefined,
+        )
+      : undefined;
+  const started = prepareTaskStartWorktree(
+    taskWorktreeInput(context),
+    action,
+    binding.source,
+    baseline?.kind === "commit" ? baseline.commitSha : undefined,
+  );
   if (started)
     return started.then(
       (annotate) => async (action, binding) => annotate(await context.executeAction(action, binding)),

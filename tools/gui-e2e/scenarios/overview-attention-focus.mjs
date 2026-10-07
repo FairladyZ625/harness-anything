@@ -258,10 +258,20 @@ export default {
       await band.getByTestId("overview-decisions-collapse").click();
     }
 
-    // 跟进与返工工具带:机器返工计数在,放大层名单可见打回行。
-    const followChip = page.getByTestId("overview-drill-followups");
-    await followChip.waitFor();
-    await followChip.click();
+    // 跟进与返工 tab(2026-10-07 三块区域返工):机器返工在 tab 计数里,内联名单直接可见
+    // 打回行;点行弹放大层,层内名单同源。
+    const followTab = page.getByTestId("overview-drill-followups");
+    await followTab.waitFor();
+    await followTab.click();
+    await page.waitForFunction(
+      () =>
+        globalThis.document.querySelector('[data-testid="overview-drill-list"]')?.textContent.includes("关注工作乙"),
+      null,
+      { timeout: 10_000 },
+    );
+    await shot("overview-attention-drill-inline");
+    const followRow = page.locator('[data-testid="overview-drill-list"] [data-drill-row]').first();
+    await followRow.getByRole("button").first().click();
     const followDialog = page.locator('[role="dialog"]');
     await followDialog.waitFor();
     await page.waitForFunction(

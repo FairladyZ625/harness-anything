@@ -18,7 +18,8 @@ export function assertTaskDispatchPrerequisites(projection: TaskProjection, task
     statuses = projection.readTaskStatuses([taskId, ...dependencyIds]),
     decisionIds = derives.rows.flatMap(({ sourceRef }) => /^decision\/([^/]+)\/[^/]+$/u.exec(sourceRef)?.[1] ?? []),
     decisions = projection.readDecisions(decisionIds),
-    reads = [derives, dependencies, statuses, decisions],
+    snapshots = [...new Set([taskId, ...dependencyIds])].map((id) => projection.read(id)),
+    reads = [derives, dependencies, statuses, decisions, ...snapshots],
     cuts = new Set(reads.map(({ watermark, sourceRevision }) => `${watermark}/${sourceRevision}`)),
     projectionReady = reads.every(({ status }) => status === "ready") && cuts.size === 1,
     statusById = new Map(statuses.rows.map((row) => [row.taskId, row.status] as const)),
@@ -28,6 +29,7 @@ export function assertTaskDispatchPrerequisites(projection: TaskProjection, task
       [...derives.rows, ...dependencies.rows],
       decisions.decisions.map(({ decisionId, state }) => ({ decisionId, state })),
       projectionReady ? {} : { hardFailWarnings: ["dispatch prerequisite projection cut unavailable"] },
+      snapshots.map(({ snapshot }) => snapshot),
     );
   if (assessment.state === "clear") return;
   const guidance = [
