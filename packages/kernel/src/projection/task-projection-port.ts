@@ -1,3 +1,4 @@
+import type { SettingsEventV1 } from "../domain/settings-event.ts";
 import type { DecisionDocumentState } from "../domain/decision-event-types.ts";
 import type {
   AgentRuntimeEventV1,
@@ -195,6 +196,7 @@ export interface TaskProjection {
     readonly sourceRevision: number;
   };
   readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
+  readonly readSettingsEvent: () => SettingsEventV1 | null;
   readonly readCiRunObservations: (limit: number) => {
     readonly status: "ready" | "pending";
     readonly events: readonly import("../domain/ci-run-observation-event.ts").CiRunObservationEventV3[];

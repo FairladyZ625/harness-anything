@@ -31,13 +31,6 @@ export const REPOSITORY_READ_TABLES_SQL = `
       pinned_at TEXT NOT NULL,
       pinned_by TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS archived_entity (
-      entity_kind TEXT NOT NULL,
-      entity_id TEXT NOT NULL,
-      workspace_revision INTEGER NOT NULL,
-      row_json TEXT NOT NULL,
-      PRIMARY KEY(entity_kind, entity_id)
-    );
     CREATE TABLE IF NOT EXISTS lease_interval (
       task_id TEXT NOT NULL,
       execution_id TEXT NOT NULL,
@@ -71,11 +64,6 @@ const tables = [
   { name: "squad_run_projection", keys: ["squad_run_id"], columns: ["squad_run_id", "revision", "state_json"] },
   { name: "pinned_entities", keys: ["entity_ref"], columns: ["entity_ref", "pinned_at", "pinned_by"] },
   {
-    name: "archived_entity",
-    keys: ["entity_kind", "entity_id"],
-    columns: ["entity_kind", "entity_id", "workspace_revision", "row_json"],
-  },
-  {
     name: "lease_interval",
     keys: ["task_id", "execution_id", "acquired_revision"],
     columns: [
@@ -97,6 +85,8 @@ const tables = [
     columns: ["op_id", "workspace_revision", "task_id", "event_json"],
     where: `WHERE
       json_extract(event_json, '$.schema') IN ('agent-runtime-event/v1', 'schedule-event/v1', 'ci-run-observation/v3')
+      OR (json_extract(event_json, '$.schema') = 'settings-event/v1' AND workspace_revision =
+        (SELECT workspace_revision FROM entity_projection WHERE entity_kind = 'settings' AND entity_id = 'repository'))
       OR (json_extract(event_json, '$.schema') IN ('fact-event/v1', 'decision-event/v1', 'task-event/v1')
         AND json_extract(event_json, '$.actor.executor.id') LIKE 'runtime-session:%')`,
   },

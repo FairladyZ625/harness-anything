@@ -38,3 +38,19 @@ test("edge version witnesses use the replicated entity revision", () => {
     db.close();
   }
 });
+
+test("settings provenance missing from a populated settings cut is unavailable, not initial", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createEdgeReadModelTables(db);
+    const queries = makeEdgeReplicaQueries({ db, cut: { status: "ready", watermark: 7, sourceRevision: 7 } });
+    assert.equal(queries.readSettingsEvent(), null);
+    db.prepare("INSERT INTO entity_projection VALUES ('settings', 'repository', '', 7, 'current', 7, '{}')").run();
+    assert.throws(
+      () => queries.readSettingsEvent(),
+      (error: { code?: string }) => error.code === "projection_pending",
+    );
+  } finally {
+    db.close();
+  }
+});

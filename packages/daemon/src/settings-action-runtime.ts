@@ -29,7 +29,7 @@ export function makeSettingsActionRuntime(
   cell: RepoCellRuntimeContext,
   settingsState: RepoCellSettingsState,
 ): EntityActionCatalogRunner {
-  return async (contract, action, binding, catalogOpId): Promise<WriteReceipt> => {
+  return (contract, action, binding, catalogOpId): WriteReceipt | Promise<WriteReceipt> => {
     if (contract.execution.read) return readSettings(cell, settingsState, action, binding);
     if (binding.authorizationDecision?.outcome !== "allowed")
       throw cell.cellCodedError("actor_unauthorized", "Settings Action execution requires AuthorizationPort approval.");
@@ -181,7 +181,7 @@ function readSettings(
       },
       settingsId: SETTINGS_ID,
       settings,
-      lastChanged: settingsLastChanged(cell.store, cell.projection),
+      lastChanged: settingsLastChanged(cell.projection),
       effects: [] as readonly string[],
       updatedProjection: null,
     };

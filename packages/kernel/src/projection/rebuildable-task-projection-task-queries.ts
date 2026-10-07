@@ -120,6 +120,7 @@ export function taskQueryApi(
   | "readScheduleEvents"
   | "readScheduleOutputEvents"
   | "readCiRunObservations"
+  | "readSettingsEvent"
   | "readDocument"
   | "readReplicaBasis"
   | "taskIdForDocumentPath"

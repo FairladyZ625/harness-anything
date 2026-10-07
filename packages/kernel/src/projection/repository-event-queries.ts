@@ -1,3 +1,4 @@
+import { isSettingsEvent, type SettingsEventV1 } from "../domain/settings-event.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { isAgentRuntimeEvent, type AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
@@ -92,8 +93,28 @@ export function repositoryEventQueries(
   | "readScheduleEvents"
   | "readScheduleOutputEvents"
   | "readCiRunObservations"
+  | "readSettingsEvent"
 > {
   return {
+    readSettingsEvent: () =>
+      withRead((db) => {
+        const entity = queryRow(
+          db,
+          "SELECT workspace_revision FROM entity_projection WHERE entity_kind = 'settings' AND entity_id = 'repository'",
+        );
+        if (!entity) return null;
+        const row = queryRow(
+          db,
+          "SELECT event_json FROM event_index WHERE workspace_revision = ?",
+          Number(entity.workspace_revision),
+        );
+        const event = row ? (JSON.parse(String(row.event_json)) as SettingsEventV1) : null;
+        if (!event || !isSettingsEvent(event))
+          throw Object.assign(new Error("Settings provenance is missing from the projection cut."), {
+            code: "projection_pending",
+          });
+        return event;
+      }),
     readRuntimeDispatch: (runtimeSessionIdValue, definitionSnapshotRef) =>
       withRead((db) => {
         const row =

@@ -2,6 +2,7 @@ import {
   cliInput,
   defineCliCommand,
   defineRepoReadCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
   generatedSettingsFieldProtocolProjection,
   presetCommands,
   presetMethods,
@@ -55,7 +56,7 @@ const settingsWriteTopology = {
   // generator's literal tuple (which declaration emit cannot name portably).
   settingsInputGroups = generatedSettingsFieldProtocolProjection.groups as readonly CliInputGroup[],
   settingsProtocolCommands = Object.freeze([
-    defineRepoReadCommand({
+    defineEdgeReplicaQueryOnlyReadCommand({
       id: "settings-read",
       actionKind: "settings-read",
       phase: "Settings-Kind",
@@ -64,7 +65,7 @@ const settingsWriteTopology = {
       method: "repo.task.read",
       inputs: [],
     }),
-    defineRepoReadCommand({
+    defineEdgeReplicaQueryOnlyReadCommand({
       id: "settings-show",
       actionKind: "settings-read",
       phase: "Settings-Kind",

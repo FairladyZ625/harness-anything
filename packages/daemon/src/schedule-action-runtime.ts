@@ -93,7 +93,7 @@ export function makeScheduleActionRuntime(
       entity: { schedule: runtime },
     }) as Promise<WriteReceipt>;
   };
-  const runtime: EntityActionCatalogRunner = async (contract, rawAction, binding): Promise<WriteReceipt> => {
+  const runtime: EntityActionCatalogRunner = (contract, rawAction, binding): WriteReceipt | Promise<WriteReceipt> => {
     const action = resolveScheduleAction(cell.rootDir, rawAction);
     if (contract.execution.read) return readScheduleAction(cell, action, binding);
     if (binding.authorizationDecision?.outcome !== "allowed")
@@ -311,7 +311,7 @@ function readScheduleAction(
     });
   }
   if (action.kind === "schedule-list") {
-    const revision = cell.store.readHead()?.revision ?? 0,
+    const revision = cell.projection.readCut().sourceRevision,
       schedules = cell.projection.listEntities("schedule").map((row) => {
         const projection = inspectScheduleProjection(row);
         if (!projection.valid) return projection.invalid;

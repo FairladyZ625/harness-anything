@@ -71,7 +71,7 @@ export type EntityActionCatalogRunner = (
   action: RepoTaskAction,
   binding: RepoCellBinding,
   opId: string,
-) => Promise<WriteReceipt>;
+) => WriteReceipt | Promise<WriteReceipt>;
 export type EntityActionCatalogPreparer = (
   contract: ExecutableAction,
   action: RepoTaskAction,
@@ -192,7 +192,10 @@ export function makeEntityActionCatalogExecutor(input: {
         throw Object.assign(new Error(`Action ${action.kind} requires the ${contract.target.kind} catalog runtime.`), {
           code: "unsupported_command",
         });
-      return runtime(contract, action, binding, opId).then((receipt) => deriveActionResult(contract, action, receipt));
+      const result = runtime(contract, action, binding, opId);
+      return result instanceof Promise
+        ? result.then((receipt) => deriveActionResult(contract, action, receipt))
+        : deriveActionResult(contract, action, result);
     }
     if (
       contract.execution.implementation !== "task-lifecycle" &&
@@ -203,9 +206,10 @@ export function makeEntityActionCatalogExecutor(input: {
       throw Object.assign(new Error(`Action ${action.kind} requires the Task Action runtime.`), {
         code: "unsupported_command",
       });
-    return runtimes
-      .task(contract, action, binding, opId)
-      .then((receipt) => deriveActionResult(contract, action, receipt));
+    const result = runtimes.task(contract, action, binding, opId);
+    return result instanceof Promise
+      ? result.then((receipt) => deriveActionResult(contract, action, receipt))
+      : deriveActionResult(contract, action, result);
   };
 
   const repinAll = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {

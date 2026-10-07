@@ -363,6 +363,13 @@ function configureDatabase(db: DatabaseSync): void {
 function createTables(db: DatabaseSync): void {
   /* @gate-identity check-bypass-write-boundary/bypass-write-009 */
   db.exec(`
+    CREATE TABLE IF NOT EXISTS archived_entity (
+      entity_kind TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      workspace_revision INTEGER NOT NULL,
+      row_json TEXT NOT NULL,
+      PRIMARY KEY(entity_kind, entity_id)
+    );
     CREATE TABLE IF NOT EXISTS projection_meta (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1),
       schema_version INTEGER NOT NULL,
