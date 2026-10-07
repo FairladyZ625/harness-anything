@@ -50,13 +50,14 @@ test("legacy repo reads have no descriptor left on the serialized write method",
 
 test("RepoCell execution context is declared independently from read authorization", () => {
   const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
-  for (const id of ["receipt-show", "doctor-health", "preset-list", "agent-list", "doc-status"]) {
+  for (const id of ["receipt-show", "doctor-health", "preset-list"]) {
     assert.equal(byId.get(id)?.commandClass, "repo-read", id);
     assert.equal(byId.get(id)?.repoCellExecution, "writer", id);
   }
   // Edge-replica reads execute in the query-only context: the edge answers from its replica, and
   // the center's own writer cell is never entered for them.
-  for (const id of ["task-list", "task-show"]) assert.equal(byId.get(id)?.repoCellExecution, "query-only", id);
+  for (const id of ["task-list", "task-show", "agent-list", "doc-status"])
+    assert.equal(byId.get(id)?.repoCellExecution, "query-only", id);
   for (const command of daemonProtocolCommands)
     if (command.commandClass !== "repo-read")
       assert.equal(
@@ -103,7 +104,7 @@ test("Schedule descriptors derive all three mode routes without a CLI mode branc
       local: "direct",
       "remote-proxy": "rejected",
       "remote-center": "direct",
-      "remote-edge": "via-center-forward",
+      "remote-edge": "edge-replica",
     });
   assert.deepEqual(byId.get("schedule-run-now")?.admission, {
     local: "direct",
@@ -182,7 +183,7 @@ test("Settings CLI read uses the common read topology while update forwards from
     local: "direct",
     "remote-proxy": "rejected",
     "remote-center": "direct",
-    "remote-edge": "direct",
+    "remote-edge": "edge-replica",
   });
   assert.deepEqual(byId.get("settings-update")?.admission, {
     local: "direct",

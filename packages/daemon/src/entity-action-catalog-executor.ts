@@ -80,7 +80,7 @@ export type EntityActionCatalogPreparer = (
 ) => RepoTaskAction;
 export interface EntityActionCatalogRuntimes {
   readonly entity?: Readonly<Record<string, EntityActionCatalogRunner>>;
-  readonly task?: EntityActionCatalogRunner;
+  readonly task?: (...args: Parameters<EntityActionCatalogRunner>) => Promise<WriteReceipt>;
   readonly prepare?: Readonly<Record<string, EntityActionCatalogPreparer>>;
 }
 
@@ -206,10 +206,9 @@ export function makeEntityActionCatalogExecutor(input: {
       throw Object.assign(new Error(`Action ${action.kind} requires the Task Action runtime.`), {
         code: "unsupported_command",
       });
-    const result = runtimes.task(contract, action, binding, opId);
-    return result instanceof Promise
-      ? result.then((receipt) => deriveActionResult(contract, action, receipt))
-      : deriveActionResult(contract, action, result);
+    return runtimes
+      .task(contract, action, binding, opId)
+      .then((receipt) => deriveActionResult(contract, action, receipt));
   };
 
   const repinAll = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
