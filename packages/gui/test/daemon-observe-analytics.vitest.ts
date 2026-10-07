@@ -18,7 +18,7 @@ import type { ObserveTailRead } from "../src/api/renderer-dto.ts";
 
 /**
  * 观察页分析面的纯数据判据(时序分桶 / 慢操作聚合 / 异常聚类 / 透镜候选 / 组合过滤,
- * 以及第二轮增补的异味嗅探 / 锁争用 / Top Talkers / 信噪比):
+ * 以及第二轮增补的异味嗅探 / 慢写请求 / Top Talkers / 信噪比):
  *  - 分桶是固定 10s × 360 桶环形缓冲:更老的行只进总数、时间跳跃覆盖旧槽位;
  *  - 统计与查询过滤同构:同版本零重算(缓存复用),growth 只喂新增行,丢行后全量重建,
  *    且「增量路径」与「从零重建路径」产出可观察相同的统计(等价性判据);
@@ -404,8 +404,8 @@ describe("统计缓存:增量续用与等价性", () => {
   });
 });
 
-describe("读写分类与单写锁争用", () => {
-  it("commandClass 权威、方法分段启发兜底;窗口读写计数、占比与 Mild 判级", () => {
+describe("读写分类与慢写请求", () => {
+  it("commandClass 权威、方法分段启发兜底;窗口读写计数与占比，不推断锁级别", () => {
     let state = initialObserveTail();
     state = applyObserveTailPage(
       state,
@@ -423,24 +423,22 @@ describe("读写分类与单写锁争用", () => {
         0,
       ),
     );
-    const contention = observeStatsLog(state.rows, null).stats.windows["1h"]!.contention;
-    expect(contention.writeOps).toBe(2);
-    expect(contention.readOps).toBe(2);
-    expect(contention.writePct).toBe(50);
-    // 唯一慢写(doc.sync 900ms > 800ms)无重叠 → 轻度争用。
-    expect(contention.slowWrites).toBe(1);
-    expect(contention.overlap).toBe(1);
-    expect(contention.level).toBe("mild");
+    const writes = observeStatsLog(state.rows, null).stats.windows["1h"]!.writes;
+    expect(writes.writeOps).toBe(2);
+    expect(writes.readOps).toBe(2);
+    expect(writes.writePct).toBe(50);
+    // 唯一慢写(doc.sync 900ms > 800ms)，不推断锁状态。
+    expect(writes.slowWrites).toBe(1);
+    expect(writes).not.toHaveProperty("level");
   });
 
-  it("慢写区间 [at-duration, at] 重叠 → Contended;纯读窗口 → Smooth", () => {
+  it("重叠的慢写请求不推断锁状态；纯读窗口无慢写", () => {
     let state = initialObserveTail();
     state = applyObserveTailPage(
       state,
       logPage(
         [
-          // doc.sync 完成于 T0+10s(占用 [T0+9.1s, T0+10s]),task.adjudicate 完成于
-          // T0+10.5s(占用 [T0+9.3s, T0+10.5s]):两段区间在 [9.3s, 10s) 并存。
+          // 请求耗时即使重叠也不证明持锁区间重叠。
           logItem({ method: "doc.sync", durationMs: 900, atMs: T0 + 10_000, commandClass: "repo-write" }),
           logItem({ method: "task.adjudicate", durationMs: 1_200, atMs: T0 + 10_500, commandClass: "repo-write" }),
           logItem({ method: "repo.tasks.list", durationMs: 4, commandClass: "repo-read" }),
@@ -449,10 +447,11 @@ describe("读写分类与单写锁争用", () => {
         0,
       ),
     );
-    const contended = observeStatsLog(state.rows, null).stats.windows["1h"]!.contention;
-    expect(contended.overlap).toBe(2);
-    expect(contended.level).toBe("contended");
-    expect(contended.writePct).toBeCloseTo((2 / 3) * 100, 10);
+    const slow = observeStatsLog(state.rows, null).stats.windows["1h"]!.writes;
+    expect(slow.slowWrites).toBe(2);
+    expect(slow).not.toHaveProperty("level");
+    expect(slow).not.toHaveProperty("overlap");
+    expect(slow.writePct).toBeCloseTo((2 / 3) * 100, 10);
     let calm = initialObserveTail();
     calm = applyObserveTailPage(
       calm,
@@ -462,15 +461,15 @@ describe("读写分类与单写锁争用", () => {
         0,
       ),
     );
-    const smooth = observeStatsLog(calm.rows, null).stats.windows["1h"]!.contention;
-    expect(smooth.level).toBe("smooth");
+    const smooth = observeStatsLog(calm.rows, null).stats.windows["1h"]!.writes;
+    expect(smooth.slowWrites).toBe(0);
     expect(smooth.writeOps).toBe(0);
     expect(smooth.writePct).toBe(0);
   });
 });
 
-describe("智能异味嗅探(慢锁 / 频密轮询 / 失败毛刺)", () => {
-  it("慢锁:窗口内最重慢写曝光方法与耗时;15m/1h 窗口口径生效", () => {
+describe("智能异味嗅探(慢写请求 / 频密轮询 / 失败毛刺)", () => {
+  it("慢写请求:窗口内最重慢写曝光方法与耗时;15m/1h 窗口口径生效", () => {
     let state = initialObserveTail();
     state = applyObserveTailPage(
       state,
@@ -486,7 +485,7 @@ describe("智能异味嗅探(慢锁 / 频密轮询 / 失败毛刺)", () => {
     );
     const stats = observeStatsLog(state.rows, null).stats;
     expect(stats.windows["1h"]!.smells).toEqual([
-      { kind: "slow_lock_holder", label: "doc.sync", value: 1_200, matchText: "doc.sync" },
+      { kind: "slow_write_request", label: "doc.sync", value: 1_200, matchText: "doc.sync" },
     ]);
     expect(stats.windows["15m"]!.smells).toEqual([]);
   });
