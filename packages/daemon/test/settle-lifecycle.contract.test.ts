@@ -5,12 +5,13 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader, resolveLedgerGitLayout, ledgerGitPath } from "@harness-anything/kernel";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
+import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 
 const worker = {
     principal: { personId: "person-owner" },
@@ -568,6 +569,113 @@ test("settle preserves the submitted file manifest after main merges the deliver
     await reader.drain();
   } finally {
     await cell?.close();
+    await removeTemporaryDirectory(rootDir);
+  }
+});
+
+test("explicit artifact delivery freezes accepted bytes while Git publication is blocked", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-stale-anchor-")),
+    repoId = workspaceId("settle-stale-anchor"),
+    taskId = "task_settle_stale_anchor",
+    executionId = "exe_settle_stale_anchor";
+  initRepo(rootDir);
+  let blocked = false,
+    blockedPublications = 0;
+  const cell = await openRepoCell({
+    repoId,
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "settle-stale-anchor",
+    killpoint: (point) => {
+      if (blocked && point === "after_git_commit") {
+        blockedPublications += 1;
+        throw new Error("fixture blocks Git publication before ref advancement");
+      }
+    },
+  });
+  const reader = makeTaskEventReader({ repoId, rootDir });
+  try {
+    await reachDeliverable(cell, rootDir, taskId, executionId);
+    const otherTaskId = `${taskId}_other`;
+    await reachDeliverable(cell, rootDir, otherTaskId, `${executionId}_other`);
+    const packagePath = `tasks/${taskId}-settle-lifecycle`,
+      reportPath = `${packagePath}/artifacts/verification.md`,
+      closeoutPath = `${packagePath}/closeout.md`,
+      closeoutFile = path.join(rootDir, "harness", closeoutPath),
+      oldBody = readFileSync(closeoutFile, "utf8"),
+      plainBody = oldBody.replace(/Done: artifact:[^\n]+/u, "Audited job=43.");
+    writeFileSync(closeoutFile, plainBody);
+    const first = await cell.run({ kind: "doc-submit", taskId }, workerBinding);
+    await waitForFixturePublication(cell, first.opId, workerBinding);
+    const ledger = resolveLedgerGitLayout(rootDir),
+      git = (...args: string[]) => execFileSync("git", ["-C", ledger.rootDir, ...args], { encoding: "utf8" }).trim(),
+      previousSha = git("rev-parse", "HEAD"),
+      correctedReport = "Corrected job=41; SQL range 0–336h.\n",
+      correctedCloseout = plainBody.replace(
+        "Audited job=43.",
+        "Audited job=41; SQL range 0–336h. artifact:artifacts/verification.md",
+      );
+    blocked = true;
+    writeFileSync(path.join(rootDir, "harness", reportPath), correctedReport);
+    writeFileSync(closeoutFile, correctedCloseout);
+    const settled = await cell.run({ kind: "task-settle", taskId }, workerBinding);
+    await cell.settlePendingMaterialization("deterministically blocked publication");
+    assert.ok(blockedPublications > 0);
+    assert.equal(git("rev-parse", "HEAD"), previousSha, "fixture holds the published tree at the old version");
+    const event = reader.read().events.find((event) => event.type === "execution_submitted");
+    assert.ok(event && event.type === "execution_submitted", JSON.stringify(settled));
+    const submission = event.payload.execution.submission!;
+    assert.match(submission.completionClaim, /job=41/u);
+    const accepted = reader
+      .read()
+      .events.filter((event) => event.schema === "doc-event/v1")
+      .at(-1);
+    assert.ok(accepted && accepted.schema === "doc-event/v1");
+    const reportClaim = accepted.payload.changes.find((change) => change.path === reportPath);
+    assert.ok(reportClaim?.candidate);
+    assert.equal(new TextDecoder().decode(reader.readContentBlob(reportClaim.candidate.sha256)!), correctedReport);
+    assert.equal(submission.commitSha, null);
+    assert.equal(submission.artifacts?.length, 1);
+    const anchor = submission.artifacts![0]!,
+      reviewCell = {
+        store: reader,
+        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      },
+      readFrozen = () =>
+        readSubmissionArtifact(reviewCell, packagePath, anchor.path, anchor.revision, anchor.blobSha256);
+    assert.equal(readFrozen().body, correctedReport);
+    assert.equal(anchor.revision, accepted.workspaceRevision);
+    assert.equal(anchor.path, reportPath);
+    blocked = false;
+    const otherReportPath = `tasks/${otherTaskId}-settle-lifecycle/artifacts/verification.md`;
+    writeFileSync(path.join(rootDir, "harness", otherReportPath), "Another task publication.\n");
+    const otherSync = await cell.run({ kind: "doc-submit", taskId: otherTaskId }, workerBinding);
+    assert.equal(otherSync.outcome, "applied", JSON.stringify(otherSync));
+    await waitForFixturePublication(cell, otherSync.opId, workerBinding);
+    assert.notEqual(git("rev-parse", "HEAD"), previousSha);
+    assert.equal(readFrozen().body, correctedReport, "another task's publication cannot redirect the accepted anchor");
+    assert.deepEqual(
+      execFileSync("git", ["-C", ledger.rootDir, "show", `HEAD:${ledgerGitPath(ledger, reportPath)}`]),
+      Buffer.from(correctedReport),
+    );
+    assert.deepEqual(
+      execFileSync("git", ["-C", ledger.rootDir, "show", `HEAD:${ledgerGitPath(ledger, closeoutPath)}`]),
+      Buffer.from(correctedCloseout),
+    );
+    console.log(
+      JSON.stringify({
+        control: "explicit-accepted-artifact",
+        previousSha,
+        publishedSha: git("rev-parse", "HEAD"),
+        acceptedRevision: accepted.workspaceRevision,
+        artifactRevision: anchor.revision,
+        artifactPath: anchor.path,
+        blockedPublications,
+      }),
+    );
+  } finally {
+    blocked = false;
+    await cell.close();
+    await reader.drain();
     await removeTemporaryDirectory(rootDir);
   }
 });
