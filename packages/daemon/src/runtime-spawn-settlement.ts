@@ -432,17 +432,17 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
   // the provider's completed turn and final result, both durably replayed from the worker stream
   // when a successor daemon adopts the runtime.
   if (!active.task) return active.providerOutcome === "succeeded" && active.finalText !== null;
-  // A read-only task attach is an analysis dispatch, not an implementation or reviewer run. Its
-  // durable delivery is the dispatch report authored in the frozen task package; a final provider
-  // message alone is not a ledger or repository witness.
-  if (active.permissionMode === "read-only" && active.role !== "reviewer") {
-    if (!context.input.projection) return false;
+  // A read-only analysis attach delivers its dispatch report into the task package; that report is
+  // a durable witness. A final provider message alone is not, so without the report the remaining
+  // witnesses below decide.
+  if (active.permissionMode === "read-only" && active.role !== "reviewer" && context.input.projection) {
     const projection = context.requiredRuntimeProjection(context.input),
       packagePath = projection.read(active.task.taskId).packagePath;
-    return (
+    if (
       typeof packagePath === "string" &&
       projection.readDocument(`${packagePath}/artifacts/reports/${active.dispatchId}.md`).document !== null
-    );
+    )
+      return true;
   }
   // A reviewer's positive delivery is the registered review, never branch commits: a report file
   // can exist (and be committed) while the review itself was never registered. Only the node
