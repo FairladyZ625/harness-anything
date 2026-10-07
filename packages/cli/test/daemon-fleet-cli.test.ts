@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { localDaemonTargetKey } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -112,6 +113,19 @@ test(
       assert.equal(center.stateRoot, path.join(fixture.centerUser, "fleet"));
       assert.equal("assignments" in center, false);
       const port = center.port as number;
+      const configFile = path.join(
+          fixture.centerUser,
+          "fleet",
+          localDaemonTargetKey(fixture.centerUser, "default"),
+          "center.json",
+        ),
+        enabled = JSON.parse(readFileSync(configFile, "utf8"));
+      assert.equal(enabled.port, port, "port 0 persists the actual bound port");
+      assert.equal(enabled.keyPath, fixture.key);
+      assert.equal(enabled.certPath, fixture.cert);
+      stop(fixture, "center");
+      assert.equal(run(fixture, "center", ["daemon", "start", "--service"]).ok, true);
+      // No second center-start: the same verified TLS port must survive a real CLI restart.
       writeFileSync(
         path.join(fixture.edgeRepo, "fleet-edge.json"),
         JSON.stringify({
@@ -193,6 +207,28 @@ test(
         null,
       );
       assert.equal((pulled.cut as { revision: number }).revision, pulled.ackCut);
+      const replaced = run(fixture, "center", [
+        "daemon",
+        "fleet",
+        "center",
+        "start",
+        "--port",
+        String(port),
+        "--key",
+        fixture.key,
+        "--cert",
+        fixture.cert,
+        "--repo",
+        "fleet-demo",
+        "--quota-bytes",
+        String(quotaBytes + 1),
+      ]);
+      assert.equal(replaced.ok, true);
+      assert.equal(replaced.replaced, true);
+      assert.equal(replaced.serviceStatus, "listening");
+      assert.equal(replaced.port, port);
+      assert.equal(JSON.parse(readFileSync(configFile, "utf8")).quotaBytes, quotaBytes + 1);
+      assert.equal(retryReplicaPending(sync).ok, true);
       const viewRoot = path.join(fixture.viewRoot, "repos", "fleet-demo", "views", "edge-one");
       assert.equal(readCutFile(viewRoot, pulled.ackCut as number, docPath), docBody);
       assert.equal(
@@ -326,6 +362,41 @@ test(
         readFileSync(path.join(fixture.repo, "harness", String(edgeCreated.packagePath), "task_plan.md"), "utf8"),
         edgePlan,
         "the edge-authored 950-character plan body lands at the center byte-for-byte",
+      );
+      // A failed restore is visible through the real process lifecycle, while the local
+      // authorized control path remains available to repair its references.
+      stop(fixture, "center");
+      writeFileSync(configFile, JSON.stringify({ ...enabled, keyPath: path.join(fixture.root, "missing.key") }));
+      assert.equal(run(fixture, "center", ["daemon", "start", "--service"]).ok, true);
+      const lifecycle = readFileSync(path.join(fixture.centerUser, "logs", "daemon-default-lifecycle.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      const failedRestore = lifecycle.findLast((entry) => entry.event === "fleet_center_restore_failed");
+      assert.match(String(failedRestore?.error), /missing\.key.*could not be read/u);
+      const repaired = run(fixture, "center", [
+        "daemon",
+        "fleet",
+        "center",
+        "start",
+        "--port",
+        String(port),
+        "--key",
+        fixture.key,
+        "--cert",
+        fixture.cert,
+        "--repo",
+        "fleet-demo",
+        "--quota-bytes",
+        String(quotaBytes),
+      ]);
+      assert.equal(repaired.ok, true);
+      assert.equal(retryReplicaPending(sync).ok, true);
+      assert.equal(
+        existsSync(
+          path.join(fixture.edgeUser, "fleet", localDaemonTargetKey(fixture.edgeUser, "default"), "center.json"),
+        ),
+        false,
       );
     } finally {
       try {

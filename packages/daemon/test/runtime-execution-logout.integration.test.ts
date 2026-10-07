@@ -61,7 +61,9 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
     const id = process.env.HARNESS_ACTOR.split(":").at(-1), dir = ${JSON.stringify(parent)};
     console.log(JSON.stringify({ type: "thread.started", thread_id: id }));
     const keys = ["HARNESS_EXECUTION_CREDENTIAL", "HARNESS_EXECUTION_EXPIRES_AT", "HARNESS_ACTOR", "HARNESS_DAEMON_USER_ROOT", "HARNESS_DAEMON_ID", "HARNESS_DAEMON_ENDPOINT", "HARNESS_DAEMON_REPO_ID", "HARNESS_CANONICAL_ROOT", "HARNESS_TASK_BOUND", "HARNESS_DAEMON_RELAY"];
-    fs.writeFileSync(path.join(dir, id + ".json"), JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k]]))), { mode: 0o600 });
+    const envPath = path.join(dir, id + ".json");
+    fs.writeFileSync(envPath + ".tmp", JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k]]))), { mode: 0o600 });
+    fs.renameSync(envPath + ".tmp", envPath);
     const finish = () => {
       if (!fs.existsSync(path.join(dir, id + ".finish"))) return;
       watcher.close();

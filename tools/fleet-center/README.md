@@ -56,8 +56,9 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 
 `down` only stops this deployment's isolated daemon. It intentionally retains
 the repository, TLS material and replica state for audit/recovery.
-After a host reboot, log in and run `up`; the daemon and Fleet listener are
-both process-owned and must be re-established.
+After a host reboot, log in and run `up` to start the daemon. Its Fleet listener
+restores the last successfully saved configuration automatically. `down` retains
+that enabled intent.
 
 Human identity and repository permissions come from Keycloak; a restored
 repository's `people.yaml` does not grant access. The deployment does not admit local repository writes to the remote
@@ -91,6 +92,16 @@ Everything after that needs a person and is not run by the script:
 After Keycloak is running, the listener can be started before or after an
 administrator signs in. Starting or restarting it while signed in is allowed
 when that person has the repository's `daemon-fleet-center-start` permission.
+
+`ha daemon fleet center start --port <port> --key <key.pem> --cert <cert.pem>
+--repo <repo-id> --quota-bytes <bytes>` explicitly replaces this daemon's existing
+listener, including on the same port. It interrupts existing edge connections.
+Authorization, parameters and TLS material are checked before the old listener
+closes; rejected input leaves it running. The success receipt reports `replaced`
+and `serviceStatus: listening`. Startup or save failure reports that the center
+is not listening; a save failure closes the new listener. The last successfully
+saved intent remains for the next daemon start. There is no automatic rollback
+and no separate center-stop command.
 
 ### Registering a node
 

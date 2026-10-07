@@ -88,6 +88,7 @@ test("a drifted daemon exits on its own while a runtime session is live", async 
     runtimeFile = builtRuntime(runtimeRoot, "build-a"),
     buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"),
     repoId = "live-build-drain";
+  const superseded = deferred<void>();
   let daemon: RunningDaemon | undefined;
   initializeRepo(rootDir, repoId);
   signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
@@ -99,6 +100,7 @@ test("a drifted daemon exits on its own while a runtime session is live", async 
         userRoot,
         endpoint: localUserDaemonEndpoint(userRoot, repoId),
         runtimeFile,
+        onSupersededExit: () => superseded.resolve(),
         openCell: async (input) => {
           const cell = await openBootstrappedRepoCell(input);
           input.recordLifecycle?.({
@@ -143,7 +145,9 @@ test("a drifted daemon exits on its own while a runtime session is live", async 
       },
       { code: "daemon_build_stale", loadedBuildId: "build-a", diskBuildId: "build-b", liveRuntimeSessions: 1 },
     );
-    await waitUntil(() => readDaemonPid(userRoot, repoId) === null && !existsSync(daemon!.endpoint));
+    await superseded.promise;
+    assert.equal(readDaemonPid(userRoot, repoId), null);
+    assert.equal(existsSync(daemon.endpoint), false);
     assert.notEqual(readDaemonPid(userRoot, repoId), originalPid);
     assert.equal(
       readDaemonLifecycleRecords(userRoot, repoId).some(
@@ -167,6 +171,7 @@ test("a drifted daemon stays resident while a write is queued behind an unfinish
     repoId = "drain-queued-write",
     attachmentGate = deferred<void>(),
     attachmentStarted = deferred<void>();
+  const superseded = deferred<void>();
   let daemon: RunningDaemon | undefined,
     attachmentReleased = false;
   initializeRepo(rootDir, repoId);
@@ -179,6 +184,7 @@ test("a drifted daemon stays resident while a write is queued behind an unfinish
         userRoot,
         endpoint: localUserDaemonEndpoint(userRoot, repoId),
         runtimeFile,
+        onSupersededExit: () => superseded.resolve(),
         openCell: async (input) => {
           attachmentStarted.resolve();
           await attachmentGate.promise;
@@ -204,7 +210,9 @@ test("a drifted daemon stays resident while a write is queued behind an unfinish
     attachmentReleased = true;
     attachmentGate.resolve();
     assert.equal((await queuedWrite).outcome, "applied");
-    await waitUntil(() => readDaemonPid(userRoot, repoId) === null && !existsSync(daemon!.endpoint));
+    await superseded.promise;
+    assert.equal(readDaemonPid(userRoot, repoId), null);
+    assert.equal(existsSync(daemon.endpoint), false);
     assert.equal(
       readDaemonLifecycleRecords(userRoot, repoId).some(
         (record) => record.event === "process_exit" && record.outcome === "build_superseded",
@@ -225,12 +233,19 @@ test("a drained superseded daemon exits and the next autostart loads the disk bu
     runtimeFile = builtRuntime(runtimeRoot, "build-a"),
     buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"),
     daemonId = "superseded-exit";
+  const superseded = deferred<void>();
   let daemon: RunningDaemon | undefined,
     replacement: RunningDaemon | undefined,
     spawns = 0;
   try {
     daemon = runningDaemon(
-      await startDaemon({ daemonId, userRoot, runtimeFile, endpoint: localUserDaemonEndpoint(userRoot, daemonId) }),
+      await startDaemon({
+        daemonId,
+        userRoot,
+        runtimeFile,
+        endpoint: localUserDaemonEndpoint(userRoot, daemonId),
+        onSupersededExit: () => superseded.resolve(),
+      }),
     );
     writeFileSync(buildIdPath, "build-b\n", "utf8");
     const staleStatus = await requestDaemonJsonRpcAt(
@@ -243,7 +258,9 @@ test("a drained superseded daemon exits and the next autostart loads the disk bu
       true,
     );
     assert.equal((staleStatus.daemonBuild as Record<string, unknown>).liveRuntimeSessions, 0);
-    await waitUntil(() => readDaemonPid(userRoot, daemonId) === null && !existsSync(daemon!.endpoint));
+    await superseded.promise;
+    assert.equal(readDaemonPid(userRoot, daemonId), null);
+    assert.equal(existsSync(daemon.endpoint), false);
     assert.equal(
       readDaemonLifecycleRecords(userRoot, daemonId).some(
         (record) => record.event === "process_exit" && record.outcome === "build_superseded",
@@ -258,7 +275,13 @@ test("a drained superseded daemon exits and the next autostart loads the disk bu
       spawnDetached: async () => {
         spawns += 1;
         replacement = runningDaemon(
-          await startDaemon({ daemonId, userRoot, runtimeFile, endpoint: localUserDaemonEndpoint(userRoot, daemonId) }),
+          await startDaemon({
+            daemonId,
+            userRoot,
+            runtimeFile,
+            endpoint: localUserDaemonEndpoint(userRoot, daemonId),
+            onSupersededExit: () => superseded.resolve(),
+          }),
         );
       },
     });
@@ -495,7 +518,10 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
     replacement: RunningDaemon | undefined,
     successorStart: Promise<void> | undefined,
     spawnReceipt: Awaited<ReturnType<Awaited<ReturnType<typeof openBootstrappedRepoCell>>["spawnRuntime"]>> | undefined;
-  const cells: Awaited<ReturnType<typeof openBootstrappedRepoCell>>[] = [],
+  const successorStarted = deferred<void>(),
+    drainGate = deferred<void>(),
+    drainStarted = deferred<void>(),
+    cells: Awaited<ReturnType<typeof openBootstrappedRepoCell>>[] = [],
     openCell = async (input: Parameters<typeof openBootstrappedRepoCell>[0]) => {
       const cell = await openBootstrappedRepoCell({
         ...input,
@@ -503,7 +529,16 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
         prepareRuntimeLaunch,
       });
       cells.push(cell);
-      return cell;
+      if (cells.length !== 1) return cell;
+      const observed = Object.create(cell);
+      Object.defineProperty(observed, "close", {
+        value: async () => {
+          drainStarted.resolve();
+          await drainGate.promise;
+          await cell.close();
+        },
+      });
+      return observed;
     },
     repoAttached = async () => {
       try {
@@ -544,6 +579,7 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
               await startDaemon({ daemonId: repoId, userRoot, endpoint, runtimeFile, openCell }),
             );
           })();
+          successorStarted.resolve();
         },
       }),
     );
@@ -582,16 +618,26 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
       true,
     );
     assert.equal(served.outcome, "applied", JSON.stringify(served));
-    // The successor rebinds this endpoint within milliseconds of the exit, so the authoritative
-    // exit witness is the lifecycle record, not the transiently empty pid file or socket.
-    await waitUntil(() =>
+    await drainStarted.promise;
+    assert.equal(successorStart, undefined, "the successor must not start before the repository drain completes");
+    assert.equal(
       readDaemonLifecycleRecords(userRoot, repoId).some(
         (record) => record.event === "process_exit" && record.outcome === "build_superseded",
       ),
+      false,
+      "the old generation must not record its exit while the repository drain is held",
     );
-    // The lifecycle record lands before teardown finishes; the slot hand-off is the last step of
-    // that teardown, so the successor's start is what must be awaited, not guessed.
-    await waitUntil(() => successorStart !== undefined, 5_000);
+    drainGate.resolve();
+    // Exit is recorded after the repository drain, which has no three-second contract.
+    // The callback witnesses the completed teardown; the daemon's shutdown deadline bounds it.
+    await successorStarted.promise;
+    assert.equal(
+      readDaemonLifecycleRecords(userRoot, repoId).some(
+        (record) => record.event === "process_exit" && record.outcome === "build_superseded",
+      ),
+      true,
+      "the old generation must record its superseded exit before starting the successor",
+    );
     await successorStart;
     await waitUntil(repoAttached, 10_000);
     const current = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
@@ -640,6 +686,7 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
     // what calls onSupersededExit, so stop it first, settle the in-flight successor start, and only
     // then stop the successor — otherwise removing the user root underneath a starting daemon ends
     // the test with an unhandled ENOENT on the singleton lock.
+    drainGate.resolve();
     await daemon?.stop();
     await successorStart?.catch((error: unknown) => consumeKnownError(error));
     await replacement?.stop();
@@ -719,7 +766,8 @@ test("a superseded exit hands the slot over while a --wait client's parked await
     waitClient:
       | { readonly result: (timeoutMs: number) => Promise<WaitClientResult>; readonly stop: () => void }
       | undefined;
-  const cells: Awaited<ReturnType<typeof openBootstrappedRepoCell>>[] = [],
+  const successorStarted = deferred<void>(),
+    cells: Awaited<ReturnType<typeof openBootstrappedRepoCell>>[] = [],
     // The parked wait is observed where it lands: every sessions.read the daemon serves, both the
     // CLI's probe and the await's own settle re-reads, cross this seam.
     sessionReads: string[] = [],
@@ -771,6 +819,7 @@ test("a superseded exit hands the slot over while a --wait client's parked await
               await startDaemon({ daemonId: repoId, userRoot, endpoint, runtimeFile, openCell }),
             );
           })();
+          successorStarted.resolve();
         },
       }),
     );
@@ -815,16 +864,16 @@ test("a superseded exit hands the slot over while a --wait client's parked await
       true,
     );
     assert.equal(served.outcome, "applied", JSON.stringify(served));
-    await waitUntil(
-      () =>
-        readDaemonLifecycleRecords(userRoot, repoId).some(
-          (record) => record.event === "process_exit" && record.outcome === "build_superseded",
-        ),
-      5_000,
+    // Exit is recorded after the repository drain, which has no three-second contract.
+    // The callback witnesses the completed teardown; the daemon's shutdown deadline bounds it.
+    await successorStarted.promise;
+    assert.equal(
+      readDaemonLifecycleRecords(userRoot, repoId).some(
+        (record) => record.event === "process_exit" && record.outcome === "build_superseded",
+      ),
+      true,
+      "the old generation must record its superseded exit before starting the successor",
     );
-    // The lifecycle record lands before teardown finishes; the slot hand-off is the last step of
-    // that teardown, so the successor's start is what must be awaited, not guessed.
-    await waitUntil(() => successorStart !== undefined, 5_000);
     await successorStart;
     await waitUntil(repoAttached, 10_000);
     const current = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
@@ -931,7 +980,8 @@ test("a parked --wait survives a drain that outlasts its settle re-read and stil
   // The incident's window is built here: the real cell close sets its closed flag at once (reads
   // through the cell fail from that moment) while host.close() is held open, so the transport the
   // wait client rides has not closed yet — exactly the ordering stop() guarantees.
-  const drainGate = deferred<void>(),
+  const successorStarted = deferred<void>(),
+    drainGate = deferred<void>(),
     cellCloseStarted = deferred<void>(),
     cells: Awaited<ReturnType<typeof openBootstrappedRepoCell>>[] = [],
     sessionReads: string[] = [],
@@ -995,6 +1045,7 @@ test("a parked --wait survives a drain that outlasts its settle re-read and stil
               await startDaemon({ daemonId: repoId, userRoot, endpoint, runtimeFile, openCell }),
             );
           })();
+          successorStarted.resolve();
         },
       }),
     );
@@ -1055,14 +1106,16 @@ test("a parked --wait survives a drain that outlasts its settle re-read and stil
       "the wait client must stay parked through the drain window instead of exiting on repo_unavailable",
     );
     drainGate.resolve();
-    await waitUntil(
-      () =>
-        readDaemonLifecycleRecords(userRoot, repoId).some(
-          (record) => record.event === "process_exit" && record.outcome === "build_superseded",
-        ),
-      5_000,
+    // Exit is recorded after the repository drain, which has no three-second contract.
+    // The callback witnesses the completed teardown; the daemon's shutdown deadline bounds it.
+    await successorStarted.promise;
+    assert.equal(
+      readDaemonLifecycleRecords(userRoot, repoId).some(
+        (record) => record.event === "process_exit" && record.outcome === "build_superseded",
+      ),
+      true,
+      "the old generation must record its superseded exit before starting the successor",
     );
-    await waitUntil(() => successorStart !== undefined, 5_000);
     await successorStart;
     await waitUntil(repoAttached, 10_000);
     // By now any repo_unavailable answer from the drain-window wake has long since landed, so the

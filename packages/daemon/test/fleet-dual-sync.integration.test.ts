@@ -12,7 +12,8 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { sha256Bytes } from "@harness-anything/kernel";
+import { makeTaskEventReader, sha256Bytes } from "@harness-anything/kernel";
+import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import { settlePushRejection } from "../src/fleet-edge-doc-sync.ts";
 import { readFleetUnresolvedConflicts } from "../src/fleet-edge-mirror.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
@@ -829,6 +830,10 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
           "## Verification\n\nVerified by the dual-sync integration fixture.\n\n" +
           "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo other path in this fixture.\n",
       );
+      const reportPath = `${created.packagePath}/artifacts/verification.md`,
+        correctedReport = "Corrected Fleet job=41; SQL 0–336h.\n";
+      fixture.writeWorktree("node-one", reportPath, correctedReport);
+      const beforeSubmit = ledgerRevision(fixture);
       const submitted = await fixture.edgeTask("node-one", {
         kind: commandKind,
         taskId: created.taskId,
@@ -842,9 +847,41 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
       );
       assert.deepEqual(
         (submitted as { readonly docSync?: { readonly paths?: readonly string[] } }).docSync?.paths?.slice().sort(),
-        [closeoutPath, planPath].sort(),
+        [closeoutPath, planPath, reportPath].sort(),
       );
       assert.match(readFileSync(fixture.worktree("node-one", planPath), "utf8"), /Closing note/u);
+      const reader = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo });
+      t.after(() => reader.drain());
+      const event = reader.read().events.find((event) => event.opId === submitted.opId);
+      assert.ok(event && event.schema === "task-event/v1" && event.type === "execution_submitted");
+      assert.equal(event.workspaceRevision, beforeSubmit + 1, "documents and submission accept in one event");
+      const submission = event.payload.execution.submission!;
+      assert.equal(submission.commitSha, null);
+      const anchor = submission.artifacts!.find((anchor) => anchor.path === reportPath)!;
+      assert.equal(anchor.revision, event.workspaceRevision);
+      assert.equal(anchor.blobSha256, sha256Bytes(Buffer.from(correctedReport)));
+      assert.ok(
+        event.payload.carriedDocumentClaims?.some(
+          (claim) => claim.path === reportPath && claim.candidate?.sha256 === anchor.blobSha256,
+        ),
+      );
+      const reviewCell = {
+        store: reader,
+        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      };
+      assert.equal(
+        readSubmissionArtifact(reviewCell, created.packagePath, anchor.path, anchor.revision, anchor.blobSha256).body,
+        correctedReport,
+      );
+      console.log(
+        JSON.stringify({
+          entry: commandKind,
+          acceptance: event.opId,
+          revision: event.workspaceRevision,
+          artifactRevision: anchor.revision,
+          reportPath,
+        }),
+      );
       if (commandKind === "task-settle") {
         const replay = await fixture.edgeTask("node-one", { kind: "task-settle", taskId: created.taskId });
         assert.equal(replay.ok, true, JSON.stringify(replay).slice(0, 1000));

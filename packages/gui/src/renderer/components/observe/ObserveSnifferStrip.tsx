@@ -1,8 +1,8 @@
 import { memo } from "react";
-import { ArrowClockwise, CheckCircle, Lock, WarningCircle } from "@phosphor-icons/react";
+import { ArrowClockwise, CheckCircle, Timer, WarningCircle } from "@phosphor-icons/react";
 import { t } from "../../i18n/index.tsx";
 import {
-  OBSERVE_SLOW_LOCK_MS,
+  OBSERVE_SLOW_WRITE_MS,
   type ObserveSmellStat,
   type ObserveStats,
   type ObserveWindowSpan,
@@ -10,38 +10,29 @@ import {
 
 /**
  * 智能异味嗅探条(数据推导在 daemon-observe-stats 的 deriveWindow,组件只呈现):
- *  - 慢锁写操作 / 频密轮询 / 失败毛刺被嗅探到时展示彩色警报 Tag,点击 Tag 把透镜
- *    (或过滤框)收敛到该病灶方法;无异味时展示清爽的「运行平稳 (Healthy)」;
- *  - 右侧常驻三枚系统级指示徽标:单写锁争用级别 + 读写比 + 信噪比(产出 vs 机械巡检),
+ *  - 慢写请求 / 频密轮询 / 失败毛刺被嗅探到时展示彩色警报 Tag,点击 Tag 把透镜
+ *    (或过滤框)收敛到该病灶方法;无阈值告警时仅声明「未发现阈值告警」;
+ *  - 右侧常驻三枚系统级指示徽标:慢写请求数 + 读写比 + 信噪比(产出 vs 机械巡检),
  *    全部与 HUD 的 15m/1h 窗口同步;
- *  - 日志栏才有读写/争用语义(事件流没有 commandClass/耗时),事件栏只显示嗅探与信噪。
+ *  - 日志栏才有读写/慢写语义(事件流没有 commandClass/耗时),事件栏只显示嗅探与信噪。
  */
 
 const SMELL_TONE: Record<ObserveSmellStat["kind"], string> = {
-    slow_lock_holder: "border-status-blocked/40 bg-status-blocked/10 text-status-blocked",
+    slow_write_request: "border-status-blocked/40 bg-status-blocked/10 text-status-blocked",
     spinloop_polling: "border-stale/40 bg-stale/10 text-stale",
     spike_failures: "border-status-blocked/40 bg-status-blocked/10 text-status-blocked",
   },
-  LEVEL_TONE = {
-    smooth: "border-status-done/40 bg-status-done/10 text-status-done",
-    mild: "border-stale/40 bg-stale/10 text-stale",
-    contended: "border-status-blocked/40 bg-status-blocked/10 text-status-blocked",
-  } as const,
+  HEALTHY_TONE = "border-status-done/40 bg-status-done/10 text-status-done",
   METRIC_CHIP = "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono",
   SMELL_CHIP = [
     "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono",
     "max-w-[26ch] hover:brightness-125",
-  ].join(" "),
-  LEVEL_KEY = {
-    smooth: "views.daemonObserve.contentionSmooth",
-    mild: "views.daemonObserve.contentionMild",
-    contended: "views.daemonObserve.contentionContended",
-  } as const;
+  ].join(" ");
 
 const smellText = (smell: ObserveSmellStat): string => {
   switch (smell.kind) {
-    case "slow_lock_holder":
-      return t("views.daemonObserve.smellSlowLock", {
+    case "slow_write_request":
+      return t("views.daemonObserve.smellSlowWrite", {
         method: smell.label,
         ms: String(Math.round(smell.value)),
       });
@@ -56,8 +47,8 @@ const smellText = (smell: ObserveSmellStat): string => {
 };
 
 const SmellIcon = ({ kind }: { readonly kind: ObserveSmellStat["kind"] }) =>
-  kind === "slow_lock_holder" ? (
-    <Lock aria-hidden />
+  kind === "slow_write_request" ? (
+    <Timer aria-hidden />
   ) : kind === "spinloop_polling" ? (
     <ArrowClockwise aria-hidden />
   ) : (
@@ -79,12 +70,11 @@ export const ObserveSnifferStrip = memo(function ObserveSnifferStrip({
   readonly onFocusSmell: (matchText: string) => void;
 }) {
   const derived = stats.windows[window],
-    contention = derived.contention,
+    writes = derived.writes,
     signal = derived.signal,
-    classified = contention.writeOps + contention.readOps,
-    writePct = classified > 0 ? `${Math.round(contention.writePct)}%` : "—",
-    progressPct = signal.progress + signal.overhead > 0 ? `${Math.round(signal.progressPct)}%` : "—",
-    levelLabel = t(LEVEL_KEY[contention.level]);
+    classified = writes.writeOps + writes.readOps,
+    writePct = classified > 0 ? `${Math.round(writes.writePct)}%` : "—",
+    progressPct = signal.progress + signal.overhead > 0 ? `${Math.round(signal.progressPct)}%` : "—";
   return (
     // 内联段(S7 观测 pane 收敛):不再独占一整行,作为分析行的右段与板页签同排;
     // 内部不再 ml-auto(共享行里由页签/透镜统一右对齐),窄容器 flex-wrap 退行。
@@ -93,7 +83,7 @@ export const ObserveSnifferStrip = memo(function ObserveSnifferStrip({
       {derived.smells.length === 0 ? (
         <span
           data-testid={`${testId}-healthy`}
-          className={`${METRIC_CHIP} ${LEVEL_TONE.smooth}`}
+          className={`${METRIC_CHIP} ${HEALTHY_TONE}`}
           title={t("views.daemonObserve.sniffHealthyTip")}
         >
           <CheckCircle aria-hidden />
@@ -124,16 +114,12 @@ export const ObserveSnifferStrip = memo(function ObserveSnifferStrip({
       <span className="flex flex-wrap items-center gap-2">
         {isLogPane ? (
           <span
-            data-testid={`${testId}-contention`}
-            className={`${METRIC_CHIP} ${LEVEL_TONE[contention.level]}`}
-            title={t("views.daemonObserve.contentionTip", {
-              slow: String(contention.slowWrites),
-              overlap: String(contention.overlap),
-              threshold: String(OBSERVE_SLOW_LOCK_MS),
-            })}
+            data-testid={`${testId}-writes`}
+            className={`${METRIC_CHIP} border-border text-text-muted`}
+            title={t("views.daemonObserve.writeDurationTip", { threshold: String(OBSERVE_SLOW_WRITE_MS) })}
           >
-            <Lock aria-hidden />
-            {t("views.daemonObserve.contentionLabel")} {levelLabel}
+            <Timer aria-hidden />
+            {t("views.daemonObserve.slowWriteCount", { count: String(writes.slowWrites) })}
           </span>
         ) : null}
         {isLogPane ? (
@@ -143,8 +129,8 @@ export const ObserveSnifferStrip = memo(function ObserveSnifferStrip({
             title={t("views.daemonObserve.rwTip")}
           >
             {t("views.daemonObserve.rwSummary", {
-              write: String(contention.writeOps),
-              read: String(contention.readOps),
+              write: String(writes.writeOps),
+              read: String(writes.readOps),
               pct: writePct,
             })}
           </span>

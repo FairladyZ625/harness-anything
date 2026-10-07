@@ -2,7 +2,7 @@ import type { ObserveRow, ObserveRowLog, ObserveRowMark } from "./daemon-observe
 
 /**
  * 观察页分析面的纯数据统计:时序分桶、慢操作聚合、异常聚类、透镜候选,以及第二轮
- * 增补的深层分析(异味嗅探 / 单写锁争用 / Top Talkers / 信噪比)。统计累积器随
+ * 增补的深层分析(异味嗅探 / 慢写请求 / Top Talkers / 信噪比)。统计累积器随
  * ObserveRowLog 的水位增量推进(见 observeStatsLog),不做 IO、不碰 React;窗口推导
  * (15m/1h)在快照时按固定桶环形缓冲切片,代价与累计行数无关。
  */
@@ -18,11 +18,11 @@ export const OBSERVE_BUCKET_MS = 10_000,
   /** 15m 窗口的桶数(10s/桶);1h 窗口用全部 ≤360 桶。 */
   OBSERVE_WINDOW_15M_BUCKETS = 90;
 
-/** HUD 可选的观察窗口跨度;窗口推导(嗅探/争用/信噪/Top Talkers)共用同一口径。 */
+/** HUD 可选的观察窗口跨度;窗口推导(嗅探/慢写/信噪/Top Talkers)共用同一口径。 */
 export type ObserveWindowSpan = "15m" | "1h";
 
-/** 慢锁判据:写操作单次耗时超过该值视为潜在单写队列堵塞元凶(任务书 800ms 线)。 */
-export const OBSERVE_SLOW_LOCK_MS = 800,
+/** 慢写请求阈值:总耗时超过 800ms；不是持锁或队列等待测量。 */
+export const OBSERVE_SLOW_WRITE_MS = 800,
   /** 频密轮询判据:单方法在单个 10s 桶内的请求数折算速率超过该值(req/s)。 */
   OBSERVE_POLL_BURST_PER_SEC = 5,
   /** 失败毛刺判据:窗口期失败+缺口行占比超过该百分比。 */
@@ -77,25 +77,22 @@ export interface ObserveVolumeStat {
 }
 
 /**
- * 嗅探出的系统异味:value 的量纲随 kind 变化(slow_lock_holder→ms、spinloop_polling→
+ * 嗅探出的系统异味:value 的量纲随 kind 变化(slow_write_request→ms、spinloop_polling→
  * req/s、spike_failures→百分比),matchText 是点击下钻的检索词(方法名)。
  */
 export interface ObserveSmellStat {
-  readonly kind: "slow_lock_holder" | "spinloop_polling" | "spike_failures";
+  readonly kind: "slow_write_request" | "spinloop_polling" | "spike_failures";
   readonly label: string;
   readonly value: number;
   readonly matchText: string;
 }
 
-/** 单写锁争用压力:窗口内读写计数、慢写条数与最大并发重叠度(区间 [at-duration, at])。 */
-export interface ObserveContentionStat {
-  readonly level: "smooth" | "mild" | "contended";
+/** 窗口内请求计数；耗时无法证明锁争用。 */
+export interface ObserveWriteStat {
   readonly writeOps: number;
   readonly readOps: number;
-  /** 写占读写总数的百分比(无读写分类行时为 0)。 */
   readonly writePct: number;
   readonly slowWrites: number;
-  readonly overlap: number;
 }
 
 /** 信噪比:业务推进行 vs 机械巡检行的窗口计数与高价值信号占比(中性行不计入分母)。 */
@@ -112,10 +109,10 @@ export interface ObserveTalkerStat {
   readonly percentage: number;
 }
 
-/** 单窗口(15m/1h)的深层分析快照:嗅探、争用、信噪与 Top Talkers 同源同窗口。 */
+/** 单窗口(15m/1h)的深层分析快照:嗅探、慢写、信噪与 Top Talkers 同源同窗口。 */
 export interface ObserveWindowStats {
   readonly smells: readonly ObserveSmellStat[];
-  readonly contention: ObserveContentionStat;
+  readonly writes: ObserveWriteStat;
   readonly signal: ObserveSignalStat;
   readonly talkers: readonly ObserveTalkerStat[];
 }
@@ -127,12 +124,14 @@ export interface ObserveStats {
   /** 摄入总行数与异常总行数(含比桶窗口更老的行)。 */
   readonly total: number;
   readonly anomalies: number;
-  /** 全部耗时记录的整体分位点与最大值(无耗时记录时为 null)。 */
+  /** 执行请求耗时记录的整体分位点与最大值(无耗时记录时为 null)。 */
   readonly p50Ms: number | null;
   readonly p95Ms: number | null;
   readonly maxMs: number | null;
   /** 按 maxMs 降序的方法耗时聚合(慢操作排行)。 */
   readonly ops: readonly ObserveOpStat[];
+  /** 长等待单独统计，不计入执行耗时排行和分位。 */
+  readonly waits: readonly ObserveOpStat[];
   /** 按次数降序的命令/方法/事件调用量分布(带占比)。 */
   readonly volumes: readonly ObserveVolumeStat[];
   /** 按次数降序的异常聚类。 */
@@ -143,7 +142,7 @@ export interface ObserveStats {
     readonly methods: readonly ObserveLensValue[];
     readonly nodes: readonly ObserveLensValue[];
   };
-  /** 两个窗口跨度的深层分析快照(嗅探/争用/信噪/Top Talkers),展示层按 HUD 选窗取用。 */
+  /** 两个窗口跨度的深层分析快照(嗅探/慢写/信噪/Top Talkers),展示层按 HUD 选窗取用。 */
   readonly windows: { readonly "15m": ObserveWindowStats; readonly "1h": ObserveWindowStats };
 }
 
@@ -176,7 +175,7 @@ interface ObserveAnomalyMutable {
   sample: string;
 }
 
-/** 慢写记录(慢锁嗅探与争用重叠度的输入):完成时刻 atMs + 区间长度 durationMs。 */
+/** 慢写请求记录:日志时刻及请求总耗时，不推断区间或锁。 */
 interface ObserveSlowWrite {
   readonly method: string;
   readonly atMs: number;
@@ -193,9 +192,7 @@ interface ObserveFailure {
 const SLOW_WRITE_CAP = 512,
   FAILURE_CAP = 2_048,
   /** Top Talkers 排行长度。 */
-  TALKER_TOP = 5,
-  /** 争用密度判据:窗口内慢写折算 ≥0.5 条/分钟即视为繁忙(与重叠判据并联)。 */
-  CONTENDED_PER_MINUTE = 0.5;
+  TALKER_TOP = 5;
 
 const OVERHEAD_METHOD = /(status|ping|tail|poll|heartbeat|hello|probe)/,
   PROGRESS_EVENT = /^(task|fact|decision|review|doc|schedule|relation|execution)[-_]/;
@@ -211,22 +208,6 @@ function observeSignalKind(row: ObserveRow): "progress" | "overhead" | null {
   if (row.durationMs === null && row.ok === null && row.gapMarker === null && PROGRESS_EVENT.test(row.type))
     return "progress";
   return null;
-}
-
-/** 慢写区间的最大并发重叠度:事件扫描,同一时刻先出后进(端点相接不算重叠)。 */
-function maxOverlapOf(records: readonly ObserveSlowWrite[]): number {
-  const points: { readonly t: number; readonly d: number }[] = [];
-  for (const record of records) {
-    points.push({ t: record.atMs - record.durationMs, d: 1 }, { t: record.atMs, d: -1 });
-  }
-  points.sort((left, right) => left.t - right.t || left.d - right.d);
-  let active = 0,
-    peak = 0;
-  for (const point of points) {
-    active += point.d;
-    if (active > peak) peak = active;
-  }
-  return peak;
 }
 
 function bumpKeyBucket(indexed: Map<string, Map<number, number>>, key: string, bucketIndex: number): void {
@@ -263,6 +244,7 @@ export class ObserveStatsState {
     this.bucketOverhead,
   ];
   private readonly ops = new Map<string, ObserveOpMutable>();
+  private readonly waits = new Map<string, ObserveOpMutable>();
   private readonly types = new Map<string, number>();
   private readonly clusters = new Map<string, ObserveAnomalyMutable>();
   private readonly tasks = new Map<string, number>();
@@ -297,9 +279,10 @@ export class ObserveStatsState {
       if (this.failures.length > FAILURE_CAP) this.failures.splice(0, this.failures.length - FAILURE_CAP);
     }
     if (
+      row.type !== "repo.agentRuntime.sessions.await" &&
       row.opClass === "write" &&
       row.durationMs !== null &&
-      row.durationMs > OBSERVE_SLOW_LOCK_MS &&
+      row.durationMs > OBSERVE_SLOW_WRITE_MS &&
       row.atMs !== null
     ) {
       this.slowWrites.push({ method: row.type, atMs: row.atMs, durationMs: row.durationMs });
@@ -342,12 +325,13 @@ export class ObserveStatsState {
       p95Ms,
       maxMs: this.overallMaxMs,
       ops,
+      waits: [...this.waits].map(([method, op]) => ({ method, ...op })),
       volumes,
       clusters,
       lens: {
         tasks: topLens(this.tasks, "task"),
         sessions: topLens(this.sessions, "session"),
-        methods: topLens(new Map([...this.ops].map(([method, op]) => [method, op.count])), "method"),
+        methods: topLens(new Map([...this.ops, ...this.waits].map(([method, op]) => [method, op.count])), "method"),
         nodes: topLens(this.nodes, "node"),
       },
       windows: {
@@ -404,15 +388,18 @@ export class ObserveStatsState {
   }
 
   private ingestOp(method: string, durationMs: number): void {
-    let op = this.ops.get(method);
+    const waiting = method === "repo.agentRuntime.sessions.await",
+      target = waiting ? this.waits : this.ops;
+    let op = target.get(method);
     if (op === undefined) {
       op = { count: 0, maxMs: 0, durations: [] };
-      this.ops.set(method, op);
+      target.set(method, op);
     }
     op.count += 1;
     op.durations.push(durationMs);
-    this.durations.push(durationMs);
     if (durationMs > op.maxMs) op.maxMs = durationMs;
+    if (waiting) return;
+    this.durations.push(durationMs);
     if (this.overallMaxMs === null || durationMs > this.overallMaxMs) this.overallMaxMs = durationMs;
   }
 
@@ -475,10 +462,9 @@ export class ObserveStatsState {
       this.failures = this.failures.filter((record) => record.atMs >= floorMs);
   }
 
-  /** 单窗口深层分析:嗅探异味、锁争用、信噪比与 Top Talkers,全部只读窗口内数据。 */
+  /** 单窗口深层分析:嗅探异味、慢写请求、信噪比与 Top Talkers,全部只读窗口内数据。 */
   private deriveWindow(buckets: readonly ObserveTimeSlice[]): ObserveWindowStats {
-    const spanMs = buckets.length * OBSERVE_BUCKET_MS,
-      fromMs = buckets.length === 0 ? Number.POSITIVE_INFINITY : buckets[0]!.startMs,
+    const fromMs = buckets.length === 0 ? Number.POSITIVE_INFINITY : buckets[0]!.startMs,
       sums = buckets.reduce(
         (acc, bucket) => ({
           count: acc.count + bucket.count,
@@ -491,9 +477,6 @@ export class ObserveStatsState {
         { count: 0, anomalies: 0, writes: 0, reads: 0, signal: 0, overhead: 0 },
       ),
       slow = this.slowWrites.filter((record) => record.atMs >= fromMs),
-      overlap = maxOverlapOf(slow),
-      perMinute = spanMs > 0 ? (slow.length * 60_000) / spanMs : 0,
-      level = slow.length === 0 ? "smooth" : overlap >= 2 || perMinute >= CONTENDED_PER_MINUTE ? "contended" : "mild",
       classified = sums.writes + sums.reads,
       progressTotal = sums.signal + sums.overhead;
     const worstSlow = slow.reduce<ObserveSlowWrite | null>(
@@ -510,7 +493,7 @@ export class ObserveStatsState {
     const smells: ObserveSmellStat[] = [];
     if (worstSlow !== null)
       smells.push({
-        kind: "slow_lock_holder",
+        kind: "slow_write_request",
         label: worstSlow.method,
         value: worstSlow.durationMs,
         matchText: worstSlow.method,
@@ -533,13 +516,11 @@ export class ObserveStatsState {
     }
     return {
       smells,
-      contention: {
-        level,
+      writes: {
         writeOps: sums.writes,
         readOps: sums.reads,
         writePct: classified > 0 ? (sums.writes / classified) * 100 : 0,
         slowWrites: slow.length,
-        overlap,
       },
       signal: {
         progress: sums.signal,

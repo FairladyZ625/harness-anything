@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const assetRoot = path.resolve(import.meta.dirname, "..");
@@ -18,7 +18,8 @@ export async function run(expectedId) {
 async function waitAtTestBlocker() {
   const blocker = process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE;
   if (!blocker) return;
-  writeFileSync(`${blocker}.started`, `${process.pid}\n`, "utf8");
+  writeFileSync(`${blocker}.started.tmp`, `${process.pid}\n`, "utf8");
+  renameSync(`${blocker}.started.tmp`, `${blocker}.started`);
   while (existsSync(blocker)) await new Promise((resolve) => setTimeout(resolve, 10));
 }
 

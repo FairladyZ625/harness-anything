@@ -151,6 +151,7 @@ export function makeSquadCanonicalReader(input: {
       acceptedRevision: run.acceptedRevision,
       workerCallbackCount: run.workerCallbackCount,
       pendingLeaderCallbackCount: run.pendingLeaderCallbackCount,
+      ...(activePhase(run.phase) ? {} : { exitCode: run.phase === "converged" ? 0 : 1 }),
       summary: `squad-run ${run.squadId}: ${run.phase}`,
     } as unknown as JsonObject;
   }

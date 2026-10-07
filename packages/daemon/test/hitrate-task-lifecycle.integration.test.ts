@@ -59,7 +59,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
   });
   try {
     const created = await cell.run(
-      { kind: "task-create", taskId, title: "Lifecycle hit rate", presetId: "docs-task" },
+      { kind: "task-create", taskId, title: "Lifecycle hit rate", presetId: "standard-task" },
       holder,
     );
     assert.equal(created.outcome, "applied");
@@ -97,7 +97,14 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
       (pathToSubmit) => cell.run({ kind: "doc-submit", paths: [pathToSubmit] }, holder),
       "Lifecycle hit rate",
     );
-    const commitSha = git(rootDir, "rev-parse", "HEAD"),
+    const started = await cell.run({ kind: "task-start", taskId, executionId }, holder);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    // This lifecycle reconciles code: its cut comes from the repository-diff task's bound checkout.
+    const workerRoot = path.join(rootDir, ".worktrees", taskId);
+    writeFileSync(path.join(workerRoot, "README.md"), "# Lifecycle code delivery\n");
+    git(workerRoot, "add", "README.md");
+    git(workerRoot, "commit", "-qm", "test: lifecycle code delivery");
+    const commitSha = git(workerRoot, "rev-parse", "HEAD"),
       writeCloseout = (claim: string) =>
         writeFileSync(
           path.join(rootDir, "harness", closeoutPath),
@@ -108,8 +115,6 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     writeCloseout("Lifecycle behavior is implemented.");
     const synced = await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, holder);
     assert.equal(synced.outcome, "applied", JSON.stringify(synced));
-    const started = await cell.run({ kind: "task-start", taskId, executionId }, holder);
-    assert.equal(started.outcome, "applied", JSON.stringify(started));
     const events = () => makeTaskEventReader({ repoId, rootDir }).read().events,
       startedEvents = events().length,
       repeated = (await cell.run(
@@ -214,6 +219,8 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     assert.equal(submissionEvents.length, 2);
     const amendedPacket = submissionEvents[1]?.payload.execution.submission;
     assert.ok(amendedPacket);
+    assert.equal(amendedPacket.commitSha, commitSha);
+    assert.ok(amendedPacket.deliverables.includes("README.md"));
     assert.equal(amendedPacket.completionClaim, `Corrected lifecycle cut. Commit ${commitSha}.`);
     const initialSubmission = submissionEvents[0];
     if (initialSubmission?.type !== "execution_submitted" || !initialSubmission.payload.execution.submission)

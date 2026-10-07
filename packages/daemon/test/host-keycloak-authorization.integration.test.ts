@@ -1,10 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { connect } from "node:tls";
 import test from "node:test";
+import { fleetCenterConfigPath } from "../src/fleet-center-config.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
@@ -72,9 +74,30 @@ test("center start uses the signed-in person's authority repository permission w
     JSON.stringify({ schema: "harness-people/v1", people: [], roles: [] }),
   );
   await assert.rejects(host.fleet.startCenter(request, auth), { code: "authorization_denied" });
+  const configFile = fleetCenterConfigPath(userRoot, "s6-host-auth");
+  assert.equal(existsSync(configFile), false, "denied starts must not enable a listener");
   signInAt(userRoot, "person-admin");
   const result = await host.fleet.startCenter(request, auth);
   assert.equal(result.outcome, "applied");
   assert.ok(Number(result.port) > 0);
   assert.equal((result.authorizationDecision as { policyRef: string }).policyRef, "keycloak-policy@1");
+  const enabled = readFileSync(configFile, "utf8");
+  signInAt(userRoot, "person-other");
+  await assert.rejects(host.fleet.startCenter({ ...request, quotaBytes: 1024 }, auth), {
+    code: "authorization_denied",
+  });
+  assert.equal(readFileSync(configFile, "utf8"), enabled, "denied reconfiguration must not alter enabled intent");
+  await new Promise<void>((resolve, reject) => {
+    const socket = connect({
+      host: "127.0.0.1",
+      port: Number(result.port),
+      ca: readFileSync(certPath),
+      servername: "localhost",
+    });
+    socket.once("error", reject);
+    socket.once("secureConnect", () => {
+      socket.destroy();
+      resolve();
+    });
+  });
 });
