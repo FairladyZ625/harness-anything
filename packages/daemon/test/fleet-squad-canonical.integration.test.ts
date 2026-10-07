@@ -14,6 +14,8 @@ import {
 } from "../src/fleet/edge.ts";
 
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
+import { readTaskDispatches } from "../src/dispatch-read.ts";
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { squadRunObservation } from "../src/squad-observation.ts";
@@ -110,7 +112,22 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       };
     },
   });
-  const b = await fleetEdgeHostFixture(t, f, { name: "reader", nodeId: "node-two" });
+  let successorLaunches = 0;
+  const b = await fleetEdgeHostFixture(t, f, {
+    name: "reader",
+    nodeId: "node-two",
+    runtimeDiscover: () => [witness],
+    runtimeLaunch: () => {
+      successorLaunches += 1;
+      return {
+        pid: 90211,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+      };
+    },
+  });
   const instance = await a.host.runtimeInstance(
     "daemon.runtimeInstance.create",
     {
@@ -143,6 +160,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   );
   assert.equal(started.outcome, "completed", JSON.stringify(started));
   assert.equal(launches, 1);
+  assert.equal(successorLaunches, 0);
   const runId = String(started.squadRunId);
   const canonical = makeTaskEventReader({ repoId: "lease-repo", rootDir: f.repo }).read().events;
   const observed = canonical
@@ -306,6 +324,67 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     assert.notEqual(denied.outcome, "applied", JSON.stringify(denied));
     assert.match(JSON.stringify(denied), /execution_scope_mismatch/u);
   }
+  const initialDispatch = canonical.find(
+    (event) => event.type === "runtime_dispatch_requested" && event.payload.squadRun?.squadRunId === runId,
+  )!;
+  await assert.rejects(
+    runFleetRuntimeEventClient({
+      ...f.peer("node-one"),
+      eventType: "runtime_dispatch_requested",
+      opId: "obsolete-leader-continuation",
+      dispatchContext: {
+        role: initialDispatch.payload.role ?? null,
+        taskId,
+        executionId: observed.payload.executionId,
+      },
+      payload: {
+        ...initialDispatch.payload,
+        dispatchId: "dispatch_eeeeeeeeeeeeeeeeeeeeeeee",
+        runtimeSessionId: "runtime-obsolete-continuation",
+        idempotencyKey: "obsolete-leader-continuation",
+        squadRun: { squadRunId: runId, ownerDispatchId: observed.payload.ownerDispatchId, turnId: "leader-2" },
+      },
+    }),
+    /runtime_task_lease_required|execution_scope_mismatch/iu,
+  );
+  const bInstance = await b.host.runtimeInstance(
+    "daemon.runtimeInstance.create",
+    {
+      instanceId: "successor-runtime",
+      name: "Successor",
+      kindId: "codex",
+      installationId: "squad-install",
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      authMode: "subscription",
+    },
+    localAuthFixture(),
+  );
+  assert.equal(bInstance.outcome, "applied", JSON.stringify(bInstance));
+  const { schema: _bSchema, ...bConfiguration } = b.config;
+  const nextRun = await b.host.fleet.edgeRuntime(
+    {
+      ...bConfiguration,
+      workspaceRoot: b.edgeRoot,
+      method: "repo.squad.control",
+      action: {
+        kind: "squad-run",
+        squadId: "canonical-squad",
+        taskId,
+        runtimeInstanceId: "successor-runtime",
+        cwd: { scope: "repo-root" },
+      },
+    },
+    localAuthFixture(),
+  );
+  assert.equal(nextRun.outcome, "completed", JSON.stringify(nextRun));
+  assert.notEqual(nextRun.squadRunId, runId);
+  assert.equal(successorLaunches, 1, "the old run is not a permanent task reservation against the successor node");
+  assert.equal(
+    latestSquadStates(a.edgeRoot).get(runId)?.phase,
+    "leader_running",
+    "B's new run does not pretend A's old process stopped",
+  );
   await assert.rejects(observation(4), /execution|current/iu);
   await observation(4, { phase: "cancelled" });
   await assert.rejects(observation(5), /op_conflict/iu);
@@ -392,6 +471,13 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     "B reads the full accepted leader result without owner streams or center access",
   );
   assert.ok(answer.cut);
+  const dispatches = withEdgeReadModel(
+    { viewRoot: b.viewRoot, repoId: "lease-repo", principalId: "person-one" },
+    (projection) => readTaskDispatches({ projection, taskId }),
+  );
+  assert.equal(dispatches.dispatches.length, 2, "B reads both accepted runs while center is offline");
+  assert.ok(dispatches.dispatches.some((row) => row.executionId === observed.payload.executionId));
+  assert.ok(dispatches.dispatches.some((row) => row.executionId !== observed.payload.executionId));
   assert.equal(launches, 1);
   t.diagnostic(`A launch -> canonical observation ${observed.workspaceRevision} -> B offline status ${runId}`);
   await a.host.close();

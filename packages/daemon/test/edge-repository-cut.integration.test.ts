@@ -21,6 +21,8 @@ test("repository families survive real snapshot and delta update/delete with cen
       sessions: q.readRuntimeSessions().map(publicRuntimeSession),
       session: q.readRuntimeSession("runtime-1") ? publicRuntimeSession(q.readRuntimeSession("runtime-1")!) : null,
       taskSessions: q.readRuntimeSessionsForTask("task-1").map(publicRuntimeSession),
+      taskRuntimeBatch: q.readTaskRuntimeBatch({ taskIds: ["task-1"] }),
+      taskStatuses: q.readTaskStatuses(["task-1"]),
       sessionsPage: {
         ...q.readRuntimeSessionPage({ taskId: "task-1", limit: 1 }),
         rows: q.readRuntimeSessionPage({ taskId: "task-1", limit: 1 }).rows.map(publicRuntimeSession),

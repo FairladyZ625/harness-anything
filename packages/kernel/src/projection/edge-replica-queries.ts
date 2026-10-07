@@ -28,6 +28,8 @@ import {
   readTaskProgressRows,
   readTaskRelationPage,
   readTaskRelationsByTargets,
+  readTaskRuntimeBatchPage,
+  readTaskStatusRows,
 } from "./task-query-projection.ts";
 import { readDecisionRows } from "./decision-projection-reads.ts";
 import type { TaskProjectionQueries } from "./task-projection-port.ts";
@@ -105,6 +107,8 @@ export function makeEdgeReplicaQueries(source: EdgeReplicaQuerySource): EdgeRepl
       ...cut,
       rows: readTaskRelationsByTargets(db, targetRefs, relationType),
     }),
+    readTaskRuntimeBatch: (query) => ({ ...cut, ...readTaskRuntimeBatchPage(db, query) }),
+    readTaskStatuses: (taskIds) => ({ ...cut, rows: readTaskStatusRows(db, taskIds) }),
     readTaskChildCounts: (parentTaskIds) => readTaskChildCounts(db, parentTaskIds),
     getEntity: (entityKind, entityId) => getEntityProjectionRow(db, entityKind, entityId),
     readPresetSnapshot: (digest) => {
