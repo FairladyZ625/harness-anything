@@ -3,6 +3,22 @@ import { closeoutStatusWordRegister } from "./status-word-register-closeout.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
+  // dec_D8497012F42A999E054D7ADF6A CH1/CH2; unavailable reads carry an error instead.
+  {
+    word: "fresh",
+    entity: "WriteReceipt",
+    field: "freshness.state",
+    meaning: "The edge replica satisfies the configured revision or head-confirmation freshness budget.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "stale",
+    entity: "WriteReceipt",
+    field: "freshness.state",
+    meaning: "The edge replica remains readable but exceeds its configured freshness budget.",
+    divergence: "divergent",
+    resolution: "Replica data freshness, not runtime process liveness; scoped by the receipt freshness field.",
+  },
   // ---- CiTest.status (structured CI test observation) ----
   {
     word: "passed",

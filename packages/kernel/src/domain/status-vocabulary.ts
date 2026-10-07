@@ -77,6 +77,15 @@ import { statusWordRegister } from "./status-word-register.ts";
 export { statusWordRegister } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
+  // dec_D8497012F42A999E054D7ADF6A CH1/CH2: accepted edge-read freshness states.
+  {
+    id: "receipt.edgeFreshness",
+    entity: "WriteReceipt",
+    field: "freshness.state",
+    module: "packages/kernel/src/domain/receipt-domain-registry.ts",
+    anchor: "#state",
+    words: ["fresh", "stale"],
+  },
   {
     id: "receipt.acceptance",
     entity: "WriteReceipt",

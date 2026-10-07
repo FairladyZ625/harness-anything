@@ -287,7 +287,6 @@ export { makeEdgeReplicaQueries, type EdgeReplicaQueries } from "./projection/ed
 export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
 export { docByteLength } from "./domain/doc-sync-codec.ts";
 export type { DocumentState } from "./domain/doc-sync-types.ts";
-export { readTaskChildCounts, readTaskIndexRows } from "./projection/task-query-projection.ts";
 export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
 export type { TemplateCatalog, TemplateSelection } from "./schemas/registry.ts";
 export {
