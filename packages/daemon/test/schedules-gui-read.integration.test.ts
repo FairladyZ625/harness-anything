@@ -11,6 +11,7 @@ import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { registerDaemonRepo, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
@@ -109,17 +110,20 @@ test(
           endpoint: path.join(root, ".daemon", "daemon.sock"),
         },
         ...scheduleRuntimePorts(),
-        runtimeLaunch: () => ({
-          pid: 4501,
-          onOutput: (listener: (chunk: string) => void) => {
-            output = listener;
-          },
-          onErrorOutput: () => undefined,
-          onExit: (listener: (code: number | null) => void) => {
-            exit = listener;
-          },
-          terminate: () => undefined,
-        }),
+        runtimeLaunch: (_prepared, persistence) => {
+          appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: process.pid });
+          return {
+            pid: process.pid,
+            onOutput: (listener: (chunk: string) => void) => {
+              output = listener;
+            },
+            onErrorOutput: () => undefined,
+            onExit: (listener: (code: number | null) => void) => {
+              exit = listener;
+            },
+            terminate: () => undefined,
+          };
+        },
       });
       try {
         assert.equal(

@@ -9,6 +9,7 @@ import {
 } from "../../src/domain/schedule-event.ts";
 import { compileEntityPinEvent } from "../../src/domain/entity-pin-event.ts";
 import { createScheduleV1, type ScheduleV1 } from "../../src/domain/schedule.ts";
+import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -76,6 +77,7 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
       });
     }
 
+    assert.equal(taskProjectionSchemaVersion, 31);
     assert.equal(projection.readCut().status, "ready");
     const definition = projection.readDocument("schedules/schedule-heartbeat.json").document,
       row = projection.getEntity("schedule", "schedule-heartbeat"),
