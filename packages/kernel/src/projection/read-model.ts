@@ -1,3 +1,11 @@
+import {
+  createRepositoryReadModelTables,
+  readRepositoryReadModelRows,
+  repositoryReadModelPath,
+  applyRepositoryReadModelRow,
+  deleteRepositoryReadModelRow,
+  type RepositoryReadModelRow,
+} from "./read-model-repository.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { createDecisionProjectionTables } from "./decision-projection-schema.ts";
 import { createFactProjectionTables } from "./fact-event-projection.ts";
@@ -12,7 +20,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
  * from the same DDL so the center's own queries run unchanged on the edge. Documents are not
  * published here: they already ride the cut as ledger content entries.
  */
-export const READ_MODEL_SCHEMA_GENERATION = 2 as const;
+export const READ_MODEL_SCHEMA_GENERATION = 3 as const;
 export const READ_MODEL_META_PATH = ".read-model/meta.json";
 export const TASK_READ_MODEL_PREFIX = ".read-model/tasks/";
 const TASK_GENERATION_PREFIX = ".read-model/task-generation/";
@@ -103,6 +111,7 @@ export function createEdgeReadModelTables(db: DatabaseSync): void {
       LEASE_CAS_TABLES_SQL,
     ].join("\n"),
   );
+  createRepositoryReadModelTables(db);
   createRelationGraphProjectionTables(db);
   createTaskRelationProjectionTable(db);
   createDecisionProjectionTables(db);
@@ -228,6 +237,7 @@ export interface PresetSnapshotReadModelRow {
 }
 /** The center's own rows, published table by table; every table describes the same revision. */
 export interface EdgeReadModelRows {
+  readonly repository: readonly RepositoryReadModelRow[];
   readonly tasks: readonly TaskReadModelRow[];
   readonly taskGeneration: readonly TaskGenerationRow[];
   readonly taskProgress: readonly TaskProgressRow[];
@@ -417,6 +427,7 @@ export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
       valueJson: text(row, "value_json"),
     });
   return {
+    repository: readRepositoryReadModelRows(db),
     tasks: readTaskReadModelRows(db),
     taskGeneration: all(db, "SELECT task_id, generation FROM task_generation ORDER BY task_id").map((row) => ({
       taskId: text(row, "task_id"),
@@ -501,6 +512,7 @@ export function edgeReadModelEntries(model: {
       sourceRevision: model.sourceRevision,
       rootThreshold: model.rootThreshold,
     }),
+    ...model.rows.repository.map((row) => entry(repositoryReadModelPath(row), row)),
     ...model.rows.tasks.map((row) => entry(taskReadModelPath(pathSegment(row.taskId, "task id")), row)),
     ...model.rows.taskGeneration.map((row) =>
       entry(`${TASK_GENERATION_PREFIX}${pathSegment(row.taskId, "task id")}.json`, row),
@@ -587,6 +599,7 @@ const refreshTaskRelationsOf = (db: DatabaseSync, taskId: string): void => {
 /** Applies one published row file into the edge tables; the entry's path names its table and key. */
 export function applyEdgeReadModelEntry(db: DatabaseSync, entryPath: string, entryText: string): void {
   const row = parseEntry(entryText);
+  if (applyRepositoryReadModelRow(db, entryPath, row as unknown as RepositoryReadModelRow)) return;
   if (entryPath.startsWith(TASK_READ_MODEL_PREFIX)) {
     upsertTaskReadModelRow(db, entryText);
     return;
@@ -757,6 +770,7 @@ export function applyEdgeReadModelEntry(db: DatabaseSync, entryPath: string, ent
 
 /** Removes the row a published path described, re-deriving anything that was folded from it. */
 export function deleteEdgeReadModelEntry(db: DatabaseSync, entryPath: string): void {
+  if (deleteRepositoryReadModelRow(db, entryPath)) return;
   const key = (prefix: string): string => entryPath.slice(prefix.length, -".json".length);
   if (entryPath.startsWith(TASK_READ_MODEL_PREFIX)) {
     deleteTaskReadModelRow(db, key(TASK_READ_MODEL_PREFIX));

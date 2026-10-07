@@ -150,6 +150,7 @@ test("an existing cut receives its read model before a pull even without a new l
         decisions: [],
         facts: [],
         presetSnapshots: [],
+        repository: [],
       },
     };
     const reopened = open(model);

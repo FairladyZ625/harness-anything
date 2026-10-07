@@ -104,7 +104,16 @@ test(
 
     // 6. With the center gone, the edge still answers with the center's last answer.
     const current = await center("show-1");
+    const readSetTruth = await f.host.run(
+      "lease-repo",
+      { kind: "task-read-set", taskId: "show-1" } as never,
+      localAuthFixture(),
+    );
     await f.center.close();
+    const readSet = await e.command({ kind: "task-read-set", taskId: "show-1" });
+    assert.equal(readSet.outcome, "applied", JSON.stringify(readSet));
+    assert.deepEqual(JSON.parse(String(readSet.evidence)), JSON.parse(String(readSetTruth.evidence)));
+    assert.ok(readSet.cut, "task-read-set must be served from the replica cut");
     const offline = await local("show-1");
     assert.equal(offline.ok, true, JSON.stringify(offline));
     assert.deepEqual(JSON.parse(String(offline.evidence)), JSON.parse(String(current.evidence)));

@@ -1,6 +1,23 @@
+import { repositoryEventQueries } from "./repository-event-queries.ts";
+import {
+  readRuntimeInstallation,
+  readRuntimeInstallations,
+  readRuntimeSession,
+  readRuntimeSessionPage,
+  readRuntimeSessions,
+  readRuntimeSessionsForTask,
+  readIntervals,
+  effectiveLease,
+} from "./rebuildable-task-projection-runtime.ts";
+import { readSquadRun, readSquadRuns, squadRunProjectionReady } from "./rebuildable-task-projection-squad-runs.ts";
+import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { DocumentState } from "../domain/doc-sync-types.ts";
-import { getEntityProjectionRow } from "./rebuildable-task-projection-entities.ts";
+import {
+  getEntityProjectionRow,
+  listEntityProjectionRows,
+  listPinnedEntityRows,
+} from "./rebuildable-task-projection-entities.ts";
 import { presentSnapshot } from "./rebuildable-task-projection-reads.ts";
 import { readSnapshots } from "./rebuildable-task-projection-runtime.ts";
 import { emptyTaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
@@ -36,6 +53,22 @@ export function makeEdgeReplicaQueries(source: EdgeReplicaQuerySource): EdgeRepl
   const { db, cut } = source,
     now = source.now ?? (() => new Date().toISOString());
   const implemented = {
+    ...repositoryEventQueries((read) => read(db, cut)),
+    readCut: () => cut,
+    listEntities: (kind) => listEntityProjectionRows(db, kind),
+    listPinnedEntities: () => listPinnedEntityRows(db),
+    readRuntimeInstallation: (id) => readRuntimeInstallation(db, id),
+    readRuntimeInstallations: () => readRuntimeInstallations(db),
+    readRuntimeSession: (id) => readRuntimeSession(db, id),
+    readRuntimeSessions: () => readRuntimeSessions(db),
+    readRuntimeSessionsForTask: (id) => readRuntimeSessionsForTask(db, id),
+    readRuntimeSessionPage: (query) => readRuntimeSessionPage(db, query),
+    squadRunProjectionReady: () => squadRunProjectionReady(db),
+    readSquadRun: (id) => readSquadRun(db, id),
+    readSquadRuns: () => readSquadRuns(db),
+    readLeaseIntervals: (id) => readIntervals(db, id),
+    currentLease: (id, at) => effectiveLease(db, id, at ?? now()),
+    readEntityVersionWitness: (entityRef) => readEntityVersionWitness(db, entityRef),
     read: (taskId, presentationStatus) => {
       const stored = readSnapshots(db, [taskId], now()).get(taskId) ?? emptyTaskLifecycleSnapshot(),
         snapshot = presentationStatus ? presentSnapshot(stored, readTaskPresentationStatus(db, taskId)) : stored;
@@ -108,18 +141,7 @@ export function makeEdgeReplicaQueries(source: EdgeReplicaQuerySource): EdgeRepl
         sourceRevision: cut.sourceRevision,
       };
     },
-  } satisfies Pick<
-    TaskProjectionQueries,
-    | "read"
-    | "readProgress"
-    | "readTaskIndex"
-    | "readTaskChildCounts"
-    | "getEntity"
-    | "readPresetSnapshot"
-    | "readRelationQuery"
-    | "readDecisions"
-    | "readDocument"
-  >;
+  } satisfies Partial<TaskProjectionQueries>;
   const unavailable = (name: string): never => {
     throw Object.assign(new Error(`Replica read model does not materialize ${name}.`), {
       code: "replica_unavailable",
