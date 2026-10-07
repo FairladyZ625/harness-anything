@@ -12,6 +12,8 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { assertTaskDispatchPrerequisites } from "../src/task-dispatch-admission.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
+import { fixture as reviewFixture, taskId as upstreamTaskId } from "./task-completion-review.fixture.ts";
+
 const owner = withPolicyGroup(
   { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
   "admin",
@@ -148,4 +150,125 @@ test("stack start checks out the approved delivery and freezes that exact baseli
     )[0]!.state,
     "blocked",
   );
+});
+
+test("stacked integration submits and dispatches review for CEO merge-main and ordinary commits", async () => {
+  const f = await reviewFixture(false, true, false, false, false, undefined, {
+    autoSubmit: false,
+    autoForward: false,
+    create: { presetId: "standard-task" },
+  });
+  try {
+    const run = async (action: Record<string, unknown>) => {
+      const receipt = await f.run(action);
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      return receipt;
+    };
+    const stepsOf = (receipt: object) =>
+      (receipt as { dispatches: { outcome: string; dispatchId: string; runtimeSessionId: string }[] }).dispatches;
+    await f.cell().settlePendingMaterialization("upstream delivery");
+    const upstreamWorktree = path.join(f.root, ".worktrees", upstreamTaskId);
+    writeFileSync(path.join(upstreamWorktree, "upstream.txt"), "approved upstream contribution\n");
+    writeFileSync(path.join(upstreamWorktree, "README.md"), "# Reviewed delivery\n");
+    git(upstreamWorktree, "add", "upstream.txt", "README.md");
+    git(upstreamWorktree, "commit", "-qm", "test: upstream delivery");
+    await f.submit();
+    await f.install();
+    await f.forward();
+    const upstreamDispatch = stepsOf(await run({ kind: "task-dispatch-review", taskIds: [upstreamTaskId] }))[0]!;
+    const reviewId = `review-${upstreamDispatch.dispatchId}`;
+    assert.equal((await f.review(upstreamDispatch.runtimeSessionId, reviewId)).outcome, "applied");
+    assert.equal((await f.consent(reviewId)).outcome, "applied");
+    const upstreamSubmission = f.events().find((event) => event.type === "execution_submitted");
+    assert.ok(upstreamSubmission?.type === "execution_submitted");
+    const anchor = upstreamSubmission.payload.execution.submission!.commitSha!;
+    const integrationTaskId = "task_ceo_integration",
+      integrationExecutionId = "exe-ceo-integration";
+    const created = await run({ kind: "task-create", taskId: integrationTaskId, title: "CEO integration" });
+    const packagePath = String((created as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(f.root, packagePath, (planPath: string) =>
+      run({ kind: "doc-submit", paths: [planPath] }),
+    );
+    await run({
+      kind: "relation-relate",
+      sourceRef: `task/${integrationTaskId}`,
+      targetRef: `task/${upstreamTaskId}`,
+      relationType: "depends-on",
+      rationale: "Integrate the approved upstream cut",
+      expectedVersion: 0,
+    });
+    await f.cell().settlePendingMaterialization("CEO main advance");
+    // The cell's canonical main also publishes its ledger; model public main in a separate checkout.
+    const mainWorktree = path.join(f.root, ".worktrees", "public-main");
+    git(f.root, "worktree", "add", "-qb", "public-main", mainWorktree, "origin/main");
+    writeFileSync(path.join(mainWorktree, "main.txt"), "main contribution\n");
+    git(mainWorktree, "add", "main.txt");
+    git(mainWorktree, "commit", "-qm", "test: main advances");
+    git(f.root, "update-ref", "refs/remotes/origin/main", git(mainWorktree, "rev-parse", "HEAD"));
+    await run({
+      kind: "task-start",
+      taskId: integrationTaskId,
+      executionId: integrationExecutionId,
+      stackOn: upstreamTaskId,
+    });
+    const worktree = path.join(f.root, ".worktrees", integrationTaskId);
+    assert.equal(git(worktree, "rev-parse", "HEAD"), anchor);
+    git(worktree, "merge", "--no-ff", "origin/main", "-m", "test: CEO merges main");
+    const mergeSha = git(worktree, "rev-parse", "HEAD");
+    writeFileSync(path.join(worktree, "ceo.txt"), "CEO integration contribution\n");
+    git(worktree, "add", "ceo.txt");
+    git(worktree, "commit", "-qm", "test: CEO integration commit");
+    const delivery = git(worktree, "rev-parse", "HEAD");
+    writeFileSync(
+      path.join(f.root, "harness", packagePath, "closeout.md"),
+      `# Closeout\n\n## Summary\n\nDelivery ${delivery}.\n\n## Verification\n\nCEO commits checked.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nChecked.\n`,
+    );
+    await run({ kind: "task-submit", taskId: integrationTaskId, executionId: integrationExecutionId });
+    const submitted = f
+      .events()
+      .find((event) => event.type === "execution_submitted" && event.taskId === integrationTaskId);
+    assert.ok(submitted?.type === "execution_submitted");
+    const execution = submitted.payload.execution;
+    assert.equal(execution.deliveryBaseline?.kind, "commit");
+    assert.equal(execution.deliveryBaseline?.kind === "commit" && execution.deliveryBaseline.commitSha, anchor);
+    assert.equal(execution.submission!.commitSha, delivery);
+    assert.deepEqual(
+      execution.submission!.deliverables,
+      ["ceo.txt", "main.txt"],
+      "submission must include the CEO merge-main contribution",
+    );
+    await run({
+      kind: "task-adjudicate",
+      taskId: integrationTaskId,
+      executionId: integrationExecutionId,
+      forward: true,
+      reason: "Review all CEO integration commits.",
+    });
+    const dispatch = stepsOf(await run({ kind: "task-dispatch-review", taskIds: [integrationTaskId] }))[0]!;
+    assert.equal(dispatch.outcome, "already_dispatched");
+    const prompt = f.launches.at(-1)!.prompt;
+    assert.ok(prompt.includes(JSON.stringify(execution.deliveryBaseline)));
+    assert.ok(prompt.includes(JSON.stringify(execution.submission)));
+    assert.ok(prompt.includes(`artifacts/reports/${dispatch.dispatchId}.md`));
+    assert.deepEqual(git(worktree, "rev-list", "--first-parent", `${anchor}..${delivery}`).split("\n"), [
+      delivery,
+      mergeSha,
+    ]);
+    assert.deepEqual(
+      git(worktree, "diff", "--name-only", anchor, delivery).split("\n"),
+      execution.submission!.deliverables,
+    );
+    // Moving default main to the delivered cut must not shrink the frozen manifest on amend.
+    git(f.root, "update-ref", "refs/remotes/origin/main", delivery);
+    await run({ kind: "task-submit", taskId: integrationTaskId, executionId: integrationExecutionId, amend: true });
+    const amended = f
+      .events()
+      .filter((event) => event.type === "execution_submitted" && event.taskId === integrationTaskId)
+      .at(-1);
+    assert.ok(amended?.type === "execution_submitted");
+    assert.deepEqual(amended.payload.execution.submission!.deliverables, execution.submission!.deliverables);
+    assert.equal(f.launches.length, 2, "unchanged cut reuses the review dispatch");
+  } finally {
+    await f.close();
+  }
 });
