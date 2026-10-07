@@ -172,7 +172,6 @@
    "packages/daemon/src/runtime-worker-acp.ts#send",
    "packages/daemon/src/runtime-worker-host.ts#appendProviderLine",
    "packages/daemon/src/runtime.ts#settleTeardownStep",
-   "packages/daemon/src/schedule-runs-read.ts#reportTextOf",
    "packages/daemon/src/schedule-scheduler.ts#applyMissed",
    "packages/daemon/src/schedule-scheduler.ts#evaluationPlan",
    "packages/daemon/src/schedule-scheduler.ts#tick",
