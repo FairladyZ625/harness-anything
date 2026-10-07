@@ -6,6 +6,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { recordHeadConfirmation } from "../src/fleet/replica-read-model.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
 import { makeTaskEventReader, sha256Text } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
@@ -39,6 +40,25 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       throw new Error("Center must not launch Squad processes");
     },
   });
+  const vertical = await f.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, localAuthFixture());
+  assert.equal(vertical.outcome, "applied", JSON.stringify(vertical));
+  const schedule = await f.host.run(
+    "lease-repo",
+    {
+      kind: "schedule-create",
+      scheduleId: "s5c-offline-schedule",
+      name: "Offline read witness",
+      mode: "detect",
+      cronExpression: "17 3 * * *",
+      timezone: "UTC",
+      builtinId: "ledger-backup",
+      systemPresetId: "ledger-backup",
+      mission: "Read the accepted schedule history from B.",
+      idempotencyKey: "s5c-offline-schedule",
+    },
+    localAuthFixture(),
+  );
+  assert.equal(schedule.outcome, "applied", JSON.stringify(schedule));
   await f.host.runtimeInstance(
     "daemon.runtimeInstance.create",
     {
@@ -487,8 +507,6 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
   const dispatches = parseDaemonGuiReadResult("repo.task.dispatches", response.result);
   assert.equal(connections.mock.callCount(), 0, "GUI read makes zero TLS calls to center");
-  connections.mock.restore();
-  syncBuiltinESMExports();
   assert.equal(dispatches.freshness?.state, "stale");
   assert.match(dispatches.warning ?? "", /可能过期/u);
   assert.ok(dispatches.cut);
@@ -496,11 +514,75 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   assert.equal(dispatches.dispatches.length, 2, "B reads both accepted runs while center is offline");
   assert.ok(dispatches.dispatches.some((row) => row.executionId === observed.payload.executionId));
   assert.ok(dispatches.dispatches.some((row) => row.executionId !== observed.payload.executionId));
+  const offlineReads = [
+    ["repo.tasks.list", {}],
+    ["repo.works.index", {}],
+    ["repo.workspace.summary.read", {}],
+    ["repo.settings.read", {}],
+    ["repo.projection.read", { name: "runtime-session-groups", groupBy: "task" }],
+    ["repo.projection.read", { name: "schedule-plane" }],
+    ["repo.projection.read", { name: "schedule-run-history", scheduleId: "s5c-offline-schedule" }],
+    ["repo.agentRuntime.overview", { taskId }],
+    ["repo.agentRuntime.sessions.read", { runtimeSessionId: leaderSession }],
+    ["repo.agentRuntime.events.read", { runtimeSessionId: leaderSession, afterCursor: "lifecycle:0" }],
+    ["repo.agentRuntime.tokenUsage", { range: "today" }],
+    ["repo.agentRuntime.tokenUsageDetail", { agentId: "squad-leader", range: "today" }],
+    ["repo.squad.runs.list", {}],
+    ["repo.tasks.wip", {}],
+    ["repo.squad.run.read", { squadRunId: runId }],
+    ["repo.agent.entities.list", {}],
+    ["repo.agent.entity.read", { agentId: "squad-leader" }],
+    ["repo.squad.entities.list", {}],
+    ["repo.squad.entity.read", { squadId: "canonical-squad" }],
+    ["repo.decisions.list", { projection: "summary" }],
+    ["repo.agenda.read", {}],
+    ["repo.triadic.relationGraph", { facet: "edges" }],
+    ["repo.triadic.relationGraph", { facet: "facts" }],
+    ["repo.entity.kinds.read", {}],
+    ["repo.entity.rows.read", {}],
+    ["repo.vertical.declaration.read", {}],
+    ["repo.tasks.completion.read", { taskId }],
+    ["repo.tasks.document.read", { taskId, path: "task_plan.md" }],
+  ] as const;
+  const readFailures: unknown[] = [];
+  for (const [method, payload] of offlineReads) {
+    const read = await b.rpc.handle({
+      jsonrpc: "2.0",
+      id: 1002,
+      method,
+      params: { repo: { repoId: "lease-repo" }, ...(daemonMethodAcceptsPayload(method) ? { payload } : {}) },
+    });
+    assert.ok(read && !Array.isArray(read) && "result" in read, JSON.stringify(read));
+    if ((read.result as { ok?: boolean }).ok === false) {
+      readFailures.push({ method, result: read.result });
+      continue;
+    }
+    const data = parseDaemonGuiReadResult(method, read.result);
+    assert.equal(data.freshness?.state, "stale", `${method}: ${JSON.stringify(data)}`);
+    assert.equal(data.cut?.revision, view.revision, method);
+  }
+  assert.deepEqual(readFailures, [], JSON.stringify(readFailures, null, 2));
+  for (const method of [
+    "repo.gui.catalog.snapshot",
+    "repo.fleet.overview.read",
+    "repo.workspace.scope.read",
+    "repo.tasks.documents.list",
+  ] as const) {
+    await assert.rejects(b.host.read("lease-repo", method, { taskId, rootTaskId: taskId }, localAuthFixture()), {
+      code: "replica_unavailable",
+    });
+  }
+  t.diagnostic(
+    `B offline GUI shared-query families=${offlineReads.length}; missing queries explicitly replica_unavailable`,
+  );
   b.signIn("person-other");
   await assert.rejects(b.host.read("lease-repo", "repo.task.dispatches", { taskId }, localAuthFixture()), {
     code: "authorization_denied",
   });
   b.signIn("person-one");
+  assert.equal(connections.mock.callCount(), 0, "all GUI read families make zero TLS calls to center");
+  connections.mock.restore();
+  syncBuiltinESMExports();
   t.diagnostic(
     `B GUI RPC offline dispatches=${dispatches.dispatches.length} freshness=${dispatches.freshness!.state} center TLS calls=0 owner mismatch=authorization_denied`,
   );

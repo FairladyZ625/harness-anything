@@ -101,31 +101,42 @@ export function listProjection(
         warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
       };
     }
-    const page = listTaskRowsNarrow(db, query),
-      snapshots = readSnapshots(
-        db,
-        page.rows.map((row) => row.task_id),
-        at,
-      );
-    return {
-      status: cut.status,
-      rows: page.rows.map((row) => ({
-        taskId: row.task_id,
-        packagePath: row.package_path,
-        generation: row.generation,
-        workspaceRevision: row.workspace_revision,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        snapshot: query.presentationStatus
-          ? presentSnapshot(snapshots.get(row.task_id)!, row.presentation_status)
-          : snapshots.get(row.task_id)!,
-      })),
-      watermark: cut.watermark,
-      sourceRevision: cut.sourceRevision,
-      warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
-      ...(page.page ? { page: page.page } : {}),
-    };
+    return readTaskListAtCut(db, cut, at, query, !existed && cut.sourceRevision > 0 ? ["projection_missing"] : []);
   });
+}
+
+/** Shared narrow task-list query for center sessions and authorized edge cuts. */
+export function readTaskListAtCut(
+  db: DatabaseSync,
+  cut: Pick<TaskProjectionListRead, "status" | "watermark" | "sourceRevision">,
+  at: string,
+  query: TaskProjectionListQuery = {},
+  warnings: TaskProjectionListRead["warnings"] = [],
+): TaskProjectionListRead {
+  const page = listTaskRowsNarrow(db, query),
+    snapshots = readSnapshots(
+      db,
+      page.rows.map((row) => row.task_id),
+      at,
+    );
+  return {
+    status: cut.status,
+    rows: page.rows.map((row) => ({
+      taskId: row.task_id,
+      packagePath: row.package_path,
+      generation: row.generation,
+      workspaceRevision: row.workspace_revision,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      snapshot: query.presentationStatus
+        ? presentSnapshot(snapshots.get(row.task_id)!, row.presentation_status)
+        : snapshots.get(row.task_id)!,
+    })),
+    watermark: cut.watermark,
+    sourceRevision: cut.sourceRevision,
+    warnings,
+    ...(page.page ? { page: page.page } : {}),
+  };
 }
 
 export function readDocument(

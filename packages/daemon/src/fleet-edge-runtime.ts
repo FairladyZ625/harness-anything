@@ -372,7 +372,12 @@ export function openFleetEdgeRuntime(input: {
     resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
     resolveSquadDispatch: (squadId, leaderId, workerId, binding) =>
       withEdgeReadModel(
-        { viewRoot: request.viewRoot, repoId: request.repoId, principalId: binding.actor.principal.personId },
+        {
+          viewRoot: request.viewRoot,
+          repoId: request.repoId,
+          nodeId: request.nodeId,
+          principalId: binding.actor.principal.personId,
+        },
         (projection) =>
           resolveSquadDispatch({
             rootDir: request.workspaceRoot,
@@ -448,7 +453,7 @@ export function openFleetEdgeRuntime(input: {
     controlBinding: edgeBinding(request),
     sync: syncScheduleMirror,
     readWorktreeSetup: () => readSettings().worktree.setup,
-    readResult: (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, ref),
+    readResult: (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref),
   });
   // Adoption is shared by concurrent requests, but a failed connection must not become a
   // permanent property of the cached edge runtime.  The daemon keeps one runtime per

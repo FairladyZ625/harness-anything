@@ -83,7 +83,7 @@ export function repositoryCutFixture(t: TestContext) {
       await source.waitForCut(revision);
     },
     read: <T>(query: (projection: TaskProjectionQueries) => T, principalId = "owner") =>
-      withEdgeReadModel({ viewRoot, repoId: "families", principalId }, query),
+      withEdgeReadModel({ viewRoot, repoId: "families", nodeId: "edge", principalId }, query),
     transfer: async (kind: "snapshot" | "delta", omitBlob?: string) => {
       const cut = source.activate();
       assert.ok(cut);

@@ -187,7 +187,7 @@ test("runtime result CAS shares the snapshot and delta cut, rejects missing bloc
     )
     .run(ref(sha));
   await f.transfer("snapshot");
-  assert.equal(readEdgeRuntimeResult(f.viewRoot, "families", ref(sha)), first.toString());
+  assert.equal(readEdgeRuntimeResult(f.viewRoot, "families", "edge", ref(sha)), first.toString());
   const frozen = f.source.latest()!;
   assert.deepEqual(f.source.activate(), frozen, "activating the same accepted cut never replaces its manifest");
   await f.next();
@@ -204,13 +204,16 @@ test("runtime result CAS shares the snapshot and delta cut, rejects missing bloc
   await f.next();
   await assert.rejects(f.transfer("delta", sha2), /transfer blob missing/u);
   assert.equal(
-    readEdgeRuntimeResult(f.viewRoot, "families", ref(sha)),
+    readEdgeRuntimeResult(f.viewRoot, "families", "edge", ref(sha)),
     first.toString(),
     "incomplete transfer cannot switch current",
   );
   await f.transfer("delta");
-  assert.equal(readEdgeRuntimeResult(f.viewRoot, "families", ref(sha2)), second.toString());
-  assert.throws(() => readEdgeRuntimeResult(f.viewRoot, "families", ref(sha)), /not present in the current cut/u);
+  assert.equal(readEdgeRuntimeResult(f.viewRoot, "families", "edge", ref(sha2)), second.toString());
+  assert.throws(
+    () => readEdgeRuntimeResult(f.viewRoot, "families", "edge", ref(sha)),
+    /not present in the current cut/u,
+  );
   const oldCas = path.join(f.viewRoot, "repos", "families", "cas", "sha256", sha.slice(0, 2), sha);
   assert.equal(
     readFileSync(oldCas).toString(),
@@ -221,7 +224,7 @@ test("runtime result CAS shares the snapshot and delta cut, rejects missing bloc
   f.db.exec("UPDATE runtime_session SET value_json = json_remove(value_json, '$.resultRef')");
   await f.next();
   await f.transfer("delta");
-  assert.throws(() => readEdgeRuntimeResult(f.viewRoot, "families", ref(sha2)), /not present/u);
+  assert.throws(() => readEdgeRuntimeResult(f.viewRoot, "families", "edge", ref(sha2)), /not present/u);
   assert.equal(existsSync(oldCas), false, "edge GC can delete bytes after the last referencing cut is retired");
   for (let i = 0; i < 61; i++) await f.next();
   assert.equal(f.source.cut(100), null);

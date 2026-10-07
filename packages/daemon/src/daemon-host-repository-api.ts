@@ -602,7 +602,9 @@ export function createDaemonHostRepositoryApi(
         );
         // An edge read is authorized by the replica's owner digest inside the edge read session.
         const edgeRead =
-          "repositoryRead" in command && command.repositoryRead === true && cell.status().mode === "remote-edge";
+          command.admission["remote-edge"] === "edge-replica" &&
+          command.repoCellExecution === "query-only" &&
+          cell.status().mode === "remote-edge";
         if (
           !edgeRead &&
           (("repositoryRead" in command && command.repositoryRead === true) ||
@@ -696,7 +698,7 @@ export function createDaemonHostRepositoryApi(
     read: async (repoId, method, payload, auth) => {
       const repositoryRead = repositoryReadDescriptor(method, payload);
       const edge =
-        method.startsWith("repo.") &&
+        (method.startsWith("repo.") || (method === "observe.tail" && payload.kind === "events")) &&
         method !== "repo.terminal.sessions.list" &&
         method !== "repo.agent.skills.list" &&
         readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(

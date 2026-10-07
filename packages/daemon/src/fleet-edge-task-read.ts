@@ -28,6 +28,7 @@ export interface EdgeReadCut {
 export interface EdgeTaskReadInput {
   readonly viewRoot: string;
   readonly repoId: string;
+  readonly nodeId: string;
   readonly writeReadWaitMs?: number;
   readonly minCut?: EdgeReadCut;
   readonly action: Readonly<Record<string, unknown>>;
@@ -40,6 +41,7 @@ export function withEdgeReadModel<T>(
   input: {
     readonly viewRoot: string;
     readonly repoId: string;
+    readonly nodeId: string;
     readonly principalId: string | undefined;
     readonly maxAgeMs?: number;
     readonly maxLagRevisions?: number;
@@ -47,7 +49,7 @@ export function withEdgeReadModel<T>(
   read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
   now: () => number = Date.now,
 ): T {
-  const view = locateFleetMirrorView(input.viewRoot, input.repoId);
+  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
   if (!view || isReadDenied(view.viewDir))
     throw new EdgeReadError("replica_unavailable", "The edge read model is unavailable.");
   const model = openEdgeReadModel(view, path.join(input.viewRoot, "repos", input.repoId, "cas", "sha256"));
@@ -168,7 +170,7 @@ async function waitForMinimumCut(input: EdgeTaskReadInput): Promise<boolean> {
   const target = input.minCut!;
   // A denied view ends the wait: the denial, not a pending write, is the read's answer.
   const reached = (): boolean => {
-    const view = locateFleetMirrorView(input.viewRoot, input.repoId);
+    const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
     return Boolean(
       view &&
         (isReadDenied(view.viewDir) ||
@@ -177,7 +179,7 @@ async function waitForMinimumCut(input: EdgeTaskReadInput): Promise<boolean> {
     );
   };
   if (reached()) return true;
-  const view = locateFleetMirrorView(input.viewRoot, input.repoId);
+  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
   if (!view) return false;
   const timeoutMs = Math.max(0, input.writeReadWaitMs ?? DEFAULT_WRITE_READ_WAIT_MS);
   if (timeoutMs === 0) return false;
@@ -219,14 +221,14 @@ export async function readEdgeRepository(
       consumeKnownError(error);
     }
   }
-  const view = locateFleetMirrorView(input.viewRoot, input.repoId);
+  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
   if (view && isReadDenied(view.viewDir)) return edgeReadDeniedReceipt(command);
   if (!edgeReadModelPresent(input)) return edgeReadUnavailableReceipt(command);
   return readLocal();
 }
 
 function edgeReadModelPresent(input: EdgeTaskReadInput): boolean {
-  const view = locateFleetMirrorView(input.viewRoot, input.repoId);
+  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
   if (!view || isReadDenied(view.viewDir)) return false;
   const model = openEdgeReadModel(view, path.join(input.viewRoot, "repos", input.repoId, "cas", "sha256"));
   model?.db.close();

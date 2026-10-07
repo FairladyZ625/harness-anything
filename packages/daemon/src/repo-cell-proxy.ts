@@ -162,7 +162,7 @@ export async function openRepoCellProxy(
         if (input.mode === "remote-edge" && property === "readContentBlob") {
           const config = readFleetEdgeConfig(input.rootDir);
           if (!config) throw cellCodedError("replica_unavailable", "Edge configuration is missing.");
-          return (sha256: string) => readEdgeRuntimeResultBytes(config.viewRoot, input.repoId, sha256);
+          return (sha256: string) => readEdgeRuntimeResultBytes(config.viewRoot, input.repoId, config.nodeId, sha256);
         }
         const store = ledgerReadStore(),
           value: unknown = Reflect.get(store, property, store);
@@ -224,6 +224,7 @@ export async function openRepoCellProxy(
       {
         viewRoot: edgeConfig.viewRoot,
         repoId: input.repoId,
+        nodeId: edgeConfig.nodeId,
         principalId: binding?.actor.principal.personId,
         ...(edgeConfig.maxAgeMs === undefined ? {} : { maxAgeMs: edgeConfig.maxAgeMs }),
         ...(edgeConfig.maxLagRevisions === undefined ? {} : { maxLagRevisions: edgeConfig.maxLagRevisions }),
@@ -441,9 +442,6 @@ export async function openRepoCellProxy(
           input.mode === "remote-edge" &&
           commandDescriptorForAction(action.kind).admission["remote-edge"] === "edge-replica"
         ) {
-          // An edge's own projection is not the ledger: without a Fleet replica there is no answer.
-          if (edgeConfig === null)
-            throw cellCodedError("repo_mode_read_only", "This edge has no Fleet center configuration to read from.");
           return edgeReplicaRun(action, binding);
         }
         return query((projection) => runReadAtCut(projection, action, binding));

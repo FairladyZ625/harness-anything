@@ -86,13 +86,18 @@ export class FleetEdgeTaskError extends Error {
 type EdgeWriteCut = { readonly revision: number; readonly headDigest: string };
 const recentAppliedCuts = new Map<string, EdgeWriteCut>();
 
-function edgeReadStateKey(viewRoot: string, repoId: string): string {
-  return `${viewRoot}\u0000${repoId}`;
+function edgeReadStateKey(viewRoot: string, repoId: string, nodeId: string): string {
+  return `${viewRoot}\u0000${repoId}\u0000${nodeId}`;
 }
 
-function rememberAppliedCut(viewRoot: string, repoId: string, cut: EdgeWriteCut | null | undefined): void {
+function rememberAppliedCut(
+  viewRoot: string,
+  repoId: string,
+  nodeId: string,
+  cut: EdgeWriteCut | null | undefined,
+): void {
   if (!cut || !Number.isSafeInteger(cut.revision) || typeof cut.headDigest !== "string") return;
-  const key = edgeReadStateKey(viewRoot, repoId),
+  const key = edgeReadStateKey(viewRoot, repoId, nodeId),
     previous = recentAppliedCuts.get(key);
   if (!previous || cut.revision >= previous.revision) recentAppliedCuts.set(key, cut);
 }
@@ -141,9 +146,15 @@ export async function runFleetEdgeRepositoryRead(
   readLocal: () => Promise<Record<string, unknown>>,
 ): Promise<Record<string, unknown>> {
   const payload = input.payload,
-    minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId));
+    minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId, payload.nodeId));
   return readEdgeRepository(
-    { viewRoot: payload.viewRoot, repoId: payload.repoId, action: payload.action, ...(minCut ? { minCut } : {}) },
+    {
+      viewRoot: payload.viewRoot,
+      repoId: payload.repoId,
+      nodeId: payload.nodeId,
+      action: payload.action,
+      ...(minCut ? { minCut } : {}),
+    },
     () =>
       runFleetReplicaPullClient({
         hostname: payload.host,
@@ -416,7 +427,7 @@ export async function runFleetEdgeTask(
       }
     }
     const receipt = result.receipt ?? { outcome: result.outcome, code: result.code };
-    if (applied) rememberAppliedCut(payload.viewRoot, payload.repoId, result.appliedCut);
+    if (applied) rememberAppliedCut(payload.viewRoot, payload.repoId, payload.nodeId, result.appliedCut);
     const ok = applied && (mirror === null || mirror.outcome !== "pull_blocked");
     return {
       schema: "command-receipt/v2",

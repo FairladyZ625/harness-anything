@@ -128,6 +128,7 @@ test("an edge read that cannot reach its own write cut in time says so without r
   const answer = await readEdgeRepository(
     {
       viewRoot: "/nonexistent-edge-view",
+      nodeId: "node-one",
       repoId: "lease-repo",
       minCut: { revision: 10, headDigest: `sha256:${"f".repeat(64)}` },
       writeReadWaitMs: 5,

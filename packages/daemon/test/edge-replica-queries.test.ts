@@ -8,7 +8,7 @@ test("a projection method the edge replica does not materialize is unavailable, 
   const db = new DatabaseSync(":memory:");
   try {
     const queries = makeEdgeReplicaQueries({ db, cut: { status: "ready", watermark: 1, sourceRevision: 1 } });
-    for (const read of [() => queries.readCanonicalEvents(0, 1), () => queries.list()])
+    for (const read of [() => queries.readCanonicalEvents(0, 1), () => queries.readReplicaBasis(null)])
       assert.throws(read, (error: { code?: string }) => error.code === "replica_unavailable");
   } finally {
     db.close();

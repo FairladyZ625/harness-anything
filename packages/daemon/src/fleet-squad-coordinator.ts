@@ -22,8 +22,9 @@ export function makeFleetSquadCoordinator(input: {
   const { request } = input;
   let principalId: string | undefined;
   const query = <T>(read: (projection: TaskProjection) => T): T =>
-    withEdgeReadModel({ viewRoot: request.viewRoot, repoId: request.repoId, principalId }, (projection) =>
-      read(projection as TaskProjection),
+    withEdgeReadModel(
+      { viewRoot: request.viewRoot, repoId: request.repoId, nodeId: request.nodeId, principalId },
+      (projection) => read(projection as TaskProjection),
     );
   const command = async (action: Record<string, unknown> & { kind: string }): Promise<JsonObject> => {
     const receipt = await runFleetEdgeTask({ payload: { ...request, workspaceRoot: request.workspaceRoot, action } });

@@ -252,13 +252,13 @@ for (const restart of [false, true])
     });
     await restoredCenter.close();
     const result = withEdgeReadModel(
-      { viewRoot: observerRoot, repoId: subject.repoId, principalId: "person-owner" },
+      { viewRoot: observerRoot, repoId: subject.repoId, nodeId: "node-two", principalId: "person-owner" },
       (projection) =>
         readScheduleRuns(
           {
             projection,
             store: {
-              readContentBlob: (sha) => readEdgeRuntimeResultBytes(observerRoot, subject.repoId, sha),
+              readContentBlob: (sha) => readEdgeRuntimeResultBytes(observerRoot, subject.repoId, "node-two", sha),
             },
           },
           scheduleId,
