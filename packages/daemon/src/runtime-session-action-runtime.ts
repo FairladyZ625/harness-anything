@@ -17,7 +17,6 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
       dispatchSource = dispatch?.source,
       ingressSource = binding.source,
       localOwner = dispatchSource === "local" && ingressSource === "local";
-    requireRuntimeDispatchOwner(dispatch, binding);
     if (!localOwner) {
       if (
         !dispatch ||

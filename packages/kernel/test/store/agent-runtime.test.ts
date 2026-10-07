@@ -252,7 +252,7 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
   });
 });
 
-test("projection reopen and rebuild project nonterminal sessions unknown before reads without growing the canonical log", async () => {
+test("projection reopen and rebuild preserve accepted session observations without growing the canonical log", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const store = makeTaskEventStore({ repoId: "test-repo", rootDir }),
@@ -277,15 +277,15 @@ test("projection reopen and rebuild project nonterminal sessions unknown before 
     assert.equal(original.readRuntimeSession("runtime-session-exited")?.liveness, "exited");
     const before = store.read().revision;
     const reopened = makeTaskProjection({ rootDir, eventStore: store });
-    assert.deepEqual(runtimeState(reopened, "runtime-session-claude"), { liveness: "unknown", attachable: false });
+    assert.deepEqual(runtimeState(reopened, "runtime-session-claude"), { liveness: "live", attachable: false });
     assert.deepEqual(runtimeState(reopened, "runtime-session-exited"), { liveness: "exited", attachable: false });
     assert.equal(store.read().revision, before);
     const rebuilt = reopened.rebuild();
     assert.equal(rebuilt.metrics.sqliteTransactions, 2);
-    assert.deepEqual(runtimeState(reopened, "runtime-session-claude"), { liveness: "unknown", attachable: false });
+    assert.deepEqual(runtimeState(reopened, "runtime-session-claude"), { liveness: "live", attachable: false });
     assert.deepEqual(runtimeState(reopened, "runtime-session-exited"), { liveness: "exited", attachable: false });
     assert.equal(store.read().revision, before);
-    assert.equal(reopened.getEntity("runtime-session", "runtime-session-claude")?.value.semanticState, "unavailable");
+    assert.equal(reopened.getEntity("runtime-session", "runtime-session-claude")?.value.semanticState, "running");
     const adopted = eventFromProviderWitness(
       {
         ...witness("heartbeat"),

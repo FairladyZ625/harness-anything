@@ -91,7 +91,11 @@ async function fireDueOccurrences(mode: DaemonRepoMode) {
     const seeded = await list();
     assert.equal((await run(agentSchedule("agent-probe"))).outcome, "applied");
     clock.value = "2026-10-02T03:17:00.500Z";
-    // A Schedule read through the host refreshes the scheduler, which re-arms against the new clock.
+    // A Schedule write refreshes the scheduler; reads do not re-arm timers.
+    assert.equal(
+      (await run({ kind: "schedule-disable", scheduleId: builtinNightlyReckoningScheduleId })).outcome,
+      "no_changes",
+    );
     // Wait for the builtin Schedule itself: in local mode the agent occurrence can settle first.
     const builtinPending = (current: readonly ScheduleRow[]) =>
       current.find(({ scheduleId }) => scheduleId === builtinLedgerBackupScheduleId)?.status.lastRun == null;
