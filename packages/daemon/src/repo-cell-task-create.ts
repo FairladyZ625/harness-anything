@@ -79,22 +79,24 @@ export function previewResult(
 }
 
 export function withHumanSummary(cell: RepoCellOperationalContext, receipt: WriteReceipt): WriteReceipt {
-  if (
-    typeof (
-      receipt as {
-        readonly summary?: unknown;
-      }
-    ).summary === "string" ||
-    typeof receipt.evidence !== "string"
-  )
-    return receipt;
-  const payload = cell.decodeEvidencePayload(receipt.evidence);
-  return payload === undefined
+  const existing = (receipt as { readonly summary?: unknown }).summary,
+    payload =
+      typeof existing === "string" || typeof receipt.evidence !== "string"
+        ? undefined
+        : cell.decodeEvidencePayload(receipt.evidence),
+    lines = [
+      typeof existing === "string" ? existing : payload === undefined ? null : cell.renderEvidencePayload(payload),
+      // An edge answer says how current it is, and warns when it may be stale.
+      ...(receipt.freshness
+        ? [
+            `freshness=${receipt.freshness.state}  confirmedAt=${receipt.freshness.confirmedAt ?? "never"}`,
+            ...(receipt.warnings ?? []),
+          ]
+        : []),
+    ].filter((line): line is string => line !== null);
+  return lines.length === 0 || (typeof existing === "string" && lines.length === 1)
     ? receipt
-    : ({
-        ...receipt,
-        summary: cell.renderEvidencePayload(payload),
-      } as WriteReceipt);
+    : ({ ...receipt, summary: lines.join("\n") } as WriteReceipt);
 }
 
 export function createTask(

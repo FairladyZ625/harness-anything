@@ -149,6 +149,15 @@ export const receiptDetailRegistry = Object.freeze([
 ] as const);
 export type WriteReceiptDetail = DocSyncReceiptDetail | EntityUpsertReceiptDetail;
 /** Internal mutation result before the center attaches its authorization decision. */
+/** How current an edge's local answer is relative to the center (dec_D8497012F42A999E054D7ADF6A). */
+export interface EdgeReadFreshness {
+  readonly state: "fresh" | "stale";
+  readonly ageMs: number | null;
+  readonly lagRevisions: number | null;
+  readonly maxAgeMs: number;
+  readonly maxLagRevisions: number;
+  readonly confirmedAt: string | null;
+}
 export interface WriteReceiptDraft extends Partial<Omit<ReceiptAcceptanceFields, "status">> {
   readonly status?: string;
   readonly outcome: "applied" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
@@ -183,6 +192,8 @@ export interface WriteReceiptDraft extends Partial<Omit<ReceiptAcceptanceFields,
     readonly opId: string;
     readonly headDigest: string;
   };
+  /** Present when an edge answered from its replica of the center cut. */
+  readonly freshness?: EdgeReadFreshness;
 }
 /** Public durable-write receipt framed at the center's canonical cut. */
 export interface WriteReceipt extends Omit<WriteReceiptDraft, keyof ReceiptAcceptanceFields>, ReceiptAcceptanceFields {
@@ -222,6 +233,7 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "guidance",
     "diagnostic",
     "cut",
+    "freshness",
   ]),
 });
 export function validateWriteReceipt(value: unknown): readonly string[] {

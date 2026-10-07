@@ -292,12 +292,8 @@ test(
       await read("lease-repo", "repo.entity.content.read", content, auth),
       await f.host.read("lease-repo", "repo.entity.content.read", content, auth),
     );
-    for (const kind of ["work-list", "work-show"] as const) {
-      assert.equal(
-        (await f.command("node-one", { kind, ...(kind === "work-show" ? { taskId: "task-read-000" } : {}) })).outcome,
-        "applied",
-      );
-    }
+    // work-list is answered by the edge's own replica cell; work-show still forwards to the center.
+    assert.equal((await f.command("node-one", { kind: "work-show", taskId: "task-read-000" })).outcome, "applied");
     assert.deepEqual(
       await read("lease-repo", "repo.workspace.scope.read", { rootTaskId: "task-read-000" }, auth),
       await f.host.read("lease-repo", "repo.workspace.scope.read", { rootTaskId: "task-read-000" }, auth),
@@ -315,13 +311,13 @@ test(
           ...config,
           workspaceRoot: edgeRoot,
           principalId: "person-one",
-          action: { kind: "task-list", limit: 500 },
+          // A read the edge still forwards to the center carries the full session token.
+          action: { kind: "work-show", taskId: "task-read-000" },
         },
       },
       async () => longToken,
     );
     assert.equal(cli.ok, true, JSON.stringify(cli));
-    assert.equal(JSON.parse(String(cli.evidence)).rows.length, 53);
     let chunks = 0;
     const all = await runFleetRepositoryReadClient({
       ...f.peer("node-two"),
@@ -469,12 +465,16 @@ test(
       }),
       { code: "authorization_denied" },
     );
-    const revokedCli = await runFleetEdgeTask(
-      { payload: { ...config, workspaceRoot: edgeRoot, principalId: "person-one", action: { kind: "task-list" } } },
-      async () => longToken,
-    );
-    assert.equal(revokedCli.ok, false);
-    assert.equal(revokedCli.code, "authorization_denied");
+    const { schema: _schema, ...edgePayload } = config;
+    const revokedCli = await rpc.handle({
+      jsonrpc: "2.0",
+      id: 9,
+      method: "daemon.fleet.task.run",
+      params: { payload: { ...edgePayload, workspaceRoot: edgeRoot, action: { kind: "task-list" } } },
+    });
+    assert.ok(revokedCli && !Array.isArray(revokedCli) && "result" in revokedCli, JSON.stringify(revokedCli));
+    assert.equal((revokedCli.result as { ok?: boolean }).ok, false);
+    assert.equal((revokedCli.result as { code?: string }).code, "authorization_denied");
     // task-show no longer crosses the fleet channel at all; the edge's own answer is the one
     // the revoked-cli assertion above already proves withheld.
     await assert.rejects(
