@@ -284,13 +284,7 @@ test(
     // These reads need data outside the materialized query closure; none may use local canonical
     // storage or fall back to a center request.
     for (const [method, payload] of [
-      [
-        "repo.entity.actions.explain",
-        { schema: "entity-action-explain-request/v1", mode: "object", entityKind: null, refs: ["task/task-read-000"] },
-      ],
       ["repo.entity.content.read", { entityKind: "task", entityId: "task-read-000" }],
-      ["repo.workspace.scope.read", { rootTaskId: "task-read-000" }],
-      ["repo.tasks.documents.list", { taskId: "task-read-000" }],
     ] as const)
       await assert.rejects(edge.read("lease-repo", method, payload, auth), { code: "replica_unavailable" });
     await assert.rejects(f.command("node-one", { kind: "work-show", taskId: "task-read-000" }), /closed schema/);
@@ -309,11 +303,10 @@ test(
     const all = await read("lease-repo", "repo.tasks.list", { limit: 500 }, auth);
     assert.equal(all.rows.length, 53);
     assert.equal(f.eventCount(), before, "reads append no canonical event");
-    await refusedCatalogRead(/replica_unavailable/);
-    await refusedCatalogReread(/replica_unavailable/);
-    await assert.rejects(edge.read("lease-repo", "repo.gui.catalog.preset.read", { presetId: "standard-task" }, auth), {
-      code: "replica_unavailable",
-    });
+    const catalog = await read("lease-repo", "repo.gui.catalog.snapshot", {}, auth);
+    assert.ok(catalog.catalogDigest);
+    assert.doesNotMatch(JSON.stringify(await rereadCatalog()), /replica_unavailable/);
+    assert.ok((await read("lease-repo", "repo.gui.catalog.preset.read", { presetId: "standard-task" }, auth)).preset);
     assert.equal((await f.command("center-node", { kind: "task-start", taskId: "task-read-000" })).outcome, "applied");
     await pull();
     const updated = await read("lease-repo", "repo.tasks.list", {}, auth);

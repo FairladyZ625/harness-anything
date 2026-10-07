@@ -1,7 +1,8 @@
+import { readEntityLocator } from "./entity-locator-read.ts";
 import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
 import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
-import { readEdgeRuntimeResultBytes } from "./runtime-result-read.ts";
+import { readEdgeViewBlob } from "./runtime-result-read.ts";
 import path from "node:path";
 import {
   consumeKnownError,
@@ -159,11 +160,6 @@ export async function openRepoCellProxy(
     // ledger does not depend on one existing (an edge whose own ledger is not attached).
     lazyLedgerStore = new Proxy({} as ReturnType<typeof makeTaskEventReader>, {
       get: (_target, property) => {
-        if (input.mode === "remote-edge" && property === "readContentBlob") {
-          const config = readFleetEdgeConfig(input.rootDir);
-          if (!config) throw cellCodedError("replica_unavailable", "Edge configuration is missing.");
-          return (sha256: string) => readEdgeRuntimeResultBytes(config.viewRoot, input.repoId, config.nodeId, sha256);
-        }
         const store = ledgerReadStore(),
           value: unknown = Reflect.get(store, property, store);
         return typeof value === "function" ? value.bind(store) : value;
@@ -214,6 +210,7 @@ export async function openRepoCellProxy(
    * An edge-replica read on an edge is answered from the materialized replica of the center cut, under the
    * replica owner's authorization, and reports where the answer came from (dec_FB7DE6338E7D3D94ED2A4C05A2).
    */
+  const edgeViews = new WeakMap<TaskProjectionQueries, FleetMirrorView>();
   const edgeReplicaRead = <T>(
     binding: RepoCellBinding | undefined,
     read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
@@ -229,7 +226,10 @@ export async function openRepoCellProxy(
         ...(edgeConfig.maxAgeMs === undefined ? {} : { maxAgeMs: edgeConfig.maxAgeMs }),
         ...(edgeConfig.maxLagRevisions === undefined ? {} : { maxLagRevisions: edgeConfig.maxLagRevisions }),
       },
-      read,
+      (projection, frame, view) => {
+        edgeViews.set(projection, view);
+        return read(projection, frame, view);
+      },
     );
   };
   const edgeReplicaRun = (action: RepoTaskAction, binding: RepoCellBinding) =>
@@ -286,7 +286,19 @@ export async function openRepoCellProxy(
   const readRuntime = (projection: TaskProjectionQueries): HostReadRuntime => {
     if (hostReadRuntime?.projection === projection) return hostReadRuntime;
     const writableProjection = projection as TaskProjection,
-      readStore = lazyLedgerStore,
+      edgeView = edgeViews.get(projection),
+      readStore = edgeView
+        ? new Proxy({} as ReturnType<typeof makeTaskEventReader>, {
+            get: (_target, property) => {
+              if (property === "readContentBlob")
+                return (sha256: string) => readEdgeViewBlob(edgeConfig!.viewRoot, edgeView, sha256);
+              throw cellCodedError(
+                "replica_unavailable",
+                `Replica query requires unmaterialized canonical store operation ${String(property)}.`,
+              );
+            },
+          })
+        : lazyLedgerStore,
       unsupportedWrite = (): never => {
         throw cellCodedError("repo_unavailable", "A query-only RepoCell reader cannot start writer work.");
       };
@@ -509,15 +521,45 @@ export async function openRepoCellProxy(
     },
     terminal,
     read: async (method, payload = {}, binding) => {
+      if (method === "repo.entity.locator.read")
+        return readEntityLocator({
+          rootDir: input.rootDir,
+          locatorKind: requiredCellText(payload.locatorKind, "locatorKind"),
+          locatorValue: requiredCellText(payload.locatorValue, "locatorValue"),
+        }) as never;
+      if (method === "repo.entity.actions.explain") {
+        const session = <T>(read: (projection: TaskProjectionQueries, frame?: RepositoryReadFrame) => T): T =>
+          input.mode === "remote-edge" ? edgeReplicaRead(binding, read) : query(read);
+        const at = session((projection) => ({
+          revision: projection.readCut().sourceRevision,
+          binding: bindVerifiedExecutorClaim({
+            action: { kind: "entity-action-explain", executor: payload.executor },
+            binding: binding ?? explainAuthenticationRequired(),
+            projection,
+            now: readRuntime(projection).actionContext.now(),
+          }).binding,
+        }));
+        const prepared = await preparePersonActionExplanationBinding(
+          {
+            revision: at.revision,
+            repoId: input.repoId,
+            now: () => input.now?.() ?? new Date().toISOString(),
+            binding: at.binding,
+          },
+          payload,
+        );
+        return session((projection, frame) => {
+          if (projection.readCut().sourceRevision !== at.revision)
+            throw cellCodedError(
+              "projection_pending",
+              "Repository cut changed while resolving live action permissions; retry the explanation.",
+            );
+          return { ...readAtCut(projection, method, payload, prepared), ...frame };
+        }) as never;
+      }
       if (input.mode === "remote-edge" && method !== "repo.agent.skills.list")
         return edgeReplicaRead(binding, (projection, frame) => {
-          if (
-            method === "repo.entity.locator.read" ||
-            method === "repo.entity.actions.explain" ||
-            method === "repo.entity.content.read" ||
-            method === "repo.ci.observatory.read" ||
-            (method === "repo.decisions.list" && payload.projection !== "summary")
-          )
+          if (method === "repo.entity.content.read")
             throw cellCodedError("replica_unavailable", `${method} requires data outside the replica cut.`);
           return { ...readAtCut(projection, method, payload, binding), ...frame };
         }) as never;
@@ -530,35 +572,24 @@ export async function openRepoCellProxy(
             judgments: repoCellTaskQueryJudgmentsFor(projection),
           }).guiTasks(taskListQuery(payload)),
         ) as never;
-      if (method === "repo.entity.actions.explain") {
-        const verifiedBinding = query(
-          (projection) =>
-            bindVerifiedExecutorClaim({
-              action: { kind: "entity-action-explain", executor: payload.executor },
-              binding: binding ?? explainAuthenticationRequired(),
-              projection,
-              now: readRuntime(projection).actionContext.now(),
-            }).binding,
-        );
-        const prepared = await preparePersonActionExplanationBinding(
-          {
-            store: readCurrentLedger((store) => store),
-            repoId: input.repoId,
-            now: () => {
-              const value = input.now?.() ?? new Date();
-              return typeof value === "string" ? value : value.toISOString();
-            },
-            binding: verifiedBinding,
-          },
-          payload,
-        );
-        return query((projection) => readAtCut(projection, method, payload, prepared)) as never;
-      }
       return query((projection) => readAtCut(projection, method, payload, binding)) as never;
     },
     workspaceSummary: () => query((projection) => workspaceSummaryFromProjection(projection as never)),
     workspaceScope: (payload) => query((projection) => workspaceScopeFromProjection(projection as never, payload)),
-    observeTail: (payload, daemon) => {
+    observeTail: (payload, daemon, binding) => {
+      if (input.mode === "remote-edge" && (payload as { kind?: string })?.kind === "events")
+        return Promise.resolve(
+          edgeReplicaRead(binding, (projection, frame) => ({
+            ...readObserveEventTail({
+              repoId: input.repoId,
+              rootDir: input.rootDir,
+              mode: "remote-edge",
+              projection: projection as TaskProjection,
+              payload,
+            }),
+            ...frame,
+          })),
+        );
       if (payload !== null && typeof payload === "object" && (payload as { kind?: unknown }).kind === "events")
         return Promise.resolve(
           query((projection) =>

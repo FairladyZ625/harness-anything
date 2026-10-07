@@ -36,13 +36,10 @@ function projectionStub(input: {
       Object.hasOwn(input.documents ?? {}, documentPath)
         ? { document: { workspaceRevision: input.documents![documentPath]! } }
         : { document: null },
-    readCanonicalEvents: (afterRevision) => ({
-      events: Object.entries(input.events ?? {})
-        .map(([revision, occurredAt]) => ({ workspaceRevision: Number(revision), occurredAt }))
-        .filter(({ workspaceRevision }) => workspaceRevision > afterRevision)
-        .sort((left, right) => left.workspaceRevision - right.workspaceRevision)
-        .slice(0, 1),
-    }),
+    readEventWitness: (revision) => {
+      const occurredAt = input.events?.[revision];
+      return occurredAt === undefined ? null : { workspaceRevision: revision, occurredAt };
+    },
   };
 }
 

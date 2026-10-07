@@ -9,6 +9,11 @@ import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 
 /** Shared business-table DDL; canonical journal/source and writer metadata are never replicated. */
 export const REPOSITORY_READ_TABLES_SQL = `
+    CREATE TABLE IF NOT EXISTS event_summary (
+      workspace_revision INTEGER PRIMARY KEY,
+      summary_json TEXT NOT NULL,
+      witness_json TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS runtime_installation (
       installation_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
@@ -53,6 +58,11 @@ export const REPOSITORY_READ_TABLES_SQL = `
 
 const prefix = ".read-model/repository/";
 const tables = [
+  {
+    name: "event_summary",
+    keys: ["workspace_revision"],
+    columns: ["workspace_revision", "summary_json", "witness_json"],
+  },
   {
     name: "runtime_installation",
     keys: ["installation_id"],

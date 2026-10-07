@@ -1,6 +1,6 @@
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { type TaskProjection, type TaskIndexProjectionRow, type TaskV2 } from "@harness-anything/kernel";
-import { canonicalEventSummary, type CanonicalEventSummary } from "./event-summary-read.ts";
+import type { CanonicalEventSummary } from "@harness-anything/kernel";
 
 const WORKSPACE_EVENT_LIMIT = 120,
   WORKSPACE_EVENT_SCAN_PAGE = 64,
@@ -166,19 +166,19 @@ function workspaceEventSummaries(
   projection: TaskProjection,
   memberTaskIds: ReadonlySet<string>,
 ): { readonly summaries: readonly CanonicalEventSummary[]; readonly complete: boolean } {
-  const probe = projection.readCanonicalEvents(0, 1);
+  const probe = projection.readEventSummaries(0, 1);
   let before = probe.watermark + 1,
     scanned = 0;
   const selected: CanonicalEventSummary[] = [];
   while (before > 1 && scanned < WORKSPACE_EVENT_SCAN_LIMIT && selected.length < WORKSPACE_EVENT_LIMIT) {
     const after = Math.max(0, before - WORKSPACE_EVENT_SCAN_PAGE - 1),
-      page = projection.readCanonicalEvents(after, WORKSPACE_EVENT_SCAN_PAGE + 1),
+      page = projection.readEventSummaries(after, WORKSPACE_EVENT_SCAN_PAGE + 1),
       eligible = page.events.filter(({ workspaceRevision }) => workspaceRevision < before);
     if (eligible.length === 0) break;
     scanned += eligible.length;
     before = eligible[0]!.workspaceRevision;
     for (let index = eligible.length - 1; index >= 0 && selected.length < WORKSPACE_EVENT_LIMIT; index -= 1) {
-      const summary = canonicalEventSummary(eligible[index]!);
+      const summary = eligible[index]!;
       if (typeof summary.taskId === "string" && memberTaskIds.has(summary.taskId)) selected.push(summary);
     }
   }

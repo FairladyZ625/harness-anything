@@ -1,4 +1,4 @@
-import type { CanonicalEventV1 } from "@harness-anything/kernel";
+import type { PersistedCanonicalEventV1 } from "./doc-sync.contract.ts";
 
 export type CanonicalEventSummary = Readonly<Record<string, unknown>> & {
   readonly eventId: string;
@@ -16,7 +16,7 @@ export type CanonicalEventSummary = Readonly<Record<string, unknown>> & {
 const SUMMARY_TEXT_LIMIT = 280;
 
 /** The list-row projection of a canonical event. Large event-specific payloads never cross the RPC boundary. */
-export function canonicalEventSummary(event: CanonicalEventV1): CanonicalEventSummary {
+export function canonicalEventSummary(event: PersistedCanonicalEventV1): CanonicalEventSummary {
   const source = event as unknown as Readonly<Record<string, unknown>>,
     payload = recordOf(source.payload),
     actor = recordOf(source.actor),

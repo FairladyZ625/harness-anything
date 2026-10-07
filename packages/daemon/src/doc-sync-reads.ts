@@ -294,7 +294,7 @@ export function listProjectedTaskDocuments(
     task = requireCurrentTaskProjection(projection, taskId, "task documents list"),
     packagePath = task.packagePath;
   const prefix = `${packagePath}/`,
-    basis = projection.readReplicaBasis(null),
+    basis = projection.readDocuments(prefix),
     worktree = worktreeDocumentIndex(taskPackageWorktreeRoot(rootDir, packagePath), packagePath),
     worktreeByPath = new Map(worktree.map((row) => [row.path, row])),
     documents = [

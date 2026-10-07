@@ -1,3 +1,4 @@
+import { readDecisionDocumentState } from "./decision-projection-documents.ts";
 import { repositoryEventQueries } from "./repository-event-queries.ts";
 import {
   readRuntimeInstallation,
@@ -99,6 +100,7 @@ export function makeEdgeReplicaQueries(source: EdgeReplicaQuerySource): EdgeRepl
       return { ...cut, ...result };
     },
     readRelationEdge: (id) => readRelationProjectionRow(db, id),
+    readDecisionDocumentState: (id) => readDecisionDocumentState(db, id),
     readDecision: (id) => ({ ...cut, decision: readDecisionRow(db, id) }),
     listDecisions: (query) => {
       const page = listDecisionRowsPage(db, query);

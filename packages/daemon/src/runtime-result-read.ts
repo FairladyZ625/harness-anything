@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
+import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { sha256Bytes, type CanonicalEventStore } from "@harness-anything/kernel";
 
 export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "readContentBlob">, ref: string): string {
@@ -32,9 +32,19 @@ export function readEdgeRuntimeResultBytes(
     throw Object.assign(new Error("Runtime result is not present in the current cut."), {
       code: "replica_unavailable",
     });
-  const bytes = readFileSync(path.join(viewRoot, "repos", repoId, "cas", "sha256", sha256.slice(0, 2), sha256));
+  return readEdgeViewBlob(viewRoot, view!, sha256);
+}
+
+/** Only objects in the already-authorized immutable view may be read; sharing the CAS grants no authority. */
+export function readEdgeViewBlob(viewRoot: string, view: FleetMirrorView, sha256: string): Uint8Array {
+  const entry = [...view.entries.values()].find((candidate) => candidate.sha256 === sha256);
+  if (!entry)
+    throw Object.assign(new Error("Content is not present in the authorized replica cut."), {
+      code: "replica_unavailable",
+    });
+  const bytes = readFileSync(path.join(viewRoot, "repos", view.repoId, "cas", "sha256", sha256.slice(0, 2), sha256));
   if (bytes.byteLength !== entry.size || sha256Bytes(bytes) !== sha256)
-    throw Object.assign(new Error("Runtime result content does not match the current cut."), {
+    throw Object.assign(new Error("Content does not match the authorized replica cut."), {
       code: "replica_unavailable",
     });
   return bytes;

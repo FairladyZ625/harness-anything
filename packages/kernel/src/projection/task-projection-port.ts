@@ -180,6 +180,29 @@ export interface TaskProjection {
     afterRevision: number,
     limit: number,
   ) => readonly AgentRuntimeEventV1[];
+  readonly readEventSummaries: (
+    afterRevision: number,
+    limit: number,
+  ) => {
+    readonly status: "ready" | "pending";
+    readonly events: readonly import("../domain/canonical-event-summary.ts").CanonicalEventSummary[];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  };
+  readonly readEventWitness: (
+    revision: number,
+  ) => Pick<CanonicalEventV1, "workspaceRevision" | "occurredAt" | "actor" | "source"> | null;
+  readonly readDocuments: (prefix: string) => {
+    readonly status: "ready" | "pending";
+    readonly documents: readonly {
+      readonly path: string;
+      readonly blobSha256: string;
+      readonly size: number;
+      readonly mediaType: string;
+    }[];
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  };
   readonly readCanonicalEvents: (
     afterRevision: number,
     limit: number,

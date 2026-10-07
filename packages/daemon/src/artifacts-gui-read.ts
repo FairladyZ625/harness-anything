@@ -28,12 +28,9 @@ export interface ArtifactsProjectionReads {
   readonly readDocument: (path: string) => {
     readonly document: { readonly workspaceRevision: number } | null;
   };
-  readonly readCanonicalEvents: (
-    afterRevision: number,
-    limit: number,
-  ) => {
-    readonly events: readonly { readonly workspaceRevision: number; readonly occurredAt: string }[];
-  };
+  readonly readEventWitness: (
+    revision: number,
+  ) => { readonly workspaceRevision: number; readonly occurredAt: string } | null;
 }
 
 /** Artifacts GUI 读侧 join:跨全部 task 包扫 `artifacts/` 下的 html/md/raw,按时间倒序
@@ -178,8 +175,8 @@ function ledgerTimeOf(
   if (document === null) return null;
   const cached = eventTimes.get(document.workspaceRevision);
   if (cached !== undefined) return cached;
-  const [event] = projection.readCanonicalEvents(document.workspaceRevision - 1, 1).events,
-    time = event !== undefined && event.workspaceRevision === document.workspaceRevision ? event.occurredAt : null;
+  const event = projection.readEventWitness(document.workspaceRevision),
+    time = event !== null && event.workspaceRevision === document.workspaceRevision ? event.occurredAt : null;
   if (time !== null) eventTimes.set(document.workspaceRevision, time);
   return time;
 }

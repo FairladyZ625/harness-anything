@@ -1,10 +1,8 @@
 import path from "node:path";
-import type { CanonicalEventV1, DaemonRepoMode, TaskProjection } from "@harness-anything/kernel";
+import type { DaemonRepoMode, TaskProjection } from "@harness-anything/kernel";
 import { daemonConnLogFileStem } from "./conn-log.ts";
 import { daemonLifecycleLogPath } from "./lifecycle-log.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { dispatchStreamPath } from "./dispatch-stream.ts";
-import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import {
   readJsonlTail,
   sameCursor,
@@ -20,7 +18,6 @@ import {
   type ObserveTailPayload,
   type ObserveTailResult,
 } from "./protocol/daemon-protocol-gui-types.ts";
-import { canonicalEventSummary } from "./event-summary-read.ts";
 
 export { DAEMON_OBSERVE_TAIL_SCHEMA };
 export type { ObserveTailCursor, ObserveTailPayload, ObserveTailResult };
@@ -120,20 +117,6 @@ function buildObserveEventTail(
     readonly direction: ObserveTailPayload["direction"];
   },
 ): ObserveTailResult {
-  if (input.mode === "remote-edge")
-    return {
-      ...base,
-      status: "unavailable",
-      items: [],
-      historyCursor: null,
-      liveCursor: null,
-      sourceCursor: null,
-      done: false,
-      unavailable: {
-        reason: "edge-mirror-has-no-events",
-        centerRevision: edgeCenterRevision(input.rootDir, input.repoId),
-      },
-    };
   return { ...base, ...readEventTail(input.projection, payload) };
 }
 
@@ -144,7 +127,7 @@ function readEventTail(
   const requested = payload.cursor?.revision;
   if (payload.direction === "follow") {
     const after = requested!,
-      page = projection.readCanonicalEvents(after, pageSize + 1);
+      page = projection.readEventSummaries(after, pageSize + 1);
     if (after > page.sourceRevision)
       throw observeError(
         "invalid_cursor",
@@ -156,7 +139,7 @@ function readEventTail(
       sourceCursor = { kind: "events" as const, revision: page.sourceRevision };
     return {
       status: page.status,
-      items: selected.map(canonicalEventSummary),
+      items: selected,
       historyCursor: null,
       liveCursor,
       sourceCursor,
@@ -164,7 +147,7 @@ function readEventTail(
     };
   }
 
-  const probe = projection.readCanonicalEvents(0, 1),
+  const probe = projection.readEventSummaries(0, 1),
     before = requested ?? probe.watermark + 1;
   if (before > probe.sourceRevision + 1)
     throw observeError(
@@ -172,14 +155,14 @@ function readEventTail(
       `Canonical event cursor ${before} is ahead of source revision ${probe.sourceRevision}.`,
     );
   const after = Math.max(0, before - pageSize - 1),
-    page = projection.readCanonicalEvents(after, pageSize + 1),
-    eligible = page.events.filter((event: CanonicalEventV1) => event.workspaceRevision < before),
+    page = projection.readEventSummaries(after, pageSize + 1),
+    eligible = page.events.filter((event) => event.workspaceRevision < before),
     selected = eligible.slice(-pageSize),
     firstRevision = selected.at(0)?.workspaceRevision ?? Math.max(0, before - 1),
     lastRevision = selected.at(-1)?.workspaceRevision ?? Math.min(probe.watermark, Math.max(0, before - 1));
   return {
     status: page.status,
-    items: selected.map(canonicalEventSummary),
+    items: selected,
     historyCursor: { kind: "events", revision: firstRevision },
     liveCursor: { kind: "events", revision: lastRevision },
     sourceCursor: { kind: "events", revision: page.sourceRevision },
@@ -270,11 +253,6 @@ function usefulProviderEvent(event: Readonly<Record<string, unknown>>): boolean 
     );
   }
   return ["step_update", "result"].includes(String(event.event));
-}
-
-function edgeCenterRevision(rootDir: string, repoId: string): number | null {
-  const config = readFleetEdgeConfig(rootDir);
-  return config?.repoId === repoId ? (locateFleetMirrorView(config.viewRoot, repoId)?.revision ?? null) : null;
 }
 
 function escapeRegExp(value: string): string {

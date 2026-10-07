@@ -394,3 +394,5 @@ export type {
 export { validSquadDispatchContext } from "./domain/squad-run.ts";
 
 export { publicRuntimeSession, publicRuntimeInstallation } from "./domain/runtime-public-query.ts";
+
+export type { CanonicalEventSummary } from "./domain/canonical-event-summary.ts";

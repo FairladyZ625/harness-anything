@@ -55,16 +55,6 @@ function nodeCatalogAdapters() {
   }));
 }
 
-export function catalogWithNodeAdapters(center: JsonObject): JsonObject {
-  const snapshot = { ...center, adapters: nodeCatalogAdapters() };
-  const body: Record<string, unknown> = { ...snapshot };
-  for (const key of ["schema", "ok", "status", "repoId", "observedAt", "catalogDigest"]) delete body[key];
-  return {
-    ...snapshot,
-    catalogDigest: `sha256:${createHash("sha256").update(JSON.stringify(body)).digest("hex")}`,
-  };
-}
-
 export function catalogRereadReceipt(input: {
   readonly repoId: string;
   readonly beforeDigest: string;

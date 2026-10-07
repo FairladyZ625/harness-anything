@@ -1,3 +1,5 @@
+import { openGuiCatalog } from "./gui-catalog.ts";
+import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
 import { repositoryReadDescriptor } from "./repository-read-contract.ts";
 import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
@@ -701,12 +703,45 @@ export function createDaemonHostRepositoryApi(
         (method.startsWith("repo.") || (method === "observe.tail" && payload.kind === "events")) &&
         method !== "repo.terminal.sessions.list" &&
         method !== "repo.agent.skills.list" &&
+        // Live Keycloak directory/eligibility operations keep their actual authority source.
+        method !== "repo.tasks.claimable" &&
+        method !== "repo.tasks.assignmentDirectory" &&
         readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
           (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
         );
       if (edge && edge.canonicalRoot) {
         const binding = await context.binding(edge.canonicalRoot, auth);
         const cell = context.cells.get(repoId);
+        if (cell && (method === "repo.gui.catalog.snapshot" || method === "repo.gui.catalog.preset.read")) {
+          // Installed presets/adapters/files are node-local; defaults come from one authorized replica cut.
+          const settings = await cell.read("repo.settings.read", {}, binding),
+            frame = settings as typeof settings & RepositoryReadFrame,
+            catalog = openGuiCatalog({ repoId, rootDir: edge.canonicalRoot, readSettings: () => settings.settings }),
+            result =
+              method === "repo.gui.catalog.snapshot"
+                ? await catalog.snapshot()
+                : await catalog.preset(payload as never);
+          return parseDaemonGuiReadResult(method, {
+            ...result,
+            cut: frame.cut,
+            freshness: frame.freshness,
+            warning: frame.warning,
+          });
+        }
+        if (method === "repo.fleet.overview.read")
+          throw context.hostCodedError(
+            "replica_unavailable",
+            "Live Fleet topology is an operation of the center transport host; this edge has no local center session or delivery ledger.",
+          );
+        if (cell && method === "observe.tail")
+          return parseDaemonGuiReadResult(
+            method,
+            await cell.observeTail(
+              payload,
+              { userRoot: context.input.userRoot, daemonId: context.input.daemonId },
+              binding,
+            ),
+          );
         if (!cell || !isRepoCellReadMethod(method))
           throw context.hostCodedError("replica_unavailable", `${method} has no edge replica query.`);
         return parseDaemonGuiReadResult(method, await cell.read(method, payload, binding));
@@ -746,10 +781,14 @@ export function createDaemonHostRepositoryApi(
       else if (method === "repo.tasks.assignmentDirectory")
         result = await readTaskAssignmentDirectory(repoId, String(payload.taskId), binding);
       else if (method === "observe.tail")
-        result = await cell.observeTail(payload, {
-          userRoot: context.input.userRoot,
-          daemonId: context.input.daemonId,
-        });
+        result = await cell.observeTail(
+          payload,
+          {
+            userRoot: context.input.userRoot,
+            daemonId: context.input.daemonId,
+          },
+          binding,
+        );
       else if (method === "repo.workspace.summary.read") result = cell.workspaceSummary();
       else if (method === "repo.workspace.scope.read") result = cell.workspaceScope(payload as never);
       else if (method === "repo.gui.catalog.snapshot") result = await cell.catalog.snapshot();

@@ -460,7 +460,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       const source = makeGitReadinessSource(),
         projectHead = source.run(context.rootDir, ["rev-parse", "HEAD"]),
         commitSha = projectHead.ok ? projectHead.stdout : "",
-        cacheKey = `${commitSha}\n${context.store.readHead()?.revision ?? 0}`;
+        cacheKey = `${commitSha}\n${context.projection.readCut().sourceRevision}`;
       if (readinessCache?.key !== cacheKey)
         readinessCache = {
           key: cacheKey,
@@ -496,7 +496,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         });
       return readTaskActionExplanation(
         {
-          store: context.store,
           projection: context.projection,
           binding: verified.binding,
           rootDir: context.rootDir,

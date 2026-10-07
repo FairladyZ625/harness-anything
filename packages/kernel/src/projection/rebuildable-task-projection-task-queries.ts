@@ -2,7 +2,7 @@ import { listPinnedEntityRows } from "./rebuildable-task-projection-entities.ts"
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import { isTaskEvent } from "../domain/doc-sync.contract.ts";
-import { repositoryEventQueries } from "./repository-event-queries.ts";
+import { repositoryEventQueries, readDocumentRows } from "./repository-event-queries.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import {
   readTaskDependencyClosureRows,
@@ -67,12 +67,6 @@ const REPLICA_EVENTS_SQL = [
   "WHERE workspace_revision > ? AND workspace_revision <= ?",
   "ORDER BY workspace_revision LIMIT 64",
 ].join(" ");
-const REPLICA_DOCUMENTS_SQL = [
-  "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256,",
-  "json_extract(value_json, '$.size') AS size,",
-  "json_extract(value_json, '$.mediaType') AS media_type",
-  "FROM document ORDER BY path",
-].join(" ");
 const EVENT_BY_OP_SQL = "SELECT event_json FROM event_index WHERE op_id = ?";
 const TASK_FOR_DOCUMENT_SQL = [
   "SELECT task_id FROM task_package WHERE ? = package_path",
@@ -122,6 +116,9 @@ export function taskQueryApi(
   | "readReckoningEvents"
   | "readCiRunObservations"
   | "readSettingsEvent"
+  | "readEventSummaries"
+  | "readEventWitness"
+  | "readDocuments"
   | "readDocument"
   | "readReplicaBasis"
   | "taskIdForDocumentPath"
@@ -324,18 +321,13 @@ export function taskQueryApi(
                 ? undefined
                 : queryRows(db, "SELECT event_json FROM event_index WHERE workspace_revision = ?", current)[0],
             rows = afterRevision === null ? [] : queryRows(db, REPLICA_EVENTS_SQL, afterRevision, current),
-            documents = queryRows(db, REPLICA_DOCUMENTS_SQL);
+            documents = readDocumentRows(db, "");
           return {
             watermark: current,
             sourceRevision,
             headEvent: head ? JSON.parse(String(head.event_json)) : null,
             events: rows.map((row) => JSON.parse(String(row.event_json))),
-            documents: documents.map((row) => ({
-              path: String(row.path),
-              blobSha256: String(row.blob_sha256),
-              size: Number(row.size),
-              mediaType: String(row.media_type),
-            })),
+            documents,
           };
         }),
       );

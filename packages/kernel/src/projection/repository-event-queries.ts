@@ -97,8 +97,44 @@ export function repositoryEventQueries(
   | "readReckoningEvents"
   | "readCiRunObservations"
   | "readSettingsEvent"
+  | "readEventSummaries"
+  | "readEventWitness"
+  | "readDocuments"
 > {
   return {
+    readDocuments: (prefix) => withRead((db, cut) => ({ ...cut, documents: readDocumentRows(db, prefix) })),
+    readEventWitness: (revision) =>
+      withRead((db) => {
+        const row = queryRow(db, "SELECT witness_json FROM event_summary WHERE workspace_revision = ?", revision);
+        return row
+          ? (JSON.parse(String(row.witness_json)) as ReturnType<TaskProjectionQueries["readEventWitness"]>)
+          : null;
+      }),
+    readEventSummaries: (afterRevision, limit) =>
+      withRead((db, cut) => {
+        if (
+          !Number.isSafeInteger(afterRevision) ||
+          afterRevision < 0 ||
+          !Number.isSafeInteger(limit) ||
+          limit < 1 ||
+          limit > 2048
+        )
+          throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
+        return {
+          ...cut,
+          events: queryRows(
+            db,
+            "SELECT summary_json FROM event_summary WHERE workspace_revision > ? ORDER BY workspace_revision LIMIT ?",
+            afterRevision,
+            limit,
+          ).map(
+            (row) =>
+              JSON.parse(
+                String(row.summary_json),
+              ) as import("../domain/canonical-event-summary.ts").CanonicalEventSummary,
+          ),
+        };
+      }),
     readSettingsEvent: () =>
       withRead((db) => {
         const entity = queryRow(
@@ -279,4 +315,21 @@ function projectedDispatch(
     endedAt: outcome.payload.endedAt ?? null,
     outcome: outcome.payload.outcome,
   };
+}
+
+/** Document descriptors at this cut, shared by replica publication and repository document lists. */
+export function readDocumentRows(db: DatabaseSync, prefix: string) {
+  return queryRows(
+    db,
+    "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, " +
+      "json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type " +
+      "FROM document WHERE substr(path, 1, length(?)) = ? ORDER BY path",
+    prefix,
+    prefix,
+  ).map((row) => ({
+    path: String(row.path),
+    blobSha256: String(row.blob_sha256),
+    size: Number(row.size),
+    mediaType: String(row.media_type),
+  }));
 }
