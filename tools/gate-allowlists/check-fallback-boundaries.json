@@ -72,6 +72,7 @@
    "packages/daemon/src/doc-sync-reads.ts#statFileSync",
    "packages/daemon/src/doc-sync-reads.ts#statLinkSync",
    "packages/daemon/src/doc-sync-reads.ts#worktreeDocumentIndex",
+   "packages/daemon/src/edge-replica-doctor.ts#edgeReplicaDoctor",
    "packages/daemon/src/entity-content-read.ts#decodeUtf8",
    "packages/daemon/src/entity-rows-read.ts#readDeclaredEntityRows",
    "packages/daemon/src/fleet-edge-doc-sync.ts#settlePushRejection",
