@@ -903,7 +903,7 @@ export async function openRepoWriterCell(
   settleScheduledOutcome = async (terminal) => {
     const scheduled = terminal.schedule;
     if (!scheduled) return;
-    const detail = await scheduleSettlementDetail(rootDir, scheduled, terminal.resultRef ?? terminal.reason);
+    const detail = await scheduleSettlementDetail(rootDir, scheduled, terminal.reason);
     const settlement = {
         scheduleId: scheduled.scheduleId,
         claimFence: scheduled.claimFence,

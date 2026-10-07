@@ -61,10 +61,22 @@ for (const restart of [false, true])
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
     const scheduleId = "recovery-schedule";
     const subject = { nodeId: fixture.subject.nodeId, repoId: fixture.subject.repoId };
+    const outcomeArrived = Promise.withResolvers<void>(),
+      releaseOutcome = Promise.withResolvers<void>();
+    t.after(() => releaseOutcome.resolve());
     const startCenter = (port?: number) =>
       fixture.hold(
         listenFleetTls({
-          host: fixture.host,
+          host: {
+            ...fixture.host,
+            runtimeIngress: async (...args) => {
+              if (args[1].kind === "event" && args[1].type === "runtime_session_outcome_observed") {
+                outcomeArrived.resolve();
+                await releaseOutcome.promise;
+              }
+              return fixture.host.runtimeIngress(...args);
+            },
+          },
           stateRoot: fixture.stateRoot,
           ...fixture.writerOptions,
           key: fixture.key,
@@ -190,7 +202,45 @@ for (const restart of [false, true])
       runtime = createRuntime();
     }
     const restoredCenter = await startCenter(center.port);
-    let shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
+    const recovery = runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
+    const recovered = Promise.allSettled([recovery]);
+    const observerRoot = path.join(fixture.root, "schedule-reader-view");
+    await outcomeArrived.promise;
+    try {
+      // Settlement has reached the center, but the outcome's claim and bytes cannot
+      // append until this barrier opens. A second node must still receive a complete cut.
+      const events = makeTaskEventReader({ repoId: subject.repoId, rootDir: fixture.repo }).read().events;
+      assert.ok(events.some((event) => event.type === "schedule_run_settled"));
+      assert.equal(
+        events.some((event) => event.type === "runtime_session_outcome_observed"),
+        false,
+      );
+      await runFleetReplicaPullClient({
+        host: "127.0.0.1",
+        port: restoredCenter.port,
+        ca: fixture.cert,
+        servername: "localhost",
+        nodeId: "node-two",
+        credential: "machine-secret",
+        repoId: subject.repoId,
+        viewRoot: observerRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+      });
+      const pending = withEdgeReadModel(
+        { viewRoot: observerRoot, repoId: subject.repoId, nodeId: "node-two", principalId: "person-owner" },
+        (projection) => readScheduleRuns({ projection }, scheduleId),
+      );
+      assert.equal(pending.runs[0]?.outcome, "succeeded");
+      assert.equal(pending.runs[0]?.reportRef, null);
+      assert.equal(pending.runs[0]?.reportText, null);
+      t.diagnostic(
+        `barrier cut revision=${events.at(-1)?.workspaceRevision}: settled schedule, no outcome, no dangling result`,
+      );
+    } finally {
+      releaseOutcome.resolve();
+      await recovered;
+    }
+    let shown = await recovery;
     assert.equal(
       await eventually(async () => {
         shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
@@ -238,7 +288,6 @@ for (const restart of [false, true])
     );
     assert.equal(fixture.eventCount(), revision, "a recovered claim must not settle again");
     await fixture.host.replica(subject.repoId).waitForCut(fixture.eventCount());
-    const observerRoot = path.join(fixture.root, "schedule-reader-view");
     await runFleetReplicaPullClient({
       host: "127.0.0.1",
       port: restoredCenter.port,

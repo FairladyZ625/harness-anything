@@ -117,7 +117,6 @@ export interface RuntimeAttemptTerminal {
   readonly outcome: ScheduleRunOutcome;
   readonly reason: string | null;
   readonly endedAt: string;
-  readonly resultRef: string | null;
   readonly binding: RuntimeBinding;
 }
 

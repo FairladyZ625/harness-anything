@@ -283,7 +283,6 @@ export async function publishExit(
             : "failed",
         reason: outcome === "succeeded" ? null : attemptOutcome.reason,
         endedAt,
-        resultRef,
         // active.binding is the actor that owns this dispatch's settlement fence: direct task
         // dispatches store the handed-off RuntimeSession binding, while Schedule and squad paths
         // retain their coordinator binding.

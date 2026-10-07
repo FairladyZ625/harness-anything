@@ -421,11 +421,7 @@ export function openFleetEdgeRuntime(input: {
       await squad.reconcile();
       const scheduled = terminal.schedule;
       if (!scheduled) return;
-      const detail = await scheduleSettlementDetail(
-        request.workspaceRoot,
-        scheduled,
-        terminal.resultRef ?? terminal.reason,
-      );
+      const detail = await scheduleSettlementDetail(request.workspaceRoot, scheduled, terminal.reason);
       const response = await runFleetScheduleCommandClient({
         ...peer,
         repoId: request.repoId,

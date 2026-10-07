@@ -668,7 +668,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         outcome: "failed",
         reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
         endedAt: input.now(),
-        resultRef: null,
         binding: activeBinding,
       });
     };

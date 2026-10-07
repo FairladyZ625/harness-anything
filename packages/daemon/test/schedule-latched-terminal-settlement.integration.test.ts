@@ -479,14 +479,26 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
         ),
       );
 
-      // The next command re-attaches the cell from the clean on-disk ledger and must see
-      // the occurrence settled, not stuck behind a single-flight activeRun.
+      // Query-only reads can see settlement without restarting the latched writer.
       assert.equal((await cell.run({ kind: "schedule-list" }, actor)).outcome, "applied");
-      assert.equal(cell.status().state, "attached");
+      assert.equal(cell.status().state, "unavailable");
       const observed = await listedSchedule(cell, scheduleId);
       assert.equal(observed.status.activeRun, null);
       assert.equal(observed.status.lastRun?.outcome, "succeeded");
       assert.equal(observed.status.lastRun?.runtimeSessionId, runtimeSessionId);
+      const history = await cell.run({ kind: "schedule-runs", scheduleId }, actor);
+      assert.equal(history.outcome, "applied");
+      assert.equal(
+        (JSON.parse(String(history.evidence)) as { runs: { reportText: string | null }[] }).runs[0]?.reportText,
+        "done\nHARNESS-OUTCOME: succeeded",
+      );
+      // The next write re-attaches from the clean ledger; reading did not repair it.
+      const recovered = await cell.run(
+        { kind: "schedule-update", scheduleId, everyMs: 300_000, idempotencyKey: "recover-latched-settlement" },
+        actor,
+      );
+      assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+      assert.equal(cell.status().state, "attached");
     } finally {
       await cell.close();
     }

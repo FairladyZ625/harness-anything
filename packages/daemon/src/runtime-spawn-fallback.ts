@@ -287,7 +287,6 @@ export function scheduleFallbackContinuation(args: {
           outcome: "failed",
           reason,
           endedAt: input.now(),
-          resultRef: null,
           binding,
         });
       }
