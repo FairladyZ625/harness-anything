@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import type { DaemonLifecycleEntry } from "../src/lifecycle-log.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
@@ -602,7 +602,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
       userRoot,
       runtimeDiscover: () => [installation],
       runtimeLaunch: () => ({
-        pid: 4501,
+        pid: process.pid,
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
         onExit: () => undefined,
@@ -632,6 +632,8 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
       },
     });
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+    // The injected launcher must supply the durable process witness that the native launcher records.
+    appendRuntimeWorkerRecord(root, String(spawned.dispatchId), { kind: "process_started", pid: process.pid });
     const frames: Record<string, unknown>[] = [],
       attached = await rpcAttach(host, auth, repoId, String(spawned.runtimeSessionId), frames);
     try {
@@ -691,10 +693,8 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
         repo: { repoId },
         payload: { runtimeSessionId: "runtime_missing" },
       });
-      assert.equal(missing.outcome, "pending");
-      assert.equal(missing.status, "unknown");
-      assert.equal(missing.acceptance, null);
-      assert.equal(missing.proof, undefined);
+      assert.equal(missing.outcome, "op_rejected");
+      assert.equal(missing.code, "execution_scope_mismatch");
     } finally {
       attached.close();
     }

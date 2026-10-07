@@ -19,7 +19,8 @@ export async function cancelRuntime(
   const runtimeSessionId = requiredRuntimeSpawnText(payload.runtimeSessionId, "runtimeSessionId"),
     hash = createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}`).digest("hex"),
     opId = `runtime-cancel-${hash.slice(0, 32)}`;
-  const headers = readDispatchStreamHeaders(context.input.rootDir),
+  // Terminal streams retain their owner binding after archival; repeated cancellation still verifies it.
+  const headers = readDispatchStreamHeaders(context.input.rootDir, true),
     matchingHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId),
     missingOwnedProcess =
       matchingHeader !== undefined &&

@@ -269,7 +269,13 @@ for (const distinctNode of [false, true])
         other.close();
         writeFileSync(relay, "owner callback after terminal");
         if (distinctNode) {
-          await open(second).reconcile();
+          const reopened = open(second);
+          await reopened.reconcile();
+          await assert.rejects(reopened.run("repo.agentRuntime.cancel", { runtimeSessionId: a.runtimeSessionId }), {
+            code: "execution_scope_mismatch",
+          });
+          const repeated = await reopened.run("repo.agentRuntime.cancel", { runtimeSessionId: b.runtimeSessionId });
+          assert.equal(repeated.detail, "already-exited");
           assert.equal(existsSync(relay), true, "another node must not remove a terminal owner callback");
         }
         for (const [taskId, count] of counts)

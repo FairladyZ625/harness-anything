@@ -167,9 +167,10 @@ export async function adoptRuntimes(
         active.process.release?.();
       }
       failures.push(publication.reason);
+    } else {
+      // Settlement must finish before it can renew the startup inactivity budget.
+      onProgress?.(++completed);
     }
-    // Settlement must finish before it can renew the startup inactivity budget.
-    onProgress?.(++completed);
   }
   if (failures.length > 0) throw failures[0];
 }

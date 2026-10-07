@@ -160,6 +160,7 @@ test("terminal streams leave the live directory while point reads remain availab
     }
     const live = readDispatchStreamHeaders(rootDir);
     assert.equal(live.length, 10);
+    assert.equal(readDispatchStreamHeaders(rootDir, true).length, 3_500);
     assert.equal(
       readdirSync(path.dirname(dispatchStreamPath(rootDir, live[0]!.dispatchId))).filter((name) =>
         /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name),
@@ -539,6 +540,7 @@ test("runtime cancel settles provider lines flushed while the provider is termin
       runtimeSessionId,
       instanceId: "instance-1",
       startedAt: "2026-09-10T00:00:00.000Z",
+      binding: { actor: { principal: { personId: "operator" }, executor: null }, source: "local" },
     });
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", event: { seq: 1 } });
