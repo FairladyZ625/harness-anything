@@ -8,6 +8,9 @@ import path from "node:path";
 import { connect } from "node:tls";
 import test, { type TestContext } from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
+import { openRepoCell } from "../src/repo-cell.ts";
+import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 import { fleetCenterConfigPath, readFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
@@ -50,8 +53,17 @@ async function fixture(t: TestContext) {
     for (const host of hosts) await host.close();
     rmSync(root, { recursive: true, force: true });
   });
-  const open = async (daemonId: string, records: DaemonLifecycleEntry[] = []) => {
-    const host = await openDaemonHost({ daemonId, userRoot, recordLifecycle: (entry) => records.push(entry) });
+  const open = async (
+    daemonId: string,
+    records: DaemonLifecycleEntry[] = [],
+    openCell?: DaemonHostOpenInput["openCell"],
+  ) => {
+    const host = await openDaemonHost({
+      daemonId,
+      userRoot,
+      openCell,
+      recordLifecycle: (entry) => records.push(entry),
+    });
     hosts.push(host);
     return host;
   };
@@ -87,9 +99,12 @@ async function unusedPort(): Promise<number> {
 test("successful starts persist actual ports and restore separate daemon identities through host open", async (t) => {
   const f = await fixture(t),
     first = await f.open("a/b"),
-    second = await f.open("a?b"),
     a = await first.fleet.startCenter({ ...f.request, stateRoot: path.join(f.root, "a") }, auth),
-    b = await second.fleet.startCenter({ ...f.request, stateRoot: path.join(f.root, "b") }, auth),
+    otherPort = await unusedPort();
+  // Both identities share one canonical repository, whose writer belongs to only one host at a time.
+  await first.close();
+  const second = await f.open("a?b"),
+    b = await second.fleet.startCenter({ ...f.request, port: otherPort, stateRoot: path.join(f.root, "b") }, auth),
     aFile = fleetCenterConfigPath(f.userRoot, "a/b"),
     bFile = fleetCenterConfigPath(f.userRoot, "a?b");
   assert.notEqual(aFile, bFile);
@@ -104,12 +119,13 @@ test("successful starts persist actual ports and restore separate daemon identit
   );
   assert.equal(saved.keyPath, f.keyPath);
   assert.equal(saved.certPath, f.certPath);
-  await first.close();
   await second.close();
-  await f.open("a/b");
-  await f.open("a?b");
+  const restoredFirst = await f.open("a/b");
   await handshake(Number(a.port), f.certPath);
+  await restoredFirst.close();
+  const restoredSecond = await f.open("a?b");
   await handshake(Number(b.port), f.certPath);
+  await restoredSecond.close();
   const records: DaemonLifecycleEntry[] = [];
   await f.open("never-enabled", records);
   assert.equal(existsSync(fleetCenterConfigPath(f.userRoot, "never-enabled")), false);
@@ -146,6 +162,69 @@ test("an unenabled successor does not listen and invalid saved references report
   const repaired = await f.open("enabled");
   const result = await repaired.fleet.startCenter({ ...f.request, port: Number(started.port) }, auth);
   assert.equal(result.ok, true);
+  await handshake(Number(result.port), f.certPath);
+});
+
+test("repair after failed restore waits for attachment before reading persisted replica status", async (t) => {
+  const f = await fixture(t),
+    first = await f.open("warming-repair"),
+    started = await first.fleet.startCenter(f.request, auth);
+  await first.close();
+  const file = fleetCenterConfigPath(f.userRoot, "warming-repair"),
+    saved = JSON.parse(readFileSync(file, "utf8")),
+    replicas = openReplicaAckStore(saved.stateRoot);
+  try {
+    replicas.register({ repoId: f.request.repoId, nodeId: "edge-one", viewId: "edge-one" }, 0);
+  } finally {
+    replicas.close();
+  }
+  writeFileSync(file, JSON.stringify({ ...saved, keyPath: path.join(f.root, "missing.key") }));
+  let entered!: () => void, release!: () => void;
+  const opening = new Promise<void>((resolve) => {
+      entered = resolve;
+    }),
+    released = new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+    records: DaemonLifecycleEntry[] = [],
+    host = await f.open("warming-repair", records, async (input) => {
+      entered();
+      await released;
+      return openRepoCell(input);
+    });
+  assert.match(String(records.find((entry) => entry.event === "fleet_center_restore_failed")?.error), /missing\.key/u);
+  assert.equal(host.status().repos.find((repo) => repo.repoId === f.request.repoId)?.state, "warming");
+  let settled = false;
+  const repair = host.fleet.startCenter({ ...f.request, port: Number(started.port) }, auth);
+  void repair.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  try {
+    // The start itself must initiate and park behind attachment, without a test-side readiness call.
+    await Promise.race([
+      opening,
+      repair.then(() => {
+        throw new Error("repair completed before attachment");
+      }),
+    ]);
+    assert.equal(settled, false);
+  } finally {
+    release();
+    await repair.then(
+      () => undefined,
+      () => undefined,
+    );
+  }
+  const result = await repair;
+  assert.equal(result.ok, true);
+  assert.equal(result.serviceStatus, "listening");
+  assert.equal((result.replicas as unknown[]).length, 1);
+  assert.equal(host.status().repos.find((repo) => repo.repoId === f.request.repoId)?.state, "attached");
   await handshake(Number(result.port), f.certPath);
 });
 
