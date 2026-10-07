@@ -125,6 +125,12 @@ export const taskActionDescriptorProjection = {
         schema: "entity-action-input/v1",
         fields: [
           { field: "taskId", type: "string", required: true },
+          {
+            field: "stackOn",
+            type: "string",
+            required: false,
+            cli: { name: "--stack-on", kind: "single", error: "invalid_field" },
+          },
           { field: "expectedVersion", type: "number", required: false },
           {
             field: "executionId",

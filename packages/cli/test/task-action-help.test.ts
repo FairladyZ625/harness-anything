@@ -8,7 +8,7 @@ import {
   taskActionHelpRows,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands-task";
 import { renderEntityActionExplanation } from "../src/cli/entity-action-explain-render.ts";
-import { renderThinHelp } from "../src/cli/thin-command.ts";
+import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("Task lifecycle help is projected from the generated Action declarations", () => {
   const rows = taskActionHelpRows;
@@ -59,4 +59,11 @@ test("human explain output labels catalog availability as not evaluated", () => 
   assert.match(rendered, /start: not evaluated/u);
   assert.match(rendered, /usage: ha task start <task-id>/u);
   assert.doesNotMatch(rendered, /start: available/u);
+});
+
+test("start exposes and parses an explicit stack anchor through its canonical CLI action", () => {
+  assert.match(renderThinHelp([], "task"), /--stack-on/u);
+  const parsed = parseThinCommand(["task", "start", "task_work", "--stack-on", "task_base"]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok) assert.equal(parsed.command.action.stackOn, "task_base");
 });
