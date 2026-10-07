@@ -1,4 +1,4 @@
-import type { TaskProjection } from "@harness-anything/kernel";
+import { isNativeExecution, type TaskProjection } from "@harness-anything/kernel";
 import {
   documentPath,
   resolveDocRoute,
@@ -176,13 +176,38 @@ export function scannerSettlement(
       unresolvedTouches: scanned.unresolvedTouches,
       deletions: scanned.deletions,
     };
+  const submitNext = receipt.outcome === "applied" ? closeoutSubmitNext(input.projection, receiptDetail) : [];
   return {
     ...receipt,
     ...(detail ? { detail } : {}),
     summary: submitSummary(receipt.outcome, receiptDetail?.paths.map((row) => row.path) ?? [], scan, (candidate) =>
       input.projection.taskIdForDocumentPath(candidate),
     ),
+    ...(submitNext.length ? { next: submitNext } : {}),
   };
+}
+
+/** A synced closeout is the hand-back; its task's open execution becomes a delivery only on `ha task submit`. */
+function closeoutSubmitNext(
+  projection: TaskProjection,
+  receiptDetail: { readonly paths: readonly { readonly path: string }[] } | undefined,
+): { command: string; reason: string }[] {
+  const taskIds = new Set(
+    (receiptDetail?.paths ?? [])
+      .filter((row) => row.path.endsWith("/closeout.md"))
+      .map((row) => projection.taskIdForDocumentPath(row.path))
+      .filter((taskId): taskId is string => taskId !== null),
+  );
+  return [...taskIds]
+    .filter((taskId) =>
+      projection
+        .read(taskId)
+        .snapshot.executions.some((execution) => isNativeExecution(execution) && execution.state === "active"),
+    )
+    .map((taskId) => ({
+      command: `ha task submit ${taskId}`,
+      reason: "the closeout is synced; submitting the open execution makes it the delivery",
+    }));
 }
 
 export function submitSummary(
