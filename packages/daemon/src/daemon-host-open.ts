@@ -1,3 +1,9 @@
+import { readFleetCenterConfig } from "./fleet-center-config.ts";
+import {
+  keycloakNodeRegistry,
+  prepareFleetCenterAdmission,
+  startFleetCenterAdmission,
+} from "./fleet-center-admission.ts";
 import {
   authenticateRuntimeExecutionCredential,
   executionCredentialRejected,
@@ -783,6 +789,43 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       });
     }
   };
+  // Restore only a previously authorized successful start, after every callback's captured
+  // host and service has been initialized. No user session is stored or replayed here.
+  try {
+    const config = readFleetCenterConfig(input.userRoot, input.daemonId);
+    if (config) {
+      const authorityRepo = readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
+        (repo) =>
+          repo.repoId === config.repoId &&
+          repo.state === "enabled" &&
+          repo.mode !== "remote-proxy" &&
+          repo.canonicalRoot !== null,
+      );
+      if (!authorityRepo)
+        throw hostCodedError("repo_namespace_unknown", "Saved fleet center authority repository is not enabled.");
+      const started = await startFleetCenterAdmission(
+        await prepareFleetCenterAdmission({
+          host,
+          userRoot: input.userRoot,
+          writerEpochLease: hostContext.writerEpochLease,
+          payload: config,
+          nodes: {
+            ...keycloakNodeRegistry(hostContext.keycloakCenter),
+            loginAuthority: (nodeId) => oidc.discovery(nodeId),
+            verifyHuman: (auth) => oidc.bind(auth),
+          },
+        }),
+      );
+      fleetCenter = started.center;
+    }
+  } catch (error) {
+    input.recordLifecycle?.({
+      event: "fleet_center_restore_failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    // The local control daemon remains available to repair the listener with an authorized start.
+    return host;
+  }
   return host;
   async function closeCell(repoId: string): Promise<void> {
     return closeCellImpl(extracted, repoId);

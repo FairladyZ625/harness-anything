@@ -1,5 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { lookup } from "node:dns/promises";
+import { createSecureContext } from "node:tls";
 import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { FleetCenterOptions } from "./fleet/center-types.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
@@ -55,25 +57,41 @@ const material = (file: string, flag: string): Buffer => {
     );
   }
 };
-export async function startFleetCenterAdmission(
-  input: FleetCenterAdmissionRequest,
-): Promise<{ readonly center: FleetTlsCenter; readonly stateRoot: string }> {
-  const stateRoot = input.payload.stateRoot ?? path.join(input.userRoot, "fleet");
+export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionRequest): Promise<FleetCenterOptions> {
+  const request = input.payload;
+  if (!Number.isSafeInteger(request.port) || request.port < 0 || request.port > 65535)
+    throw new Error("Fleet TLS --port must be an integer between 0 and 65535.");
+  if (!Number.isSafeInteger(request.quotaBytes) || request.quotaBytes <= 0)
+    throw new Error("Fleet TLS --quota-bytes must be a positive safe integer.");
+  for (const field of ["keyPath", "certPath", "repoId", "bind", "stateRoot"] as const) {
+    const value = request[field];
+    if ((field === "bind" || field === "stateRoot") && value === undefined) continue;
+    if (typeof value !== "string" || value.length === 0 || value.includes("\0"))
+      throw new Error(`Fleet TLS ${field} must be nonempty.`);
+  }
+  if (request.stateRoot && existsSync(request.stateRoot) && !statSync(request.stateRoot).isDirectory())
+    throw new Error("Fleet TLS stateRoot must be a directory.");
+  const key = material(request.keyPath, "--key"),
+    cert = material(request.certPath, "--cert");
+  createSecureContext({ key, cert });
+  await lookup(request.bind ?? "127.0.0.1");
   return {
-    center: await listenFleetTls({
-      host: input.host,
-      stateRoot,
-      writerEpochStateRoot: path.join(input.userRoot, "fleet"),
-      ...(input.writerEpochLease ? { writerEpochLease: input.writerEpochLease } : {}),
-      key: material(input.payload.keyPath, "--key"),
-      cert: material(input.payload.certPath, "--cert"),
-      hostname: input.payload.bind,
-      port: input.payload.port,
-      replicaDiskQuotaBytes: input.payload.quotaBytes,
-      ...input.nodes,
-    }),
-    stateRoot,
+    host: input.host,
+    stateRoot: request.stateRoot ?? path.join(input.userRoot, "fleet"),
+    writerEpochStateRoot: path.join(input.userRoot, "fleet"),
+    ...(input.writerEpochLease ? { writerEpochLease: input.writerEpochLease } : {}),
+    key,
+    cert,
+    hostname: request.bind,
+    port: request.port,
+    replicaDiskQuotaBytes: request.quotaBytes,
+    ...input.nodes,
   };
+}
+export async function startFleetCenterAdmission(
+  options: FleetCenterOptions,
+): Promise<{ readonly center: FleetTlsCenter; readonly stateRoot: string }> {
+  return { center: await listenFleetTls(options), stateRoot: options.stateRoot };
 }
 export interface FleetEdgeSyncRequest {
   readonly payload: {
