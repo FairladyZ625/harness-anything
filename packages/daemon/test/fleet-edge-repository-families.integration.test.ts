@@ -65,6 +65,11 @@ test(
       localAuthFixture(),
     );
     assert.equal(showTruth.outcome, "applied", JSON.stringify(showTruth));
+    const runsTruth = await f.host.run(
+      "lease-repo",
+      { kind: "schedule-runs", scheduleId: "edge-schedule" },
+      localAuthFixture(),
+    );
     await f.center.close();
     const local = await e.command({ kind: "settings-read" });
     assert.equal(local.outcome, "applied", JSON.stringify(local));
@@ -80,6 +85,10 @@ test(
     assert.equal(show.outcome, "applied", JSON.stringify(show));
     assert.deepEqual(show.schedule, showTruth.schedule);
     assert.ok(show.cut);
+    const runs = await e.command({ kind: "schedule-runs", scheduleId: "edge-schedule" });
+    assert.equal(runs.outcome, "applied", JSON.stringify(runs));
+    assert.deepEqual(JSON.parse(String(runs.evidence)), JSON.parse(String(runsTruth.evidence)));
+    assert.ok(runs.cut, "schedule history must use the replica cut with the center disconnected");
     assert.equal((await e.command({ kind: "schedule-show", scheduleId: "missing" })).code, "entity_not_found");
   },
 );

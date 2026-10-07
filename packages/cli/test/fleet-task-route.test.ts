@@ -70,6 +70,11 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     "a remote-edge registration for another root cannot authorize this workspace",
   );
   registry("remote-edge");
+  for (const kind of ["schedule-list", "schedule-show", "schedule-runs"]) {
+    const read = command("repo.task.read", { kind, scheduleId: "edge-schedule" });
+    assert.equal(await fleetScheduleRoute(read, env), null, `${kind} must avoid the network runtime route`);
+    assert.deepEqual((await fleetTaskRoute(read, env))?.action, { kind, scheduleId: "edge-schedule" });
+  }
   const undeclaredRead = command("repo.tasks.documents.list", {
     kind: "task-documents-list",
     taskId: "task_one",
@@ -290,7 +295,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     if (!parsed.ok) continue;
     const routed = await fleetTaskRoute(parsed.command, env);
     assert.ok(routed, argv.join(" "));
-    assert.doesNotThrow(
+    assert.throws(
       () =>
         parseFleetFrame({
           schema: "fleet.repository.read/v1",
@@ -300,7 +305,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
           method: "repo.task.read",
           payload: routed.action,
         }),
-      argv.join(" "),
+      /closed schema fleet\.repository\.read\/v1/u,
     );
   }
   // task show and work list are edge-replica now: the CLI still routes them to the edge daemon, but

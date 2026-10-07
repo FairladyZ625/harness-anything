@@ -17,7 +17,10 @@ export async function fleetScheduleRoute(
     (command.method !== "repo.task.run" && command.method !== "repo.task.read") ||
     !daemonProtocolCommands.some(
       (candidate) =>
-        candidate.method === command.method && candidate.id === command.action.kind && candidate.path[0] === "schedule",
+        candidate.method === command.method &&
+        candidate.id === command.action.kind &&
+        candidate.path[0] === "schedule" &&
+        candidate.admission["remote-edge"] !== "edge-replica",
     )
   )
     return null;
@@ -148,7 +151,7 @@ export async function fleetTaskRoute(
     (descriptor.path[0] === "doc" &&
       descriptor.admission["remote-edge"] !== "edge-replica" &&
       typeof command.action.taskId !== "string") ||
-    descriptor.path[0] === "schedule"
+    (descriptor.path[0] === "schedule" && descriptor.admission["remote-edge"] !== "edge-replica")
   )
     return null;
   const config = await fleetEdgeRegistration(command, env);

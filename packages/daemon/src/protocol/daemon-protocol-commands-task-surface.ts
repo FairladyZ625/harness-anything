@@ -1,7 +1,6 @@
 import { relationFreshnessWords, relationStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import {
   defineCenterForwardWriteCommand,
-  defineCenterForwardReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   cliInput,
   defineLedgerWriteCommand,
@@ -338,7 +337,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "work-show",
     repositoryRead: true,
     phase: "W3",

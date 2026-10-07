@@ -109,7 +109,16 @@ test(
       { kind: "task-read-set", taskId: "show-1" } as never,
       localAuthFixture(),
     );
+    const workTruth = await f.host.run(
+      "lease-repo",
+      { kind: "work-show", taskId: "show-1" } as never,
+      localAuthFixture(),
+    );
     await f.center.close();
+    const work = await e.command({ kind: "work-show", taskId: "show-1" });
+    assert.equal(work.outcome, "applied", JSON.stringify(work));
+    assert.deepEqual(JSON.parse(String(work.evidence)), JSON.parse(String(workTruth.evidence)));
+    assert.ok(work.cut, "work show must use the replica cut with the center disconnected");
     const readSet = await e.command({ kind: "task-read-set", taskId: "show-1" });
     assert.equal(readSet.outcome, "applied", JSON.stringify(readSet));
     assert.deepEqual(JSON.parse(String(readSet.evidence)), JSON.parse(String(readSetTruth.evidence)));

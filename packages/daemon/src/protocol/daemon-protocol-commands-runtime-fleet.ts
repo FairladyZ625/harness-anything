@@ -459,7 +459,7 @@ export const scheduleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "schedule-runs",
     phase: "Schedule-S5",
     path: ["schedule", "runs", "<schedule-id>"],
