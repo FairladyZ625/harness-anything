@@ -325,7 +325,8 @@ export interface RuntimeSpawnerInput {
   readonly resolveSquadDispatch?: (
     squadId: string | undefined,
     leaderId: string,
-    workerId?: string,
+    workerId: string | undefined,
+    binding: RuntimeBinding,
   ) => SquadDispatchSelection;
   readonly launch?: RuntimeLauncher;
   readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void;

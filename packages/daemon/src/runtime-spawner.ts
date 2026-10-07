@@ -372,7 +372,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       squad =
         squadId || targetAgentId
-          ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId) ??
+          ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId, binding) ??
             (() => {
               if (squadId) throw runtimeSpawnError("squad_not_found", `Squad ${squadId} is unavailable.`);
               throw runtimeSpawnError(

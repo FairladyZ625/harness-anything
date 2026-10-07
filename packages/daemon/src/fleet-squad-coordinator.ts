@@ -39,7 +39,7 @@ export function makeFleetSquadCoordinator(input: {
       await runFleetRuntimeEventClient({
         ...input.peer,
         repoId: request.repoId,
-        opId: `squad-observed:${observation.squadRunId}:${observation.runRevision}`,
+        opId: `squad-observed-${observation.squadRunId}-${observation.runRevision}`,
         eventType: "runtime_squad_run_observed",
         payload: { ...observation },
       });

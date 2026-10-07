@@ -1,3 +1,4 @@
+import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
 import { readEdgeRuntimeResult } from "./runtime-result-read.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
@@ -8,13 +9,11 @@ import path from "node:path";
 import {
   assertTransitionDocumentReady,
   entitySlug,
-  openEntityStore,
   readSettingsFacet,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
   validateScheduleV1,
   type AgentRuntimeEventV1,
-  type EntityStore,
   type ScheduleV1,
   type TaskWorktreeBindingV1,
 } from "@harness-anything/kernel";
@@ -161,9 +160,7 @@ export function openFleetEdgeRuntime(input: {
     readSettings = () =>
       readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8"));
   const executionCredentials = new Map<string, { credential: string; expiresAt: string; personId: string }>();
-  let entityStore: EntityStore | undefined;
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
-  const getEntityStore = (): EntityStore => (entityStore ??= openEntityStore(request.workspaceRoot));
   let tail = Promise.resolve();
   const schedule = (work: () => void | Promise<void>): void => {
     tail = tail.then(work).then(
@@ -370,14 +367,21 @@ export function openFleetEdgeRuntime(input: {
     prepareLaunch: input.ports.prepareRuntimeLaunch,
     prepareWorkerGitEnvironment: input.ports.prepareWorkerGitEnvironment,
     resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
-    resolveSquadDispatch: (squadId, leaderId, workerId) =>
-      resolveSquadDispatch({
-        rootDir: request.workspaceRoot,
-        ...(squadId ? { squadId } : {}),
-        leaderId,
-        ...(workerId ? { workerId } : {}),
-        entityStore: getEntityStore(),
-      }),
+    resolveSquadDispatch: (squadId, leaderId, workerId, binding) =>
+      withEdgeReadModel(
+        { viewRoot: request.viewRoot, repoId: request.repoId, principalId: binding.actor.principal.personId },
+        (projection) =>
+          resolveSquadDispatch({
+            rootDir: request.workspaceRoot,
+            ...(squadId ? { squadId } : {}),
+            leaderId,
+            ...(workerId ? { workerId } : {}),
+            entityStore: {
+              get: (kind, id) => projection.getEntity(kind, id),
+              list: (kind) => projection.listEntities(kind),
+            },
+          }),
+      ),
     onAttemptTerminal: async (terminal) => {
       if (terminal.task) {
         const waitMs = runtimeReadTimeoutMs ?? 30_000,

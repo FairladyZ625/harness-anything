@@ -120,12 +120,15 @@ export function makeSquadCoordinator(input: {
       squad = squadForRun(squadId),
       baseSha = localGitObjectRefStore.headCommit(cwd);
     let mission: string;
+    let publicMission: string;
     await input.reacquireTaskLease(taskId, binding);
     try {
       const taskMission = input.query((projection) =>
         deriveTaskMission(input.rootDir, cwd, projection, taskId, "squad.run"),
       );
       mission = optionalText(action.prompt) ?? taskMission.mission;
+      publicMission =
+        optionalText(action.prompt) ?? input.query((projection) => projection.read(taskId).snapshot.task!.title);
     } catch (error) {
       throw cellCriterionError(
         errorCode(error, "squad_task_unavailable"),
@@ -147,6 +150,7 @@ export function makeSquadCoordinator(input: {
         cwd,
         baseSha,
         mission,
+        publicMission,
         model: optionalText(action.model),
         effort: optionalText(action.effort),
         permissionMode: optionalText(action.permissionMode),
@@ -568,7 +572,7 @@ export function makeSquadCoordinator(input: {
                   squadId: state.squadId,
                   taskId: state.taskId,
                   executionId: state.executionId,
-                  mission: state.mission,
+                  mission: state.publicMission,
                   leaderAgentId: state.leaderAgentId,
                 },
             targetAgentId: plan.workerId,
@@ -681,7 +685,7 @@ export function makeSquadCoordinator(input: {
                 squadId: state.squadId,
                 taskId: state.taskId,
                 executionId: state.executionId,
-                mission: state.mission,
+                mission: state.publicMission,
                 leaderAgentId: state.leaderAgentId,
               },
           ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),

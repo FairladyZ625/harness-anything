@@ -9,6 +9,7 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import {
+  type AgentDeclarationReader,
   agentDeclarationInvalidError,
   readAgentDeclaration,
   storedAgentDeclarationOutcome,
@@ -372,7 +373,7 @@ function readyEntityValue(
 export function readSquadDeclaration(input: {
   readonly rootDir: string;
   readonly squadId: string;
-  readonly entityStore?: EntityStore;
+  readonly entityStore?: AgentDeclarationReader;
 }): SquadDeclarationV1 {
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir),
     squad = parseSquadDeclarationV1(readStoredDeclaration(input.rootDir, "squad", input.squadId, entityStore)),
@@ -402,7 +403,9 @@ export function resolveSquadDispatch(input: {
   readonly squadId?: string;
   readonly leaderId: string;
   readonly workerId?: string;
-  readonly entityStore?: EntityStore;
+  readonly entityStore?: AgentDeclarationReader & {
+    readonly list: (kind: string) => readonly { readonly id: string; readonly value: unknown }[];
+  };
 }): SquadDispatchSelection {
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
   if (input.squadId) {
@@ -422,7 +425,7 @@ export function resolveSquadDispatch(input: {
   if (!input.workerId)
     throw entityError("squad_not_found", `A squad id is required to dispatch leader ${input.leaderId}.`);
   const matches: SquadDispatchSelection[] = [];
-  for (const { id: squadId, value } of entityStore.list<SquadDeclarationV1>("squad")) {
+  for (const { id: squadId, value } of entityStore.list("squad")) {
     const squad = parseSquadDeclarationV1(value);
     if (squad.leader !== input.leaderId || !squad.workers.includes(input.workerId)) continue;
     const leader = readAgentDeclaration({ rootDir: input.rootDir, agentId: squad.leader, entityStore }),
@@ -720,7 +723,12 @@ function decodeDeclaration(
     ? { issues: issues.map((message) => ({ code: "invalid_manifest", message })), source }
     : { declaration: value as AgentDeclarationV1 & SquadDeclarationV1, source };
 }
-function readStoredDeclaration(rootDir: string, kind: AgentEntityKind, id: string, entityStore?: EntityStore): unknown {
+function readStoredDeclaration(
+  rootDir: string,
+  kind: AgentEntityKind,
+  id: string,
+  entityStore?: AgentDeclarationReader,
+): unknown {
   if (!entitySlug(id)) throw entityError(`${kind}_not_found`, `${id} is not a valid ${kind} id.`);
   const stored = (entityStore ?? openEntityStore(rootDir)).get(kind, id);
   if (!stored) throw entityError(`${kind}_not_found`, `${id} is not an installed ${kind}.`);

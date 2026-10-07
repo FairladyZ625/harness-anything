@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
@@ -37,10 +37,7 @@ export async function fleetEdgeHostFixture(
     edgeUser = path.join(root, `${name}-user`),
     viewRoot = options.viewRoot ?? path.join(root, `${name}-view`);
   mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(edgeRoot, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
+  writeFileSync(path.join(edgeRoot, "harness/harness.yaml"), readFileSync(path.join(f.repo, "harness/harness.yaml")));
   execFileSync("git", ["init", "-q", edgeRoot]);
   execFileSync("git", ["-C", edgeRoot, "add", "harness"]);
   execFileSync("git", [

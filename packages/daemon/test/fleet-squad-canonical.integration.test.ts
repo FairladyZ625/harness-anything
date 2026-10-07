@@ -136,6 +136,11 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   assert.equal(observed.payload.squadRunId, runId);
   assert.equal(observed.source && typeof observed.source === "object" ? observed.source.nodeId : null, "node-one");
   assert.equal(JSON.stringify(observed).includes(a.edgeRoot), false, "no machine path in public observation");
+  assert.equal(
+    observed.payload.mission,
+    "Canonical Squad run",
+    "publish the canonical task description, not the node execution prompt",
+  );
   await f.host.replica("lease-repo").waitForCut(f.eventCount());
   await runFleetReplicaPullClient({ ...f.peer("node-two"), viewRoot: b.viewRoot, diskQuotaBytes: b.config.quotaBytes });
   const beforeReplay = f.eventCount();

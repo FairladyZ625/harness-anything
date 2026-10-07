@@ -35,7 +35,7 @@ export function requireSquadRuntimeOwner(
       "execution_scope_mismatch",
       "Squad observation must retain its initial dispatch and execution identity.",
     );
-  if (action.opId !== `squad-observed:${String(action.payload.squadRunId)}:${String(action.payload.runRevision)}`)
+  if (action.opId !== `squad-observed-${String(action.payload.squadRunId)}-${String(action.payload.runRevision)}`)
     throw cell.cellCodedError("invalid_runtime_event", "Squad observation identity must use its run revision.");
 }
 

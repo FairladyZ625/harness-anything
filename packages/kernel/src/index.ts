@@ -390,3 +390,5 @@ export type {
   SquadRunObservation,
   CanonicalSquadRun,
 } from "./domain/squad-run.ts";
+
+export { validSquadDispatchContext } from "./domain/squad-run.ts";

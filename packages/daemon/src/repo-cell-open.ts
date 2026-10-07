@@ -562,7 +562,7 @@ export async function openRepoWriterCell(
       const action = {
         kind: "event" as const,
         type: "runtime_squad_run_observed" as const,
-        opId: `squad-observed:${observation.squadRunId}:${observation.runRevision}`,
+        opId: `squad-observed-${observation.squadRunId}-${observation.runRevision}`,
         payload: { ...observation },
       };
       const authorized = await authorizeRuntimeAction(

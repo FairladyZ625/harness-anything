@@ -27,6 +27,7 @@ import {
   readTaskPresentationStatus,
   readTaskProgressRows,
   readTaskRelationPage,
+  readTaskRelationsByTargets,
 } from "./task-query-projection.ts";
 import { readDecisionRows } from "./decision-projection-reads.ts";
 import type { TaskProjectionQueries } from "./task-projection-port.ts";
@@ -99,6 +100,10 @@ export function makeEdgeReplicaQueries(source: EdgeReplicaQuerySource): EdgeRepl
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
       warnings: [],
+    }),
+    readTaskRelationsByTargets: (targetRefs, relationType) => ({
+      ...cut,
+      rows: readTaskRelationsByTargets(db, targetRefs, relationType),
     }),
     readTaskChildCounts: (parentTaskIds) => readTaskChildCounts(db, parentTaskIds),
     getEntity: (entityKind, entityId) => getEntityProjectionRow(db, entityKind, entityId),

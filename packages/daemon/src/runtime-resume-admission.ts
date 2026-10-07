@@ -1,3 +1,4 @@
+import { validSquadDispatchContext } from "@harness-anything/kernel";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import path from "node:path";
@@ -213,6 +214,7 @@ export function resolveRuntimeResume(
       "agentId",
       "targetAgentId",
       "squadId",
+      "squadRun",
       "role",
       "model",
       "effort",
@@ -233,6 +235,8 @@ export function resolveRuntimeResume(
     unknownField = unknownFieldViolation(payload, allowed);
   if (unknownField)
     throw runtimeSpawnError("invalid_runtime_spawn", `Runtime spawn payload contains an ${unknownField}`);
+  if (payload.squadRun !== undefined && !validSquadDispatchContext(payload.squadRun))
+    throw runtimeSpawnError("invalid_runtime_spawn", "Runtime spawn squadRun must be a valid Squad dispatch context.");
   const requestedDispatchId =
       payload.dispatchId === undefined ? undefined : requiredRuntimeSpawnText(payload.dispatchId, "dispatchId"),
     resumed = handoff

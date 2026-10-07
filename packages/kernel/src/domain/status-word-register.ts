@@ -3,6 +3,49 @@ import { closeoutStatusWordRegister } from "./status-word-register-closeout.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
+  // Same six Squad phases; the canonical contract now owns their single definition.
+  {
+    word: "planning",
+    entity: "SquadRun",
+    field: "phase",
+    meaning: "The Squad run is preparing its next leader turn.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "leader_running",
+    entity: "SquadRun",
+    field: "phase",
+    meaning: "The Squad leader turn has been dispatched and has not settled.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "workers_running",
+    entity: "SquadRun",
+    field: "phase",
+    meaning: "The Squad run is awaiting its dispatched worker attempts.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "cancelled",
+    entity: "SquadRun",
+    field: "phase",
+    meaning: "The owner reported the Squad run cancelled; this does not assert every process was killed.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "converged",
+    entity: "SquadRun",
+    field: "phase",
+    meaning: "The owner reported the Squad run converged.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "failed",
+    entity: "SquadRun",
+    field: "phase",
+    meaning: "The owner reported that the Squad run failed.",
+    divergence: "entity-scoped",
+  },
   // dec_D8497012F42A999E054D7ADF6A CH1/CH2; unavailable reads carry an error instead.
   {
     word: "fresh",

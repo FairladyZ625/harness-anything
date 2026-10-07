@@ -17,6 +17,8 @@ export type SquadState = {
   readonly cwd: string;
   readonly baseSha: string | null;
   readonly mission: string;
+  /** User-authored prompt or canonical task title; excludes generated local execution instructions. */
+  readonly publicMission: string;
   readonly model: string | null;
   readonly effort: string | null;
   readonly permissionMode?: string | null;

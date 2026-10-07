@@ -9,7 +9,7 @@ export function squadRunObservation(state: SquadState): SquadRunObservation {
     squadId: state.squadId,
     taskId: state.taskId,
     executionId: state.executionId,
-    mission: state.mission,
+    mission: state.publicMission,
     leaderAgentId: state.leaderAgentId,
     ownerDispatchId: state.stateDispatchId,
     runRevision: state.revision,

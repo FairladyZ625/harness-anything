@@ -11,6 +11,7 @@ export type StatusEntity =
   | "FactRecord"
   | "Review"
   | "RuntimeSession"
+  | "SquadRun"
   | "WriteReceipt"
   | "AuthorizationDecision"
   | "EntityActionCriterion"
@@ -77,6 +78,15 @@ import { statusWordRegister } from "./status-word-register.ts";
 export { statusWordRegister } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
+  // Existing daemon phases moved to the canonical run contract (dec_FB7DE6338E7D3D94ED2A4C05A2).
+  {
+    id: "squadRun.phase",
+    entity: "SquadRun",
+    field: "phase",
+    module: "packages/kernel/src/domain/squad-run.ts",
+    anchor: "SquadRunPhase",
+    words: ["planning", "leader_running", "workers_running", "cancelled", "converged", "failed"],
+  },
   // dec_D8497012F42A999E054D7ADF6A CH1/CH2: accepted edge-read freshness states.
   {
     id: "receipt.edgeFreshness",
