@@ -57,7 +57,7 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
       "--title",
       "Release Acceptance Chain",
       "--preset",
-      "docs-task",
+      "standard-task",
     ]);
     assert.equal(created.status, "accepted_durable", JSON.stringify(created));
     const packagePath = String(created.packagePath),
@@ -88,12 +88,13 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     const probePublication = run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], worker);
     settle(root, userRoot, String(probePublication.opId), worker);
 
-    // A real repository deliverable, committed by the fixture, so code-doc reconcile has a true path.
-    mkdirSync(path.join(root, "scripts"), { recursive: true });
-    writeFileSync(path.join(root, "scripts", "release-acc-probe.mjs"), 'export const probe = "chain";\n');
-    git(root, "add", "scripts/release-acc-probe.mjs");
-    git(root, "commit", "--quiet", "-m", "release acceptance probe script");
-    const commitSha = git(root, "rev-parse", "HEAD");
+    // The code delivery belongs to the task's bound checkout; ledger publication uses the center checkout.
+    const workerRoot = path.join(root, ".worktrees", taskId);
+    mkdirSync(path.join(workerRoot, "scripts"), { recursive: true });
+    writeFileSync(path.join(workerRoot, "scripts", "release-acc-probe.mjs"), 'export const probe = "chain";\n');
+    git(workerRoot, "add", "scripts/release-acc-probe.mjs");
+    git(workerRoot, "commit", "--quiet", "-m", "release acceptance probe script");
+    const commitSha = git(workerRoot, "rev-parse", "HEAD");
     writeCloseout(root, packagePath, `The chain fixture is complete at ${commitSha}.`);
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", executionId], worker);
     run(
@@ -167,6 +168,13 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
         (event) => event.type === "execution_started" && event.payload.execution?.executionId === executionId,
       ),
       review = events.find((event) => event.type === "review_recorded");
+    const submittedCut = events.find(
+      (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
+    );
+    assert.equal(submittedCut?.type, "execution_submitted");
+    if (submittedCut?.type !== "execution_submitted") throw new Error("missing code submission");
+    assert.equal(submittedCut.payload.execution.submission?.commitSha, commitSha);
+    assert.ok(submittedCut.payload.execution.submission?.deliverables.includes("scripts/release-acc-probe.mjs"));
     assert.ok(started, "execution_started must be in the canonical ledger");
     assert.deepEqual(started.actor, {
       executor: { kind: "agent", id: "release-worker" },

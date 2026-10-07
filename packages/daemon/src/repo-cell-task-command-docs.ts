@@ -293,6 +293,7 @@ export async function runTaskCommandWithDocs(
       bodyOverrides,
       typeof taskAction.commitSha === "string" ? taskAction.commitSha : undefined,
       binding.source,
+      { changes: carriedChanges, revision: headRevision + 1 },
     );
     if (!derived.ok) {
       recycleClaims(cell.rootDir, intent);

@@ -835,7 +835,7 @@ test("review binding permits independent runtimes but still rejects the executio
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
-    const workerRoot = path.join(rootDir, ".worktrees", "implementer");
+    const workerRoot = path.join(rootDir, ".worktrees", "task-runtime-bound");
     git(rootDir, "worktree", "add", "--quiet", "--detach", workerRoot);
     const processes: {
       exit: ((code: number | null) => void) | null;
@@ -921,7 +921,7 @@ test("review binding permits independent runtimes but still rejects the executio
         );
     const taskId = "task-runtime-bound";
     const created = await cell.run(
-      { kind: "task-create", taskId, title: "Runtime-bound review", presetId: "docs-task" },
+      { kind: "task-create", taskId, title: "Runtime-bound review", presetId: "standard-task" },
       implementer,
     );
     assert.equal(created.outcome, "applied");
@@ -934,7 +934,7 @@ test("review binding permits independent runtimes but still rejects the executio
     const original = await cell.spawnRuntime(
       {
         runtimeInstanceId: "review-runtime",
-        cwd: { scope: "repo-relative", path: ".worktrees/implementer" },
+        cwd: { scope: "repo-relative", path: ".worktrees/task-runtime-bound" },
         prompt: "Implement the task.",
         taskId,
         idempotencyKey: "original-runtime",
@@ -969,7 +969,7 @@ test("review binding permits independent runtimes but still rejects the executio
     const resumed = await cell.spawnRuntime(
       {
         runtimeInstanceId: "review-runtime",
-        cwd: { scope: "repo-relative", path: ".worktrees/implementer" },
+        cwd: { scope: "repo-relative", path: ".worktrees/task-runtime-bound" },
         prompt: "Resume the task.",
         taskId,
         providerSessionId: "provider-1",
@@ -1041,6 +1041,14 @@ test("review binding permits independent runtimes but still rejects the executio
       ).outcome,
       "applied",
     );
+    const submittedCut = makeTaskEventReader({ repoId: "review-runtime-bound", rootDir })
+      .read()
+      .events.findLast(
+        (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
+      );
+    if (submittedCut?.type !== "execution_submitted") throw new Error("missing runtime submission");
+    assert.equal(submittedCut.payload.execution.submission?.commitSha, git(workerRoot, "rev-parse", "HEAD"));
+    assert.ok(submittedCut.payload.execution.submission?.deliverables.includes("README.md"));
     const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, operator);
     assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
     writeFileSync(

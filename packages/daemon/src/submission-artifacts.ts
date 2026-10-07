@@ -3,6 +3,9 @@ import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   isDocEvent,
+  isTaskBootstrapEvent,
+  isTaskEvent,
+  isTaskProgressEvent,
   normalizeRelativeDocumentPath,
   resolveHarnessLayout,
   sha256Bytes,
@@ -111,12 +114,17 @@ export function readSubmissionArtifact(
     return invalid("path must belong to this task's artifacts");
   if (!Number.isSafeInteger(revision) || revision < 1) invalid("revision must be a positive safe integer");
   const event = cell.store.readEventAtRevision?.(revision);
-  if (!event || event.workspaceRevision !== revision || !isDocEvent(event))
-    return invalid("revision is not a document acceptance");
-  const change = event.payload.changes.find((candidate) => candidate.path === artifact);
-  if (!change?.candidate) return invalid("revision did not accept this path");
-  const blobSha256 = change.candidate.sha256,
-    bytes = cell.store.readContentBlob(blobSha256);
+  if (!event || event.workspaceRevision !== revision) return invalid("revision is not a document acceptance");
+  const claims = isDocEvent(event)
+    ? event.payload.changes
+    : isTaskEvent(event) || isTaskProgressEvent(event)
+      ? (event.payload.carriedDocumentClaims ?? [])
+      : [];
+  const blobSha256 = isTaskBootstrapEvent(event)
+    ? event.payload.initialDocumentClaims.find((claim) => claim.path === artifact)?.sha256
+    : claims.find((claim) => claim.path === artifact)?.candidate?.sha256;
+  if (!blobSha256) return invalid("revision did not accept this path");
+  const bytes = cell.store.readContentBlob(blobSha256);
   if (!bytes || sha256Bytes(bytes) !== blobSha256 || (expectedBlob !== undefined && expectedBlob !== blobSha256))
     return invalid("accepted content is unavailable or does not match its frozen identity");
   if (!isUtf8(bytes)) return invalid("review delivery must be UTF-8 text");

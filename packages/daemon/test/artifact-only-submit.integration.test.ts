@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import { isTaskEvent, makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -188,7 +189,20 @@ test("a documentation amendment completes with newly accepted artifact paths on 
     assert.ok(amended && isTaskEvent(amended) && amended.type === "execution_submitted");
     const submission = amended.payload.execution.submission!;
     assert.ok(submission.deliverables.includes(`${packagePath}/artifacts/followup.md`));
-    for (const file of submission.deliverables) git(ledger, "cat-file", "-e", `${submission.commitSha}:${file}`);
+    assert.equal(submission.commitSha, null);
+    const reader = makeTaskEventReader({ repoId: workspaceId("doc-amend"), rootDir }),
+      reviewCell = {
+        store: reader,
+        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      };
+    try {
+      for (const anchor of submission.artifacts!) {
+        const frozen = readSubmissionArtifact(reviewCell, packagePath, anchor.path, anchor.revision, anchor.blobSha256);
+        assert.deepEqual(Buffer.from(frozen.body), readFileSync(path.join(ledger, anchor.path)));
+      }
+    } finally {
+      await reader.drain();
+    }
     await run({ kind: "task-complete", taskId, executionId });
   } finally {
     await cell.close();

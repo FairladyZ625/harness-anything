@@ -1,6 +1,7 @@
 /** Shared fixture for completion-review dispatch tests: repo cell, fake reviewer providers,
  * settlement drivers, and outcome polling. `failProvider` true fails every launch; a number
  * fails only that many first launches, then hangs. */
+import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -403,9 +404,20 @@ export async function fixture(
         .at(-1);
       assert.ok(submitted?.type === "execution_submitted" && submitted.payload.execution.submission);
       const reviewedCommit = submitted.payload.execution.submission.commitSha;
-      if (artifactDelivery) {
-        assert.equal(reviewedCommit, null);
-        assert.match(launches.at(-1)!.prompt, /Frozen artifact evidence/u);
+      if (reviewedCommit === null) {
+        const reader = makeTaskEventReader({ repoId, rootDir: root }),
+          reviewCell = {
+            store: reader,
+            cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+          };
+        try {
+          for (const anchor of submitted.payload.execution.submission.artifacts!) {
+            readSubmissionArtifact(reviewCell, packagePath, anchor.path, anchor.revision, anchor.blobSha256);
+          }
+        } finally {
+          await reader.drain();
+        }
+        if (artifactDelivery) assert.match(launches.at(-1)!.prompt, /Frozen artifact evidence/u);
       } else if (hybridDelivery) {
         assert.match(String(reviewedCommit), /^[0-9a-f]{40}$/u);
         assert.match(launches.at(-1)!.prompt, /Frozen hybrid evidence/u);
@@ -423,11 +435,11 @@ export async function fixture(
         JSON.stringify({
           verdict: "approved",
           reason:
-            artifactDelivery || hybridDelivery
+            reviewedCommit === null || hybridDelivery
               ? "Inspected center-accepted artifact contents and submitted closeout."
               : "Independently inspected committed README and submitted closeout.",
           evidenceChecked:
-            artifactDelivery || hybridDelivery
+            reviewedCommit === null || hybridDelivery
               ? submitted.payload.execution.submission.artifacts!.map((anchor) => `${anchor.path}@${anchor.revision}`)
               : [`${reviewedCommit}:README.md`, "closeout.md"],
         }),

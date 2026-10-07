@@ -98,8 +98,12 @@ function derive(
   outputShape: "repository-diff" | "task-package-artifact" = "repository-diff",
   priorCommit?: string,
   frozenSubmission?: ReturnType<typeof deriveCloseoutSubmission>,
+  accepted: readonly { readonly path: string; readonly revision: number }[] = [],
+  reviews: readonly { readonly reviewId: string }[] = [],
+  reviewerDispatches: readonly string[] = [],
 ) {
   const snapshot = {
+      reviews,
       executions: [
         ...(priorCommit ? [{ executionId: "earlier-execution", submission: { commitSha: priorCommit } }] : []),
         {
@@ -126,8 +130,10 @@ function derive(
     } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
     body = closeout(summary),
     projection = {
+      readReplicaBasis: () => ({ documents: accepted }),
       readPresetSnapshot: () => ({ snapshot: { profile: { outputShape } } }),
-      readRuntimeDispatchesByTaskExecution: () => [],
+      readRuntimeDispatchesByTaskExecution: () =>
+        reviewerDispatches.map((dispatchId) => ({ event: { payload: { role: "reviewer", dispatchId } } })),
       read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { ...snapshot, task: {} }, packagePath }),
       readDocument: (target: string) => ({
         watermark: 1,
@@ -149,7 +155,7 @@ function derive(
                     })
                   : body,
                 blobSha256: "test-blob",
-                workspaceRevision: 1,
+                workspaceRevision: accepted.find((entry) => entry.path === target)?.revision ?? 1,
               },
       }),
     } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["projection"];
@@ -487,7 +493,7 @@ test("a structured commit differing from the bound HEAD is rejected", (t) => {
   );
 });
 
-test("documentation task ignores unrelated Summary SHA and delivers ledger artifacts", (t) => {
+test("documentation task ignores unrelated Summary SHA and freezes accepted artifacts", (t) => {
   const { root, ledger } = fixture(t);
   put(ledger, `${packagePath}/artifacts/report.md`, "Evidence.\n");
   commit(ledger);
@@ -496,19 +502,23 @@ test("documentation task ignores unrelated Summary SHA and delivers ledger artif
     `Audited unrelated PR ${"f".repeat(40)}.`,
     undefined,
     [],
-    undefined,
+    artifactStore().store as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
     undefined,
     undefined,
     "task-package-artifact",
+    undefined,
+    undefined,
+    [{ path: `${packagePath}/artifacts/report.md`, revision: 7 }],
   );
-  assert.equal(packet.commitSha, git(ledger, "rev-parse", "HEAD"));
+  assert.equal(packet.commitSha, null);
+  assert.equal(packet.artifacts![0]!.revision, 7);
   assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
   assert.deepEqual(packet.outputs, []);
 });
 
 // Negative control (dec_BBA713052997C3EF5F5D3DD952): a task-package-artifact task keeps its ledger delivery
 // even with a non-empty gate set, proving the shape-based determinant never keyed private delivery to gates.
-test("a task-package-artifact task still delivers through the ledger with a non-empty gate set", (t) => {
+test("a task-package-artifact task freezes accepted artifacts with a non-empty gate set", (t) => {
   const { root, ledger } = fixture(t);
   put(ledger, `${packagePath}/artifacts/report.md`, "Evidence.\n");
   commit(ledger);
@@ -517,16 +527,20 @@ test("a task-package-artifact task still delivers through the ledger with a non-
     `Audited unrelated PR ${"f".repeat(40)}.`,
     undefined,
     ["ci", "code-doc-reconciliation"],
-    undefined,
+    artifactStore().store as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
     undefined,
     undefined,
     "task-package-artifact",
+    undefined,
+    undefined,
+    [{ path: `${packagePath}/artifacts/report.md`, revision: 7 }],
   );
-  assert.equal(packet.commitSha, git(ledger, "rev-parse", "HEAD"));
+  assert.equal(packet.commitSha, null);
+  assert.equal(packet.artifacts![0]!.revision, 7);
   assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
 });
 
-test("ledger fallback still fails closed when the task has no accepted artifacts", (t) => {
+test("implicit delivery fails closed when the task has no accepted artifacts", (t) => {
   const { root } = fixture(t);
   git(root, "commit", "-q", "--allow-empty", "-m", "test: empty product cut");
   const empty = git(root, "rev-parse", "HEAD");
@@ -913,39 +927,96 @@ test("a restarted delivery whose own branch merged keeps its manifest under an a
   assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
 });
 
-test("documentation amendments pin new artifact bytes while unrelated ledger writes preserve the cut", (t) => {
-  const { root, ledger } = fixture(t);
-  const report = `${packagePath}/artifacts/report.md`;
-  put(ledger, report, "First accepted report.\n");
-  const firstSha = commit(ledger);
+test("documentation amendments pin new accepted bytes while unrelated publication preserves the cut", (t) => {
+  const { root, ledger } = fixture(t),
+    report = `${packagePath}/artifacts/report.md`,
+    added = `${packagePath}/artifacts/new-evidence.md`,
+    bodies = new Map([[7, new Map([[report, "First accepted report.\n"]])]]);
+  let accepted = [{ path: report, revision: 7 }];
+  const store = {
+    readEventAtRevision: (revision: number) => ({
+      schema: "doc-event/v1",
+      workspaceRevision: revision,
+      opId: `accept-${revision}`,
+      payload: {
+        changes: [...bodies.get(revision)!].map(([path, body]) => ({
+          path,
+          candidate: { sha256: sha256Bytes(Buffer.from(body)) },
+        })),
+      },
+    }),
+    readContentBlob: (hash: string) => {
+      for (const documents of bodies.values())
+        for (const body of documents.values()) if (sha256Bytes(Buffer.from(body)) === hash) return Buffer.from(body);
+      return null;
+    },
+  } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["store"];
   const read = (frozen?: ReturnType<typeof deriveCloseoutSubmission>) =>
     derive(
       root,
       "Audited report.",
       undefined,
       [],
-      undefined,
+      store,
       undefined,
       undefined,
       "task-package-artifact",
       undefined,
       frozen,
+      accepted,
     );
   const first = read();
-  assert.equal(first.commitSha, firstSha);
-  put(ledger, "other-task/notes.md", "Unrelated accepted write.\n");
+  put(ledger, "other-task/notes.md", "Unrelated publication.\n");
   commit(ledger);
-  assert.equal(read(first).commitSha, firstSha, "unrelated publication must not invalidate review");
-  const added = `${packagePath}/artifacts/new-evidence.md`;
-  put(ledger, added, "New accepted evidence.\n");
-  put(ledger, report, "Corrected report.\n");
-  const amendedSha = commit(ledger);
+  assert.deepEqual(read(first), first);
+  bodies.set(
+    8,
+    new Map([
+      [report, "Corrected report.\n"],
+      [added, "New accepted evidence.\n"],
+    ]),
+  );
+  accepted = [
+    { path: report, revision: 8 },
+    { path: added, revision: 8 },
+  ];
   const amended = read(first);
-  assert.equal(amended.commitSha, amendedSha);
+  assert.equal(amended.commitSha, null);
   assert.ok(amended.deliverables.includes(added));
-  for (const file of amended.deliverables) git(ledger, "cat-file", "-e", `${amended.commitSha}:${file}`);
-  assert.equal(git(ledger, "show", `${amended.commitSha}:${report}`), "Corrected report.");
+  assert.notEqual(
+    amended.artifacts!.find((anchor) => anchor.path === report)!.blobSha256,
+    first.artifacts![0]!.blobSha256,
+  );
   put(ledger, `${packagePath}/executions/execution-1.md`, "Submission bookkeeping.\n");
   commit(ledger);
-  assert.equal(read(amended).commitSha, amendedSha, "submission bookkeeping must not move its own cut");
+  assert.deepEqual(read(amended), amended);
+});
+
+test("implicit delivery excludes another task and independent reviewer credentials", (t) => {
+  const { root } = fixture(t),
+    report = `${packagePath}/artifacts/report.md`,
+    reviewerReport = `${packagePath}/artifacts/reports/old.md`;
+  const packet = derive(
+    root,
+    "Completed report.",
+    undefined,
+    [],
+    artifactStore().store as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
+    undefined,
+    undefined,
+    "task-package-artifact",
+    undefined,
+    undefined,
+    [
+      { path: report, revision: 7 },
+      { path: `${packagePath}/artifacts/.gitkeep`, revision: 1 },
+      { path: "tasks/other/artifacts/report.md", revision: 7 },
+      { path: reviewerReport, revision: 7 },
+      { path: reviewerReport.replace(/md$/u, "json"), revision: 7 },
+      { path: `${packagePath}/artifacts/reports/dispatch_pending.md`, revision: 7 },
+    ],
+    [{ reviewId: "review-old" }],
+    ["dispatch_pending"],
+  );
+  assert.deepEqual(packet.deliverables, [report]);
 });
