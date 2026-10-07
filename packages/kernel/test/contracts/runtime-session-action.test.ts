@@ -94,6 +94,23 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
         size: new TextEncoder().encode(body).byteLength,
         mediaType: "text/plain; charset=utf-8",
       },
+      dispatchId: "dispatch-outcome-a",
+      endedAt: compileInput.occurredAt,
+      runtimeMetrics: {
+        inputTokens: 1,
+        cacheReadTokens: 2,
+        outputTokens: 3,
+        totalTokens: 6,
+        toolCallCount: 4,
+        usageUnavailable: false,
+      },
+      attempt: {
+        classification: "provider_quota",
+        reason: "Quota exhausted",
+        faultClass: "quota_exhausted",
+        resetAt: "2026-09-02T00:00:00Z",
+        fallbackState: "exhausted",
+      },
       resultBody: body,
       idempotencyKey: "outcome-a",
     };
@@ -102,6 +119,25 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
   assert.equal(draft?.kind, "runtime-session");
   if (draft?.kind !== "runtime-session") return;
   assert.equal(draft.resultBody, body);
+  assert.equal(draft.event.type, "runtime_session_outcome_observed");
+  if (draft.event.type !== "runtime_session_outcome_observed") return;
+  assert.equal(draft.event.payload.dispatchId, command.dispatchId);
+  assert.equal(draft.event.payload.endedAt, command.endedAt);
+  assert.deepEqual(draft.event.payload.runtimeMetrics, command.runtimeMetrics);
+  assert.deepEqual(draft.event.payload.attempt, command.attempt);
+  const plain = { classification: "worker_stop", reason: "Stopped", fallbackState: null };
+  assert.doesNotThrow(() =>
+    action.execution!.compile!({ ...compileInput, action: { ...command, attempt: plain }, currentEntity: current }),
+  );
+  for (const attempt of [
+    { ...command.attempt, faultClass: "other" },
+    { ...command.attempt, resetAt: "tomorrow" },
+    { ...command.attempt, fallbackState: "other" },
+  ]) {
+    assert.throws(() =>
+      action.execution!.compile!({ ...compileInput, action: { ...command, attempt }, currentEntity: current }),
+    );
+  }
   assert.throws(
     () =>
       action.execution!.compile!({

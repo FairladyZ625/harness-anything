@@ -1,3 +1,4 @@
+import { ownedContentForDeclarationEvent } from "../../kernel/src/domain/entity-event.ts";
 /** Shared fixture for completion-review dispatch tests: repo cell, fake reviewer providers,
  * settlement drivers, and outcome polling. `failProvider` true fails every launch; a number
  * fails only that many first launches, then hangs. */
@@ -10,7 +11,6 @@ import path from "node:path";
 import {
   makeTaskEventReader,
   openSqliteEventStore,
-  ownedContentForDeclarationEvent,
   requireEntityStoreKindContract,
   sha256Text,
   type AgentDefinitionSnapshot,

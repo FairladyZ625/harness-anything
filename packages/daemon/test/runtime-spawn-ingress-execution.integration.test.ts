@@ -1010,7 +1010,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           reopenedSession = reopened.sessions.find(
             (candidate) => candidate.runtimeSessionId === spawned.runtimeSessionId,
           );
-        assert.equal(reopenedSession?.liveness, "unknown");
+        assert.equal(reopenedSession?.liveness, "live");
         const syncedPath = "tasks/task-runtime-artifact-runtime-artifact/artifacts/reports/runtime-doc-sync.md",
           syncedTarget = path.join(root, "harness", syncedPath);
         mkdirSync(path.dirname(syncedTarget), { recursive: true });

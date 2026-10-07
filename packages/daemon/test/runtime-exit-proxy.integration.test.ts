@@ -167,10 +167,11 @@ test(
         projection.close();
       }
       const observed = await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId });
-      assert.equal(observed.session.liveness, "exited");
-      assert.equal(observed.settlement?.outcome, "failed");
-      assert.equal(observed.settlement?.exitCode, 1, "provider exit zero cannot turn archive rejection into success");
-      assert.match(observed.result?.text ?? "", /Runtime archive publication failed:/);
+      assert.equal(observed.session.liveness, "live", "public query retains the last center-accepted observation");
+      assert.equal(observed.settlement, null, "denied publication cannot become a canonical settlement");
+      assert.equal(observed.result, null);
+      assert.equal(stream.terminalOutcome?.payload.outcome, "failed");
+      assert.equal(stream.terminalOutcome?.payload.reasonCode, "authorization_denied");
       const terminal = stream.terminalOutcome!,
         canonicalAction = {
           kind: "event" as const,

@@ -11,7 +11,7 @@ import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts
 import { fleetFixture, git, initRepo, rawPeer } from "./fleet-tls-session.fixture.ts";
 import { fleetLedgerRevision } from "./fleet-store.fixture.ts";
 import { runFleetUploadClient } from "../src/fleet/edge.ts";
-import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { classifyTextualArtifactPath, openSqliteEventStore, isTaskEvent, sha256Text } from "@harness-anything/kernel";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
@@ -120,7 +120,12 @@ test(
         signOutAt(userRoot);
       }
     };
-    await invoke(["doc", "sync", "--dry-run"]);
+    await readAsOwner(edgeUser, "person-owner", ["doc", "sync", "--dry-run"]);
+    const initialPull = applyFleetMirrorCut(path.join(edgeUser, "view"), repoId, edgeRoot, "pull", {
+      kind: "task-docs",
+      taskId,
+    });
+    assert.equal(initialPull.outcome, "applied", JSON.stringify(initialPull));
     const started = await invoke(["task", "start", taskId, "--execution-id", executionId]);
     assert.notEqual(started.code, "no_changes", "the edge must acquire the initial execution itself");
     const shown = await readAsOwner(edgeUser, "person-owner", ["task", "show", taskId]);
@@ -165,7 +170,12 @@ test(
     await openEdge("node-two", reviewerRoot, reviewerUser);
     activeRoot = reviewerRoot;
     activeUser = reviewerUser;
-    await invoke(["doc", "sync", "--dry-run"]);
+    await readAsOwner(reviewerUser, "person-reviewer", ["doc", "sync", "--dry-run"]);
+    const reviewerPull = applyFleetMirrorCut(path.join(reviewerUser, "view"), repoId, reviewerRoot, "pull", {
+      kind: "task-docs",
+      taskId,
+    });
+    assert.equal(reviewerPull.outcome, "applied", JSON.stringify(reviewerPull));
     await readAsOwner(reviewerUser, "person-reviewer", ["task", "show", taskId]);
     const reviewerView = locateFleetMirrorView(path.join(reviewerUser, "view"), repoId)!;
     fixture.owners.keycloak.account("person-denied");

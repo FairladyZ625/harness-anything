@@ -1063,6 +1063,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   function reconcileFallback(stream: ReturnType<typeof readDispatchStream>): void {
     scheduleFallbackContinuation({
       input,
+      publishRuntimeEvent: extracted.publishRuntimeEvent,
       closed: () => fallbackClosed,
       launch: async (
         payload,

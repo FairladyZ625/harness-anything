@@ -78,6 +78,14 @@ import { statusWordRegister } from "./status-word-register.ts";
 export { statusWordRegister } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
+  {
+    id: "runtimeSession.attempt.fallbackState",
+    entity: "RuntimeSession",
+    field: "attempt.fallbackState",
+    module: "packages/kernel/src/domain/agent-runtime.ts",
+    anchor: "#fallbackState",
+    words: ["scheduled", "exhausted"],
+  },
   // Existing daemon phases moved to the canonical run contract (dec_FB7DE6338E7D3D94ED2A4C05A2).
   {
     id: "squadRun.phase",

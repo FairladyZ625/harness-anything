@@ -408,6 +408,13 @@ interface RuntimePayloads {
     readonly dispatchId?: string;
     readonly endedAt?: string;
     readonly runtimeMetrics?: RuntimeDispatchMetrics;
+    readonly attempt?: {
+      readonly classification: "provider_fault" | "provider_quota" | "worker_stop" | "gate_red";
+      readonly reason: string;
+      readonly faultClass?: "quota_exhausted" | "rate_limited";
+      readonly resetAt?: string;
+      readonly fallbackState: "scheduled" | "exhausted" | null;
+    };
   };
   readonly runtime_handoff_exported: {
     readonly dispatchId: string;
@@ -501,7 +508,7 @@ function validateAgentRuntimePayloadFields(
     return ["Squad dispatch context is invalid"];
   const optionalFields =
     type === "runtime_session_outcome_observed"
-      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics"]
+      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "attempt"]
       : type === "runtime_session_started"
         ? ["taskBinding"]
         : type === "runtime_dispatch_requested"
@@ -602,7 +609,25 @@ function validateAgentRuntimePayloadFields(
   if (
     type === "runtime_session_outcome_observed" &&
     ((value.endedAt !== undefined && !timestamp(String(value.endedAt))) ||
-      (value.runtimeMetrics !== undefined && !validRuntimeDispatchMetrics(value.runtimeMetrics)))
+      (value.runtimeMetrics !== undefined && !validRuntimeDispatchMetrics(value.runtimeMetrics)) ||
+      (value.attempt !== undefined &&
+        (!isRecord(value.attempt) ||
+          !hasOnlyFields(value.attempt, [
+            "classification",
+            "reason",
+            "fallbackState",
+            ...["faultClass", "resetAt"].filter((field) => Object.hasOwn(value.attempt as object, field)),
+          ]) ||
+          !["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(
+            String(value.attempt.classification),
+          ) ||
+          !isNonEmptyString(value.attempt.reason) ||
+          (value.attempt.faultClass !== undefined &&
+            !["quota_exhausted", "rate_limited"].includes(String(value.attempt.faultClass))) ||
+          (value.attempt.resetAt !== undefined && !timestamp(String(value.attempt.resetAt))) ||
+          (value.attempt.fallbackState !== null &&
+            value.attempt.fallbackState !== "scheduled" &&
+            value.attempt.fallbackState !== "exhausted"))))
   )
     return ["runtime dispatch settlement metadata is invalid"];
   return [];

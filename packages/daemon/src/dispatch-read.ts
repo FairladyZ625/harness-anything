@@ -226,6 +226,8 @@ export function readRuntimeAttemptChain(
           provider,
           classification,
           reason,
+          faultClass,
+          resetAt,
           resume,
           nextAction,
           fallbackState,
@@ -237,6 +239,8 @@ export function readRuntimeAttemptChain(
           provider,
           classification,
           reason,
+          ...(faultClass ? { faultClass } : {}),
+          ...(resetAt ? { resetAt } : {}),
           ...(resume ? { resume } : {}),
           ...(nextAction ? { nextAction } : {}),
           fallbackState,
@@ -280,7 +284,9 @@ function canonicalDispatchRow(
       exitCode,
       ...(session?.reasonCode ? { reasonCode: session.reasonCode } : {}),
     }),
-    classification = isClassification(archive?.classification) ? archive.classification : null,
+    classification =
+      outcomeEvent?.payload.attempt?.classification ??
+      (isClassification(archive?.classification) ? archive.classification : null),
     providerSessionId =
       session?.providerSessionId ?? (typeof archive?.providerSessionId === "string" ? archive.providerSessionId : null),
     reportPath = packagePath ? `${packagePath}/artifacts/reports/${payload.dispatchId}.md` : null;
@@ -324,9 +330,11 @@ function canonicalDispatchRow(
     attemptIndex: payload.attemptIndex ?? 0,
     provider: { instance: payload.instanceId, model: payload.definitionSnapshot?.model ?? null },
     classification,
-    reason: typeof archive?.reason === "string" ? archive.reason : null,
+    reason: outcomeEvent?.payload.attempt?.reason ?? (typeof archive?.reason === "string" ? archive.reason : null),
+    ...(outcomeEvent?.payload.attempt?.faultClass ? { faultClass: outcomeEvent.payload.attempt.faultClass } : {}),
+    ...(outcomeEvent?.payload.attempt?.resetAt ? { resetAt: outcomeEvent.payload.attempt.resetAt } : {}),
     ...resumeDispatch(payload, providerSessionId, resumed, classification),
-    fallbackState: successor ? "dispatched" : null,
+    fallbackState: successor ? "dispatched" : (outcomeEvent?.payload.attempt?.fallbackState ?? null),
     nextDispatchId: successor?.payload.dispatchId ?? null,
     ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
     ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),

@@ -29,7 +29,7 @@ export async function waitForRuntimeSessions(
   let detach: (() => void) | undefined, lastKnown: AgentRuntimeSessionResult | undefined;
   try {
     if (singleId !== undefined) {
-      // One capability probe decides whether an interactive stream can decorate the wait; the
+      // Read the canonical snapshot before parking; the attach endpoint decides local stream capability. The
       // daemon-side await is the settle authority either way. The probe rides the command path so
       // a still-warming repo (a build-superseded successor attaching behind the identity center's
       // resume) meets the same settleRepoWarming patience as every other read, and never spawns a
@@ -51,12 +51,7 @@ export async function waitForRuntimeSessions(
       if (isDaemonGone(initial)) return runtimeDaemonGoneReceipt(initial, undefined, singleId, target, spawned);
       if (initial.ok !== true) return initial;
       lastKnown = initial as unknown as AgentRuntimeSessionResult;
-      if (
-        !command.json &&
-        action.noStream !== true &&
-        lastKnown.settlement === null &&
-        lastKnown.session.attachCapability === "supported"
-      )
+      if (!command.json && action.noStream !== true && lastKnown.settlement === null)
         detach = await waitForStreamedRuntime(command, singleId, writeActivity);
     }
     const { noStream: _noStream, ...rpcAction } = action,

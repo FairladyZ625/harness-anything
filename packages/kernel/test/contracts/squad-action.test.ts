@@ -29,7 +29,7 @@ test("Squad catalog declares the complete command surface and center concurrency
   const run = catalog.actions.find(({ id }) => id === "run");
   assert.ok(run);
   assert.equal(run.execution?.implementation, "catalog-runtime");
-  assert.equal(run.execution?.topology, "ledger-write");
+  assert.equal(run.execution?.topology, "local-arbiter");
   assert.equal(run.concurrency.leasePolicy.authority, "task-current-execution-lease");
   assert.equal(run.concurrency.expectedVersion.arbitration, "writer-generation-and-epoch");
   assert.equal(run.concurrency.artifactOwnership.mutationRoad, "center-single-write-queue");

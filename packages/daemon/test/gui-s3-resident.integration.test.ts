@@ -19,6 +19,7 @@ import {
 } from "./repo-settings.fixture.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
+import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 test("a caller that names a response deadline gets a classified failure instead of an open-ended silent socket", async () => {
@@ -121,10 +122,11 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
         observedAt: "2026-08-14T00:00:00.000Z",
       },
     ],
-    runtimeLaunch: (prepared) => {
+    runtimeLaunch: (prepared, persistence) => {
+      appendRuntimeWorkerRecord(alpha, persistence.dispatchId, { kind: "process_started", pid: process.pid });
       launched = prepared as unknown as Record<string, unknown>;
       return {
-        pid: 4242,
+        pid: process.pid,
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
         onExit: () => undefined,
@@ -133,6 +135,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
     },
   });
   await host.attachmentsSettled();
+  await host.settleMaterialization(workspaceId("alpha"), "GUI bridge fixture ready");
   const transport = createUnixSocketTransportServer({
     daemonId: "gui-s3",
     socketPath: endpoint,
@@ -209,7 +212,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
       },
     });
     assert.equal(updated.outcome, "applied", JSON.stringify(updated));
-    const beforeSpawn = await rpc("repo.agentRuntime.overview", { repo: { repoId: "alpha" }, payload: {} });
+    const beforeSpawn = await rpc("daemon.runtimeInstance.list", { payload: {} });
     assert.equal((beforeSpawn.instances as Array<Record<string, unknown>>)[0]?.instanceId, "resident-codex");
     assert.deepEqual((beforeSpawn.instances as Array<Record<string, unknown>>)[0]?.models, [
       "runtime-test-model",

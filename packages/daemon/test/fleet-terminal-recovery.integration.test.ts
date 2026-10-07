@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
+import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
@@ -271,7 +272,17 @@ for (const restart of [false, true])
       runtime.close();
       runtime = createRuntime();
       await runtime.reconcile();
-      await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+      readEdgeRuntimeRepository(
+        {
+          viewRoot,
+          workspaceRoot,
+          repoId: fixture.subject.repoId,
+          nodeId: fixture.subject.nodeId,
+          principalId: "person-owner",
+        },
+        "repo.agentRuntime.overview",
+        { limit: 1 },
+      );
       assert.equal(outcomes().length, 1, "later reads and restart must not duplicate the terminal event");
       const released = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
         .read()

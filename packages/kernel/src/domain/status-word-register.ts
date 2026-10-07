@@ -4,6 +4,21 @@ import { squadRunStatusWordRegister } from "./status-word-register-squad.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
+  {
+    word: "scheduled",
+    entity: "RuntimeSession",
+    field: "attempt.fallbackState",
+    meaning:
+      "The accepted terminal attempt has scheduled a provider continuation; its successor dispatch proves launch.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "exhausted",
+    entity: "RuntimeSession",
+    field: "attempt.fallbackState",
+    meaning: "The accepted terminal attempt has no remaining eligible provider or its continuation could not launch.",
+    divergence: "entity-scoped",
+  },
   ...squadRunStatusWordRegister,
   // dec_D8497012F42A999E054D7ADF6A CH1/CH2; unavailable reads carry an error instead.
   {

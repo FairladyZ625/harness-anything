@@ -44,7 +44,11 @@ export function readHandoffCheckpoint(rootDir: string, dispatchId: string): Runt
 }
 
 /** Runs only under the center RepoCell write queue. Payloads are never canonical document claims. */
-export function runRuntimeHandoffAction(cell: RepoCellActionContext, action: RepoTaskAction, binding: RepoCellBinding) {
+export function runRuntimeHandoffAction(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceiptDraft {
   const dispatchId = cell.requiredCellText(action.dispatchId, "dispatchId"),
     location = directory(cell.rootDir, dispatchId),
     previous = readHandoffCheckpoint(cell.rootDir, dispatchId),
@@ -137,16 +141,8 @@ export function runRuntimeHandoffAction(cell: RepoCellActionContext, action: Rep
     action.idempotencyKey === successor.payload.idempotencyKey &&
     stableStringify(successor.source) === stableStringify(binding.source)
   ) {
-    const receipt = cell.appendAuxiliaryRuntimeIngress(
-      {
-        kind: "event",
-        type: successor.type,
-        opId: successor.opId,
-        payload: successor.payload as unknown as Record<string, unknown>,
-      },
-      binding,
-    );
-    return {
+    const receipt: WriteReceiptDraft = cell.receiptForOperation(successor.opId, binding);
+    const replay = {
       ...receipt,
       outcome: "applied" as const,
       opId: successor.opId,
@@ -157,6 +153,7 @@ export function runRuntimeHandoffAction(cell: RepoCellActionContext, action: Rep
       dispatchId: successor.payload.dispatchId,
       runtimeSessionId: successor.payload.runtimeSessionId,
     };
+    return replay;
   }
   assertHandoffClaim(cell, previous, binding);
   if (action.offset === undefined) return result({ checkpoint: previous });

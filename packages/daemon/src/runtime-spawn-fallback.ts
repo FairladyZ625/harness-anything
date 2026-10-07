@@ -1,4 +1,9 @@
-import { archiveDispatchStream, readDispatchStream, reopenDispatchStream } from "./dispatch-stream.ts";
+import {
+  archiveDispatchStream,
+  readDispatchStream,
+  reopenDispatchStream,
+  scrubProviderValue,
+} from "./dispatch-stream.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type {
@@ -164,6 +169,7 @@ export async function settleFallbackAttempt(
 export function scheduleFallbackContinuation(args: {
   readonly input: RuntimeSpawnerInput;
   readonly closed: () => boolean;
+  readonly publishRuntimeEvent: RuntimeSpawnerContext["publishRuntimeEvent"];
   readonly launch: (
     payload: JsonObject,
     binding: RuntimeBinding,
@@ -231,7 +237,6 @@ export function scheduleFallbackContinuation(args: {
                 : {}),
             ...(header.role ? { role: header.role } : {}),
             ...(header.squadId ? { squadId: header.squadId } : {}),
-            ...(header.parentRuntimeSessionId ? { parentRuntimeSessionId: header.parentRuntimeSessionId } : {}),
             ...(next.model ? { model: next.model } : {}),
             ...(header.reasoningEffort ? { effort: header.reasoningEffort } : {}),
             ...(header.fast === undefined ? {} : { fast: header.fast }),
@@ -269,7 +274,9 @@ export function scheduleFallbackContinuation(args: {
         archiveDispatchStream(input.rootDir, header.dispatchId);
       } catch (error) {
         consumeKnownError(error);
-        const reason = `Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`;
+        const reason = String(
+          scrubProviderValue(`Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`),
+        ).slice(0, 1024);
         writer.appendFallbackState({ state: "exhausted", reason }, input.now());
         archiveDispatchStream(input.rootDir, header.dispatchId);
         await input.onAttemptTerminal?.({
@@ -289,6 +296,27 @@ export function scheduleFallbackContinuation(args: {
           endedAt: input.now(),
           binding,
         });
+        const terminal = current.terminalOutcome;
+        if (terminal) {
+          const payload = {
+            ...terminal.payload,
+            attempt: {
+              classification: current.attemptOutcome.classification,
+              reason,
+              ...(current.attemptOutcome.faultClass ? { faultClass: current.attemptOutcome.faultClass } : {}),
+              ...(current.attemptOutcome.resetAt ? { resetAt: current.attemptOutcome.resetAt } : {}),
+              fallbackState: "exhausted" as const,
+            },
+          };
+          writer.appendTerminalOutcome({ ...terminal, payload, reason }, input.now());
+          await args.publishRuntimeEvent(
+            "runtime_session_outcome_observed",
+            payload,
+            `${header.dispatchOpId}-fallback-exhausted`,
+            binding,
+            terminal.body,
+          );
+        }
       }
     }, runtimeBindingForDispatch(stream.header.binding!));
   }, remainingMs);

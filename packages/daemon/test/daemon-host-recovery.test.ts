@@ -405,6 +405,7 @@ test("cache purge removes only derived local state and unbinds the repository", 
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   const host = await openSignedInHost({ daemonId: repoId, userRoot });
   await host.attachmentsSettled();
+  await host.settleMaterialization(repoId, "cache purge fixture ready");
   const derived = ["cache", "adopt-claims", "runtime/dispatches", "presets"];
   for (const relative of derived) {
     const directory = path.join(rootDir, ".harness", relative);
@@ -651,6 +652,7 @@ test("unbind rejects an active task lease without changing registry or repositor
     });
     assert.equal(projection.list().rows.find((row) => row.taskId === "task-live")?.snapshot.lease?.phase, "held");
     projection.close();
+    await host.settleMaterialization(repoId, "lease guard fixture ready");
     const backupDir = path.join(parent, "blocked-backup"),
       registryBefore = readFileSync(path.join(userRoot, "registry.json")),
       ledgerBefore = readFileSync(path.join(rootDir, "harness/harness.yaml")),
@@ -812,10 +814,10 @@ test("repository modes close local, center-assignment, and edge command families
         .outcome,
       "applied",
     );
-    // Relation declarations are local metadata; task browsing requires a configured center.
+    // Repository reads require a complete owner-bound replica on an edge.
     const edgeDeclarations = await host.run("edge", { kind: "relation-triples" }, auth);
-    assert.equal(edgeDeclarations.outcome, "applied", JSON.stringify(edgeDeclarations));
-    assert.equal((await host.run("edge", { kind: "task-list" }, auth)).code, "repo_mode_read_only");
+    assert.equal(edgeDeclarations.code, "replica_unavailable", JSON.stringify(edgeDeclarations));
+    assert.equal((await host.run("edge", { kind: "task-list" }, auth)).code, "replica_unavailable");
     assert.equal(
       (await host.run("edge", { kind: "task-create", taskId: "task-edge", title: "Edge" }, auth)).code,
       "repo_mode_read_only",

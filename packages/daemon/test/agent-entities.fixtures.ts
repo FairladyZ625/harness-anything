@@ -1,3 +1,4 @@
+import { ownedContentForDeclarationEvent } from "../../kernel/src/domain/entity-event.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -6,7 +7,6 @@ import {
   makeTaskEventStore,
   openEntityStore,
   openSqliteEventStore,
-  ownedContentForDeclarationEvent,
   requireEntityStoreKindContract,
   sha256Text,
   type EntityUpsertEventV1,

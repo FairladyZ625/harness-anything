@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -260,4 +260,39 @@ export function seedRepositoryFamilies(db: DatabaseSync) {
         ...event,
       }),
     );
+}
+
+/** Transfer a real cell cut through the production replica receiver for offline edge queries. */
+export async function materializeCellReplica(
+  rootDir: string,
+  repoId: string,
+  owner: string,
+  source: import("../src/fleet/replica-cut-store.ts").ReplicaCutSource,
+) {
+  const viewRoot = path.join(rootDir, ".fleet-view"),
+    key = { repoId, nodeId: "test-edge", viewId: "test-edge" },
+    cut = source.activate();
+  assert.ok(cut);
+  const receiver = openFleetEdgeView(viewRoot, 64 * 1024 * 1024),
+    offer = { ...key, ...makeOffer(key, null, cut, source, new Date().toISOString()) };
+  for await (const frame of offerFrames(offer, source, {
+    owner,
+    digest: edgeReadAuthorizationShapeDigest({ repoId, owner }),
+  }))
+    receiver.receive(frame);
+  writeFileSync(
+    path.join(rootDir, "fleet-edge.json"),
+    JSON.stringify({
+      schema: "fleet-edge-config/v1",
+      repoId,
+      nodeId: key.nodeId,
+      host: "127.0.0.1",
+      port: 1,
+      caPath: path.join(rootDir, "unused-ca.pem"),
+      credential: "unused-offline-test",
+      viewRoot,
+      quotaBytes: 64 * 1024 * 1024,
+    }),
+  );
+  return cut;
 }
