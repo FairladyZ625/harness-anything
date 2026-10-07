@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -8,7 +10,7 @@ import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient, runFleetRuntimeReadClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient, awaitFleetRuntimeSessionsClient } from "../src/fleet/edge.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
@@ -122,11 +124,36 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       userRoot: edgeUserRoot,
       createConvenienceLinks: false,
     });
+    const config = {
+      schema: "fleet-edge-config/v1",
+      host: "127.0.0.1",
+      port: center.port,
+      caPath: fixture.certFile,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId,
+      viewRoot,
+      quotaBytes: replicaQuota,
+    };
+    writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+    managedRbacSessionStore(edgeUserRoot).write(
+      JSON.stringify({
+        schema: "harness-oidc-session/v2",
+        accessToken: "token-person-owner",
+        subject: "person-owner",
+        personId: "person-owner",
+        expiresAt: Date.now() + 3_600_000,
+        roles: [],
+        loginTarget: edgeRoot,
+        authority: { url: "https://keycloak.example", realm: "harness" },
+      }),
+    );
     let finish: (() => void) | undefined, cancel: (() => void) | undefined;
     const launchedIn: string[] = [],
       edgeHost = await openDaemonHost({
         daemonId: "fleet-worker-edge",
         userRoot: edgeUserRoot,
+        oidc: new OidcSessionService(edgeUserRoot, { fetch: fixture.owners.keycloak.fetch }),
         runtimeDiscover: () => [installation],
         runtimeLaunch: (prepared) => {
           launchedIn.push(prepared.cwd);
@@ -157,18 +184,6 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
-    const config = {
-      schema: "fleet-edge-config/v1",
-      host: "127.0.0.1",
-      port: center.port,
-      caPath: fixture.certFile,
-      nodeId: fixture.subject.nodeId,
-      credential: "machine-secret",
-      repoId,
-      viewRoot,
-      quotaBytes: replicaQuota,
-    };
-    writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
     const transport = createUnixSocketTransportServer({
       daemonId: "fleet-worker-edge",
       socketPath: localUserDaemonEndpoint(edgeUserRoot, "fleet-worker-edge"),
@@ -217,7 +232,12 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     ]);
     let receipt;
     if (foreground) {
-      await waitStarted.promise;
+      await Promise.race([
+        waitStarted.promise,
+        launching.then((result) => {
+          throw new Error(`CLI exited before starting its wait: ${JSON.stringify(result)}`);
+        }),
+      ]);
       assert.equal(awaitRequests, 1);
       if (scenario === "cancelled") {
         const overview = await fixture.host.read(repoId, "repo.agentRuntime.overview", {}, fixture.auth);
@@ -234,11 +254,18 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       assert.equal(launched.code, 0, JSON.stringify(launched));
       const ordinary = await invoke(["runtime", "status", receipt.runtimeSessionId]);
       assert.equal(ordinary.code, 0, JSON.stringify(ordinary));
+      const byDispatch = await fixture.host.read(
+        repoId,
+        "repo.agentRuntime.sessions.read",
+        { taskId, dispatchId: receipt.dispatchId },
+        fixture.auth,
+      );
+      assert.equal(byDispatch.session.runtimeSessionId, receipt.runtimeSessionId);
       await assert.rejects(
         fixture.host.read(
           repoId,
           "repo.agentRuntime.sessions.read",
-          { taskId, dispatchId: receipt.dispatchId },
+          { taskId, dispatchId: "dispatch_000000000000000000000000" },
           fixture.auth,
         ),
         { code: "runtime_session_not_found" },
@@ -260,7 +287,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       assert.equal(waited.receipt.outcome, "succeeded", JSON.stringify(waited));
     }
     await assert.rejects(
-      runFleetRuntimeReadClient({
+      awaitFleetRuntimeSessionsClient({
         port: center.port,
         ca: fixture.cert,
         nodeId: fixture.subject.nodeId,

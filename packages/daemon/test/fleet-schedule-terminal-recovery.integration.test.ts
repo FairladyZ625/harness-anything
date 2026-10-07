@@ -202,7 +202,7 @@ for (const restart of [false, true])
       runtime = createRuntime();
     }
     const restoredCenter = await startCenter(center.port);
-    const recovery = runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
+    const recovery = runtime.reconcile();
     const recovered = Promise.allSettled([recovery]);
     const observerRoot = path.join(fixture.root, "schedule-reader-view");
     await outcomeArrived.promise;
@@ -240,14 +240,29 @@ for (const restart of [false, true])
       releaseOutcome.resolve();
       await recovered;
     }
-    let shown = await recovery;
+    await recovery;
+    let shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
     assert.equal(
       await eventually(async () => {
+        await runtime.reconcile();
+        // This fixture owns no background sync loop. Refresh the completed cut explicitly;
+        // schedule-show itself must never pull or trigger terminal publication.
+        await fixture.host.replica(subject.repoId).waitForCut(fixture.eventCount());
+        await runFleetReplicaPullClient({
+          port: restoredCenter.port,
+          ca: fixture.cert,
+          servername: "localhost",
+          nodeId: subject.nodeId,
+          credential: "machine-secret",
+          repoId: subject.repoId,
+          viewRoot: path.join(fixture.root, "schedule-view"),
+          diskQuotaBytes: 64 * 1024 * 1024,
+        });
         shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
         return (shown.schedule as { status: { activeRun: unknown } }).status.activeRun === null;
       }),
       true,
-      "terminal settlement becomes visible at the center",
+      `terminal settlement becomes visible locally: ${JSON.stringify(shown)}`,
     );
     assert.equal((shown.schedule as { status: { activeRun: unknown } }).status.activeRun, null, JSON.stringify(shown));
     assert.equal(

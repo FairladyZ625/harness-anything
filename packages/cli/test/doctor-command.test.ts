@@ -226,3 +226,36 @@ for (const json of [false, true]) {
     });
   }
 }
+
+test("doctor renders replica cuts and preserves failures in text and JSON", async () => {
+  const receipt = {
+    outcome: "applied",
+    scope: { repoId: "edge" },
+    checks: [{ id: "edge-replica", status: "fail", summary: "ECONNREFUSED", count: 2, next: "Retry sync" }],
+    currentCut: { revision: 7, headDigest: "local" },
+    centerCut: { revision: 9, headDigest: "center" },
+    lag: 2,
+    lastSuccessAt: "2026-10-07T12:00:00.000Z",
+    failureCode: "ECONNREFUSED",
+    rebuildCount: 1,
+    schemaGeneration: 6,
+    authorizationShapeDigest: "owner-digest",
+  };
+  const text = await captureConsole(() => renderDoctorHealth(receipt, false, () => {}));
+  assert.equal(text.exit, 1);
+  for (const key of [
+    "currentCut",
+    "centerCut",
+    "lag",
+    "lastSuccessAt",
+    "failureCode",
+    "rebuildCount",
+    "schemaGeneration",
+    "authorizationShapeDigest",
+  ])
+    assert.match(text.lines.join("\n"), new RegExp(key));
+  const json = await captureConsole(() => renderDoctorHealth(receipt, true, () => {}));
+  assert.equal(json.exit, 1);
+  assert.deepEqual(JSON.parse(json.lines[0]!).currentCut, receipt.currentCut);
+  assert.equal(JSON.parse(json.lines[0]!).ok, false);
+});

@@ -1,11 +1,13 @@
+import { readReplicaHealth, recordReplicaHealth, replicaFailure } from "./replica-health.ts";
+import type { FleetCut } from "./contract.ts";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
+  consumeKnownError,
   applyEdgeReadModelEntry,
   canonicalJson,
   classifyTextualArtifactPath,
-  consumeKnownError,
   createEdgeReadModelTables,
   docByteLength,
   deleteEdgeReadModelEntry,
@@ -57,13 +59,18 @@ export function centerEdgeReadModel(projection: TaskProjectionQueries): {
 
 export interface HeadConfirmation {
   readonly headRevision: number;
+  readonly headDigest: string;
   readonly confirmedAt: number;
 }
 
 /** Every successful pull, with or without new bytes, is the center confirming its head now. */
-export function recordHeadConfirmation(viewDir: string, headRevision: number, confirmedAt = Date.now()): void {
-  writeFileDurably(path.join(viewDir, HEAD_CONFIRMATION_FILE), JSON.stringify({ headRevision, confirmedAt }));
+export function recordHeadConfirmation(viewDir: string, cut: FleetCut, confirmedAt = Date.now()): void {
+  writeFileDurably(
+    path.join(viewDir, HEAD_CONFIRMATION_FILE),
+    JSON.stringify({ headRevision: cut.revision, headDigest: cut.headDigest, confirmedAt }),
+  );
   rmSync(path.join(viewDir, READ_DENIED_FILE), { force: true });
+  recordReplicaHealth(viewDir, { syncFailure: null });
 }
 
 /**
@@ -82,10 +89,21 @@ export function isReadDenied(viewDir: string): boolean {
 export function readHeadConfirmation(viewDir: string): HeadConfirmation | null {
   try {
     const value = JSON.parse(readFileSync(path.join(viewDir, HEAD_CONFIRMATION_FILE), "utf8")) as HeadConfirmation;
-    return Number.isSafeInteger(value.headRevision) && Number.isSafeInteger(value.confirmedAt) ? value : null;
+    if (
+      !Number.isSafeInteger(value.headRevision) ||
+      value.headRevision < 0 ||
+      typeof value.headDigest !== "string" ||
+      !value.headDigest ||
+      !Number.isSafeInteger(value.confirmedAt)
+    )
+      throw new Error("Replica head confirmation is malformed");
+    return value;
   } catch (error) {
-    consumeKnownError(error);
-    return null;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      consumeKnownError(error);
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -106,18 +124,35 @@ export interface EdgeReadModel {
  */
 export function openEdgeReadModel(view: FleetMirrorView, casRoot: string): EdgeReadModel | null {
   const file = path.join(view.viewDir, READ_MODEL_FILE);
+  const open = () => {
+    const model = synchronize(file, view, casRoot);
+    try {
+      recordReplicaHealth(view.viewDir, {
+        modelFailure: model ? null : { code: "replica_model_absent", message: "Current cut carries no read model" },
+      });
+      return model;
+    } catch (error) {
+      model?.db.close();
+      throw error;
+    }
+  };
   try {
-    return synchronize(file, view, casRoot);
+    return open();
   } catch (error) {
     consumeKnownError(error);
+    recordReplicaHealth(view.viewDir, {
+      rebuildCount: readReplicaHealth(view.viewDir).rebuildCount + 1,
+      modelFailure: replicaFailure(error, "read_model_rebuild_failed"),
+    });
     rmSync(file, { force: true });
     rmSync(`${file}-wal`, { force: true });
     rmSync(`${file}-shm`, { force: true });
   }
   try {
-    return synchronize(file, view, casRoot);
+    return open();
   } catch (error) {
     consumeKnownError(error);
+    recordReplicaHealth(view.viewDir, { modelFailure: replicaFailure(error, "read_model_rebuild_failed") });
     return null;
   }
 }

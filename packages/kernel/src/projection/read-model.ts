@@ -20,7 +20,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
  * from the same DDL so the center's own queries run unchanged on the edge. Documents are not
  * published here: they already ride the cut as ledger content entries.
  */
-export const READ_MODEL_SCHEMA_GENERATION = 5 as const;
+export const READ_MODEL_SCHEMA_GENERATION = 6 as const;
 export const READ_MODEL_META_PATH = ".read-model/meta.json";
 export const TASK_READ_MODEL_PREFIX = ".read-model/tasks/";
 const TASK_GENERATION_PREFIX = ".read-model/task-generation/";
@@ -278,6 +278,14 @@ const pathSegment = (value: string, label: string): string => {
   return value;
 };
 
+// Entity kinds are identities (including namespace slashes), not filesystem segments.
+const entityKeySegment = (value: string): string => `k${Buffer.from(value, "utf8").toString("base64url")}`;
+function decodeEntityKeySegment(value: string): string {
+  const decoded = Buffer.from(value.slice(1), "base64url").toString("utf8");
+  if (entityKeySegment(decoded) !== value) throw new Error("entity read model key is not canonical base64url");
+  return decoded;
+}
+
 export function readTaskReadModelRows(db: DatabaseSync): readonly TaskReadModelRow[] {
   return (
     db
@@ -522,7 +530,7 @@ export function edgeReadModelEntries(model: {
     ),
     ...model.rows.entities.map((row) =>
       entry(
-        `${ENTITY_READ_MODEL_PREFIX}${pathSegment(row.entityKind, "entity kind")}/${pathSegment(row.ownerId || "_", "entity owner")}/${pathSegment(row.entityId, "entity id")}.json`,
+        `${ENTITY_READ_MODEL_PREFIX}${[row.entityKind, row.ownerId, row.entityId].map(entityKeySegment).join("/")}.json`,
         row,
       ),
     ),
@@ -785,11 +793,13 @@ export function deleteEdgeReadModelEntry(db: DatabaseSync, entryPath: string): v
     return;
   }
   if (entryPath.startsWith(ENTITY_READ_MODEL_PREFIX)) {
-    const [entityKind, ownerId, ...rest] = key(ENTITY_READ_MODEL_PREFIX).split("/");
+    const parts = key(ENTITY_READ_MODEL_PREFIX).split("/");
+    if (parts.length !== 3) throw new Error("entity read model key requires three components");
+    const [entityKind, ownerId, entityId] = parts.map(decodeEntityKeySegment);
     db.prepare("DELETE FROM entity_projection WHERE entity_kind = ? AND task_id = ? AND entity_id = ?").run(
-      entityKind,
-      ownerId === "_" ? "" : ownerId,
-      rest.join("/"),
+      entityKind!,
+      ownerId!,
+      entityId!,
     );
     return;
   }

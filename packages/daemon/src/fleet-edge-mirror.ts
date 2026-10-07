@@ -1,3 +1,4 @@
+import { closeSync, fsyncSync, openSync, unlinkSync } from "node:fs";
 // Edge-side local mirror controller (design-v2 §3/§4): the replica view store
 // under viewRoot is the transport truth; this module projects it into the
 // registered workspace's authored harness root, detects local changes against
@@ -6,19 +7,7 @@
 // names its three explicit human exits. An unresolved divergence is a
 // PERSISTENT gate — the marker keeps the last common base for diverged paths
 // and re-detected divergence reuses its record instead of self-healing.
-import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import {
@@ -118,22 +107,30 @@ export class FleetMirrorError extends Error {
   }
 }
 
+export function withFleetMirrorLock<T>(viewRoot: string, repoId: string, operation: () => Promise<T>): Promise<T> {
+  return withFleetLocalLock(path.join(viewRoot, "repos", repoId, ".mirror-round.lock"), operation);
+}
+
+export function withFleetReplicaPullLock<T>(viewDir: string, operation: () => Promise<T>): Promise<T> {
+  return withFleetLocalLock(path.join(viewDir, ".replica-pull.lock"), operation);
+}
+
 // One edge daemon mutates one registered harness at a time: A auto-pulls, B sync
 // rounds, and conflict exits serialize on this in-process chain so overlapping
 // rounds cannot interleave marker writes, harness copies, or staging.
-const mirrorLocks = new Map<string, Promise<void>>();
-export function withFleetMirrorLock<T>(viewRoot: string, repoId: string, operation: () => Promise<T>): Promise<T> {
-  const key = `${path.resolve(viewRoot)}\0${repoId}`;
-  const previous = mirrorLocks.get(key) ?? Promise.resolve();
+const localLocks = new Map<string, Promise<void>>();
+function withFleetLocalLock<T>(lockPath: string, operation: () => Promise<T>): Promise<T> {
+  const key = path.resolve(lockPath);
+  const previous = localLocks.get(key) ?? Promise.resolve();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
       release = resolve;
     }),
     tail = previous.then(() => gate);
-  mirrorLocks.set(key, tail);
+  localLocks.set(key, tail);
   return previous
     .then(async () => {
-      const releaseFile = await acquireFleetMirrorFileLock(viewRoot, repoId);
+      const releaseFile = await acquireFleetMirrorFileLock(key);
       try {
         return await operation();
       } finally {
@@ -142,7 +139,7 @@ export function withFleetMirrorLock<T>(viewRoot: string, repoId: string, operati
     })
     .finally(() => {
       release();
-      if (mirrorLocks.get(key) === tail) mirrorLocks.delete(key);
+      if (localLocks.get(key) === tail) localLocks.delete(key);
     });
 }
 
@@ -150,9 +147,8 @@ export function withFleetMirrorLock<T>(viewRoot: string, repoId: string, operati
 // point at the same local replica/harness. The lock-file layer makes the
 // round fence visible across processes as well; dead owners are reclaimed by
 // PID liveness before a waiter enters its round.
-async function acquireFleetMirrorFileLock(viewRoot: string, repoId: string): Promise<() => void> {
-  const lockPath = path.join(viewRoot, "repos", repoId, ".mirror-round.lock"),
-    token = `${process.pid}:${randomBytes(9).toString("hex")}`;
+async function acquireFleetMirrorFileLock(lockPath: string): Promise<() => void> {
+  const token = `${process.pid}:${randomBytes(9).toString("hex")}`;
   mkdirSync(path.dirname(lockPath), { recursive: true });
   for (;;) {
     try {
@@ -216,7 +212,6 @@ function fleetMirrorErrorCode(error: unknown): string | null {
     ? error.code
     : null;
 }
-
 // One node mirrors one repo through one view; when several view directories
 // exist the highest current cut wins so a stale view never shadows a live one.
 export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?: string): FleetMirrorView | null {

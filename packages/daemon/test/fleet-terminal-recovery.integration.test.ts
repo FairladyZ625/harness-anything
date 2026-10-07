@@ -149,7 +149,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   assert.equal(snapshot.lease.actor.principal.personId, "person-owner");
   assert.deepEqual(snapshot.lease.source, { kind: "node", nodeId: fixture.subject.nodeId });
   fixture.setOwner("person-owner");
-  await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+  await runtime.reconcile();
   assert.equal(await eventually(async () => outcomes().length > 0), true);
   assert.equal(outcomes()[0]?.outcome, "failed", JSON.stringify(outcomes()));
   // Ownership is rejected before archive publication. This injected process has no
@@ -249,13 +249,13 @@ for (const restart of [false, true])
       await center.close();
       terminal();
       await archiveFailure;
-      await assert.rejects(() => runtime.run("repo.agentRuntime.overview", { limit: 1 }));
+      await assert.rejects(() => runtime.reconcile());
       if (restart) {
         runtime.close();
         runtime = createRuntime();
       }
       await fixture.center(center.port);
-      await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+      await runtime.reconcile();
       const outcomes = () =>
         makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
           .read()
@@ -267,9 +267,10 @@ for (const restart of [false, true])
           .map((event) => event.payload);
       assert.equal(await eventually(async () => outcomes().length > 0), true);
       assert.equal(outcomes().length, 1, "recovery publishes one canonical terminal outcome");
-      await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+      await runtime.reconcile();
       runtime.close();
       runtime = createRuntime();
+      await runtime.reconcile();
       await runtime.run("repo.agentRuntime.overview", { limit: 1 });
       assert.equal(outcomes().length, 1, "later reads and restart must not duplicate the terminal event");
       const released = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })

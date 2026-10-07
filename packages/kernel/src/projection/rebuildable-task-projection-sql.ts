@@ -11,6 +11,7 @@ import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 const stateDigestTables = [
   ["event_index", "op_id"],
   ["event_summary", "workspace_revision"],
+  ["artifact_entity_state", "entity_kind, entity_id"],
   ["document", "path"],
   ["preset_snapshot", "digest"],
   ["runtime_installation", "installation_id"],

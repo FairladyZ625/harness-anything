@@ -15,8 +15,7 @@ import {
 } from "./runtime-execution-credential.ts";
 import { executeBuiltinScheduleOccurrence } from "./schedule-builtin-executor.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
-import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
-import { openTaskWorktreeBinding, presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
+import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
 import type { RepoCellCore } from "./repo-cell.ts";
@@ -50,7 +49,7 @@ import { makeRepoCellCommandRunner } from "./repo-cell-command-run.ts";
 import {
   canonicalVertical,
   compiledArtifactKinds,
-  readCurrentArtifact,
+  describeCurrentArtifact,
   resolveEntityReadKind,
 } from "./artifact-entity-action.ts";
 import { requireCanonicalVerticalDeclaration } from "./vertical-declaration-action.ts";
@@ -343,7 +342,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       const contracts = compiledArtifactKinds(context.projection, context.input.repoId),
         kind = resolveEntityReadKind(context.requiredCellText(payload.entityKind, "entityKind"), contracts),
         entityId = context.requiredCellText(payload.entityId, "entityId"),
-        current = readCurrentArtifact(context.store, contracts, kind, entityId),
+        current = describeCurrentArtifact(
+          context.projection.readArtifactEntityState(kind, entityId),
+          context.store,
+          contracts,
+          kind,
+          entityId,
+        ),
         contract = contracts.find(({ typeIdentity }) => typeIdentity === kind);
       return readEntityContent({
         rootDir: context.rootDir,
@@ -402,29 +407,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
     "repo.tasks.completion.read": (payload) =>
       readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId")),
-    "repo.tasks.runtimeContext.read": (payload) => {
-      const taskId = context.requiredCellText(payload.taskId, "taskId"),
-        read = context.projection.read(taskId),
-        task = read.snapshot.task;
-      return {
-        schema: "task-runtime-context-read/v1" as const,
-        ok: true as const,
-        taskId,
-        causalContext: assembleTaskCausalContext({ projection: context.projection, taskId }),
-        profileId: task?.metadata?.profileId ?? null,
-        worktree: openTaskWorktreeBinding(task, presetSnapshotReader(context.projection)),
-        snapshot: {
-          ...read.snapshot,
-          workspace: taskWorkspaceView(
-            context.rootDir,
-            task,
-            read.packagePath,
-            presetSnapshotReader(context.projection),
-            resolveHarnessLayout(context.rootDir).authoredRoot,
-          ),
-        },
-      };
-    },
+    "repo.tasks.runtimeContext.read": (payload) =>
+      readTaskRuntimeContext(context.rootDir, context.projection, context.requiredCellText(payload.taskId, "taskId")),
     "repo.tasks.document.read": (payload) => readProjectedDocument(context, payload),
     "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.rootDir, context.projection, payload),
     "repo.artifacts.list": (payload) =>

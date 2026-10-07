@@ -1,3 +1,5 @@
+import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
+import { readEventList } from "./event-list-query.ts";
 import { privateRuntimeEventTypes, publicRuntimeDispatch } from "../domain/runtime-public-query.ts";
 import { isSettingsEvent, type SettingsEventV1 } from "../domain/settings-event.ts";
 import type { DatabaseSync } from "node:sqlite";
@@ -97,11 +99,15 @@ export function repositoryEventQueries(
   | "readReckoningEvents"
   | "readCiRunObservations"
   | "readSettingsEvent"
+  | "readArtifactEntityState"
+  | "readEventList"
   | "readEventSummaries"
   | "readEventWitness"
   | "readDocuments"
 > {
   return {
+    readArtifactEntityState: (kind, id) => withRead((db) => readArtifactEntityState(db, kind, id)),
+    readEventList: (query) => withRead((db) => readEventList(db, query)),
     readDocuments: (prefix) => withRead((db, cut) => ({ ...cut, documents: readDocumentRows(db, prefix) })),
     readEventWitness: (revision) =>
       withRead((db) => {

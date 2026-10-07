@@ -16,6 +16,7 @@ export function makeFleetSquadCoordinator(input: {
   readonly spawner: ReturnType<typeof makeRuntimeSpawner>;
   readonly controlBinding: RuntimeBinding;
   readonly sync: () => Promise<void>;
+  readonly prepareWorkspace: () => Promise<void>;
   readonly readWorktreeSetup: () => readonly string[];
   readonly readResult: (ref: string) => string;
 }) {
@@ -137,7 +138,7 @@ export function makeFleetSquadCoordinator(input: {
           ? await coordinator.cancel(String(action.squadRunId), input.controlBinding)
           : await (async () => {
               const owner = await binding();
-              await input.sync();
+              await input.prepareWorkspace();
               await coordinator.reconcile();
               return coordinator.start(action, owner);
             })();

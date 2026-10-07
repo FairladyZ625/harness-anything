@@ -1,3 +1,4 @@
+import type { ReplicaDeliveryLease, ReplicaTransferMetrics } from "./replica-delivery-lease.ts";
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { DaemonHost } from "../daemon-host.ts";
 import type { WriterEpochLease } from "../writer-epoch.ts";
@@ -54,6 +55,8 @@ export interface FleetReplicaStatus extends ReplicaDeliveryKey {
   readonly catchUpBytes: number;
   readonly delivery: "current" | "delta" | "snapshot_required" | "busy" | "degraded";
   readonly activeTransfers: number;
+  readonly deliveryLease: ReplicaDeliveryLease | null;
+  readonly transferMetrics: ReplicaTransferMetrics;
   readonly sendWindowBytes: number;
   readonly sendQuotaBytes: number;
   readonly diskQuotaBytes: number | null;
@@ -80,14 +83,21 @@ export type Upload = {
 export type State = { uploads: Record<string, Upload> };
 
 export type SessionWindow = {
+  readonly holderId: string;
   readonly uploads: Set<string>;
   readonly keys: Set<string>;
-  readonly offers: Map<string, ReplicaDeliveryKey>;
+  readonly offers: Map<
+    string,
+    { readonly key: ReplicaDeliveryKey; readonly lease: ReplicaDeliveryLease; readonly release: () => void }
+  >;
 };
 
 export type Delivery = {
   readonly key: string | null;
   readonly frames: AsyncIterable<FleetFrameV1>;
+  readonly beforeSend?: () => void;
+  readonly onSent?: (bytes: number) => void;
+  readonly onFailure?: (error: unknown) => void;
 };
 
 export class FleetFault extends Error {

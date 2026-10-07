@@ -70,9 +70,12 @@ export function replicaStatus(
   ackStore: ReplicaAckStore,
   key: ReplicaDeliveryKey,
   diskQuotaBytes: number | null,
+  now = Date.now(),
 ): FleetReplicaStatus {
   const latest = replica.latest(),
-    cursor = ackStore.cursor(key);
+    cursor = ackStore.cursor(key),
+    deliveryLease = ackStore.delivery.active(key, now),
+    transferMetrics = ackStore.delivery.metrics(key);
   if (!latest)
     return {
       ...key,
@@ -86,7 +89,9 @@ export function replicaStatus(
       lagMs: null,
       catchUpBytes: 0,
       delivery: "degraded",
-      activeTransfers: ackStore.offerFor(key) ? 1 : 0,
+      activeTransfers: deliveryLease ? 1 : 0,
+      deliveryLease,
+      transferMetrics,
       sendWindowBytes: FLEET_KEY_SEND_WINDOW_BYTES,
       sendQuotaBytes: FLEET_SESSION_SEND_WINDOW_BYTES,
       diskQuotaBytes,
@@ -112,7 +117,9 @@ export function replicaStatus(
     lagMs: centerEventAt && ackCutEventAt ? Math.max(0, Date.parse(centerEventAt) - Date.parse(ackCutEventAt)) : null,
     catchUpBytes,
     delivery: current ? "current" : changes ? "delta" : "snapshot_required",
-    activeTransfers: ackStore.offerFor(key) ? 1 : 0,
+    activeTransfers: deliveryLease ? 1 : 0,
+    deliveryLease,
+    transferMetrics,
     sendWindowBytes: FLEET_KEY_SEND_WINDOW_BYTES,
     sendQuotaBytes: FLEET_SESSION_SEND_WINDOW_BYTES,
     diskQuotaBytes,

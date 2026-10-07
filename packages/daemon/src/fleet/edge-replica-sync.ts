@@ -1,3 +1,4 @@
+import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
 import path from "node:path";
 import {
   openPeer,
@@ -111,24 +112,32 @@ export function runFleetReplicaSync(options: FleetReplicaSyncOptions): Promise<v
     // head. An unchanged head is a live confirmation: record it so local reads stay fresh, and keep watching.
     for (;;) {
       const head = await watchReplica(options, sessionPool, revision);
+      recordHeadConfirmation(viewDir, head);
       if (head.revision > revision) return;
-      recordHeadConfirmation(viewDir, head.revision);
       await options.onConfirmed?.(head.revision);
     }
   };
-  return new Promise<void>((resolve) => {
+  return new Promise<void>((resolve, reject) => {
     const stop = () => {
       if (owned) sessionPool.close();
       resolve();
     };
     const attempt = (): void => {
       if (options.signal?.aborted) return stop();
-      cycle().then(attempt, (error: unknown) => {
-        if (options.signal?.aborted) return stop();
-        failures += 1;
-        options.onFailure?.(error);
-        schedule(attempt, delays[Math.min(failures, delays.length) - 1] ?? 60_000);
-      });
+      cycle()
+        .then(attempt, (error: unknown) => {
+          if (options.signal?.aborted) return stop();
+          failures += 1;
+          recordReplicaHealth(path.join(options.viewRoot, "repos", options.repoId, "views", options.nodeId), {
+            syncFailure: replicaFailure(error, "replica_watch_failed"),
+          });
+          options.onFailure?.(error);
+          schedule(attempt, delays[Math.min(failures, delays.length) - 1] ?? 60_000);
+        })
+        .catch((error: unknown) => {
+          if (owned) sessionPool.close();
+          reject(error);
+        });
     };
     attempt();
   });

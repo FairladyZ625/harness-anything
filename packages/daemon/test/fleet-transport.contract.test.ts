@@ -62,15 +62,17 @@ test("runtime dispatch frames carry typed center admission context without mirro
     FleetContractError,
   );
 });
-test("fleet runtime reads admit the parked wait but reject arbitrary RPC methods", () => {
+test("fleet runtime await admits only the parked operational wait", () => {
   const frame = {
-    schema: "fleet.runtime.read/v1",
+    schema: "fleet.runtime.await/v1",
     messageId: "wait",
     repoId: "repo",
     method: "repo.agentRuntime.sessions.await",
     payload: { runtimeSessionIds: ["runtime-one"] },
   };
   assert.deepEqual(parseFleetFrame(frame), frame);
+  assert.throws(() => parseFleetFrame({ ...frame, schema: "fleet.runtime.read/v1" }), FleetContractError);
+  assert.throws(() => parseFleetFrame({ ...frame, method: "repo.agentRuntime.overview" }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, method: "repo.task.run" }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, method: "repo.agentRuntime.spawn" }), FleetContractError);
 });
@@ -381,8 +383,6 @@ test("Fleet transport union round-trips every closed wire variant", () => {
   }
   const scheduleCommand = frames.find((frame) => frame.schema === "fleet.schedule.command/v1")!;
   for (const action of [
-    { kind: "schedule-show", scheduleId: "probe" },
-    { kind: "schedule-runs", scheduleId: "probe", limit: 25 },
     {
       kind: "schedule-update",
       scheduleId: "probe",
@@ -434,6 +434,11 @@ test("Fleet transport union round-trips every closed wire variant", () => {
     },
   ])
     assert.deepEqual(parseFleetFrame({ ...scheduleCommand, action }).action, action);
+  for (const kind of ["schedule-show", "schedule-runs", "schedule-list", "schedule-reckon"])
+    assert.throws(
+      () => parseFleetFrame({ ...scheduleCommand, action: { kind, scheduleId: "probe" } }),
+      FleetContractError,
+    );
 });
 
 test("Fleet codec rejects unknown provenance, nested fields, malformed values, and limits", () => {

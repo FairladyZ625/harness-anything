@@ -304,8 +304,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "task-review",
+    repositoryRead: true,
     phase: "W3",
     path: ["task", "review", "<task-id>"],
     summary: "Lint the legacy review contract without approving completion.",

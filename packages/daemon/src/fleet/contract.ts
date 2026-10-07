@@ -174,19 +174,14 @@ export type FleetFrameV1 =
   | Msg<"fleet.runtime.archive/v1", { writerEpoch: number; repoId: string; archive: Readonly<Record<string, unknown>> }>
   | Msg<"fleet.runtime.archive.result/v1", { inReplyTo: string; receipt: Readonly<Record<string, unknown>> }>
   | Msg<
-      "fleet.runtime.read/v1",
+      "fleet.runtime.await/v1",
       {
         repoId: string;
-        method:
-          | "repo.agentRuntime.overview"
-          | "repo.agentRuntime.sessions.read"
-          | "repo.agentRuntime.sessions.await"
-          | "repo.tasks.runtimeContext.read"
-          | "repo.tasks.claimable";
+        method: "repo.agentRuntime.sessions.await";
         payload: Readonly<Record<string, unknown>>;
       }
     >
-  | Msg<"fleet.runtime.read.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
+  | Msg<"fleet.runtime.await.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
   | Msg<"fleet.replica.pull/v1", { repoId: string }>
   | Msg<"fleet.replica.watch/v1", { repoId: string; afterRevision: number }>
   | Msg<"fleet.replica.head-hint/v1", { inReplyTo: string; repoId: string; cut: FleetCut }>
@@ -527,13 +522,6 @@ const scheduleActionShapes: Readonly<Record<string, Check>> = {
       "kind",
       "scheduleId",
     ]),
-    "schedule-list": optionalShape({ kind: one("schedule-list"), scheduleId: id }, ["kind", "scheduleId"]),
-    "schedule-reckon": optionalShape({ kind: one("schedule-reckon"), windowHours: positiveInt }, ["kind"]),
-    "schedule-runs": optionalShape({ kind: one("schedule-runs"), scheduleId: id, limit: positiveInt }, [
-      "kind",
-      "scheduleId",
-    ]),
-    "schedule-show": optionalShape({ kind: one("schedule-show"), scheduleId: id }, ["kind", "scheduleId"]),
     "schedule-update": (value) =>
       optionalShape(
         {
@@ -779,19 +767,13 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.runtime.event.result/v1": shape({ ...reply, event: record, receipt: record }),
   "fleet.runtime.archive/v1": shape({ ...common, writerEpoch: uint, repoId: id, archive: record }),
   "fleet.runtime.archive.result/v1": shape({ ...reply, receipt: record }),
-  "fleet.runtime.read/v1": shape({
+  "fleet.runtime.await/v1": shape({
     ...common,
     repoId: id,
-    method: one(
-      "repo.agentRuntime.overview",
-      "repo.agentRuntime.sessions.read",
-      "repo.agentRuntime.sessions.await",
-      "repo.tasks.runtimeContext.read",
-      "repo.tasks.claimable",
-    ),
+    method: one("repo.agentRuntime.sessions.await"),
     payload: record,
   }),
-  "fleet.runtime.read.result/v1": shape({ ...reply, result: record }),
+  "fleet.runtime.await.result/v1": shape({ ...reply, result: record }),
   "fleet.replica.pull/v1": shape({ ...common, repoId: id }),
   "fleet.replica.watch/v1": shape({ ...common, repoId: id, afterRevision: uint }),
   "fleet.replica.head-hint/v1": shape({ ...reply, repoId: id, cut }),

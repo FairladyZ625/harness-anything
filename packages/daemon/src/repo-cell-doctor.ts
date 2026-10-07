@@ -1,3 +1,4 @@
+import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import {
   currentExecutionCuts,
   resolveLedgerGitLayout,
@@ -32,7 +33,7 @@ export async function doctorHealth(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
-  if (cell.mode === "remote-edge") return unavailableCenterDoctor(cell.input.repoId) as WriteReceipt;
+  if (cell.mode === "remote-edge") return edgeReplicaDoctor(cell.rootDir, cell.input.repoId) as WriteReceipt;
   const ledger = resolveLedgerGitLayout(cell.rootDir),
     gitRoots = [...new Set([cell.rootDir, ledger.rootDir])],
     tips: Record<string, BaseTip | null> = {};
@@ -324,25 +325,4 @@ export function doctorBuildDrift(build: Pick<DaemonBuildStatus, "loadedBuildId" 
             ? "Nothing to do."
             : "Let the center daemon drain, or restart it with ha daemon start --service.",
       };
-}
-
-export function unavailableCenterDoctor(repoId: string) {
-  const note =
-    "ha doctor observes center-local health. Center observations are unavailable from a remote-edge; run ha doctor on the center.";
-  return {
-    schema: "doctor-health/v1",
-    ok: true,
-    outcome: "applied" as const,
-    opId: "doctor-center-unavailable",
-    scope: { repoId, productBaseRef: null, productBaseTip: null, ledgerBaseRef: null, ledgerBaseTip: null, note },
-    checks: ["stale-delivered", "executor-undeclared", "orphan-lease", "wip-pressure", "doc-debt", "build-drift"].map(
-      (id) => ({
-        id,
-        status: "indeterminate" as const,
-        summary: note,
-        count: 0,
-        next: "Run ha doctor on the center.",
-      }),
-    ),
-  };
 }

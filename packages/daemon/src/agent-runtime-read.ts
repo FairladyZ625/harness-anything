@@ -41,7 +41,7 @@ export function makeAgentRuntimeReadModel(input: {
   }) => readonly TaskDispatchRow[];
   readonly readAttemptChain?: (runtimeSessionId: string) => AgentRuntimeAttemptChainDto | undefined;
   readonly projection: TaskProjection;
-  readonly store: CanonicalEventStore;
+  readonly store: Pick<CanonicalEventStore, "readContentBlob">;
   readonly now?: () => string;
 }) {
   const installationDto = (raw: RuntimeInstallation): AgentRuntimeInstallationDto => {

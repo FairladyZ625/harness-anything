@@ -281,12 +281,8 @@ test(
         await f.host.read("lease-repo", method, { taskId: "task-read-000" }, auth),
       );
     }
-    // These reads need data outside the materialized query closure; none may use local canonical
-    // storage or fall back to a center request.
-    for (const [method, payload] of [
-      ["repo.entity.content.read", { entityKind: "task", entityId: "task-read-000" }],
-    ] as const)
-      await assert.rejects(edge.read("lease-repo", method, payload, auth), { code: "replica_unavailable" });
+    // Owned entity content now has a shared projection; offline files and empty directories are
+    // covered by fleet-edge-gui-content.integration.test.ts instead of an unavailable assertion.
     await assert.rejects(f.command("node-one", { kind: "work-show", taskId: "task-read-000" }), /closed schema/);
     const { schema: _configSchema, ...cliConfig } = config;
     const cli = await rpc.handle({

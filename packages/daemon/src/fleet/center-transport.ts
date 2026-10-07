@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
@@ -38,6 +39,7 @@ export async function serve(
     pumping = false;
   const reader = new FleetUtf8LineDecoder(),
     window: SessionWindow = {
+      holderId: randomUUID(),
       uploads: new Set(),
       keys: new Set(),
       offers: new Map(),
@@ -48,15 +50,21 @@ export async function serve(
       resolve: () => void;
       reject: (error: unknown) => void;
     }> = [],
-    send = async (frame: FleetFrameV1) => {
+    send = async (frame: FleetFrameV1, delivery?: Delivery) => {
       // A session the center cut is never answered, not even from a delivery already in flight.
-      if (socket.destroyed) return;
+      if (socket.destroyed) {
+        if (delivery?.key === null) return;
+        throw new FleetFault("connection_closed", "Replica connection closed", true);
+      }
       const line = serializeFleetFrame(frame),
         bytes = Buffer.byteLength(line);
       if (bytes > FLEET_KEY_SEND_WINDOW_BYTES) throw new FleetFault("busy", "Per-key send window is full.", true);
       if (socket.writableLength + bytes > FLEET_SESSION_SEND_WINDOW_BYTES)
         await new Promise<void>((resolve) => socket.once("drain", resolve));
-      if (!socket.write(line)) await new Promise<void>((resolve) => socket.once("drain", resolve));
+      delivery?.beforeSend?.();
+      const sent = socket.write(line);
+      delivery?.onSent?.(bytes);
+      if (!sent) await new Promise<void>((resolve) => socket.once("drain", resolve));
     },
     enqueue = (delivery: Delivery) =>
       new Promise<void>((resolve, reject) => {
@@ -78,11 +86,12 @@ export async function serve(
             const next = await job.iterator.next();
             if (next.done) job.resolve();
             else {
-              await send(next.value);
+              await send(next.value, job.delivery);
               jobs.push(job);
             }
           } catch (error) {
             consumeKnownError(error);
+            job.delivery.onFailure?.(error);
             job.reject(error);
           }
         }
@@ -165,6 +174,7 @@ export async function serve(
           messageId: frame?.messageId ?? null,
           error,
         });
+      if (socket.destroyed) return;
       await enqueue(
         immediate({
           schema: "fleet.error/v1",

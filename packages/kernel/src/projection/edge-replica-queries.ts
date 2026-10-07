@@ -1,3 +1,4 @@
+import { readTaskDocumentOwner } from "./task-document-owner-query.ts";
 import { readDecisionDocumentState } from "./decision-projection-documents.ts";
 import { repositoryEventQueries } from "./repository-event-queries.ts";
 import {
@@ -81,6 +82,7 @@ export function makeEdgeReplicaQueries(source: EdgeReplicaQuerySource): EdgeRepl
   const implemented = {
     ...repositoryEventQueries((read) => read(db, cut)),
     readCut: () => cut,
+    taskIdForDocumentPath: (documentPath) => readTaskDocumentOwner(documentPath, (sql) => db.prepare(sql)),
     list: (query) => readTaskListAtCut(db, cut, now(), query),
     readWorkspaceSummary: () => ({ ...cut, summary: readWorkspaceSummaryRows(db) }),
     readTaskExists: (taskId) => readTaskExists(db, taskId),

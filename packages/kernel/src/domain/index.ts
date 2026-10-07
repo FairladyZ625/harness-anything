@@ -342,7 +342,6 @@ export {
   entityUpsertWritePlan,
   isEntityDeclarationEvent,
   isEntityEvent,
-  ownedContentForDeclarationEvent,
 } from "./entity-event.ts";
 export {
   ENTITY_CONTENT_POLICY_ID,

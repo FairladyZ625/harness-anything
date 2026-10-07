@@ -1,3 +1,5 @@
+import type { ArtifactEntityState } from "../domain/artifact-entity-state.ts";
+import type { EventListQuery, EventListPage } from "../domain/event-list.ts";
 import type { SettingsEventV1 } from "../domain/settings-event.ts";
 import type { DecisionDocumentState } from "../domain/decision-event-types.ts";
 import type {
@@ -180,6 +182,8 @@ export interface TaskProjection {
     afterRevision: number,
     limit: number,
   ) => readonly AgentRuntimeEventV1[];
+  readonly readArtifactEntityState: (kind: string, id: string) => ArtifactEntityState | null;
+  readonly readEventList: (query: EventListQuery) => EventListPage;
   readonly readEventSummaries: (
     afterRevision: number,
     limit: number,

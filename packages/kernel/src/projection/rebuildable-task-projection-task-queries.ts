@@ -1,3 +1,4 @@
+import { readTaskDocumentOwner } from "./task-document-owner-query.ts";
 import { listPinnedEntityRows } from "./rebuildable-task-projection-entities.ts";
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
@@ -68,11 +69,6 @@ const REPLICA_EVENTS_SQL = [
   "ORDER BY workspace_revision LIMIT 64",
 ].join(" ");
 const EVENT_BY_OP_SQL = "SELECT event_json FROM event_index WHERE op_id = ?";
-const TASK_FOR_DOCUMENT_SQL = [
-  "SELECT task_id FROM task_package WHERE ? = package_path",
-  "OR substr(?, 1, length(package_path) + 1) = package_path || '/'",
-  "ORDER BY length(package_path) DESC LIMIT 1",
-].join(" ");
 
 // Task relations, task status, document, replica, and progress query API.
 export function taskQueryApi(
@@ -116,6 +112,8 @@ export function taskQueryApi(
   | "readReckoningEvents"
   | "readCiRunObservations"
   | "readSettingsEvent"
+  | "readArtifactEntityState"
+  | "readEventList"
   | "readEventSummaries"
   | "readEventWitness"
   | "readDocuments"
@@ -333,15 +331,12 @@ export function taskQueryApi(
       );
     },
     taskIdForDocumentPath: (documentPath) =>
-      withDatabase(
-        projectionPath,
-        readHead,
-        (db) =>
-          (
-            prepareQuery(db, TASK_FOR_DOCUMENT_SQL, (sql) =>
-              /* @gate-identity check-bypass-write-boundary/bypass-write-039 */ db.prepare(sql),
-            ).get(documentPath, documentPath) as { readonly task_id: string } | undefined
-          )?.task_id ?? null,
+      withDatabase(projectionPath, readHead, (db) =>
+        readTaskDocumentOwner(documentPath, (sql) =>
+          prepareQuery(db, sql, (sql) =>
+            /* @gate-identity check-bypass-write-boundary/bypass-write-039 */ db.prepare(sql),
+          ),
+        ),
       ),
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, readHead, eventStore, digest, limit),
     readProgress: (taskId) =>

@@ -130,6 +130,8 @@ export interface FleetNodeRow {
         | "lagRevisions"
         | "lagMs"
         | "delivery"
+        | "deliveryLease"
+        | "transferMetrics"
       > & { readonly repoId: string })
     | null;
   /** replica 为 null 时必给原因;非 null 时为 null。 */
@@ -341,6 +343,8 @@ function projectReplica(replica: FleetReplicaStatus): NonNullable<FleetNodeRow["
     lagRevisions: replica.lagRevisions,
     lagMs: replica.lagMs,
     delivery: replica.delivery,
+    deliveryLease: replica.deliveryLease,
+    transferMetrics: replica.transferMetrics,
   };
 }
 

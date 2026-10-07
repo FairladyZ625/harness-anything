@@ -297,8 +297,14 @@ function publishScheduleDraft(
       } as WriteReceipt);
 }
 
-function readScheduleAction(
-  cell: RepoCellRuntimeContext,
+export function readScheduleAction(
+  cell: Pick<
+    RepoCellRuntimeContext,
+    "rootDir" | "projection" | "now" | "operationId" | "requiredCellText" | "cellCodedError"
+  > & {
+    readonly input: { readonly repoId: string };
+    readonly store: Pick<RepoCellRuntimeContext["store"], "readContentBlob">;
+  },
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): WriteReceipt {

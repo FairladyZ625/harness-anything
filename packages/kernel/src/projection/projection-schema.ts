@@ -9,4 +9,5 @@
 // same relation page query runs unchanged on an edge replica that carries no event rows.
 // Version 29 derives Squad runs only from canonical events and removes local readiness.
 // Version 30 materializes bounded event summaries and same-revision witnesses for shared repository reads.
-export const taskProjectionSchemaVersion = 30;
+// Version 31 adds event list descriptors without copying canonical payloads.
+export const taskProjectionSchemaVersion = 31;

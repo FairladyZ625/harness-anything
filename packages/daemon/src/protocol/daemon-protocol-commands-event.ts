@@ -1,11 +1,15 @@
-import { cliInput, defineRepoReadCommand } from "@harness-anything/preset/internal/preset-command-contract";
+import {
+  cliInput,
+  defineEdgeReplicaQueryOnlyReadCommand,
+} from "@harness-anything/preset/internal/preset-command-contract";
 
 const isoTimestamp = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(?:Z|[+-][0-9]{2}:[0-9]{2})$",
   eventListLimit = "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$";
 
 export const eventProtocolCommands = Object.freeze([
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "event-list",
+    repositoryRead: true,
     phase: "Ledger-Read",
     path: ["event", "list"],
     summary:
@@ -37,8 +41,9 @@ export const eventProtocolCommands = Object.freeze([
       cliInput("--cursor", "single", false, { code: "invalid_field" }, { regex: "^[0-9]+$" }),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "event-show",
+    repositoryRead: true,
     phase: "Ledger-Read",
     path: ["event", "show", "<op-id>"],
     summary: "Print the complete canonical event JSON for an op id or event id.",

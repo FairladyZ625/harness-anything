@@ -1,3 +1,4 @@
+import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
@@ -5,7 +6,7 @@ import { repositoryReadDescriptor } from "./repository-read-contract.ts";
 import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readTaskAssignmentDirectory } from "./task-assignment-directory.ts";
-import { doctorBuildDrift, unavailableCenterDoctor, type DoctorCheck } from "./repo-cell-doctor.ts";
+import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
@@ -557,13 +558,12 @@ export function createDaemonHostRepositoryApi(
       const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
         modeAdmission = context.admitHostMode(repoId, command, auth);
       if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
-      if (
-        action.kind === "doctor-health" &&
-        readDaemonRegistry({ userRoot: context.input.userRoot }).repos.some(
+      if (action.kind === "doctor-health") {
+        const edge = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
           (repo) => repo.repoId === repoId && repo.mode === "remote-edge",
-        )
-      )
-        return unavailableCenterDoctor(repoId);
+        );
+        if (edge?.canonicalRoot) return edgeReplicaDoctor(edge.canonicalRoot, repoId);
+      }
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
       if (!cell)

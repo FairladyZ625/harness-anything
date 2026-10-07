@@ -1,3 +1,4 @@
+import { projectArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
@@ -139,6 +140,7 @@ export function applyEvent(
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
   projectEventSummary(db, event);
+  projectArtifactEntityState(db, event);
   if (isEntityPinEvent(event)) {
     runSql(
       db,

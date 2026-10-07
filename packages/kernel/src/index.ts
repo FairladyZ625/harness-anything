@@ -325,7 +325,6 @@ export {
   reconcileSqliteEvents,
   makeTaskProjectionReader,
   applyLedgerBackupRetention,
-  canonicalEventEntityRefs,
   readVerifiedLedgerBackup,
 } from "./composition/index.ts";
 export type { LedgerBackupRetentionPolicyV1 } from "./composition/index.ts";
@@ -396,3 +395,7 @@ export { validSquadDispatchContext } from "./domain/squad-run.ts";
 export { publicRuntimeSession, publicRuntimeInstallation } from "./domain/runtime-public-query.ts";
 
 export type { CanonicalEventSummary } from "./domain/canonical-event-summary.ts";
+
+export type { EventListQuery } from "./domain/event-list.ts";
+
+export { reduceArtifactEntityState, type ArtifactEntityState } from "./domain/artifact-entity-state.ts";

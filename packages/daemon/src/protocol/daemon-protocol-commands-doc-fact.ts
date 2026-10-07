@@ -3,7 +3,6 @@ import {
   defineCenterForwardWriteCommand,
   cliInput,
   defineLedgerWriteCommand,
-  defineRepoReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 export const docFactProtocolCommands = Object.freeze([
@@ -87,8 +86,9 @@ export const docFactProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineRepoReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "doc-show",
+    repositoryRead: true,
     phase: "DocSync-B",
     path: ["doc", "show"],
     summary: "Show a canonical projected document; --raw prints only the document body.",

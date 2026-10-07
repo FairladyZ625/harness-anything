@@ -48,6 +48,8 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       kind: "schedule-create",
       scheduleId: "s5c-offline-schedule",
       name: "Offline read witness",
+      // The lease probe advances two days; this read-only witness must not add scheduler events.
+      disabled: true,
       mode: "detect",
       cronExpression: "17 3 * * *",
       timezone: "UTC",
@@ -454,7 +456,16 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   const restartedHost = await f.openHost(),
     restartedCenter = await f.openCenter(restartedHost, f.center.port);
   assert.equal((await observation(4, { phase: "cancelled" })).receipt.replayed, true);
-  assert.equal(f.eventCount(), beforeRestart);
+  assert.equal(
+    f.eventCount(),
+    beforeRestart,
+    JSON.stringify(
+      makeTaskEventReader({ repoId: "lease-repo", rootDir: f.repo })
+        .read()
+        .events.filter((event) => event.workspaceRevision > beforeRestart)
+        .map((event) => ({ type: event.type, opId: event.opId, payload: event.payload })),
+    ),
+  );
   await restartedCenter.close();
   const { schema: _readerSchema, ...readerConfiguration } = b.config;
   await assert.rejects(
@@ -495,7 +506,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   );
   assert.ok(answer.cut);
   const view = locateFleetMirrorView(b.viewRoot, "lease-repo")!;
-  recordHeadConfirmation(view.viewDir, view.revision, 0);
+  recordHeadConfirmation(view.viewDir, { revision: view.revision, headDigest: view.headDigest }, 0);
   const connections = t.mock.method(tls, "connect");
   syncBuiltinESMExports();
   const response = await b.rpc.handle({
@@ -543,6 +554,9 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     ["repo.vertical.declaration.read", {}],
     ["repo.tasks.completion.read", { taskId }],
     ["repo.tasks.document.read", { taskId, path: "task_plan.md" }],
+    ["repo.gui.catalog.snapshot", {}],
+    ["repo.workspace.scope.read", { rootTaskId: taskId }],
+    ["repo.tasks.documents.list", { taskId }],
   ] as const;
   const readFailures: unknown[] = [];
   for (const [method, payload] of offlineReads) {
@@ -562,18 +576,11 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     assert.equal(data.cut?.revision, view.revision, method);
   }
   assert.deepEqual(readFailures, [], JSON.stringify(readFailures, null, 2));
-  for (const method of [
-    "repo.gui.catalog.snapshot",
-    "repo.fleet.overview.read",
-    "repo.workspace.scope.read",
-    "repo.tasks.documents.list",
-  ] as const) {
-    await assert.rejects(b.host.read("lease-repo", method, { taskId, rootTaskId: taskId }, localAuthFixture()), {
-      code: "replica_unavailable",
-    });
-  }
+  await assert.rejects(b.host.read("lease-repo", "repo.fleet.overview.read", {}, localAuthFixture()), {
+    code: "replica_unavailable",
+  });
   t.diagnostic(
-    `B offline GUI shared-query families=${offlineReads.length}; missing queries explicitly replica_unavailable`,
+    `B offline GUI shared-query families=${offlineReads.length}; center Fleet operations explicitly unavailable`,
   );
   b.signIn("person-other");
   await assert.rejects(b.host.read("lease-repo", "repo.task.dispatches", { taskId }, localAuthFixture()), {
