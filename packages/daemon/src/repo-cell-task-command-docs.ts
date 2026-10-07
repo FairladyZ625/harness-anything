@@ -587,8 +587,7 @@ export function prepareTaskSurfaceWriteAt(
       currentDocuments: documents,
       completionContext: {
         ...readCompletionContext(cell.projection, taskId, next, current.status),
-        hasDispatchLineage:
-          readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).length > 0,
+        hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
       },
     });
   return {

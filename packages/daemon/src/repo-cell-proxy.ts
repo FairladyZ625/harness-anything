@@ -287,19 +287,16 @@ export async function openRepoCellProxy(
         start: unsupportedWrite,
         cancel: unsupportedWrite,
         reconcile: unsupportedWrite,
+        flushPublications: unsupportedWrite,
         observeOutcome: unsupportedWrite,
       },
       runtimeReads = makeAgentRuntimeReadModel({
-        readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(input.rootDir, dispatchId),
-        readAttemptChain: (runtimeSessionId) =>
-          readRuntimeAttemptChain(input.rootDir, runtimeSessionId, writableProjection),
-        readDispatch: (taskId, dispatchId) => readTaskDispatchSession(input.rootDir, taskId, dispatchId),
+        readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(runtimeSessionId, writableProjection),
+        readDispatch: (taskId, dispatchId) => readTaskDispatchSession(writableProjection, taskId, dispatchId),
         readDispatches: ({ sessions, events }) =>
-          readSessionGroupDispatches({ rootDir: input.rootDir, sessions, events, projection: writableProjection }),
+          readSessionGroupDispatches({ sessions, events, projection: writableProjection }),
         projection: writableProjection,
         store: readStore,
-        stream: runtime,
-        runtimeInstances: input.runtimeInstances ?? (() => []),
         ...(input.now ? { now: input.now } : {}),
       }),
       now = input.now ?? (() => new Date().toISOString());

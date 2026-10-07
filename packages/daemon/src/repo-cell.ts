@@ -15,12 +15,7 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
-import {
-  readRuntimeAttemptChain,
-  readRuntimeSessionActivityEvidence,
-  readSessionGroupDispatches,
-  readTaskDispatchSession,
-} from "./dispatch-read.ts";
+import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { centerEdgeReadModel } from "./fleet/replica-read-model.ts";
@@ -176,15 +171,12 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       killpoint: context.input.killpoint,
     });
     const runtimeReads = makeAgentRuntimeReadModel({
-        readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(context.rootDir, dispatchId),
-        readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(context.rootDir, runtimeSessionId, projection!),
-        readDispatch: (taskId, dispatchId) => readTaskDispatchSession(context.rootDir, taskId, dispatchId),
+        readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(runtimeSessionId, projection!),
+        readDispatch: (taskId, dispatchId) => readTaskDispatchSession(projection!, taskId, dispatchId),
         readDispatches: ({ sessions, events }) =>
-          readSessionGroupDispatches({ rootDir: context.rootDir, sessions, events, projection: projection! }),
+          readSessionGroupDispatches({ sessions, events, projection: projection! }),
         projection,
         store,
-        stream: context.runtimeStream,
-        runtimeInstances: context.input.runtimeInstances ?? (() => []),
         now: context.now,
       }),
       service = makeTaskLifecycleService({

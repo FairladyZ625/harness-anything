@@ -236,7 +236,12 @@ export function synthesisReportPath(state: { readonly roster: string; readonly s
   const declared = [
     ...new Set([...state.roster.matchAll(/\bartifacts\/reports\/[A-Za-z0-9._{}-]+\.md\b/gu)].map(([match]) => match)),
   ];
-  if (declared.length !== 1 || declared[0]!.startsWith("artifacts/reports/dispatch_")) return null;
+  if (
+    declared.length !== 1 ||
+    !declared[0]!.includes("{squadRunId}") ||
+    declared[0]!.startsWith("artifacts/reports/dispatch_")
+  )
+    return null;
   return declared[0]!.replaceAll("{squadRunId}", state.squadRunId);
 }
 

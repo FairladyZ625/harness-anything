@@ -126,7 +126,7 @@ export function makeSquadCanonicalReader(input: {
     return {
       ...detail,
       status: run.phase,
-      revision: run.runRevision,
+      runRevision: run.runRevision,
       executionId: run.executionId,
       ownerDispatchId: run.ownerDispatchId,
       owner: run.owner,

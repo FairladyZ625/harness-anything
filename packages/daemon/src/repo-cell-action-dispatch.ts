@@ -492,8 +492,7 @@ export function declareExecutionExecutor(
       }),
       completionContext: {
         ...readCompletionContext(cell.projection, taskId, declaration.snapshot, current.status),
-        hasDispatchLineage:
-          readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).length > 0,
+        hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
       },
     }),
     appended = cell.store.append(compiled),
@@ -557,8 +556,7 @@ export function annotateExecution(
       }),
       completionContext: {
         ...readCompletionContext(cell.projection, taskId, annotation.snapshot, current.status),
-        hasDispatchLineage:
-          readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).length > 0,
+        hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
       },
     }),
     appended = cell.store.append(compiled),
@@ -588,7 +586,7 @@ function dispatchedExecutor(
     // so a review session offered as a candidate would let the reviewer become the declared author.
     // Filtering before the execution cut keeps the lineage fallback able to reach an earlier
     // iteration's authoring dispatch when the current execution only ever hosted review sessions.
-    rows = readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).filter(
+    rows = readTaskLineageDispatches({ projection: cell.projection, taskId }).filter(
       (dispatch) => !isReviewerDispatch(cell.projection, dispatch.dispatchId),
     ),
     exactRows = rows.filter((dispatch) => dispatch.executionId === executionId),

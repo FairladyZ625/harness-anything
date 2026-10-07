@@ -1,13 +1,15 @@
 import {
   isSamePerson,
+  canStartExecution,
   stableStringify,
   type AgentRuntimeEventV1,
   type CanonicalSquadRun,
   type TaskProjectionQueries,
+  type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";
-import { requireRuntimeDispatchOwner } from "./runtime-session-action-runtime.ts";
+import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
+import { requireRuntimeDispatchOwner, runtimeDispatchTaskMatches } from "./runtime-session-action-runtime.ts";
 
 type EventAction = Extract<RuntimeIngressAction, { kind: "event" }>;
 
@@ -25,6 +27,14 @@ export function requireSquadRuntimeOwner(
   if (
     !dispatch ||
     !isSamePerson(dispatch.actor, binding.actor) ||
+    !runtimeDispatchTaskMatches({
+      projection: cell.projection,
+      dispatch,
+      binding,
+      runtimeSessionId: dispatch.payload.runtimeSessionId,
+      taskId: String(action.payload.taskId),
+      executionId: String(action.payload.executionId),
+    }) ||
     !dispatch.payload.squadRun ||
     "ownerDispatchId" in dispatch.payload.squadRun ||
     ["squadRunId", "squadId", "taskId", "executionId", "mission", "leaderAgentId"].some(
@@ -57,7 +67,9 @@ export function requireSquadRuntimeAdmission(
         run.owner.personId !== binding.actor.principal.personId
       )
         throw cell.cellCodedError("execution_scope_mismatch", "Squad continuation must come from its run owner.");
-      requireSquadParentExecution(cell.projection, run.taskId, run.executionId);
+      requireSquadBusinessAction(cell.projection, { kind: "runtime-run", squadRunId: run.squadRunId }, binding);
+      if (action.payload.taskId === run.taskId && action.payload.executionId !== run.executionId)
+        throw cell.cellCodedError("execution_scope_mismatch", "Squad leader must retain the parent execution.");
     } else {
       if (cell.projection.readSquadRun(context.squadRunId))
         throw cell.cellCodedError("op_conflict", "Squad run already has an initial dispatch.");
@@ -106,21 +118,50 @@ export function requireSquadRuntimeAdmission(
   }
 }
 
+/** The run identifies an existing dispatch owner; it does not grant a new task execution. */
+export function requireSquadBusinessAction(
+  projection: Pick<TaskProjectionQueries, "read" | "readSquadRun">,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): void {
+  if (action.squadRunId === undefined) return;
+  const run =
+    typeof action.squadRunId === "string"
+      ? (projection.readSquadRun(action.squadRunId)?.state as unknown as CanonicalSquadRun | undefined)
+      : undefined;
+  if (
+    !run ||
+    stableStringify(run.owner.source) !== stableStringify(binding.source) ||
+    run.owner.personId !== binding.actor.principal.personId ||
+    ["cancelled", "converged", "failed"].includes(run.phase) ||
+    (action.kind === "task-create" && action.parentTaskId !== run.taskId) ||
+    (action.kind === "task-start" && action.taskId === run.taskId && action.executionId !== run.executionId) ||
+    (action.kind === "task-release" &&
+      projection.read(String(action.taskId)).snapshot.lease?.executionId !== action.executionId)
+  )
+    throw Object.assign(new Error("Squad business action must retain its active run owner and parent execution."), {
+      code: "execution_scope_mismatch",
+    });
+  requireSquadParentExecution(projection, run.taskId, run.executionId);
+}
+
+export function squadParentExecutionCurrent(snapshot: TaskLifecycleSnapshot, executionId: string): boolean {
+  return (
+    snapshot.executions.some(
+      (execution) =>
+        execution.executionId === executionId &&
+        execution.iteration === snapshot.task?.iteration &&
+        execution.state === "active",
+    ) && canStartExecution({ ...snapshot, lease: null }, executionId)
+  );
+}
+
 export function requireSquadParentExecution(
-  projection: TaskProjectionQueries,
+  projection: Pick<TaskProjectionQueries, "read">,
   taskId: string,
   executionId: string,
 ): void {
-  const snapshot = projection.read(taskId).snapshot;
-  if (
-    !snapshot.task ||
-    !snapshot.executions.some(
-      (execution) =>
-        execution.executionId === executionId &&
-        execution.iteration === snapshot.task!.iteration &&
-        execution.state === "active",
-    )
-  )
+  if (!squadParentExecutionCurrent(projection.read(taskId).snapshot, executionId))
     throw Object.assign(
       new Error("Squad parent execution is no longer current; the old run cannot resume business actions."),
       { code: "execution_scope_mismatch" },

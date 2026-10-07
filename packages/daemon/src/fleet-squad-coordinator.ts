@@ -14,6 +14,7 @@ export function makeFleetSquadCoordinator(input: {
   readonly request: FleetEdgeRuntimeRequest["payload"];
   readonly peer: FleetPeerOptions;
   readonly spawner: ReturnType<typeof makeRuntimeSpawner>;
+  readonly controlBinding: RuntimeBinding;
   readonly sync: () => Promise<void>;
   readonly readWorktreeSetup: () => readonly string[];
   readonly readResult: (ref: string) => string;
@@ -45,26 +46,32 @@ export function makeFleetSquadCoordinator(input: {
       });
       await input.sync();
     },
-    reacquireTaskLease: async (taskId, binding) => {
+    reacquireTaskLease: async (taskId, binding, parent) => {
       await input.sync();
       await reacquireSquadTaskLease({
         taskId,
         binding,
+        ...(parent?.taskId === taskId ? { executionId: parent.executionId } : {}),
         snapshot: query((projection) => projection.read(taskId).snapshot),
         start: async (executionId) =>
-          command({ kind: "task-start", taskId, ...(executionId ? { executionId } : {}) }) as Promise<{
+          command({
+            kind: "task-start",
+            taskId,
+            ...(parent ? { squadRunId: parent.squadRunId } : {}),
+            ...(executionId ? { executionId } : {}),
+          }) as Promise<{
             outcome: string;
           }>,
       });
       await input.sync();
     },
-    releaseTaskLease: async (taskId) => {
-      const executionId = query((projection) => projection.currentLease(taskId)?.executionId);
+    releaseTaskLease: async (taskId, _binding, executionId, squadRunId) => {
       if (executionId)
         await command({
           kind: "task-release",
           taskId,
-          terminalExecutionId: executionId,
+          executionId,
+          squadRunId,
           reason: "Squad workers hold independent child leases.",
         });
     },
@@ -77,6 +84,7 @@ export function makeFleetSquadCoordinator(input: {
       });
       const receipt = await command({
         kind: "task-create",
+        squadRunId: child.squadRunId,
         parentTaskId: child.parentTaskId,
         title: `Squad assignment for ${child.workerId}`,
         idempotencyKey: child.key,
@@ -89,6 +97,7 @@ export function makeFleetSquadCoordinator(input: {
     recordOwnershipCheck: async (child) => {
       await command({
         kind: "task-artifact-add",
+        squadRunId: child.squadRunId,
         taskId: child.taskId,
         destination: `artifacts/reports/ownership-${child.executionId}.md`,
         content: `# Worker ownership check\n\n${JSON.stringify(child.check, null, 2)}\n`,
@@ -97,6 +106,7 @@ export function makeFleetSquadCoordinator(input: {
     publishSynthesisReport: async (report) => {
       await command({
         kind: "task-artifact-add",
+        squadRunId: report.squadRunId,
         taskId: report.taskId,
         destination: report.reportPath,
         content: report.body,
@@ -121,12 +131,15 @@ export function makeFleetSquadCoordinator(input: {
   }
   return {
     async run(action: JsonObject): Promise<JsonObject> {
-      const owner = await binding();
-      await input.sync();
       const raw =
-        action.kind === "squad-run"
-          ? await coordinator.start(action, owner)
-          : await coordinator.cancel(String(action.squadRunId), owner);
+        action.kind === "squad-cancel"
+          ? await coordinator.cancel(String(action.squadRunId), input.controlBinding)
+          : await (async () => {
+              const owner = await binding();
+              await input.sync();
+              await coordinator.reconcile();
+              return coordinator.start(action, owner);
+            })();
       return {
         schema: "squad-control-result/v1",
         command: String(action.kind),
@@ -137,6 +150,7 @@ export function makeFleetSquadCoordinator(input: {
         summary: raw.summary!,
       };
     },
+    flushPublications: coordinator.flushPublications,
     async reconcile(): Promise<void> {
       await binding();
       await input.sync();

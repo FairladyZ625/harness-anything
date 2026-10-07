@@ -412,6 +412,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           })()
         : undefined,
       runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
+      localRuntimeSessions = runtimeSessions.map((session) => ({
+        ...session,
+        liveness:
+          processes.has(session.runtimeSessionId) &&
+          runtimePidIsAlive(processes.get(session.runtimeSessionId)!.process.pid)
+            ? ("live" as const)
+            : ("unknown" as const),
+      })),
       runtimeInstances = input.runtimeInstances?.() ?? [],
       fallbackAttempt =
         inheritedFallback ??
@@ -423,7 +431,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           idempotencyKey,
           mission,
           runtimeInstances,
-          runtimeSessions,
+          localRuntimeSessions,
         ),
       fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
       runtimeInstanceId = await resolveRuntimeInstanceId({
@@ -432,14 +440,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         agent,
         model,
         instances: runtimeInstances,
-        sessions: runtimeSessions.map((session) => ({
-          ...session,
-          liveness:
-            processes.has(session.runtimeSessionId) &&
-            runtimePidIsAlive(processes.get(session.runtimeSessionId)!.process.pid)
-              ? "live"
-              : "unknown",
-        })),
+        sessions: localRuntimeSessions,
       }),
       runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
       // Model resolution order: --model override > the runtimes row matching the selected

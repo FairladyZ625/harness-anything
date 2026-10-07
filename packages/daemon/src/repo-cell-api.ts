@@ -431,7 +431,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     ...agentRuntimeTokenUsageReadHandlers(context),
     "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) =>
       readTaskDispatches({
-        rootDir: context.rootDir,
         projection: context.projection,
         ...taskDispatchesPayloadFromCell(context, payload),
       }),

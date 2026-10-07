@@ -207,9 +207,7 @@ export function lifecycleReceipt(
     receiptReview = eventReview ?? selected?.review ?? (reviews.length === 1 ? reviews[0] : undefined),
     reviewId =
       event.type === "submission_returned" ? (event.payload.reviewId ?? null) : (receiptReview?.reviewId ?? null),
-    hasDispatchLineage =
-      readTaskLineageDispatches({ projection: cell.projection, rootDir: cell.rootDir, taskId: event.taskId }).length >
-      0,
+    hasDispatchLineage = readTaskLineageDispatches({ projection: cell.projection, taskId: event.taskId }).length > 0,
     to = `${snapshot.task?.status ?? "missing"}/${snapshot.task?.currentNode ?? "missing"}`,
     from =
       event.type === "execution_started"

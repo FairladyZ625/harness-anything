@@ -193,6 +193,7 @@ const summaryKinds = new Set([
   "fallback_state",
   "squad_run_state",
   "squad_run_cancelled",
+  "squad_run_publication_ack",
   "runtime_metrics",
   "execution_principal",
 ]);

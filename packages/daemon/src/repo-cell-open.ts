@@ -1,3 +1,4 @@
+import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { appendAuxiliaryRuntimeIngress } from "./repo-cell-runtime-ingress.ts";
 import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
@@ -457,6 +458,7 @@ export async function openRepoWriterCell(
         "authorization_denied",
         authorizationDecision.nextActions.join(" ") || `${action.kind} requires repository write authority.`,
       );
+    requireSquadBusinessAction(projection, action, currentBinding);
     return { ...currentBinding, authorizationDecision };
   };
   const runtimeSpawner = makeRuntimeSpawner({
@@ -573,12 +575,18 @@ export async function openRepoWriterCell(
       appendAuxiliaryRuntimeIngress(extracted, action, authorized);
     },
     createChildTask: async (child, binding) => createSquadChild(extracted, child, binding, authorizeRuntimeAction),
-    releaseTaskLease: async (taskId, binding) => {
+    releaseTaskLease: async (taskId, binding, executionId, squadRunId) => {
       const lease = projection.currentLease(taskId, now());
-      if (lease === null) return;
+      if (lease === null || lease.executionId !== executionId) return;
       if (!isSameExecution(lease.actor, binding.actor))
         throw cellCodedError("lease_conflict", `Squad cannot release another holder's lease for ${taskId}.`);
-      const action = { kind: "task-release", taskId, reason: "Squad workers hold independent child leases." },
+      const action = {
+          kind: "task-release",
+          taskId,
+          executionId,
+          squadRunId,
+          reason: "Squad workers hold independent child leases.",
+        },
         receipt = await extracted.taskSurfaceWrite(
           action,
           await authorizeRuntimeAction(action, binding, `squad-release:${taskId}:${lease.version}`),
@@ -593,6 +601,7 @@ export async function openRepoWriterCell(
         extracted,
         {
           parentTaskId: child.parentTaskId,
+          squadRunId: child.squadRunId,
           taskId: child.taskId,
           path: `${packagePath}/artifacts/reports/ownership-${child.executionId}.md`,
           body: `# Worker ownership check\n\n${JSON.stringify(child.check, null, 2)}\n`,
@@ -601,11 +610,14 @@ export async function openRepoWriterCell(
         authorizeRuntimeAction,
       );
     },
-    reacquireTaskLease: async (taskId, binding) => {
+    reacquireTaskLease: async (taskId, binding, parent) => {
+      if (parent)
+        requireSquadBusinessAction(projection, { kind: "squad-reacquire", squadRunId: parent.squadRunId }, binding);
       await reacquireSquadTaskLease({
         taskId,
         binding,
         snapshot: projection.read(taskId).snapshot as Snapshot,
+        ...(parent?.taskId === taskId ? { executionId: parent.executionId } : {}),
         start: async (executionId) => {
           extracted.assertTaskWipCapacity(taskId, "active");
           const action = { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
@@ -628,7 +640,7 @@ export async function openRepoWriterCell(
       });
     },
     publishSynthesisReport: async (report, binding) => {
-      const action = { kind: "task-artifact-add", taskId: report.taskId },
+      const action = { kind: "task-artifact-add", taskId: report.taskId, squadRunId: report.squadRunId },
         authorizedBinding = await authorizeRuntimeAction(
           action,
           binding,

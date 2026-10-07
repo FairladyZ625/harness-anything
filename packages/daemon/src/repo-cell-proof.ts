@@ -293,13 +293,13 @@ export async function proofFor(
       externalCompletionEvidence = independentActor
         ? false
         : validExternalCompletionEvidence(command, projection, rootDir),
-      explicitlyUnreviewed = independentActor ? false : validNoIndependentReview(command, projection, rootDir);
+      explicitlyUnreviewed = independentActor ? false : validNoIndependentReview(command, projection);
     if (!independentActor && !externalCompletionEvidence && !explicitlyUnreviewed) {
       // The dispatch lineage read exists only to explain this rejection, so it runs inside the branch.
       const dispatchlessExecution =
         execution?.actor.executor === null &&
         command.actor.executor === null &&
-        readTaskLineageDispatches({ projection, rootDir, taskId: command.taskId }).length === 0;
+        readTaskLineageDispatches({ projection, taskId: command.taskId }).length === 0;
       const principalSettingGuidance = principalIndependenceRequired
         ? [
             "Repository setting reviewIndependence currently equals principal, so the reviewer and execution " +
@@ -482,13 +482,12 @@ function codeDocVerificationDiagnostic(
 function validNoIndependentReview(
   command: Extract<TaskLifecycleCommand, { readonly type: "RecordReview" }>,
   projection: ReturnType<typeof makeTaskProjection>,
-  rootDir: string,
 ): boolean {
   return (
     command.noIndependentReview === true &&
     command.noIndependentReviewReason !== undefined &&
     command.noIndependentReviewReason.trim().length > 0 &&
-    readTaskLineageDispatches({ projection, rootDir, taskId: command.taskId }).length === 0
+    readTaskLineageDispatches({ projection, taskId: command.taskId }).length === 0
   );
 }
 
@@ -501,7 +500,7 @@ function validExternalCompletionEvidence(
     command.externalCompletionAnchor === undefined ||
     command.noDispatchReason === undefined ||
     command.noDispatchReason.trim().length === 0 ||
-    readTaskLineageDispatches({ projection, rootDir, taskId: command.taskId }).length > 0
+    readTaskLineageDispatches({ projection, taskId: command.taskId }).length > 0
   )
     return false;
   const anchor = command.externalCompletionAnchor.trim();

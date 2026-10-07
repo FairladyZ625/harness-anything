@@ -108,7 +108,9 @@ export function validSquadRunObservation(value: unknown): value is SquadRunObser
     count(value.workerCallbackCount) &&
     count(value.pendingLeaderCallbackCount) &&
     (value.synthesisReportPath === null ||
-      value.synthesisReportPath === `artifacts/reports/${String(value.squadRunId)}.md`) &&
+      (typeof value.synthesisReportPath === "string" &&
+        /^artifacts\/reports\/[A-Za-z0-9._-]+\.md$/u.test(value.synthesisReportPath) &&
+        value.synthesisReportPath.includes(String(value.squadRunId)))) &&
     Array.isArray(value.leaderTurns) &&
     value.leaderTurns.every(
       (turn) =>

@@ -1,4 +1,5 @@
 import type { SquadRunObservation } from "@harness-anything/kernel";
+import { synthesisReportPath } from "./squad-leader-decision.ts";
 import type { SquadState } from "./squad-run-state.ts";
 
 /** Explicit field selection: local control state is never a repository read model. */
@@ -42,6 +43,6 @@ export function squadRunObservation(state: SquadState): SquadRunObservation {
     })),
     workerCallbackCount: state.observedWorkerRuntimeSessionIds.length,
     pendingLeaderCallbackCount: state.pendingLeaderTriggers.length + state.workerWaits.length,
-    synthesisReportPath: state.phase === "converged" ? `artifacts/reports/${state.squadRunId}.md` : null,
+    synthesisReportPath: state.phase === "converged" ? synthesisReportPath(state) : null,
   };
 }

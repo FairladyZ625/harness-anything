@@ -33,6 +33,7 @@ export const taskActionDescriptorProjection = {
     "guidance",
     "diagnostic",
     "cut",
+    "freshness",
   ],
   actions: [
     {
@@ -124,6 +125,7 @@ export const taskActionDescriptorProjection = {
       input: {
         schema: "entity-action-input/v1",
         fields: [
+          { field: "squadRunId", type: "string", required: false, regex: "^squad_[a-f0-9]{24}$" },
           { field: "taskId", type: "string", required: true },
           { field: "expectedVersion", type: "number", required: false },
           {

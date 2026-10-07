@@ -442,6 +442,7 @@ export function openFleetEdgeRuntime(input: {
     request,
     peer,
     spawner,
+    controlBinding: edgeBinding(request),
     sync: syncScheduleMirror,
     readWorktreeSetup: () => readSettings().worktree.setup,
     readResult: (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, ref),
@@ -453,7 +454,7 @@ export function openFleetEdgeRuntime(input: {
   let ready: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
-      const attempt = spawner.adopt();
+      const attempt = spawner.adopt().then(() => squad.reconcile());
       ready = attempt.catch((error: unknown) => {
         ready = null;
         throw error;
@@ -467,7 +468,11 @@ export function openFleetEdgeRuntime(input: {
       action: JsonObject,
       connectionSignal?: AbortSignal,
     ): Promise<JsonObject> => {
+      // Local termination cannot wait for adoption's canonical publications.
+      if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
+      if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, edgeBinding(request));
       await ensureReady();
+      await squad.flushPublications();
       if (method === "repo.squad.control") return squad.run(action);
       if (method === "repo.schedule.run") return runSchedule(action);
       if (method === "repo.agentRuntime.handoff")
@@ -491,15 +496,13 @@ export function openFleetEdgeRuntime(input: {
         });
       return method === "repo.agentRuntime.spawn"
         ? spawner.spawn(action, edgeBinding(request))
-        : method === "repo.agentRuntime.cancel"
-          ? spawner.cancel(action, edgeBinding(request))
-          : ((await runFleetRuntimeReadClient({
-              ...runtimeReadPeer,
-              repoId: request.repoId,
-              method,
-              payload: action,
-              connectionSignal,
-            })) as JsonObject);
+        : ((await runFleetRuntimeReadClient({
+            ...runtimeReadPeer,
+            repoId: request.repoId,
+            method,
+            payload: action,
+            connectionSignal,
+          })) as JsonObject);
     },
     close: () => {
       spawner.close();

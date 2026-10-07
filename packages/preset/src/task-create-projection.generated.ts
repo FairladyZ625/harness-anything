@@ -30,6 +30,7 @@ export const taskCreateDescriptorProjection = {
     "guidance",
     "diagnostic",
     "cut",
+    "freshness",
     "taskId",
     "taskStatus",
     "packagePath",
@@ -47,6 +48,7 @@ export const taskCreateDescriptorProjection = {
     input: {
       schema: "entity-action-input/v1",
       fields: [
+        { field: "squadRunId", type: "string", required: false, regex: "^squad_[a-f0-9]{24}$" },
         {
           field: "title",
           type: "string",
@@ -103,6 +105,7 @@ export const taskCreateDescriptorProjection = {
             error: "invalid_field",
             jsonFields: ["title"],
             jsonAllowedFields: [
+              "squadRunId",
               "title",
               "taskId",
               "idempotencyKey",
@@ -142,6 +145,7 @@ export const taskCreateDescriptorProjection = {
             error: "invalid_field",
             jsonFields: ["title"],
             jsonAllowedFields: [
+              "squadRunId",
               "title",
               "taskId",
               "idempotencyKey",

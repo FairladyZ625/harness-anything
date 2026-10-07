@@ -15,7 +15,8 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     version: "fixture",
     observedAt: new Date().toISOString(),
   };
-  const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, false, {
+  let now = new Date().toISOString();
+  const f = await fleetNodeClaimFixture(t, undefined, undefined, () => now, undefined, false, {
     runtimeDiscover: () => [witness],
     runtimeLaunch: () => {
       throw new Error("Center must not launch Squad processes");
@@ -161,11 +162,99 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     }),
     /owner|source|scope/iu,
   );
+  const observation = (runRevision: number, extra: Record<string, unknown> = {}) =>
+    runFleetRuntimeEventClient({
+      ...f.peer("node-one"),
+      eventType: observed.type,
+      opId: `squad-observed-${runId}-${runRevision}`,
+      payload: { ...observed.payload, runRevision, ...extra },
+    });
+  await observation(3);
+  const afterThird = f.eventCount();
+  await assert.rejects(observation(2), /stale|conflict/iu);
+  await assert.rejects(observation(3, { error: "different payload" }), /conflict/iu);
+  assert.equal(
+    (
+      await runFleetRuntimeEventClient({
+        ...f.peer("node-one"),
+        eventType: observed.type,
+        opId: observed.opId,
+        payload: observed.payload,
+      })
+    ).receipt.replayed,
+    true,
+  );
+  assert.equal(f.eventCount(), afterThird, "old replay and rejected snapshots cannot change the cut");
+  const childAction = {
+    kind: "task-create",
+    parentTaskId: taskId,
+    squadRunId: runId,
+    title: "Owned child",
+    idempotencyKey: `${runId}:child`,
+  };
+  const foreignChild = await f.command("node-two", childAction);
+  assert.notEqual(foreignChild.outcome, "applied", JSON.stringify(foreignChild));
+  const child = await f.command("node-one", childAction);
+  assert.equal(child.outcome, "applied", JSON.stringify(child));
+  const heldRelease = await f.command("node-two", { kind: "task-release", taskId });
+  assert.notEqual(heldRelease.outcome, "applied", "a live execution cannot be recovered merely by sharing a principal");
+  now = new Date(Date.parse(now) + 2 * 86_400_000).toISOString();
+  const released = await f.command("node-one", { kind: "task-release", taskId, reason: "Recover expired owner" });
+  assert.equal(released.outcome, "applied", JSON.stringify(released));
+  const planned = await f.host.run(
+    "lease-repo",
+    { kind: "task-transition", taskId, status: "planned", reason: "New iteration" },
+    localAuthFixture(),
+  );
+  assert.equal(planned.outcome, "applied", JSON.stringify(planned));
+  const successor = await f.command("node-two", { kind: "task-start", taskId });
+  assert.equal(successor.outcome, "applied", JSON.stringify(successor));
+  for (const action of [
+    { ...childAction, idempotencyKey: `${runId}:late-child` },
+    { kind: "task-start", taskId, executionId: observed.payload.executionId, squadRunId: runId },
+  ]) {
+    const denied = await f.command("node-one", action);
+    assert.notEqual(denied.outcome, "applied", JSON.stringify(denied));
+    assert.match(JSON.stringify(denied), /execution_scope_mismatch/u);
+  }
+  await assert.rejects(observation(4), /execution|current/iu);
+  await observation(4, { phase: "cancelled" });
+  await assert.rejects(observation(5), /op_conflict/iu);
+  await assert.rejects(
+    observation(5, { phase: "cancelled", executionId: "different-execution" }),
+    /execution|identity/iu,
+  );
+  assert.equal(
+    (
+      await runFleetRuntimeEventClient({
+        ...f.peer("node-one"),
+        eventType: observed.type,
+        opId: observed.opId,
+        payload: observed.payload,
+      })
+    ).receipt.replayed,
+    true,
+    "accepted op replays after the parent changes iteration",
+  );
+  const afterTerminal = await f.host.read(
+    "lease-repo",
+    "repo.tasks.runtimeContext.read",
+    { taskId },
+    localAuthFixture(),
+  );
+  assert.notEqual(
+    afterTerminal.snapshot.lease?.executionId,
+    observed.payload.executionId,
+    "late terminal observation cannot release or replace the successor lease",
+  );
+  await f.host.replica("lease-repo").waitForCut(f.eventCount());
+  await runFleetReplicaPullClient({ ...f.peer("node-two"), viewRoot: b.viewRoot, diskQuotaBytes: b.config.quotaBytes });
   await f.center.close();
   const answer = await b.command({ kind: "squad-status", squadRunId: runId });
   assert.equal(answer.outcome, "applied", JSON.stringify(answer));
   assert.equal(answer.squadRunId, runId);
-  assert.equal(answer.status, "leader_running");
+  assert.equal(answer.status, "cancelled");
+  assert.equal(answer.runRevision, 4);
   assert.ok(answer.cut);
   assert.equal(launches, 1);
   t.diagnostic(`A launch -> canonical observation ${observed.workspaceRevision} -> B offline status ${runId}`);

@@ -127,3 +127,31 @@ export function requireRuntimeDispatchOwner(
       "Runtime publication must come from the canonical dispatch owner and source.",
     );
 }
+
+/** Historical task attribution shared by dispatch archives and run observations. */
+export function runtimeDispatchTaskMatches(input: {
+  readonly projection: Pick<TaskProjection, "readRuntimeSession" | "readLeaseIntervals">;
+  readonly dispatch: Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }> | null | undefined;
+  readonly binding: RepoCellBinding;
+  readonly runtimeSessionId: string;
+  readonly taskId: string;
+  readonly executionId: string | null;
+}): boolean {
+  const { projection, dispatch, binding, runtimeSessionId, taskId, executionId } = input;
+  return (
+    projection
+      .readRuntimeSession(runtimeSessionId)
+      ?.taskBindings.some((scope) => scope.taskId === taskId && scope.executionId === executionId) === true ||
+    projection
+      .readLeaseIntervals(taskId)
+      .some(
+        (interval) =>
+          interval.executionId === executionId &&
+          interval.holder.actor.executor?.id === `runtime-session:${runtimeSessionId}` &&
+          interval.holder.actor.principal.personId === binding.actor.principal.personId,
+      ) ||
+    (dispatch?.payload.taskId === taskId &&
+      dispatch.payload.executionId === executionId &&
+      stableStringify(dispatch.source) === stableStringify(binding.source))
+  );
+}

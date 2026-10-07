@@ -72,7 +72,7 @@ export interface AgentRuntimeSessionMetricsDto {
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly toolCallCount: number;
-  readonly compacted: boolean;
+  readonly compacted: boolean | null;
   /** True when the provider reports no token usage, so the counters mean absence, not consumption. */
   readonly usageUnavailable: boolean;
 }
@@ -532,7 +532,8 @@ function validSessionMetrics(value: unknown): value is AgentRuntimeSessionMetric
     isAgentRuntimeContractRecord(value) &&
     hasExactAgentRuntimeContractFields(value, [...sessionMetricsCounters, "compacted", "usageUnavailable"]) &&
     sessionMetricsCounters.every((field) => Number.isSafeInteger(value[field]) && Number(value[field]) >= 0) &&
-    ["compacted", "usageUnavailable"].every((field) => typeof value[field] === "boolean")
+    (value.compacted === null || typeof value.compacted === "boolean") &&
+    typeof value.usageUnavailable === "boolean"
   );
 }
 
