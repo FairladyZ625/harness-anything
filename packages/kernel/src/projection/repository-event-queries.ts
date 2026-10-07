@@ -94,6 +94,7 @@ export function repositoryEventQueries(
   | "readRuntimeSessionEvents"
   | "readScheduleEvents"
   | "readScheduleOutputEvents"
+  | "readReckoningEvents"
   | "readCiRunObservations"
   | "readSettingsEvent"
 > {
@@ -220,6 +221,18 @@ export function repositoryEventQueries(
           sourceRevision: cut.sourceRevision,
         };
       }),
+    readReckoningEvents: ({ type, after, before }) =>
+      withRead((db) =>
+        queryRows(
+          db,
+          "SELECT event_json FROM event_index WHERE json_extract(event_json, '$.type') = ? " +
+            "AND json_extract(event_json, '$.occurredAt') >= ? AND json_extract(event_json, '$.occurredAt') <= ? " +
+            "ORDER BY workspace_revision",
+          type,
+          after,
+          before,
+        ).map((row) => JSON.parse(String(row.event_json)) as CanonicalEventV1),
+      ),
     readScheduleOutputEvents: (runtimeSessionIds) =>
       withRead((db) => {
         if (runtimeSessionIds.length === 0) return [];

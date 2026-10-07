@@ -30,7 +30,6 @@ import {
   FleetRemoteError,
   readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
-  runFleetRepositoryReadClient,
   runFleetTaskCommandClient,
   runFleetRuntimeReadClient,
   runFleetUploadClient,
@@ -203,16 +202,6 @@ export async function runFleetEdgeTask(
       ...(payload.executionCredential ? { executionCredential: payload.executionCredential } : {}),
       repoId: payload.repoId,
     };
-  const declaration = commandDescriptorForAction(action.kind);
-  if ("repositoryRead" in declaration && declaration.repositoryRead === true) {
-    const receipt = await runFleetRepositoryReadClient({
-      ...peer,
-      method: "repo.task.read",
-      payload: action,
-      accessToken: await readAccessToken?.(),
-    });
-    return { schema: "command-receipt/v2", command: action.kind, ok: receipt.outcome === "applied", ...receipt };
-  }
   const workspaceRoot = payload.workspaceRoot ?? null;
   // One edge/view has one registered harness materialization. Hold its round fence
   // across gate check, candidate scan/upload, center command, pull, and local

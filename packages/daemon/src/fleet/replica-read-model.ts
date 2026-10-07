@@ -219,10 +219,10 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string): Edge
   }
 }
 
-/** Marks every view of `repoId` under `viewRoot` as refused by the center. */
-export function recordRepoReadDenied(viewRoot: string, repoId: string): void {
+/** A refused node may revoke only its own repository view; other nodes retain their grants. */
+export function recordNodeReadDenied(viewRoot: string, repoId: string, nodeId: string): void {
   const views = path.join(viewRoot, "repos", repoId, "views");
   if (!existsSync(views)) return;
   for (const view of readdirSync(views, { withFileTypes: true }))
-    if (view.isDirectory()) recordReadDenied(path.join(views, view.name));
+    if (view.isDirectory() && view.name === nodeId) recordReadDenied(path.join(views, view.name));
 }

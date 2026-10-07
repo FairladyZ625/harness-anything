@@ -91,6 +91,7 @@ const tables = [
     columns: ["op_id", "workspace_revision", "task_id", "event_json"],
     where: `WHERE
       (json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")}))
+      OR json_extract(event_json, '$.type') IN ('fact_recorded', 'decision_superseded', 'decision_retired', 'decision_accepted')
       OR json_extract(event_json, '$.schema') IN ('schedule-event/v1', 'ci-run-observation/v3')
       OR (json_extract(event_json, '$.schema') = 'settings-event/v1' AND workspace_revision =
         (SELECT workspace_revision FROM entity_projection WHERE entity_kind = 'settings' AND entity_id = 'repository'))

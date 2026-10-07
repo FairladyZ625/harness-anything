@@ -16,7 +16,7 @@ import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
 import type { FleetReplicaSessionPool } from "./edge-replica-sync.ts";
 import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
-import { recordHeadConfirmation, recordRepoReadDenied } from "./replica-read-model.ts";
+import { recordHeadConfirmation, recordNodeReadDenied } from "./replica-read-model.ts";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, writeFileDurably } from "../durable-file.ts";
 import {
@@ -525,44 +525,6 @@ export async function runFleetRuntimeArchiveClient(
     session.close();
   }
 }
-export async function runFleetRepositoryReadClient(
-  options: FleetPeerOptions & {
-    readonly method: import("./contract.ts").FleetRepositoryReadMethod;
-    readonly accessToken?: string;
-    readonly payload: Readonly<Record<string, unknown>>;
-  },
-): Promise<Readonly<Record<string, unknown>>> {
-  const session = await openPeer(options);
-  try {
-    const messageId = session.messageId();
-    session.send({
-      schema: "fleet.repository.read/v1",
-      ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
-      accessToken: options.accessToken ?? null,
-      messageId,
-      repoId: options.repoId,
-      method: options.method,
-      payload: options.payload,
-    });
-    const chunks: Buffer[] = [];
-    let offset = 0;
-    for (;;) {
-      const response = await session.next();
-      if (
-        response.schema !== "fleet.repository.read.result/v1" ||
-        response.inReplyTo !== messageId ||
-        response.offset !== offset
-      )
-        throw new Error("repository read chunk does not continue this response");
-      const chunk = Buffer.from(response.dataBase64, "base64");
-      chunks.push(chunk);
-      offset += chunk.length;
-      if (response.done) return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Readonly<Record<string, unknown>>;
-    }
-  } finally {
-    session.close();
-  }
-}
 export async function runFleetRuntimeReadClient(
   options: FleetPeerOptions & {
     readonly repoId: string;
@@ -807,7 +769,7 @@ export async function runFleetReplicaPullClient(
     return await turn;
   } catch (error) {
     if (error instanceof FleetRemoteError && error.code === "authorization_denied")
-      recordRepoReadDenied(options.viewRoot, options.repoId);
+      recordNodeReadDenied(options.viewRoot, options.repoId, options.nodeId);
     throw error;
   } finally {
     if (viewPulls.get(key) === turn) viewPulls.delete(key);

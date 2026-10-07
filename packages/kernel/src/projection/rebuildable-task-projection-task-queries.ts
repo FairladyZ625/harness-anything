@@ -119,6 +119,7 @@ export function taskQueryApi(
   | "readCanonicalEvents"
   | "readScheduleEvents"
   | "readScheduleOutputEvents"
+  | "readReckoningEvents"
   | "readCiRunObservations"
   | "readSettingsEvent"
   | "readDocument"

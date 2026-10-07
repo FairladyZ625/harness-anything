@@ -1,6 +1,5 @@
 import {
   cliInput,
-  defineCenterForwardReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   defineCenterForwardWriteCommand,
   defineHostAdminCommand,
@@ -443,7 +442,7 @@ export const scheduleProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "schedule-reckon",
     phase: "Schedule-S5",
     path: ["schedule", "reckon"],

@@ -20,8 +20,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
-import { runFleetRepositoryReadClient, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
-import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { repositoryReadData } from "../src/protocol/repository-read-frame.ts";
 
 test(
@@ -229,14 +228,6 @@ test(
     const centerAgents = await f.host.read("lease-repo", "repo.projection.read", agentQuery, auth);
     assert.deepEqual(await read("lease-repo", "repo.projection.read", agentQuery, auth), centerAgents);
     assert.equal(centerAgents.name, "runtime-session-groups");
-    await assert.rejects(
-      runFleetRepositoryReadClient({
-        ...f.peer("node-one"),
-        method: "repo.projection.read",
-        payload: { name: "schedule-plane" },
-      }),
-      /closed schema/,
-    );
     const bootstrap = await rpc.handle({
       jsonrpc: "2.0",
       id: 3,
@@ -264,8 +255,6 @@ test(
     assert.match(JSON.stringify(lifetime), /authorization_denied/);
     const before = f.eventCount();
     for (const nodeId of ["node-one", "node-two"]) {
-      const result = await runFleetRepositoryReadClient({ ...f.peer(nodeId), method: "repo.tasks.list", payload: {} });
-      assert.equal(result.watermark, first.watermark);
       // task list and task show are answered from the edge replica; forwarding either is not a
       // fleet frame at all anymore.
       await assert.rejects(
@@ -293,7 +282,7 @@ test(
       );
     }
     // These reads need data outside the materialized query closure; none may use local canonical
-    // storage or fall back to a center request. The center protocol itself remains until S5d.
+    // storage or fall back to a center request.
     for (const [method, payload] of [
       [
         "repo.entity.actions.explain",
@@ -304,38 +293,21 @@ test(
       ["repo.tasks.documents.list", { taskId: "task-read-000" }],
     ] as const)
       await assert.rejects(edge.read("lease-repo", method, payload, auth), { code: "replica_unavailable" });
-    assert.equal((await f.command("node-one", { kind: "work-show", taskId: "task-read-000" })).outcome, "applied");
-    const longToken = [
-      Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url"),
-      Buffer.from(JSON.stringify({ sub: "person-one", fixture: "a".repeat(2048) })).toString("base64url"),
-      Buffer.alloc(256, 97).toString("base64url"),
-    ].join(".");
-    assert.ok(Buffer.byteLength(longToken) > 2048);
-    f.owners.keycloak.interactiveSession("person-one", "node-one", f.owners.url, longToken);
-    const cli = await runFleetEdgeTask(
-      {
-        payload: {
-          ...config,
-          workspaceRoot: edgeRoot,
-          principalId: "person-one",
-          // A read the edge still forwards to the center carries the full session token.
-          action: { kind: "work-show", taskId: "task-read-000" },
-        },
-      },
-      async () => longToken,
-    );
-    assert.equal(cli.ok, true, JSON.stringify(cli));
-    let chunks = 0;
-    const all = await runFleetRepositoryReadClient({
-      ...f.peer("node-two"),
-      method: "repo.tasks.list",
-      payload: { limit: 500 },
-      onFrame: (frame) => {
-        if (frame.schema === "fleet.repository.read.result/v1") chunks += 1;
+    await assert.rejects(f.command("node-one", { kind: "work-show", taskId: "task-read-000" }), /closed schema/);
+    const { schema: _configSchema, ...cliConfig } = config;
+    const cli = await rpc.handle({
+      jsonrpc: "2.0",
+      id: 10,
+      method: "daemon.fleet.task.run",
+      params: {
+        payload: { ...cliConfig, workspaceRoot: edgeRoot, action: { kind: "work-show", taskId: "task-read-000" } },
       },
     });
-    assert.equal((all.rows as unknown[]).length, 53);
-    assert.ok(chunks > 1, "a complete query page may span several Fleet frames");
+    assert.ok(cli && !Array.isArray(cli) && "result" in cli, JSON.stringify(cli));
+    assert.equal((cli.result as { ok: boolean }).ok, true, JSON.stringify(cli));
+    assert.ok((cli.result as { cut: unknown }).cut);
+    const all = await read("lease-repo", "repo.tasks.list", { limit: 500 }, auth);
+    assert.equal(all.rows.length, 53);
     assert.equal(f.eventCount(), before, "reads append no canonical event");
     await refusedCatalogRead(/replica_unavailable/);
     await refusedCatalogReread(/replica_unavailable/);
@@ -392,21 +364,13 @@ test(
       auth,
     );
     assert.equal(secret.outcome, "applied", JSON.stringify(secret));
+    // Cross-repository authorization is enforced when acquiring the view, before any rows reach the edge.
     await assert.rejects(
-      runFleetRepositoryReadClient({
+      runFleetReplicaPullClient({
         ...f.peer("node-two"),
         repoId: "other-repo",
-        method: "repo.tasks.list",
-        payload: {},
-      }),
-      { code: "authorization_denied" },
-    );
-    await assert.rejects(
-      runFleetRepositoryReadClient({
-        ...f.peer("node-two"),
-        repoId: "other-repo",
-        method: "repo.projection.read",
-        payload: agentQuery,
+        viewRoot: config.viewRoot,
+        diskQuotaBytes: config.quotaBytes,
       }),
       { code: "authorization_denied" },
     );
@@ -424,19 +388,14 @@ test(
       diskQuotaBytes: 64 * 1024 * 1024,
     });
     assert.equal(viewerPull.current.cut.revision > 0, true);
-    await assert.rejects(
-      runFleetRepositoryReadClient({
-        ...f.peer("node-two"),
-        accessToken: "token-person-one",
-        method: "repo.tasks.list",
-        payload: {},
-      }),
-      { code: "human_confirmation_required" },
-    );
     f.owners.keycloak.account("person-outsider");
     f.owners.keycloak.node("node-two", "person-outsider");
     await assert.rejects(
-      runFleetRepositoryReadClient({ ...f.peer("node-two"), method: "repo.tasks.list", payload: {} }),
+      runFleetReplicaPullClient({
+        ...f.peer("node-two"),
+        viewRoot: config.viewRoot,
+        diskQuotaBytes: config.quotaBytes,
+      }),
       { code: "authorization_denied" },
     );
     f.owners.keycloak.node("node-two", "person-one");
@@ -479,7 +438,11 @@ test(
     f.owners.keycloak.permit("person-one", "lease-repo", ["repository-read"]);
     f.owners.keycloak.nodeClients.delete("harness-node-node-one");
     await assert.rejects(
-      runFleetRepositoryReadClient({ ...f.peer("node-one"), method: "repo.tasks.list", payload: {} }),
+      runFleetReplicaPullClient({
+        ...f.peer("node-one"),
+        viewRoot: config.viewRoot,
+        diskQuotaBytes: config.quotaBytes,
+      }),
       { code: "node_owner_unregistered" },
     );
     await f.center.close();

@@ -195,6 +195,11 @@ export interface TaskProjection {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
+  readonly readReckoningEvents: (query: {
+    readonly type: "fact_recorded" | "decision_superseded" | "decision_retired" | "decision_accepted";
+    readonly after: string;
+    readonly before: string;
+  }) => readonly CanonicalEventV1[];
   readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
   readonly readSettingsEvent: () => SettingsEventV1 | null;
   readonly readCiRunObservations: (limit: number) => {

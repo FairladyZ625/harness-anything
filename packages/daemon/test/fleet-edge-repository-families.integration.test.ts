@@ -70,7 +70,12 @@ test(
       { kind: "schedule-runs", scheduleId: "edge-schedule" },
       localAuthFixture(),
     );
+    const reckonTruth = await f.host.run("lease-repo", { kind: "schedule-reckon" }, localAuthFixture());
     await f.center.close();
+    const reckon = await e.command({ kind: "schedule-reckon" });
+    assert.equal(reckon.outcome, "applied", JSON.stringify(reckon));
+    assert.deepEqual(JSON.parse(String(reckon.evidence)).signals, JSON.parse(String(reckonTruth.evidence)).signals);
+    assert.ok(reckon.cut, "reckoning must use the replica query with the center disconnected");
     const local = await e.command({ kind: "settings-read" });
     assert.equal(local.outcome, "applied", JSON.stringify(local));
     assert.deepEqual(JSON.parse(String(local.evidence)), JSON.parse(String(updatedTruth.evidence)));

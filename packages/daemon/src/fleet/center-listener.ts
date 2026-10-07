@@ -39,7 +39,7 @@ import {
 } from "./center-transport.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { FLEET_SESSION_SEND_WINDOW_BYTES, FLEET_CHUNK_BYTES, type FleetFrameV1 } from "./contract.ts";
+import { FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./contract.ts";
 import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";
 
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
@@ -793,41 +793,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         receipt,
       });
     }
-    if (frame.schema === "fleet.repository.read/v1") {
-      if (frame.executionCredential && frame.method !== "repo.task.read")
-        throw new FleetFault("execution_credential_rejected", "Execution reads must name their task action.");
-      const node = await nodeContext(nodeId, frame.repoId);
-      const principal = await principalAuth(node, frame.accessToken ?? undefined, frame.executionCredential);
-      let result;
-      try {
-        result =
-          frame.method === "repo.task.read"
-            ? await options.host.run(node.repoId, frame.payload as { readonly kind: string }, principal)
-            : await options.host.read(node.repoId, frame.method, frame.payload, principal);
-      } catch (error) {
-        const code = runtimeErrorCode(error);
-        if (code) throw new FleetFault(code, runtimeErrorMessage(error));
-        throw error;
-      }
-      const bytes = Buffer.from(JSON.stringify(result));
-      return {
-        key: null,
-        frames: (async function* () {
-          for (let offset = 0; offset < bytes.length; offset += FLEET_CHUNK_BYTES) {
-            const end = Math.min(offset + FLEET_CHUNK_BYTES, bytes.length);
-            yield {
-              schema: "fleet.repository.read.result/v1" as const,
-              messageId: mid(frame.messageId, `read-${offset}`),
-              inReplyTo: frame.messageId,
-              offset,
-              dataBase64: bytes.subarray(offset, end).toString("base64"),
-              done: end === bytes.length,
-            };
-          }
-        })(),
-      };
-    }
-
     if (frame.schema === "fleet.runtime.read/v1") {
       const a = await nodeContext(nodeId, frame.repoId);
       if (frame.repoId !== a.repoId)
