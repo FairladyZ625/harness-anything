@@ -4,7 +4,9 @@ import { act } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   decisionRows,
+  drillWipRows,
   followUpRows,
+  pinnedTaskRows,
   watchedWorks,
   workRows,
   reviewRows,
@@ -128,8 +130,12 @@ describe("总览:顶部「需要你处理」紧凑决策带", () => {
     const adjudicate = [...decisions.querySelectorAll("button")].find((button) => textOf(button) === "去裁决");
     act(() => adjudicate!.click());
     expect(onNavigateEntity).toHaveBeenCalledWith("decision/dec_1");
-    // 待初审(execution)住「跟进与返工」:放大层首行即它,详情给「打开收口」的真实落点。
-    act(() => (container.querySelector('[data-testid="overview-drill-followups"]') as HTMLButtonElement).click());
+    // 待初审(execution)住「跟进与返工」:切 tab 后名单首行即它,点行进放大层给「打开收口」。
+    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
+    act(() => (drill.querySelector('[data-testid="overview-drill-followups"]') as HTMLElement).click());
+    act(() =>
+      (container.querySelector('[data-drill-row="execution/exec_1"]')!.querySelector("button") as HTMLElement).click(),
+    );
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(textOf(dialog)).toContain("总览重构的提交");
     expect(textOf(dialog)).toContain("待初审");
@@ -234,7 +240,7 @@ describe("总览:主区「关注的工作」", () => {
     unmount();
   });
 
-  it("工作卡给出阶段/交付/还差/卡点/处理者,完成度只是辅助", async () => {
+  it("工作行压缩为一到两行:计数/百分比同行,卡点与处理者有值才进第二行", async () => {
     vi.stubGlobal("harness", {
       request: (method: string) =>
         method === "getAgentRuntimeOverview"
@@ -265,20 +271,21 @@ describe("总览:主区「关注的工作」", () => {
     );
     const card = container.querySelector("[data-work-card='task_w1']")!;
     const text = textOf(card);
-    // 阶段计数来自工作索引;子任务 done 计数如实称「子任务完成」,不冒充可用交付;
-    // 完成度百分比只是行尾辅助。
-    expect(text).toContain("子任务完成 2/3");
-    expect(text).toContain("未完成 1");
-    expect(text).toMatch(/\d+%/);
+    // 状态标签 + 标题 + 「子任务 done/总数 · 百分比」同一行;完整子任务/未完成明细悬停给。
+    expect(text).toMatch(/2\/3 · \d+%/);
+    const hover = card.querySelector("[data-dense-row]")!.getAttribute("title")!;
+    expect(hover).toContain("子任务完成 2/3");
+    expect(hover).toContain("未完成 1");
     // 可用交付与阶段摘要:投影没有就如实说明,不编造。
     expect(textOf(container.querySelector('[data-testid="overview-region-works"]')!)).toContain(
       "可用交付与阶段摘要当前投影未提供",
     );
-    // 卡点行点名该工作上的注意力项,可点。
+    // 卡点第二行点名该工作上的注意力项(只读芯片;动作在同页决策带与跟进名单)。
     expect(text).toContain("卡点");
     expect(text).toContain("边缘 RBAC 设计裁决");
     // 处理者来自 runtime overview 的 live 会话(who = kind · model)。
     expect(text).toContain("codex · glm-5.3");
+    // 点行进工作详情,不再需要行内「打开工作」按钮。
     act(() => (card.querySelector("button") as HTMLButtonElement).click());
     expect(onOpenTask).toHaveBeenCalledWith("task_w1");
     unmount();
@@ -286,14 +293,21 @@ describe("总览:主区「关注的工作」", () => {
     vi.stubGlobal("harness", { request: () => Promise.reject(new Error("no bridge in test")) });
   });
 
-  it("在飞但无 agent 的工作卡如实标注", () => {
+  it("在飞而无会话的工作行如实标注;无卡点的工作第二行只给处理者档", () => {
+    // 默认夹具:task_w1 在飞(executing 1)且无 live 会话 → 「无 agent」诚实信号进第二行。
     const container = mount();
-    const card = container.querySelector("[data-work-card='task_w1']")!;
-    expect(textOf(card)).toContain("在飞任务无 agent 在跑");
+    const w1 = container.querySelector("[data-work-card='task_w1']")!;
+    expect(textOf(w1)).toContain("在飞任务无 agent 在跑");
+    // task_w2 只有卡点没有在飞占用:第二行不冒充「无 agent」(active 计数为 0)。
+    const w2 = container.querySelector("[data-work-card='task_w2']")!;
+    expect(textOf(w2)).toContain("被阻塞的成员任务");
+    expect(textOf(w2)).not.toContain("在飞任务无 agent 在跑");
+    // 卡点与处理者都有值才进第二行:两行档的标题/原因各占一个 block 行,不超过两行。
+    expect(w1.querySelectorAll("[data-dense-row] .block").length).toBe(2);
     unmount();
   });
 
-  it("近期变化限关注工作:别人的任务不进工作卡", async () => {
+  it("近期变化收进行悬停:关注工作的任务在,别人的任务不在", async () => {
     const item = (patch: Record<string, unknown>) => ({
       eventId: `evt-${Math.random().toString(36).slice(2, 8)}`,
       occurredAt: "2026-09-29T10:00:00.000Z",
@@ -329,14 +343,19 @@ describe("总览:主区「关注的工作」", () => {
     });
     const container = mount();
     await flushUntil(
-      () => container.querySelector("[data-work-card='task_w1']")?.textContent?.includes("最近") === true,
+      () =>
+        container
+          .querySelector("[data-work-card='task_w1'] [data-dense-row]")
+          ?.getAttribute("title")
+          ?.includes("最近") === true,
     );
-    const card = container.querySelector("[data-work-card='task_w1']")!;
-    expect(textOf(card)).toContain("最近");
-    expect(textOf(card)).toContain("开始");
-    expect(textOf(card)).toContain("提交评审");
-    // 不属于任何关注工作的任务事件不进总览。
-    expect(textOf(card)).not.toContain("不属于关注工作的任务");
+    const hover = container.querySelector("[data-work-card='task_w1'] [data-dense-row]")!.getAttribute("title")!;
+    expect(hover).toContain("最近");
+    expect(hover).toContain("开始");
+    expect(hover).toContain("提交评审");
+    // 紧凑行正文不铺近期变化(悬停才见);不属于任何关注工作的任务事件不进总览。
+    expect(textOf(container.querySelector("[data-work-card='task_w1']")!)).not.toContain("提交评审");
+    expect(hover).not.toContain("不属于关注工作的任务");
     unmount();
     vi.stubGlobal("harness", { request: () => Promise.reject(new Error("no bridge in test")) });
   });
@@ -353,7 +372,7 @@ describe("总览:主区「关注的工作」", () => {
   });
 });
 
-describe("总览:执行与下钻", () => {
+describe("总览:执行与下钻(tab + 内联名单)", () => {
   type WipEntry = TaskWipRead["counted"][number];
 
   function wipSnapshot(counted: readonly WipEntry[], limit = 30): TaskWipRead {
@@ -390,25 +409,66 @@ describe("总览:执行与下钻", () => {
     return () => vi.stubGlobal("harness", previous);
   }
 
-  it("WIP 收成紧凑芯片:占用在入口,名单在放大层且全量可达", async () => {
-    const snapshot = wipSnapshot(defaultCounted(), 10);
+  const drillRows = (container: HTMLElement) =>
+    [...container.querySelectorAll('[data-testid="overview-drill-list"] [data-drill-row]')].map(
+      (row) => row.getAttribute("data-drill-row")!,
+    );
+
+  it("WIP tab 是内联名单:四态全量平铺、注意力分排序,满额亮警示档", async () => {
+    const counted = defaultCounted();
+    // 给 blocked 组的两条塞高注意力分:它们必须排到名单最前(排序透传议程分数)。
+    const read = agenda({
+      attentionItems: [
+        {
+          ref: "task/task_wipblocked1",
+          title: "占位任务 blocked1",
+          kind: "blocked",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 99, reasons: [] },
+        },
+        {
+          ref: "task/task_wipblocked0",
+          title: "占位任务 blocked0",
+          kind: "blocked",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 51, reasons: [] },
+        },
+        ...agenda().attentionItems,
+      ],
+    });
+    const snapshot = wipSnapshot(counted, 10);
     const restore = stubBridge({ getTaskWip: () => snapshot });
-    const container = mount();
+    const container = mount({ agenda: read });
     await flushUntil(
       () => container.querySelector('[data-testid="overview-region-drill"]')?.textContent?.includes("10/10") === true,
     );
     const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    // 工具区只有入口芯片:30 条名单不在总览首屏铺开;满额以警示点标在芯片上。
-    expect(textOf(drill)).toContain("进行中的任务(WIP)");
-    const wipEntry = drill.querySelector('[data-testid="overview-drill-wip"]')!;
-    expect(textOf(wipEntry)).toContain("10/10");
-    expect(wipEntry.hasAttribute("data-drill-alert")).toBe(true);
-    expect(drill.querySelectorAll("[data-dense-row][data-testid='overview-task-wip-list']")).toHaveLength(0);
-    act(() => (wipEntry as HTMLElement).click());
+    // tab 常驻:占用在 tab 计数上,满额给显眼警示档(不再只是芯片上的小点)。
+    const wipTab = drill.querySelector('[data-testid="overview-drill-wip"]')!;
+    expect(textOf(wipTab)).toContain("10/10");
+    expect(textOf(drill)).toContain("满额");
+    // 名单内联平铺:四态 10 条全在首屏区域里,不是「点开才有内容」。
+    expect(drillRows(container)).toEqual([
+      "task_wipblocked1",
+      "task_wipblocked0",
+      ...counted
+        .filter(({ taskId }) => taskId !== "task_wipblocked1" && taskId !== "task_wipblocked0")
+        .map(({ taskId }) => taskId),
+    ]);
+    // 点行弹既有放大层并选中该行:搜索/键盘面原样可达。
+    act(() =>
+      (container.querySelector('[data-drill-row="task_wipblocked1"]')!.querySelector("button") as HTMLElement).click(),
+    );
     const dialog = document.body.querySelector('[role="dialog"]');
     expect(dialog).not.toBeNull();
     expect(dialog!.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
     expect(dialog!.querySelector("[data-testid='overview-task-wip-search']")).not.toBeNull();
+    // 选中的就是被点的那行(行悬停全文是 taskId,见 OverviewTaskWipBody)。
+    expect(dialog!.querySelector("[data-focus-list] [data-dense-row][data-selected]")?.getAttribute("title")).toBe(
+      "task_wipblocked1",
+    );
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
@@ -416,7 +476,51 @@ describe("总览:执行与下钻", () => {
     restore();
   });
 
-  it("评审执行入口:计数与分组明细分明,放大层给收口/决策落点", () => {
+  it("tab 切换换内容:跟进/置顶各自铺名单,评审 tab 没有行就不出现", async () => {
+    const restore = stubBridge({ getTaskWip: () => wipSnapshot([]) });
+    const container = mount();
+    await flushUntil(
+      () =>
+        container.querySelector('[data-testid="overview-drill-wip-empty"]')?.textContent?.includes("工作台空闲") ===
+        true,
+    );
+    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
+    // WIP 空态是正向信息(工作台空闲),不是破壳。
+    expect(textOf(container.querySelector('[data-testid="overview-drill-wip-empty"]')!)).toContain("工作台空闲");
+    // 评审执行 tab 只在有行时出现:默认夹具没有三组评审行。
+    expect(drill.querySelector('[data-testid="overview-drill-review"]')).toBeNull();
+    // 切到跟进与返工:默认夹具的待初审/阻塞/停滞行直接可见(注意力序)。
+    act(() => (drill.querySelector('[data-testid="overview-drill-followups"]') as HTMLElement).click());
+    expect(drillRows(container)).toEqual(["execution/exec_1", "task/task_blk", "task/task_stuck"]);
+    expect(textOf(drill)).toContain("已提交待初审");
+    // 切到置顶承诺:默认夹具没有置顶 → 空态给真实入口提示。
+    act(() => (drill.querySelector('[data-testid="overview-drill-pinned"]') as HTMLElement).click());
+    expect(drill.querySelector('[data-testid="overview-drill-pinned-empty"]')).not.toBeNull();
+    expect(textOf(container.querySelector('[data-testid="overview-drill-pinned-empty"]')!)).toContain("没有置顶承诺");
+    unmount();
+    restore();
+  });
+
+  it("跟进与返工空态是正向信息,不是破壳", () => {
+    const read = agenda({
+      attentionItems: [],
+      answeredForYou: [],
+      awaitingRework: [],
+      awaitingAdjudication: [],
+      waitingOnOthers: [],
+      stalled: [],
+    });
+    const container = mount({ agenda: read });
+    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
+    act(() => (drill.querySelector('[data-testid="overview-drill-followups"]') as HTMLElement).click());
+    expect(drill.querySelector('[data-testid="overview-drill-followups-empty"]')).not.toBeNull();
+    expect(textOf(container.querySelector('[data-testid="overview-drill-followups-empty"]')!)).toContain(
+      "当前没有需要跟进或返工的事项",
+    );
+    unmount();
+  });
+
+  it("评审执行 tab:有行才出现,名单分组分明,点行详情给收口/决策落点", () => {
     const read = agenda({
       underReview: [
         {
@@ -437,13 +541,18 @@ describe("总览:执行与下钻", () => {
     const onNavigateEntity = vi.fn();
     const container = mount({ agenda: read, onNavigateEntity });
     const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    const reviewEntry = drill.querySelector('[data-testid="overview-drill-review"]')!;
-    expect(textOf(reviewEntry)).toContain("评审执行");
-    expect(textOf(reviewEntry)).toContain("2");
-    // 分组明细挂在芯片悬停说明上,不占条面。
-    expect(reviewEntry.getAttribute("title")).toContain("任务评审中 1");
-    expect(reviewEntry.getAttribute("title")).toContain("决策待派审 1");
-    act(() => (reviewEntry as HTMLElement).click());
+    const reviewTab = drill.querySelector('[data-testid="overview-drill-review"]')!;
+    expect(textOf(reviewTab)).toContain("评审执行");
+    expect(textOf(reviewTab)).toContain("2");
+    act(() => (reviewTab as HTMLElement).click());
+    // 分组标签直接在行上,不再挂在芯片悬停。
+    expect(textOf(drill)).toContain("任务评审中");
+    expect(textOf(drill)).toContain("决策待派审");
+    act(() =>
+      (
+        container.querySelector('[data-drill-row="taskReviewing:exec_rev"]')!.querySelector("button") as HTMLElement
+      ).click(),
+    );
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(textOf(dialog)).toContain("评审中的任务");
     const closeout = [...dialog.querySelectorAll("button")].find((button) => textOf(button) === "打开收口");
@@ -452,7 +561,7 @@ describe("总览:执行与下钻", () => {
     unmount();
   });
 
-  it("跟进与返工入口:五类分开计数,放大层不亮红不冒充需要用户", () => {
+  it("跟进与返工名单不亮红不冒充需要用户;点行弹放大层给答复原文", () => {
     const read = agenda({
       answeredForYou: [
         {
@@ -482,23 +591,13 @@ describe("总览:执行与下钻", () => {
     });
     const container = mount({ agenda: read });
     const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
-    const followEntry = drill.querySelector('[data-testid="overview-drill-followups"]')!;
-    expect(textOf(followEntry)).toContain("跟进与返工");
-    const breakdown = followEntry.getAttribute("title")!;
-    expect(breakdown).toContain("待跟进 1");
-    expect(breakdown).toContain("待初审 1");
-    expect(breakdown).toContain("阻塞 1");
-    expect(breakdown).toContain("停滞 1");
-    act(() => (followEntry as HTMLElement).click());
+    act(() => (drill.querySelector('[data-testid="overview-drill-followups"]') as HTMLElement).click());
+    // 名单与放大层同一份行:点已答复行,详情给答复原文与答复人。
+    act(() =>
+      (container.querySelector('[data-drill-row="relation/follow"]')!.querySelector("button") as HTMLElement).click(),
+    );
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(textOf(dialog)).toContain("已答复的跟进项");
-    expect(textOf(dialog)).toContain("被阻塞的成员任务");
-    expect(textOf(dialog)).toContain("总览重构的提交");
-    // 首行是分数最高的待初审行;点选已答复行后详情给答复原文与答复人。
-    const answeredRow = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")].find((row) =>
-      textOf(row).includes("已答复的跟进项"),
-    );
-    act(() => (answeredRow as HTMLElement).click());
     expect(textOf(dialog)).toContain("已答复:继续");
     // 不冒充需要用户:整层没有红档(bad)状态标签。
     expect(dialog!.querySelectorAll('[data-status-tone="bad"]')).toHaveLength(0);
@@ -508,7 +607,7 @@ describe("总览:执行与下钻", () => {
     unmount();
   });
 
-  it("置顶承诺入口:可派在前,行上就地取消置顶接真实 pin 通道", () => {
+  it("置顶承诺 tab:可派在前,行上就地取消置顶接真实 pin 通道", () => {
     const onUnpin = vi.fn();
     const container = mount({
       onUnpin,
@@ -534,19 +633,15 @@ describe("总览:执行与下钻", () => {
     });
     const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
     expect(textOf(drill)).toContain("置顶承诺");
-    const pinnedEntry = drill.querySelector('[data-testid="overview-drill-pinned"]')!;
-    act(() => (pinnedEntry as HTMLElement).click());
-    const dialog = document.body.querySelector('[role="dialog"]')!;
-    const rows = [...dialog.querySelectorAll("[data-focus-list] [data-dense-row]")].map((row) => textOf(row));
-    expect(rows[0]).toContain("可派的置顶承诺");
-    expect(rows[1]).toContain("在跑的置顶任务");
-    const unpin = dialog.querySelector<HTMLButtonElement>('[data-testid="overview-unpin-task_pin_active"]')!;
+    act(() => (drill.querySelector('[data-testid="overview-drill-pinned"]') as HTMLElement).click());
+    expect(drillRows(container)).toEqual(["task_pin_go", "task_pin_active"]);
+    const unpin = container.querySelector<HTMLButtonElement>('[data-testid="overview-unpin-task_pin_active"]')!;
     act(() => unpin.click());
     expect(onUnpin).toHaveBeenCalledWith("task_pin_active");
     unmount();
   });
 
-  it("全部工作/全部任务/会话入口接真实回调", () => {
+  it("全部工作/全部任务/会话入口收进区域页脚,接真实回调", () => {
     const onOpenWorks = vi.fn();
     const onOpenTasks = vi.fn();
     const onOpenSessions = vi.fn();
@@ -790,6 +885,89 @@ describe("总览派生(纯函数)", () => {
     expect(reviewCounts(rows).decisionNeedsReview).toBe(1);
     expect(reviewCounts(rows).decisionReviewing).toBe(0);
     expect(reviewCounts(rows).decisionPending).toBe(0);
+  });
+
+  it("drillWipRows:注意力分降序,平分按占位状态生命周期序,再按 taskId 定序", () => {
+    const counted = [
+      { taskId: "task_c", status: "active" as const, title: "c" },
+      { taskId: "task_a", status: "blocked" as const, title: "a" },
+      { taskId: "task_e", status: "active" as const, title: "e" },
+      { taskId: "task_b", status: "in_review" as const, title: "b" },
+      { taskId: "task_d", status: "active" as const, title: "d" },
+    ];
+    const read = agenda({
+      attentionItems: [
+        {
+          ref: "task/task_d",
+          title: "d",
+          kind: "task",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 42, reasons: [] },
+        },
+      ],
+    });
+    const snapshot = { ok: true, limit: 30, limitLabel: "l", counted, roots: [], threshold: 3 } as never;
+    // 高分行最前;平分(active 的 c/e)按 taskId;随后 in_review,blocked 殿后(状态生命周期序)。
+    expect(drillWipRows(snapshot, read).map(({ taskId, score }) => [taskId, score])).toEqual([
+      ["task_d", 42],
+      ["task_c", 0],
+      ["task_e", 0],
+      ["task_b", 0],
+      ["task_a", 0],
+    ]);
+    // 无 agenda(读面未到)时仍有确定序;无快照给空名单。
+    expect(drillWipRows(snapshot, undefined).map(({ taskId }) => taskId)).toEqual([
+      "task_c",
+      "task_d",
+      "task_e",
+      "task_b",
+      "task_a",
+    ]);
+    expect(drillWipRows(undefined, read)).toEqual([]);
+  });
+
+  it("pinnedTaskRows:可派在前,其余按议程注意力分降序", () => {
+    const read = agenda({
+      pinnedEntities: [
+        { ref: "task/task_low", kind: "task", title: "低分置顶", status: "active", pinnedAt: AT },
+        { ref: "task/task_high", kind: "task", title: "高分置顶", status: "active", pinnedAt: AT },
+        { ref: "task/task_go", kind: "task", title: "可派置顶", status: "planned", pinnedAt: AT },
+      ],
+      dispatchable: [
+        {
+          taskId: "task_go",
+          title: "可派置顶",
+          work: null,
+          status: "planned",
+          pinned: true,
+          updatedAt: AT,
+          leaseExecutionId: null,
+          activeExecutionIds: [],
+          blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+        },
+      ],
+      attentionItems: [
+        ...agenda().attentionItems,
+        {
+          ref: "task/task_high",
+          title: "高分置顶",
+          kind: "task",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 77, reasons: [] },
+        },
+        {
+          ref: "task/task_low",
+          title: "低分置顶",
+          kind: "task",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 5, reasons: [] },
+        },
+      ],
+    });
+    expect(pinnedTaskRows(read, WORKS).map(({ taskId }) => taskId)).toEqual(["task_go", "task_high", "task_low"]);
   });
 });
 describe("总览紧凑协作入口(task_1bafbf09 返工)", () => {

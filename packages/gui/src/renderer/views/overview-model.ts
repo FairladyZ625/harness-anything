@@ -15,6 +15,7 @@ import type { CadenceFeedEvent } from "../model/cadence.ts";
 import type { SnapshotStatus } from "../model/types";
 import type { WorkDayGroup, WorkStepKind } from "../model/workspace-narrative.ts";
 import { workDayGroups } from "../model/workspace-narrative.ts";
+import { WIP_STATUS_ORDER } from "./OverviewTaskWip.tsx";
 
 /**
  * 总览的纯派生层(2026-10-04 重构:注意力优先):从已挂载的读面(repo.agenda.read 的
@@ -369,6 +370,43 @@ export function workHandlers(
   return handlers;
 }
 
+/** taskId → 议程注意力分(repo.tasks.wip 的行自己没有分数,从 attentionItems 的 task/ 引用取)。
+ * 同一任务命中多条注意力项时取最高分;排序透传 S1,不在 GUI 重算。 */
+export function taskAttentionScores(agenda: AgendaSuccess | undefined): Map<string, number> {
+  const scores = new Map<string, number>();
+  for (const item of agenda?.attentionItems ?? []) {
+    if (!item.ref.startsWith("task/")) continue;
+    const taskId = item.ref.slice("task/".length);
+    scores.set(taskId, Math.max(scores.get(taskId) ?? 0, item.attention.score));
+  }
+  return scores;
+}
+
+/**
+ * 「执行与下钻」WIP tab 的内联名单行(2026-10-07 三块区域返工):counted × 注意力分——
+ * 分数降序(原设计的重要性口径),平分按占位状态生命周期序,再按 taskId 定序。blocked
+ * 与其余三态同列(这里是被点名的下钻面,不是左列的注意力过滤流)。
+ */
+export interface DrillWipRow {
+  readonly taskId: string;
+  readonly title: string;
+  readonly status: TaskWipRead["counted"][number]["status"];
+  readonly score: number;
+}
+
+export function drillWipRows(wip: TaskWipRead | undefined, agenda: AgendaSuccess | undefined): readonly DrillWipRow[] {
+  if (wip === undefined) return [];
+  const scores = taskAttentionScores(agenda);
+  return wip.counted
+    .map((entry) => ({ ...entry, score: scores.get(entry.taskId) ?? 0 }))
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        WIP_STATUS_ORDER.indexOf(left.status) - WIP_STATUS_ORDER.indexOf(right.status) ||
+        left.taskId.localeCompare(right.taskId),
+    );
+}
+
 /**
  * 在飞任务流的行(总览左列,task_8a83698):repo.tasks.wip 的 active/submitted/in_review
  * 占位任务——blocked 不进流(是注意力状态,住「跟进与返工」),四态全量仍在 WIP 放大层。
@@ -515,6 +553,8 @@ export function pinnedTaskRows(
   const dispatchable = new Map(
     agenda.dispatchable.filter((row) => row.pinned).map((row) => [row.taskId, row] as const),
   );
+  // 可派的在前(承诺未开工要先派);其余按议程注意力分降序(2026-10-07 起内联名单同序)。
+  const scores = taskAttentionScores(agenda);
   return agenda.pinnedEntities
     .filter((entity) => entity.kind === "task" && !workRoots.has(entity.ref.replace(/^task\//u, "")))
     .map((entity): PinnedTaskRow => {
@@ -528,7 +568,11 @@ export function pinnedTaskRows(
         updatedAt: dispatch?.updatedAt ?? null,
       };
     })
-    .sort((left, right) => Number(right.dispatchable) - Number(left.dispatchable));
+    .sort(
+      (left, right) =>
+        Number(right.dispatchable) - Number(left.dispatchable) ||
+        (scores.get(right.taskId) ?? 0) - (scores.get(left.taskId) ?? 0),
+    );
 }
 
 /** 评审与合并的行:打回/待初审/任务评审中/决策评审中/待点头,按读面分组顺序。 */

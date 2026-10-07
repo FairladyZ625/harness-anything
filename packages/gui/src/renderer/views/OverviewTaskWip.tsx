@@ -19,7 +19,12 @@ type TaskWipStatus = TaskWipEntry["status"];
  * 钉死(satisfies),kernel 的占位状态集变化时这里必须跟着改,不允许静默漂移。顺序沿用
  * GUI 状态分段条(SEGMENT_ORDER)的生命周期序,不引入 kernel 的建议排序。
  */
-const WIP_STATUS_ORDER = ["active", "submitted", "in_review", "blocked"] as const satisfies readonly TaskWipStatus[];
+export const WIP_STATUS_ORDER = [
+  "active",
+  "submitted",
+  "in_review",
+  "blocked",
+] as const satisfies readonly TaskWipStatus[];
 
 type WipGroup = "all" | TaskWipStatus;
 

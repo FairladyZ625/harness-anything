@@ -15,6 +15,7 @@ import { dayKeyOf } from "../model/time.ts";
 import {
   attentionSources,
   decisionRows,
+  drillWipRows,
   followUpRows,
   inflightTaskRows,
   mainCiFailingJobs,
@@ -26,6 +27,7 @@ import {
   watchedWorks,
   workHandlers,
 } from "./overview-model.ts";
+import { ArtifactFocusDetail, ArtifactFocusList, artifactRowKey } from "./overview-inflight-shelf.tsx";
 import {
   CiFocusDetail,
   CiFocusList,
@@ -49,16 +51,15 @@ import {
 import { wipVisibleEntries, type WipFilter } from "./OverviewTaskWip.tsx";
 
 /**
- * 总览(task_8a83698 信息密度重构):页面顶部仍是紧凑决策带——只放真实要本人动手的
+ * 总览(2026-10-07 三块区域返工):页面顶部仍是紧凑决策带——只放真实要本人动手的
  * awaits 问句与待点头决策。首屏主体分两列:左列是在飞任务流(repo.tasks.wip 的
  * active/submitted/in_review 占位,执行者来自 runtime overview 的 live 会话)与最新
- * HTML 产物速览架(repo.artifacts.list,与产物页同一缓存,台账 cut 扇出刷新);右列是
- * 关注的工作(置顶非终态;零置顶回退活跃工作并给选择入口),下钻工具带回到工作列底部
- * (dec_B3D40712 的底部下钻工具条,不另立空列)。WIP/评审执行/跟进返工/置顶承诺的
- * 完整名单仍在各自放大层。系统状态弱化成一行小字,只有影响当前工作的异常(daemon 无
- * 响应、main CI 红、投影落后)才升成显眼状态点;安静行带在飞占用摘要。数据全部来自
- * 已挂载读面,页面不另发第二套请求;注意力/排序只透传 daemon 的分数与已有 Pin。区域板
- * 沿用 PageRegions(连接+仓+槽位的顺序与比例偏好照旧)。
+ * HTML 产物速览架(repo.artifacts.list,行点击弹详情层原地预览该 HTML,不离开总览);
+ * 右列是关注的工作(全部关注工作压缩为紧凑行、区内滚动、点行进工作详情)与「执行与
+ * 下钻」(tab + 内联名单:WIP 四态全量/跟进与返工/置顶承诺,注意力序,点行弹既有
+ * FocusLayer 详情)。系统状态弱化成一行小字,只有影响当前工作的异常才升成显眼状态点。
+ * 数据全部来自已挂载读面,页面不另发第二套请求;注意力/排序只透传 daemon 的分数与
+ * 已有 Pin。区域板沿用 PageRegions(连接+仓+槽位的顺序与比例偏好照旧)。
  */
 export function OverviewView({
   repoId,
@@ -113,6 +114,8 @@ export function OverviewView({
   const [panel, setPanel] = useState<AwaitsPanelSubject | null>(null);
   const [focus, setFocus] = useState<DrillFocusKey | null>(null);
   const [selected, setSelected] = useState<Partial<Record<DrillFocusKey, string>>>({});
+  // 产物详情层的选中行(键 = artifactRowKey;null = 层关着)。点速览架行打开,不离开总览。
+  const [artifactFocus, setArtifactFocus] = useState<string | null>(null);
   const ciQuery = useOverviewCi(repoId);
   const runtimeQuery = useOverviewRuntime(repoId);
   const eventsQuery = useOverviewRecentEvents(repoId);
@@ -160,6 +163,17 @@ export function OverviewView({
     () => inflightTaskRows(wipQuery.data, runtimeQuery.data, agenda),
     [wipQuery.data, runtimeQuery.data, agenda],
   );
+  // 「执行与下钻」WIP tab 的内联名单(注意力分降序;blocked 与其余三态同列)。
+  const drillWip = useMemo(() => drillWipRows(wipQuery.data, agenda), [wipQuery.data, agenda]);
+  // 产物详情层:列表 = 全部产物行(不只架上的 6 条),选中收敛到首个存在的键。
+  const artifactRows = artifactsQuery.data?.artifacts ?? [];
+  const artifactKeys = useMemo(() => artifactRows.map(artifactRowKey), [artifactsQuery.data]);
+  const artifactSelected =
+    artifactFocus !== null && artifactKeys.includes(artifactFocus)
+      ? artifactFocus
+      : artifactFocus !== null
+        ? (artifactKeys[0] ?? null)
+        : null;
 
   const deps: OverviewBoardDeps = {
     now,
@@ -185,7 +199,9 @@ export function OverviewView({
     onUnpin,
   };
 
-  const openFocus = (key: DrillFocusKey) => {
+  // 点行开层:内联名单把被点的行直接带成放大层的选中(id 不在集合时由层收敛到首行)。
+  const openFocus = (key: DrillFocusKey, selectedId?: string) => {
+    if (selectedId !== undefined) setSelected((current) => ({ ...current, [key]: selectedId }));
     setFocus(key);
   };
 
@@ -385,12 +401,9 @@ export function OverviewView({
                     <OverviewArtifactsShelf
                       repoId={repoId}
                       rows={artifactsQuery.data?.artifacts ?? []}
-                      total={artifactsQuery.data?.counts.html ?? 0}
                       pending={artifactsQuery.isPending}
                       error={artifactsErrorText}
-                      onOpenTask={onOpenTask}
-                      onOpenAll={onOpenArtifacts}
-                      deps={deps}
+                      onOpenArtifact={(row) => setArtifactFocus(artifactRowKey(row))}
                     />
                   </Region>
                 </div>
@@ -399,12 +412,44 @@ export function OverviewView({
             {
               id: "drill",
               title: t("views.overviewView.regionDrill"),
-              weight: 1,
+              weight: 2,
               testId: "overview-region-drill",
               content: (
                 <div className="grid min-h-0 min-w-0">
-                  <Region title={t("views.overviewView.regionDrill")}>
+                  <Region
+                    title={t("views.overviewView.regionDrill")}
+                    footer={
+                      // 全量入口收在页脚:名单在区内滚动,入口保持可达(不随列表滚走)。
+                      <>
+                        <button
+                          type="button"
+                          data-testid="overview-drill-all-works"
+                          onClick={deps.onOpenWorks}
+                          className="text-accent underline-offset-2 hover:underline"
+                        >
+                          {t("views.overviewView.drillAllWorks")}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="overview-drill-all-tasks"
+                          onClick={deps.onOpenTasks}
+                          className="text-accent underline-offset-2 hover:underline"
+                        >
+                          {t("views.overviewView.drillAllTasks")}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="overview-drill-sessions"
+                          onClick={deps.onOpenSessions}
+                          className="text-accent underline-offset-2 hover:underline"
+                        >
+                          {t("views.overviewView.actionOpenSessions")}
+                        </button>
+                      </>
+                    }
+                  >
                     <OverviewDrillBody
+                      wipRows={drillWip}
                       wipOccupancy={
                         wipQuery.data === undefined
                           ? wipErrorText !== null
@@ -413,6 +458,8 @@ export function OverviewView({
                           : `${wipCounted.length}/${wipQuery.data.limit}`
                       }
                       wipFull={wipFull}
+                      wipLoading={wipQuery.isPending}
+                      wipError={wipErrorText}
                       reviewRowsAll={reviews}
                       followUps={followUps}
                       pinned={pinned}
@@ -426,7 +473,7 @@ export function OverviewView({
             {
               id: "works",
               title: t("views.overviewView.regionWatched"),
-              weight: 6,
+              weight: 3,
               testId: "overview-region-works",
               content: (
                 <div className="grid min-h-0 min-w-0">
@@ -601,6 +648,34 @@ export function OverviewView({
           detail={
             focusSelected === null ? null : (
               <CiFocusDetail run={failing.find(({ runId }) => runId === focusSelected)!} rows={failing} />
+            )
+          }
+        />
+      )}
+
+      {/* 产物详情层(2026-10-07):点速览架行原地看该 HTML 的隔离预览,不离开总览;
+          「跳到所属 task」保留 task_15b1bb96 的落点(任务页直接选中该产物文档)。 */}
+      {artifactFocus !== null && (
+        <FocusLayer
+          open
+          title={t("views.overviewView.regionArtifacts")}
+          tag={<StatusTag tone="neutral" label={t("artifacts.kind.html")} />}
+          big={String(artifactsQuery.data?.counts.html ?? artifactRows.length)}
+          itemIds={artifactKeys}
+          selectedId={artifactSelected}
+          onSelect={setArtifactFocus}
+          onClose={() => setArtifactFocus(null)}
+          list={<ArtifactFocusList rows={artifactRows} selectedId={artifactSelected} onSelect={setArtifactFocus} />}
+          detail={
+            artifactSelected === null ? null : (
+              <ArtifactFocusDetail
+                repoId={repoId}
+                row={artifactRows.find((row) => artifactRowKey(row) === artifactSelected)!}
+                onOpenTask={(taskId, docPath) => {
+                  setArtifactFocus(null);
+                  onOpenTask(taskId, docPath);
+                }}
+              />
             )
           }
         />

@@ -17,7 +17,8 @@ import {
  * 总览左列(task_8a83698)的行为面:在飞任务流(repo.tasks.wip 的 active/submitted/
  * in_review 三态平铺,执行者来自 runtime overview 的 live 会话,blocked 住「跟进与
  * 返工」)与最新 HTML 产物速览架(repo.artifacts.list,与产物页同一缓存;外跳走
- * openArtifactExternally 的 preload 通道)。阴性对照:三态全空与无产物都是整洁空态。
+ * openArtifactExternally 的 preload 通道;2026-10-07 起行点击弹产物详情层原地预览,
+ * 不离开总览)。阴性对照:三态全空与无产物都是整洁空态。
  */
 
 beforeAll(() => {
@@ -150,7 +151,7 @@ describe("总览:左列在飞任务流与最新产物速览架(task_8a83698)", (
     unmount();
   });
 
-  it("产物速览架铺最新 HTML 产物:限 6 条、页脚计数、外跳走 IPC、行点击进任务", async () => {
+  it("产物速览架铺最新 HTML 产物:限 6 条、页脚计数、外跳走 IPC、行点击弹详情层", async () => {
     const onOpenTask = vi.fn();
     const openExternal = vi.fn(async () => ({ ok: true, openedPath: "/tmp/materialized.html", error: null }));
     const rows: ArtifactRow[] = [
@@ -209,8 +210,20 @@ describe("总览:左列在飞任务流与最新产物速览架(task_8a83698)", (
     const unmapped = region.querySelector<HTMLButtonElement>('[data-testid="overview-artifact-open-task_unmapped"]');
     expect(unmapped).not.toBeNull();
     expect(unmapped!.disabled).toBe(true);
-    // 行点击直达归属任务,并携带该产物的包内相对路径(任务详情据此直接选中该 HTML)。
+    // 行点击不再离开总览:弹产物详情层,左列表是全部产物行(不止架上的 6 条),
+    // 右栏「跳到所属 task」保留 task_15b1bb96 的落点(任务页直接选中该产物文档)。
     act(() => (region.querySelector("[data-shelf-artifact]")!.querySelector("button") as HTMLButtonElement).click());
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(textOf(dialog)).toContain("最新产物");
+    expect(dialog!.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(8);
+    expect(textOf(dialog)).toContain("overflow-6.html");
+    const detail = dialog!.querySelector('[data-testid="overview-artifact-detail"]')!;
+    expect(textOf(detail)).toContain("report-0.html");
+    expect(textOf(detail)).toContain("产物所属工作");
+    act(() =>
+      (detail.querySelector('[data-testid="overview-artifact-detail-open-task"]') as HTMLButtonElement).click(),
+    );
     expect(onOpenTask).toHaveBeenCalledWith("task_art_owner", "artifacts/reports/report-0.html");
     unmount();
     restore();
