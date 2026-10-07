@@ -144,9 +144,16 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
       assert.equal(reckoning.schedule.systemPresetId, "nightly-reckoning");
       assert.equal(reckoning.schedule.spec.target.kind, "agent-unconfigured");
 
-      // Retention fixtures: the 7-day-old backup is always deletable (its month always has a
-      // newer sibling among the older trio); the fresh in-window one always survives.
+      // Retention fixtures: the 7-day-old backup is always deletable because a sibling one second
+      // newer shares its month and takes that month's keepMonthly slot (on the 7th, 6 days ago is
+      // already the next month, so the trio alone would leave it its month's only backup); the
+      // fresh in-window one always survives.
       const now = Date.now();
+      fixtureBackup(
+        root,
+        "ledger-backup-occurrence_00a00a0a0a0a0a0a0a0a0a08",
+        new Date(now - 7 * dayMs + 1000).toISOString(),
+      );
       fixtureBackup(root, "ledger-backup-occurrence_00a00a0a0a0a0a0a0a0a0a01", new Date(now - dayMs).toISOString());
       fixtureBackup(root, "ledger-backup-occurrence_00a00a0a0a0a0a0a0a0a0a05", new Date(now - 5 * dayMs).toISOString());
       fixtureBackup(root, "ledger-backup-occurrence_00a00a0a0a0a0a0a0a0a0a06", new Date(now - 6 * dayMs).toISOString());
