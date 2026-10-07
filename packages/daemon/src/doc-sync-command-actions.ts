@@ -98,7 +98,7 @@ export function isDocAction(kind: string): boolean {
   );
 }
 
-export async function runDocAction(input: Input): Promise<DocSettlementReceipt> {
+export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSettlementReceipt> {
   if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "doc command frame exceeds the descriptor-only limit");
   if (input.action.kind.startsWith("doc-conflict-")) return runLocalDocConflictExit(input);

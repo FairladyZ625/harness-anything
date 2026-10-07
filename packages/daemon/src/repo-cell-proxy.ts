@@ -1,3 +1,5 @@
+import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
+import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 import { readEdgeRuntimeResultBytes } from "./runtime-result-read.ts";
 import path from "node:path";
@@ -214,7 +216,7 @@ export async function openRepoCellProxy(
    */
   const edgeReplicaRead = <T>(
     binding: RepoCellBinding | undefined,
-    read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame) => T,
+    read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
   ): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
     if (!edgeConfig) throw cellCodedError("replica_unavailable", "This edge has no Fleet replica configuration.");
@@ -230,14 +232,19 @@ export async function openRepoCellProxy(
     );
   };
   const edgeReplicaRun = (action: RepoTaskAction, binding: RepoCellBinding) =>
-    edgeReplicaRead(binding, (projection, frame) =>
-      executeReadAtCut(projection, action, binding, (receipt) => ({
+    edgeReplicaRead(binding, (projection, frame, view) => {
+      const stamp = (receipt: WriteReceiptDraft): WriteReceiptDraft => ({
         ...receipt,
         cut: { repoId: input.repoId, ...frame.cut, opId: receipt.opId },
         freshness: frame.freshness,
         ...(frame.warning === null ? {} : { warnings: [...(receipt.warnings ?? []), frame.warning] }),
-      })),
-    );
+      });
+      if (action.kind === "doc-status" || action.kind === "doc-dry-run")
+        return readRuntime(projection).actionContext.withHumanSummary(
+          stamp(readEdgeDocWorkspace(input.rootDir, view, projection, action)),
+        ) as Awaited<ReturnType<RepoCell["run"]>>;
+      return executeReadAtCut(projection, action, binding, stamp);
+    });
   const query = <T>(read: (projection: TaskProjectionQueries) => T): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
     const status = supervisor.status();

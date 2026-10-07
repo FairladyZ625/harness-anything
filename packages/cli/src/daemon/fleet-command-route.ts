@@ -145,7 +145,9 @@ export async function fleetTaskRoute(
     descriptor.method !== command.method ||
     (descriptor.admission["remote-edge"] !== "via-center-forward" &&
       descriptor.admission["remote-edge"] !== "edge-replica") ||
-    (descriptor.path[0] === "doc" && typeof command.action.taskId !== "string") ||
+    (descriptor.path[0] === "doc" &&
+      descriptor.admission["remote-edge"] !== "edge-replica" &&
+      typeof command.action.taskId !== "string") ||
     descriptor.path[0] === "schedule"
   )
     return null;
@@ -257,7 +259,7 @@ export async function fleetDocRoute(
   if (!hasCommandDescriptor(kind)) return null;
   const descriptor = commandDescriptorForAction(kind);
   if (descriptor.method !== command.method || descriptor.admission["remote-edge"] !== "via-center-forward") return null;
-  const sync = kind === "doc-status" || kind === "doc-dry-run" || kind === "doc-submit",
+  const sync = kind === "doc-submit",
     conflict = kind.startsWith("doc-conflict-");
   if (!sync && !conflict) return null;
   const config = await fleetEdgeRegistration(command, env);
@@ -275,7 +277,7 @@ export async function fleetDocRoute(
     workspaceRoot: config.workspaceRoot,
   };
   if (sync) {
-    payload.dryRun = kind !== "doc-submit";
+    payload.dryRun = false;
     payload.paths = Array.isArray(command.action.paths)
       ? command.action.paths.filter((value): value is string => typeof value === "string")
       : [];

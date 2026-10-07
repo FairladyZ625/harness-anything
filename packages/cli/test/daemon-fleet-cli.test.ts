@@ -175,7 +175,10 @@ test(
       const first = JSON.parse(observed.stdout) as Record<string, unknown>,
         sync = (extra: readonly string[] = []) => run(fixture, "edge", [...syncArgs, ...extra]);
       const pulled = first.ok === false && first.code === "replica_pending" ? retryReplicaPending(sync) : first;
-      assert.equal(pulled.status, "fleet.ack.result/v1");
+      assert.ok(
+        ["fleet.ack.result/v1", "fleet.replica.current/v1"].includes(String(pulled.status)),
+        JSON.stringify(pulled),
+      );
       assert.equal(pulled.viewId, "edge-one");
       const syncedStatus = run(fixture, "edge", ["daemon", "status"]);
       assert.equal(
@@ -210,17 +213,34 @@ test(
       // A local read needs the node owner's identity on the edge (dec_8DC9 CH2): none is signed in yet.
       const anonymous = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(anonymous.status, 1);
-      assert.equal(anonymous.receipt.code, "authorization_denied", JSON.stringify(anonymous.receipt));
+      assert.equal(anonymous.receipt.code, "authentication_required", JSON.stringify(anonymous.receipt));
       realm.bind(fixture.edgeUser);
       signInAt(fixture.edgeUser, "edge-operator");
       const shown = run(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(shown.revision, pulled.ackCut);
       assert.doesNotMatch(String(shown.summary), /task=null/u);
+      for (const state of ["clean", "eligible", "deletion"] as const) {
+        const localPath = path.join(fixture.edgeRepo, "harness", docPath);
+        if (state === "eligible") writeFileSync(localPath, "# Only this edge changed\n");
+        if (state === "deletion") rmSync(localPath);
+        for (const command of [
+          ["doc", "status"],
+          ["doc", "sync", "--dry-run"],
+        ]) {
+          const status = run(fixture, "edge", [...command, "--path", docPath]);
+          assert.equal((status.cut as { revision: number }).revision, pulled.ackCut);
+          const rows = status.rows as { path: string; state: string }[];
+          assert.deepEqual(
+            rows.map(({ path, state }) => ({ path, state })),
+            [{ path: docPath, state }],
+          );
+          assert.equal(readFileSync(path.join(fixture.repo, "harness", docPath), "utf8"), docBody);
+          assert.equal(readCutFile(viewRoot, pulled.ackCut as number, docPath), docBody);
+        }
+      }
+      writeFileSync(path.join(fixture.edgeRepo, "harness", docPath), docBody);
       // Edge writes below keep the machine path; a signed-in person's writes would ask for confirmation.
       signOutAt(fixture.edgeUser);
-      const status = run(fixture, "edge", ["doc", "status", "--path", docPath]);
-      assert.equal((status.cut as { revision: number }).revision, pulled.ackCut);
-      assert.deepEqual(status.rows, []);
       const current = JSON.parse(readFileSync(path.join(viewRoot, "current.json"), "utf8")) as {
         cut: { revision: number };
       };
@@ -489,10 +509,13 @@ test(
         }),
       );
       // Mirroring is reading: the one repository-read grant admits both the sync and the reads.
+      // The newly authored registration config belongs to the next RepoCell attachment.
+      stop(fixture, "edge");
+      assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
       // Local reads also need the node owner's identity on the edge (dec_8DC9 CH2).
       const anonymousRead = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(anonymousRead.status, 1);
-      assert.equal(anonymousRead.receipt.code, "authorization_denied", JSON.stringify(anonymousRead.receipt));
+      assert.equal(anonymousRead.receipt.code, "authentication_required", JSON.stringify(anonymousRead.receipt));
       realm.bind(fixture.edgeUser);
       signInAt(fixture.edgeUser, "edge-operator");
       const readable = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);

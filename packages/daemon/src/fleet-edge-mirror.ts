@@ -58,6 +58,8 @@ export interface FleetMirrorDirtyFile {
 export interface FleetMirrorScan {
   readonly changes: readonly FleetMirrorDirtyFile[];
   readonly cleanCount: number;
+  readonly cleanPaths: readonly string[];
+  readonly deletedPaths: readonly string[];
   readonly blocked: readonly {
     readonly path: string;
     readonly reason: string;
@@ -283,11 +285,11 @@ export function scanFleetMirrorWorktree(
   selection?: readonly string[],
 ): FleetMirrorScan {
   const materializedRoot = fleetMirrorMaterializedRoot(workspaceRoot);
-  if (!existsSync(materializedRoot)) return { changes: [], cleanCount: 0, blocked: [] };
   const wanted = selection === undefined ? null : new Set(selection),
     changes: FleetMirrorDirtyFile[] = [],
     blocked: FleetMirrorScan["blocked"][number][] = [];
-  let cleanCount = 0;
+  const cleanPaths: string[] = [],
+    deletedPaths: string[] = [];
   for (const logical of fleetMirrorMaterializedPaths(materializedRoot)) {
     if (wanted !== null && !wanted.has(logical)) continue;
     if (!fleetMirrorProsePath(logical)) {
@@ -302,7 +304,7 @@ export function scanFleetMirrorWorktree(
         rawBytes = readFileSync(rawTarget),
         rawBase = view.entries.get(logical) ?? null;
       if (rawBase !== null && rawBase.size === rawBytes.byteLength && rawBase.sha256 === sha256Bytes(rawBytes)) {
-        cleanCount += 1;
+        cleanPaths.push(logical);
         continue;
       }
       blocked.push({
@@ -346,7 +348,7 @@ export function scanFleetMirrorWorktree(
     // A size mismatch already proves divergence; only equal sizes need the
     // hash to decide clean.
     if (base !== null && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes)) {
-      cleanCount += 1;
+      cleanPaths.push(logical);
       continue;
     }
     changes.push({
@@ -359,6 +361,7 @@ export function scanFleetMirrorWorktree(
   for (const logical of view.entries.keys()) {
     if (!fleetMirrorProsePath(logical) || (wanted !== null && !wanted.has(logical))) continue;
     if (!existsSync(path.join(materializedRoot, ...logical.split("/")))) {
+      deletedPaths.push(logical);
       blocked.push({
         path: logical,
         reason:
@@ -367,7 +370,7 @@ export function scanFleetMirrorWorktree(
       });
     }
   }
-  return { changes, cleanCount, blocked };
+  return { changes, cleanCount: cleanPaths.length, cleanPaths, deletedPaths, blocked };
 }
 
 // Project the freshest replica cut into the registered workspace's harness.

@@ -44,7 +44,7 @@ export function withEdgeReadModel<T>(
     readonly maxAgeMs?: number;
     readonly maxLagRevisions?: number;
   },
-  read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame) => T,
+  read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
   now: () => number = Date.now,
 ): T {
   const view = locateFleetMirrorView(input.viewRoot, input.repoId);
@@ -72,6 +72,7 @@ export function withEdgeReadModel<T>(
         freshness: fresh.freshness,
         warning: fresh.warning,
       },
+      view,
     );
   } finally {
     model.db.close();

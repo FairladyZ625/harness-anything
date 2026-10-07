@@ -86,13 +86,11 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     (await fleetTaskRoute(command("repo.task.run", { kind: "task-settle", taskId: "task_one" }), env))?.action,
     { kind: "task-settle", taskId: "task_one" },
   );
-  const docStatus = await fleetDocRoute(
-    command("repo.task.read", { kind: "doc-status", paths: ["context/notes.md"] }),
-    env,
-  );
-  assert.equal(docStatus?.method, "daemon.fleet.doc.sync");
-  assert.equal(docStatus?.payload.dryRun, true);
-  assert.deepEqual(docStatus?.payload.paths, ["context/notes.md"]);
+  for (const kind of ["doc-status", "doc-dry-run"]) {
+    const read = command("repo.task.read", { kind, paths: ["context/notes.md"] });
+    assert.equal(await fleetDocRoute(read, env), null);
+    assert.deepEqual((await fleetTaskRoute(read, env))?.action, { kind, paths: ["context/notes.md"] });
+  }
   const docSubmitAll = await fleetDocRoute(command("repo.task.run", { kind: "doc-submit", paths: [], all: true }), env);
   assert.equal(docSubmitAll?.payload.dryRun, false);
   assert.deepEqual(docSubmitAll?.payload.paths, []);

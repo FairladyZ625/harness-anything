@@ -1,5 +1,5 @@
 import {
-  defineCenterForwardReadCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
   defineQueryOnlyRepoReadCommand,
   defineCenterForwardWriteCommand,
   cliInput,
@@ -8,7 +8,7 @@ import {
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 export const docFactProtocolCommands = Object.freeze([
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "doc-status",
     phase: "DocSync-B",
     path: ["doc", "status"],
@@ -23,7 +23,7 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "doc-sync-dry-run",
     actionKind: "doc-dry-run",
     phase: "DocSync-B",

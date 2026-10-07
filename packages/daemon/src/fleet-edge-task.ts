@@ -238,7 +238,7 @@ export async function runFleetEdgeTask(
           },
         } as Record<string, unknown>;
     }
-    if (action.kind.startsWith("doc-") && taskId !== null && workspaceRoot !== null) {
+    if (action.kind === "doc-submit" && taskId !== null && workspaceRoot !== null) {
       const view = locateFleetMirrorView(payload.viewRoot, payload.repoId);
       const packagePath = view && fleetExactTaskPackagePath(view, workspaceRoot, taskId);
       if (!view || !packagePath) throw new FleetEdgeTaskError("mirror_missing", "Task package is not materialized.");
@@ -250,14 +250,6 @@ export async function runFleetEdgeTask(
       const scan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
       if (!scan) throw new FleetEdgeTaskError("mirror_missing", "Task document scan is unavailable.");
       const changes = scan.changes.filter((change) => change.path.startsWith(`${packagePath}/`));
-      if (action.kind !== "doc-submit")
-        return {
-          schema: "command-receipt/v2",
-          command: action.kind,
-          outcome: "applied",
-          ok: true,
-          rows: changes.map((change) => ({ path: change.path, state: "eligible" })),
-        };
       const admission = await readFleetRepositoryMetadataClient({ ...peer, taskId, actionKind: "doc-submit" });
       if (admission.actionAllowed !== true)
         throw new FleetEdgeTaskError("authorization_denied", "Task document submission is not authorized.");
