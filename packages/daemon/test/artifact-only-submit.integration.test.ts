@@ -78,6 +78,11 @@ async function submitBaselineTask(artifact: boolean) {
     );
     const docs = await cell.run({ kind: "doc-submit", taskId }, holder);
     assert.equal(docs.outcome, "applied", JSON.stringify(docs));
+    // The synced closeout is the hand-back; the receipt names the submit that turns it into a delivery.
+    assert.deepEqual(
+      ((docs as { next?: readonly { command: string }[] }).next ?? []).map((entry) => entry.command),
+      [`ha task submit ${taskId}`],
+    );
     await waitForFixturePublication(cell, docs.opId, holder);
     let submitted = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
     for (let attempt = 0; submitted.outcome === "pending" && attempt < 4; attempt += 1) {
