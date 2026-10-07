@@ -705,12 +705,14 @@ test(
           message: "kind is required.",
         });
       });
-      await t.test("edge schedule missing definitions are rejected by the canonical lookup", async () => {
-        const missing = await workspaces[0]!.runtime.run("repo.schedule.run", {
-          kind: "schedule-show",
-          scheduleId: "other-schedule",
-        });
-        assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
+      await t.test("edge schedule missing definitions are rejected by the replica lookup", async () => {
+        await assert.rejects(
+          workspaces[0]!.runtime.run("repo.schedule.run", {
+            kind: "schedule-show",
+            scheduleId: "other-schedule",
+          }),
+          { code: "entity_not_found", message: "Schedule other-schedule does not exist." },
+        );
       });
       const created = await workspaces[0]!.runtime.run("repo.schedule.run", {
         kind: "schedule-create",
@@ -861,7 +863,7 @@ test(
             scheduleId,
             idempotencyKey: "dirty-definition-disable",
           }),
-          { code: "pull_blocked", message: /canonical but its edge mirror is blocked/u },
+          { code: "pull_blocked", message: /cannot materialize the canonical cut because local changes conflict/u },
         );
       });
     } finally {

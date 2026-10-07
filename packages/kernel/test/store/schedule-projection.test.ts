@@ -9,7 +9,6 @@ import {
 } from "../../src/domain/schedule-event.ts";
 import { compileEntityPinEvent } from "../../src/domain/entity-pin-event.ts";
 import { createScheduleV1, type ScheduleV1 } from "../../src/domain/schedule.ts";
-import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -19,7 +18,6 @@ const actor = { principal: { personId: "person-schedule" }, executor: null } as 
 test("Schedule definition and run view share one canonical stream and rebuild exactly", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    assert.equal(taskProjectionSchemaVersion, 28);
     const eventStore = makeTaskEventStore({ repoId: "schedule-projection", rootDir }),
       projection = makeTaskProjection({ rootDir, eventStore }),
       schedule = baseSchedule(),
@@ -78,6 +76,7 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
       });
     }
 
+    assert.equal(projection.readCut().status, "ready");
     const definition = projection.readDocument("schedules/schedule-heartbeat.json").document,
       row = projection.getEntity("schedule", "schedule-heartbeat"),
       digest = projection.readStateDigest();

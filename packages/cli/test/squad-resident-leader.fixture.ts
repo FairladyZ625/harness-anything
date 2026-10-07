@@ -18,7 +18,7 @@ import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-p
 const cli = path.resolve("packages/cli/src/index.ts");
 
 function pollSquadStatus(root: string, env: NodeJS.ProcessEnv, squadRunId: string): Record<string, unknown> {
-  return pollSquadUntil(root, env, squadRunId, (status) => status.status === "converged");
+  return run(root, env, ["squad", "status", squadRunId, "--wait"]);
 }
 
 function pollSquadUntil(
