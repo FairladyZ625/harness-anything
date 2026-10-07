@@ -45,7 +45,15 @@ export async function executeVerticalScriptAction(input: ExecutionInput): Promis
       commitSha: input.commitSha,
     }),
     blocker = process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE;
-  const testPermissions = blocker ? [`--allow-fs-read=${blocker}`, `--allow-fs-write=${blocker}.started`] : [],
+  const testPermissions = blocker
+      ? [
+          `--allow-fs-read=${blocker}`,
+          `--allow-fs-read=${blocker}.started.tmp`,
+          `--allow-fs-read=${blocker}.started`,
+          `--allow-fs-write=${blocker}.started.tmp`,
+          `--allow-fs-write=${blocker}.started`,
+        ]
+      : [],
     childEnvironment = {
       PATH: process.env.PATH,
       ...(blocker ? { HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker } : {}),
