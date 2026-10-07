@@ -336,8 +336,8 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
 
 /**
  * The PR-body skeleton: when the repository declares `.github/pull_request_template.md`, a
- * repository-diff task materializes its current bytes so the bilingual format is filled in, never
- * guessed — the same template CI's pr-body-lint enforces. Who qualifies is not a new judgment: it
+ * repository-diff task materializes its current bytes as an editable scaffold. Materialization
+ * does not fill the body; the dispatch delivery protocol assigns that work to the worker. Who qualifies is not a new judgment: it
  * is the worktree binding, the same derivation `ha task show` names the workspace kind with. Tasks
  * without a binding — work roots, task-package presets like docs-task — never change repository
  * files and never open a PR of their own. A repository without the template has nothing to

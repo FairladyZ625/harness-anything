@@ -88,7 +88,11 @@ function derive(
     typeof deriveCloseoutSubmission
   >[0]["store"],
   deliveryBaseline:
-    | { readonly kind: "commit"; readonly commitSha: string }
+    | {
+        readonly kind: "commit";
+        readonly commitSha: string;
+        readonly stackOn?: { readonly taskId: string; readonly executionId: string };
+      }
     | { readonly kind: "empty-tree" }
     | null
     | undefined = rootDir === "/nonexistent" ? { kind: "empty-tree" } : baseline(rootDir),
@@ -1019,4 +1023,52 @@ test("implicit delivery excludes another task and independent reviewer credentia
     ["dispatch_pending"],
   );
   assert.deepEqual(packet.deliverables, [report]);
+});
+
+test("stacked delivery uses its approved baseline for merged files and deletions, excluding upstream files", (t) => {
+  const { root } = fixture(t);
+  git(root, "checkout", "-qb", "upstream");
+  put(root, "src/upstream.ts", "approved upstream\n");
+  const anchor = commit(root);
+  git(root, "checkout", "main");
+  put(root, "src/live.ts", "main advances\n");
+  git(root, "rm", "src/old.ts");
+  const main = commit(root);
+  git(root, "update-ref", "refs/remotes/origin/main", main);
+  git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+  git(root, "checkout", "-qb", "integration", anchor);
+  git(root, "merge", "--no-ff", "main", "-m", "test: CEO merges main");
+  put(root, "src/ceo.ts", "CEO contribution\n");
+  const delivery = commit(root);
+  const packet = derive(
+    root,
+    "Integrated delivery.",
+    undefined,
+    ["ci"],
+    undefined,
+    {
+      kind: "commit",
+      commitSha: anchor,
+      stackOn: { taskId: "upstream", executionId: "exe-upstream" },
+    },
+    delivery,
+  );
+  assert.deepEqual(packet.deliverables, ["src/ceo.ts", "src/live.ts"]);
+  assert.deepEqual(packet.outputs, ["Deleted-Production-Paths: src/old.ts"]);
+  assert.equal(packet.commitSha, delivery);
+  assert.deepEqual(
+    derive(
+      root,
+      "Ordinary delivery.",
+      undefined,
+      ["ci"],
+      undefined,
+      {
+        kind: "commit",
+        commitSha: anchor,
+      },
+      delivery,
+    ).deliverables,
+    ["src/ceo.ts", "src/upstream.ts"],
+  );
 });

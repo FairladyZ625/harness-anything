@@ -54,6 +54,7 @@ export async function fleetFixture(
   /** The runtime installations the center host discovers; an Agent installs only against an enabled instance. */
   centerRuntimes: readonly RuntimeInstallationWitness[] = [],
   mode: "local" | "remote-center" = "local",
+  prTemplate?: string,
 ) {
   // The product names a checkout by its resolved path; the fixture root is resolved once so every path derived
   // from it compares equal where the temporary directory is itself a symbolic link.
@@ -73,6 +74,10 @@ export async function fleetFixture(
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   mkdirSync(emptyPath);
   initRepo(repo);
+  if (prTemplate !== undefined) {
+    mkdirSync(path.join(repo, ".github"));
+    writeFileSync(path.join(repo, ".github/pull_request_template.md"), prTemplate);
+  }
   writeFileSync(
     path.join(repo, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",

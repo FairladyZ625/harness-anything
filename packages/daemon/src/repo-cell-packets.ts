@@ -18,6 +18,7 @@ import { gateChecks } from "./repo-cell-proof.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { PublicPublication, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readWorkspaceText } from "./workspace-text-port.ts";
+import { locateTaskTransitionDocument } from "./transition-document-access.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 
 export function packetJson(
@@ -232,6 +233,15 @@ export function lifecycleReceipt(
         ]
       : [],
     changedPaths = (event.payload.documentClaims ?? []).map((claim) => claim.path),
+    prBody =
+      event.type === "execution_submitted"
+        ? event.payload.execution.submission?.artifacts?.find(
+            (anchor) =>
+              anchor.path ===
+              locateTaskTransitionDocument({ projection: cell.projection, taskId: event.taskId, slot: "task.pr-body" })
+                .path,
+          )
+        : undefined,
     summary =
       event.type === "execution_annotated"
         ? `task-annotate: ${event.payload.annotation.kind} (execution: ${executionId})`
@@ -261,6 +271,9 @@ export function lifecycleReceipt(
     eventId: event.eventId,
     ...publication,
     worktreeVisible: true,
-    ...(summary ? { summary } : {}),
+    ...(prBody ? { prBody } : {}),
+    ...(summary
+      ? { summary: summary + (prBody ? `\nPR body: harness/${prBody.path}@${String(prBody.revision)}` : "") }
+      : {}),
   } as WriteReceipt;
 }
