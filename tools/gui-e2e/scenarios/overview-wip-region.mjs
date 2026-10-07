@@ -3,9 +3,10 @@ import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/loca
 import { createRealizedTaskPlanFixture } from "../../fixtures/task-plan.mjs";
 import { nav } from "./helpers.mjs";
 
-// The WIP drill entry collapses to one compact chip on the overview tool strip; the full
-// list lives in the focus layer. Dialog detachment precedes the entry's return to the
-// compact chip — wait for actual projection transforms to settle before measuring.
+// The WIP drill is a tab with an inline list (2026-10-07 rework): every counted task is visible
+// on the region itself; clicking a row opens the focus layer with that row selected. Dialog
+// detachment precedes the region's return to a settled state — wait for actual projection
+// transforms to settle before measuring.
 export async function settledWipGeometry(page) {
   await page.waitForFunction(() => {
     const drill = globalThis.document.querySelector('[data-testid="overview-region-drill"]');
@@ -55,17 +56,18 @@ export function assertWipGeometry(geometry) {
 }
 
 /**
- * #task_fa84b041ed175ce8e81160eea1 总览 WIP 常驻观察面(2026-10-04 视觉返工后):占用/上限
- * 收成底部工具带的紧凑芯片,名单与分组/搜索住在放大层;占用数、上限、名单长度全部从
- * daemon 快照读出,不在场景里写死。夹具任务经 repo.task.start 真实写路占位(planned 不
- * 占位,先启动)。
+ * 总览「执行与下钻」WIP tab(#task_88003efc 三块区域返工后):tab 计数带占用/上限,tab 下
+ * 是内联名单——每个占位任务直接可见、注意力分排序、区内滚动;点行弹既有放大层并选中
+ * 该行。占用数、上限、名单长度全部从 daemon 快照读出,不在场景里写死。夹具任务经
+ * repo.task.start 真实写路占位(planned 不占位,先启动)。
  */
 export default {
   id: "overview-wip-region",
   feature: "overview",
   lane: "isolated",
   description:
-    "The compact WIP drill chip shows the daemon occupancy, the focus layer lists every counted task id-by-id, " +
+    "The WIP drill tab shows the daemon occupancy and lists every counted task inline on the region " +
+    "(attention order, in-region scroll); clicking a row opens the focus layer with that row selected, " +
     "keeps arrow-key navigation inside the filtered visible set, and navigates a row to task detail.",
   async run({ page, fixture, shot }) {
     const started = await requestDaemonJsonRpcAt(
@@ -122,9 +124,9 @@ export default {
       2_000,
       10_000,
     );
-    const wipChip = drill.getByTestId("overview-drill-wip");
-    await wipChip.waitFor({ timeout: 10_000 });
-    // 芯片上的占用数必须来自 daemon 快照,不写死。
+    const wipTab = drill.getByTestId("overview-drill-wip");
+    await wipTab.waitFor({ timeout: 10_000 });
+    // tab 上的占用数必须来自 daemon 快照,不写死。
     await page.waitForFunction(
       ([count, limit]) => {
         const chip = globalThis.document.querySelector('[data-testid="overview-drill-wip"]');
@@ -134,14 +136,41 @@ export default {
       { timeout: 10_000 },
     );
 
-    // The board stays compact: no dense WIP rows on the first screen; the chip carries occupancy.
-    const boardRows = await drill.locator("[data-testid='overview-task-wip-list'] [data-dense-row]").count();
-    assert.equal(boardRows, 0, "the WIP list must live in the focus layer, not on the board");
-    await wipChip.click();
+    // 内联名单与 daemon 快照逐 ID 一致(顺序按注意力分,不比顺序):不再是「点开才有内容」。
+    await page.waitForFunction(
+      ({ ids }) => {
+        const rows = [...globalThis.document.querySelectorAll('[data-testid="overview-drill-list"] [data-drill-row]')];
+        return rows.length > 0 && rows.length === ids.length;
+      },
+      { ids: snapshot.counted },
+      { timeout: 10_000 },
+    );
+    const inlineIds = await page.evaluate(() =>
+      [...globalThis.document.querySelectorAll('[data-testid="overview-drill-list"] [data-drill-row]')].map((row) =>
+        row.getAttribute("data-drill-row"),
+      ),
+    );
+    assert.deepEqual(
+      [...inlineIds].sort(),
+      snapshot.counted.map(({ taskId }) => taskId).sort(),
+      "the inline drill list must show every counted task",
+    );
+
+    // 点行 → 放大层开着且选中的就是被点的那行(名单在层里,分组/搜索接管过滤)。
+    const pickedId = inlineIds[0];
+    await drill.locator(`[data-drill-row="${pickedId}"]`).getByRole("button").first().click();
     const dialog = page.locator('[role="dialog"]');
     await dialog.waitFor();
     const list = dialog.getByTestId("overview-task-wip-list");
     await list.waitFor();
+    await page.waitForFunction(
+      (id) =>
+        globalThis.document
+          .querySelector("[data-focus-list] [data-dense-row][data-selected]")
+          ?.getAttribute("title") === id,
+      pickedId,
+      { timeout: 10_000 },
+    );
 
     // 放大层名单与 daemon 快照逐 ID 一致(顺序按状态重排,不比顺序)。
     await page.waitForFunction(

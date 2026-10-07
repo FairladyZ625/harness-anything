@@ -8,7 +8,8 @@ import { IdText } from "../components/IdText.tsx";
 import { STATUS_META } from "../components/badges";
 import { DenseRow } from "../components/primitives/DenseRow";
 import { Empty } from "../components/primitives/Empty";
-import { SegBar } from "../components/primitives/SegBar";
+import { FilterChips } from "../components/primitives/FilterChips";
+import { Notice } from "../components/primitives/Notice";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag";
 import { t } from "../i18n/index.tsx";
 import type { MessageKey } from "../i18n/core.ts";
@@ -20,9 +21,9 @@ import { OverviewTaskWipBody, type WipFilter } from "./OverviewTaskWip.tsx";
 import { STEP_META } from "./workspace/WorkOverview.tsx";
 import {
   ATTENTION_META,
-  reviewCounts,
   type AttentionSource,
   type DecisionRow,
+  type DrillWipRow,
   type FollowUpKind,
   type FollowUpRow,
   type MainCiFailingJob,
@@ -33,11 +34,12 @@ import {
 } from "./overview-model.ts";
 
 /**
- * 总览三段的展示层(2026-10-04 视觉返工,纯展示层):「需要你处理」是页面顶部的紧凑
- * 决策带——默认只铺 COMPACT_DECISIONS 条明确事项,其余一键展开,不按条数瓜分列高;
- * 主区「关注的工作」是首屏主体;「执行与下钻」收成横排紧凑工具区(单列布局,不占整列
- * 空容器)。动作全部接现有真实动作:答复走 AwaitsAnswerPanel、裁决落决策详情、任务/
- * 工作走实体导航、取消置顶走 pin 写通道。没有的字段如实写「未提供」,不生成假推荐。
+ * 总览三段的展示层(2026-10-07 三块区域返工,纯展示层):「需要你处理」是页面顶部的紧凑
+ * 决策带——默认只铺 COMPACT_DECISIONS 条明确事项,其余一键展开;主区「关注的工作」是
+ * 全部关注工作的紧凑行列表(一到两行/工作,区内滚动,点行进工作详情);「执行与下钻」是
+ * tab + 内联名单(WIP/跟进与返工/置顶承诺,注意力序,点行弹既有 FocusLayer 详情)。
+ * 动作全部接现有真实动作:答复走 AwaitsAnswerPanel、裁决落决策详情、任务/工作走实体
+ * 导航、取消置顶走 pin 写通道。没有的字段如实写「未提供」,不生成假推荐。
  */
 
 const KIND_LABEL: Readonly<Record<AgendaAttentionItem["kind"], () => string>> = {
@@ -242,23 +244,8 @@ export function OverviewDecisionsBand({
 
 /* ------------------------------------------------------------------ 主区:关注的工作 */
 
-/** 工作卡的阶段/还差枚举序(生命周期序);标签词表单源在 STATUS_META。 */
+/** 工作行的阶段/还差枚举序(生命周期序);悬停明细的词表单源在 STATUS_META。 */
 const STAGE_ORDER: readonly SnapshotStatus[] = ["done", "active", "submitted", "in_review", "blocked", "planned"];
-
-/** 注意力项的落点:答复/收口/决策/任务,与首块动作同一映射;接不回源行的项不可点。 */
-function attentionTarget(
-  item: AgendaAttentionItem,
-  source: AttentionSource | null,
-  deps: OverviewBoardDeps,
-): (() => void) | null {
-  if (source?.kind === "awaits") return () => deps.onAnswer({ mode: "answer", row: source.row });
-  if (source?.kind === "answered") return () => deps.onNavigateEntity(source.row.sourceRef);
-  if (source?.kind === "rework" || source?.kind === "adjudication")
-    return () => deps.onNavigateEntity(taskReviewRef(source.row.taskId));
-  if (source?.kind === "decision") return () => deps.onNavigateEntity(`decision/${source.row.decisionId}`);
-  if (source?.kind === "task") return () => deps.onOpenTask(source.row.taskId);
-  return null;
-}
 
 export function OverviewWorksBody({
   watched,
@@ -306,7 +293,7 @@ export function OverviewWorksBody({
       )}
       {pinnedClosed > 0 && (
         <p className="px-3.5 pb-1 pt-2 text-text-faint ui-micro">
-          {t("views.overviewView.worksPinnedClosed", { count: pinnedClosed })}
+          {t("views.overviewView.worksPinnedClosed", { count: String(pinnedClosed) })}
         </p>
       )}
       {watched.map((entry) => {
@@ -316,99 +303,96 @@ export function OverviewWorksBody({
             (work.counts.done ?? 0),
           done = work.counts.done ?? 0,
           remaining = effective - done,
-          stageParts = STAGE_ORDER.flatMap((status) => {
-            const count = work.counts[status] ?? 0;
-            return count > 0 ? [`${STATUS_META[status].label} ${count}`] : [];
-          }),
           remainingParts = STAGE_ORDER.filter((status) => status !== "done").flatMap((status) => {
             const count = work.counts[status] ?? 0;
             return count > 0 ? [`${STATUS_META[status].label} ${count}`] : [];
           }),
-          handlers = handlersOf(entry),
           blockers = attentionOf(work.taskId),
-          recent = recentOf(work.taskId);
-        return (
-          <article
-            key={work.taskId}
-            data-work-card={work.taskId}
-            className="flex flex-col gap-1.5 border-t border-border px-3.5 py-3"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <StatusTag status={work.status} />
-              <h3 className="min-w-0 flex-1 truncate text-text ui-title">{work.title}</h3>
-              <button
-                type="button"
-                onClick={() => deps.onOpenTask(work.taskId)}
-                className="h-6 shrink-0 rounded-xs border border-border bg-text/10 px-2.5 text-text-muted ui-meta hover:text-text"
-              >
-                {t("views.overviewView.actionOpenWork")}
-              </button>
-            </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <SegBar counts={work.counts} className="h-1.5 w-28 shrink-0" />
-              <span className="min-w-0 flex-1 truncate ui-meta text-text-muted">{stageParts.join(" · ")}</span>
-              <span className="font-mono ui-meta text-text-faint">{Math.round(work.doneRatio * 100)}%</span>
-            </div>
-            <p className="ui-meta text-text-muted">
-              {t("views.overviewView.worksSubtasks", { done: String(done), total: String(effective) })} ·{" "}
-              {remaining === 0
-                ? t("views.overviewView.worksOutstandingNone")
-                : t("views.overviewView.worksOutstanding", {
-                    count: String(remaining),
-                    breakdown: remainingParts.join(" · "),
-                  })}
-            </p>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="text-text-faint ui-meta">{t("views.overviewView.worksBlockersLabel")}</span>
-              {blockers.length === 0 ? (
-                <span className="text-text-faint ui-meta">{t("views.overviewView.worksBlockersNone")}</span>
-              ) : (
-                blockers.map(({ item, source }) => {
-                  const target = attentionTarget(item, source, deps);
-                  return (
-                    <button
-                      key={item.ref}
-                      type="button"
-                      disabled={target === null}
-                      onClick={target ?? undefined}
-                      data-blocker={item.ref}
-                      className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-xs border border-border px-1.5 py-px ui-micro ${
-                        target === null ? "text-text-faint" : "text-text-muted hover:text-text"
-                      }`}
-                    >
-                      <StatusTag tone={ATTENTION_META[item.kind].tone} label={KIND_LABEL[item.kind]()} />
-                      <span className="truncate">{item.title}</span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-            <p className="min-w-0 ui-meta">
+          handlers = handlersOf(entry),
+          recent = recentOf(work.taskId),
+          // 悬停给完整明细(视觉基线 v2:主文字收束,原始信息悬停可见):子任务/未完成/最近。
+          hoverTitle = [
+            t("views.overviewView.worksSubtasks", { done: String(done), total: String(effective) }),
+            remaining === 0
+              ? t("views.overviewView.worksOutstandingNone")
+              : t("views.overviewView.worksOutstanding", {
+                  count: String(remaining),
+                  breakdown: remainingParts.join(" · "),
+                }),
+            ...(recent !== null
+              ? [
+                  `${t("views.overviewView.worksRecentLabel")}: ${recent.title ?? recent.taskId} · ${recent.steps
+                    .map((step) => t(STEP_META[step].label))
+                    .join(" → ")} · ${formatRelative(recent.firstAt, { now: deps.now })}`,
+                ]
+              : []),
+          ].join(" · ");
+        // 第二行只有有值才出现:卡点芯片 + 处理者(在飞而无会话给「无 agent」诚实信号)。
+        // 卡点芯片只读:动作落点在同页的决策带与「跟进与返工」名单,点行进工作详情。
+        const second: ReactNode[] = [];
+        if (blockers.length > 0) {
+          second.push(
+            <span key="blockers" className="inline-flex min-w-0 items-center gap-1">
+              <span className="shrink-0 text-text-faint">
+                {t("views.overviewView.worksBlockersLabel")} {blockers.length}:
+              </span>
+              {blockers.map(({ item }) => (
+                <span key={item.ref} title={item.title} className="inline-flex min-w-0 items-center gap-1">
+                  <StatusTag tone={ATTENTION_META[item.kind].tone} label={KIND_LABEL[item.kind]()} />
+                  <span className="truncate">{item.title}</span>
+                </span>
+              ))}
+            </span>,
+          );
+        }
+        if (handlers.length > 0) {
+          second.push(
+            <span key="handlers" className="truncate">
               <span className="text-text-faint">{t("views.overviewView.worksHandlersLabel")}</span>{" "}
-              {handlers.length > 0 ? (
-                <span className="text-text-muted">{handlers.join(" · ")}</span>
-              ) : (
-                <span className="text-text-faint">{t("views.overviewView.worksHandlersNone")}</span>
-              )}
-              {(work.counts.active ?? 0) > 0 && handlers.length === 0 && (
-                <span className="text-status-submitted"> · {t("views.overviewView.worksNoAgent")}</span>
-              )}
-            </p>
-            {recent !== null && (
-              <p className="min-w-0 truncate ui-meta text-text-faint">
-                {t("views.overviewView.worksRecentLabel")}:{recent.title ?? recent.taskId} ·{" "}
-                {recent.steps.map((step) => t(STEP_META[step].label)).join(" → ")} ·{" "}
-                {formatRelative(recent.firstAt, { now: deps.now })}
-              </p>
-            )}
-          </article>
+              <span className="text-text-muted">{handlers.join(" · ")}</span>
+            </span>,
+          );
+        } else if ((work.counts.active ?? 0) > 0) {
+          second.push(
+            <span key="no-agent" className="truncate text-status-submitted">
+              {t("views.overviewView.worksNoAgent")}
+            </span>,
+          );
+        }
+        return (
+          <div key={work.taskId} data-work-card={work.taskId}>
+            <DenseRow
+              tag={<StatusTag status={work.status} />}
+              title={work.title}
+              relaxed={second.length > 0}
+              reason={
+                second.length > 0 ? (
+                  <>
+                    {second.flatMap((part, index) =>
+                      index === 0
+                        ? [part]
+                        : [
+                            <span key={`sep-${index}`} className="text-text-faint">
+                              {" · "}
+                            </span>,
+                            part,
+                          ],
+                    )}
+                  </>
+                ) : undefined
+              }
+              time={`${done}/${effective} · ${Math.round(work.doneRatio * 100)}%`}
+              hoverTitle={hoverTitle}
+              onClick={() => deps.onOpenTask(work.taskId)}
+            />
+          </div>
         );
       })}
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ 紧凑下钻入口 */
+/* ------------------------------------------------------------------ 执行与下钻:tab + 内联名单 */
 
 /** 评审执行 = 正在被评审的三组(打回/待初审/待点头住首块与跟进,不在此重复计)。 */
 const REVIEW_DRILL_GROUPS: readonly ReviewRow["group"][] = [
@@ -432,158 +416,171 @@ export function reviewDrillRows(rows: readonly ReviewRow[]): readonly ReviewRow[
   return rows.filter(({ group }) => groups.has(group));
 }
 
-function reviewBreakdown(rows: readonly ReviewRow[]): string {
-  const counts = reviewCounts(rows);
-  return REVIEW_DRILL_GROUPS.flatMap((group) => {
-    const count = counts[group];
-    return count > 0 ? [`${REVIEW_GROUP_LABEL[group]()} ${count}`] : [];
-  }).join(" · ");
-}
-
-function followUpBreakdown(rows: readonly FollowUpRow[]): string {
-  const order: readonly FollowUpKind[] = ["answered", "adjudication", "rework", "blocked", "stalled"];
-  return order
-    .flatMap((kind) => {
-      const count = rows.filter((row) => row.kind === kind).length;
-      return count > 0 ? [`${KIND_LABEL[kind]()} ${count}`] : [];
-    })
-    .join(" · ");
-}
-
-/** 工具区条目:标签 + 计数一枚可点芯片;分组明细挂悬停说明,完整名单在放大层。 */
-function DrillEntry({
-  testId,
-  label,
-  value,
-  alert = false,
-  hoverTitle,
-  onClick,
-}: {
-  readonly testId: string;
-  readonly label: string;
-  readonly value: string;
-  readonly alert?: boolean;
-  readonly hoverTitle?: string;
-  readonly onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      data-drill-entry
-      data-drill-alert={alert || undefined}
-      title={hoverTitle}
-      onClick={onClick}
-      className="flex h-6 max-w-full shrink-0 items-center gap-1.5 rounded-xs border border-border bg-bg/30 px-2.5 text-text-muted ui-meta hover:border-border-strong hover:text-text"
-    >
-      {alert && (
-        <span
-          className="size-[7px] shrink-0 rounded-full bg-status-blocked shadow-[0_0_8px_var(--color-status-blocked)]"
-          aria-hidden="true"
-        />
-      )}
-      <span className="min-w-0 truncate">{label}</span>
-      <span className="font-mono tabular-nums text-text">{value}</span>
-    </button>
-  );
-}
+/** drill 区的 tab 键(评审执行 tab 只在有行时出现,与旧芯片同一条件)。 */
+export type DrillTabKey = "wip" | "review" | "followups" | "pinned";
 
 /**
- * 「执行与下钻」的紧凑工具区(2026-10-04 视觉返工):WIP 占用、评审执行、跟进返工、
- * 置顶承诺收成横排芯片,和全部工作/任务/会话入口同住一条工具带——不再独占整列给几行
- * 列表留白。WIP 是常驻观察面,空/未知也保留入口;其余条目有数据才出现,分组明细挂
- * 悬停,名单住各自的放大层。
+ * 「执行与下钻」区(2026-10-07 三块区域返工):顶部 FilterChips tab(WIP 占用 / 跟进与
+ * 返工 / 置顶承诺;有评审行时加评审执行 tab),tab 下是内联名单——全部条目直接可见、
+ * 区内滚动,排序沿用原设计的重要性口径(议程注意力分);点行弹既有 FocusLayer 详情并
+ * 选中该行。不再是「点开才有内容」:WIP 名单四态全量在此平铺,跟进/置顶同理;全部
+ * 工作/全部任务/会话入口收进区域页脚(宿主 Region footer),列表滚动时保持可达。
  */
 export function OverviewDrillBody({
+  wipRows,
   wipOccupancy,
   wipFull,
+  wipLoading,
+  wipError,
   reviewRowsAll,
   followUps,
   pinned,
   onOpenFocus,
   deps,
 }: {
-  /** 占用/上限(快照未到给「…/—」,失败给破折号);WIP 是常驻观察面,入口恒在。 */
+  /** drillWipRows 的当前行(注意力分降序,blocked 与其余三态同列)。 */
+  readonly wipRows: readonly DrillWipRow[];
+  /** 占用/上限(快照未到给「…/—」);WIP 是常驻观察面,tab 恒在。 */
   readonly wipOccupancy: string;
   readonly wipFull: boolean;
+  /** WIP 读面首次取数进行中(宿主传 `query.isPending`)。 */
+  readonly wipLoading: boolean;
+  /** WIP 读面失败的可读信息(宿主传 `query.error?.message ?? null`)。 */
+  readonly wipError: string | null;
   readonly reviewRowsAll: readonly ReviewRow[];
   readonly followUps: readonly FollowUpRow[];
   readonly pinned: readonly PinnedTaskRow[];
-  readonly onOpenFocus: (key: DrillFocusKey) => void;
+  /** 点行落点:开对应放大层并选中该行(selectedId 与该层 itemIds 同源)。 */
+  readonly onOpenFocus: (key: DrillFocusKey, selectedId?: string) => void;
   readonly deps: OverviewBoardDeps;
 }) {
-  const review = reviewDrillRows(reviewRowsAll),
-    dispatchable = pinned.filter(({ dispatchable }) => dispatchable).length;
+  const [tab, setTab] = useState<DrillTabKey>("wip");
+  const review = reviewDrillRows(reviewRowsAll);
   return (
-    <div data-testid="overview-drill" className="flex min-h-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2">
-      <DrillEntry
-        testId="overview-drill-wip"
-        label={t("views.overviewTaskWip.title")}
-        value={wipOccupancy}
-        alert={wipFull}
-        hoverTitle={
-          wipFull
-            ? `${t("views.overviewTaskWip.fullTag")} · ${t("views.overviewView.drillWipReason")}`
-            : t("views.overviewView.drillWipReason")
-        }
-        onClick={() => onOpenFocus("wip")}
-      />
-      {review.length > 0 && (
-        <DrillEntry
-          testId="overview-drill-review"
-          label={t("views.overviewView.drillReview")}
-          value={String(review.length)}
-          hoverTitle={reviewBreakdown(review)}
-          onClick={() => onOpenFocus("review")}
-        />
-      )}
-      {followUps.length > 0 && (
-        <DrillEntry
-          testId="overview-drill-followups"
-          label={t("views.overviewView.drillFollowUps")}
-          value={String(followUps.length)}
-          hoverTitle={followUpBreakdown(followUps)}
-          onClick={() => onOpenFocus("followups")}
-        />
-      )}
-      {pinned.length > 0 && (
-        <DrillEntry
-          testId="overview-drill-pinned"
-          label={t("views.overviewView.drillPinned")}
-          value={String(pinned.length)}
-          hoverTitle={
-            dispatchable > 0
-              ? t("views.overviewView.drillPinnedDispatchable", { count: dispatchable })
-              : t("views.overviewView.queueFooter")
-          }
-          onClick={() => onOpenFocus("pinned")}
-        />
-      )}
-      <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
-      <button
-        type="button"
-        data-testid="overview-drill-all-works"
-        onClick={deps.onOpenWorks}
-        className="text-accent underline-offset-2 ui-meta hover:underline"
+    <div data-testid="overview-drill" className="flex h-full min-h-0 flex-col">
+      <div
+        data-testid="overview-drill-tabs"
+        className="flex flex-none flex-wrap items-center gap-2 border-b border-border px-3 py-2"
       >
-        {t("views.overviewView.drillAllWorks")}
-      </button>
-      <button
-        type="button"
-        data-testid="overview-drill-all-tasks"
-        onClick={deps.onOpenTasks}
-        className="text-accent underline-offset-2 ui-meta hover:underline"
-      >
-        {t("views.overviewView.drillAllTasks")}
-      </button>
-      <button
-        type="button"
-        data-testid="overview-drill-sessions"
-        onClick={deps.onOpenSessions}
-        className="text-accent underline-offset-2 ui-meta hover:underline"
-      >
-        {t("views.overviewView.actionOpenSessions")}
-      </button>
+        <FilterChips
+          value={tab}
+          onChange={setTab}
+          chips={[
+            {
+              key: "wip" as const,
+              testId: "overview-drill-wip",
+              label: t("views.overviewTaskWip.title"),
+              count: wipOccupancy,
+            },
+            ...(review.length > 0
+              ? [
+                  {
+                    key: "review" as const,
+                    testId: "overview-drill-review",
+                    label: t("views.overviewView.drillReview"),
+                    count: review.length,
+                  },
+                ]
+              : []),
+            {
+              key: "followups" as const,
+              testId: "overview-drill-followups",
+              label: t("views.overviewView.drillFollowUps"),
+              count: followUps.length,
+            },
+            {
+              key: "pinned" as const,
+              testId: "overview-drill-pinned",
+              label: t("views.overviewView.drillPinned"),
+              count: pinned.length,
+            },
+          ]}
+        />
+        {wipFull && <StatusTag tone="bad" label={t("views.overviewTaskWip.fullTag")} />}
+      </div>
+      <div data-testid="overview-drill-list" className="min-h-0 flex-1 overflow-y-auto">
+        {tab === "wip" &&
+          (wipError !== null ? (
+            <Notice tone="bad" variant="strip" testId="overview-drill-wip-error">
+              {t("views.overviewTaskWip.errorRead")}
+              {wipError}
+            </Notice>
+          ) : wipRows.length === 0 ? (
+            <div data-testid="overview-drill-wip-empty" className="px-3.5 py-2">
+              <Empty>{wipLoading ? t("views.overviewTaskWip.loading") : t("views.overviewTaskWip.emptyIdle")}</Empty>
+            </div>
+          ) : (
+            wipRows.map((row) => (
+              <div key={row.taskId} data-drill-row={row.taskId}>
+                <DenseRow
+                  tag={<StatusTag status={row.status} />}
+                  title={row.title}
+                  hoverTitle={row.taskId}
+                  onClick={() => onOpenFocus("wip", row.taskId)}
+                />
+              </div>
+            ))
+          ))}
+        {tab === "followups" &&
+          (followUps.length === 0 ? (
+            <div data-testid="overview-drill-followups-empty" className="px-3.5 py-2">
+              <Empty>{t("views.overviewView.drillFollowUpsEmpty")}</Empty>
+            </div>
+          ) : (
+            followUps.map((row) => (
+              <div key={row.id} data-drill-row={row.id}>
+                <DenseRow
+                  tag={<StatusTag tone={FOLLOW_UP_META[row.kind].tone} label={KIND_LABEL[row.kind]()} />}
+                  title={row.title}
+                  reason={t(FOLLOW_UP_META[row.kind].note)}
+                  time={row.since === null ? undefined : formatRelative(row.since, { now: deps.now })}
+                  onClick={() => onOpenFocus("followups", row.id)}
+                />
+              </div>
+            ))
+          ))}
+        {tab === "pinned" &&
+          (pinned.length === 0 ? (
+            <div data-testid="overview-drill-pinned-empty" className="px-3.5 py-2">
+              <Empty>{t("views.overviewView.drillPinnedEmpty")}</Empty>
+            </div>
+          ) : (
+            pinned.map((task) => (
+              <div key={task.taskId} data-drill-row={task.taskId}>
+                <DenseRow
+                  tag={
+                    task.dispatchable ? (
+                      <StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />
+                    ) : (
+                      <StatusTag status={task.status} />
+                    )
+                  }
+                  title={task.title}
+                  time={task.updatedAt === null ? undefined : formatRelative(task.updatedAt, { now: deps.now })}
+                  action={
+                    <UnpinIconButton
+                      testId={`overview-unpin-${task.taskId}`}
+                      onClick={() => deps.onUnpin(task.taskId)}
+                      label={t("views.overviewView.unpinRowLabel", { title: task.title })}
+                    />
+                  }
+                  onClick={() => onOpenFocus("pinned", task.taskId)}
+                />
+              </div>
+            ))
+          ))}
+        {tab === "review" &&
+          review.map((row) => (
+            <div key={row.id} data-drill-row={row.id}>
+              <DenseRow
+                tag={<StatusTag tone="wait" label={REVIEW_GROUP_LABEL[row.group]()} />}
+                title={row.title}
+                time={formatRelative(row.since, { now: deps.now })}
+                onClick={() => onOpenFocus("review", row.id)}
+              />
+            </div>
+          ))}
+      </div>
     </div>
   );
 }
