@@ -195,7 +195,7 @@ for (const distinctNode of [false, true])
         writeFileSync(relay, "owner callback");
         const other = distinctNode ? open(second) : first;
         try {
-          await other.run("repo.agentRuntime.overview", {});
+          await other.reconcile();
         } finally {
           t.diagnostic(
             JSON.stringify({ checkpoint: "second-subject-open", callbackExists: existsSync(relay), sequence }),
@@ -207,7 +207,10 @@ for (const distinctNode of [false, true])
           JSON.stringify(sequence),
         );
         assert.equal(existsSync(relay), true, "opening another subject preserves the owner's callback");
-        if (distinctNode) await other.run("repo.agentRuntime.cancel", { runtimeSessionId: a.runtimeSessionId });
+        if (distinctNode)
+          await assert.rejects(other.run("repo.agentRuntime.cancel", { runtimeSessionId: a.runtimeSessionId }), {
+            code: "execution_scope_mismatch",
+          });
         assert.equal(existsSync(relay), true, "cross-node cancellation preserves the owner's callback");
         const b = await other.run("repo.agentRuntime.spawn", {
           taskId: second.taskId,
@@ -254,7 +257,7 @@ for (const distinctNode of [false, true])
         await completion[0];
         if (distinctNode) {
           first.close();
-          await open(fixture.subject).run("repo.agentRuntime.overview", {});
+          await open(fixture.subject).reconcile();
         }
         assert.deepEqual(
           counts.get(second.taskId),
@@ -266,7 +269,7 @@ for (const distinctNode of [false, true])
         other.close();
         writeFileSync(relay, "owner callback after terminal");
         if (distinctNode) {
-          await open(second).run("repo.agentRuntime.overview", {});
+          await open(second).reconcile();
           assert.equal(existsSync(relay), true, "another node must not remove a terminal owner callback");
         }
         for (const [taskId, count] of counts)
