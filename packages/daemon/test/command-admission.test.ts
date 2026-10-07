@@ -26,11 +26,7 @@ test("all daemon commands close every repo-mode admission cell", () => {
         assert.equal(direct.ok, false, `${command.id} ${mode} requires assignment`);
         assert.equal(assigned.ok, true, `${command.id} ${mode} assignment fixture`);
       } else if (route === "edge-replica") {
-        assert.equal(
-          direct.ok,
-          false,
-          `${command.id} ${mode} answers from the edge replica, not the daemon projection`,
-        );
+        assert.equal(direct.ok, true, `${command.id} ${mode} is answered by the edge cell from its replica`);
         assert.equal(assigned.ok, false, `${command.id} ${mode} is never executed for an assignment`);
       } else if (route === "via-center-forward") {
         assert.equal(direct.ok, false, `${command.id} ${mode} forwards instead of executing locally`);

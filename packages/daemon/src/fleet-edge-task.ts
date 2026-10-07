@@ -30,13 +30,12 @@ import {
   FleetRemoteError,
   readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
-  runFleetTaskCommandClient,
   runFleetRepositoryReadClient,
+  runFleetTaskCommandClient,
   runFleetRuntimeReadClient,
   runFleetUploadClient,
   runFleetWriteClient,
 } from "./fleet/edge.ts";
-import { answerEdgeTaskShow, answerEdgeTaskList } from "./fleet-edge-task-read.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
 import {
@@ -51,6 +50,7 @@ import {
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
+import { readEdgeRepository } from "./fleet-edge-task-read.ts";
 
 const BACKOFF_MIN_MS = 250,
   BACKOFF_MAX_MS = 30_000;
@@ -130,6 +130,44 @@ function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string,
   return paths.size === 1 ? [...paths][0]! : null;
 }
 
+/** Reads an edge answers from its own replica cell; the remaining repository reads still forward to the center. */
+export function isFleetEdgeRepositoryRead(action: FleetTaskAction): boolean {
+  return commandDescriptorForAction(action.kind).admission["remote-edge"] === "edge-replica";
+}
+
+/** A repository read on an edge: answered by the host's edge cell after this edge's own writes land. */
+export async function runFleetEdgeRepositoryRead(
+  input: FleetEdgeTaskRequest,
+  readLocal: () => Promise<Record<string, unknown>>,
+): Promise<Record<string, unknown>> {
+  const payload = input.payload,
+    minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId));
+  return readEdgeRepository(
+    { viewRoot: payload.viewRoot, repoId: payload.repoId, action: payload.action, ...(minCut ? { minCut } : {}) },
+    () =>
+      runFleetReplicaPullClient({
+        hostname: payload.host,
+        port: payload.port,
+        ca: readFileSync(payload.caPath, "utf8"),
+        servername: payload.servername,
+        nodeId: payload.nodeId,
+        credential: payload.credential,
+        repoId: payload.repoId,
+        viewRoot: payload.viewRoot,
+        diskQuotaBytes: payload.quotaBytes,
+      }),
+    async () => {
+      const receipt = await readLocal();
+      return {
+        schema: "command-receipt/v2",
+        command: payload.action.kind,
+        ok: receipt.outcome === "applied",
+        ...receipt,
+      };
+    },
+  );
+}
+
 export async function runFleetEdgeTask(
   input: FleetEdgeTaskRequest,
   readAccessToken?: () => Promise<string | undefined>,
@@ -156,25 +194,13 @@ export async function runFleetEdgeTask(
     };
   const declaration = commandDescriptorForAction(action.kind);
   if ("repositoryRead" in declaration && declaration.repositoryRead === true) {
-    const pullOnce = () =>
-      runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes });
-    const minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId));
-    if (action.kind === "task-list")
-      return answerEdgeTaskList({ ...payload, action, ...(minCut ? { minCut } : {}) }, pullOnce);
-    if (action.kind === "task-show")
-      return answerEdgeTaskShow({ ...payload, action, ...(minCut ? { minCut } : {}) }, pullOnce);
     const receipt = await runFleetRepositoryReadClient({
       ...peer,
       method: "repo.task.read",
       payload: action,
       accessToken: await readAccessToken?.(),
     });
-    return {
-      schema: "command-receipt/v2",
-      command: action.kind,
-      ok: receipt.outcome === "applied",
-      ...receipt,
-    };
+    return { schema: "command-receipt/v2", command: action.kind, ok: receipt.outcome === "applied", ...receipt };
   }
   const workspaceRoot = payload.workspaceRoot ?? null;
   // One edge/view has one registered harness materialization. Hold its round fence

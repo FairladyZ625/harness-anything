@@ -603,10 +603,14 @@ export function createDaemonHostRepositoryApi(
           undefined,
           command.commandClass === "repo-read" ? undefined : repoId,
         );
+        // An edge read is authorized by the replica's owner digest inside the edge read session.
+        const edgeRead =
+          "repositoryRead" in command && command.repositoryRead === true && cell.status().mode === "remote-edge";
         if (
-          ("repositoryRead" in command && command.repositoryRead === true) ||
-          action.kind === "doc-status" ||
-          action.kind === "doc-dry-run"
+          !edgeRead &&
+          (("repositoryRead" in command && command.repositoryRead === true) ||
+            action.kind === "doc-status" ||
+            action.kind === "doc-dry-run")
         )
           await requireAuthorizedHostAction({
             kind: "repository-read",

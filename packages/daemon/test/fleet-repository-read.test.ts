@@ -68,7 +68,7 @@ test("repository read authentication uses the command token UTF-8 byte bound", (
     opId: "command-op",
     repoId: "repo-a",
     taskId: null,
-    action: { kind: "work-list" },
+    action: { kind: "work-show", taskId: "task-a" },
     docChanges: null,
     mirrorBaseCut: null,
   };

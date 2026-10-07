@@ -19,18 +19,7 @@ import type { TaskProjectionQueries } from "./task-projection-port.ts";
  * projection answers with, run against the materialized edge tables, including the document table
  * the materializer rebuilds from the view's content entries.
  */
-export type EdgeReplicaQueries = Pick<
-  TaskProjectionQueries,
-  | "read"
-  | "readProgress"
-  | "readTaskIndex"
-  | "readTaskChildCounts"
-  | "getEntity"
-  | "readPresetSnapshot"
-  | "readRelationQuery"
-  | "readDecisions"
-  | "readDocument"
->;
+export type EdgeReplicaQueries = TaskProjectionQueries;
 
 export interface EdgeReplicaQuerySource {
   readonly db: DatabaseSync;
@@ -46,7 +35,7 @@ export interface EdgeReplicaQuerySource {
 export function makeEdgeReplicaQueries(source: EdgeReplicaQuerySource): EdgeReplicaQueries {
   const { db, cut } = source,
     now = source.now ?? (() => new Date().toISOString());
-  return {
+  const implemented = {
     read: (taskId, presentationStatus) => {
       const stored = readSnapshots(db, [taskId], now()).get(taskId) ?? emptyTaskLifecycleSnapshot(),
         snapshot = presentationStatus ? presentSnapshot(stored, readTaskPresentationStatus(db, taskId)) : stored;
@@ -119,5 +108,27 @@ export function makeEdgeReplicaQueries(source: EdgeReplicaQuerySource): EdgeRepl
         sourceRevision: cut.sourceRevision,
       };
     },
+  } satisfies Pick<
+    TaskProjectionQueries,
+    | "read"
+    | "readProgress"
+    | "readTaskIndex"
+    | "readTaskChildCounts"
+    | "getEntity"
+    | "readPresetSnapshot"
+    | "readRelationQuery"
+    | "readDecisions"
+    | "readDocument"
+  >;
+  const unavailable = (name: string): never => {
+    throw Object.assign(new Error(`Replica read model does not materialize ${name}.`), {
+      code: "replica_unavailable",
+    });
   };
+  return new Proxy(implemented as unknown as TaskProjectionQueries, {
+    get(target, property, receiver) {
+      if (typeof property !== "string") return Reflect.get(target, property, receiver);
+      return property in target ? Reflect.get(target, property, receiver) : () => unavailable(property);
+    },
+  });
 }

@@ -318,7 +318,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineCenterForwardReadCommand({
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "work-list",
     repositoryRead: true,
     phase: "W3",

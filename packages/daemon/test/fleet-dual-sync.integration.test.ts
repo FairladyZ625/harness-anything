@@ -25,8 +25,10 @@ test(
     const fixture: Fixture = await dualSyncFixture();
     t.after(() => fixture.close());
     const created = await fixture.createTask("node-one", "task-seeded", "Authoritative edge read");
-    const shown = await fixture.edgeTask("node-one", { kind: "task-show", taskId: created.taskId });
-    assert.equal(shown.ok, true, JSON.stringify(shown));
+    // The edge's own task-show is answered by its replica cell (fleet-edge-local-task-show covers
+    // write-then-read there); this channel fixture has no edge host, so it reads the center's cut.
+    const shown = (await fixture.centerRun({ kind: "task-show", taskId: created.taskId })) as Record<string, unknown>;
+    assert.equal(shown.outcome, "applied", JSON.stringify(shown));
     assert.ok(Number(shown.revision) > 0);
     assert.doesNotMatch(String(shown.summary), /task=null/u);
     const logical = "context/shared-notes.md";

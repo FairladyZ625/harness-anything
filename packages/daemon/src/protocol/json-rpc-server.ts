@@ -479,7 +479,9 @@ export function createJsonRpcProtocolServer(options: {
             ),
           );
         }
-        const { runFleetEdgeTask } = await import("../fleet-edge-task.ts");
+        const { runFleetEdgeTask, runFleetEdgeRepositoryRead, isFleetEdgeRepositoryRead } = await import(
+          "../fleet-edge-task.ts"
+        );
         const relayedExecutionPrincipal =
           executionCredential === undefined
             ? undefined
@@ -490,6 +492,20 @@ export function createJsonRpcProtocolServer(options: {
                     code: "authorization_denied",
                   });
                 })();
+        if (isFleetEdgeRepositoryRead(fleetAction as DaemonFleetTaskAction)) {
+          // The edge cell answers from its replica under the same principal the local daemon binds.
+          const readAuth = relayedExecutionPrincipal
+            ? { ...options.authContext, executionPrincipal: relayedExecutionPrincipal }
+            : options.authContext;
+          return reply(
+            method,
+            await runFleetEdgeRepositoryRead(
+              { payload: { ...params.payload, action: fleetAction as DaemonFleetTaskAction } as never },
+              async () =>
+                (await options.host.run(String(fleetPayload.repoId), fleetAction as never, readAuth)) as never,
+            ),
+          );
+        }
         return reply(
           method,
           await runFleetEdgeTask(

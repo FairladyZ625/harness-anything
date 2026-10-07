@@ -1,5 +1,6 @@
 import path from "node:path";
 import {
+  consumeKnownError,
   makeTaskEventReader,
   makeTaskProjectionReader,
   isDomainStatus,
@@ -7,6 +8,7 @@ import {
   type TaskProjection,
   type TaskProjectionListQuery,
   type TaskProjectionQueries,
+  type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import { ledgerWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import { makeAgentRuntimeReadModel, readObservedRuntimeSession } from "./agent-runtime-read.ts";
@@ -23,6 +25,7 @@ import { centerEdgeReadModel } from "./fleet/replica-read-model.ts";
 import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
+import { causeClassOf } from "./repo-cell-lock.ts";
 import {
   createRepoCellActionContext,
   type RepoCellOperationalContext,
@@ -54,9 +57,11 @@ import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { openWriterSupervisor } from "./writer-supervisor.ts";
 import { runtimeOutcomeSettled, runtimeSettlementGraceMs } from "./runtime-settlement.ts";
-import { repoCellExecutionForAction } from "./protocol/daemon-protocol-commands.ts";
+import { commandDescriptorForAction, repoCellExecutionForAction } from "./protocol/daemon-protocol-commands.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
+import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 
 const writerAttached = (cell: { readonly state: string }): boolean => cell.state === "attached";
 const projectionReady = (read: { readonly status: string }): boolean => read.status === "ready";
@@ -87,6 +92,7 @@ export async function openRepoCellProxy(
       for (const waiter of waiters) waiter();
     };
   let wakeReplica = (): void => undefined;
+  const edgeConfig = input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : null;
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   try {
     supervisor = await openWriterSupervisor(
@@ -108,8 +114,35 @@ export async function openRepoCellProxy(
       },
     );
   } catch (error) {
-    await lock.close();
-    throw error;
+    // An edge answers replica reads even when its own runtime ledger cannot attach; its writer
+    // state reports that failure, and every write rejects with it.
+    if (edgeConfig === null) {
+      await lock.close();
+      throw error;
+    }
+    consumeKnownError(error);
+    const lastError = error instanceof Error ? error.message : String(error),
+      rejectWrite = async (): Promise<never> => {
+        throw cellCodedError("repo_unavailable", lastError);
+      };
+    supervisor = {
+      status: () => ({
+        repoId: input.repoId,
+        rootDir: input.rootDir,
+        mode: "remote-edge",
+        state: "unavailable",
+        generation: null,
+        queueDepth: null,
+        recoveryMs: null,
+        materialization: null,
+        lastError,
+        causeClass: causeClassOf(error),
+      }),
+      request: rejectWrite,
+      control: rejectWrite,
+      bootstrapReceipt: () => undefined,
+      close: async () => undefined,
+    };
   }
   let ledgerReader: ReturnType<typeof makeTaskEventReader> | null = null;
   const reader = makeTaskProjectionReader({ rootDir: input.rootDir, ...(input.now ? { now: input.now } : {}) }),
@@ -119,6 +152,15 @@ export async function openRepoCellProxy(
     // 引用,entity fold 的 WeakMap<CanonicalEventStore,…> 缓存才会命中(逐请求
     // 新 store 让它永远 miss)。打开失败不缓存,下次读重试。
     ledgerReadStore = () => (ledgerReader ??= makeTaskEventReader(ledgerOptions)),
+    // Read runtimes hold the store but open it on first use, so a read that never touches the
+    // ledger does not depend on one existing (an edge whose own ledger is not attached).
+    lazyLedgerStore = new Proxy({} as ReturnType<typeof makeTaskEventReader>, {
+      get: (_target, property) => {
+        const store = ledgerReadStore(),
+          value: unknown = Reflect.get(store, property, store);
+        return typeof value === "function" ? value.bind(store) : value;
+      },
+    }),
     readCurrentLedger = <T>(read: (store: ReturnType<typeof makeTaskEventReader>) => T): T => read(ledgerReadStore()),
     replica = openReplicaCutSource({
       repoId: input.repoId,
@@ -161,6 +203,36 @@ export async function openRepoCellProxy(
   relayRuntimeSignal = runtime.publish;
   let closed = false;
 
+  /**
+   * An edge-replica read on an edge is answered from the materialized replica of the center cut, under the
+   * replica owner's authorization, and reports where the answer came from (dec_FB7DE6338E7D3D94ED2A4C05A2).
+   */
+  const edgeReplicaRun = (action: RepoTaskAction, binding: RepoCellBinding) => {
+    // The replica's owner digest is this read's authorization (dec_8DC9FF499EDA47F3824AF75DF6): the
+    // principal, a person or that person's execution, must be the replica's admitted owner.
+    const config = edgeConfig!;
+    return withEdgeReadModel(
+      {
+        viewRoot: config.viewRoot,
+        repoId: input.repoId,
+        principalId: binding.actor.principal.personId,
+        ...(config.maxAgeMs === undefined ? {} : { maxAgeMs: config.maxAgeMs }),
+        ...(config.maxLagRevisions === undefined ? {} : { maxLagRevisions: config.maxLagRevisions }),
+      },
+      (projection, frame) =>
+        executeReadAtCut(projection, action, binding, (receipt) => ({
+          ...receipt,
+          cut: {
+            repoId: input.repoId,
+            revision: frame.cut.revision,
+            opId: receipt.opId,
+            headDigest: frame.cut.headDigest,
+          },
+          freshness: frame.freshness,
+          ...(frame.warning === null ? {} : { warnings: [...(receipt.warnings ?? []), frame.warning] }),
+        })),
+    );
+  };
   const query = <T>(read: (projection: TaskProjectionQueries) => T): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
     const status = supervisor.status();
@@ -201,7 +273,7 @@ export async function openRepoCellProxy(
   const readRuntime = (projection: TaskProjectionQueries): HostReadRuntime => {
     if (hostReadRuntime?.projection === projection) return hostReadRuntime;
     const writableProjection = projection as TaskProjection,
-      readStore = ledgerReadStore(),
+      readStore = lazyLedgerStore,
       unsupportedWrite = (): never => {
         throw cellCodedError("repo_unavailable", "A query-only RepoCell reader cannot start writer work.");
       };
@@ -332,17 +404,26 @@ export async function openRepoCellProxy(
       ReturnType<RepoCell["read"]>
     >;
   };
-  const runReadAtCut = (
+  const executeReadAtCut = (
     projection: TaskProjectionQueries,
     action: RepoTaskAction,
     binding: RepoCellBinding,
+    frame: (receipt: WriteReceiptDraft) => WriteReceiptDraft = (receipt) => receipt,
   ): Awaited<ReturnType<RepoCell["run"]>> => {
     const context = readRuntime(projection).actionContext,
-      verified = bindVerifiedExecutorClaim({ action, binding, projection, now: context.now() }),
-      receipt = executeRepoReadAction(context, verified.action, verified.binding);
+      receipt = executeRepoReadAction(context, action, binding);
     if (receipt instanceof Promise)
       throw new Error(`Query-only action ${action.kind} must complete inside its synchronous read session.`);
-    return context.withHumanSummary(receipt) as Awaited<ReturnType<RepoCell["run"]>>;
+    return context.withHumanSummary(frame(receipt)) as Awaited<ReturnType<RepoCell["run"]>>;
+  };
+  const runReadAtCut = (projection: TaskProjectionQueries, action: RepoTaskAction, binding: RepoCellBinding) => {
+    const verified = bindVerifiedExecutorClaim({
+      action,
+      binding,
+      projection,
+      now: readRuntime(projection).actionContext.now(),
+    });
+    return executeReadAtCut(projection, verified.action, verified.binding);
   };
   const run: RepoCell["run"] = async (action, binding, signal) => {
     if (closed)
@@ -353,6 +434,15 @@ export async function openRepoCellProxy(
       } as never;
     if (repoCellExecutionForAction(action.kind) === "query-only") {
       try {
+        if (
+          input.mode === "remote-edge" &&
+          commandDescriptorForAction(action.kind).admission["remote-edge"] === "edge-replica"
+        ) {
+          // An edge's own projection is not the ledger: without a Fleet replica there is no answer.
+          if (edgeConfig === null)
+            throw cellCodedError("repo_mode_read_only", "This edge has no Fleet center configuration to read from.");
+          return edgeReplicaRun(action, binding);
+        }
         return query((projection) => runReadAtCut(projection, action, binding));
       } catch (error) {
         return failed(operationId(action, binding, input.repoId, 0), error) as Awaited<ReturnType<RepoCell["run"]>>;

@@ -123,6 +123,7 @@ export {
 export type {
   ActorIdentity,
   DocSyncReceiptDetail,
+  EdgeReadFreshness,
   FrozenWritePlan,
   LedgerCutIdentity,
   ReceiptDiagnostic,
