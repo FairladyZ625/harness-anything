@@ -2,7 +2,7 @@
 import { revokeTestPolicyActions } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -63,6 +63,12 @@ async function runChildSlice(
       ? `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nnode tools/x.test.mjs — exit 0.\n\n`
       : `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n";
+  if (created.outputShape !== "repository-diff") {
+    // A documentation slice delivers authored evidence, not the bootstrap directory placeholder.
+    const report = path.join(f.root, "harness", packagePath, "artifacts", "delivery.md");
+    mkdirSync(path.dirname(report), { recursive: true });
+    writeFileSync(report, `# ${childTaskId} delivery\nREADME bytes checked.\n`);
+  }
   writeFileSync(path.join(f.root, "harness", packagePath, "closeout.md"), closeoutBody);
   const submitted = (await f.run({
     kind: "task-submit",
@@ -139,6 +145,8 @@ test(
     const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
     try {
       await f.install();
+      const reportPath = path.join(f.root, "harness", f.packagePath, "artifacts", "independent.md");
+      writeFileSync(reportPath, "Corrected job=41; SQL range 0–336h.\n");
       await f.submit();
       assert.equal(f.launches.length, 0);
       const closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
@@ -155,6 +163,12 @@ test(
       assert.equal(f.launches.length, 0, "amend must not dispatch before owner triage");
       assert.equal((await f.forward()).outcome, "applied");
       assert.equal(f.launches.length, 1, "only the owner-forwarded cut dispatches");
+      assert.match(
+        f.launches[0]!.prompt,
+        /Corrected job=41; SQL range 0–336h/u,
+        "the independent reviewer receives automatically frozen accepted contents",
+      );
+      assert.match(f.launches[0]!.prompt, /blobSha256/u);
       const dispatches = f
         .events()
         .filter(

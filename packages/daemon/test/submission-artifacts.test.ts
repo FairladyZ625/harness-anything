@@ -53,6 +53,8 @@ function derive(summary: string) {
   const { cell } = fixture();
   const body = `## Summary\n${summary}\n## Verification\nRead evidence.\n## Residual Risk\nNone identified.\n## Same Mechanism Elsewhere\nChecked sibling.\n`;
   const projection = {
+    readReplicaBasis: () => ({ documents: [] }),
+    readRuntimeDispatchesByTaskExecution: () => [],
     read: () => ({ watermark: 7, sourceRevision: 7, snapshot: { task: {} }, packagePath }),
     readDocument: (target: string) => ({
       watermark: 7,
@@ -78,7 +80,7 @@ function derive(summary: string) {
     { ...cell, rootDir: "/nonexistent", projection, settings: repositorySettingsStub },
     "task-artifact",
     "execution",
-    { executions: [] } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
+    { executions: [], reviews: [] } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
   );
 }
 
@@ -236,7 +238,7 @@ test("a directory deliverable anchor expands to every file under it, or rejects 
       { ...cell, rootDir: parent, projection, settings: repositorySettingsStub },
       "task-artifact",
       "execution",
-      { executions: [] } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
+      { executions: [], reviews: [] } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
     );
   };
   try {
@@ -364,4 +366,31 @@ test("missing or changed frozen content cannot be replaced by latest workspace c
   });
   store.readContentBlob = () => Buffer.from("latest content");
   assert.throws(() => readSubmissionArtifact(cell, packagePath, path, 7), { code: "invalid_submission" });
+});
+
+test("canonical bootstrap and carried-document acceptances retain the same frozen identity checks", () => {
+  const { cell, store, bytes, blobSha256 } = fixture();
+  for (const schema of ["task-bootstrap-event/v1", "task-event/v1", "task-progress-event/v1"]) {
+    const accepted = {
+      ...cell,
+      store: {
+        ...store,
+        readEventAtRevision: (revision: number) => ({
+          schema,
+          workspaceRevision: revision,
+          opId: "atomic-acceptance",
+          payload:
+            schema === "task-bootstrap-event/v1"
+              ? { initialDocumentClaims: [{ path, sha256: blobSha256 }] }
+              : { carriedDocumentClaims: [{ path, candidate: { sha256: blobSha256 } }] },
+        }),
+      },
+    } as unknown as Parameters<typeof readSubmissionArtifact>[0];
+    assert.equal(readSubmissionArtifact(accepted, packagePath, path, 7, blobSha256).body, bytes.toString());
+    assert.throws(
+      () => readSubmissionArtifact(accepted, packagePath, `${path}.absent`, 7),
+      /did not accept this path/u,
+    );
+    assert.throws(() => readSubmissionArtifact(accepted, packagePath, path, 7, "f".repeat(64)), /frozen identity/u);
+  }
 });

@@ -82,10 +82,7 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     const invalidAnchor = await cell.run({ kind: "doc-submit", taskId }, holder);
     assert.equal(invalidAnchor.outcome, "op_rejected", JSON.stringify(invalidAnchor));
     assert.equal(invalidAnchor.code, "preview_blocked", JSON.stringify(invalidAnchor));
-    assert.match(
-      JSON.stringify(invalidAnchor),
-      /revision is not a document acceptance.*artifact:artifacts\/report\.md/u,
-    );
+    assert.match(JSON.stringify(invalidAnchor), /revision did not accept this path.*artifact:artifacts\/report\.md/u);
     writeFileSync(
       closeoutPath,
       completeBody.replace(

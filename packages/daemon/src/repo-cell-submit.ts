@@ -8,12 +8,12 @@ import {
   isSameExecution,
   isSamePerson,
   isTaskEvent,
-  ledgerGitPath,
   resolveCompletionContract,
-  resolveLedgerGitLayout,
   submissionFromCloseout,
   submissionDigest,
   sameWriteSource,
+  sha256Text,
+  type DocEventChange,
   type SubmissionV1,
   type WriteSource,
   type WriteReceiptDraft,
@@ -54,6 +54,7 @@ export function deriveCloseoutSubmission(
   bodyOverrides?: ReadonlyMap<string, string>,
   requestedCommit?: string,
   source?: WriteSource,
+  carried?: { readonly changes: readonly DocEventChange[]; readonly revision: number },
 ): SubmissionV1 {
   const document = readTaskTransitionDocument({
       projection: cell.projection,
@@ -75,7 +76,19 @@ export function deriveCloseoutSubmission(
     ),
     // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
     prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
-    anchors = artifactAnchors(prose.completionClaim, document.packagePath),
+    readPresetSnapshot = presetSnapshotReader(cell.projection),
+    privateDelivery = taskOutputShape(snapshot.task, readPresetSnapshot) !== "repository-diff",
+    explicitAnchors = artifactAnchors(prose.completionClaim, document.packagePath),
+    anchors =
+      privateDelivery && explicitAnchors.length === 0
+        ? automaticSubmissionArtifactPaths(
+            cell.projection,
+            snapshot,
+            taskId,
+            document.packagePath,
+            carried?.changes,
+          ).map((path) => ({ path, revision: undefined }))
+        : explicitAnchors,
     unparsed = unparsedArtifactAnchorText(prose.completionClaim);
   if (unparsed.length !== 0)
     throw cell.cellCodedError(
@@ -83,16 +96,26 @@ export function deriveCloseoutSubmission(
       `Summary contains artifact: text that is not a parsable anchor: ${unparsed.join(", ")}. ` +
         artifactAnchorGuidance,
     );
+  const freezeArtifact = (artifact: string, revision?: number) => {
+    const candidate = carried?.changes.find((change) => change.path === artifact)?.candidate;
+    if (candidate && (revision === undefined || revision === carried!.revision)) {
+      const body = bodyOverrides?.get(artifact);
+      if (body === undefined || sha256Text(body) !== candidate.sha256)
+        throw cell.cellCodedError("invalid_submission", `Carried artifact ${artifact} does not match its candidate.`);
+      return { path: artifact, revision: carried!.revision, blobSha256: candidate.sha256 };
+    }
+    const acceptedRevision = revision ?? cell.projection.readDocument(artifact).document?.workspaceRevision;
+    if (acceptedRevision === undefined)
+      throw cell.cellCodedError(
+        "invalid_submission",
+        `Artifact ${artifact}: no center-accepted revision exists. ${artifactAnchorGuidance}`,
+      );
+    return readSubmissionArtifact(cell, document.packagePath, artifact, acceptedRevision).anchor;
+  };
   const artifacts = anchors.flatMap(({ path, revision }) => {
     if (!path.endsWith("/")) {
       const artifact = submissionArtifactPath(document.packagePath, path);
-      const acceptedRevision = revision ?? cell.projection.readDocument(artifact).document?.workspaceRevision;
-      if (acceptedRevision === undefined)
-        throw cell.cellCodedError(
-          "invalid_submission",
-          `Artifact ${artifact}: no center-accepted revision exists. ${artifactAnchorGuidance}`,
-        );
-      return [readSubmissionArtifact(cell, document.packagePath, artifact, acceptedRevision).anchor];
+      return [freezeArtifact(artifact, revision)];
     }
     // Directory deliverable: expand to every file under it; each pins its own current
     // center-accepted revision, and any unfiled file rejects the submit naming the count.
@@ -111,7 +134,9 @@ export function deriveCloseoutSubmission(
         `Artifact ${path}: the directory deliverable contains no files. ${artifactAnchorGuidance}`,
       );
     const unfiled = files.filter(
-      (file) => cell.projection.readDocument(file).document?.workspaceRevision === undefined,
+      (file) =>
+        !carried?.changes.some((change) => change.path === file && change.candidate) &&
+        cell.projection.readDocument(file).document?.workspaceRevision === undefined,
     );
     if (unfiled.length > 0)
       throw cell.cellCodedError(
@@ -121,10 +146,7 @@ export function deriveCloseoutSubmission(
           "with ha doc sync --submit --task <task-id> or ha task artifact add before ha task submit. " +
           artifactAnchorGuidance,
       );
-    return files.map((file) => {
-      const acceptedRevision = cell.projection.readDocument(file).document?.workspaceRevision;
-      return readSubmissionArtifact(cell, document.packagePath, file, acceptedRevision!).anchor;
-    });
+    return files.map((file) => freezeArtifact(file));
   });
   if (new Set(artifacts.map((anchor) => anchor.path)).size !== artifacts.length)
     throw cell.cellCodedError(
@@ -133,63 +155,19 @@ export function deriveCloseoutSubmission(
     );
   // The delivery falls to the task's own output shape, not its completion gates (dec_BBA713052997C3EF5F5D3DD952):
   // a repository-diff task always carries a public delivery commit, even under a lightweight profile whose
-  // gate set is empty; a task-package-artifact task always delivers through the ledger or anchored artifacts.
-  const readPresetSnapshot = presetSnapshotReader(cell.projection),
-    privateDelivery = taskOutputShape(snapshot.task, readPresetSnapshot) !== "repository-diff";
+  // gate set is empty; a task-package-artifact task always delivers through accepted artifact versions.
   if (privateDelivery) {
-    if (artifacts.length)
-      return {
-        ...prose,
-        commitSha: null,
-        artifacts,
-        deliverables: artifacts.map((anchor) => anchor.path),
-        outputs: [],
-      };
-    let ledger: ReturnType<typeof resolveLedgerGitLayout>;
-    try {
-      ledger = resolveLedgerGitLayout(cell.rootDir);
-    } catch {
+    if (!artifacts.length)
       throw cell.cellCodedError(
         "invalid_submission",
         `No accepted task artifacts were found. ${artifactAnchorGuidance}`,
       );
-    }
-    const git = makeGitReadinessSource(),
-      ledgerArtifacts = git.run(ledger.rootDir, [
-        "ls-tree",
-        "-r",
-        "--name-only",
-        "HEAD",
-        "--",
-        ledgerGitPath(ledger, `${document.packagePath}/artifacts/`),
-      ]);
-    if (!ledgerArtifacts.ok || (!ledgerArtifacts.stdout && artifacts.length === 0))
-      throw cell.cellCodedError(
-        "invalid_submission",
-        `No accepted task artifacts were found under harness/${document.packagePath}/artifacts/. ` +
-          artifactAnchorGuidance,
-      );
     return {
       ...prose,
-      // Keep retries stable across unrelated ledger/submission writes, but never pair
-      // newly accepted artifact paths or bytes with a stale documentation commit.
-      commitSha:
-        frozen?.commitSha &&
-        git.run(ledger.rootDir, [
-          "diff",
-          "--quiet",
-          frozen.commitSha,
-          "HEAD",
-          "--",
-          ledgerGitPath(ledger, `${document.packagePath}/artifacts/`),
-        ]).ok
-          ? frozen.commitSha
-          : git.run(ledger.rootDir, ["rev-parse", "HEAD"]).stdout,
-      ...(artifacts.length ? { artifacts } : {}),
-      deliverables: ledgerArtifacts.stdout
-        ? ledgerArtifacts.stdout.split("\n")
-        : artifacts.map((anchor) => anchor.path),
-      outputs: artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`),
+      commitSha: null,
+      artifacts,
+      deliverables: artifacts.map((anchor) => anchor.path),
+      outputs: [],
     };
   }
   // An assignment's checkout belongs to its node. Its delivery was fetched from the
@@ -331,6 +309,41 @@ export function deriveCloseoutSubmission(
     deliverables,
     outputs: [...commitOutputs, ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`)],
   };
+}
+
+/** Accepted task artifacts select implicit deliveries; reviewer outputs are credentials, not deliveries. */
+function automaticSubmissionArtifactPaths(
+  projection: RepoCellOperationalContext["projection"],
+  snapshot: Snapshot,
+  taskId: string,
+  packagePath: string,
+  carried: readonly DocEventChange[] = [],
+): readonly string[] {
+  const reviewStems = new Set([
+      ...snapshot.reviews.map((review) => review.reviewId.replace(/^review-/u, "")),
+      ...snapshot.executions.flatMap((execution) =>
+        projection
+          .readRuntimeDispatchesByTaskExecution(taskId, execution.executionId)
+          .filter(({ event }) => event.payload.role === "reviewer")
+          .map(({ event }) => event.payload.dispatchId),
+      ),
+    ]),
+    reviewPaths = new Set(
+      [...reviewStems].flatMap((stem) => [
+        `${packagePath}/artifacts/reports/${stem}.md`,
+        `${packagePath}/artifacts/reports/${stem}.json`,
+      ]),
+    );
+  return [
+    ...new Set([
+      ...projection.readReplicaBasis(null).documents.map(({ path }) => path),
+      ...carried.filter((change) => change.candidate !== null).map(({ path }) => path),
+    ]),
+  ]
+    .filter(
+      (path) => path.startsWith(`${packagePath}/artifacts/`) && !path.endsWith("/.gitkeep") && !reviewPaths.has(path),
+    )
+    .sort();
 }
 
 function freezeCompletionContract(
