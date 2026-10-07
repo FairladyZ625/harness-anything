@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { appendFileSync } from "node:fs";
+import path from "node:path";
 
 /**
  * #2224 系统 tab 常驻日志面板 + #2227 的「面板被 flex 压成 0 高」回归。
@@ -21,7 +23,23 @@ export default {
   lane: "isolated",
   description:
     "The System tab fills the remaining page height with its resident daemon log panel, shows real lifecycle rows, and the request kind switch does not fail.",
-  async run({ page }) {
+  async run({ page, fixture, shot }) {
+    // Replay observed durations through the real daemon log reader, in this fixture's namespace.
+    // Move timestamps into its current observation window; this is a replay, not a performance run.
+    const now = Date.now(),
+      at = new Date(now - 30_000).toISOString();
+    const samples = [
+      { method: "repo.agentRuntime.sessions.await", durationMs: 1_067_342, code: "provider_exit" },
+      { method: "repo.task.run", durationMs: 22_049, code: null },
+      { method: "repo.task.run", durationMs: 12_023, code: null },
+    ].map((sample) => ({
+      schema: "daemon-conn-log/v1",
+      daemonId: fixture.daemonId,
+      event: "request",
+      at,
+      ok: true,
+      ...sample,
+    }));
     await page.getByRole("button", { name: /^(?:Daemon 状态|Daemon status)$/u }).click();
     const panel = page.getByTestId("system-daemon-logs");
     await panel.waitFor();
@@ -67,5 +85,39 @@ export default {
       0,
       "the request-kind log pane must not be unavailable",
     );
+
+    // Open the full observation route so the replay's execution and wait groups are readable together.
+    await page.getByTestId("system-repo-observe").first().click();
+    await page.getByTestId("daemon-observe-content").waitFor();
+    await page.getByTestId("observe-kind-daemon-log").click();
+    await page.getByTestId("observe-analytics-toggle-daemon-log").click();
+    await page.getByTestId("observe-tab-ops-daemon-log").click();
+    const board = page.getByTestId("observe-slowops-daemon-log");
+    await board.waitFor();
+    appendFileSync(
+      path.join(
+        fixture.userRoot,
+        "logs",
+        `daemon-${fixture.daemonId}-conn-${new Date(now).toISOString().slice(0, 10).replaceAll("-", "")}.jsonl`,
+      ),
+      samples.map((sample) => JSON.stringify(sample)).join("\n") + "\n",
+    );
+    await board.getByTestId("observe-slowops-daemon-log-waits").waitFor();
+    const execution = board.getByTestId("observe-slowops-daemon-log-execution");
+    assert.ok((await execution.textContent()).includes("repo.task.run"));
+    assert.ok(!(await execution.textContent()).includes("sessions.await"));
+    assert.ok((await board.getByTestId("observe-slowops-daemon-log-waits").textContent()).includes("17m 47s"));
+    const sniffer = page.getByTestId("observe-sniffer-daemon-log");
+    assert.match(await sniffer.textContent(), /慢写请求|slow write requests/u);
+    assert.doesNotMatch(await sniffer.textContent(), /慢锁|锁争用|Contended/u);
+    assert.match(
+      await sniffer.getByTestId("observe-sniffer-daemon-log-writes").getAttribute("title"),
+      /原因未知|cause unknown/u,
+    );
+    await shot("observe-wait-vs-execution");
+    await execution.getByRole("button", { name: "repo.task.run", exact: true }).click();
+    await page.getByTestId("observe-row").filter({ hasText: "22049ms" }).first().waitFor();
+    await page.getByTestId("observe-row").filter({ hasText: "12023ms" }).first().waitFor();
+    await shot("observe-slow-run-drilldown");
   },
 };

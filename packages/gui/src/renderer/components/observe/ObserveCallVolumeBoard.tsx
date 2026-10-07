@@ -34,7 +34,7 @@ export const ObserveCallVolumeBoard = memo(function ObserveCallVolumeBoard({
 
   const maxCount = topVolumes[0]?.count ?? 1,
     // 快速索引 RPC 的 P50 耗时
-    opsMap = new Map(stats.ops.map((op) => [op.method, op]));
+    opsMap = new Map([...stats.ops, ...stats.waits].map((op) => [op.method, op]));
 
   return (
     <div data-testid={testId} className="px-3 py-2">
@@ -68,7 +68,14 @@ export const ObserveCallVolumeBoard = memo(function ObserveCallVolumeBoard({
                 </button>
                 <div className="flex shrink-0 items-baseline gap-2 text-text-muted">
                   {p50 !== null ? (
-                    <span className="text-text-faint" title="P50 latency">
+                    <span
+                      className="text-text-faint"
+                      title={t(
+                        op && stats.waits.includes(op)
+                          ? "views.daemonObserve.waitDuration"
+                          : "views.daemonObserve.durationScope",
+                      )}
+                    >
                       P50 {Math.round(p50)}ms
                     </span>
                   ) : null}

@@ -45,7 +45,7 @@ export interface ObserveRow {
   readonly code: string | null;
   /** 主体归属(Top Talkers 的提取位):事件→taskId/会话;日志→executor 调用方/连接。 */
   readonly subject: string | null;
-  /** 读写分类(锁争用与信噪比的输入):请求日志 commandClass 权威,缺省按方法名启发。 */
+  /** 读写分类(慢写统计与信噪比的输入):请求日志 commandClass 权威,缺省按方法名启发。 */
   readonly opClass: "write" | "read" | null;
   readonly searchText: string;
 }
@@ -585,7 +585,7 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
  * 日志行的读写分类:请求日志自带的 commandClass(repo-read/repo-write/arbiter/admin,
  * 见 daemon 端 commandClassForAction)是权威;conn-log 等无该字段的记录退化为方法名
  * 分段启发(run/write/sync/amend…→写,read/list/tail/status…→读),识别不了返回
- * null(不计入读写比与争用分母)。
+ * null(不计入读写比分母)。
  */
 export function observeLogOpClass(method: string, commandClass: string | null): "write" | "read" | null {
   if (commandClass === "repo-read") return "read";
