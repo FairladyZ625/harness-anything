@@ -597,6 +597,7 @@ async function publishCiObservation(
         });
       if (args[0] === "api" && args.some((arg) => arg.includes("/artifacts")))
         return JSON.stringify([{ artifacts: [] }]);
+      if (args.some((arg) => arg.includes("/jobs?"))) return JSON.stringify([{ total_count: 0, jobs: [] }]);
       if (args[0] === "api")
         return JSON.stringify({
           run_attempt: 1,
@@ -613,7 +614,8 @@ async function publishCiObservation(
       return "";
     });
     const receipt = ingestCiObservations(cell, repoWriteBinding, fetched);
-    assert.equal(JSON.parse(receipt.evidence).imported, 1);
+    // The importer publishes the workflow verdict and its authoritative attempt inventory.
+    assert.equal(JSON.parse(receipt.evidence).imported, 2);
     const event = store
       .read()
       .events.find(
@@ -629,9 +631,20 @@ async function publishCiObservation(
             candidate.type === "execution_submitted" && candidate.payload.execution.executionId === executionId,
         ),
     );
-    await store.drain();
     const eventRefs = JSON.parse(receipt.evidence).eventRefs;
-    assert.deepEqual(eventRefs, [`event:${event.opId}`]);
+    const inventory = store
+      .read()
+      .events.find(
+        (candidate) =>
+          candidate.type === "ci_run_observed" &&
+          candidate.schema === "ci-run-observation/v4" &&
+          candidate.payload.scope === "attempt" &&
+          candidate.payload.run.runId === observedRunId,
+      );
+    assert.ok(inventory && inventory.type === "ci_run_observed" && inventory.schema === "ci-run-observation/v4");
+    assert.deepEqual(inventory.payload.attemptInventory, { jobs: [], missingArtifactJobIds: [] });
+    assert.deepEqual(eventRefs, [`event:${event.opId}`, `event:${inventory.opId}`]);
+    await store.drain();
     return eventRefs[0];
   } finally {
     projection.close();
