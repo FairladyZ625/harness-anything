@@ -1,12 +1,20 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { sha256Bytes } from "@harness-anything/kernel";
+import {
+  READ_MODEL_META_PATH,
+  READ_MODEL_SCHEMA_GENERATION,
+  edgeReadAuthorizationShapeDigest,
+  sha256Bytes,
+} from "@harness-anything/kernel";
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 import { fleetManifestDigest, type FleetCut, type FleetEntry, type FleetFrameV1 } from "../src/fleet/contract.ts";
+
+import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
+import { recordHeadConfirmation } from "../src/fleet/replica-read-model.ts";
 
 const replicaQuota = 64 * 1024 * 1024;
 
@@ -317,6 +325,79 @@ test("an immutable snapshot identity rejects changed bytes at the same revision 
       JSON.parse(readFileSync(path.join(root, "repos/repo/views/view/cuts/1-g0/manifest.json"), "utf8")).manifestDigest,
       before!.manifestDigest,
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("two retained revision 415 cuts without wire generation converge from stale to fresh", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-retained-cut-"));
+  try {
+    const cut = { ...wireCut(415), schemaGeneration: READ_MODEL_SCHEMA_GENERATION },
+      meta = Buffer.from(
+        JSON.stringify({ schemaGeneration: READ_MODEL_SCHEMA_GENERATION, sourceRevision: 415, rootThreshold: 0 }),
+      ),
+      entries = [wireEntry(READ_MODEL_META_PATH, meta)],
+      owner = "person-one",
+      authorizationShapeDigest = edgeReadAuthorizationShapeDigest({ repoId: "repo", owner }),
+      read = (nodeId: string) =>
+        withEdgeReadModel({ viewRoot: root, repoId: "repo", nodeId, principalId: owner }, (projection, frame) => ({
+          list: projection.list({}),
+          freshness: frame.freshness,
+        })),
+      deliver = (nodeId: string, transferId: string) => {
+        const view = openFleetEdgeView(root, replicaQuota);
+        let response: FleetFrameV1 | null = null;
+        for (const frame of snapshotFrames(transferId, nodeId, cut, entries, [meta]))
+          response = view.receive(
+            frame.schema === "fleet.snapshot.begin/v1"
+              ? { ...frame, authorizationOwner: owner, authorizationShapeDigest }
+              : frame,
+          );
+        return response;
+      };
+    for (const nodeId of ["edge-one", "edge-two"]) {
+      deliver(nodeId, `seed-${nodeId}`);
+      const viewDir = path.join(root, "repos/repo/views", nodeId);
+      // Match the deployed pre-B4 format: generation already exists at the
+      // manifest top level and in the directory, but not inside its wire cut.
+      for (const file of ["current.json", `cuts/415-g${READ_MODEL_SCHEMA_GENERATION}/manifest.json`]) {
+        const target = path.join(viewDir, file),
+          persisted = JSON.parse(readFileSync(target, "utf8"));
+        delete persisted.cut.schemaGeneration;
+        writeFileSync(target, JSON.stringify(persisted));
+      }
+      recordHeadConfirmation(viewDir, cut, Date.now() - 60 * 60 * 1000);
+      assert.equal(read(nodeId).freshness.state, "stale");
+    }
+    for (const nodeId of ["edge-one", "edge-two"]) {
+      const manifestPath = path.join(
+          root,
+          "repos/repo/views",
+          nodeId,
+          `cuts/415-g${READ_MODEL_SCHEMA_GENERATION}/manifest.json`,
+        ),
+        before = readFileSync(manifestPath);
+      const retained = JSON.parse(before.toString("utf8"));
+      for (const [name, divergent] of [
+        ["generation", { ...retained, schemaGeneration: READ_MODEL_SCHEMA_GENERATION - 1 }],
+        ["revision", { ...retained, cut: { ...retained.cut, revision: 414 } }],
+        ["head", { ...retained, cut: { ...retained.cut, headDigest: wireCut(414).headDigest } }],
+      ] as const) {
+        writeFileSync(manifestPath, JSON.stringify(divergent));
+        assert.throws(() => deliver(nodeId, `${name}-${nodeId}`), /immutable snapshot identity conflict/u);
+        assert.equal(read(nodeId).freshness.state, "stale");
+      }
+      writeFileSync(manifestPath, before);
+      assert.equal(deliver(nodeId, `upgrade-${nodeId}`)?.schema, "fleet.ack/v1");
+      const local = read(nodeId);
+      assert.equal(local.list.status, "ready");
+      assert.equal(local.list.sourceRevision, 415);
+      assert.equal(local.freshness.state, "fresh");
+      assert.deepEqual(openFleetEdgeView(root, replicaQuota).current("repo", nodeId)?.cut, cut);
+      assert.deepEqual(readFileSync(manifestPath), before, "the retained snapshot stays immutable");
+      assert.equal(deliver(nodeId, `replay-${nodeId}`)?.schema, "fleet.ack/v1");
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
