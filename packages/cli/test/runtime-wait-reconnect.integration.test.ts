@@ -414,6 +414,79 @@ test("runtime status --wait rides out a repo_warming handoff window on the succe
   }
 });
 
+test("runtime status --wait rides out an unclassified daemon failure receipt across the handoff", async () => {
+  // The client-visible half of the 2026-10-08 CI flake: one identity-center fetch lost to a
+  // transient transport reset answers the re-issued await with the daemon's unclassified failure
+  // fallback ("fetch failed") while the successor is already serving — infrastructure, not a
+  // verdict about the awaited sessions. The wait re-asks within its reconnect budget instead of
+  // ending the sentinel on the blip.
+  const fixture = await openFixtureDaemon("await-unclassified-rideout");
+  let awaitRequests = 0;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      if (awaitRequests === 1) {
+        reply(socket, request.id, unclassifiedFailureReceipt("repo.agentRuntime.sessions.await"));
+        return;
+      }
+      pendingAwait.push({ socket, id: request.id });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    reply(socket, request.id, runtimeStatus(false));
+  };
+  const invocation = runWait(fixture);
+  try {
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the wait must re-ask past the unclassified failure receipt");
+    for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
+    const result = await invocation.result(hangGuardMs);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.receipt.outcome, "succeeded");
+    assert.equal(awaitRequests, 2, "one transient unclassified failure costs exactly one re-ask");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("runtime status --wait returns the unclassified failure receipt once its budget ends", async () => {
+  // The honesty half: a failure that keeps answering is not ridden out forever. After the same
+  // budget transport failures get, the receipt itself is the verdict — code and all — instead of a
+  // daemon_gone claim about a daemon that kept answering.
+  const fixture = await openFixtureDaemon("await-unclassified-exhausted");
+  let awaitRequests = 0;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      reply(socket, request.id, unclassifiedFailureReceipt("repo.agentRuntime.sessions.await"));
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    reply(socket, request.id, runtimeStatus(false));
+  };
+  const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait", "--no-stream"], false);
+  try {
+    const result = await invocation.result(hangGuardMs);
+    assert.notEqual(result.code, 0, "a persistent unclassified failure must not report success");
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /error code=bootstrap_failed/u);
+    assert.equal(awaitRequests, 6, "the initial ask plus the budget's five retries, then the receipt returns");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
 test("runtime status --wait exits non-zero at once when the parked await answers a latched repo_unavailable receipt", async () => {
   // The daemon heals its own startup race at the source now, so a repo_unavailable verdict is no
   // longer a transient the client should ride out: it means the repo is genuinely latched, and
@@ -1201,6 +1274,23 @@ function repoLatchReceipt(command: string): Record<string, unknown> {
     evidence: "rejection:repo_unavailable",
     rejectionExplanation: "fetch failed",
     error: { code: "repo_unavailable" },
+  };
+}
+
+function unclassifiedFailureReceipt(command: string): Record<string, unknown> {
+  // daemonProtocolError()'s fallback shape for an error with no domain code: the raw transport
+  // failure itself ("TypeError: fetch failed") reaches the client unclassified.
+  return {
+    schema: "command-receipt/v2",
+    ok: false,
+    command,
+    outcome: "op_rejected",
+    opId: "N/A",
+    origin: "daemon",
+    code: "bootstrap_failed",
+    evidence: "rejection:bootstrap_failed",
+    rejectionExplanation: "fetch failed",
+    error: { code: "bootstrap_failed" },
   };
 }
 
