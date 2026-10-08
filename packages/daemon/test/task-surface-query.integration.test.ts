@@ -845,11 +845,11 @@ test("a lapsed lease stays readable through task show and releasable through tas
     );
     assert.match(held, /\nlease: [^\n]*phase=held/u, held);
     assert.match(held, /\nlease: [^\n]*expiresAt=2026-08-15T02:01:00\.000Z/u, held);
+    // A held ordinary-agent lease requires an explicit handoff reason from another session.
     const earlyReclaim = await cell.run(
       {
         kind: "task-release",
         taskId: "task_lease",
-        reason: "Holder is still active",
       },
       reclaimer,
     );
@@ -896,11 +896,11 @@ test("a lapsed lease stays readable through task show and releasable through tas
     );
     assert.equal(crossPrincipal.outcome, "op_rejected", JSON.stringify(crossPrincipal));
     assert.equal((crossPrincipal as Record<string, unknown>).code, "lease_conflict", JSON.stringify(crossPrincipal));
+    // Once orphaned, the same principal can recover without an explicit handoff reason.
     const released = await cell.run(
       {
         kind: "task-release",
         taskId: "task_lease",
-        reason: "The holder never came back",
       },
       reclaimer,
     );

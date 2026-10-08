@@ -353,7 +353,7 @@ test("the same principal recovers an exited holder after settlement removes its 
       () =>
         taskMutation(
           cellFor(sessionFor("live")),
-          { kind: "task-release", taskId: task.taskId },
+          { kind: "task-release", taskId: task.taskId, reason: "Explicit handoff cannot release a live runtime." },
           task,
           snapshotFor(),
           replacement,
