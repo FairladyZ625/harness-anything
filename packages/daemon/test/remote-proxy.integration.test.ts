@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { openRemoteProxyManager } from "../src/remote-proxy.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -380,6 +381,18 @@ test(
       const response = await rpcA("repo.settings.read", { repo: { repoId: "mismatch-repo" } });
       assert.equal(response.ok, false);
       assert.equal(response.code, "remote_proxy_protocol_mismatch");
+      const freshProxy = openRemoteProxyManager(userRootA);
+      try {
+        await assert.rejects(
+          freshProxy.stream("mismatch-repo", "repo.agentRuntime.attach", {
+            runtimeSessionId: "mismatch",
+            afterCursor: "stream:0",
+          }),
+          { code: "remote_proxy_protocol_mismatch" },
+        );
+      } finally {
+        freshProxy.close();
+      }
     });
   },
 );

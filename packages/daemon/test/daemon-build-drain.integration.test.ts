@@ -5,9 +5,14 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import net from "node:net";
+import { JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
+import { openRemoteProxyManager } from "../src/remote-proxy.ts";
+import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import test from "node:test";
 import {
   consumeKnownError,
+  registerDaemonRepo,
   makeTaskEventReader,
   makeTaskProjection,
   type AgentDefinitionSnapshot,
@@ -21,6 +26,193 @@ import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
 import { daemonPidPath, readDaemonPid, startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+
+for (const phase of ["attached", "attaching", "abandoned"] as const) {
+  test(`supersession keeps the hello exchange admitted until its ${phase} client requests or disconnects`, async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-hello-drain-")),
+      rootDir = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      repoId = `hello-drain-${phase}`,
+      runtimeFile = builtRuntime(path.join(parent, "runtime"), "build-a"),
+      buildIdPath = path.join(parent, "runtime/packages/cli/dist/build-id.txt"),
+      cellOpened = deferred<void>(),
+      attachmentGate = deferred<void>(),
+      superseded = deferred<void>();
+    let daemon: RunningDaemon | undefined,
+      client: JsonRpcLineClient | undefined,
+      cellClosing = false,
+      notifyStatus: (() => void) | undefined,
+      queueIsEmpty: (() => boolean) | undefined;
+    initializeRepo(rootDir, repoId);
+    signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    try {
+      daemon = runningDaemon(
+        await startDaemon({
+          daemonId: repoId,
+          userRoot,
+          runtimeFile,
+          onSupersededExit: () => superseded.resolve(),
+          openCell: async (input) => {
+            const cell = await openBootstrappedRepoCell(input);
+            // A real status update can arm drain independently of the request that observed drift.
+            notifyStatus = () => input.onStatus?.(cell.status());
+            queueIsEmpty = () => cell.status().queueDepth === 0;
+            cellOpened.resolve();
+            if (phase === "attaching") await attachmentGate.promise;
+            return {
+              ...cell,
+              close: async () => {
+                cellClosing = true;
+                await cell.close();
+              },
+            };
+          },
+        }),
+      );
+      await cellOpened.promise;
+      await waitUntil(() => queueIsEmpty!());
+      if (phase !== "attaching")
+        await waitUntil(async () => {
+          const status = await requestDaemonJsonRpcAt(daemon!.endpoint, "daemon.status", {}, 2_000, 2_000);
+          return (status.repos as { readonly state: string }[])[0]?.state === "attached";
+        });
+      writeFileSync(buildIdPath, "build-b\n", "utf8");
+      const socket = net.createConnection(daemon.endpoint);
+      client = new JsonRpcLineClient(socket, socket);
+      const hello = await client.request(
+        "protocol.hello",
+        {
+          protocolVersion: currentDaemonProtocolVersion,
+          reportStaleBuild: true,
+        },
+        2_000,
+      );
+      assert.equal(hello.ok, true);
+      assert.equal((hello.warning as Record<string, unknown>).code, "daemon_build_stale");
+      notifyStatus!();
+      // A separate client's completed read also checks drain, independently of this hello.
+      await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.status", {}, 2_000, 2_000);
+      await eventLoopTurn();
+      await eventLoopTurn();
+      assert.equal(cellClosing, false, "a status-triggered drain must not strand the hello client's next frame");
+      assert.equal(readDaemonPid(userRoot, repoId), process.pid);
+      if (phase === "abandoned") {
+        client.close();
+        client = undefined;
+        await superseded.promise;
+      } else {
+        const taskId = `task-${repoId}`,
+          receiptPromise = client.request(
+            "repo.task.create",
+            {
+              repo: { repoId },
+              payload: { taskId, title: "Admitted hello exchange" },
+            },
+            5_000,
+          );
+        attachmentGate.resolve();
+        const receipt = await receiptPromise;
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        client.close();
+        client = undefined;
+        await superseded.promise;
+        const created = makeTaskEventReader({ repoId, rootDir })
+          .read()
+          .events.filter((event) => event.type === "task_bootstrapped" && event.taskId === taskId);
+        assert.equal(created.length, 1, "the accepted write remains canonical after complete teardown");
+      }
+      assert.equal(readDaemonPid(userRoot, repoId), null);
+    } finally {
+      attachmentGate.resolve();
+      client?.close();
+      await daemon?.stop();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const detached of [false, true]) {
+  test(`a fresh stream-only proxy permits supersession with its stream ${detached ? "detached" : "attached"}`, async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-proxy-stream-drain-")),
+      rootDir = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      proxyRoot = path.join(parent, "proxy"),
+      repoId = "proxy-stream-drain",
+      runtimeFile = builtRuntime(path.join(parent, "runtime"), "build-a"),
+      buildIdPath = path.join(parent, "runtime/packages/cli/dist/build-id.txt"),
+      proxy = openRemoteProxyManager(proxyRoot);
+    let daemon: RunningDaemon | undefined;
+    initializeRepo(rootDir, repoId);
+    signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    try {
+      daemon = runningDaemon(
+        await startDaemon({ daemonId: repoId, userRoot, runtimeFile, openCell: openBootstrappedRepoCell }),
+      );
+      await waitUntil(async () => {
+        const status = await requestDaemonJsonRpcAt(daemon!.endpoint, "daemon.status", {}, 2_000, 2_000);
+        return (status.repos as { readonly state: string }[])[0]?.state === "attached";
+      });
+      const terminal = await requestDaemonJsonRpcAt(daemon.endpoint, "repo.terminal.spawn", {
+        repo: { repoId },
+        payload: {
+          idempotencyKey: "stream-drain",
+          backend: "direct-pty",
+          name: "Stream drain",
+          cwd: { scope: "repo-root" },
+          shellProfileId: "sh",
+        },
+      });
+      assert.equal(terminal.outcome, "applied", JSON.stringify(terminal));
+      registerDaemonRepo({
+        userRoot: proxyRoot,
+        repoId,
+        mode: "remote-proxy",
+        endpoint: daemon.endpoint,
+        createConvenienceLinks: false,
+      });
+      // This manager has never issued a request: its first and only operation is a real attach.
+      const stream = await proxy.stream(repoId, "repo.terminal.attach", {
+        sessionId: String(terminal.sessionId),
+        afterSeq: 0,
+      });
+      assert.equal(stream.initial.ok, true, JSON.stringify(stream.initial));
+      if (detached) stream.detach();
+      writeFileSync(buildIdPath, "build-b\n", "utf8");
+      const taskId = "task-stream-drain",
+        receipt = await requestDaemonJsonRpcAt(
+          daemon.endpoint,
+          "repo.task.create",
+          {
+            repo: { repoId },
+            payload: { taskId, title: "Retained across stream-only supersession" },
+          },
+          2_000,
+          5_000,
+          undefined,
+          true,
+        );
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      // Keep the manager alive throughout: closing it would conceal the cached hello leak.
+      await waitUntil(() => readDaemonPid(userRoot, repoId) === null);
+      assert.equal(
+        readDaemonLifecycleRecords(userRoot, repoId).some(
+          (record) => record.event === "process_exit" && record.outcome === "build_superseded",
+        ),
+        true,
+      );
+      const created = makeTaskEventReader({ repoId, rootDir })
+        .read()
+        .events.filter((event) => event.type === "task_bootstrapped" && event.taskId === taskId);
+      assert.equal(created.length, 1, "the accepted write remains canonical after supersession teardown");
+    } finally {
+      proxy.close();
+      await daemon?.stop();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+}
 
 test("the daemon binds and serves status and queued commands before repository attachment settles", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-bind-before-attach-")),

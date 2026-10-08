@@ -138,3 +138,64 @@ test(
     }
   },
 );
+
+for (const boundary of ["server", "connection"] as const) {
+  test(`hello holds one work reservation until the ${boundary} closes`, async () => {
+    const connection = new AbortController(),
+      started: string[] = [],
+      settled: string[] = [],
+      server = parkedAwaitServer({
+        connectionSignal: connection.signal,
+        started: (method) => started.push(method),
+        settled: (method) => settled.push(method),
+      });
+    try {
+      await server.handle(helloRequest);
+      await server.handle({ ...helloRequest, id: 2 });
+      assert.deepEqual(started, ["protocol.hello"], "repeated hello does not multiply the reservation");
+      assert.deepEqual(settled, [], "the next request has not reached the server yet");
+      if (boundary === "server") server.close();
+      else connection.abort();
+      assert.deepEqual(settled, ["protocol.hello"], "abandonment releases the pending exchange");
+      server.close();
+      assert.deepEqual(settled, ["protocol.hello"], "teardown must not release it twice");
+    } finally {
+      server.close();
+    }
+  });
+}
+
+test("hello transfers its reservation to request work before releasing it", async () => {
+  let active = 0;
+  const counts: number[] = [],
+    server = parkedAwaitServer({
+      started: () => counts.push(++active),
+      settled: () => counts.push(--active),
+    });
+  try {
+    await server.handle(helloRequest);
+    await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.status", params: {} });
+    assert.deepEqual(counts, [1, 2, 1, 0]);
+    server.close();
+    assert.equal(active, 0);
+  } finally {
+    server.close();
+  }
+});
+
+test("an incompatible hello releases request work without waiting for disconnect", async () => {
+  const started: string[] = [],
+    settled: string[] = [],
+    server = parkedAwaitServer({
+      started: (method) => started.push(method),
+      settled: (method) => settled.push(method),
+    });
+  try {
+    const response = await server.handle({ ...helloRequest, params: { protocolVersion: "incompatible" } });
+    assert.equal(response?.result?.ok, false);
+    assert.deepEqual(started, ["protocol.hello"]);
+    assert.deepEqual(settled, ["protocol.hello"]);
+  } finally {
+    server.close();
+  }
+});
