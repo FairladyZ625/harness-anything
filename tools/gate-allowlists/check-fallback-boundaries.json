@@ -38,7 +38,7 @@
    "packages/daemon/src/artifacts-gui-read.ts#walkArtifactTree",
    "packages/daemon/src/bin.ts#<module>",
    "packages/daemon/src/build-identity.ts#resolveStamp",
-   "packages/daemon/src/ci-observation-actions.ts#fetchCiObservations",
+   "packages/daemon/src/ci-observation-actions.ts#downloadCiArtifacts",
    "packages/daemon/src/client/local-json-rpc-client.ts#onLine",
    "packages/daemon/src/client/local-json-rpc-shutdown.ts#requestDaemonShutdownAt",
    "packages/daemon/src/client/local-json-rpc-stream.ts#connect",
