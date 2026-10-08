@@ -424,7 +424,7 @@ export function ingestCiObservations(
           JSON.stringify([
             identity.provider,
             repositoryId,
-            databaseId,
+            databaseId === 0 ? identity.databaseRunId : databaseId,
             summary.attempt,
             payload.scope,
             payload.identity.jobExecutionId,

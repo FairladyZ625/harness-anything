@@ -215,6 +215,104 @@ test("artifact producer is bound to the specific attempt/job API before v4 CAS a
   });
 });
 
+test("manual pull then completion collection separates ledger commits and preserves duplicate/conflict checks", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initialize(rootDir);
+    const ledgerRoot = path.join(rootDir, "harness");
+    mkdirSync(ledgerRoot, { recursive: true });
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: ledgerRoot });
+    const publishLedger = (body: string) => {
+      writeFileSync(path.join(ledgerRoot, "note.md"), body);
+      execFileSync("git", ["add", "note.md"], { cwd: ledgerRoot });
+      execFileSync(
+        "git",
+        ["-c", "user.name=Acceptance Fixture", "-c", "user.email=acceptance@example.invalid", "commit", "-qm", body],
+        { cwd: ledgerRoot },
+      );
+    };
+    publishLedger("first private publication");
+    const store = makeTaskEventStore({ rootDir, repoId: "v4-ledger-identity" });
+    const projection = makeTaskProjection({ rootDir, eventStore: store });
+    const cell = {
+      rootDir,
+      store,
+      projection,
+      now: () => workflow.occurredAt,
+      settings: { read: () => ({ ci: { workflows: ["rewrite-ci"] } }) },
+      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    };
+    const runner = async (_command: string, args: readonly string[]) => {
+      if (args[1] === "list")
+        return JSON.stringify([{ databaseId: 123, headBranch: "main", createdAt: workflow.occurredAt }]);
+      if (args[1] === "view")
+        return JSON.stringify({
+          workflowName: "rewrite-ci",
+          headSha: workflow.payload.run.sha,
+          headBranch: "main",
+          status: "completed",
+          conclusion: "success",
+          attempt: 2,
+          event: "push",
+        });
+      if (args[1] === "download") throw new Error("no valid artifacts found to download");
+      assert.equal(args[1], "repos/:owner/:repo/actions/runs/123/attempts/2");
+      return JSON.stringify({
+        run_attempt: 2,
+        head_sha: workflow.payload.run.sha,
+        head_branch: "main",
+        conclusion: "success",
+        event: "push",
+        name: "rewrite-ci",
+        path: ".github/workflows/rewrite-ci.yml",
+        workflow_id: 1,
+        repository: { full_name: "fixture/repository" },
+      });
+    };
+    const ingest = (fetched: Awaited<ReturnType<typeof fetchCiObservations>>) =>
+      JSON.parse(ingestCiObservations(cell as never, { actor: workflow.actor, source: "local" }, fetched).evidence);
+    try {
+      const manual = await fetchCiObservations(cell as never, { kind: "ci-observe-pull", runs: [123] }, runner);
+      assert.equal(ingest(manual).imported, 1);
+      const githubOpId = `ci-observation-${createHash("sha256")
+        .update(JSON.stringify(["github-actions", "fixture/repository", 123, 2, "workflow", null]))
+        .digest("hex")}`;
+      assert.ok(store.readEvent(githubOpId), "GitHub observation identities remain unchanged");
+      const first = await fetchCiObservations(cell as never, { kind: "ci-observe-pull" }, runner);
+      const collected = ingest(first);
+      assert.deepEqual([collected.imported, collected.duplicate], [1, 1]);
+      assert.equal(ingest(first).duplicate, 2);
+      publishLedger("second private publication");
+      const second = await fetchCiObservations(cell as never, { kind: "ci-observe-pull" }, runner);
+      const next = ingest(second);
+      assert.deepEqual([next.imported, next.duplicate], [1, 1]);
+      const repeated = ingest(second);
+      assert.deepEqual([repeated.imported, repeated.duplicate], [0, 2]);
+      const ledgerEvents = projection
+        .readCiRunObservations(10)
+        .events.filter((event) => event.payload.identity.provider === "write-coordinator");
+      assert.equal(ledgerEvents.length, 2);
+      assert.equal(new Set(ledgerEvents.map((event) => event.opId)).size, 2);
+      assert.equal(new Set(ledgerEvents.map((event) => event.payload.run.sha)).size, 2);
+      for (const provider of ["github-actions", "write-coordinator"])
+        assert.throws(
+          () =>
+            ingest({
+              ...second,
+              runs: second.runs.map((run) =>
+                (run.databaseId === 0) === (provider === "write-coordinator")
+                  ? { ...run, summary: { ...run.summary, conclusion: "failure" } }
+                  : run,
+              ),
+            }),
+          { code: "op_conflict" },
+          "different content for the same identity still fails",
+        );
+    } finally {
+      projection.close();
+    }
+  });
+});
+
 test("frozen v2/v3 bytes survive one decoder and a cold projection replay without historical rewrites", async () => {
   await withTempStoreAsync(async (rootDir) => {
     const history = ["v2", "v3"].map((version) =>
