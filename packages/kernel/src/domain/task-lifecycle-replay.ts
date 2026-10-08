@@ -363,6 +363,15 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
       revision: event.workspaceRevision,
       task: event.payload.task,
       executions: replaceExecution(snapshot.executions, event.payload.execution),
+      // The forward order is the owner's own record: closeoutReadiness re-arms a lifted review
+      // gate from this entry, never from the in_review position other paths may occupy.
+      forwardedCuts: [
+        ...(snapshot.forwardedCuts ?? []),
+        {
+          executionId: event.payload.execution.executionId,
+          iteration: event.payload.execution.iteration,
+        },
+      ],
     };
   else if (event.type === "submission_returned")
     next = {

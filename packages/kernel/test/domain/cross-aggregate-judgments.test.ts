@@ -126,7 +126,8 @@ test("closeout readiness requires a passing exact-cut gate, not witness existenc
 
 test("a forwarded cut owes its review verdict even when the profile lifted review", () => {
   // The lightweight upgrade: the frozen override lifted review/consent, and the owner answered by
-  // forwarding the cut to in_review — the corridor position itself is the review order.
+  // forwarding the cut — the journal's forward record is the review order, not the corridor
+  // position, which snapshots reach by other paths.
   const lifted = Object.freeze({
       review: false,
       consent: false,
@@ -138,6 +139,7 @@ test("a forwarded cut owes its review verdict even when the profile lifted revie
     awaiting = {
       ...forwarded,
       task: { ...forwarded.task!, closeoutOverrides: { review: false, consent: false, fact: false } },
+      forwardedCuts: [{ executionId: "exe-1", iteration: 0 }],
       reviews: [],
       consents: [],
     };
@@ -146,9 +148,19 @@ test("a forwarded cut owes its review verdict even when the profile lifted revie
   // An approved review settles the corridor; consent stays lifted with the profile.
   const approvedOnly = { ...awaiting, reviews: forwarded.reviews, consents: [] };
   assert.equal(closeoutReadiness(approvedOnly, undefined, lifted).readiness, "ready");
-  // Unforwarded, the lifted default stands: the submitted cut completes straight.
-  const unforwarded = { ...awaiting, task: { ...awaiting.task!, status: "submitted" as const } };
+  // Without the owner's forward record the lifted default stands even at the in_review position:
+  // the submitted cut completes straight, and no other snapshot state buys the verdict.
+  const unforwarded = {
+    ...awaiting,
+    task: { ...awaiting.task!, status: "submitted" as const },
+    forwardedCuts: [],
+  };
   assert.equal(closeoutReadiness(unforwarded, undefined, lifted).readiness, "ready");
+  const positioned = { ...awaiting, forwardedCuts: [] };
+  assert.equal(closeoutReadiness(positioned, undefined, lifted).readiness, "ready");
+  // A forward of an earlier iteration never reaches the current cut.
+  const staleRecord = { ...awaiting, forwardedCuts: [{ executionId: "exe-1", iteration: -1 }] };
+  assert.equal(closeoutReadiness(staleRecord, undefined, lifted).readiness, "ready");
 });
 
 test("a done projection without an execution cut is not passed", () => {

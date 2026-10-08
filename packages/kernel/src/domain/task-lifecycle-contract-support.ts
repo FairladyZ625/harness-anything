@@ -27,6 +27,7 @@ export function emptyTaskLifecycleSnapshot(revision = 0): TaskLifecycleSnapshot 
     gateWitnesses: [],
     edgesTaken: [],
     lease: null,
+    forwardedCuts: [],
   };
 }
 export function envelope<E extends TaskEventV1>(

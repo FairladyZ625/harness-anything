@@ -37,6 +37,41 @@ export function reviewDispatchKey(taskId: string, execution: ExecutionV1): strin
   )}`;
 }
 
+/**
+ * The deterministic impossibilities of dispatching a cut reviewer: no sealed daemon route, no
+ * resolvable reviewer declaration, or an installed reviewer that declares no explicit model. The
+ * same conditions `spawnCutReviewDispatch` fails on after its durable write; stated here as one
+ * answer so the upgrade-forward precondition names exactly what the spawn itself would reject.
+ * A launch that fails only at runtime (instances down) stays with the idempotent retry lane.
+ */
+export function cutReviewDispatchObstruction(
+  cell: Pick<RepoCellOperationalContext, "input" | "rootDir" | "store">,
+  input: {
+    readonly reviewerId: string;
+    readonly model?: string;
+  },
+): string | null {
+  if (!cell.input.runtimeDaemonRoute) return "no sealed daemon route to dispatch its reviewer through this cell";
+  try {
+    const resolved = readAgentDeclarationResolution({
+      rootDir: cell.rootDir,
+      agentId: input.reviewerId,
+      entityStore: createEntityStore(cell.store),
+    });
+    if (!resolved) return `no resolvable reviewer ${input.reviewerId}; install one or pass --agent <agent-id>`;
+    if (
+      resolved.layer === "installed" &&
+      !agentDeclaresExplicitModels(resolved.declaration.runtimes) &&
+      typeof input.model !== "string"
+    )
+      return `reviewer ${input.reviewerId} declares no explicit model; pass --model <model>`;
+  } catch (error) {
+    if (!isAgentDeclarationInvalid(error)) throw error;
+    return error instanceof Error ? error.message : String(error);
+  }
+  return null;
+}
+
 export function decisionReviewDispatchKey(decisionId: string, digest: string): string {
   return `decision-review:${decisionId}:${digest}`;
 }
