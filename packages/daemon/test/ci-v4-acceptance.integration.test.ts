@@ -167,7 +167,14 @@ test("artifact producer is bound to the specific attempt/job API before v4 CAS a
         );
         return "";
       }
-      if (args.includes("--paginate")) return JSON.stringify([{ id: 456, name: "fast-contract" }]);
+      // gh rejects --slurp combined with --jq/--template before any request, and --paginate
+      // --slurp prints one JSON array holding every page verbatim (here: a job page, then an
+      // empty final page, so the flatten in fetchCiObservations has to cross pages).
+      if (args.includes("--slurp")) {
+        if (args.includes("--jq") || args.includes("--template"))
+          throw new Error("the `--slurp` option is not supported with `--jq` or `--template`");
+        return JSON.stringify([{ jobs: [{ id: 456, name: "fast-contract" }] }, { jobs: [] }]);
+      }
       assert.equal(args[1], "repos/:owner/:repo/actions/runs/123/attempts/2");
       return JSON.stringify({
         run_attempt: 2,

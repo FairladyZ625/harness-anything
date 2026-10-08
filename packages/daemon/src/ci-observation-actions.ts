@@ -227,25 +227,25 @@ export async function fetchCiObservations(
           );
           const jobs: PreparedCiJob[] = [];
           if (artifacts.length) {
-            const apiJobs = JSON.parse(
-              await runGh(
-                "gh",
-                [
-                  "api",
-                  "--paginate",
-                  "--slurp",
-                  `repos/:owner/:repo/actions/runs/${run.databaseId}/attempts/${summary.attempt}/jobs?per_page=100`,
-                  "--jq",
-                  "[.[] | .jobs[]]",
-                ],
-                { cwd: cell.rootDir },
-              ),
-            ) as never;
-            // gh --slurp keeps pages as one JSON value, avoiding concatenated transport JSON.
+            // gh --slurp keeps every paginated page in one JSON array, avoiding concatenated
+            // transport JSON; gh rejects --jq/--template alongside --slurp, so the pages
+            // flatten here instead of in a jq program.
+            const apiJobs = (
+              JSON.parse(
+                await runGh(
+                  "gh",
+                  [
+                    "api",
+                    "--paginate",
+                    "--slurp",
+                    `repos/:owner/:repo/actions/runs/${run.databaseId}/attempts/${summary.attempt}/jobs?per_page=100`,
+                  ],
+                  { cwd: cell.rootDir },
+                ),
+              ) as readonly { readonly jobs: readonly { readonly id: number; readonly name: string }[] }[]
+            ).flatMap((page) => page.jobs);
             for (const artifact of artifacts) {
-              const matching = (apiJobs as readonly { readonly id: number; readonly name: string }[]).filter(
-                (job) => job.name === artifact.producer.jobName,
-              );
+              const matching = apiJobs.filter((job) => job.name === artifact.producer.jobName);
               if (
                 matching.length !== 1 ||
                 artifact.producer.repositoryId !== attempt.repository.full_name ||
