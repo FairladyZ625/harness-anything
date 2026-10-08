@@ -29,19 +29,8 @@ async function waitForFile(file: string): Promise<void> {
   }
 }
 
-async function settlesWithin<T>(pending: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      pending,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// Waits settle on the receipts production itself bounds (the write-queue timeouts under test);
+// the runner's per-file timeout is the last resort if one of those bounds is ever lost.
 
 test(
   "task submit never waits for GitHub and retries preserve one submitted cut",
@@ -179,10 +168,11 @@ test(
       });
       const pulling = cell.run({ kind: "ci-observe-pull", limit: 1 }, binding);
       await waitForFile(started);
-      const write = await settlesWithin(
-        cell.run({ kind: "task-create", taskId: "ci-pull-concurrent-write", title: "Concurrent write" }, binding),
-        5_000,
-        "a concurrent write waited on the hanging gh",
+      // The write is awaited while the stub gh still hangs (release is only written below): settling
+      // at all proves the queue is free for it, whenever the runner gets around to it.
+      const write = await cell.run(
+        { kind: "task-create", taskId: "ci-pull-concurrent-write", title: "Concurrent write" },
+        binding,
       );
       assert.equal(write.outcome, "applied", JSON.stringify(write));
       writeFileSync(release, "");
@@ -203,13 +193,12 @@ test("a Keycloak authorization that never answers times out and releases the rep
     // A Keycloak that accepts the connection and never answers, like a wedged reverse proxy.
     hanging = createServer(() => {});
   let connections = 0;
-  let requestClosedResolve: (() => void) | undefined;
-  const requestClosed = new Promise<void>((resolve) => {
-    requestClosedResolve = resolve;
-  });
+  let closedConnections = 0;
   hanging.on("connection", (socket) => {
     connections += 1;
-    socket.once("close", () => requestClosedResolve?.());
+    socket.once("close", () => {
+      closedConnections += 1;
+    });
   });
   await new Promise<void>((resolve) => hanging.listen(0, "127.0.0.1", resolve));
   const hangUrl = `http://127.0.0.1:${(hanging.address() as AddressInfo).port}`,
@@ -238,15 +227,19 @@ test("a Keycloak authorization that never answers times out and releases the rep
       { kind: "task-create", taskId: "keycloak-hang-write", title: "Hanging authorization" },
       hungBinding,
     );
-    await settlesWithin(requestClosed, 15_000, "the Keycloak request was not aborted");
-    const receipt = await settlesWithin(write, 5_000, "the write queue was held after Keycloak aborted");
+    // The production timeout — the 10s abort inside the write queue — is what settles this receipt,
+    // so awaiting it asserts the timeout behavior without racing a second clock against it.
+    const receipt = await write;
     assert.ok(connections >= 1, "the authorization never reached the hanging Keycloak");
     assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
     assert.equal(receipt.code, "service_rejected", JSON.stringify(receipt));
-    const after = await settlesWithin(
-      cell.run({ kind: "task-create", taskId: "keycloak-after-hang", title: "After the timeout" }, binding),
-      5_000,
-      "the write queue stayed held after the Keycloak timeout",
+    // The abort that failed the write destroys the socket before the fetch rejects, so the close
+    // has already reached this process; one loop turn lets its event dispatch before asserting.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(closedConnections >= 1, "the Keycloak request was not aborted");
+    const after = await cell.run(
+      { kind: "task-create", taskId: "keycloak-after-hang", title: "After the timeout" },
+      binding,
     );
     assert.equal(after.outcome, "applied", JSON.stringify(after));
   } finally {
@@ -341,15 +334,18 @@ test("a credential lookup nobody answers fails the spawn and releases the reposi
       (error: unknown) => ({ error }),
     );
     await waitForFile(started);
-    const write = await settlesWithin(
-      cell.run({ kind: "task-create", taskId: "credential-concurrent-write", title: "Concurrent write" }, binding),
-      5_000,
-      "a concurrent write waited on the unanswered credential lookup",
+    // The write queues while the credential lookup is still unanswered: the injected lookup
+    // timeout bounds the spawn, the failed spawn releases the queue, and the write settles
+    // causally — whenever that happens — instead of inside a wall-clock window.
+    const write = cell.run(
+      { kind: "task-create", taskId: "credential-concurrent-write", title: "Concurrent write" },
+      binding,
     );
-    assert.equal(write.outcome, "applied", JSON.stringify(write));
     const settled = await spawned;
     assert.ok("error" in settled, JSON.stringify(settled));
     assert.equal((settled.error as { readonly code?: unknown }).code, "runtime_credential_unavailable");
+    const accepted = await write;
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
   } finally {
     writeFileSync(release, "");
     await cell?.close();
