@@ -20,9 +20,15 @@ type FleetFixture = Awaited<ReturnType<typeof fleetNodeClaimFixture>>;
  */
 export async function fleetEdgeHostFixture(
   t: TestContext,
-  f: FleetFixture,
+  f: Pick<FleetFixture, "root" | "repo"> & {
+    readonly center: Pick<FleetFixture["center"], "port">;
+    readonly owners: { readonly keycloak: Pick<FleetFixture["owners"]["keycloak"], "fetch"> };
+  },
   options: {
     readonly name?: string;
+    readonly centerPort?: number;
+    readonly openCell?: Parameters<typeof openDaemonHost>[0]["openCell"];
+    readonly waitForAttachments?: boolean;
     readonly runtimeLaunch?: Parameters<typeof openDaemonHost>[0]["runtimeLaunch"];
     readonly runtimeDiscover?: Parameters<typeof openDaemonHost>[0]["runtimeDiscover"];
     readonly viewRoot?: string;
@@ -76,7 +82,7 @@ export async function fleetEdgeHostFixture(
     schema: "fleet-edge-config/v1",
     repoId: "lease-repo",
     host: "127.0.0.1",
-    port: f.center.port,
+    port: options.centerPort ?? f.center.port,
     servername: "localhost",
     caPath: path.join(f.root, "tls.crt"),
     nodeId: options.nodeId ?? "node-one",
@@ -88,6 +94,7 @@ export async function fleetEdgeHostFixture(
   writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
+    ...(options.openCell ? { openCell: options.openCell } : {}),
     ...(options.runtimeLaunch ? { runtimeLaunch: options.runtimeLaunch } : {}),
     ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
     userRoot: edgeUser,
@@ -97,7 +104,7 @@ export async function fleetEdgeHostFixture(
     await host.close();
     rmSync(root, { recursive: true, force: true });
   });
-  await host.attachmentsSettled();
+  if (options.waitForAttachments !== false) await host.attachmentsSettled();
   const rpc = createJsonRpcProtocolServer({
     host,
     build: { commit: null },
