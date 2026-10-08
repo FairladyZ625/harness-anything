@@ -38,6 +38,8 @@ export interface PresetProducedReceipt {
   readonly nextAction?: string;
 }
 export interface PresetProcessExecutionPort {
+  /** Releases admission-owned resources when asynchronous execution reaches a terminal witness. */
+  readonly onSettled?: () => void;
   readonly publish: (
     action: Readonly<Record<string, unknown>> & { readonly kind: string },
   ) => Promise<PresetProducedReceipt>;
@@ -107,7 +109,8 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
   ensureTree(rootDir, runRoot, witnessRoot, stagingRoot);
   const witnesses = new Map<string, Witness>(),
     runIdByKey = new Map<string, string>(),
-    children = new Map<string, TrackedChild>();
+    children = new Map<string, TrackedChild>(),
+    settlements = new Map<string, () => void>();
   let closed = false;
   for (const name of readdirSync(witnessRoot).filter((entry) => entry.endsWith(".json"))) {
     const loaded = loadWitness(path.join(witnessRoot, name));
@@ -136,16 +139,20 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     input: PresetRunStartInput,
     executionPort?: PresetProcessExecutionPort,
   ): Promise<PresetRunReceiptV1> => {
-    if (!isNonEmptyRunText(input.idempotencyKey))
+    if (!isNonEmptyRunText(input.idempotencyKey)) {
+      executionPort?.onSettled?.();
       return rejection("run_invalid", "invalid_idempotency_key", "idempotencyKey is required.");
+    }
     const requestDigest = digest(input),
       runId = `run_${digest(input.idempotencyKey).slice(7, 33)}`,
       priorRunId = runIdByKey.get(input.idempotencyKey),
       prior = priorRunId === undefined ? undefined : witnesses.get(priorRunId);
-    if (prior)
+    if (prior) {
+      executionPort?.onSettled?.();
       return prior.requestDigest === requestDigest
         ? receipt(prior)
         : rejection(runId, "idempotency_conflict", "Use a new idempotency key for different run input.");
+    }
     try {
       if (
         !isNonEmptyRunText(input.presetId) ||
@@ -187,9 +194,11 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
         phases: ["admitted"],
         snapshotDigest: resolved.snapshot.digest,
       });
+      if (port.onSettled) settlements.set(runId, port.onSettled);
       setImmediate(() => void execute(witness, resolved, entrypoint, input.inputs ?? {}, input.taskId, port));
       return receipt(witness);
     } catch (error) {
+      executionPort?.onSettled?.();
       const known = consumeKnownError(error),
         witness = save({
           schema: "preset-run-witness/v1",
@@ -241,7 +250,13 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
   ): Witness {
     const current = witnesses.get(runId);
     if (!current || terminal.has(current.outcome)) return current!;
-    return save({ ...current, ...extra, outcome, phase, phases: [...current.phases, phase] });
+    const changed = save({ ...current, ...extra, outcome, phase, phases: [...current.phases, phase] });
+    if (terminal.has(outcome)) {
+      const onSettled = settlements.get(runId);
+      settlements.delete(runId);
+      onSettled?.();
+    }
+    return changed;
   }
   function cleanup(runId: string): void {
     const stage = path.join(stagingRoot, runId);

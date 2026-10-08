@@ -220,6 +220,7 @@ async function startRepoWriterWorker(): Promise<void> {
           value = await cell.presetRun(
             (request.payload as { action: Parameters<typeof cell.presetRun>[0] }).action,
             binding!,
+            () => notify("releaseCurrentAccessToken", request.requestId),
           );
           break;
         case "spawnRuntime":

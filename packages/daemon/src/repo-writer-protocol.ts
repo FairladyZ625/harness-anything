@@ -142,6 +142,7 @@ export type RepoWriterCapabilityName =
   | "runtimeInstances"
   | "keycloakCenter"
   | "currentAccessToken"
+  | "releaseCurrentAccessToken"
   | "prepareRuntimeLaunch"
   | "prepareWorkerGitEnvironment"
   | "runtimeLaunch"

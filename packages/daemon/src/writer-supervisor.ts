@@ -79,10 +79,11 @@ export async function openWriterSupervisor(
         readonly resolve: (value: unknown) => void;
         readonly reject: (error: Error) => void;
         readonly cleanup: () => void;
-        readonly currentAccessToken?: () => Promise<string>;
+        readonly retainSessionToken: boolean;
       }
     >(),
-    runtimeProcesses = new Map<string, RuntimeProcess>();
+    runtimeProcesses = new Map<string, RuntimeProcess>(),
+    sessionTokens = new Map<string, () => Promise<string>>();
 
   ready = startWriterWorker();
   await ready;
@@ -122,11 +123,15 @@ export async function openWriterSupervisor(
           },
           cleanup = () => signal?.removeEventListener("abort", cancel);
         signal?.addEventListener("abort", cancel, { once: true });
+        const currentAccessToken = binding?.keycloakAuthorization?.session?.currentAccessToken;
+        if (currentAccessToken) sessionTokens.set(requestId, currentAccessToken);
         pending.set(requestId, {
           resolve: resolve as (value: unknown) => void,
           reject,
           cleanup,
-          currentAccessToken: binding?.keycloakAuthorization?.session?.currentAccessToken,
+          // Preset admission returns before produce; keep its session until the terminal witness.
+          retainSessionToken:
+            method === "presetRun" && (payload as { action: { kind: string } }).action.kind === "preset-run-start",
         });
         try {
           worker!.postMessage(request);
@@ -134,6 +139,7 @@ export async function openWriterSupervisor(
         } catch (error) {
           consumeKnownError(error);
           pending.delete(requestId);
+          sessionTokens.delete(requestId);
           cleanup();
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           reject(error instanceof Error ? error : new Error(String(error)));
@@ -159,6 +165,7 @@ export async function openWriterSupervisor(
           operation.reject(new Error("RepoWriterCell closed"));
         }
         pending.clear();
+        sessionTokens.clear();
         status = { ...status, state: "closed", queueDepth: 0 };
       }
     },
@@ -199,6 +206,12 @@ export async function openWriterSupervisor(
           const operation = pending.get(message.requestId);
           if (!operation) return;
           pending.delete(message.requestId);
+          if (
+            !operation.retainSessionToken ||
+            message.outcome !== "ok" ||
+            (message.value as { outcome?: string } | undefined)?.outcome !== "started"
+          )
+            sessionTokens.delete(message.requestId);
           operation.cleanup();
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           if (message.outcome === "ok") operation.resolve(message.value);
@@ -297,7 +310,7 @@ export async function openWriterSupervisor(
         command,
       };
     return new Promise<void>((resolve, reject) => {
-      pending.set(requestId, { resolve: () => resolve(), reject, cleanup: () => undefined });
+      pending.set(requestId, { resolve: () => resolve(), reject, cleanup: () => undefined, retainSessionToken: false });
       worker!.postMessage(control);
     });
   }
@@ -308,6 +321,7 @@ export async function openWriterSupervisor(
       operation.reject(error);
     }
     pending.clear();
+    sessionTokens.clear();
   }
 
   async function handleCapability(active: Worker, call: RepoWriterCapabilityCallV1): Promise<void> {
@@ -335,10 +349,13 @@ export async function openWriterSupervisor(
           resolver =
             requestId === null
               ? input.bootstrap?.keycloakAuthorization?.session?.currentAccessToken
-              : pending.get(requestId)?.currentAccessToken;
+              : sessionTokens.get(requestId);
         if (!resolver) throw new Error("Writer session token resolver is unavailable");
         return resolver();
       }
+      case "releaseCurrentAccessToken":
+        sessionTokens.delete(call.payload as string);
+        return;
       case "keycloakCenter":
         return input.keycloakCenter!();
       case "prepareRuntimeLaunch": {

@@ -259,7 +259,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     return ciRefresh;
   }
   const run = makeRepoCellCommandRunner(context);
-  const presetRun: RepoCell["presetRun"] = async (action, binding) => {
+  const presetRun: RepoCell["presetRun"] = async (action, binding, onSettled) => {
     const bound = bindExecutorClaimAtWriterCut(action, binding);
     ({ action, binding } = bound.queued ? await bound.result : bound.result);
     const command = commandDescriptorForAction(action.kind),
@@ -310,6 +310,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
                 idempotencyKey: context.requiredCellText(action.idempotencyKey, "idempotencyKey"),
               },
               {
+                onSettled,
                 admitProduce: (kind: string) => {
                   try {
                     return (durablePolicyActions as readonly string[]).includes(kind);
