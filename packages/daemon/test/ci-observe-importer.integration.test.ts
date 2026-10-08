@@ -36,6 +36,7 @@ function provider() {
     extraJob: false,
     artifactsOnSecondPage: false,
     archiveMissing: false,
+    firstArchiveError: null as Error | null,
     expired: false,
     missingRun: false,
     offline: false,
@@ -126,6 +127,7 @@ function provider() {
       });
     }
     if (command === "gh" && args[0] === "run" && args[1] === "download") {
+      if (args[2] === "1" && state.firstArchiveError) throw state.firstArchiveError;
       if (state.archiveMissing) throw new Error("HTTP 404 Not Found: selected artifact archive");
       const runId = args[2]!,
         dir = args[args.indexOf("--dir") + 1]!;
@@ -360,6 +362,97 @@ test("a selected archive's authoritative 404 ends diagnostics visibly while reta
     ]);
   });
 });
+
+for (const mode of ["normal", "404", "azure-blob-failure"] as const) {
+  test(`a first archive ${mode} permits truthful recording, the later run and the empty scan tail`, async (t) => {
+    await fixture(async ({ run, state, current, store }) => {
+      state.runs = 2;
+      // Synthetic non-404 storage error: the historical packet does not contain the raw Azure response.
+      state.firstArchiveError =
+        mode === "normal"
+          ? null
+          : mode === "404"
+            ? new Error("HTTP 404 Not Found: selected artifact archive")
+            : Object.assign(new Error("Command failed: gh run download 1"), {
+                stderr: "error downloading artifact from Azure Blob Storage: HTTP 503 Service Unavailable",
+              });
+      const checkpoints = [];
+      for (let occurrence = 0; occurrence < 2; occurrence++) {
+        const result = await run(),
+          progress = current().status.ciObserve!,
+          observations = store.read().events.filter((event) => event.schema === "ci-run-observation/v4");
+        checkpoints.push({
+          outcome: result.outcome,
+          nextPage: progress.nextPage,
+          nextRunId: progress.nextRunId,
+          pending: progress.pending,
+          unavailable: progress.unavailable,
+          scanPass: progress.scanPass,
+          events: observations.length,
+          artifactRuns: observations
+            .filter((event) => event.payload.detailRef !== null)
+            .map((event) => event.payload.identity.databaseRunId),
+          seen: [...state.seen],
+        });
+        t.diagnostic(JSON.stringify({ occurrence, checkpoint: checkpoints.at(-1), error: progress.error }));
+      }
+      const accepted = {
+        outcome: "succeeded",
+        nextRunId: null,
+        pending: [],
+        events: mode === "normal" ? 6 : 5,
+        artifactRuns: mode === "normal" ? ["1", "2"] : ["2"],
+        seen: ["1.1", "1.1", "2.1", "2.1"],
+      };
+      assert.deepEqual(
+        checkpoints,
+        [
+          {
+            ...accepted,
+            nextPage: 2,
+            scanPass: 0,
+            unavailable: mode === "normal" ? [] : [{ runId: 1, attempt: 1, reason: "provider-artifact-unavailable" }],
+          },
+          { ...accepted, nextPage: 1, scanPass: 1, unavailable: [] },
+        ],
+        "one unavailable archive must not pin the scan or fabricate artifact evidence",
+      );
+    });
+  });
+}
+
+for (const [name, failure, errorPattern, retryAt] of [
+  [
+    "rate-limit 403",
+    Object.assign(new Error("Command failed: gh run download 1"), {
+      stderr: "API rate limit exceeded; rate limit reset in 2m (HTTP 403)",
+    }),
+    /rate-limited/u,
+    "2026-10-08T10:02:00.000Z",
+  ],
+  ["rate-limit 429", new Error("HTTP 429 rate limit; try again in 2m"), /rate-limited/u, "2026-10-08T10:02:00.000Z"],
+  ["authentication", new Error("HTTP 401 authentication required"), /401/u, null],
+  ["offline", new Error("connect ENETUNREACH"), /ENETUNREACH/u, null],
+  ["local filesystem", new Error("ENOSPC: no space left on device, open '/tmp/artifact.zip'"), /ENOSPC/u, null],
+  ["programmer", new TypeError("unexpected fixture invariant"), /fixture invariant/u, null],
+] as const) {
+  test(`a download-stage ${name} failure remains fail-closed and pins the run cursor`, async () => {
+    await fixture(async ({ run, state, current, store }) => {
+      state.runs = 2;
+      state.firstArchiveError = failure;
+      const result = await run(),
+        progress = current().status.ciObserve!;
+      assert.equal(result.outcome, "failed");
+      assert.match(progress.error!, errorPattern);
+      assert.equal(progress.nextPage, 1);
+      assert.equal(progress.nextRunId, 1);
+      assert.deepEqual(progress.unavailable, []);
+      assert.deepEqual(state.seen, ["1.1"], "the later run must not be visited after an occurrence failure");
+      assert.equal(store.readHead(), null);
+      assert.equal(progress.retryAt, retryAt);
+    });
+  });
+}
 
 test("a partially obtained attempt retains its missing job target even when another job detail exists", async () => {
   await fixture(async ({ run, state, current }) => {
