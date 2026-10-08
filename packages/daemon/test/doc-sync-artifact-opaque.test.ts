@@ -13,6 +13,7 @@ import {
   docSyncWritePlan,
   makeTaskEventReader,
   makeTaskEventStore,
+  makeTaskProjection,
   parseDocWriteIntent,
   sha256Bytes,
   sqliteLedgerPath,
@@ -969,9 +970,11 @@ test("doc status uses the configured authored root and quotes artifact source pa
         readonly candidateBlobSha256: string | null;
       }[];
     };
+    // Artifact-subtree bytes ride the content object contract, so the scan reads them whole within
+    // the cap and can report the candidate digest even for an inapplicable raw artifact.
     assert.deepEqual(
       [rows.rows[0]?.state, rows.rows[0]?.size, rows.rows[0]?.candidateBlobSha256],
-      ["inapplicable", bytes.byteLength, null],
+      ["inapplicable", bytes.byteLength, sha256Bytes(bytes)],
       JSON.stringify(rows),
     );
     assert.match(
@@ -989,7 +992,7 @@ test("doc status uses the configured authored root and quotes artifact source pa
   }
 });
 
-test("doc status routes oversized textual task artifacts through artifact add", async () => {
+test("oversized textual task artifacts sync through the blob content contract", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-oversized-text-"));
   initRepo(rootDir);
   const repoId = workspaceId("artifact-oversized-text"),
@@ -1007,13 +1010,22 @@ test("doc status routes oversized textual task artifacts through artifact add", 
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, bytes);
-    const rejected = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
-    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
-    assert.equal(rejected.code, "doc_candidate_too_large");
-    assert.equal(
-      (rejected.detail as { readonly nextAction?: string }).nextAction,
-      `ha task artifact add task-oversized-text --source ${source} --destination artifacts/report.txt`,
-    );
+    const status = (await cell.run({ kind: "doc-status", paths: [logical] }, binding)) as Record<string, unknown>;
+    const rows = JSON.parse(String(status.evidence).slice("doc-scan:".length)) as {
+      readonly rows: readonly { readonly state: string; readonly size: number | null }[];
+    };
+    // The artifacts subtree rides the <=50,000,000 byte content object contract, so a textual
+    // artifact past the inline cap is an eligible candidate, not a blocked one.
+    assert.deepEqual([rows.rows[0]?.state, rows.rows[0]?.size], ["eligible", bytes.byteLength], JSON.stringify(rows));
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const reader = makeTaskEventReader({ repoId, rootDir: canonicalRoot(rootDir) }),
+      projection = makeTaskProjection({ rootDir: canonicalRoot(rootDir), eventStore: reader });
+    try {
+      assert.equal(projection.readDocument(logical).document?.body, bytes.toString("utf8"));
+    } finally {
+      await reader.drain();
+    }
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
