@@ -262,7 +262,7 @@ export function openFleetEdgeRuntime(input: {
           // Causal context, profile and worktree binding share the just-confirmed replica cut.
           // Authored task files remain the explicitly synchronized local workspace.
           { causalContext, profileId, worktree } = runtimeContext,
-          livingProtocol = livingDeliverableProtocol(profileId);
+          livingProtocol = livingDeliverableProtocol(profileId, current.task?.taskClass, taskId);
         let plan: string;
         try {
           plan = readFileSync(planPath, "utf8");
@@ -316,6 +316,7 @@ export function openFleetEdgeRuntime(input: {
             : {}),
           packageRoot,
           profileId,
+          taskClass: current.task!.taskClass,
           prBodyPath,
           mission: (reachedPackageRoot) =>
             [

@@ -115,3 +115,12 @@ test("PR body protocol follows the document slot, including lightweight explicit
     /PR Body Delivery/u,
   );
 });
+
+test("work missions carry the owner maintenance protocol rather than the task protocol", () => {
+  const mission = explicitPromptMission("task_work", null, "Inspect work.", "baseline", null, "work");
+  assert.match(mission, /# Work Page Maintenance Protocol/u);
+  for (const section of ["#now", "#asks", "#board", "#timeline"]) assert.ok(mission.includes(section));
+  assert.match(mission, /ha task progress append task_work/u);
+  assert.doesNotMatch(mission, /# Living Deliverable Protocol/u);
+  assert.doesNotMatch(explicitPromptMission("task_leaf", null, "Go."), /Work Page Maintenance Protocol/u);
+});

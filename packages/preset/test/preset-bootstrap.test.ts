@@ -234,6 +234,14 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
       opId: "op-work",
     });
     assert.equal(work.event.payload.task.taskClass, "work");
+    const workExplainer = work.documents.find(({ slot }) => slot === "task.explainer")!.body;
+    for (const section of ["now", "asks", "board", "risks", "next", "timeline"])
+      assert.ok(workExplainer.includes(`id="${section}"`), `work section ${section}`);
+    assert.match(workExplainer, /W2/u);
+    assert.match(workExplainer, /工作根 progress/u);
+    assert.doesNotMatch(explainer, /id="board"/u);
+    writeFileSync(path.join(rootDir, "work-explainer.html"), workExplainer);
+
     assert.equal(work.snapshot.templates[0]!.templateRef, "template://planning/work-task-plan@1");
     assert.equal(work.event.payload.initialDocumentClaims.length, 6);
     assert.equal(

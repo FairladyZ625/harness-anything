@@ -226,6 +226,7 @@ export function appendProgress(
     ...(runtimeBinding ? { runtimeBinding } : {}),
     asOwner: action.asOwner === true,
     taskCreatedBy: task.snapshot.task.createdBy,
+    taskClass: task.snapshot.task.taskClass,
     actor: binding.actor,
     source: binding.source,
     eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,

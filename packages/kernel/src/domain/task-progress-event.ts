@@ -16,6 +16,7 @@ import {
   type WriteSource,
   type WriteTarget,
 } from "./write-chain.contract.ts";
+import type { TaskClass } from "./task.ts";
 import type { LeaseV1 } from "./execution.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { isTaskBoundRuntimeWriter, type TaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
@@ -46,6 +47,7 @@ export type TaskProgressEventV1 = EventEnvelope<
   ActorIdentity,
   {
     readonly taskId: string;
+    /** Empty for owner-authored work progress, which has no execution round. */
     readonly executionId: string;
     readonly text: string;
     readonly evidence: readonly TaskProgressEvidence[];
@@ -108,6 +110,7 @@ export function compileTaskProgress(input: {
   /** The caller declared --as-owner; honored only for post-release backfill by the task creator. */
   readonly asOwner?: boolean;
   readonly taskCreatedBy?: ActorIdentity;
+  readonly taskClass?: TaskClass;
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly eventId: string;
@@ -139,6 +142,8 @@ export function compileTaskProgress(input: {
     throw new TaskProgressError("invalid_progress", "progress package path is invalid");
   }
   const lease = input.activeLease,
+    workOwner =
+      input.taskClass === "work" && input.taskCreatedBy !== undefined && isSamePerson(input.taskCreatedBy, input.actor),
     // Post-release owner backfill: the task creator may append after the lease is gone, but a
     // live reservation or a held lease keeps the normal holder rules (no writability revival).
     ownerBackfill =
@@ -147,12 +152,12 @@ export function compileTaskProgress(input: {
       isSamePerson(input.taskCreatedBy, input.actor) &&
       (lease === null || lease.phase === "released" || lease.phase === "orphaned");
   if (lease === null || lease.phase !== "held") {
-    if (!ownerBackfill)
+    if (!ownerBackfill && !workOwner)
       throw new TaskProgressError(
         "progress_lease_required",
         progressLeaseRequiredMessage(input.taskId, lease, input.startRecoveryAvailable),
       );
-    if (!isNonEmptyString(input.executionId))
+    if (!workOwner && !isNonEmptyString(input.executionId))
       throw new TaskProgressError("invalid_progress", "owner backfill must name the released round's execution id");
   } else {
     const directHolder = isSameExecution(lease.actor, input.actor) && input.runtimeBinding === undefined,
@@ -327,7 +332,7 @@ function validateTaskProgressEventFields(value: unknown, allowUnknownFields: boo
       (!isNonEmptyString(runtimeSessionId) || !isRuntimeSessionActor(value.actor, runtimeSessionId))) ||
     (payload.backfilled !== undefined && payload.backfilled !== true) ||
     !isNonEmptyString(payload.taskId) ||
-    !isNonEmptyString(payload.executionId) ||
+    typeof payload.executionId !== "string" ||
     !validText(payload.text) ||
     !Array.isArray(payload.evidence) ||
     !payload.evidence.every((entry) => validEvidence(entry, allowUnknownFields)) ||

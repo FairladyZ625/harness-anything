@@ -40,6 +40,56 @@ after(() => {
   rmSync(ciBin, { recursive: true, force: true });
 });
 
+test("work owner appends without a lease while outsider and ordinary task require one, including cold replay", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-work-progress-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("work-progress"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "work-progress",
+  });
+  t.after(() => cell.close());
+  const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  for (const [taskId, presetId, taskClass] of [
+    ["task_work_progress", "create-work", "work"],
+    ["task_leaf_progress", "standard-task", "standard"],
+  ] as const) {
+    const created = await cell.run({ kind: "task-create", taskId, title: taskId, presetId, taskClass }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+  }
+  const append = { kind: "task-progress-append", taskId: "task_work_progress", text: "Owner inspection", evidence: [] };
+  const outsider = await cell.run(
+    append,
+    withPolicyGroup({ actor: { principal: { personId: "outsider" }, executor: null }, source: "local" }, "admin"),
+  );
+  assert.equal(outsider.code, "progress_lease_required", JSON.stringify(outsider));
+  const leaf = await cell.run({ ...append, taskId: "task_leaf_progress" }, binding);
+  assert.equal(leaf.code, "progress_lease_required", JSON.stringify(leaf));
+  const accepted = await cell.run(append, binding);
+  assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+  assert.equal(accepted.executionId, "");
+  const delegated = await cell.run(
+    { ...append, text: "CEO inspection" },
+    withPolicyGroup({ actor: { ...actor, executor: { kind: "agent", id: "ceo-session" } }, source: "local" }, "admin"),
+  );
+  assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
+  await waitForFixturePublication(cell, delegated.opId, binding);
+  const store = makeTaskEventStore({ repoId: "work-progress", rootDir });
+  const projection = makeTaskProjection({ rootDir, eventStore: store });
+  try {
+    projection.rebuild();
+    const rows = projection.readProgress("task_work_progress").rows;
+    assert.deepEqual(
+      rows.map(({ payload }) => payload.text),
+      ["Owner inspection", "CEO inspection"],
+    );
+    assert.equal(projection.read("task_work_progress").snapshot.executions.length, 0);
+  } finally {
+    projection.close();
+  }
+});
+
 test("task create rejects ids that cannot form task entity references", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-id-ref-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
