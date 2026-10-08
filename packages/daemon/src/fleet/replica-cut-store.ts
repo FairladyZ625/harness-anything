@@ -338,7 +338,12 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         );
       if (event.schema === "schedule-event/v1") {
         const detail = event.payload.schedule.status.lastRun?.detail;
-        if (detail?.startsWith("artifact:runtime-result/")) requireResult(detail);
+        // Retired schedule settlement stored a result ref plus cleanup prose in detail.
+        // Current outcomes carry claims; their missing/corrupt content still fails below.
+        if (detail?.startsWith("artifact:runtime-result/")) {
+          requireResult(detail);
+          unavailable.add(detail);
+        }
       }
       if (event.schema !== "agent-runtime-event/v1" || event.type !== "runtime_session_outcome_observed") continue;
       requireResult(event.payload.resultRef);
@@ -356,10 +361,15 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     }
     for (const ref of requiredResults) {
       const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref)?.[1];
-      if (digest && !results.has(digest) && unavailable.has(ref) && options.readContentBlob(digest) === null) {
+      if (
+        (!digest || !results.has(digest)) &&
+        unavailable.has(ref) &&
+        (!digest || options.readContentBlob(digest) === null)
+      ) {
+        unavailable.add(ref);
         unavailableEntries.push(
           readModelEntry(
-            `.read-model/runtime-results-unavailable/${digest}`,
+            `.read-model/runtime-results-unavailable/${digest ?? `ref-${sha256Text(ref)}`}`,
             stableStringify({ resultRef: ref, availability: "unavailable", downloadable: false }),
             "application/json",
           ),
@@ -383,8 +393,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
             if (row.table !== "runtime_session") return row;
             const session = JSON.parse(String(row.values.value_json)) as { resultRef?: string };
             if (!session.resultRef || !unavailable.has(session.resultRef)) return row;
-            const digest = session.resultRef.split("/").at(-1)!;
-            if (results.has(digest)) return row;
+            const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(session.resultRef)?.[1];
+            if (digest && results.has(digest)) return row;
             return {
               ...row,
               values: {

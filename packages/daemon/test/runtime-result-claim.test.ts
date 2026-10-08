@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { compileRuntimeSessionDraft } from "../src/entity-action-runtime-session.ts";
-import { sha256Text, type RuntimeSessionActionDraft } from "@harness-anything/kernel";
+import { sha256Text, parseCanonicalEvent, type RuntimeSessionActionDraft } from "@harness-anything/kernel";
 
 test("new succeeded outcomes require claimed bytes while historical events remain readable", () => {
   const body = "Completed runtime result.",
@@ -41,6 +41,14 @@ test("new succeeded outcomes require claimed bytes while historical events remai
   assert.throws(() => compileRuntimeSessionDraft({ event: claimed } as RuntimeSessionActionDraft), {
     code: "content_claim_required",
   });
+  assert.throws(
+    () =>
+      parseCanonicalEvent({
+        ...claimed,
+        payload: { ...claimed.payload, resultRef: `${claimed.payload.resultRef} Occurrence worktree retained.` },
+      }),
+    "canonical event decoding rejects malformed refs",
+  );
   assert.equal(
     compileRuntimeSessionDraft({ event: claimed, resultBody: body } as RuntimeSessionActionDraft).blobs[0]?.body,
     body,

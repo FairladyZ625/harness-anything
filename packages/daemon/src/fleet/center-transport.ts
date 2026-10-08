@@ -181,6 +181,7 @@ export async function serve(
           messageId: mid(frame?.messageId ?? "invalid", "error"),
           inReplyTo: frame?.messageId ?? "invalid",
           code: fault.code,
+          message: fault.message,
           retryable: fault.retryable,
           resumeOffset: fault.resumeOffset,
         }),

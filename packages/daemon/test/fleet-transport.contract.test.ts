@@ -302,6 +302,7 @@ const frames = [
     messageId: "m22",
     inReplyTo: "m20",
     code: "invalid_ack",
+    message: "ACK does not match the current transfer.",
     retryable: false,
     resumeOffset: null,
   },
@@ -555,4 +556,13 @@ test("fleet metadata and commands reject static assignment and broker fields", (
     { ...result, lease: { executionId: "old" } },
   ])
     assert.throws(() => parseFleetFrame(frame), FleetContractError);
+});
+
+test("Fleet error requires and preserves the center's diagnostic message", () => {
+  const error = frames.find((frame) => frame.schema === "fleet.error/v1")!;
+  const message = "Runtime result construction failed: ".repeat(30);
+  assert.deepEqual(parseFleetFrame(serializeFleetFrame({ ...error, message })), { ...error, message });
+  const { message: omitted, ...withoutMessage } = error;
+  assert.equal(typeof omitted, "string");
+  assert.throws(() => parseFleetFrame(withoutMessage), FleetContractError);
 });

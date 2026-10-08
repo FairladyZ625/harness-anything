@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
-import { sha256Bytes, type CanonicalEventStore } from "@harness-anything/kernel";
+import { sha256Bytes, sha256Text, type CanonicalEventStore } from "@harness-anything/kernel";
 
 export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "readContentBlob">, ref: string): string {
   const match = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref);
@@ -17,7 +17,14 @@ export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "rea
 
 export function readEdgeRuntimeResult(viewRoot: string, repoId: string, nodeId: string, ref: string): string {
   const match = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref);
-  if (!match) throw Object.assign(new Error("Invalid runtime result reference."), { code: "replica_unavailable" });
+  if (!match) {
+    const view = locateFleetMirrorView(viewRoot, repoId, nodeId);
+    if (view?.entries.has(`.read-model/runtime-results-unavailable/ref-${sha256Text(ref)}`))
+      throw Object.assign(new Error(`Historical runtime result ${ref} is unavailable and cannot be downloaded.`), {
+        code: "runtime_result_unavailable",
+      });
+    throw Object.assign(new Error("Invalid runtime result reference."), { code: "replica_unavailable" });
+  }
   return decodeRuntimeResult(readEdgeRuntimeResultBytes(viewRoot, repoId, nodeId, match[1]!));
 }
 export function readEdgeRuntimeResultBytes(
