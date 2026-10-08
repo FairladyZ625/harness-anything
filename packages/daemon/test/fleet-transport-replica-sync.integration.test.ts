@@ -12,7 +12,7 @@ import {
   waitForFleetPublication,
 } from "./fleet-store.fixture.ts";
 import { setTimeout as delay } from "node:timers/promises";
-import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
+import { READ_MODEL_SCHEMA_GENERATION, sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { readHeadConfirmation } from "../src/fleet/replica-read-model.ts";
@@ -373,7 +373,17 @@ function edgeCurrent(edgeRoot: string, subject: FleetTestSubject): FleetCut {
 }
 function edgeCutFile(edgeRoot: string, subject: FleetTestSubject, revision: number, docPath: string): string {
   return readFileSync(
-    path.join(edgeRoot, "repos", subject.repoId, "views", subject.viewId, "cuts", `${revision}-g0`, "files", docPath),
+    path.join(
+      edgeRoot,
+      "repos",
+      subject.repoId,
+      "views",
+      subject.viewId,
+      "cuts",
+      `${revision}-g${READ_MODEL_SCHEMA_GENERATION}`,
+      "files",
+      docPath,
+    ),
     "utf8",
   );
 }
@@ -408,7 +418,7 @@ test("multi-path subject produces a complete first snapshot and a scoped delta",
           "views",
           fixture.subject.viewId,
           "cuts",
-          `${first.center.revision}-g0`,
+          `${first.center.revision}-g${READ_MODEL_SCHEMA_GENERATION}`,
           "files",
           itemPath,
         ),
