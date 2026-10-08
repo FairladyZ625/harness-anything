@@ -78,6 +78,11 @@ export function taskMutation(
       samePrincipalRecovery =
         isSamePerson(activeLease.actor, binding.actor) &&
         (activeLease.phase === "orphaned" || execution === undefined || terminalRuntimeBinding !== null),
+      sessionHandoff =
+        isSamePerson(activeLease.actor, binding.actor) &&
+        activeLease.actor.executor?.kind === "agent" &&
+        runtimeSessionIdFromActor(activeLease.actor) === null &&
+        optionalReleaseText(action.reason) !== null,
       ownerRecovery =
         isSamePerson(task.createdBy, binding.actor) &&
         (activeLease.phase === "orphaned" || terminalRuntimeBinding !== null);
@@ -86,14 +91,15 @@ export function taskMutation(
         "authorization_missing",
         "Release criteria require the center AuthorizationPort decision.",
       );
-    if (!sameHolder && !samePrincipalRecovery && !ownerRecovery)
+    if (!sameHolder && !samePrincipalRecovery && !sessionHandoff && !ownerRecovery)
       throw cell.cellCodedError(
         "lease_conflict",
         [
           "The current holder, or the same principal reclaiming an orphaned lease or reservation, must run ",
           "ha task release ",
           `${task.taskId}`,
-          ".",
+          ". For a same-person agent session handoff, supply --reason <handoff-reason>; " +
+            "a live runtime holder must stop before recovery.",
         ].join(""),
       );
     return {
