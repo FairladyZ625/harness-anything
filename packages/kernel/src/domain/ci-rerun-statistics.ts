@@ -70,7 +70,9 @@ export function ciRunWindow(events: readonly CiObservationRead[], window: number
 /** The caller resolves every required detail at the same cut; missing bytes never become zero samples. */
 export function ciRerunStatistics(events: readonly CiObservationRead[], details: ReadonlyMap<string, CiRunDetail>) {
   const jobs = events.filter((event) => ["job", "legacy"].includes(event.payload.scope));
-  const missing = jobs.filter((event) => !details.has(event.eventId)).map((event) => event.eventId);
+  const missing = jobs
+    .filter((event) => !details.has(event.eventId))
+    .map((event) => (event.payload.detailRef ? event.eventId : `unavailable:${event.eventId}`));
   const families = new Map<string, CiObservationRead[]>();
   for (const event of events) {
     const key = ciRunFamily(event);

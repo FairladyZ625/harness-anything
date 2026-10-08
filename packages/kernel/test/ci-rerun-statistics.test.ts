@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { ciRunWindow, ciRerunStatistics } from "../src/domain/ci-rerun-statistics.ts";
 import type { CiObservationRead, CiRunDetail } from "../src/domain/ci-run-observation-v4.ts";
 import job from "../fixtures/canonical-events/ci-run-observation-v4/job.json" with { type: "json" };
+import legacyV2 from "../fixtures/canonical-events/ci-run-observation-v2/accepted.json" with { type: "json" };
+import legacyV3 from "../fixtures/canonical-events/ci-run-observation-v3/accepted.json" with { type: "json" };
 import workflow from "../fixtures/canonical-events/ci-run-observation-v4/workflow.json" with { type: "json" };
 import { validateCiRunObservationEventV4, decodeCiObservation } from "../src/domain/ci-run-observation-v4.ts";
 
@@ -266,3 +268,21 @@ test("attempt inventory is closed, unique and cannot fabricate workflow verdicts
   ])
     assert.ok(validateCiRunObservationEventV4({ ...value, payload: { ...value.payload, ...patch } }, false).length);
 });
+
+for (const history of [legacyV2, legacyV3]) {
+  test(`${history.schema} without detailRef is unavailable, while cold v4 detail remains downloadable`, () => {
+    const legacy = decodeCiObservation(history as Parameters<typeof decodeCiObservation>[0]);
+    const current = observation(1, "passed");
+    const result = ciRerunStatistics([legacy, current.event, ...inventory([current])], new Map());
+    assert.equal(result.availability, "pending");
+    assert.deepEqual(result.missing, [current.event.eventId, `unavailable:${legacy.eventId}`].sort());
+    assert.deepEqual(result.tests, []);
+    const cached = ciRerunStatistics(
+      [legacy, current.event, ...inventory([current])],
+      new Map([[current.event.eventId, current.detail]]),
+    );
+    assert.equal(cached.availability, "pending");
+    assert.deepEqual(cached.missing, [`unavailable:${legacy.eventId}`]);
+    assert.deepEqual(cached.tests, []);
+  });
+}

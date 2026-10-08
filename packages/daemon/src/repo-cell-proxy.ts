@@ -588,7 +588,7 @@ export async function openRepoCellProxy(
           viewRoot: config.viewRoot,
           view: selected.view,
           eventIds: selected.answer.missingDetails.filter(
-            (ref) => !ref.startsWith("inventory:") && !ref.startsWith("artifact:"),
+            (ref) => !["inventory:", "artifact:", "unavailable:"].some((prefix) => ref.startsWith(prefix)),
           ),
           quotaBytes: config.quotaBytes,
         });
