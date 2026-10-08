@@ -146,26 +146,57 @@ test(
         viewRoot: e.viewRoot,
         diskQuotaBytes: e.config.quotaBytes,
       });
-    const truth = (await f.host.read("lease-repo", "repo.ci.observatory.read", {}, localAuthFixture())) as Record<
-      string,
-      unknown
-    >;
+    const truth = (await f.host.read(
+      "lease-repo",
+      "repo.ci.observatory.read",
+      { fetchDetails: true },
+      localAuthFixture(),
+    )) as Record<string, unknown>;
     assert.equal(truth.statisticsAvailability, "ready");
     for (const e of edges) {
       const before = (await protocolRead(e)) as Record<string, unknown>;
       assert.equal(before.statisticsAvailability, "pending");
       assert.deepEqual(before.tests, []);
+      const beforeJobs = (before.runs as { scope: string; detailAvailability: string; detail: unknown }[]).filter(
+        (run) => run.scope === "job",
+      );
+      assert.ok(
+        beforeJobs.length > 0 &&
+          beforeJobs.every((run) => run.detailAvailability === "not_cached" && run.detail === null),
+      );
       const after = (await protocolRead(e, true)) as Record<string, unknown>;
       assert.equal(after.statisticsAvailability, "ready");
       assert.deepEqual(after.tests, truth.tests);
       assert.deepEqual(after.recoveries, truth.recoveries);
       assert.equal(after.sourceRevision, truth.sourceRevision);
+      assert.deepEqual(after.runs, truth.runs);
+      assert.deepEqual(after.importer, truth.importer);
+      assert.ok(
+        (after.runs as { scope: string; detail: unknown }[])
+          .filter((run) => run.scope === "job")
+          .every((run) => run.detail !== null),
+      );
     }
+    assert.notEqual(edges[0]!.viewRoot, edges[1]!.viewRoot);
+    const unchanged = (await f.host.read(
+      "lease-repo",
+      "repo.ci.observatory.read",
+      { fetchDetails: true },
+      localAuthFixture(),
+    )) as Record<string, unknown>;
+    assert.equal(
+      unchanged.sourceRevision,
+      truth.sourceRevision,
+      "edge detail downloads must not write occurrence or canonical evidence",
+    );
+    assert.deepEqual(unchanged.importer, truth.importer);
     await f.center.close();
     for (const e of edges) {
       const offline = (await protocolRead(e, true)) as Record<string, unknown>;
       assert.deepEqual(offline.tests, truth.tests);
       assert.deepEqual(offline.recoveries, truth.recoveries);
+      assert.deepEqual(offline.runs, truth.runs);
+      assert.deepEqual(offline.importer, truth.importer);
     }
   },
 );
@@ -221,10 +252,12 @@ for (const mixed of [false, true]) {
         viewRoot: e.viewRoot,
         diskQuotaBytes: e.config.quotaBytes,
       });
-      const truth = (await f.host.read("lease-repo", "repo.ci.observatory.read", {}, localAuthFixture())) as Record<
-        string,
-        unknown
-      >;
+      const truth = (await f.host.read(
+        "lease-repo",
+        "repo.ci.observatory.read",
+        { fetchDetails: true },
+        localAuthFixture(),
+      )) as Record<string, unknown>;
       const before = await protocolRead(e);
       assert.equal(before.statisticsAvailability, "pending");
       assert.equal((before.missingDetails as string[]).length, mixed ? 4 : 2);

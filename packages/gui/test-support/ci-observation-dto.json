@@ -1,0 +1,614 @@
+{
+  "hot": {
+    "schema": "daemon.ci-observatory/v1",
+    "ok": true,
+    "status": "ready",
+    "window": 100,
+    "importer": {
+      "scheduleId": "builtin-ci-observe",
+      "activeRun": {
+        "occurrenceId": "occurrence-present",
+        "nodeId": "center",
+        "claimFence": "fence-present",
+        "kind": "scheduled",
+        "scheduledFor": "2026-10-09T00:00:00Z",
+        "claimedAt": "2026-10-09T00:00:00Z",
+        "attemptIndex": 1
+      },
+      "lastRun": {
+        "occurrenceId": "occurrence-failed",
+        "nodeId": "center",
+        "claimFence": "fence-old",
+        "outcome": "failed",
+        "detail": "claim_fence_expired",
+        "scheduledFor": "2026-10-08T00:00:00Z",
+        "endedAt": "2026-10-08T00:01:00Z",
+        "attemptIndex": 1
+      },
+      "progress": {
+        "workflow": "rewrite-ci",
+        "workflowIndex": 0,
+        "scanPass": 2,
+        "nextPage": 3,
+        "nextRunId": null,
+        "nextAttempt": 1,
+        "pending": [
+          {
+            "runId": 202,
+            "attempt": 1,
+            "workflow": "rewrite-ci"
+          }
+        ],
+        "unavailable": [
+          {
+            "runId": 99,
+            "attempt": 1,
+            "reason": "provider-artifact-unavailable"
+          }
+        ],
+        "lastCompletedScanAt": null,
+        "error": "HTTP 401: provider authentication failed",
+        "retryAt": null
+      }
+    },
+    "statisticsAvailability": "pending",
+    "missingDetails": [
+      "event-presentation-101-1",
+      "event-presentation-101-2",
+      "event-presentation-202-1"
+    ],
+    "recoveries": [],
+    "tests": [],
+    "shardDurations": [],
+    "gateTrends": [],
+    "l0MedianMs": null,
+    "runs": [
+      {
+        "branch": "main",
+        "job": "fixture-job",
+        "prNumber": null,
+        "runId": "101.1",
+        "runner": "ubuntu-latest",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "wallclockMs": 125000,
+        "eventId": "event-presentation-101-1",
+        "identity": {
+          "databaseRunId": "101",
+          "jobExecutionId": "1011",
+          "jobKey": "fixture-job",
+          "provider": "github-actions",
+          "repositoryId": "fixture/repository",
+          "runAttempt": 1,
+          "workflow": "rewrite-ci",
+          "workflowId": "1",
+          "workflowPath": ".github/workflows/rewrite-ci.yml"
+        },
+        "scope": "job",
+        "detailAvailability": "not_cached",
+        "detail": null,
+        "occurredAt": "2026-08-27T00:00:00.000Z",
+        "pass": false,
+        "testCount": 1,
+        "measurementCoverage": {
+          "completedFileCount": 1,
+          "missingReason": null,
+          "startedFileCount": 1,
+          "status": "complete"
+        },
+        "failedTests": [
+          {
+            "declarationLocation": {
+              "column": 1,
+              "line": 2
+            },
+            "durationMs": 2,
+            "executionOrdinal": 1,
+            "failureLocation": {
+              "file": "fixture.test.ts",
+              "line": 27,
+              "column": 5
+            },
+            "failureSummary": "Expected result to equal 42",
+            "file": "fixture.test.ts",
+            "name": "CI diagnostic fixture",
+            "shard": null,
+            "status": "failed",
+            "suite": [
+              "fixture"
+            ],
+            "testKey": "fixture-test",
+            "tier": "fast",
+            "truncated": false
+          }
+        ],
+        "fileOutcomes": [],
+        "gateCount": 0
+      },
+      {
+        "branch": "main",
+        "job": "fixture-job",
+        "prNumber": null,
+        "runId": "101.2",
+        "runner": "ubuntu-latest",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "wallclockMs": 125000,
+        "eventId": "event-presentation-101-2",
+        "identity": {
+          "databaseRunId": "101",
+          "jobExecutionId": "1012",
+          "jobKey": "fixture-job",
+          "provider": "github-actions",
+          "repositoryId": "fixture/repository",
+          "runAttempt": 2,
+          "workflow": "rewrite-ci",
+          "workflowId": "1",
+          "workflowPath": ".github/workflows/rewrite-ci.yml"
+        },
+        "scope": "job",
+        "detailAvailability": "not_cached",
+        "detail": null,
+        "occurredAt": "2026-08-27T00:00:00.000Z",
+        "pass": true,
+        "testCount": 1,
+        "measurementCoverage": {
+          "completedFileCount": 1,
+          "missingReason": null,
+          "startedFileCount": 1,
+          "status": "complete"
+        },
+        "failedTests": [],
+        "fileOutcomes": [],
+        "gateCount": 0
+      },
+      {
+        "branch": "main",
+        "job": "fixture-job",
+        "prNumber": null,
+        "runId": "202.1",
+        "runner": "ubuntu-latest",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "wallclockMs": 125000,
+        "eventId": "event-presentation-202-1",
+        "identity": {
+          "databaseRunId": "202",
+          "jobExecutionId": "2021",
+          "jobKey": "fixture-job",
+          "provider": "github-actions",
+          "repositoryId": "fixture/repository",
+          "runAttempt": 1,
+          "workflow": "rewrite-ci",
+          "workflowId": "1",
+          "workflowPath": ".github/workflows/rewrite-ci.yml"
+        },
+        "scope": "job",
+        "detailAvailability": "not_cached",
+        "detail": null,
+        "occurredAt": "2026-08-27T00:00:00.000Z",
+        "pass": false,
+        "testCount": 1,
+        "measurementCoverage": {
+          "completedFileCount": 1,
+          "missingReason": null,
+          "startedFileCount": 1,
+          "status": "complete"
+        },
+        "failedTests": [
+          {
+            "declarationLocation": {
+              "column": 1,
+              "line": 2
+            },
+            "durationMs": 2,
+            "executionOrdinal": 1,
+            "failureLocation": {
+              "file": "fixture.test.ts",
+              "line": 27,
+              "column": 5
+            },
+            "failureSummary": "Expected result to equal 42",
+            "file": "fixture.test.ts",
+            "name": "CI diagnostic fixture",
+            "shard": null,
+            "status": "failed",
+            "suite": [
+              "fixture"
+            ],
+            "testKey": "fixture-test",
+            "tier": "fast",
+            "truncated": false
+          }
+        ],
+        "fileOutcomes": [
+          {
+            "file": "timeout.test.ts",
+            "outcome": "timeout",
+            "lastActiveTest": "watchdog fixture",
+            "elapsedMs": 810000,
+            "limitMs": 810000,
+            "reason": "watchdog deadline",
+            "stallSummary": "last active file exceeded deadline"
+          }
+        ],
+        "gateCount": 0
+      }
+    ],
+    "watermark": 42,
+    "sourceRevision": 42
+  },
+  "cold": {
+    "schema": "daemon.ci-observatory/v1",
+    "ok": true,
+    "status": "ready",
+    "window": 100,
+    "importer": {
+      "scheduleId": "builtin-ci-observe",
+      "activeRun": {
+        "occurrenceId": "occurrence-present",
+        "nodeId": "center",
+        "claimFence": "fence-present",
+        "kind": "scheduled",
+        "scheduledFor": "2026-10-09T00:00:00Z",
+        "claimedAt": "2026-10-09T00:00:00Z",
+        "attemptIndex": 1
+      },
+      "lastRun": {
+        "occurrenceId": "occurrence-failed",
+        "nodeId": "center",
+        "claimFence": "fence-old",
+        "outcome": "failed",
+        "detail": "claim_fence_expired",
+        "scheduledFor": "2026-10-08T00:00:00Z",
+        "endedAt": "2026-10-08T00:01:00Z",
+        "attemptIndex": 1
+      },
+      "progress": {
+        "workflow": "rewrite-ci",
+        "workflowIndex": 0,
+        "scanPass": 2,
+        "nextPage": 3,
+        "nextRunId": null,
+        "nextAttempt": 1,
+        "pending": [
+          {
+            "runId": 202,
+            "attempt": 1,
+            "workflow": "rewrite-ci"
+          }
+        ],
+        "unavailable": [
+          {
+            "runId": 99,
+            "attempt": 1,
+            "reason": "provider-artifact-unavailable"
+          }
+        ],
+        "lastCompletedScanAt": null,
+        "error": "HTTP 401: provider authentication failed",
+        "retryAt": null
+      }
+    },
+    "statisticsAvailability": "ready",
+    "missingDetails": [],
+    "recoveries": [
+      {
+        "kind": "recoveredAfterRerun",
+        "familyKey": "[\"github-actions\",\"fixture/repository\",\"101\"]",
+        "finalStatus": "passed",
+        "jobKey": "fixture-job",
+        "testKey": "fixture-test",
+        "from": {
+          "eventId": "event-presentation-101-1",
+          "attempt": 1
+        },
+        "to": {
+          "eventId": "event-presentation-101-2",
+          "attempt": 2
+        },
+        "complete": true
+      }
+    ],
+    "tests": [
+      {
+        "identity": "[\"github-actions\",\"fixture/repository\",\"1\",\".github/workflows/rewrite-ci.yml\",\"fixture-job\",\"fixture-test\"]",
+        "file": "fixture.test.ts",
+        "name": "CI diagnostic fixture",
+        "families": 2,
+        "recoveredFamilies": 1,
+        "excludedFamilies": 0,
+        "rerunRecoveryRate": 0.5,
+        "notRerunAttempts": [],
+        "n": 3,
+        "p50Ms": 2,
+        "p95Ms": 2
+      }
+    ],
+    "shardDurations": [],
+    "gateTrends": [],
+    "l0MedianMs": null,
+    "runs": [
+      {
+        "branch": "main",
+        "job": "fixture-job",
+        "prNumber": null,
+        "runId": "101.1",
+        "runner": "ubuntu-latest",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "wallclockMs": 125000,
+        "eventId": "event-presentation-101-1",
+        "identity": {
+          "databaseRunId": "101",
+          "jobExecutionId": "1011",
+          "jobKey": "fixture-job",
+          "provider": "github-actions",
+          "repositoryId": "fixture/repository",
+          "runAttempt": 1,
+          "workflow": "rewrite-ci",
+          "workflowId": "1",
+          "workflowPath": ".github/workflows/rewrite-ci.yml"
+        },
+        "scope": "job",
+        "detailAvailability": "ready",
+        "detail": {
+          "schema": "ci-run-detail/v1",
+          "tests": [
+            {
+              "declarationLocation": {
+                "column": 1,
+                "line": 2
+              },
+              "durationMs": 2,
+              "executionOrdinal": 1,
+              "failureLocation": {
+                "file": "fixture.test.ts",
+                "line": 27,
+                "column": 5
+              },
+              "failureSummary": "Expected result to equal 42",
+              "file": "fixture.test.ts",
+              "name": "CI diagnostic fixture",
+              "shard": null,
+              "status": "failed",
+              "suite": [
+                "fixture"
+              ],
+              "testKey": "fixture-test",
+              "tier": "fast",
+              "truncated": false,
+              "error": {
+                "message": "Expected result to equal 42",
+                "stack": "Full assertion stack at fixture.test.ts:27:5",
+                "cause": {
+                  "message": "Fixture cause"
+                }
+              }
+            }
+          ],
+          "fileOutcomes": [],
+          "diagnostics": []
+        },
+        "occurredAt": "2026-08-27T00:00:00.000Z",
+        "pass": false,
+        "testCount": 1,
+        "measurementCoverage": {
+          "completedFileCount": 1,
+          "missingReason": null,
+          "startedFileCount": 1,
+          "status": "complete"
+        },
+        "failedTests": [
+          {
+            "declarationLocation": {
+              "column": 1,
+              "line": 2
+            },
+            "durationMs": 2,
+            "executionOrdinal": 1,
+            "failureLocation": {
+              "file": "fixture.test.ts",
+              "line": 27,
+              "column": 5
+            },
+            "failureSummary": "Expected result to equal 42",
+            "file": "fixture.test.ts",
+            "name": "CI diagnostic fixture",
+            "shard": null,
+            "status": "failed",
+            "suite": [
+              "fixture"
+            ],
+            "testKey": "fixture-test",
+            "tier": "fast",
+            "truncated": false
+          }
+        ],
+        "fileOutcomes": [],
+        "gateCount": 0
+      },
+      {
+        "branch": "main",
+        "job": "fixture-job",
+        "prNumber": null,
+        "runId": "101.2",
+        "runner": "ubuntu-latest",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "wallclockMs": 125000,
+        "eventId": "event-presentation-101-2",
+        "identity": {
+          "databaseRunId": "101",
+          "jobExecutionId": "1012",
+          "jobKey": "fixture-job",
+          "provider": "github-actions",
+          "repositoryId": "fixture/repository",
+          "runAttempt": 2,
+          "workflow": "rewrite-ci",
+          "workflowId": "1",
+          "workflowPath": ".github/workflows/rewrite-ci.yml"
+        },
+        "scope": "job",
+        "detailAvailability": "ready",
+        "detail": {
+          "schema": "ci-run-detail/v1",
+          "tests": [
+            {
+              "declarationLocation": {
+                "column": 1,
+                "line": 2
+              },
+              "durationMs": 2,
+              "executionOrdinal": 1,
+              "failureLocation": null,
+              "file": "fixture.test.ts",
+              "name": "CI diagnostic fixture",
+              "shard": null,
+              "status": "passed",
+              "suite": [
+                "fixture"
+              ],
+              "testKey": "fixture-test",
+              "tier": "fast",
+              "truncated": false
+            }
+          ],
+          "fileOutcomes": [],
+          "diagnostics": []
+        },
+        "occurredAt": "2026-08-27T00:00:00.000Z",
+        "pass": true,
+        "testCount": 1,
+        "measurementCoverage": {
+          "completedFileCount": 1,
+          "missingReason": null,
+          "startedFileCount": 1,
+          "status": "complete"
+        },
+        "failedTests": [],
+        "fileOutcomes": [],
+        "gateCount": 0
+      },
+      {
+        "branch": "main",
+        "job": "fixture-job",
+        "prNumber": null,
+        "runId": "202.1",
+        "runner": "ubuntu-latest",
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "wallclockMs": 125000,
+        "eventId": "event-presentation-202-1",
+        "identity": {
+          "databaseRunId": "202",
+          "jobExecutionId": "2021",
+          "jobKey": "fixture-job",
+          "provider": "github-actions",
+          "repositoryId": "fixture/repository",
+          "runAttempt": 1,
+          "workflow": "rewrite-ci",
+          "workflowId": "1",
+          "workflowPath": ".github/workflows/rewrite-ci.yml"
+        },
+        "scope": "job",
+        "detailAvailability": "ready",
+        "detail": {
+          "schema": "ci-run-detail/v1",
+          "tests": [
+            {
+              "declarationLocation": {
+                "column": 1,
+                "line": 2
+              },
+              "durationMs": 2,
+              "executionOrdinal": 1,
+              "failureLocation": {
+                "file": "fixture.test.ts",
+                "line": 27,
+                "column": 5
+              },
+              "failureSummary": "Expected result to equal 42",
+              "file": "fixture.test.ts",
+              "name": "CI diagnostic fixture",
+              "shard": null,
+              "status": "failed",
+              "suite": [
+                "fixture"
+              ],
+              "testKey": "fixture-test",
+              "tier": "fast",
+              "truncated": false,
+              "error": {
+                "message": "Expected result to equal 42",
+                "stack": "Full assertion stack at fixture.test.ts:27:5",
+                "cause": {
+                  "message": "Fixture cause"
+                }
+              }
+            }
+          ],
+          "fileOutcomes": [
+            {
+              "file": "timeout.test.ts",
+              "outcome": "timeout",
+              "elapsedMs": 810000,
+              "limitMs": 810000,
+              "lastActiveTest": "watchdog fixture",
+              "reason": "watchdog deadline",
+              "stallSummary": "last active file exceeded deadline"
+            }
+          ],
+          "diagnostics": [
+            {
+              "message": "watchdog diagnostic"
+            }
+          ]
+        },
+        "occurredAt": "2026-08-27T00:00:00.000Z",
+        "pass": false,
+        "testCount": 1,
+        "measurementCoverage": {
+          "completedFileCount": 1,
+          "missingReason": null,
+          "startedFileCount": 1,
+          "status": "complete"
+        },
+        "failedTests": [
+          {
+            "declarationLocation": {
+              "column": 1,
+              "line": 2
+            },
+            "durationMs": 2,
+            "executionOrdinal": 1,
+            "failureLocation": {
+              "file": "fixture.test.ts",
+              "line": 27,
+              "column": 5
+            },
+            "failureSummary": "Expected result to equal 42",
+            "file": "fixture.test.ts",
+            "name": "CI diagnostic fixture",
+            "shard": null,
+            "status": "failed",
+            "suite": [
+              "fixture"
+            ],
+            "testKey": "fixture-test",
+            "tier": "fast",
+            "truncated": false
+          }
+        ],
+        "fileOutcomes": [
+          {
+            "file": "timeout.test.ts",
+            "outcome": "timeout",
+            "lastActiveTest": "watchdog fixture",
+            "elapsedMs": 810000,
+            "limitMs": 810000,
+            "reason": "watchdog deadline",
+            "stallSummary": "last active file exceeded deadline"
+          }
+        ],
+        "gateCount": 0
+      }
+    ],
+    "watermark": 42,
+    "sourceRevision": 42
+  }
+}

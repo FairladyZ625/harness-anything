@@ -132,6 +132,7 @@ test("CI observatory preserves legacy hot counters and exposes unavailable rerun
     const result = readCiObservatory({
       rootDir,
       projection: {
+        listEntities: () => [],
         readCiRunObservations: () => ({
           status: "ready",
           events: observations.map(decodeCiObservation),
@@ -178,6 +179,7 @@ test("CI observatory does not count an advisory gate as a passing run", () => {
     const result = readCiObservatory({
       rootDir,
       projection: {
+        listEntities: () => [],
         readCiRunObservations: () => ({
           status: "ready",
           events: [
@@ -227,6 +229,7 @@ test("CI observatory window retains every job from the selected workflow run", (
     const result = readCiObservatory({
       rootDir,
       projection: {
+        listEntities: () => [],
         readCiRunObservations: () => ({
           status: "ready",
           events: [
@@ -268,6 +271,7 @@ test("CI observation pull writes canonical events once per run and job", async (
       },
     },
     projection: {
+      listEntities: () => [],
       apply: () => undefined,
       readCiRunObservations: () => ({ watermark: revision }),
     },
@@ -364,6 +368,7 @@ test("CI observation pull writes canonical events once per run and job", async (
       readCiObservatory({
         rootDir,
         projection: {
+          listEntities: () => [],
           readCiRunObservations: () => ({
             status: "ready",
             events: observed.map(decodeCiObservation),
@@ -743,6 +748,7 @@ test("CI observation pull --task imports the run the frozen contract judges: the
       },
     },
     projection: {
+      listEntities: () => [],
       apply: () => undefined,
       readCiRunObservations: () => ({ watermark: events.length }),
       read: () => ({
@@ -877,6 +883,7 @@ test("CI observation pull --task fails closed when no completed run covers the d
     settings: ciSettings(["rewrite-ci"]),
     cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
     projection: {
+      listEntities: () => [],
       read: () => ({
         snapshot: {
           task: { iteration: 1, completionGateIds: ["ci"] },
@@ -939,6 +946,7 @@ test("CI observation pull --task fails closed when no completed run covers the d
     const unsubmitted = {
       ...cell,
       projection: {
+        listEntities: () => [],
         read: () => ({
           snapshot: { task: { iteration: 1 }, executions: [{ iteration: 1, submission: null }] },
         }),
@@ -965,6 +973,7 @@ test("CI observation pull reports rate_limited with the reset hint instead of a 
     settings: ciSettings(["rewrite-ci"]),
     cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
     projection: {
+      listEntities: () => [],
       read: () => ({
         snapshot: {
           task: { iteration: 1, completionGateIds: ["ci"] },

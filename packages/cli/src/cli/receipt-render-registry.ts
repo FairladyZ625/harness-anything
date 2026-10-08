@@ -1,3 +1,4 @@
+import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/protocol";
 import { contractMigrationDryRunSummary, renderDispatchRow, renderRuntimeBatchRow } from "../cli-render.ts";
 import {
   renderEntityActionExplanation,
@@ -21,6 +22,7 @@ export interface RenderedCliReceipt {
 type ReceiptRenderer = (receipt: Record<string, unknown>, explainRequestRefs?: readonly string[]) => string;
 
 const schemaRenderers = new Map<string, ReceiptRenderer>([
+  ["daemon.ci-observatory/v1", renderCiObservatory],
   [
     "entity-action-explanation/v1",
     (receipt, explainRequestRefs) =>
@@ -398,4 +400,76 @@ function renderSuccessfulReceipt(receipt: Record<string, unknown>): string {
       receipt.summary ??
       `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`,
   );
+}
+
+/** Presentation only: verdicts, coverage, recoveries and statistics belong to the shared daemon DTO. */
+function renderCiObservatory(receipt: Record<string, unknown>): string {
+  const ci = receipt as unknown as DaemonGuiReadResultMap["repo.ci.observatory.read"];
+  const lines = [
+    `CI observations sourceRevision=${ci.sourceRevision} window=${ci.window} status=${ci.status} statistics=${ci.statisticsAvailability}`,
+  ];
+  if (ci.importer) {
+    const { scheduleId, activeRun, lastRun, progress } = ci.importer;
+    lines.push(`importer ${scheduleId}`);
+    lines.push(
+      activeRun
+        ? `owner ${activeRun.nodeId} occurrence=${activeRun.occurrenceId} fence=${activeRun.claimFence}`
+        : "owner idle",
+    );
+    if (lastRun)
+      lines.push(
+        `last occurrence=${lastRun.occurrenceId} node=${lastRun.nodeId} outcome=${lastRun.outcome} detail=${lastRun.detail ?? "unavailable"}`,
+      );
+    if (progress) {
+      lines.push(
+        `scan workflow=${progress.workflow} pass=${progress.scanPass} page=${progress.nextPage} error=${progress.error ?? "none"}`,
+      );
+      for (const target of progress.pending) lines.push(`pending artifact ${target.runId}.${target.attempt}`);
+      for (const target of progress.unavailable)
+        lines.push(`unavailable artifact ${target.runId}.${target.attempt}: ${target.reason}`);
+    }
+  } else lines.push("importer unavailable at this cut");
+  for (const id of ci.missingDetails) lines.push(`missing detail ${id}`);
+  if (ci.statisticsAvailability === "pending")
+    lines.push("Required evidence is missing; totals and quantiles are unavailable.");
+  for (const test of ci.tests) {
+    lines.push(
+      `${test.file} ${test.name}: n=${test.n} p50=${test.p50Ms ?? "unavailable"}ms p95=${test.p95Ms ?? "unavailable"}ms rerunRecoveryRate=${test.rerunRecoveryRate ?? "unavailable"} (${test.recoveredFamilies}/${test.families}) excluded=${test.excludedFamilies}`,
+    );
+    for (const attempt of test.notRerunAttempts)
+      lines.push(`  not-rerun ${attempt.familyKey} attempt=${attempt.attempt}`);
+  }
+  for (const fact of ci.recoveries) {
+    lines.push(
+      `recovery ${fact.jobKey} ${fact.testKey}: attempt ${fact.from.attempt} -> ${fact.to.attempt} final=${fact.finalStatus} complete=${fact.complete}`,
+    );
+    lines.push(`  ${fact.from.eventId} -> ${fact.to.eventId}`);
+  }
+  if (ci.runs.length === 0) lines.push("No CI observations at this cut.");
+  for (const run of ci.runs) lines.push(...renderCiRun(run));
+  return lines.join("\n");
+}
+
+function renderCiRun(run: DaemonGuiReadResultMap["repo.ci.observatory.read"]["runs"][number]): readonly string[] {
+  const lines = [
+    `${run.eventId} ${run.job} ${run.runId} ${run.sha}: pass=${run.pass ?? "unknown"} scope=${run.scope} measurement=${run.measurementCoverage.status} tests=${run.testCount ?? "unknown"} detail=${run.detailAvailability}`,
+  ];
+  if (run.measurementCoverage.missingReason) lines.push(`  ${run.measurementCoverage.missingReason}`);
+  for (const test of run.failedTests) {
+    const at = test.failureLocation;
+    lines.push(
+      `  failed ${test.name}: ${test.failureSummary ?? "diagnostic unavailable"}${test.truncated ? " (summary truncated)" : ""}`,
+    );
+    lines.push(
+      `    ${at ? `${at.file}:${at.line}:${at.column}` : `${test.file}:${test.declarationLocation.line ?? "?"}:${test.declarationLocation.column ?? "?"}`}`,
+    );
+  }
+  for (const file of run.fileOutcomes)
+    lines.push(
+      `  file ${file.file}: ${file.outcome} ${file.elapsedMs ?? "?"}/${file.limitMs ?? "?"}ms ${file.reason} ${file.stallSummary ?? ""}`,
+    );
+  if (run.failedTests.length === 0)
+    lines.push("  No failed test identities observed; this does not establish a passing workflow.");
+  if (run.detail) lines.push(JSON.stringify(run.detail, null, 2));
+  return lines;
 }

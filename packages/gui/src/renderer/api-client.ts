@@ -309,7 +309,9 @@ export const harnessClient = {
     return readAgendaResult(await invoke("repo.agenda.read", payload, "getAgenda"));
   },
   /** main 分支 CI 观察窗(dec_B3D40712 CH1 的 CI 区域只在这份读红时出现);window 有界 1..100。 */
-  async getCiObservatory(payload: RepoScope & { readonly window?: number }): Promise<CiObservatoryRead> {
+  async getCiObservatory(
+    payload: RepoScope & { readonly window?: number; readonly fetchDetails?: boolean },
+  ): Promise<CiObservatoryRead> {
     const result = await invoke("repo.ci.observatory.read", payload, "getCiObservatory");
     if (
       !result ||

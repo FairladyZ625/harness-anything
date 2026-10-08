@@ -1,3 +1,4 @@
+import ciObservations from "./scenarios/ci-observations.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
 import taskAssignment from "./scenarios/task-assignment.mjs";
@@ -37,6 +38,7 @@ import taskDetailExplainerDefault from "./scenarios/task-detail-explainer-defaul
 import edgeReadFreshness from "./scenarios/edge-read-freshness.mjs";
 
 export const catalog = [
+  ciObservations,
   edgeReadFreshness,
   runtimeHandoff,
   accountLogin,

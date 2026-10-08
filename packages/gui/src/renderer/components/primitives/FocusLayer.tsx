@@ -29,6 +29,7 @@ export function FocusLayer({
   onClose,
   list,
   detail,
+  emphasis = "list",
 }: {
   readonly open: boolean;
   readonly sourceId?: string;
@@ -43,6 +44,7 @@ export function FocusLayer({
   readonly onClose: () => void;
   readonly list: ReactNode;
   readonly detail: ReactNode;
+  readonly emphasis?: "list" | "detail";
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const keyboardSelection = useRef<string | null>(null);
@@ -132,7 +134,9 @@ export function FocusLayer({
             {toolbar !== undefined && (
               <div className="flex flex-none flex-wrap items-center gap-1.5 px-[18px] pb-2.5">{toolbar}</div>
             )}
-            <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1.5fr)_minmax(20rem,1fr)]">
+            <div
+              className={`content-viewport grid min-h-0 flex-1 grid-cols-1 ${emphasis === "detail" ? "md:grid-cols-[minmax(16rem,1fr)_minmax(0,1.5fr)]" : "md:grid-cols-[minmax(0,1.5fr)_minmax(20rem,1fr)]"}`}
+            >
               {/* flex 列的默认拉伸让每个直接子行占满列宽:调用方传入的行/包装层不再依赖
                 自身 display 参与块级流(行高亮曾止于内容宽度,S3 移交缺陷)。 */}
               <div

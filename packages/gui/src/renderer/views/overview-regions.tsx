@@ -26,7 +26,6 @@ import {
   type DrillWipRow,
   type FollowUpKind,
   type FollowUpRow,
-  type MainCiFailingJob,
   type PinnedTaskRow,
   type ReviewRow,
   type WatchedWork,
@@ -776,65 +775,6 @@ export function PinnedFocusDetail({ task, deps }: { readonly task: PinnedTaskRow
           {t("views.overviewView.actionUnpin")}
         </OverviewActionButton>
       </div>
-    </div>
-  );
-}
-
-/** main CI 红放大层:只陈述事实(重跑/看日志没有现成 GUI 动作,不做假按钮)。 */
-export function CiFocusList({
-  rows,
-  selectedId,
-  onSelect,
-}: {
-  readonly rows: readonly MainCiFailingJob[];
-  readonly selectedId: string | null;
-  readonly onSelect: (id: string) => void;
-}) {
-  return (
-    <>
-      {rows.map((run) => (
-        <DenseRow
-          key={run.runId}
-          tag={<StatusTag tone="bad" label={t("views.overviewView.ciFailed")} />}
-          title={`${run.job} · ${run.sha.slice(0, 8)}`}
-          onClick={() => onSelect(run.runId)}
-          selected={selectedId === run.runId}
-        />
-      ))}
-    </>
-  );
-}
-
-export function CiFocusDetail({
-  run,
-  rows,
-}: {
-  readonly run: MainCiFailingJob;
-  readonly rows: readonly MainCiFailingJob[];
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <StatusTag tone="bad" label={t("views.overviewView.ciFailed")} />
-      <h3 className="text-text ui-title">{run.job}</h3>
-      <table className="w-full text-left">
-        <tbody>
-          <tr className="border-b border-border">
-            <td className="py-1 pr-2 ui-meta text-text-muted">{t("views.overviewView.ciCommit")}</td>
-            <td className="py-1 text-right font-mono ui-meta text-text">{run.sha.slice(0, 8)}</td>
-          </tr>
-          <tr className="border-b border-border">
-            <td className="py-1 pr-2 ui-meta text-text-muted">{t("views.overviewView.ciAt")}</td>
-            <td className="py-1 text-right font-mono ui-meta text-text">
-              {formatTime(run.occurredAt, { style: "date-time" }) ?? "—"}
-            </td>
-          </tr>
-          <tr>
-            <td className="py-1 pr-2 ui-meta text-text-muted">{t("views.overviewView.ciWindowFailing")}</td>
-            <td className="py-1 text-right font-mono ui-meta text-text">{rows.length}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p className="ui-meta text-text-muted">{t("views.overviewView.ciNoActionHint")}</p>
     </div>
   );
 }
