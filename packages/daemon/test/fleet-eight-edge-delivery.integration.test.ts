@@ -17,7 +17,7 @@ test(
       "applied",
     );
     const replica = f.host.replica("lease-repo");
-    replica.activate();
+    await replica.prepare();
     const firstCut = await replica.waitForCut(f.eventCount());
     const edges = Array.from({ length: 8 }, (_, index) => {
       const nodeId = `eight-edge-${index}`,

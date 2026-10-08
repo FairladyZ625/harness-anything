@@ -204,7 +204,7 @@ test(
       assert.match(JSON.stringify(await rereadCatalog()), code);
     };
     const pull = async () => {
-      f.host.replica("lease-repo").activate();
+      await f.host.replica("lease-repo").prepare();
       await f.host.replica("lease-repo").waitForCut(f.eventCount());
       return runFleetReplicaPullClient({
         ...f.peer("node-one"),

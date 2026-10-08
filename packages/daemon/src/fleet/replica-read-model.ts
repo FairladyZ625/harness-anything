@@ -213,7 +213,11 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string, meta:
         for (const [entryPath, entry] of view.entries)
           if (entryPath !== READ_MODEL_META_PATH) {
             if (loaded.get(entryPath) === entry.sha256) continue;
-            if (entryPath.startsWith(".read-model/runtime-results/") || entryPath.startsWith(".read-model/ci-details/"))
+            if (
+              entryPath.startsWith(".read-model/runtime-results/") ||
+              entryPath.startsWith(".read-model/runtime-results-unavailable/") ||
+              entryPath.startsWith(".read-model/ci-details/")
+            )
               blob(entry.sha256);
             else if (isReadModelPath(entryPath))
               applyEdgeReadModelEntry(db, entryPath, blob(entry.sha256).toString("utf8"));
@@ -246,6 +250,7 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string, meta:
           if (!view.entries.has(entryPath)) {
             if (
               entryPath.startsWith(".read-model/runtime-results/") ||
+              entryPath.startsWith(".read-model/runtime-results-unavailable/") ||
               entryPath.startsWith(".read-model/ci-details/")
             ) {
               /* CAS entries are retained with their cut. */

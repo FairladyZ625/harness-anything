@@ -242,7 +242,7 @@ test("a batched canonical advance offers only a complete head model, folding int
   await f.transfer("snapshot");
   f.db.exec("UPDATE runtime_session SET value_json = json_set(value_json, '$.liveness', 'exited')");
   await f.next(2);
-  assert.throws(
+  await assert.rejects(
     () =>
       makeOffer(
         { nodeId: "edge", viewId: "edge", repoId: "families" },
@@ -261,4 +261,52 @@ test("a batched canonical advance offers only a complete head model, folding int
     "revision 101 has no model at that cut and must never be advertised to the reader",
   );
   assert.equal(f.read((q) => q.readRuntimeSession("runtime-1"))?.liveness, "exited");
+});
+
+test("historical null results remain explicitly unavailable through snapshot and offline reads", async (t) => {
+  const f = repositoryCutFixture(t),
+    digest = "6fae66d215fbaaa52c1d01c2c66def801f9f93c63bc86c9eca0ead4501642c15",
+    resultRef = `artifact:runtime-result/sha256/${digest}`,
+    historical = JSON.stringify({
+      schema: "agent-runtime-event/v1",
+      type: "runtime_session_outcome_observed",
+      workspaceRevision: 50,
+      eventId: "historical-null",
+      opId: "historical-null",
+      actor: { principal: { personId: "owner" }, executor: null },
+      source: "local",
+      occurredAt: "2026-09-02T09:59:46.662Z",
+      payload: { runtimeSessionId: "runtime-1", outcome: "succeeded", exitCode: 0, resultRef, result: null },
+    });
+  seedRepositoryFamilies(f.db);
+  f.db.prepare("INSERT INTO event_index VALUES ('historical-null', 50, NULL, ?)").run(historical);
+  f.db
+    .prepare(
+      "UPDATE runtime_session SET value_json = json_set(value_json, '$.resultRef', ?) WHERE runtime_session_id = 'runtime-1'",
+    )
+    .run(resultRef);
+  await f.transfer("snapshot");
+  const marker = f.source
+    .manifest(100)!
+    .find((entry) => entry.path === `.read-model/runtime-results-unavailable/${digest}`)!;
+  assert.ok(marker, "the cut explicitly carries the historical result status");
+  assert.deepEqual(JSON.parse(Buffer.from(f.source.content(marker.blob)).toString()), {
+    availability: "unavailable",
+    downloadable: false,
+    resultRef,
+  });
+  const session = f.read((projection) => projection.readRuntimeSession("runtime-1"));
+  assert.equal(session?.resultRef, resultRef);
+  assert.equal((session as unknown as { resultAvailability: string }).resultAvailability, "unavailable");
+  assert.equal((session as unknown as { resultDownloadable: boolean }).resultDownloadable, false);
+  assert.throws(() => readEdgeRuntimeResult(f.viewRoot, "families", "edge", resultRef), {
+    code: "runtime_result_unavailable",
+  });
+  assert.equal(
+    f.db.prepare("SELECT event_json FROM event_index WHERE op_id='historical-null'").get()?.event_json,
+    historical,
+  );
+  await f.next();
+  await f.transfer("delta");
+  assert.equal(f.source.manifest(101)!.filter((entry) => entry.path === marker.path).length, 1);
 });

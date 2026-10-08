@@ -21,6 +21,11 @@ export function isRuntimeSessionBundle(bundle: CanonicalWriteBundle): bundle is 
 
 export function compileRuntimeSessionDraft(draft: RuntimeSessionActionDraft): RuntimeSessionBundle {
   const claim = draft.event.type === "runtime_session_outcome_observed" ? draft.event.payload.result : null;
+  if (draft.event.type === "runtime_session_outcome_observed" && (!claim || draft.resultBody === undefined))
+    rejectRuntimeSessionAction(
+      "content_claim_required",
+      "New runtime outcomes require a result content claim and bytes.",
+    );
   return {
     event: draft.event,
     plan: canonicalEventWritePlan(draft.event, "agent-runtime/v1", draft.event.opId),

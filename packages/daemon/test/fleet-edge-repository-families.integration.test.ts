@@ -13,7 +13,7 @@ test(
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
     const e = await fleetEdgeHostFixture(t, f);
     const replica = f.host.replica("lease-repo");
-    replica.activate();
+    await replica.prepare();
     await replica.waitForCut(f.eventCount());
     await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
     const truth = await f.host.run("lease-repo", { kind: "settings-read" }, localAuthFixture());

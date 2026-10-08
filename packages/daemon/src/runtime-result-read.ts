@@ -28,6 +28,15 @@ export function readEdgeRuntimeResultBytes(
 ): Uint8Array {
   const view = locateFleetMirrorView(viewRoot, repoId, nodeId),
     entry = view?.entries.get(`.read-model/runtime-results/${sha256}`);
+  if (view?.entries.has(`.read-model/runtime-results-unavailable/${sha256}`))
+    throw Object.assign(
+      new Error(
+        `Historical runtime result artifact:runtime-result/sha256/${sha256} is unavailable and cannot be downloaded.`,
+      ),
+      {
+        code: "runtime_result_unavailable",
+      },
+    );
   if (!entry || entry.sha256 !== sha256)
     throw Object.assign(new Error("Runtime result is not present in the current cut."), {
       code: "replica_unavailable",

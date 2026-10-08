@@ -21,7 +21,7 @@ test(
       created = await f.command("center-node", { kind: "task-create", taskId: "scope-task", title: "Own view" });
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     const pull = async (nodeId: string) => {
-      f.host.replica("lease-repo").activate();
+      await f.host.replica("lease-repo").prepare();
       await f.host.replica("lease-repo").waitForCut(f.eventCount());
       await runFleetReplicaPullClient({ ...f.peer(nodeId), viewRoot, diskQuotaBytes: quota });
     };

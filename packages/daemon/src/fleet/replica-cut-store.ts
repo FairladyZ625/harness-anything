@@ -38,6 +38,12 @@ export interface ReplicaChangeLogEntry {
 }
 export interface ReplicaCutSource {
   readonly activate: () => SnapshotCut | null;
+  readonly prepare: () => Promise<SnapshotCut | null>;
+  readonly delivery: {
+    readonly manifest: (revision: number) => Promise<readonly FleetEntry[] | null>;
+    readonly changes: (from: number, to: number) => Promise<readonly FleetDeltaChange[] | null>;
+    readonly content: (blob: FleetBlob) => Promise<Uint8Array>;
+  };
   readonly ledgerCut: () => LedgerCutIdentity | null;
   readonly exactRevision: () => number | null;
   readonly kick: () => void;
@@ -56,6 +62,8 @@ export interface ReplicaCutSourceOptions {
   readonly repoId: string;
   readonly localRoot: string;
   readonly readBasis: (afterRevision: number | null) => ReplicaProjectionBasis;
+  /** Bind basis and model reads to one SQLite snapshot when a concurrent writer owns the projection. */
+  readonly withReadSnapshot?: <T>(read: () => T) => T;
   readonly readLedgerCut?: () => LedgerCutIdentity;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly readEvent?: (opId: string) => CanonicalEventV1 | null;
@@ -309,7 +317,9 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       throw new Error(`Read model is unavailable at revision ${revision}`);
     const ciDetails: FleetEntry[] = [];
     const results = new Map<string, FleetEntry>(),
-      requiredResults = new Set<string>();
+      requiredResults = new Set<string>(),
+      unavailable = new Set<string>(),
+      unavailableEntries: FleetEntry[] = [];
     const requireResult = (ref: string | null | undefined) => {
       if (ref) requiredResults.add(ref);
     };
@@ -332,6 +342,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       }
       if (event.schema !== "agent-runtime-event/v1" || event.type !== "runtime_session_outcome_observed") continue;
       requireResult(event.payload.resultRef);
+      if (event.payload.result === null) unavailable.add(event.payload.resultRef);
       for (const claim of runtimeEventContentClaims(event)) {
         const bytes = options.readContentBlob(claim.sha256);
         if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
@@ -345,17 +356,48 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     }
     for (const ref of requiredResults) {
       const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref)?.[1];
+      if (digest && !results.has(digest) && unavailable.has(ref) && options.readContentBlob(digest) === null) {
+        unavailableEntries.push(
+          readModelEntry(
+            `.read-model/runtime-results-unavailable/${digest}`,
+            stableStringify({ resultRef: ref, availability: "unavailable", downloadable: false }),
+            "application/json",
+          ),
+        );
+        continue;
+      }
       if (!digest || !results.has(digest))
         throw new Error(`Runtime result ${ref} has no content claim at revision ${revision}`);
     }
     return [
       ...ciDetails,
+      ...unavailableEntries,
       ...results.values(),
       ...entries.filter((entry) => !isReadModelPath(entry.path)),
       ...edgeReadModelEntries({
         sourceRevision: revision,
         rootThreshold: model.rootThreshold,
-        rows: model.rows,
+        rows: {
+          ...model.rows,
+          repository: model.rows.repository.map((row) => {
+            if (row.table !== "runtime_session") return row;
+            const session = JSON.parse(String(row.values.value_json)) as { resultRef?: string };
+            if (!session.resultRef || !unavailable.has(session.resultRef)) return row;
+            const digest = session.resultRef.split("/").at(-1)!;
+            if (results.has(digest)) return row;
+            return {
+              ...row,
+              values: {
+                ...row.values,
+                value_json: stableStringify({
+                  ...session,
+                  resultAvailability: "unavailable",
+                  resultDownloadable: false,
+                }),
+              },
+            };
+          }),
+        },
       }).map((entry) => readModelEntry(entry.path, entry.text, "application/json")),
     ].sort((left, right) => left.path.localeCompare(right.path));
   };
@@ -377,7 +419,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     waiters.delete(cut.revision);
     for (const row of rows) row.resolve(cut);
   };
-  const runRound = () => {
+  const readSnapshot = options.withReadSnapshot ?? (<T>(read: () => T): T => read());
+  const buildRound = () => {
     const initial = latest();
     if (!initial) {
       const basis = options.readBasis(null);
@@ -429,11 +472,12 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     for (const cut of settled) settle(cut);
     return current.revision < basis.watermark;
   };
+  const runRound = () => readSnapshot(buildRound);
   const waiters = new Map<
     number,
     Array<{ readonly resolve: (cut: SnapshotCut) => void; readonly reject: (error: unknown) => void }>
   >();
-  const activate = () => {
+  const activateSnapshot = () => {
     active = true;
     const current = latest();
     if (current) {
@@ -449,6 +493,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     else kick();
     return cut;
   };
+  const activate = () => readSnapshot(activateSnapshot);
   const kick = () => {
     if (!active || scheduled || closed) return;
     scheduled = true;
@@ -528,6 +573,12 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   };
   return {
     activate,
+    prepare: async () => activate(),
+    delivery: {
+      manifest: async (revision) => manifest(revision),
+      changes: async (from, to) => changes(from, to),
+      content: async (blob) => content(blob),
+    },
     ledgerCut: () => options.readLedgerCut?.() ?? null,
     exactRevision,
     kick,

@@ -18,6 +18,7 @@ import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
+import { openReplicaCutWorker } from "./fleet/replica-cut-worker.ts";
 import { centerEdgeReadModel } from "./fleet/replica-read-model.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
@@ -184,16 +185,23 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         projection,
         killpoint: context.input.killpoint,
       }),
-      replica = openReplicaCutSource({
-        repoId: context.input.repoId,
-        localRoot: path.dirname(path.dirname(projection.path)),
-        readBasis: projection.readReplicaBasis,
-        readLedgerCut: store.currentCut,
-        readContentBlob: store.readContentBlob,
-        readEvent: store.readEvent,
-        readApplied: projection.readOperation,
-        readEdgeReadModel: () => centerEdgeReadModel(projection!),
-      });
+      replica = openReplicaCutWorker(
+        {
+          repoId: context.input.repoId,
+          localRoot: path.dirname(path.dirname(projection.path)),
+          readBasis: projection.readReplicaBasis,
+          readLedgerCut: store.currentCut,
+          readContentBlob: store.readContentBlob,
+          readEvent: store.readEvent,
+          readApplied: projection.readOperation,
+          readEdgeReadModel: () => centerEdgeReadModel(projection!),
+        },
+        {
+          repoId: context.input.repoId,
+          rootDir: context.rootDir,
+          localRoot: path.dirname(path.dirname(projection.path)),
+        },
+      );
     return {
       store,
       recovery,

@@ -85,9 +85,9 @@ export function repositoryCutFixture(t: TestContext) {
     read: <T>(query: (projection: TaskProjectionQueries) => T, principalId = "owner") =>
       withEdgeReadModel({ viewRoot, repoId: "families", nodeId: "edge", principalId }, query),
     transfer: async (kind: "snapshot" | "delta", omitBlob?: string) => {
-      const cut = source.activate();
+      const cut = await source.prepare();
       assert.ok(cut);
-      const offer = { ...key, ...makeOffer(key, cursor, cut, source, "2026-10-07T00:00:00Z") };
+      const offer = { ...key, ...(await makeOffer(key, cursor, cut, source, "2026-10-07T00:00:00Z")) };
       assert.equal(offer.kind, kind);
       const frames = [];
       for await (const frame of offerFrames(offer, source, {
@@ -271,10 +271,10 @@ export async function materializeCellReplica(
 ) {
   const viewRoot = path.join(rootDir, ".fleet-view"),
     key = { repoId, nodeId: "test-edge", viewId: "test-edge" },
-    cut = source.activate();
+    cut = await source.prepare();
   assert.ok(cut);
   const receiver = openFleetEdgeView(viewRoot, 64 * 1024 * 1024),
-    offer = { ...key, ...makeOffer(key, null, cut, source, new Date().toISOString()) };
+    offer = { ...key, ...(await makeOffer(key, null, cut, source, new Date().toISOString())) };
   for await (const frame of offerFrames(offer, source, {
     owner,
     digest: edgeReadAuthorizationShapeDigest({ repoId, owner }),
