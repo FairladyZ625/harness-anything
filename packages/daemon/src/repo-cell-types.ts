@@ -176,6 +176,7 @@ export type RepoCellTerminal = Omit<TerminalHost, "spawn" | "spawnTrusted" | "in
 };
 
 export interface RepoCell {
+  readonly hasBuiltinExecutor: (claimFence: string) => Promise<boolean>;
   readonly bootstrapReceipt?: RepoBootstrapReceipt;
   readonly run: (
     action: RepoTaskAction,

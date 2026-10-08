@@ -21,7 +21,6 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import { githubActionsWitnessEvidence } from "./repo-cell-ci-evidence.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 
@@ -136,9 +135,6 @@ export interface WitnessAdapter {
 
 export const witnessAdapters: Readonly<Record<MappedWitnessAdapterId, WitnessAdapter>> = {
   "github-actions": {
-    collect: (cell) => fetchCiObservations(cell, { kind: "ci-observe-pull" }),
-    ingest: (cell, binding, collected) =>
-      ingestCiObservations(cell, binding, collected as Parameters<typeof ingestCiObservations>[2]),
     evaluate: (cell, requirement, execution) => githubActionsWitnessEvidence(cell, requirement, execution),
   },
   "local-command": {

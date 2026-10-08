@@ -5,6 +5,7 @@ import {
   applyLedgerBackupRetention,
   readVerifiedLedgerBackup,
   type LedgerBackupRetentionPolicyV1,
+  type CiObserveProgress,
   type ScheduleBuiltinParamsV1,
   type ScheduleV1,
   type WriteReceiptDraft as WriteReceipt,
@@ -17,6 +18,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 export const scheduledLedgerBackupRoot = "tmp/harness-backup";
 /** Deterministic schedule id of the system-seeded ledger backup. */
 export const builtinLedgerBackupScheduleId = "builtin-ledger-backup";
+export const builtinCiObserveScheduleId = "builtin-ci-observe";
 export const builtinNightlyReckoningScheduleId = "builtin-nightly-reckoning";
 /** Retention defaults when the schedule carries no explicit params. */
 export const defaultLedgerBackupRetention: LedgerBackupRetentionPolicyV1 = { keepDays: 3, keepMonthly: true };
@@ -25,6 +27,7 @@ export const defaultLedgerBackupRetention: LedgerBackupRetentionPolicyV1 = { kee
 export interface BuiltinExecutorCell {
   readonly rootDir: string;
   readonly now: () => string;
+  readonly observeCi: (schedule: ScheduleV1) => Promise<BuiltinExecutionResult>;
   readonly runSnapshot: <T>(work: () => T | PromiseLike<T>) => Promise<T>;
 }
 
@@ -40,10 +43,12 @@ type BuiltinExecutor = (input: {
 export interface BuiltinExecutionResult {
   readonly outcome: "succeeded" | "failed";
   readonly detail: string;
+  readonly ciObserve?: CiObserveProgress;
 }
 
 const builtinExecutors: Readonly<Record<string, BuiltinExecutor>> = Object.freeze({
   "ledger-backup": executeLedgerBackup,
+  "ci-observe": ({ cell, schedule }) => cell.observeCi(schedule),
 });
 
 /**
@@ -74,6 +79,7 @@ export async function executeBuiltinScheduleOccurrence<Receipt extends WriteRece
         outcome: result.outcome,
         endedAt: input.cell.now(),
         detail: result.detail,
+        ...(result.ciObserve ? { ciObserve: result.ciObserve } : {}),
         idempotencyKey: `${input.idempotencyKey}:builtin-${result.outcome}`,
       },
       input.binding,
@@ -155,7 +161,7 @@ function retentionOf(params: ScheduleBuiltinParamsV1 | undefined): LedgerBackupR
 }
 
 /**
- * Seed the system builtin schedules on a freshly attached canonical cell. The create rides the
+ * Seed the system builtin schedules through authenticated init/configure. The create rides the
  * cell's single write queue with a deterministic schedule id and idempotency key, so two
  * attaches converge on one schedule: the second either replays the same operation or meets
  * entity_exists. Seeding belongs to the node holding the canonical cell — fleet mirror cells
@@ -184,6 +190,17 @@ export async function seedBuiltinSchedules(input: {
     },
     {
       kind: "schedule-create",
+      scheduleId: builtinCiObserveScheduleId,
+      name: "CI observation",
+      mode: "detect",
+      everyMs: 60_000,
+      builtinId: "ci-observe",
+      systemPresetId: "ci-observe",
+      mission: "Reconcile GitHub workflow witnesses and diagnostic artifacts through the center occurrence.",
+      idempotencyKey: `builtin-seed:${builtinCiObserveScheduleId}:v1`,
+    },
+    {
+      kind: "schedule-create",
       scheduleId: builtinNightlyReckoningScheduleId,
       name: "Nightly reckoning",
       mode: "detect",
@@ -207,9 +224,9 @@ export async function seedBuiltinSchedules(input: {
       readonly code?: unknown;
     };
     if (receipt.outcome === "applied" || receipt.outcome === "no_changes" || receipt.code === "entity_exists") continue;
-    console.warn(
+    throw new Error(
       `[schedule-builtin] seeding ${seed.scheduleId} was ${String(receipt.outcome)}` +
-        `${receipt.code ? ` (${String(receipt.code)})` : ""}; retrying on the next attach.`,
+        `${receipt.code ? ` (${String(receipt.code)})` : ""}; retry through authenticated init/configure.`,
     );
   }
 }

@@ -47,7 +47,10 @@ function targetsBuiltinSchedule(context: RepoCellApiContext, action: RepoTaskAct
 
 /** The RepoCell command pipeline: recovery admission, the executor claim, and the queued
  * publication interval that authorizes, executes, and settles one command at the writer cut. */
-export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
+export function makeRepoCellCommandRunner(
+  context: RepoCellApiContext,
+  refreshCi: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>,
+) {
   let settlingRecovery: string | null = null;
   const run = async (
     action: RepoTaskAction,
@@ -330,7 +333,7 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
             ),
           async (error) => failAction(error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
-    const externalRead = readBeforeWriteQueue(context, action, binding);
+    const externalRead = readBeforeWriteQueue(context, action, binding, refreshCi);
     if (externalRead)
       return externalRead
         .then((publish) =>

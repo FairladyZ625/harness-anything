@@ -109,7 +109,8 @@ function witnessCommand(
     return `ha task attest ${taskId} --gate ${gateId} --result pass`;
   if (adapterId === "local-command")
     return `ha task submit ${taskId} (the local-command witness runs against the submitted cut)`;
-  if (adapterId === "github-actions" || gateId === "ci") return "ha ci observe pull";
+  if (adapterId === "github-actions" || gateId === "ci")
+    return "Wait for the center CI Schedule to collect the workflow witness; inspect ha schedule show builtin-ci-observe.";
   return `Run the canonical ${gateId} checker to witness execution ${executionId}.`;
 }
 

@@ -190,6 +190,9 @@ async function startRepoWriterWorker(): Promise<void> {
       assertWriterEpoch(request.writerEpoch);
       let value: unknown;
       switch (request.method) {
+        case "hasBuiltinExecutor":
+          value = await cell.hasBuiltinExecutor((request.payload as { claimFence: string }).claimFence);
+          break;
         case "run":
           value = await cell.run(
             (request.payload as { action: Parameters<typeof cell.run>[0] }).action,

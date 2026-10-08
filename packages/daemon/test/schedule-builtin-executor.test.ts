@@ -20,6 +20,7 @@ import type { RepoTaskAction } from "../src/repo-cell-types.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { finishLedgerBackup } from "../src/schedule-backup-worker.ts";
 import {
+  builtinCiObserveScheduleId,
   builtinLedgerBackupScheduleId,
   builtinNightlyReckoningScheduleId,
   defaultLedgerBackupRetention,
@@ -135,7 +136,7 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
       assert.equal(seeded.schedule.spec.target.kind, "builtin");
       assert.equal(seeded.schedule.spec.target.builtinId, "ledger-backup");
       const listed = (await cell.run({ kind: "schedule-list" }, actor)) as { schedules: readonly unknown[] };
-      assert.equal(listed.schedules.length, 2);
+      assert.equal(listed.schedules.length, 3);
       const reckoning = (await cell.run(
         { kind: "schedule-show", scheduleId: builtinNightlyReckoningScheduleId },
         actor,
@@ -367,6 +368,9 @@ test("a partially written backup of the same occurrence is retaken, a verified o
       };
       let captures = 0;
       const executorCell = {
+        observeCi: async () => {
+          throw new Error("Backup fixture does not execute CI");
+        },
         rootDir: canonicalRoot(root),
         now: () => new Date().toISOString(),
         runSnapshot: async <T>(work: () => T | PromiseLike<T>) => {
@@ -469,7 +473,7 @@ test(
         };
         assert.deepEqual(
           first.schedules.map(({ scheduleId }) => scheduleId),
-          [builtinLedgerBackupScheduleId, builtinNightlyReckoningScheduleId],
+          [builtinCiObserveScheduleId, builtinLedgerBackupScheduleId, builtinNightlyReckoningScheduleId],
         );
         const run = (await host.run(
           repoId,
@@ -490,7 +494,7 @@ test(
         };
         assert.deepEqual(
           second.schedules.map(({ scheduleId }) => scheduleId),
-          [builtinLedgerBackupScheduleId, builtinNightlyReckoningScheduleId],
+          [builtinCiObserveScheduleId, builtinLedgerBackupScheduleId, builtinNightlyReckoningScheduleId],
         );
       } finally {
         await host.close();

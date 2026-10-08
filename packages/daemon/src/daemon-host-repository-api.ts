@@ -165,11 +165,10 @@ export function createDaemonHostRepositoryApi(
           registryChanged: registered.changed,
           ...reportedReceipt,
         };
-      if (!request.configureOnly)
-        await seedBuiltinSchedules({
-          cell,
-          binding: await context.binding(prepared.rootDir, auth, null, prepared.repoId),
-        });
+      await seedBuiltinSchedules({
+        cell,
+        binding: await context.binding(prepared.rootDir, auth, null, prepared.repoId),
+      });
       const steps = ["publication-readback"];
       try {
         const layout = resolveHarnessLayout(prepared.rootDir),
@@ -623,7 +622,11 @@ export function createDaemonHostRepositoryApi(
           });
         const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction),
           receipt = await cell.run(resolvedAction, serverBinding, auth.connectionSignal);
-        if (command.commandClass !== "repo-read" && getExecutableEntityAction(action.kind)?.target.kind === "schedule")
+        if (
+          (command.commandClass !== "repo-read" &&
+            getExecutableEntityAction(action.kind)?.target.kind === "schedule") ||
+          action.kind === "task-submit"
+        )
           await context.scheduleScheduler.refresh();
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };

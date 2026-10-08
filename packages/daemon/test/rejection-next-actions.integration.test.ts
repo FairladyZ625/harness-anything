@@ -8,6 +8,7 @@ import path from "node:path";
 import test, { after, before } from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
@@ -255,6 +256,7 @@ test("executor declaration and completion context refusals name projection rebui
       "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n",
     );
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-one" });
+    await seedBuiltinSchedules({ cell, binding: owner });
     const created = await cell.run({ kind: "task-create", taskId, title: "Projection exits" }, owner);
     assert.equal(created.outcome, "applied");
     await waitForFixturePublication(cell, created.opId, owner);
@@ -315,7 +317,8 @@ test("executor declaration and completion context refusals name projection rebui
     assert.equal(retry.code, "ci_missing", JSON.stringify(retry));
     assert.deepEqual((retry as Record<string, unknown>).next, [
       {
-        action: "ha ci observe pull",
+        action:
+          "Wait for the center CI Schedule to collect the workflow witness; inspect ha schedule show builtin-ci-observe.",
         reason: "Publish a passing canonical ci checker witness for this execution cut.",
         authority: "person-owner",
         readCut: { revision: submittedRevision, iteration: 0, executionId },

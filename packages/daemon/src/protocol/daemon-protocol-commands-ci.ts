@@ -17,7 +17,7 @@ export const ciObservationProtocolCommands = Object.freeze([
     phase: "PLT-TestEng-W1",
     path: ["ci", "observe", "pull"],
     summary:
-      "Pull GitHub Actions CI observations; --run imports named runs, --task resolves the task delivery commit to its first covering successful main run.",
+      "Request center CI Schedule reconciliation; --run targets named runs and --task targets the frozen delivery witness.",
     method: "repo.task.run",
     inputs: [
       cliInput("--run", "repeated", false, { code: "invalid_field" }, { field: "runs", regex: "^[1-9][0-9]{0,19}$" }),

@@ -709,6 +709,7 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
     listReceipts: [] as Array<Readonly<Record<string, unknown>>>,
     latchOnRejection: false,
     state: "attached" as "attached" | "unavailable",
+    liveBuiltinClaims: new Set<string>(),
     onFire: async (_scheduleId: string) => {},
     execute: async (action: Readonly<Record<string, unknown>>) => {
       actions.push(String(action.kind));
@@ -757,6 +758,14 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
         value.status.lastMissedReason = row.reason as ScheduleV1["status"]["lastMissedReason"];
         return { outcome: "applied" };
       }
+      if (action.kind === "schedule-settle") {
+        const active = value.status.activeRun;
+        assert.ok(active);
+        assert.equal(action.claimFence, active.claimFence);
+        value.status.activeRun = null;
+        value.status.lastRun = { ...active, endedAt: String(action.endedAt), outcome: "unknown" };
+        return { outcome: "applied" };
+      }
       assert.equal(action.kind, "schedule-run-now");
       const scheduledFor = String(action.scheduledFor);
       fired.push(value.scheduleId);
@@ -766,6 +775,7 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
     },
   };
   const cell = {
+    hasBuiltinExecutor: async (fence: string) => fixture.liveBuiltinClaims.has(fence),
     status: () => ({
       repoId,
       rootDir,
@@ -818,3 +828,37 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
   for (let attempts = 0; attempts < 20 && !predicate(); attempts += 1)
     await new Promise<void>((resolve) => setImmediate(resolve));
 }
+
+test("reconciliation preserves a live builtin and recovers only an executor absent after restart", async () => {
+  const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+    builtin = schedule("builtin-ci-observe");
+  builtin.spec.target = { kind: "builtin", builtinId: "ci-observe" };
+  builtin.status.activeRun = {
+    occurrenceId: "interrupted",
+    kind: "manual",
+    scheduledFor: clock.now(),
+    claimedAt: clock.now(),
+    nodeId: "local",
+    claimFence: "claim-interrupted",
+    attemptIndex: 0,
+  };
+  const repo = fixtureRepo("recover-builtin", "local", [builtin]);
+  repo.liveBuiltinClaims.add("claim-interrupted");
+  const scheduler = makeScheduleScheduler({
+    cells: new Map([[repo.repoId, repo.cell]]),
+    localBinding,
+    now: clock.now,
+    setTimer: clock.setTimer,
+    clearTimer: clock.clearTimer,
+  });
+  await scheduler.start();
+  assert.equal(repo.actions.includes("schedule-settle"), false);
+  repo.liveBuiltinClaims.clear();
+  await scheduler.refresh();
+  assert.equal(repo.actions.filter((kind) => kind === "schedule-settle").length, 1);
+  assert.equal(builtin.status.activeRun, null);
+  assert.equal(builtin.status.lastRun!.outcome, "unknown");
+  await scheduler.refresh();
+  assert.equal(repo.actions.filter((kind) => kind === "schedule-settle").length, 1);
+  scheduler.close();
+});
