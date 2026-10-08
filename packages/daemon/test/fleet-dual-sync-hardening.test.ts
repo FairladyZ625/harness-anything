@@ -465,11 +465,14 @@ function mirrorCutFixture(
       path: entry.path,
       blob: { sha256: sha(entry.body), size: Buffer.byteLength(entry.body), mediaType: "text/markdown" },
     }));
-    writeJson(path.join(viewDir, "cuts", String(cut.revision), "manifest.json"), { entries });
-    for (const entry of cut.entries)
-      writeBytes(path.join(viewDir, "cuts", String(cut.revision), "files", ...entry.path.split("/")), entry.body);
+    writeJson(path.join(viewDir, "cuts", `${cut.revision}-g0`, "manifest.json"), { entries });
+    for (const entry of cut.entries) {
+      writeBytes(path.join(viewDir, "../../cas/sha256", sha(entry.body).slice(0, 2), sha(entry.body)), entry.body);
+      writeBytes(path.join(viewDir, "cuts", `${cut.revision}-g0`, "files", ...entry.path.split("/")), entry.body);
+    }
   }
   writeJson(path.join(viewDir, "current.json"), {
+    schemaGeneration: 0,
     cut: { revision: current, headDigest: `sha256:${sha(`head-${current}`)}` },
     manifestDigest: `sha256:${sha(`manifest-${current}`)}`,
   });
@@ -480,7 +483,7 @@ test("mirror rejects unsafe manifest paths and corrupt CAS fallback bytes", (t) 
   const unsafe = mirrorCutFixture("unsafe-path", [{ revision: 1, entries: [] }], 1),
     unsafeView = path.join(unsafe.viewRoot, "repos", "repo", "views", "edge-view");
   t.after(() => rmSync(unsafe.root, { recursive: true, force: true }));
-  writeJson(path.join(unsafeView, "cuts", "1", "manifest.json"), {
+  writeJson(path.join(unsafeView, "cuts", "1-g0", "manifest.json"), {
     entries: [
       {
         path: "../outside.md",
@@ -499,7 +502,7 @@ test("mirror rejects unsafe manifest paths and corrupt CAS fallback bytes", (t) 
     viewDir = path.join(corrupt.viewRoot, "repos", "repo", "views", "edge-view"),
     digest = sha(body);
   t.after(() => rmSync(corrupt.root, { recursive: true, force: true }));
-  rmSync(path.join(viewDir, "cuts", "1", "files", "context", "note.md"));
+  rmSync(path.join(viewDir, "cuts", "1-g0", "files", "context", "note.md"));
   writeBytes(path.join(corrupt.viewRoot, "repos", "repo", "cas", "sha256", digest.slice(0, 2), digest), "bad");
   assert.throws(
     () => applyFleetMirrorCut(corrupt.viewRoot, "repo", corrupt.workspace, "pull"),
@@ -533,6 +536,7 @@ test("F3: a staged conflict keeps its base/ bytes after the base cut leaves the 
   writeBytes(gitSentinel, "workspace git metadata\n");
   const setCurrent = (revision: number): void =>
     writeJson(path.join(dir, "current.json"), {
+      schemaGeneration: 0,
       cut: { revision, headDigest: `sha256:${sha(`head-${revision}`)}` },
       manifestDigest: `sha256:${sha(`manifest-${revision}`)}`,
     });
@@ -563,7 +567,7 @@ test("F3: a staged conflict keeps its base/ bytes after the base cut leaves the 
     "a center that did not move the path leaves the local edit dirty but unblocked",
   );
   assert.deepEqual(dirty.dirtyPaths, [logical]);
-  rmSync(path.join(dir, "cuts", "1"), { recursive: true, force: true });
+  rmSync(path.join(dir, "cuts", "1-g0"), { recursive: true, force: true });
   setCurrent(3);
   const jumped = applyFleetMirrorCut(fixture.viewRoot, "repo", fixture.workspace, "pull", { kind: "shared-docs" });
   assert.equal(jumped.outcome, "pull_blocked");

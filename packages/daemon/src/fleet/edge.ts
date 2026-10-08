@@ -19,7 +19,7 @@ import { connect, type TLSSocket } from "node:tls";
 import type { FleetReplicaSessionPool } from "./edge-replica-sync.ts";
 import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { recordHeadConfirmation, recordNodeReadDenied } from "./replica-read-model.ts";
-import { sha256Bytes } from "@harness-anything/kernel";
+import { READ_MODEL_META_PATH, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, writeFileDurably } from "../durable-file.ts";
 import {
   FLEET_CHUNK_BYTES,
@@ -41,11 +41,12 @@ type Begin = Extract<FleetFrameV1, { schema: "fleet.snapshot.begin/v1" | "fleet.
 type Finish = Extract<FleetFrameV1, { schema: "fleet.snapshot.finish/v1" | "fleet.delta.finish/v1" }>;
 type Current = {
   cut: FleetCut;
+  schemaGeneration: number;
   manifestDigest: string;
   authorizationOwner: string;
   authorizationShapeDigest: string;
 };
-type Manifest = { cut: FleetCut; manifestDigest: string; entries: FleetEntry[] };
+type Manifest = { cut: FleetCut; schemaGeneration: number; manifestDigest: string; entries: FleetEntry[] };
 export interface FleetEdgeView {
   readonly receive: (frame: FleetFrameV1) => FleetFrameV1 | null;
   readonly current: (repoId: string, viewId: string) => Current | null;
@@ -211,11 +212,17 @@ function finish(
   const cut = begin.schema === "fleet.snapshot.begin/v1" ? begin.cut : begin.toCut,
     expected = begin.schema === "fleet.snapshot.begin/v1" ? begin.manifest.digest : begin.resultManifestDigest,
     already = readJson<Current>(path.join(viewRoot, "current.json"));
-  if (JSON.stringify(already?.cut) === JSON.stringify(cut) && already?.manifestDigest === expected) {
+  if (
+    Number.isSafeInteger(already?.schemaGeneration) &&
+    JSON.stringify(already?.cut) === JSON.stringify(cut) &&
+    already?.manifestDigest === expected
+  ) {
     recordHeadConfirmation(viewRoot, cut);
     rmSync(staging, { recursive: true, force: true });
     return ack(begin.transferId, cut, expected);
   }
+  if (already?.cut.revision === cut.revision && already.cut.headDigest !== cut.headDigest)
+    throw new Error("snapshot canonical head conflict");
   const pages = readdirSync(staging)
     .filter((name) => /^page-\d+\.json$/u.test(name))
     .sort((a, b) => Number.parseInt(a.slice(5), 10) - Number.parseInt(b.slice(5), 10))
@@ -244,7 +251,9 @@ function finish(
     const previous = readJson<Current>(path.join(viewRoot, "current.json"));
     if (!previous || JSON.stringify(previous.cut) !== JSON.stringify(begin.fromCut))
       throw new Error("snapshot_required: delta base changed");
-    const prior = readJson<Manifest>(path.join(viewRoot, "cuts", String(previous.cut.revision), "manifest.json"));
+    const prior = readJson<Manifest>(
+      path.join(viewRoot, "cuts", `${previous.cut.revision}-g${previous.schemaGeneration}`, "manifest.json"),
+    );
     if (!prior) throw new Error("snapshot_required: current manifest missing");
     entries = [...prior.entries];
     changes = pages.flatMap((page) => (page.schema === "fleet.delta.page/v1" ? page.changes : []));
@@ -285,7 +294,7 @@ function finish(
     }
     // Delta cuts materialize changed files beside their manifest; a snapshot
     // cut addresses every blob through the verified CAS instead of copying
-    // the whole tree into cuts/<revision>/files/.
+    // the whole tree into cuts/<revision>-g<generation>/files/.
     if (begin.schema === "fleet.delta.begin/v1") {
       const target = path.join(files, entry.path);
       mkdirSync(path.dirname(target), { recursive: true });
@@ -294,19 +303,36 @@ function finish(
   }
   const digest = fleetManifestDigest(entries);
   if (digest !== expected) throw new Error("result manifest mismatch");
+  const meta = entries.find((entry) => entry.path === READ_MODEL_META_PATH);
+  const schemaGeneration = meta
+    ? (
+        JSON.parse(readFileSync(path.join(casRoot, meta.blob.sha256.slice(0, 2), meta.blob.sha256), "utf8")) as {
+          schemaGeneration: number;
+        }
+      ).schemaGeneration
+    : 0;
+  if (!Number.isSafeInteger(schemaGeneration) || schemaGeneration < 0)
+    throw new Error("snapshot schema generation is invalid");
   const manifest: Manifest = {
     cut,
+    schemaGeneration,
     manifestDigest: digest,
     entries,
   };
   writeEdgeDurableJson(path.join(result, "manifest.json"), manifest);
-  const cutDir = path.join(viewRoot, "cuts", String(cut.revision));
+  const cutDir = path.join(viewRoot, "cuts", `${cut.revision}-g${schemaGeneration}`);
   mkdirSync(path.dirname(cutDir), { recursive: true });
   if (!existsSync(cutDir)) renameSync(result, cutDir);
-  else rmSync(result, { recursive: true, force: true });
+  else {
+    const retained = readJson<Manifest>(path.join(cutDir, "manifest.json"));
+    if (!retained || retained.manifestDigest !== digest || JSON.stringify(retained.cut) !== JSON.stringify(cut))
+      throw new Error("immutable snapshot identity conflict");
+    rmSync(result, { recursive: true, force: true });
+  }
   killpoint?.("before_current_rename");
   writeEdgeDurableJson(path.join(viewRoot, "current.json"), {
     cut,
+    schemaGeneration,
     manifestDigest: digest,
     authorizationOwner: begin.authorizationOwner,
     authorizationShapeDigest: begin.authorizationShapeDigest,
@@ -316,19 +342,23 @@ function finish(
   if (!reopened || !active || reopened.manifestDigest !== digest || JSON.stringify(active.cut) !== JSON.stringify(cut))
     throw new Error("atomic view verification failed");
   recordHeadConfirmation(viewRoot, cut);
-  collect(viewRoot, casRoot, cut.revision);
+  collect(viewRoot, casRoot, `${cut.revision}-g${schemaGeneration}`);
   rmSync(staging, { recursive: true, force: true });
   return ack(begin.transferId, cut, digest);
 }
-function collect(viewRoot: string, casRoot: string, currentRevision: number): void {
+function collect(viewRoot: string, casRoot: string, currentIdentity: string): void {
+  // Retired revision-only directories keep their CAS references until two-cut retention retires them.
   const cutsRoot = path.join(viewRoot, "cuts"),
     revisions = existsSync(cutsRoot)
       ? readdirSync(cutsRoot)
-          .filter((name) => /^\d+$/u.test(name))
-          .map(Number)
-          .sort((a, b) => b - a)
+          .filter((name) => /^\d+(?:-g\d+)?$/u.test(name))
+          .sort(
+            (a, b) =>
+              Number(b.split("-g")[0]) - Number(a.split("-g")[0]) ||
+              Number(b.split("-g")[1] ?? -1) - Number(a.split("-g")[1] ?? -1),
+          )
       : [],
-    keep = new Set([currentRevision, ...revisions.filter((revision) => revision !== currentRevision).slice(0, 1)]);
+    keep = new Set([currentIdentity, ...revisions.filter((revision) => revision !== currentIdentity).slice(0, 1)]);
   for (const revision of revisions.filter((value) => !keep.has(value)).slice(0, 64))
     rmSync(path.join(cutsRoot, String(revision)), { recursive: true, force: true });
   const viewsRoot = path.dirname(viewRoot),
@@ -339,7 +369,7 @@ function collect(viewRoot: string, casRoot: string, currentRevision: number): vo
       const root = path.join(viewsRoot, view, "cuts");
       return existsSync(root)
         ? readdirSync(root)
-            .filter((name) => /^\d+$/u.test(name))
+            .filter((name) => /^\d+(?:-g\d+)?$/u.test(name))
             .slice(0, 2)
             .flatMap(
               (revision) =>
@@ -791,6 +821,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
             path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId, "current.json"),
             {
               cut: inbound.cut,
+              schemaGeneration: current.schemaGeneration,
               manifestDigest: inbound.manifestDigest,
               authorizationOwner: inbound.authorizationOwner,
               authorizationShapeDigest: inbound.authorizationShapeDigest,

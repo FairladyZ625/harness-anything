@@ -79,9 +79,9 @@ test("edge staging replays snapshot/delta pages and chunks and switches only com
     );
     assert.equal(view.current("repo", "many")?.cut.revision, 1);
     // Snapshot cuts address their blobs through the verified CAS instead of
-    // copying the tree into cuts/<revision>/files/; only delta cuts
+    // copying the tree into cuts/<revision>-g<generation>/files/; only delta cuts
     // materialize changed files beside their manifest.
-    assert.equal(existsSync(path.join(root, "repos/repo/views/many/cuts/1/files/tasks/t/many-05.md")), false);
+    assert.equal(existsSync(path.join(root, "repos/repo/views/many/cuts/1-g0/files/tasks/t/many-05.md")), false);
     assert.equal(
       readFileSync(
         path.join(root, "repos/repo/cas/sha256", manyEntries[5]!.blob.sha256.slice(0, 2), manyEntries[5]!.blob.sha256),
@@ -125,7 +125,7 @@ test("edge staging replays snapshot/delta pages and chunks and switches only com
     view = openFleetEdgeView(root, replicaQuota);
     for (const frame of deltaTwo) view.receive(frame);
     assert.equal(view.current("repo", "view")?.cut.revision, 2);
-    assert.equal(readFileSync(path.join(root, "repos/repo/views/view/cuts/2/files", pathA), "utf8"), "one-a-two");
+    assert.equal(readFileSync(path.join(root, "repos/repo/views/view/cuts/2-g0/files", pathA), "utf8"), "one-a-two");
     assert.equal(existsSync(otherCas), true);
     const threeA = Buffer.from("one-a-two-three"),
       entriesThree = [wireEntry(pathA, threeA)],
@@ -290,3 +290,30 @@ function deltaFrames(
     { schema: "fleet.delta.finish/v1", messageId: `${transferId}_finish`, transferId, resultManifestDigest: digest },
   ];
 }
+
+test("an immutable snapshot identity rejects changed bytes at the same revision and generation", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-snapshot-identity-"));
+  try {
+    const view = openFleetEdgeView(root, replicaQuota),
+      cut = wireCut(1);
+    const original = Buffer.from("original"),
+      changed = Buffer.from("changed");
+    for (const frame of snapshotFrames("first", "view", cut, [wireEntry("context/note.md", original)], [original]))
+      view.receive(frame);
+    const before = view.current("repo", "view");
+    for (const frame of snapshotFrames("repeat", "view", cut, [wireEntry("context/note.md", original)], [original]))
+      view.receive(frame);
+    assert.deepEqual(view.current("repo", "view"), before);
+    assert.throws(() => {
+      for (const frame of snapshotFrames("conflict", "view", cut, [wireEntry("context/note.md", changed)], [changed]))
+        view.receive(frame);
+    }, /immutable snapshot identity conflict/u);
+    assert.deepEqual(view.current("repo", "view"), before);
+    assert.equal(
+      JSON.parse(readFileSync(path.join(root, "repos/repo/views/view/cuts/1-g0/manifest.json"), "utf8")).manifestDigest,
+      before!.manifestDigest,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

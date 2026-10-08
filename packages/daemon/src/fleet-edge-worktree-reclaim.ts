@@ -71,7 +71,11 @@ function mirroredTaskClosed(view: FleetMirrorView, taskId: string): boolean {
       const folder = /^tasks\/([^/]+)\/INDEX\.md$/u.exec(logical)?.[1];
       return folder === taskId || folder?.startsWith(`${taskId}-`);
     })
-    .map((logical) => frontmatter(fleetMirrorCutFile(view.viewDir, view.revision, logical)?.toString("utf8") ?? ""))
+    .map((logical) =>
+      frontmatter(
+        fleetMirrorCutFile(view.viewDir, view.revision, logical, view.schemaGeneration)?.toString("utf8") ?? "",
+      ),
+    )
     .filter((index) => index.some((line) => line === `task_id: ${taskId}` || line === `taskId: ${taskId}`));
   return (
     declared.length > 0 &&

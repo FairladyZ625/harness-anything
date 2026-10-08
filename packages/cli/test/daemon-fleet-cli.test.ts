@@ -628,10 +628,15 @@ function retryReplicaPending(sync: () => Record<string, unknown>): Record<string
   return last;
 }
 // Snapshot cuts address their blobs through the verified edge CAS instead of
-// materializing cuts/<revision>/files/, so a cut document is read through its
+// materializing cuts/<revision>-g<generation>/files/, so a cut document is read through its
 // manifest entry (delta cuts materialize changed files, snapshots do not).
 function readCutFile(viewRoot: string, revision: number, logical: string): string {
-  const manifest = JSON.parse(readFileSync(path.join(viewRoot, "cuts", String(revision), "manifest.json"), "utf8")) as {
+  const current = JSON.parse(readFileSync(path.join(viewRoot, "current.json"), "utf8")) as {
+    schemaGeneration: number;
+  };
+  const manifest = JSON.parse(
+    readFileSync(path.join(viewRoot, "cuts", `${revision}-g${current.schemaGeneration}`, "manifest.json"), "utf8"),
+  ) as {
     entries: readonly { readonly path: string; readonly blob: { readonly sha256: string } }[];
   };
   const entry = manifest.entries.find((row) => row.path === logical);

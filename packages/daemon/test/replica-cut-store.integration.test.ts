@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import {
   decideDocWrite,
+  READ_MODEL_SCHEMA_GENERATION,
   makeTaskProjection,
   DOC_POLICY_ID,
   parseDocWriteIntent,
@@ -292,7 +293,7 @@ test("an activated source persists zero-change revisions as exact cuts with an e
     assert.notEqual(two.headDigest, one.headDigest);
     assert.deepEqual(source.changeLog(), []);
     assert.equal(
-      readdirSync(path.join(root, "replica/manifests/sha256"), {
+      readdirSync(path.join(root, "replica/repos/repo-zero", `g${READ_MODEL_SCHEMA_GENERATION}`, "manifests/sha256"), {
         recursive: true,
         withFileTypes: true,
       }).filter((entry) => entry.isFile() && /^[0-9a-f]{64}$/u.test(entry.name)).length,
@@ -477,7 +478,34 @@ test("retention keeps exactly 64 cuts and 63 adjacent changelogs per repo", asyn
             },
       readContentBlob: (sha256) => blobs.get(sha256) ?? null,
     });
-    source.activate();
+    const firstCut = source.activate()!;
+    const currentRoot = path.join(root, "replica/repos/repo-retention", `g${READ_MODEL_SCHEMA_GENERATION}`);
+    const historicalRoot = path.join(root, "replica/repos/repo-retention", `g${READ_MODEL_SCHEMA_GENERATION - 1}`);
+    const historicalManifest = path.join(
+      historicalRoot,
+      "manifests/sha256",
+      firstCut.manifest.digest.slice(0, 2),
+      firstCut.manifest.digest,
+    );
+    mkdirSync(path.dirname(historicalManifest), { recursive: true });
+    const manifestBytes = readFileSync(
+      path.join(currentRoot, "manifests/sha256", firstCut.manifest.digest.slice(0, 2), firstCut.manifest.digest),
+    );
+    writeFileSync(historicalManifest, manifestBytes);
+    const historicalBlob = path.join(
+      historicalRoot,
+      "read-model-blobs",
+      sha256Bytes(Buffer.from("historical derived bytes")),
+    );
+    mkdirSync(path.dirname(historicalBlob), { recursive: true });
+    writeFileSync(historicalBlob, "historical derived bytes");
+    const currentOrphan = path.join(
+      currentRoot,
+      "read-model-blobs",
+      sha256Bytes(Buffer.from("historical derived bytes")),
+    );
+    mkdirSync(path.dirname(currentOrphan), { recursive: true });
+    writeFileSync(currentOrphan, "historical derived bytes");
     let previous = initial;
     for (let revision = 2; revision <= 66; revision += 1) {
       const body = Buffer.from(`revision-${revision}`),
@@ -508,6 +536,13 @@ test("retention keeps exactly 64 cuts and 63 adjacent changelogs per repo", asyn
     assert.equal(source.changeLog().at(-1)?.toRevision, 66);
     assert.equal(source.changes(2, 66), null);
     assert.equal(source.changes(3, 66)?.length, 1);
+    assert.deepEqual(
+      readFileSync(historicalManifest),
+      manifestBytes,
+      "current pruning cannot unlink another generation's manifest",
+    );
+    assert.equal(readFileSync(historicalBlob, "utf8"), "historical derived bytes");
+    assert.equal(existsSync(currentOrphan), false, "current-generation orphan collection still runs");
     source.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -577,6 +612,7 @@ test("a manifest that drifts from the exact L2 basis cannot publish a cut", asyn
 });
 
 test("RepoCell wakes a pending replica cut when its projection catches up", { timeout: 15_000 }, async (t) => {
+  t.diagnostic("stage: setup");
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-cell-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user");
@@ -599,6 +635,7 @@ test("RepoCell wakes a pending replica cut when its projection catches up", { ti
   let armed = false;
   const reached = Promise.withResolvers<void>(),
     release = Promise.withResolvers<void>();
+  t.diagnostic("stage: opening host");
   const host = await openDaemonHost({
       daemonId: "replica-test",
       userRoot,
@@ -617,8 +654,10 @@ test("RepoCell wakes a pending replica cut when its projection catches up", { ti
     owners = await fleetNodeOwners({ userRoot, owners: { "node-one": "person-one" }, repoIds: ["replica-repo"] }),
     auth = owners.auth({ nodeId: "node-one" });
   await host.attachmentsSettled();
+  t.diagnostic("stage: attachments settled");
   try {
     const first = await host.run("replica-repo", { kind: "task-create", taskId: "task-one", title: "One" }, auth);
+    t.diagnostic("stage: first write accepted");
     assert.equal(first.outcome, "applied");
     const replica = host.replica("replica-repo"),
       bootstrap = replica.activate()!;
@@ -626,15 +665,20 @@ test("RepoCell wakes a pending replica cut when its projection catches up", { ti
     t.signal.addEventListener("abort", () => replica.close(), { once: true });
     armed = true;
     const writing = host.run("replica-repo", { kind: "task-create", taskId: "task-two", title: "Two" }, auth);
+    t.diagnostic("stage: waiting for commit killpoint");
     await reached.promise;
+    t.diagnostic("stage: killpoint reached");
     const target = replica.ledgerCut()!.revision;
     const waiting = replica.waitForCut(target);
     await new Promise<void>((resolve) => setImmediate(resolve));
     release.resolve();
     const second = await writing;
+    t.diagnostic("stage: second write accepted");
     await new Promise<void>((resolve) => setImmediate(resolve));
     // The writer completion notification must wake the host replica without another request.
+    t.diagnostic("stage: waiting for projection wake");
     assert.equal((await waiting).revision, target);
+    t.diagnostic("stage: projection wake observed");
     assert.equal(second.outcome, "applied");
     assert.equal(replica.latest()?.revision, second.revision);
     const cut = await replica.waitForCut(second.revision!);
@@ -648,11 +692,19 @@ test("RepoCell wakes a pending replica cut when its projection catches up", { ti
       true,
     );
     writeFileSync(
-      path.join(repo, ".harness/replica/manifests/sha256", cut.manifest.digest.slice(0, 2), cut.manifest.digest),
+      path.join(
+        repo,
+        ".harness/replica/repos/replica-repo",
+        `g${READ_MODEL_SCHEMA_GENERATION}`,
+        "manifests/sha256",
+        cut.manifest.digest.slice(0, 2),
+        cut.manifest.digest,
+      ),
       "corrupt",
     );
     const third = await host.run("replica-repo", { kind: "task-create", taskId: "task-three", title: "Three" }, auth);
     assert.equal(third.outcome, "applied");
+    t.diagnostic("stage: waiting for corrupt-manifest rejection");
     await assert.rejects(replica.waitForCut(third.revision!), /manifest .* corrupt/u);
     assert.equal((await host.read("replica-repo", "repo.tasks.list", {}, auth)).status, "ready");
     assert.equal(
@@ -1294,7 +1346,7 @@ function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer | n
     baseLedgerSha = {
       repoId: "repo-change",
       revision: workspaceRevision - 1,
-      headDigest: `sha256:${"a".repeat(64)}`,
+      headDigest: `sha256:${sha256Bytes(Buffer.from("historical derived bytes"))}`,
     },
     intent = parseDocWriteIntent(
       {

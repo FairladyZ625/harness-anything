@@ -163,7 +163,7 @@ function setCut(
 ): void {
   const revision = (node.revision += 1),
     viewDir = path.join(node.viewRoot, "repos", repoId, "views", "edge-view"),
-    cutDir = path.join(viewDir, "cuts", String(revision)),
+    cutDir = path.join(viewDir, "cuts", `${revision}-g0`),
     files = Object.entries(statuses).map(([taskId, status]) => ({
       path: `tasks/${taskId}/INDEX.md`,
       body:
@@ -182,6 +182,7 @@ function setCut(
     writeFileSync(path.join(cutDir, "files", file.path), file.body);
   }
   writeJson(path.join(viewDir, "current.json"), {
+    schemaGeneration: 0,
     cut: { revision, headDigest: `sha256:${sha(`head-${revision}`)}` },
     manifestDigest: `sha256:${sha(`manifest-${revision}`)}`,
   });
