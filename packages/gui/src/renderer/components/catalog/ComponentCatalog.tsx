@@ -409,6 +409,7 @@ function ComponentCatalog() {
           <h2 className="font-semibold ui-title">列表与区域 / DenseRow · Region · Tabs</h2>
           <Button onClick={() => setFocusOpen(true)}>键盘长名单：↑↓ 跟随选中行</Button>
           <FocusLayer
+            emphasis="detail"
             open={focusOpen}
             title="键盘长名单"
             itemIds={focusIds}

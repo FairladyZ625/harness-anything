@@ -18,7 +18,6 @@ import {
   drillWipRows,
   followUpRows,
   inflightTaskRows,
-  mainCiFailingJobs,
   pinnedTaskRows,
   recentDayGroups,
   reviewRows,
@@ -29,8 +28,6 @@ import {
 } from "./overview-model.ts";
 import { ArtifactFocusDetail, ArtifactFocusList, artifactRowKey } from "./overview-inflight-shelf.tsx";
 import {
-  CiFocusDetail,
-  CiFocusList,
   FollowUpsFocusDetail,
   FollowUpsFocusList,
   OverviewArtifactsShelf,
@@ -48,6 +45,7 @@ import {
   type DrillFocusKey,
   type OverviewBoardDeps,
 } from "./overview-regions.tsx";
+import { CiFocusDetail, CiFocusList } from "./overview-ci.tsx";
 import { wipVisibleEntries, type WipFilter } from "./OverviewTaskWip.tsx";
 
 /**
@@ -116,7 +114,8 @@ export function OverviewView({
   const [selected, setSelected] = useState<Partial<Record<DrillFocusKey, string>>>({});
   // 产物详情层的选中行(键 = artifactRowKey;null = 层关着)。点速览架行打开,不离开总览。
   const [artifactFocus, setArtifactFocus] = useState<string | null>(null);
-  const ciQuery = useOverviewCi(repoId);
+  const [fetchCiDetails, setFetchCiDetails] = useState(false);
+  const ciQuery = useOverviewCi(repoId, fetchCiDetails);
   const runtimeQuery = useOverviewRuntime(repoId);
   const eventsQuery = useOverviewRecentEvents(repoId);
   const artifactsQuery = useOverviewArtifacts(repoId);
@@ -156,7 +155,8 @@ export function OverviewView({
     () => new Map(watchedRecentPaths(recentDays, watched).map((path) => [path.workTaskId, path] as const)),
     [recentDays, watched],
   );
-  const failing = useMemo(() => mainCiFailingJobs(ciQuery.data), [ciQuery.data]);
+  const ciRuns = ciQuery.data?.runs ?? [];
+  const failing = ciRuns.filter((run) => run.branch === "main" && run.pass === false);
   const wipCounted = wipQuery.data?.counted ?? [];
   const wipFull = wipQuery.data !== undefined && wipCounted.length >= wipQuery.data.limit;
   const inflight = useMemo(
@@ -223,7 +223,7 @@ export function OverviewView({
             ? followUps.map(({ id }) => id)
             : focus === "pinned"
               ? pinned.map(({ taskId }) => taskId)
-              : failing.map(({ runId }) => runId);
+              : ciRuns.map(({ eventId }) => eventId);
   const focusSelected =
     focus === null ? null : focusIds.includes(selected[focus] ?? "") ? selected[focus]! : (focusIds[0] ?? null);
 
@@ -252,22 +252,21 @@ export function OverviewView({
         {health.daemon.state === "unresponsive" && (
           <StatusPill tone="bad">{t("views.overviewView.topDaemonDown")}</StatusPill>
         )}
-        {failing.length > 0 ? (
-          <button
-            type="button"
-            data-testid="overview-ci-alert"
-            onClick={() => openFocus("ci")}
-            className="glass flex h-6 shrink-0 items-center gap-1.5 rounded-xs px-2.5 text-text-muted ui-meta hover:text-text"
-          >
-            <span
-              className="size-[7px] shrink-0 rounded-full bg-status-blocked shadow-[0_0_8px_var(--color-status-blocked)]"
-              aria-hidden="true"
-            />
-            {t("views.overviewView.topCiRedCount", { count: String(failing.length) })}
-          </button>
-        ) : ciQuery.isError ? (
-          <StatusPill tone="warn">{t("views.overviewView.topCiUnknown")}</StatusPill>
-        ) : null}
+        <button
+          type="button"
+          data-testid="overview-ci-alert"
+          onClick={() => openFocus("ci")}
+          className="glass flex h-6 shrink-0 items-center gap-1.5 rounded-xs px-2.5 text-text-muted ui-meta hover:text-text"
+        >
+          {t("views.overviewView.regionCi")} ·{" "}
+          {failing.length > 0
+            ? t("views.overviewView.topCiRedCount", { count: failing.length })
+            : t(
+                ciQuery.isError || ciQuery.data === undefined || ciQuery.data.status === "pending"
+                  ? "views.ci.unknown"
+                  : "views.ci.inspect",
+              )}
+        </button>
         {collaboration !== null && collaboration !== undefined && onOpenCollaboration !== undefined && (
           <button
             type="button"
@@ -636,24 +635,31 @@ export function OverviewView({
         <FocusLayer
           open
           title={t("views.overviewView.regionCi")}
-          tag={<StatusTag tone="bad" label={t("views.overviewView.ciBlocking")} />}
-          big={failing.length}
-          bigTone="bad"
+          emphasis="detail"
+          tag={<StatusTag tone="neutral" label={ciQuery.data?.statisticsAvailability ?? "pending"} />}
+          big={ciRuns.length}
           itemIds={focusIds}
           selectedId={focusSelected}
           onSelect={(id) => setSelected((current) => ({ ...current, ci: id }))}
           onClose={() => setFocus(null)}
           list={
             <CiFocusList
-              rows={failing}
+              ci={ciQuery.data}
               selectedId={focusSelected}
               onSelect={(id) => setSelected((current) => ({ ...current, ci: id }))}
             />
           }
           detail={
-            focusSelected === null ? null : (
-              <CiFocusDetail run={failing.find(({ runId }) => runId === focusSelected)!} rows={failing} />
-            )
+            <CiFocusDetail
+              ci={ciQuery.data}
+              run={ciRuns.find(({ eventId }) => eventId === focusSelected)}
+              error={ciQuery.error?.message ?? null}
+              fetching={ciQuery.isFetching}
+              onFetch={() => {
+                if (fetchCiDetails) void ciQuery.refetch();
+                else setFetchCiDetails(true);
+              }}
+            />
           }
         />
       )}

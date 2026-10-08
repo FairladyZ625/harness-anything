@@ -17,12 +17,14 @@ const ciQueryKeys = {
   observatory: (repoId: string) => ["ci-observatory", repoId] as const,
 };
 
-export function useOverviewCi(repoId: string | null): UseQueryResult<CiObservatoryRead, Error> {
+export function useOverviewCi(repoId: string | null, fetchDetails = false): UseQueryResult<CiObservatoryRead, Error> {
   const selectedRepoId = repoId ?? "unselected";
   return useQuery({
-    queryKey: ciQueryKeys.observatory(selectedRepoId),
-    queryFn: (): Promise<CiObservatoryRead> => harnessClient.getCiObservatory({ repoId: selectedRepoId, window: 30 }),
+    queryKey: [...ciQueryKeys.observatory(selectedRepoId), fetchDetails],
+    queryFn: (): Promise<CiObservatoryRead> =>
+      harnessClient.getCiObservatory({ repoId: selectedRepoId, window: 30, fetchDetails }),
     enabled: repoId !== null,
+    placeholderData: (previous) => previous,
     // CI run 观察是 canonical 事件,台账 cut 扇出会失效这个 key;这里只给一个兜底陈旧窗。
     staleTime: 60_000,
     retry: 1,

@@ -6,6 +6,7 @@ import {
   sha256Bytes,
   canonicalizeContractValue,
   type CiRunDetail,
+  type ScheduleV1,
 } from "@harness-anything/kernel";
 import { nonEmpty } from "./migration-import-report.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
@@ -17,6 +18,12 @@ export interface CiObservatoryRead {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly window: number;
+  readonly importer: {
+    readonly scheduleId: string;
+    readonly activeRun: ScheduleV1["status"]["activeRun"];
+    readonly lastRun: ScheduleV1["status"]["lastRun"];
+    readonly progress: NonNullable<ScheduleV1["status"]["ciObserve"]> | null;
+  } | null;
   readonly statisticsAvailability: "pending" | "ready";
   readonly missingDetails: readonly string[];
   readonly recoveries: ReturnType<typeof ciRerunStatistics>["recoveries"];
@@ -34,6 +41,11 @@ export interface CiObservatoryRead {
   }[];
   readonly l0MedianMs: number | null;
   readonly runs: readonly {
+    readonly eventId: string;
+    readonly identity: CiObservationRead["payload"]["identity"];
+    readonly scope: CiObservationRead["payload"]["scope"];
+    readonly detailAvailability: "ready" | "not_cached" | "unavailable";
+    readonly detail: CiRunDetail | null;
     readonly runId: string;
     readonly sha: string;
     readonly branch: string;
@@ -66,6 +78,7 @@ export function readCiObservatory(input: {
   readonly projection: TaskProjection;
   readonly window?: number;
   readonly now?: string;
+  readonly includeDetails?: boolean;
   readonly readContentBlob?: (sha256: string) => Uint8Array | null;
 }): CiObservatoryRead {
   const window = input.window ?? 100;
@@ -113,11 +126,23 @@ export function readCiObservatory(input: {
     details.set(event.eventId, detail);
   }
   const statistics = ciRerunStatistics(events, details);
+  const importer = input.projection
+    .listEntities("schedule")
+    .map((row) => row.value as unknown as ScheduleV1)
+    .find((schedule) => schedule.spec.target.kind === "builtin" && schedule.spec.target.builtinId === "ci-observe");
   return {
     schema: "daemon.ci-observatory/v1",
     ok: true,
     status: read.status,
     window,
+    importer: importer
+      ? {
+          scheduleId: importer.scheduleId,
+          activeRun: importer.status.activeRun,
+          lastRun: importer.status.lastRun,
+          progress: importer.status.ciObserve ?? null,
+        }
+      : null,
     statisticsAvailability: read.status === "ready" ? statistics.availability : "pending",
     missingDetails: statistics.missing,
     recoveries:
@@ -132,9 +157,22 @@ export function readCiObservatory(input: {
       .filter((event) => event.payload.scope !== "attempt")
       .map((event) => ({
         ...event.payload.run,
+        eventId: event.eventId,
+        identity: event.payload.identity,
+        scope: event.payload.scope,
+        detailAvailability: details.has(event.eventId)
+          ? "ready"
+          : event.payload.detailRef
+            ? "not_cached"
+            : "unavailable",
+        detail: input.includeDetails ? (details.get(event.eventId) ?? null) : null,
         occurredAt: event.occurredAt,
         pass: event.payload.verification
           ? event.payload.verification.conclusion === "success"
+            ? true
+            : event.payload.verification.conclusion === "failure"
+              ? false
+              : null
           : event.payload.measurementCoverage.status === "complete"
             ? event.payload.testSummary!.failed === 0 &&
               event.payload.fileOutcomes.length === 0 &&
@@ -234,6 +272,7 @@ export function validateCiObservatoryRead(value: unknown): readonly string[] {
     value.schema !== "daemon.ci-observatory/v1" ||
     value.ok !== true ||
     !["ready", "pending"].includes(String(value.status)) ||
+    !validImporter(value.importer) ||
     !safeNonNegativeInteger(value.window) ||
     value.window < 1 ||
     !["pending", "ready"].includes(String(value.statisticsAvailability)) ||
@@ -320,6 +359,23 @@ function validTrend(value: unknown): boolean {
 function validRun(value: unknown): boolean {
   return (
     isJsonObject(value) &&
+    nonEmpty(value.eventId) &&
+    isJsonObject(value.identity) &&
+    nonEmpty(value.identity.databaseRunId) &&
+    safeNonNegativeInteger(value.identity.runAttempt) &&
+    ["workflow", "job", "legacy"].includes(String(value.scope)) &&
+    ["ready", "not_cached", "unavailable"].includes(String(value.detailAvailability)) &&
+    (value.detail === null ||
+      (isJsonObject(value.detail) &&
+        value.detail.schema === "ci-run-detail/v1" &&
+        Array.isArray(value.detail.tests) &&
+        value.detail.tests.every((test) => validDiagnosticTest(test)) &&
+        Array.isArray(value.detail.fileOutcomes) &&
+        Array.isArray(value.detail.diagnostics))) &&
+    Array.isArray(value.failedTests) &&
+    value.failedTests.every((test) => validDiagnosticTest(test)) &&
+    Array.isArray(value.fileOutcomes) &&
+    isJsonObject(value.measurementCoverage) &&
     nonEmpty(value.runId) &&
     nonEmpty(value.sha) &&
     nonEmpty(value.branch) &&
@@ -332,6 +388,31 @@ function validRun(value: unknown): boolean {
     (value.pass === null || typeof value.pass === "boolean") &&
     (value.testCount === null || safeNonNegativeInteger(value.testCount)) &&
     safeNonNegativeInteger(value.gateCount)
+  );
+}
+
+function validImporter(value: unknown): boolean {
+  if (value === null) return true;
+  const run = (v: unknown) =>
+    v === null || (isJsonObject(v) && nonEmpty(v.occurrenceId) && nonEmpty(v.nodeId) && nonEmpty(v.claimFence));
+  return (
+    isJsonObject(value) &&
+    nonEmpty(value.scheduleId) &&
+    run(value.activeRun) &&
+    run(value.lastRun) &&
+    (value.progress === null ||
+      (isJsonObject(value.progress) &&
+        typeof value.progress.workflow === "string" &&
+        safeNonNegativeInteger(value.progress.scanPass) &&
+        safeNonNegativeInteger(value.progress.nextPage) &&
+        (value.progress.error === null || nonEmpty(value.progress.error)) &&
+        Array.isArray(value.progress.pending) &&
+        value.progress.pending.every(
+          (target) =>
+            isJsonObject(target) && safeNonNegativeInteger(target.runId) && safeNonNegativeInteger(target.attempt),
+        ) &&
+        Array.isArray(value.progress.unavailable) &&
+        value.progress.unavailable.every((target) => isJsonObject(target) && nonEmpty(target.reason))))
   );
 }
 

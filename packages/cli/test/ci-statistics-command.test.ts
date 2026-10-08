@@ -19,3 +19,23 @@ test("CI statistics uses the shared replica read service and explicit cold detai
   for (const value of ["0", "101", "1.5", "-1"])
     assert.equal(parseThinCommand(["ci", "observe", "statistics", "--window", value]).ok, false);
 });
+
+test("human CLI renders the same DTO diagnostics, missing set and full detail without an all-green inference", async () => {
+  const { renderCliReceipt } = await import("../src/cli/receipt-render-registry.ts");
+  const { default: fixture } = await import("../../gui/test-support/ci-observation-dto.json", {
+    with: { type: "json" },
+  });
+  const hot = renderCliReceipt(fixture.hot).text;
+  assert.match(hot, /Expected result to equal 42/u);
+  assert.match(hot, /fixture.test.ts:27:5/u);
+  assert.match(hot, /timeout.test.ts.*810000/u);
+  assert.match(hot, /claim_fence_expired/u);
+  assert.match(hot, /HTTP 401/u);
+  assert.match(hot, /statistics=pending/u);
+  assert.match(hot, /event-presentation-202-1/u);
+  assert.doesNotMatch(hot, /Full assertion stack|all green|p95=0/u);
+  const cold = renderCliReceipt(fixture.cold).text;
+  assert.match(cold, /Full assertion stack/u);
+  assert.match(cold, /attempt 1 -> 2/u);
+  assert.match(cold, /sourceRevision=42/u);
+});

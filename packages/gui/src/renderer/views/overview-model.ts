@@ -5,7 +5,6 @@ import type {
   AgendaExecutionRow,
   AgendaTaskRow,
   AgendaAttentionItem,
-  CiObservatoryRead,
   TaskWipRead,
   WorkIndexRead,
 } from "../../api/renderer-dto.ts";
@@ -178,33 +177,6 @@ export function followUpRows(agenda: AgendaSuccess | undefined): readonly Follow
       return [{ id: item.ref, kind: item.kind, title: item.title, workTaskId: item.workTaskId, since, source }];
     },
   );
-}
-
-export interface MainCiFailingJob {
-  readonly runId: string;
-  readonly job: string;
-  readonly sha: string;
-  readonly occurredAt: string;
-}
-
-/**
- * main CI 红的唯一判据:某个 job 在 main 上最近一次观测失败,且这个 job 也在 PR 上跑过(观察窗内)。
- * 只在 main 上跑的 job(如 Windows 夜间矩阵,dec_630DB4EB 永不 required)不挡合入,不算 main 红。
- * 每个 job 一行,不按 run 重复。
- */
-export function mainCiFailingJobs(ci: CiObservatoryRead | undefined): readonly MainCiFailingJob[] {
-  if (ci?.status !== "ready") return [];
-  const prJobs = new Set(ci.runs.filter((run) => run.branch !== "main").map((run) => run.job)),
-    latestOnMain = new Map<string, CiObservatoryRead["runs"][number]>();
-  for (const run of ci.runs) {
-    if (run.branch !== "main" || !prJobs.has(run.job)) continue;
-    const seen = latestOnMain.get(run.job);
-    if (seen === undefined || Date.parse(run.occurredAt) > Date.parse(seen.occurredAt)) latestOnMain.set(run.job, run);
-  }
-  return [...latestOnMain.values()]
-    .filter((run) => !run.pass)
-    .map(({ runId, job, sha, occurredAt }) => ({ runId, job, sha, occurredAt }))
-    .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt));
 }
 
 /** live 会话一行(who = kind · model):关注工作卡的「处理者」与安静状态行的计数来源。 */

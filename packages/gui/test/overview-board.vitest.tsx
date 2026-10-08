@@ -763,12 +763,24 @@ describe("总览:系统状态弱化与异常提升", () => {
               ok: true,
               status: "ready",
               window: 30,
-              flakes: [],
+              importer: null,
+              statisticsAvailability: "pending",
+              missingDetails: [],
+              tests: [],
+              recoveries: [],
               shardDurations: [],
               gateTrends: [],
               l0MedianMs: null,
               runs: [
                 {
+                  eventId: "event-run-green",
+                  identity: { workflow: "rewrite-ci", runAttempt: 1, databaseRunId: "123" },
+                  scope: "job",
+                  detailAvailability: "unavailable",
+                  detail: null,
+                  measurementCoverage: { status: "unknown", missingReason: "fixture" },
+                  failedTests: [],
+                  fileOutcomes: [],
                   runId: "run-green",
                   sha: "850840cdffffffffffffffffffffffffffffffff",
                   branch: "main",
@@ -792,9 +804,10 @@ describe("总览:系统状态弱化与异常提升", () => {
       () => container.querySelector('[data-testid="overview-topbar"]')?.textContent?.includes("daemon 正常") === true,
     );
     const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
-    expect(textOf(topbar)).toContain("daemon 正常 · main CI 绿");
+    expect(textOf(topbar)).toContain("daemon 正常");
+    expect(textOf(topbar)).not.toContain("main CI 绿");
     expect(textOf(topbar)).toContain("进行中 2");
-    expect(topbar.querySelector('[data-testid="overview-ci-alert"]')).toBeNull();
+    expect(topbar.querySelector('[data-testid="overview-ci-alert"]')).not.toBeNull();
     unmount();
     vi.stubGlobal("harness", previous);
   });
@@ -809,12 +822,24 @@ describe("总览:系统状态弱化与异常提升", () => {
               ok: true,
               status: "ready",
               window: 30,
-              flakes: [],
+              importer: null,
+              statisticsAvailability: "pending",
+              missingDetails: [],
+              tests: [],
+              recoveries: [],
               shardDurations: [],
               gateTrends: [],
               l0MedianMs: null,
               runs: [
                 {
+                  eventId: "event-run-1",
+                  identity: { workflow: "rewrite-ci", runAttempt: 1, databaseRunId: "123" },
+                  scope: "job",
+                  detailAvailability: "unavailable",
+                  detail: null,
+                  measurementCoverage: { status: "unknown", missingReason: "fixture" },
+                  failedTests: [],
+                  fileOutcomes: [],
                   runId: "run-1",
                   sha: "850840cdffffffffffffffffffffffffffffffff",
                   branch: "main",
@@ -828,6 +853,14 @@ describe("总览:系统状态弱化与异常提升", () => {
                   gateCount: 2,
                 },
                 {
+                  eventId: "event-run-pr",
+                  identity: { workflow: "rewrite-ci", runAttempt: 1, databaseRunId: "123" },
+                  scope: "job",
+                  detailAvailability: "unavailable",
+                  detail: null,
+                  measurementCoverage: { status: "unknown", missingReason: "fixture" },
+                  failedTests: [],
+                  fileOutcomes: [],
                   runId: "run-pr",
                   sha: "aaaaaaaaffffffffffffffffffffffffffffffff",
                   branch: "task_x",
@@ -852,11 +885,11 @@ describe("总览:系统状态弱化与异常提升", () => {
         projection: { lag: 3, status: "ready" },
       },
     });
-    await flushUntil(() => container.querySelector('[data-testid="overview-ci-alert"]') !== null);
+    await flushUntil(() => textOf(container.querySelector('[data-testid="overview-ci-alert"]')).includes("失败观察 1"));
     const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
     expect(textOf(topbar)).toContain("daemon 无响应");
     expect(textOf(topbar)).toContain("投影落后 3");
-    expect(textOf(topbar)).toContain("main CI 红 · 1 个 job 失败");
+    expect(textOf(topbar)).toContain("窗口中 main 失败观察 1");
     // 正常小字被异常替代,不再同时出现。
     expect(textOf(topbar)).not.toContain("daemon 正常");
     act(() => (container.querySelector('[data-testid="overview-ci-alert"]') as HTMLButtonElement).click());
