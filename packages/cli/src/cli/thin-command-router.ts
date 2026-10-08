@@ -316,8 +316,8 @@ function parseAgentRun(
   if (!nonEmpty(agentId)) return rejected("missing_field", "Use ha agent run <agent-id> --task <task-id>.", json);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   const resumeDispatch = f.one.get("--resume-dispatch");
-  if (!f.one.get("--task") && !resumeDispatch)
-    return rejected("missing_field", "Use --task <task-id> or --resume-dispatch <dispatch-id>.", json);
+  if (!f.one.get("--task") && !resumeDispatch && !f.booleans.has("--claim-next"))
+    return rejected("missing_field", "Use --task <task-id>, --claim-next, or --resume-dispatch <dispatch-id>.", json);
   const cwd = f.one.get("--cwd"),
     missionName = f.one.get("--mission"),
     prompt = f.one.get("--prompt"),
@@ -330,6 +330,7 @@ function parseAgentRun(
     {
       kind: "runtime-run",
       agentId,
+      ...(f.booleans.has("--claim-next") ? { claimNext: true } : {}),
       ...(resumeDispatch ? { dispatchId: resumeDispatch } : {}),
       ...(f.booleans.has("--enable-handoff") ? { handoffEnabled: true } : {}),
       ...(f.one.get("--to") ? { targetAgentId: f.one.get("--to") } : {}),

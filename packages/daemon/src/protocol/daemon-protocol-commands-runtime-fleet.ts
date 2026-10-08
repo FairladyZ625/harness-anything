@@ -14,11 +14,20 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
   path: ["agent", "run", "<id>"],
   summary: [
     "Dispatch task-bound work or resume its dispatch with the same Agent identity and working directory. ",
-    "Without --cwd a task bound to a worktree runs in it; Harness manages the worktree, no command is needed.",
+    "Use --claim-next to start the first claimable task on this node. Without --cwd a task bound to a worktree runs in it; Harness manages the worktree, no command is needed.",
   ].join(""),
   method: "repo.agentRuntime.spawn",
   positional: "agentId",
   inputs: [
+    cliInput(
+      "--claim-next",
+      "boolean",
+      false,
+      { code: "invalid_field" },
+      {
+        conflictsWith: ["--task", "--resume-dispatch", "--dry-run", "--cwd"],
+      },
+    ),
     cliInput("--task", "single", false, { code: "missing_field" }),
     cliInput("--resume-dispatch", "single", false, { code: "invalid_field" }),
     cliInput("--enable-handoff", "boolean", false, { code: "invalid_field" }),
