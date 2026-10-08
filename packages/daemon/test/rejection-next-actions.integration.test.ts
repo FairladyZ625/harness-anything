@@ -11,6 +11,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { commitDelivery } from "./review-independence.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
@@ -261,8 +262,20 @@ test("executor declaration and completion context refusals name projection rebui
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
+    const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
+    await commitDelivery(cell, deliveryRoot);
+    assert.equal(git(deliveryRoot, "diff", "--name-only", "HEAD^", "HEAD"), "README.md");
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
-    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, owner)).outcome, "applied");
+    const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, owner);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const submittedEvent = makeTaskEventReader({ repoId: cell.repoId, rootDir }).readEvent(submitted.opId);
+    assert.equal(submittedEvent?.type, "execution_submitted");
+    if (submittedEvent?.type !== "execution_submitted") throw new Error("submitted execution event missing");
+    assert.equal(
+      submittedEvent.payload.execution.submission?.commitSha,
+      git(deliveryRoot, "rev-parse", "HEAD"),
+      "refusal diagnostics require a real submitted code cut",
+    );
     const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventReader({ repoId, rootDir }) });
     const submittedRevision = projection.read(taskId).snapshot.revision;
     projection.close();
@@ -451,8 +464,20 @@ test("symptom task_6edcc0d990dae7e42f4bc93ff9 (complete --path): code-doc reconc
       cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
+    const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
+    await commitDelivery(cell, deliveryRoot);
+    assert.equal(git(deliveryRoot, "diff", "--name-only", "HEAD^", "HEAD"), "README.md");
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
-    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, holder)).outcome, "applied");
+    const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const submittedEvent = makeTaskEventReader({ repoId: cell.repoId, rootDir }).readEvent(submitted.opId);
+    assert.equal(submittedEvent?.type, "execution_submitted");
+    if (submittedEvent?.type !== "execution_submitted") throw new Error("submitted execution event missing");
+    assert.equal(
+      submittedEvent.payload.execution.submission?.commitSha,
+      git(deliveryRoot, "rev-parse", "HEAD"),
+      "refusal diagnostics require a real submitted code cut",
+    );
     const rejected = await cell.run(
       { kind: "task-code-doc-reconcile", taskId, paths: ["harness/agents/x.json"] },
       withPolicyGroup(holder, "contributor"),
