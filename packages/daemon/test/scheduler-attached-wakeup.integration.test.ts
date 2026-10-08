@@ -171,3 +171,143 @@ test("A: registry attached recovery wakes a skipped due builtin without refreshi
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+for (const rejectMissed of [false, true])
+  test(`B: continuously attached builtin wakes after mixed missed settlement (peer rejected=${rejectMissed})`, async (t) => {
+    const parent = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-mixed-missed-"))),
+      actor = { principal: { personId: "wakeup-probe" }, executor: null },
+      anchor = "2026-08-27T10:00:00.000Z",
+      cells = new Map<string, RepoCell>(),
+      timers: Array<{ callback: () => void; delay: number; cleared: boolean }> = [];
+    let now = "2026-08-27T10:03:00.000Z";
+    function repository(repoId: string, everyMs: number, reject = false) {
+      const rootDir = path.join(parent, repoId),
+        schedule = createScheduleV1({
+          scheduleId: `builtin-${repoId}`,
+          name: repoId,
+          mode: "detect",
+          state: "armed",
+          actor,
+          occurredAt: anchor,
+          spec: {
+            trigger: { kind: "interval", everyMs, anchorAt: anchor },
+            target: { kind: "builtin", builtinId: "ci-observe" },
+            mission: "Mixed missed settlement probe",
+          },
+        }),
+        actions: Readonly<Record<string, unknown>>[] = [];
+      let cursor = schedule.status.automaticEvaluatedThrough,
+        inFlight = 0;
+      const cell = {
+        status: () => ({ repoId, rootDir, mode: "local", state: "attached", generation: 1 }),
+        run: async (action: Readonly<Record<string, unknown>>) => {
+          inFlight += 1;
+          try {
+            actions.push(action);
+            if (action.kind === "schedule-list")
+              return {
+                outcome: "applied",
+                evidence: "schedule-list:1",
+                schedules: [
+                  {
+                    ...schedule,
+                    definitionRevision: 1,
+                    status: { ...schedule.status, automaticEvaluatedThrough: cursor },
+                    nextRunAt: null,
+                  },
+                ],
+              };
+            assert.ok(action.kind === "schedule-missed" || action.kind === "schedule-run-now");
+            if (reject && action.kind === "schedule-missed")
+              return {
+                outcome: "op_rejected",
+                code: "authorization_denied",
+                origin: "daemon",
+                evidence: "rejection:authorization_denied",
+              };
+            cursor = String(action.kind === "schedule-missed" ? action.to : action.scheduledFor);
+            return { outcome: "applied" };
+          } finally {
+            inFlight -= 1;
+          }
+        },
+      } as unknown as RepoCell;
+      cells.set(repoId, cell);
+      return { cell, actions, cursor: () => cursor, inFlight: () => inFlight };
+    }
+    const canonical = repository("canonical", 60_000),
+      peer = repository("rejected-peer", 60_000, rejectMissed),
+      distant = repository("distant", 48 * 60_000),
+      scheduler = makeScheduleScheduler({
+        cells,
+        now: () => now,
+        localBinding: () => ({ actor, source: "local" }),
+        setTimer: (callback, delay) => {
+          const timer = { callback, delay, cleared: false };
+          timers.push(timer);
+          return timer as unknown as ReturnType<typeof setTimeout>;
+        },
+        clearTimer: (timer) => {
+          (timer as unknown as (typeof timers)[number]).cleared = true;
+        },
+      });
+    try {
+      await scheduler.start();
+      assert.equal(canonical.cell.status().state, "attached");
+      assert.equal(canonical.inFlight() + peer.inFlight() + distant.inFlight(), 0);
+      assert.equal(canonical.cursor(), "2026-08-27T10:02:00.000Z");
+      assert.deepEqual(
+        canonical.actions
+          .filter(({ kind }) => kind !== "schedule-list")
+          .map(({ kind, from, to, count }) => ({ kind, from, to, count })),
+        [
+          {
+            kind: "schedule-missed",
+            from: "2026-08-27T10:01:00.000Z",
+            to: "2026-08-27T10:02:00.000Z",
+            count: 2,
+          },
+        ],
+      );
+      assert.equal(peer.cursor(), rejectMissed ? anchor : canonical.cursor());
+      const live = timers.filter((timer) => !timer.cleared);
+      assert.equal(live.length, 1);
+      t.diagnostic(
+        JSON.stringify({
+          rejectMissed,
+          observedAt: now,
+          attached: canonical.cell.status().state,
+          inFlight: 0,
+          canonicalCursor: canonical.cursor(),
+          canonicalRuns: canonical.actions.filter(({ kind }) => kind === "schedule-run-now").length,
+          missedThrough: canonical.cursor(),
+          unaccountedOccurrence: "2026-08-27T10:03:00.000Z",
+          timerDelayMs: live[0]!.delay,
+          timerDueAt: new Date(Date.parse(now) + live[0]!.delay).toISOString(),
+        }),
+      );
+      assert.equal(
+        live[0]!.delay,
+        0,
+        "settled canonical backlog must expose its admitted 10:03 occurrence immediately",
+      );
+      live[0]!.cleared = true;
+      live[0]!.callback();
+      await scheduler.refresh(); // join the queued tick; no wall-clock sleep or retry
+      assert.deepEqual(
+        canonical.actions.filter(({ kind }) => kind === "schedule-run-now").map(({ scheduledFor }) => scheduledFor),
+        ["2026-08-27T10:03:00.000Z"],
+      );
+      now = "2026-08-27T10:04:00.000Z";
+      const next = timers.filter((timer) => !timer.cleared);
+      assert.equal(next.length, 1);
+      assert.equal(next[0]!.delay, 60_000);
+      next[0]!.cleared = true;
+      next[0]!.callback();
+      await scheduler.refresh();
+      assert.equal(canonical.cursor(), now);
+    } finally {
+      scheduler.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
