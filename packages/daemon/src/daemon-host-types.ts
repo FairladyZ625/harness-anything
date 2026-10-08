@@ -23,6 +23,11 @@ import type { ManagedRbacRequest } from "./managed-rbac-service.ts";
 
 export interface DaemonHost {
   readonly remoteProxy: RemoteProxyManager;
+  readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
+  readonly sessionPrincipal: (
+    auth: DaemonAuthenticationContext,
+  ) => Promise<DaemonAuthenticationContext["oidcPrincipal"]>;
+  readonly parkedWaitSignal: AbortSignal;
   readonly run: (
     repoId: string,
     action: RepoTaskAction,

@@ -112,6 +112,11 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
 export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionContext {
   readonly remoteProxy: RemoteProxyManager;
   readonly runtimePorts: DaemonRuntimePorts;
+  readonly markWarming: DaemonHostRegistryContext["markWarming"];
+  readonly warmingStatus: DaemonHostRegistryContext["warmingStatus"];
+  readonly latchUnavailable: DaemonHostRegistryContext["latchUnavailable"];
+  readonly unavailableStatus: DaemonHostRegistryContext["unavailableStatus"];
+  readonly openCell: DaemonHostRegistryContext["openCell"];
   readonly failedConfigureVerify: typeof import("./daemon-host-errors.ts").failedConfigureVerify;
   readonly hostCodedError: typeof import("./daemon-host-errors.ts").hostCodedError;
   readonly binding: (

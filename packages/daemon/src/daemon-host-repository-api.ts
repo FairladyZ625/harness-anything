@@ -37,7 +37,7 @@ import { parseDaemonGuiReadResult } from "./protocol/gui-result-validation.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import { openRepoCell, type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell.ts";
+import { type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
@@ -100,134 +100,156 @@ export function createDaemonHostRepositoryApi(
       await context.waitForWarming(prepared.repoId);
       if (context.warming.has(prepared.repoId))
         throw context.hostCodedError("repo_warming", context.warmingMessage(prepared.repoId));
-      await context.cells.get(prepared.repoId)?.close();
-      context.cells.delete(prepared.repoId);
-      context.unavailable.delete(prepared.repoId);
-      let published: RepoBootstrapReceipt | undefined, cell: RepoCell;
-      try {
-        cell = await openRepoCell({
+      context.markWarming(
+        prepared.repoId,
+        context.warmingStatus({
           repoId: prepared.repoId,
-          rootDir: prepared.rootDir,
-          mode: "local",
-          ownerId: context.input.daemonId,
-          defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
-          runtimeDaemonRoute: context.runtimeDaemonRoute,
-          keycloakCenter: context.keycloakCenter,
-          bootstrap: prepared,
-          onBootstrap: (receipt) => {
-            published = receipt;
-          },
-          ...context.runtimePorts,
-          ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
-        });
-      } catch (error) {
-        if (!published?.publication.ok) throw error;
-        return context.failedConfigureVerify(
-          published,
-          prepared.repoId,
-          prepared.rootDir,
-          false,
-          error,
-          [],
-          "daemon-l2-readiness",
-        );
-      }
-      let registered;
-      try {
-        registered = registerDaemonRepo({
           canonicalRoot: prepared.rootDir,
-          repoId: prepared.repoId,
           mode: "local",
-          userRoot: context.input.userRoot,
-          createConvenienceLinks: false,
-        });
-        context.cells.set(prepared.repoId, cell);
-        context.unavailable.delete(prepared.repoId);
-        await context.scheduleScheduler.refresh();
-      } catch (error) {
-        await cell.close();
-        throw error;
-      }
-      const receipt = cell.bootstrapReceipt!,
-        reportedReceipt = reusedRegistration
-          ? {
-              ...receipt,
-              summary: `This repository is already registered as ${prepared.repoId} and is initialized.`,
-            }
-          : receipt;
-      if (!receipt.publication.ok)
-        return {
-          schema: "command-receipt/v2",
-          ok: false,
-          command: "init",
-          repoId: registered.repo.repoId,
-          rootDir: prepared.rootDir,
-          registryChanged: registered.changed,
-          ...reportedReceipt,
-        };
-      await seedBuiltinSchedules({
-        cell,
-        binding: await context.binding(prepared.rootDir, auth, null, prepared.repoId),
-      });
-      const steps = ["publication-readback"];
+        }),
+      );
       try {
-        const layout = resolveHarnessLayout(prepared.rootDir),
-          settings = (await cell.read("repo.settings.read")).settings,
-          reparsed = compileRepoRepositoryScaffold(prepared.rootDir, settings),
-          expected = new Map(prepared.repositoryPlan.documents.map((document) => [document.slot, document.path]));
-        if (
-          reparsed.documents.length !== expected.size ||
-          reparsed.documents.some(
-            (document) => expected.get(document.slot) !== document.path || document.disposition === "created",
-          )
-        )
-          throw context.hostCodedError(
-            "configure_verify_layout",
-            "Canonical repository slots did not resolve to the published paths.",
-          );
-        steps.push("canonical-layout");
-        const readiness = await cell.verifyReadiness();
-        steps.push("daemon-l2-readiness");
-        const smoke = compileRepoTaskPackage({
-          rootDir: prepared.rootDir,
-          settings,
-          taskId: "configure-verify-smoke",
-          action: { kind: "task-create", title: "Configure Verify" },
-        });
-        steps.push("task-bootstrap-dry-run");
-        return {
-          schema: "command-receipt/v2",
-          ok: true,
-          command: "init",
-          repoId: registered.repo.repoId,
-          rootDir: prepared.rootDir,
-          registryChanged: registered.changed,
-          ...reportedReceipt,
-          configureVerify: {
-            ok: true,
-            steps,
-            roots: {
-              contextRoot: layout.contextRoot,
-              governanceRoot: layout.governanceRoot,
-              standardsRoot: layout.standardsRoot,
+        await context.cells.get(prepared.repoId)?.close();
+        context.cells.delete(prepared.repoId);
+        context.unavailable.delete(prepared.repoId);
+        let published: RepoBootstrapReceipt | undefined, cell: RepoCell;
+        try {
+          cell = await context.openCell({
+            repoId: prepared.repoId,
+            rootDir: prepared.rootDir,
+            mode: "local",
+            ownerId: context.input.daemonId,
+            defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
+            runtimeDaemonRoute: context.runtimeDaemonRoute,
+            keycloakCenter: context.keycloakCenter,
+            bootstrap: prepared,
+            onBootstrap: (receipt) => {
+              published = receipt;
             },
-            requiredSlots: reparsed.documents.map(({ slot, path: target }) => ({
-              slot,
-              path: target,
-            })),
-            l2: readiness,
-            compiledDocuments: smoke.documents.length,
-          },
-        };
+            ...context.runtimePorts,
+            ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
+          });
+        } catch (error) {
+          if (!published?.publication.ok) throw error;
+          context.latchUnavailable(
+            prepared.repoId,
+            context.unavailableStatus(prepared.repoId, prepared.rootDir, "local", error),
+          );
+          return context.failedConfigureVerify(
+            published,
+            prepared.repoId,
+            prepared.rootDir,
+            false,
+            error,
+            [],
+            "daemon-l2-readiness",
+          );
+        }
+        let registered;
+        try {
+          registered = registerDaemonRepo({
+            canonicalRoot: prepared.rootDir,
+            repoId: prepared.repoId,
+            mode: "local",
+            userRoot: context.input.userRoot,
+            createConvenienceLinks: false,
+          });
+          context.cells.set(prepared.repoId, cell);
+          context.unavailable.delete(prepared.repoId);
+          await context.scheduleScheduler.refresh();
+        } catch (error) {
+          await cell.close();
+          throw error;
+        }
+        const receipt = cell.bootstrapReceipt!,
+          reportedReceipt = reusedRegistration
+            ? {
+                ...receipt,
+                summary: `This repository is already registered as ${prepared.repoId} and is initialized.`,
+              }
+            : receipt;
+        if (!receipt.publication.ok)
+          return {
+            schema: "command-receipt/v2",
+            ok: false,
+            command: "init",
+            repoId: registered.repo.repoId,
+            rootDir: prepared.rootDir,
+            registryChanged: registered.changed,
+            ...reportedReceipt,
+          };
+        await seedBuiltinSchedules({
+          cell,
+          binding: await context.binding(prepared.rootDir, auth, null, prepared.repoId),
+        });
+        const steps = ["publication-readback"];
+        try {
+          const layout = resolveHarnessLayout(prepared.rootDir),
+            settings = (await cell.read("repo.settings.read")).settings,
+            reparsed = compileRepoRepositoryScaffold(prepared.rootDir, settings),
+            expected = new Map(prepared.repositoryPlan.documents.map((document) => [document.slot, document.path]));
+          if (
+            reparsed.documents.length !== expected.size ||
+            reparsed.documents.some(
+              (document) => expected.get(document.slot) !== document.path || document.disposition === "created",
+            )
+          )
+            throw context.hostCodedError(
+              "configure_verify_layout",
+              "Canonical repository slots did not resolve to the published paths.",
+            );
+          steps.push("canonical-layout");
+          const readiness = await cell.verifyReadiness();
+          steps.push("daemon-l2-readiness");
+          const smoke = compileRepoTaskPackage({
+            rootDir: prepared.rootDir,
+            settings,
+            taskId: "configure-verify-smoke",
+            action: { kind: "task-create", title: "Configure Verify" },
+          });
+          steps.push("task-bootstrap-dry-run");
+          return {
+            schema: "command-receipt/v2",
+            ok: true,
+            command: "init",
+            repoId: registered.repo.repoId,
+            rootDir: prepared.rootDir,
+            registryChanged: registered.changed,
+            ...reportedReceipt,
+            configureVerify: {
+              ok: true,
+              steps,
+              roots: {
+                contextRoot: layout.contextRoot,
+                governanceRoot: layout.governanceRoot,
+                standardsRoot: layout.standardsRoot,
+              },
+              requiredSlots: reparsed.documents.map(({ slot, path: target }) => ({
+                slot,
+                path: target,
+              })),
+              l2: readiness,
+              compiledDocuments: smoke.documents.length,
+            },
+          };
+        } catch (error) {
+          return context.failedConfigureVerify(
+            receipt,
+            registered.repo.repoId,
+            prepared.rootDir,
+            registered.changed,
+            error,
+            steps,
+          );
+        }
       } catch (error) {
-        return context.failedConfigureVerify(
-          receipt,
-          registered.repo.repoId,
-          prepared.rootDir,
-          registered.changed,
-          error,
-          steps,
+        context.latchUnavailable(
+          prepared.repoId,
+          context.unavailableStatus(prepared.repoId, prepared.rootDir, "local", error),
         );
+        throw error;
+      } finally {
+        context.settleWarming(prepared.repoId);
       }
     },
     admin: async (request, auth) => {

@@ -81,10 +81,10 @@ export function createDaemonHostLifecycleApi(
         connections: registry.connections,
         repos: [
           ...[...context.cells.values()].map((cell) => {
-            const status = cell.status();
+            const status = context.warming.get(cell.status().repoId) ?? cell.status();
             return status.state === "attached" ? { ...status, ...(cell.statusCuts() ?? {}) } : status;
           }),
-          ...context.warming.values(),
+          ...[...context.warming.values()].filter((status) => !context.cells.has(status.repoId)),
           ...context.unavailable.values(),
           ...proxyRepos,
           ...disabledRepos,

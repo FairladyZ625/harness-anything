@@ -618,6 +618,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     attach,
     localOnly,
     settleWarming,
+    markWarming,
+    warmingStatus,
+    latchUnavailable,
+    unavailableStatus,
+    openCell,
     closeCell,
     publicRegistryRepo,
     admitHostMode,
@@ -688,8 +693,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       error: error instanceof Error ? error.message : String(error),
     }),
   );
+  const parkedWaitController = new AbortController();
   const host: DaemonHost = {
     remoteProxy,
+    keycloakCenter,
+    sessionPrincipal: async (auth) => {
+      await rbacResumed;
+      return (await oidc.bind(auth)).oidcPrincipal;
+    },
+    parkedWaitSignal: parkedWaitController.signal,
     ...createDaemonHostRepositoryApi(hostContext),
     ...createDaemonHostRuntimeApi(hostContext),
     ...createDaemonHostControlApi(hostContext),
@@ -763,6 +775,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       }).then(() => managedRbac.run(request));
     },
     close: async () => {
+      parkedWaitController.abort();
       for (const controller of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();
       replicaSessionPool.close();
