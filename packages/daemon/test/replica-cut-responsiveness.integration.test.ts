@@ -55,11 +55,11 @@ test("hello responds during a large shared cut build", { timeout: 60_000 }, asyn
   assert.equal(replica.latest()?.manifest.digest, cut.manifest.digest);
 });
 
-test("default TLS name uses the target DNS host and IP host", async (t) => {
+test("default TLS name remains localhost and explicit servername is honored", async (t) => {
   const f = await fleetFixture(t);
   t.after(() => f.close());
   const center = await f.center();
-  for (const hostname of ["localhost", "127.0.0.1"]) {
+  for (const hostname of [undefined, "localhost", "127.0.0.1"]) {
     const peer = await openPeer({
       hostname,
       port: center.port,
@@ -70,6 +70,18 @@ test("default TLS name uses the target DNS host and IP host", async (t) => {
     });
     peer.close();
   }
+  await assert.rejects(
+    openPeer({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: f.cert,
+      servername: "wrong.example",
+      repoId: f.subject.repoId,
+      nodeId: f.subject.nodeId,
+      credential: "machine-secret",
+    }),
+    { code: "ERR_TLS_CERT_ALTNAME_INVALID" },
+  );
 });
 
 test("internal admission failure retains its code without registration advice", async (t) => {

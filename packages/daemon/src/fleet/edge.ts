@@ -1,4 +1,3 @@
-import { isIP } from "node:net";
 import { withFleetReplicaPullLock } from "../fleet-edge-mirror.ts";
 import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
 import {
@@ -914,7 +913,7 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
         host: options.hostname ?? "127.0.0.1",
         port: options.port,
         ca: options.ca,
-        servername: options.servername ?? (isIP(options.hostname ?? "127.0.0.1") ? undefined : options.hostname),
+        servername: options.servername ?? "localhost",
         rejectUnauthorized: true,
       },
       () => resolve(socket),
