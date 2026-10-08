@@ -118,6 +118,7 @@ export interface DaemonHostOpenInput {
   readonly runtimeFile?: string;
   readonly shutdownRequested?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
+  readonly onRepoStatusChange?: () => void;
   /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
   readonly oidc?: OidcSessionService;
   /** The managed identity center's lifecycle; a hermetic host substitutes it to stage its resume. */

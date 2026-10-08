@@ -110,7 +110,10 @@ export async function openRepoCellProxy(
       },
       {
         onAttachStatus: input.onStatus,
-        onPublishedStatus: () => wakeReplica(),
+        onPublishedStatus: (status) => {
+          wakeReplica();
+          input.onStatus?.(status);
+        },
       },
     );
   } catch (error) {

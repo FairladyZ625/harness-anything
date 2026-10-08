@@ -168,6 +168,7 @@ export async function performOpenRegistered(
       onAttemptTerminal: (_terminal: RuntimeAttemptTerminal) => void context.scheduleScheduler.refresh(),
       onStatus: (status) => {
         if (context.warming.has(repo.repoId)) context.warming.set(repo.repoId, status);
+        context.input.onRepoStatusChange?.();
       },
       // Live getter: cells attach at daemon boot, before the fleet center may be
       // admitted, so the schedule read resolves the roster at read time.
