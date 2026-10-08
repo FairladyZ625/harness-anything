@@ -326,7 +326,15 @@ function finish(
   if (!existsSync(cutDir)) renameSync(result, cutDir);
   else {
     const retained = readJson<Manifest>(path.join(cutDir, "manifest.json"));
-    if (!retained || retained.manifestDigest !== digest || JSON.stringify(retained.cut) !== JSON.stringify(cut))
+    // Persistent identity stores generation beside the canonical cut. Compare
+    // those fields, rather than the wire cut's serialized representation.
+    if (
+      !retained ||
+      retained.manifestDigest !== digest ||
+      retained.schemaGeneration !== schemaGeneration ||
+      retained.cut.revision !== cut.revision ||
+      retained.cut.headDigest !== cut.headDigest
+    )
       throw new Error("immutable snapshot identity conflict");
     rmSync(result, { recursive: true, force: true });
   }
