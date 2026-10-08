@@ -150,6 +150,41 @@ test("the overview joins daemon facts: center node from daemon identity, edges f
   assert.equal(parseDaemonGuiReadResult("repo.fleet.overview.read", result), result);
 });
 
+test("the node-level replica is the view the node last acknowledged, never a frozen retired view", () => {
+  // 测试床 B2:升级后节点带着 nodeId 命名的新 view 拉取,静态 assignment 时代的旧 view 行
+  // 冻结在台账里 ack 永不前进;节点级摘要若取最旧 ack 行,健康节点被画成严重滞后。
+  const result = buildFleetOverview(
+    input({
+      replicas: [
+        replica("cc90-ubuntu", {
+          viewId: "cc90-ubuntu-schedule-view",
+          ackRevision: 26,
+          ackCutEventAt: "2026-10-05T00:00:00.000Z",
+          ackedAt: "2026-10-05T00:00:01.000Z",
+          lagRevisions: 385,
+          lagMs: 86_400_000,
+          catchUpBytes: 1024,
+          delivery: "snapshot_required",
+        }),
+        replica("cc90-ubuntu", { viewId: "cc90-ubuntu", ackRevision: 411 }),
+      ],
+    }),
+  );
+  const ubuntu = result.nodes.find((node) => node.nodeId === "cc90-ubuntu")!;
+  assert.equal(ubuntu.replica?.viewId, "cc90-ubuntu");
+  assert.equal(ubuntu.replica?.ackRevision, 411);
+  assert.equal(ubuntu.replica?.lagRevisions, 0);
+  assert.equal(ubuntu.replica?.delivery, "current");
+  // 回收发生在该节点下一次 ACK 落地时(ack store 退役清扫);清扫前的窗口里多 view 仍在 links 逐条明示。
+  assert.deepEqual(
+    result.links.map((link) => [link.nodeId, link.state]),
+    [
+      ["cc90-ubuntu", "fresh"],
+      ["cc90-ubuntu", "unsynced"],
+    ],
+  );
+});
+
 test("edge fields the read surface cannot see are unavailable with a reason, never invented", () => {
   const result = buildFleetOverview(
     input({ replicas: [replica("cc90-ubuntu", { lagRevisions: 3, delivery: "delta" })] }),

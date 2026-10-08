@@ -211,6 +211,15 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
       const result = valid
         ? ackAtCut(key, transferId, cut, digest, ackedAt, cutEventAt)
         : { outcome: "op_rejected" as const, cursor: null };
+      // A node only ever advances ACKs for the view it pulls (one node, one repo, one view),
+      // so a settled ACK proves that view usable and retires the node's other view rows in
+      // this same transaction: frozen pre-S8 assignment rows would otherwise stay in
+      // status()/fleet overview forever. A rejected ACK proves nothing and must not retire.
+      if (result.outcome !== "op_rejected") {
+        for (const table of ["registration", "ack_proof", "ack_cursor", "active_offer"])
+          store.prepare(`DELETE FROM ${table} WHERE node_id=? AND view_id<>?`).run(key.nodeId, key.viewId);
+        delivery.retire(key);
+      }
       store.exec("COMMIT");
       return result;
     } catch (error) {

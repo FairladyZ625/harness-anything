@@ -11,7 +11,8 @@ const cut = (revision: number, byte: string) => ({ revision, headDigest: `sha256
 test("durable ACK store isolates view keys and commits exact proof with its L1-era registration floor", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-ack-")),
     key = { nodeId: "node-a", viewId: "view-a", repoId: "repo-a" },
-    other = { ...key, viewId: "view-b" },
+    // 一节点一 view 是协议不变量(ACK 落定即退役其他 view,见下个测试);键隔离用另一节点验证。
+    other = { nodeId: "node-b", viewId: "view-b", repoId: "repo-a" },
     toCut = cut(8, "a"),
     digest = "b".repeat(64);
   try {
@@ -66,6 +67,132 @@ test("durable ACK store isolates view keys and commits exact proof with its L1-e
     );
     assert.equal(store.proof(other, 8), null);
     store.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a settled ACK retires the node's frozen other views for that repository and no one else's", () => {
+  // 测试床 B2:静态 assignment 时代的旧 view 行 ack 永不前进,若不回收就永久留在
+  // status()/概览里。一节点一仓库一 view 是当前协议不变量(pull 的 viewId 由中心按
+  // nodeId 命名);节点只对正在拉取的 view 推进 ACK,所以退役挂在 ACK 落地上——
+  // 确认新 view 可用后才回收,被拒的 ACK 与 register 都不清扫。
+  const root = mkdtempSync(path.join(tmpdir(), "ha-replica-retire-")),
+    retired = { nodeId: "cc90-ubuntu", viewId: "cc90-ubuntu-schedule-view", repoId: "repo-a" },
+    active = { nodeId: "cc90-ubuntu", viewId: "cc90-ubuntu", repoId: "repo-a" },
+    neighbor = { nodeId: "macos-user", viewId: "macos-user-view", repoId: "repo-a" },
+    retiredCut = cut(26, "a"),
+    digest = "b".repeat(64);
+  try {
+    const store = openReplicaAckStore(root);
+    store.register(retired, 5);
+    store.register(neighbor, 7);
+    const lease = store.delivery.claim(retired, "holder-old", Date.parse("2026-10-05T00:00:00.000Z"), 30_000)!;
+    store.offer(retired, {
+      transferId: "transfer-old",
+      fromCut: null,
+      toCut: retiredCut,
+      manifestDigest: digest,
+      kind: "snapshot",
+      issuedAt: "2026-10-05T00:00:00.000Z",
+    });
+    assert.equal(
+      store.ack(
+        retired,
+        "transfer-old",
+        retiredCut,
+        digest,
+        "2026-10-05T00:00:01.000Z",
+        "2026-10-04T00:00:00.000Z",
+        lease,
+      ).outcome,
+      "applied",
+    );
+    store.delivery.record(retired, { bytes: 4096, started: "snapshot" });
+    // 升级前夜掉线的残迹:未 ack 的悬空 offer + 未过期的 delivery lease。
+    store.offer(retired, {
+      transferId: "transfer-dangling",
+      fromCut: retiredCut,
+      toCut: cut(30, "c"),
+      manifestDigest: digest,
+      kind: "delta",
+      issuedAt: "2026-10-05T00:00:20.000Z",
+    });
+    store.close();
+
+    // 中心重启后节点带着新 view 首次 pull:register 只登记,退役行原样保留。
+    const reopened = openReplicaAckStore(root);
+    const byKey = (keys: readonly { nodeId: string; viewId: string }[]) =>
+      [...keys].sort(
+        (left, right) => left.nodeId.localeCompare(right.nodeId) || left.viewId.localeCompare(right.viewId),
+      );
+    assert.equal(reopened.register(active, 411), 411);
+    assert.deepEqual(byKey(reopened.keys()), [active, retired, neighbor]);
+    const activeCut = cut(411, "d"),
+      nextLease = reopened.delivery.claim(active, "holder-new", Date.parse("2026-10-06T00:00:00.000Z"), 30_000)!;
+    reopened.offer(active, {
+      transferId: "transfer-new",
+      fromCut: null,
+      toCut: activeCut,
+      manifestDigest: digest,
+      kind: "snapshot",
+      issuedAt: "2026-10-06T00:00:00.000Z",
+    });
+    // 被拒的 ACK(manifest 不匹配活跃 offer)不证明新 view 可用,不清扫。
+    assert.equal(
+      reopened.ack(
+        active,
+        "transfer-new",
+        activeCut,
+        "9".repeat(64),
+        "2026-10-06T00:00:01.000Z",
+        "2026-10-05T00:00:00.000Z",
+        nextLease,
+      ).outcome,
+      "op_rejected",
+    );
+    assert.deepEqual(byKey(reopened.keys()), [active, retired, neighbor]);
+    // ACK 落定:同节点其他 view 的 registration/ack_proof/ack_cursor/悬空 active_offer/
+    // delivery metrics 全部回收,邻居节点不受影响。
+    assert.equal(
+      reopened.ack(
+        active,
+        "transfer-new",
+        activeCut,
+        digest,
+        "2026-10-06T00:00:02.000Z",
+        "2026-10-05T00:00:00.000Z",
+        nextLease,
+      ).outcome,
+      "applied",
+    );
+    assert.deepEqual(byKey(reopened.keys()), [active, neighbor]);
+    assert.equal(reopened.registrationRevision(retired), null);
+    assert.equal(reopened.cursor(retired), null);
+    assert.equal(reopened.proof(retired, 26), null);
+    assert.equal(reopened.offerFor(retired), null);
+    assert.deepEqual(reopened.delivery.metrics(retired), {
+      transferBytes: 0,
+      snapshotStarts: 0,
+      deltaStarts: 0,
+      errors: 0,
+      lastFailureCode: null,
+    });
+    // 重复 ACK(current)幂等:退役行不复活。
+    assert.equal(
+      reopened.ack(
+        active,
+        "transfer-new",
+        activeCut,
+        digest,
+        "2026-10-06T00:00:03.000Z",
+        "2026-10-05T00:00:00.000Z",
+        nextLease,
+      ).outcome,
+      "current",
+    );
+    assert.deepEqual(byKey(reopened.keys()), [active, neighbor]);
+    reopened.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
