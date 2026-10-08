@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { makeTaskEventStore } from "@harness-anything/kernel";
+import { createScheduleV1, makeTaskEventStore } from "@harness-anything/kernel";
 import { makeTaskProjection } from "@harness-anything/kernel";
 import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
 import { ciDetailMeasurement } from "@harness-anything/kernel";
@@ -13,6 +13,7 @@ import { legacyCiDetail } from "../../kernel/test/fixtures/ci-observation.ts";
 import { ciRunObservationWritePlan } from "@harness-anything/kernel";
 import type { CiRunObservationEventV4 } from "@harness-anything/kernel";
 import { fetchCiObservations, ingestCiObservations } from "../src/ci-observation-actions.ts";
+import { reconcileCiOccurrence } from "../src/ci-observe-importer.ts";
 import { readCiObservatory } from "../src/ci-observatory-read.ts";
 
 function initialize(root: string) {
@@ -258,7 +259,12 @@ test("manual pull then completion collection separates ledger commits and preser
           attempt: 2,
           event: "push",
         });
-      if (args[1] === "download") throw new Error("no valid artifacts found to download");
+      if (args[0] === "api" && args.at(-1) === "repos/:owner/:repo/actions/runs/123/artifacts?per_page=100") {
+        assert.deepEqual(args.slice(1, -1), ["--paginate", "--slurp"]);
+        return JSON.stringify([{ artifacts: [] }]);
+      }
+      if (args[1] === "repos/:owner/:repo/actions/workflows/rewrite-ci.yml/runs?per_page=20&page=1")
+        return JSON.stringify({ workflow_runs: [] });
       assert.equal(args[1], "repos/:owner/:repo/actions/runs/123/attempts/2");
       return JSON.stringify({
         run_attempt: 2,
@@ -274,6 +280,38 @@ test("manual pull then completion collection separates ledger commits and preser
     };
     const ingest = (fetched: Awaited<ReturnType<typeof fetchCiObservations>>) =>
       JSON.parse(ingestCiObservations(cell as never, { actor: workflow.actor, source: "local" }, fetched).evidence);
+    const collect = async () => {
+      const runs: Awaited<ReturnType<typeof fetchCiObservations>>["runs"][number][] = [];
+      const counts = { imported: 0, duplicate: 0 };
+      const result = await reconcileCiOccurrence({
+        cell: cell as never,
+        schedule: createScheduleV1({
+          scheduleId: "builtin-ci-observe",
+          name: "CI",
+          mode: "detect",
+          state: "armed",
+          actor: workflow.actor,
+          occurredAt: workflow.occurredAt,
+          spec: {
+            trigger: { kind: "interval", everyMs: 60_000, anchorAt: workflow.occurredAt },
+            target: { kind: "builtin", builtinId: "ci-observe" },
+            mission: "CI reconciliation",
+          },
+        }),
+        gh: runner,
+        requests: () => [{ kind: "ci-observe-pull", runs: [123] }],
+        accept: async (fetched) => {
+          runs.push(...fetched.runs);
+          const receipt = ingestCiObservations(cell as never, { actor: workflow.actor, source: "local" }, fetched);
+          const evidence = JSON.parse(receipt.evidence);
+          counts.imported += evidence.imported;
+          counts.duplicate += evidence.duplicate;
+          return receipt;
+        },
+      });
+      assert.equal(result.outcome, "succeeded", JSON.stringify(result));
+      return { fetched: { requestedRuns: 1, runs }, counts };
+    };
     try {
       const manual = await fetchCiObservations(cell as never, { kind: "ci-observe-pull", runs: [123] }, runner);
       assert.equal(ingest(manual).imported, 1);
@@ -281,13 +319,11 @@ test("manual pull then completion collection separates ledger commits and preser
         .update(JSON.stringify(["github-actions", "fixture/repository", 123, 2, "workflow", null]))
         .digest("hex")}`;
       assert.ok(store.readEvent(githubOpId), "GitHub observation identities remain unchanged");
-      const first = await fetchCiObservations(cell as never, { kind: "ci-observe-pull" }, runner);
-      const collected = ingest(first);
+      const { fetched: first, counts: collected } = await collect();
       assert.deepEqual([collected.imported, collected.duplicate], [1, 1]);
       assert.equal(ingest(first).duplicate, 2);
       publishLedger("second private publication");
-      const second = await fetchCiObservations(cell as never, { kind: "ci-observe-pull" }, runner);
-      const next = ingest(second);
+      const { fetched: second, counts: next } = await collect();
       assert.deepEqual([next.imported, next.duplicate], [1, 1]);
       const repeated = ingest(second);
       assert.deepEqual([repeated.imported, repeated.duplicate], [0, 2]);
