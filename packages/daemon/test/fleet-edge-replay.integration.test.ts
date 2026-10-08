@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ import {
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 import { fleetManifestDigest, type FleetCut, type FleetEntry, type FleetFrameV1 } from "../src/fleet/contract.ts";
 
+import { fleetMirrorCutFile, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 import { recordHeadConfirmation } from "../src/fleet/replica-read-model.ts";
 
@@ -425,6 +426,16 @@ test("received complete blobs are verified before finish and pinned across anoth
       view.receive(frame);
     assert.equal(readFileSync(cas, "utf8"), body.toString(), "GC must retain in-flight verified blobs");
     assert.equal(view.receive(frames.at(-1)!)?.schema, "fleet.ack/v1");
+    const indexed = locateFleetMirrorView(root, "repo", "receiving")!,
+      manifest = path.join(indexed.viewDir, "cuts/1-g0/manifest.json");
+    // One already loaded view serves every document; per-document reads must
+    // not reopen the entire manifest (including worktree reclamation reads).
+    renameSync(manifest, `${manifest}.held`);
+    assert.deepEqual(fleetMirrorCutFile(indexed, entry.path), body);
+    writeFileSync(cas, Buffer.from("corrupt"));
+    assert.throws(() => fleetMirrorCutFile(indexed, entry.path), /corrupt/u);
+    writeFileSync(cas, body);
+    renameSync(`${manifest}.held`, manifest);
     const corrupt = snapshotFrames(
       "bad",
       "bad",

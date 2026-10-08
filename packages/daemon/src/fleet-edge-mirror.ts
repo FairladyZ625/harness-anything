@@ -447,12 +447,12 @@ export function applyFleetMirrorCut(
           path: logical,
           base: fleetMirrorBaseBytes(view, oldSha, logical),
           local: localBytes,
-          center: fleetMirrorCutFile(view.viewDir, view.revision, logical, view.schemaGeneration),
+          center: fleetMirrorCutFile(view, logical),
         });
       }
       continue;
     }
-    const centerBytes = fleetMirrorCutFile(view.viewDir, view.revision, logical, view.schemaGeneration),
+    const centerBytes = fleetMirrorCutFile(view, logical),
       target = path.join(materializedRoot, ...logical.split("/"));
     if (centerBytes !== null) writeFileDurably(target, centerBytes);
     nextBlobs[logical] = blob.sha256;
@@ -736,15 +736,11 @@ function fleetMirrorCutEntries(
   return entries;
 }
 /** One path's bytes as the center cut them: what the center said, whatever the registered harness holds now. */
-export function fleetMirrorCutFile(
-  viewDir: string,
-  revision: number,
-  logical: string,
-  schemaGeneration: number,
-): Buffer | null {
+export function fleetMirrorCutFile(view: FleetMirrorView, logical: string): Buffer | null {
+  const { viewDir, revision, schemaGeneration } = view;
   const file = path.join(viewDir, "cuts", `${revision}-g${schemaGeneration}`, "files", ...logical.split("/"));
   if (existsSync(file) && statSync(file).isFile()) return readFileSync(file);
-  const blob = fleetMirrorCutEntries(viewDir, revision, schemaGeneration)?.get(logical);
+  const blob = view.entries.get(logical);
   if (blob === undefined) return null;
   const repoRoot = path.dirname(path.dirname(viewDir)),
     cas = path.join(repoRoot, "cas", "sha256", blob.sha256.slice(0, 2), blob.sha256);
