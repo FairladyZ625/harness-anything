@@ -346,6 +346,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               explicitMission,
               missionProfileId,
               remoteTask ? remoteTask.prBodyPath : taskId ? taskPrBodyPath(projection!, taskId) : null,
+              remoteTask?.taskClass ?? taskSnapshot?.task?.taskClass,
             );
     const remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
       existing = input.remote ? null : store!.readEvent(dispatchOpId);

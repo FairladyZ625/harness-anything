@@ -108,6 +108,30 @@ const LIVING_EXPLAINER_TEMPLATE = (title: string) => `<!DOCTYPE html>
 <section id="timeline"><div class="chapter-head"><h2>过程记录</h2></div></section>
 </main></body></html>
 `;
+const WORK_EXPLAINER_TEMPLATE = (title: string) => `<!DOCTYPE html>
+<!--
+工作页维护指南：叙述层只有工作负责人（人或受委托 CEO session）写，子任务 worker 从不写工作页。
+每轮末经 doc sync 版本围栏更新；多边缘写入经中心单写队列。
+#now：负责人写一句话现状，每轮覆盖更新。
+#asks：负责人解释新增 awaits，逐项写背景、建议、后果；关系仍由获授权者记录。
+#board：由 W2 从台账推导，不手写任务状态或复制推导数据。
+#risks：负责人写影响业主判断的已知风险，区分证据和推断。
+#next：负责人写接下来推进什么、谁负责。
+#timeline：来自工作根 progress，按中心接受顺序展示；负责人每轮末追加工作根 progress，不手写第二套日志。
+单文件、内联 CSS、无外部资源或 JavaScript；用真实结构和数据作图，不加评分表或完成度门。
+-->
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title} | Work explainer</title>
+<style>body{margin:0;padding:24px;background:#faf7f0;color:#3d3833;font:16px/1.65 system-ui,sans-serif}section{border-top:1px solid #d8d0c4;padding:20px 0}h2{font-size:1.3rem}</style>
+</head><body><main><header><h1>${title}</h1></header>
+<section id="now"><h2>现在</h2><p>工作已建立，负责人将在每轮末更新一句话现状。</p></section>
+<section id="asks"><h2>待你定</h2><p>新增 awaits 时，负责人说明背景、建议与后果。</p></section>
+<section id="board"><h2>工作看板</h2><p>由 W2 从台账推导，不手写。</p></section>
+<section id="risks"><h2>风险</h2></section>
+<section id="next"><h2>下一步</h2></section>
+<section id="timeline"><h2>负责人时间线</h2><p>来自工作根 progress，按中心接受顺序展示。</p></section>
+</main></body></html>`;
+
 export interface CompilePresetSnapshotUpgradeInput extends PresetResolverOptions {
   readonly toPresetId?: string;
   readonly documentExists?: (relativePath: string) => boolean;
@@ -213,6 +237,8 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         "invalid_scaffold",
         `Preset script ${script.relativePath} collides with a scaffold document path.`,
       );
+  const explainerBody =
+    input.taskClass === "work" ? WORK_EXPLAINER_TEMPLATE(input.title) : LIVING_EXPLAINER_TEMPLATE(input.title);
   const explainer =
     metadata.profileId === "lightweight"
       ? null
@@ -220,8 +246,8 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           slot: "task.explainer",
           relativePath: "artifacts/explainer.html",
           path: `${packagePath}/artifacts/explainer.html`,
-          body: LIVING_EXPLAINER_TEMPLATE(input.title),
-          contentSha256: sha256Text(LIVING_EXPLAINER_TEMPLATE(input.title)),
+          body: explainerBody,
+          contentSha256: sha256Text(explainerBody),
           mediaType: "text/html" as const,
           owner: "doc-sync" as const,
           requiredAnchors: [],
