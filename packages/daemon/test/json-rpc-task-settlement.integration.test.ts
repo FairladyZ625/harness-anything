@@ -3,7 +3,7 @@ import { readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -41,7 +41,11 @@ import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-protocol-ci-")),
   originalPath = process.env.PATH;
 before(() => {
-  writeFileSync(path.join(ciBin, "gh"), "#!/usr/bin/env node\nprocess.stdout.write('[]');\n", { mode: 0o755 });
+  writeFileSync(
+    path.join(ciBin, "gh"),
+    "#!/usr/bin/env node\nrequire('fs').appendFileSync(require('path').join(__dirname, 'invocations'), 'gh\\n');\nprocess.stdout.write('[]');\n",
+    { mode: 0o755 },
+  );
   process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
 });
 after(() => {
@@ -129,6 +133,8 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       "applied",
     );
     const beforeMissingCi = store().read().revision,
+      ciInvocations = () => existsSync(path.join(ciBin, "invocations")) ? readFileSync(path.join(ciBin, "invocations"), "utf8") : "",
+      invocationsBefore = ciInvocations(),
       missingCi = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
         string,
         unknown
@@ -138,7 +144,8 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       { outcome: "op_rejected", code: "ci_missing", steps: [] },
     );
     assert.equal((missingCi.next as readonly { readonly action: string }[])[0]?.action, "Wait for the center CI Schedule to collect the workflow witness; inspect ha schedule show builtin-ci-observe.");
-    assert.deepEqual(store().read().events.slice(beforeMissingCi).map((event) => event.type), ["schedule_occurrence_claimed", "schedule_run_settled"], "ci_missing may only advance the independent CI Schedule");
+    assert.deepEqual(store().read().events.slice(beforeMissingCi), [], "missing CI must return guidance without starting or waiting for a CI Schedule occurrence");
+    assert.equal(ciInvocations(), invocationsBefore, "completion must not invoke GitHub when its witness is absent");
     assert.equal(
       store()
         .read()
@@ -744,8 +751,8 @@ test("task complete rejects a passing observation for another submitted commit",
         .read()
         .events.slice(unrelatedCut)
         .map((event) => event.type),
-      ["schedule_occurrence_claimed", "schedule_run_settled"],
-      "missing CI may only advance its independent Schedule",
+      [],
+      "missing CI must leave collection to its independent Schedule",
     );
     await publishCiObservation(
       repoId,
@@ -756,9 +763,11 @@ test("task complete rejects a passing observation for another submitted commit",
       false,
     );
     const unverifiedCut = store.read().revision;
-    await assert.rejects(
-      cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding),
-      { code: "invalid_proof" },
+    const unverified = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
+    assert.equal(unverified.outcome, "op_rejected", JSON.stringify(unverified));
+    assert.equal(
+      unverified.code,
+      "invalid_proof",
       "unverified matching observations cannot establish workflow verification",
     );
     assert.equal(
@@ -864,7 +873,7 @@ test("a lightweight repository-diff task completes off submitted through its CI 
   }
 });
 test(
-  "task complete collecting a failed covering main run rejects without borrowing its acceptance, then passes on the rerun attempt",
+  "task complete judges a collected failed main run, then passes on the independently collected rerun",
   { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
   async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-red-")),
@@ -922,6 +931,7 @@ test(
           );
       assert.ok(submitted && submitted.type === "execution_submitted");
       writeFileSync(path.join(ghBin, "delivery"), String(submitted.payload.execution.submission?.commitSha));
+      await cell.run({ kind: "ci-observe-pull", taskId }, repoWriteBinding);
       const attempt = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
       assert.equal(attempt.outcome, "op_rejected", JSON.stringify(attempt));
       assert.equal(attempt.status, "rejected", JSON.stringify(attempt));
@@ -943,8 +953,9 @@ test(
         "in_review",
       );
       // The same run is rerun and its second attempt passes. The recorded failure must not stop
-      // complete from collecting again: the newest attempt is the contract's verdict.
+      // the independent collector from observing again: the newest attempt is the contract's verdict.
       writeFileSync(path.join(ghBin, "rerun"), "");
+      await cell.run({ kind: "ci-observe-pull", taskId }, repoWriteBinding);
       const rerun = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
       assert.equal(rerun.outcome, "applied", JSON.stringify(rerun));
       assert.equal(
