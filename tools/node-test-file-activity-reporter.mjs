@@ -8,7 +8,8 @@ export default async function* reportTestActivity(source) {
     const file = testFileName(event);
     if (file !== null) {
       if (event.type === "test:dequeue") yield `${JSON.stringify({ state: "started", file, at: Date.now() })}\n`;
-      if (event.type === "test:complete" || event.type === "test:fail") yield `${JSON.stringify({ state: "finished", file, at: Date.now() })}\n`;
+      if (event.type === "test:complete" || event.type === "test:fail")
+        yield `${JSON.stringify({ state: "finished", file, at: Date.now(), signal: event.data.details?.error?.signal ?? null })}\n`;
       continue;
     }
     // test:start is emitted late (after the test completes), so it cannot name a test that never
@@ -26,7 +27,14 @@ export default async function* reportTestActivity(source) {
 
 function testFileName(event) {
   const data = event?.data;
-  if (data?.nesting !== 0 || data.line !== 1 || data.column !== 1 || typeof data.name !== "string" || !testFilePattern.test(data.name)) return null;
+  if (
+    data?.nesting !== 0 ||
+    data.line !== 1 ||
+    data.column !== 1 ||
+    typeof data.name !== "string" ||
+    !testFilePattern.test(data.name)
+  )
+    return null;
   return data.name.replaceAll("\\", "/");
 }
 

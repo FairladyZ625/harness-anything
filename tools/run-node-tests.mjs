@@ -457,7 +457,9 @@ function refreshActivity() {
     }
     if (event.state === "finished" && typeof event.file === "string") {
       const owner = repoRelativeTestFile(event.file);
-      completedFiles.add(owner);
+      // A killed descendant may report its signal before the host processes the same
+      // group signal. That envelope is termination evidence, not completed execution.
+      if (timedOutFiles.length === 0 || !["SIGTERM", "SIGKILL"].includes(event.signal)) completedFiles.add(owner);
       activeFiles.delete(owner);
       lastTestByFile.delete(owner);
       openTestsByFile.delete(owner);
