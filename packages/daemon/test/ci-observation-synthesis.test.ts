@@ -3,18 +3,14 @@ import { decodeCiObservation } from "../../kernel/test/fixtures/ci-observation.t
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { FrozenGateRequirement } from "@harness-anything/kernel";
 import type { CiRunObservationEventV3 } from "../../kernel/test/fixtures/ci-observation.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
-import {
-  fetchCiObservations as fetchCiObservationsRaw,
-  ingestCiObservations,
-  runCiProviderCommand,
-} from "../src/ci-observation-actions.ts";
+import { fetchCiObservations as fetchCiObservationsRaw, ingestCiObservations } from "../src/ci-observation-actions.ts";
 import { githubActionsWitnessEvidence } from "../src/repo-cell-ci-evidence.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
 
@@ -253,26 +249,3 @@ async function fetchCiObservations(
     });
   });
 }
-
-test("archive transport preserves binary bytes and rejects partial failed downloads after child exit", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-ci-binary-"));
-  try {
-    const outputFile = path.join(root, "archive.zip");
-    await runCiProviderCommand(process.execPath, ["-e", "process.stdout.write(Buffer.from([0,255,128,10]));"], {
-      cwd: root,
-      outputFile,
-    });
-    assert.deepEqual([...readFileSync(outputFile)], [0, 255, 128, 10]);
-    await assert.rejects(
-      runCiProviderCommand(
-        process.execPath,
-        ["-e", "process.stdout.write('partial'); process.stderr.write('HTTP 429'); process.exitCode=4;"],
-        { cwd: root, outputFile },
-      ),
-      /archive download failed.*HTTP 429/u,
-    );
-    assert.equal(readFileSync(outputFile, "utf8"), "partial");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});

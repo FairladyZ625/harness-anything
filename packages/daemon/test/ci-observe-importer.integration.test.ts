@@ -62,12 +62,6 @@ function provider() {
         })),
       });
     }
-    if (api.includes("/artifacts/") && api.endsWith("/zip")) {
-      if (state.archiveMissing) throw new Error("HTTP 404 Not Found: selected artifact archive");
-      assert.ok(options.outputFile, "binary archive must have an isolated output file");
-      writeFileSync(options.outputFile, "fixture archive");
-      return "";
-    }
     if (api.includes("/artifacts?")) {
       const runId = Number(api.split("/")[5]);
       const artifacts =
@@ -90,7 +84,13 @@ function provider() {
                   expired: false,
                 })),
               },
-              { artifacts },
+              {
+                artifacts: [
+                  ...artifacts,
+                  { id: 800001, name: `ci-observation-${runId}-${requestedAttempt}-expired`, expired: true },
+                  { id: 800002, name: `ci-observation-${runId}-${requestedAttempt + 1}-fast`, expired: false },
+                ],
+              },
             ]
           : [{ artifacts }],
       );
@@ -116,10 +116,12 @@ function provider() {
         repository: { full_name: "fixture/repository" },
       });
     }
-    if (command === "unzip") {
-      const artifactId = Number(path.basename(args[1]!, ".zip"));
-      const runId = String(Math.floor(artifactId / 1000)),
-        dir = args[args.indexOf("-d") + 1]!;
+    if (command === "gh" && args[0] === "run" && args[1] === "download") {
+      if (state.archiveMissing) throw new Error("HTTP 404 Not Found: selected artifact archive");
+      const runId = args[2]!,
+        dir = args[args.indexOf("--dir") + 1]!;
+      assert.deepEqual(args.slice(3, -2), ["-n", `ci-observation-${runId}-${requestedAttempt}-fast`]);
+      assert.equal(options.cwd.length > 0, true);
       mkdirSync(dir, { recursive: true });
       for (let attempt = requestedAttempt; attempt <= requestedAttempt; attempt++)
         writeFileSync(
@@ -312,15 +314,15 @@ test("a run with hundreds of attempts resumes a bounded subpage instead of resta
   });
 });
 
-test("artifact pages beyond 100 pin the selected archive id and authoritatively expire its diagnostic", async () => {
+test("artifact pages beyond 100 download only the exact unexpired attempt name and authoritatively expire diagnostics", async () => {
   await fixture(async ({ run, state, current, store }) => {
     state.runs = 1;
     state.artifactsOnSecondPage = true;
     assert.equal((await run()).outcome, "succeeded");
     assert.equal(store.readHead()!.revision, 2);
-    assert.ok(state.calls.some((call) => call.includes("actions/artifacts/1001/zip")));
+    assert.ok(state.calls.some((call) => call.startsWith("run download 1 -n ci-observation-1-1-fast --dir ")));
     assert.equal(
-      state.calls.some((call) => /actions\/artifacts\/900\d+\/zip/u.test(call)),
+      state.calls.some((call) => call.includes("-n unrelated-")),
       false,
     );
     state.artifacts = false;

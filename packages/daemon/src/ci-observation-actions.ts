@@ -18,9 +18,6 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { spawn } from "node:child_process";
-import { createWriteStream, mkdirSync } from "node:fs";
-import { pipeline } from "node:stream/promises";
 import { runProcessTextAsync } from "./process-port.ts";
 import { strandedDelivery } from "./repo-cell-ci-evidence.ts";
 import { localGitObjectRefStore, resolveHarnessLayout } from "@harness-anything/kernel";
@@ -731,40 +728,14 @@ function privateLedgerRuns(cell: Pick<RepoCellOperationalContext, "rootDir">): r
   return [];
 }
 
-export type RunGh = (
-  command: string,
-  args: readonly string[],
-  options: { readonly cwd: string; readonly outputFile?: string },
-) => Promise<string>;
+export type RunGh = (command: string, args: readonly string[], options: { readonly cwd: string }) => Promise<string>;
 export interface CiArtifactMetadata {
   readonly id: number;
   readonly name: string;
   readonly expired: boolean;
 }
 
-// Binary archives stream directly to the occurrence's private directory, never through UTF-8.
-export const runCiProviderCommand: RunGh = async (command, args, options) => {
-  if (!options.outputFile) return runProcessTextAsync(command, args, options.cwd);
-  const child = spawn(command, [...args], { cwd: options.cwd, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-  let stderr = "";
-  child.stderr.on("data", (chunk: Buffer) => {
-    stderr = (stderr + chunk.toString()).slice(-4096);
-  });
-  const exited = new Promise<void>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code, signal) => {
-      if (code === 0) resolve();
-      else reject(new Error(`${command} archive download failed (${signal ?? code}): ${stderr}`));
-    });
-  });
-  const copied = pipeline(child.stdout, createWriteStream(options.outputFile)).catch((error: unknown) => {
-    child.kill();
-    throw error;
-  });
-  const outcomes = await Promise.allSettled([exited, copied]);
-  for (const outcome of outcomes) if (outcome.status === "rejected") throw outcome.reason;
-  return "";
-};
+export const runCiProviderCommand: RunGh = (command, args, options) => runProcessTextAsync(command, args, options.cwd);
 
 export async function listCiArtifacts(gh: RunGh, cwd: string, runId: number): Promise<readonly CiArtifactMetadata[]> {
   const pages = JSON.parse(
@@ -787,26 +758,9 @@ async function downloadCiArtifacts(
   attempt: number,
 ): Promise<void> {
   const artifacts = await listCiArtifacts(gh, cwd, runId);
-  for (const artifact of artifacts.filter(
-    (entry) => entry.name.startsWith(`ci-observation-${runId}-${attempt}-`) && !entry.expired,
-  )) {
-    if (!Number.isSafeInteger(artifact.id) || artifact.id < 1) throw new Error("Invalid GitHub artifact id.");
-    mkdirSync(root, { recursive: true });
-    const archive = path.join(root, `${artifact.id}.zip`),
-      destination = path.join(root, String(artifact.id));
-    await gh("gh", ["api", `repos/:owner/:repo/actions/artifacts/${artifact.id}/zip`], { cwd, outputFile: archive });
-    if (process.platform === "win32") {
-      const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
-      await gh(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          `Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(destination)}`,
-        ],
-        { cwd },
-      );
-    } else await gh("unzip", ["-q", archive, "-d", destination], { cwd });
-  }
+  const names = artifacts
+    .filter((entry) => entry.name.startsWith(`ci-observation-${runId}-${attempt}-`) && !entry.expired)
+    .map((entry) => entry.name);
+  if (names.length === 0) return;
+  await gh("gh", ["run", "download", String(runId), ...names.flatMap((name) => ["-n", name]), "--dir", root], { cwd });
 }

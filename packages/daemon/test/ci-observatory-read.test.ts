@@ -1052,6 +1052,22 @@ async function fetchCiObservations(
 ) {
   const summaries = new Map<string, Record<string, unknown>>();
   return fetchCiObservationsRaw(cell, action, async (command, args, options) => {
+    const artifactRun = /actions\/runs\/(\d+)\/artifacts\?/u.exec(args.find((arg) => arg.startsWith("repos/")) ?? "");
+    if (artifactRun) {
+      const summary = summaries.get(artifactRun[1]!)!;
+      return JSON.stringify([
+        {
+          artifacts: [
+            {
+              id: Number(artifactRun[1]),
+              name: `ci-observation-${artifactRun[1]}-${summary.attempt}-fixture`,
+              expired: false,
+            },
+          ],
+        },
+      ]);
+    }
+    if (args.some((arg) => arg.includes("/jobs?"))) return JSON.stringify([{ jobs: [] }]);
     const match = args[0] === "api" ? /actions\/runs\/(\d+)\/attempts\/(\d+)$/u.exec(args[1] ?? "") : null;
     if (!match) {
       const result = await runner(command, args, options);
