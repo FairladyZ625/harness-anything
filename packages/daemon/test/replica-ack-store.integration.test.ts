@@ -197,6 +197,31 @@ test("a settled ACK retires the node's frozen other views for that repository an
     });
     store.close();
 
+    // Persist old generations and the original unversioned deployment tables. Retirement
+    // must sweep representations, while retaining the active view's old proof and neighbors.
+    const inspect = new DatabaseSync(path.join(root, "replica/repos/repo-a/ack.sqlite"));
+    const historicalTables: string[] = [];
+    for (const family of ["ack_proof", "ack_cursor", "active_offer"]) {
+      for (const suffix of ["", "_g0", `_g${READ_MODEL_SCHEMA_GENERATION - 1}`]) {
+        const table = `${family}${suffix}`;
+        historicalTables.push(table);
+        inspect.exec(`CREATE TABLE ${table} AS SELECT * FROM ${family}_g${READ_MODEL_SCHEMA_GENERATION}`);
+        inspect.exec(`INSERT INTO ${table} SELECT * FROM ${family}_g${READ_MODEL_SCHEMA_GENERATION}`);
+        inspect.prepare(`UPDATE ${table} SET view_id=? WHERE rowid=2`).run(active.viewId);
+        inspect.exec(`INSERT INTO ${table} SELECT * FROM ${family}_g${READ_MODEL_SCHEMA_GENERATION}`);
+        inspect.prepare(`UPDATE ${table} SET node_id=?,view_id=? WHERE rowid=3`).run(neighbor.nodeId, neighbor.viewId);
+      }
+    }
+    const historicalRows = () =>
+      historicalTables.map((table) =>
+        inspect.prepare(`SELECT node_id,view_id,transfer_id FROM ${table} ORDER BY rowid`).all(),
+      );
+    const before = historicalRows();
+    const otherRepo = { ...retired, repoId: "repo-b" };
+    const separate = openReplicaAckStore(root);
+    separate.register(otherRepo, 9);
+    separate.close();
+
     // 中心重启后节点带着新 view 首次 pull:register 只登记,退役行原样保留。
     const reopened = openReplicaAckStore(root);
     const byKey = (keys: readonly { nodeId: string; viewId: string }[]) =>
@@ -204,7 +229,7 @@ test("a settled ACK retires the node's frozen other views for that repository an
         (left, right) => left.nodeId.localeCompare(right.nodeId) || left.viewId.localeCompare(right.viewId),
       );
     assert.equal(reopened.register(active, 411), 411);
-    assert.deepEqual(byKey(reopened.keys()), [active, retired, neighbor]);
+    assert.deepEqual(byKey(reopened.keys().filter((key) => key.repoId === active.repoId)), [active, retired, neighbor]);
     const activeCut = cut(411, "d"),
       nextLease = reopened.delivery.claim(active, "holder-new", Date.parse("2026-10-06T00:00:00.000Z"), 30_000)!;
     reopened.offer(active, {
@@ -228,7 +253,8 @@ test("a settled ACK retires the node's frozen other views for that repository an
       ).outcome,
       "op_rejected",
     );
-    assert.deepEqual(byKey(reopened.keys()), [active, retired, neighbor]);
+    assert.deepEqual(byKey(reopened.keys().filter((key) => key.repoId === active.repoId)), [active, retired, neighbor]);
+    assert.deepEqual(historicalRows(), before, "rejected ACK retains every historical row");
     // ACK 落定:同节点其他 view 的 registration/ack_proof/ack_cursor/悬空 active_offer/
     // delivery metrics 全部回收,邻居节点不受影响。
     assert.equal(
@@ -243,7 +269,7 @@ test("a settled ACK retires the node's frozen other views for that repository an
       ).outcome,
       "applied",
     );
-    assert.deepEqual(byKey(reopened.keys()), [active, neighbor]);
+    assert.deepEqual(byKey(reopened.keys().filter((key) => key.repoId === active.repoId)), [active, neighbor]);
     assert.equal(reopened.registrationRevision(retired), null);
     assert.equal(reopened.cursor(retired), null);
     assert.equal(reopened.proof(retired, 26), null);
@@ -255,6 +281,11 @@ test("a settled ACK retires the node's frozen other views for that repository an
       errors: 0,
       lastFailureCode: null,
     });
+    const retained = before.map((rows) => rows.filter((row) => row.view_id !== retired.viewId));
+    assert.deepEqual(historicalRows(), retained, "all generations retire only this node's other views");
+    assert.equal(reopened.registrationRevision(otherRepo), 9, "another repository is untouched");
+    // Re-register a frozen view, then replay the settled ACK: current also retires it.
+    reopened.register(retired, 5);
     // 重复 ACK(current)幂等:退役行不复活。
     assert.equal(
       reopened.ack(
@@ -268,7 +299,10 @@ test("a settled ACK retires the node's frozen other views for that repository an
       ).outcome,
       "current",
     );
-    assert.deepEqual(byKey(reopened.keys()), [active, neighbor]);
+    assert.deepEqual(byKey(reopened.keys().filter((key) => key.repoId === active.repoId)), [active, neighbor]);
+    assert.equal(reopened.registrationRevision(retired), null);
+    assert.deepEqual(historicalRows(), retained);
+    inspect.close();
     reopened.close();
   } finally {
     rmSync(root, { recursive: true, force: true });

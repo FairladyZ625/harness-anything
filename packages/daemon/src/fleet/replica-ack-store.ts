@@ -233,8 +233,14 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
       // this same transaction: frozen pre-S8 assignment rows would otherwise stay in
       // status()/fleet overview forever. A rejected ACK proves nothing and must not retire.
       if (result.outcome !== "op_rejected") {
-        for (const table of ["registration", "ack_proof", "ack_cursor", "active_offer"])
-          store.prepare(`DELETE FROM ${table} WHERE node_id=? AND view_id<>?`).run(key.nodeId, key.viewId);
+        const tables = store.prepare("SELECT name FROM sqlite_schema WHERE type='table'").all();
+        for (const { name } of tables) {
+          if (
+            typeof name === "string" &&
+            /^(?:registration|(?:ack_proof|ack_cursor|active_offer)(?:_g[0-9]+)?)$/u.test(name)
+          )
+            store.prepare(`DELETE FROM ${name} WHERE node_id=? AND view_id<>?`).run(key.nodeId, key.viewId);
+        }
         delivery.retire(key);
       }
       store.exec("COMMIT");
