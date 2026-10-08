@@ -202,7 +202,8 @@ export function validSubmissionDelivery(value: Record<string, unknown>): boolean
     return (
       isNativeCommitSha(value.commitSha) && (value.artifacts === undefined || validArtifactAnchors(value.artifacts))
     );
-  return validArtifactAnchors(value.artifacts);
+  // A no-diff submission delivers its frozen closeout prose without a code or artifact cut.
+  return (Array.isArray(value.artifacts) && value.artifacts.length === 0) || validArtifactAnchors(value.artifacts);
 }
 export function validExecutionDeliveryBaseline(value: unknown): value is ExecutionDeliveryBaseline {
   return (

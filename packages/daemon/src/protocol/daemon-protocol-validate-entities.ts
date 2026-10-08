@@ -130,7 +130,6 @@ export function sessionProvenance(value: unknown): boolean {
 function validArtifactDelivery(value: unknown): boolean {
   return (
     Array.isArray(value) &&
-    value.length > 0 &&
     value.every(
       (anchor) =>
         exactRecord(anchor, ["path", "revision", "blobSha256"]) &&
@@ -155,7 +154,10 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
     // Submissions frozen before the completion contract carry none (dec_D23B9787328EF7E0FACB70F9FE); the kernel
     // requires and fully validates it on every new submission, so the wire shape only checks its envelope.
     shapeError = recordShapeError(entityId, value, fields, [...fields, "completionContract"]),
-    anchorsOk = isJsonObject(value) && (value.artifacts === undefined || validArtifactDelivery(value.artifacts));
+    anchorsOk =
+      isJsonObject(value) &&
+      (value.artifacts === undefined ||
+        (Array.isArray(value.artifacts) && value.artifacts.length > 0 && validArtifactDelivery(value.artifacts)));
   if (shapeError) return [shapeError];
   if (!isJsonObject(value)) return [];
   const errors: string[] = [];

@@ -111,6 +111,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     const commitSha = await writeCloseout(
       () => cell!.settlePendingMaterialization("closeout git commit"),
       rootDir,
+      taskId,
       packagePath,
       "All required outputs are complete.",
       "All checks passed.",
@@ -597,6 +598,7 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
     await writeCloseout(
       () => host.run("rbac", { kind: "doc-materialize", paths: [], all: true }, auth("writer", 4102)),
       root,
+      "task-rbac",
       String((created as Record<string, unknown>).packagePath),
       "Role-bound delivery complete.",
     );
@@ -994,6 +996,7 @@ test(
 async function writeCloseout(
   drain: () => Promise<unknown>,
   rootDir: string,
+  taskId: string,
   packagePath: string,
   summary: string,
   verification = "Verified.",
@@ -1001,13 +1004,16 @@ async function writeCloseout(
   // The cell publishes ledger cuts to the same repo Git; drain its writer queue before this fixture
   // commit, or the two HEAD writers race and git dies with `cannot lock ref 'HEAD'`.
   await drain();
-  writeFileSync(path.join(rootDir, "README.md"), "# Verified delivery\n");
-  git(rootDir, "add", "README.md");
-  execFileSync("git", ["-C", rootDir, "commit", "--quiet", "-m", "test: verified delivery"], {
+  // Submit derives its cut from the bound checkout, so the fixture must deliver there.
+  const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
+  writeFileSync(path.join(deliveryRoot, "README.md"), "# Verified delivery\n");
+  git(deliveryRoot, "add", "README.md");
+  execFileSync("git", ["-C", deliveryRoot, "commit", "--quiet", "-m", "test: verified delivery"], {
     env: { ...process.env, GIT_AUTHOR_DATE: "2026-08-14T00:01:00Z", GIT_COMMITTER_DATE: "2026-08-14T00:01:00Z" },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const commitSha = git(rootDir, "rev-parse", "HEAD");
+  const commitSha = git(deliveryRoot, "rev-parse", "HEAD");
+  assert.equal(git(deliveryRoot, "diff", "--name-only", "HEAD^", "HEAD"), "README.md");
   writeFileSync(
     path.join(rootDir, "harness", packagePath, "closeout.md"),
     `# Closeout\n\n## Summary\n\n${summary} Commit ${commitSha}.\n\n## Verification\n\n${verification}\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n`,
@@ -1083,6 +1089,7 @@ async function prepareReadyCompletion(
   const commitSha = await writeCloseout(
     () => cell.settlePendingMaterialization("closeout git commit"),
     rootDir,
+    taskId,
     packagePath,
     "Ready.",
   );

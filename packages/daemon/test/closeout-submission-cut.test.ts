@@ -806,10 +806,10 @@ test("a task without its own commit delivers accepted artifacts, not the baselin
     kind: "commit",
     commitSha: merged,
   });
-  assert.equal(closeoutOnly.commitSha, merged);
+  assert.equal(closeoutOnly.commitSha, null);
   assert.deepEqual(closeoutOnly.deliverables, []);
   assert.deepEqual(closeoutOnly.outputs, []);
-  assert.equal(closeoutOnly.artifacts, undefined);
+  assert.deepEqual(closeoutOnly.artifacts, []);
 });
 
 test("a restarted task retains the first-parent diff for its earlier delivery ancestor", (t) => {
@@ -844,7 +844,7 @@ test("a restarted task retains the first-parent diff for its earlier delivery an
   );
   assert.deepEqual(forkPointPrior.deliverables, []);
   assert.deepEqual(forkPointPrior.outputs, []);
-  assert.equal(forkPointPrior.artifacts, undefined);
+  assert.deepEqual(forkPointPrior.artifacts, []);
   const foreignPrior = derive(
     root,
     "Foreign prior cut.",
@@ -856,10 +856,10 @@ test("a restarted task retains the first-parent diff for its earlier delivery an
     "repository-diff",
     git(root, "rev-parse", "HEAD"),
   );
-  assert.equal(foreignPrior.commitSha, merged);
+  assert.equal(foreignPrior.commitSha, null);
   assert.deepEqual(foreignPrior.deliverables, []);
   assert.deepEqual(foreignPrior.outputs, []);
-  assert.equal(foreignPrior.artifacts, undefined);
+  assert.deepEqual(foreignPrior.artifacts, []);
 });
 
 /** A stale-checkout world: the bound task worktree sits at another PR's merge behind an advanced main. */
@@ -882,12 +882,12 @@ function foreignMerge(t: TestContext) {
 }
 
 test("a stale worktree HEAD behind the frozen baseline claims no foreign merge files", (t) => {
-  const { root, stale, later } = foreignMerge(t);
+  const { root, later } = foreignMerge(t);
   const packet = derive(root, "Review-only round with no repository work.", undefined, ["ci"], undefined, {
     kind: "commit",
     commitSha: later,
   });
-  assert.equal(packet.commitSha, stale);
+  assert.equal(packet.commitSha, null);
   assert.deepEqual(packet.deliverables, []);
   assert.deepEqual(packet.outputs, []);
 });
@@ -905,7 +905,7 @@ test("a prior cut that only recorded the stale merge inherits nothing on resubmi
     "repository-diff",
     stale,
   );
-  assert.equal(packet.commitSha, stale);
+  assert.equal(packet.commitSha, null);
   assert.deepEqual(packet.deliverables, []);
   assert.deepEqual(packet.outputs, []);
 });

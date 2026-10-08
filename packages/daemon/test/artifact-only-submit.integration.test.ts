@@ -4,7 +4,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after, before } from "node:test";
 import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import { isTaskEvent, makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -12,7 +12,18 @@ import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-sett
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-async function submitBaselineTask(artifact: boolean) {
+const ciBin = mkdtempSync(path.join(tmpdir(), "ha-artifact-only-ci-")),
+  originalPath = process.env.PATH;
+before(() => {
+  writeFileSync(path.join(ciBin, "gh"), "#!/usr/bin/env node\nprocess.stdout.write('[]');\n", { mode: 0o755 });
+  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
+});
+after(() => {
+  process.env.PATH = originalPath;
+  rmSync(ciBin, { recursive: true, force: true });
+});
+
+async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "delete" | "empty-commit") {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-only-submit-")),
     ledger = path.join(rootDir, "harness"),
     taskId = "task-artifact-only",
@@ -39,6 +50,10 @@ async function submitBaselineTask(artifact: boolean) {
   const baseline = git(rootDir, "rev-parse", "HEAD");
   mkdirSync(ledger);
   initRepo(ledger);
+  writeFileSync(
+    path.join(ledger, "harness.yaml"),
+    "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n  closeout:\n    profile: strict\n",
+  );
   const cell = await openBootstrappedRepoCell({
     repoId,
     rootDir: canonicalRoot(rootDir),
@@ -64,6 +79,18 @@ async function submitBaselineTask(artifact: boolean) {
     await waitForFixturePublication(cell, started.opId, holder);
     const worker = path.join(rootDir, ".worktrees", taskId);
     assert.equal(git(worker, "rev-parse", "HEAD"), baseline);
+    if (publicChange === "add") {
+      writeFileSync(path.join(worker, "delivery.txt"), "Public delivery.\n");
+      git(worker, "add", "delivery.txt");
+      git(worker, "commit", "-qm", "test: public delivery");
+    } else if (publicChange === "delete") {
+      git(worker, "rm", "foreign.txt");
+      git(worker, "commit", "-qm", "test: public deletion");
+    } else if (publicChange === "empty-commit") {
+      git(worker, "commit", "--allow-empty", "-qm", "test: empty delivery");
+    }
+    const deliveryHead = git(worker, "rev-parse", "HEAD"),
+      hasPublicDiff = publicChange === "add" || publicChange === "delete";
     if (artifact) {
       mkdirSync(path.join(ledger, packagePath, "artifacts"), { recursive: true });
       writeFileSync(path.join(ledger, packagePath, "artifacts/report.md"), "# Accepted report\n");
@@ -96,24 +123,86 @@ async function submitBaselineTask(artifact: boolean) {
       .read()
       .events.find((entry) => isTaskEvent(entry) && entry.type === "execution_submitted" && entry.taskId === taskId);
     assert.ok(event && isTaskEvent(event) && event.type === "execution_submitted");
-    assert.deepEqual(event.payload.execution.submission?.deliverables, []);
-    assert.deepEqual(
-      event.payload.execution.submission?.outputs,
-      artifact ? [`Artifact-Anchor: ${packagePath}/artifacts/report.md@${docs.revision}`] : [],
+    assert.equal(event.payload.execution.submission?.commitSha, hasPublicDiff ? deliveryHead : null);
+    assert.equal(git(worker, "rev-parse", "HEAD"), deliveryHead, "submission must not create an empty commit");
+    assert.deepEqual(event.payload.execution.submission?.deliverables, publicChange === "add" ? ["delivery.txt"] : []);
+    assert.deepEqual(event.payload.execution.submission?.outputs, [
+      ...(publicChange === "delete" ? ["Deleted-Production-Paths: foreign.txt"] : []),
+      ...(artifact ? [`Artifact-Anchor: ${packagePath}/artifacts/report.md@${docs.revision}`] : []),
+    ]);
+    const forward = await cell.run(
+      { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards verified delivery." },
+      holder,
     );
-    if (!artifact) {
+    assert.equal(forward.outcome, "applied", JSON.stringify(forward));
+    await waitForFixturePublication(cell, forward.opId, holder);
+    if (!artifact && !hasPublicDiff) {
       const completed = await cell.run({ kind: "task-complete", taskId, executionId }, holder);
       assert.equal(completed.outcome, "op_rejected", JSON.stringify(completed));
       assert.equal(completed.code, "fact_missing");
       assert.doesNotMatch(JSON.stringify(completed), /code_doc_missing/);
-      // Completion preparation reconciles the empty manifest itself; the holder has no path to supply.
-      const [codeDoc] = completed.gateChecks as readonly { gate: string; status: string; witnessRef: string }[];
-      assert.deepEqual([codeDoc?.gate, codeDoc?.status], ["code-doc-reconciliation", "pass"]);
-      assert.match(String(codeDoc?.witnessRef), /^event:code-doc-/u);
+      assert.deepEqual(completed.gateChecks, [
+        { gate: "ci", status: "not_applicable", witnessRef: null },
+        { gate: "code-doc-reconciliation", status: "not_applicable", witnessRef: null },
+      ]);
+    }
+    const fact = await cell.run(
+      {
+        kind: "fact-record",
+        taskId,
+        statement: "The public cut matches its submitted manifest.",
+        evidenceSource: "test:public-cut",
+        confidence: "high",
+        memoryClass: "semantic",
+        memoryTags: [],
+      },
+      holder,
+    );
+    assert.equal(fact.outcome, "applied", JSON.stringify(fact));
+    await waitForFixturePublication(cell, fact.opId, holder);
+    const reviewId = "review-public-cut",
+      reportPath = `${packagePath}/artifacts/reports/public-cut.md`;
+    mkdirSync(path.join(ledger, packagePath, "artifacts/reports"), { recursive: true });
+    writeFileSync(path.join(ledger, reportPath), "# Review\nVerified submission manifest and completion evidence.\n");
+    const report = await cell.run({ kind: "doc-submit", paths: [reportPath] }, holder);
+    assert.equal(report.outcome, "applied", JSON.stringify(report));
+    await waitForFixturePublication(cell, report.opId, holder);
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Verified delivery cut.",
+        evidenceChecked: ["submission manifest"],
+      }),
+    );
+    const reviewer = withPolicyGroup(
+        {
+          actor: { principal: { personId: "reviewer" }, executor: { kind: "agent" as const, id: "reviewer" } },
+          source: "local" as const,
+        },
+        "admin",
+      ),
+      reviewed = await cell.run(
+        { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" },
+        reviewer,
+      );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    await waitForFixturePublication(cell, reviewed.opId, holder);
+    const consent = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId }, holder);
+    assert.equal(consent.outcome, "applied", JSON.stringify(consent));
+    await waitForFixturePublication(cell, consent.opId, holder);
+    const completed = await cell.run({ kind: "task-complete", taskId, executionId }, holder);
+    assert.equal(completed.outcome, hasPublicDiff ? "op_rejected" : "applied", JSON.stringify(completed));
+    if (hasPublicDiff) assert.equal(completed.code, "ci_missing");
+    else {
+      assert.equal(completed.stoppedAt, undefined);
+      const shown = await cell.run({ kind: "task-show", taskId }, holder);
+      assert.equal(JSON.parse(String(shown.evidence)).task.status, "done");
     }
     const execution = readFileSync(path.join(ledger, packagePath, "executions", `${executionId}.md`), "utf8"),
       section = execution.slice(execution.indexOf("## Deliverables"), execution.indexOf("## Outputs"));
-    assert.match(section, /- none/u);
+    if (publicChange === "add") assert.match(section, /delivery\.txt/u);
+    else assert.match(section, /- none/u);
     assert.doesNotMatch(section, /foreign\.txt/u);
     console.log(`Observed execution Deliverables:\n${section}`);
   } finally {
@@ -124,8 +213,15 @@ async function submitBaselineTask(artifact: boolean) {
 
 test("a real artifact-only task submits without claiming its baseline merge paths", () => submitBaselineTask(true));
 
-test("a baseline closeout-only task reconciles its empty manifest at completion and still requires a Fact", () =>
-  submitBaselineTask(false));
+test("a closeout-only no-diff task completes after review, consent and a Fact", () => submitBaselineTask(false));
+
+test("an empty public commit cannot force a CI witness for a no-diff delivery", () =>
+  submitBaselineTask(true, "empty-commit"));
+
+test("an added public path still requires main CI after review and consent", () => submitBaselineTask(true, "add"));
+
+test("a deletion-only public cut still requires main CI after review and consent", () =>
+  submitBaselineTask(true, "delete"));
 
 test("a documentation amendment completes with newly accepted artifact paths on its own cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-amend-"));
