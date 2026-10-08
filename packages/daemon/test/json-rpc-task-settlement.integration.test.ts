@@ -13,6 +13,7 @@ import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { fetchCiObservations, ingestCiObservations } from "../src/ci-observation-actions.ts";
 import {
   canonicalEventWritePlan,
+  ciRunObservationWritePlan,
   makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
@@ -886,7 +887,9 @@ test(
           "else if (sha && group === 'run' && verb === 'view')\n" +
           "  process.stdout.write(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',\n" +
           "    status: 'completed', conclusion, attempt: rerun ? 2 : 1, event: 'push' }));\n" +
-          "else if (group === 'run' && verb === 'download') process.exit(1);\n" +
+          "else if (group === 'api') process.stdout.write(JSON.stringify({ run_attempt: rerun ? 2 : 1, head_sha: sha, head_branch: 'main',\n" +
+          "  conclusion, event: 'push', path: '.github/workflows/rewrite-ci.yml', workflow_id: 1, name: 'rewrite-ci', repository: { full_name: 'fixture/repo' } }));\n" +
+          "else if (group === 'run' && verb === 'download') { console.error('no artifacts found'); process.exit(1); }\n" +
           "else process.stdout.write('[]');\n",
         { mode: 0o755 },
       );
@@ -952,39 +955,53 @@ test(
     let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
     try {
       initRepo(rootDir);
-      // Run 1 uploads no artifact and imports from its summary; run 2 uploads an artifact whose test
-      // row names an unknown tier, so its observation fails validation after run 1 was appended.
+      // Run 1 has a workflow verdict; run 2 has a v2 job artifact with an invalid gate.
+      // Fetch succeeds for both, then admission rejects the later job after workflow receipts exist.
       writeFileSync(
         path.join(ghBin, "gh"),
-        "#!/usr/bin/env node\nconst fs = require('fs'), path = require('path');\n" +
-          "const [group, verb, id] = process.argv.slice(2), sha = 'a'.repeat(40);\n" +
-          "if (group === 'run' && verb === 'view')\n" +
-          "  process.stdout.write(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',\n" +
-          "    status: 'completed', conclusion: 'success', attempt: 1, event: 'push' }));\n" +
-          "else if (group === 'run' && verb === 'download' && id === '2') {\n" +
-          "  const dir = path.join(process.argv[process.argv.indexOf('--dir') + 1], 'ci-observation-rewrite-ci');\n" +
-          "  fs.mkdirSync(dir, { recursive: true });\n" +
-          "  fs.writeFileSync(path.join(dir, 'observation.json'), JSON.stringify({ schema: 'ci-run-artifact/v1',\n" +
-          "    run: { runId: '2.1', sha, branch: 'main', prNumber: null, job: 'rewrite-ci', wallclockMs: 0,\n" +
-          "      runner: 'github-actions' },\n" +
-          "    tests: [{ file: 'a.test.ts', name: 'a', tier: 'unknown-tier', shard: null, durationMs: 1,\n" +
-          "      status: 'pass', retry: 0 }],\n" +
-          "    gates: [] }));\n" +
-          "} else if (group === 'run' && verb === 'download') process.exit(1);\n" +
-          "else process.stdout.write('[]');\n",
+        `#!/usr/bin/env node
+const fs = require('fs'), path = require('path');
+const [group, verb, id] = process.argv.slice(2), sha = 'a'.repeat(40);
+if (group === 'api') {
+  if (process.argv.some(arg => arg.includes('/jobs?'))) console.log(JSON.stringify([{ id: 22, name: 'rewrite-ci' }]));
+  else console.log(JSON.stringify({ run_attempt: 1, head_sha: sha, head_branch: 'main', conclusion: 'success',
+    event: 'push', path: '.github/workflows/rewrite-ci.yml', workflow_id: 1, name: 'rewrite-ci',
+    repository: { full_name: 'fixture/repo' } }));
+} else if (group === 'run' && verb === 'view') {
+  console.log(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',
+    status: 'completed', conclusion: 'success', attempt: 1, event: 'push' }));
+} else if (group === 'run' && verb === 'download' && id === '2') {
+  const dir = path.join(process.argv[process.argv.indexOf('--dir') + 1], 'ci-observation-rewrite-ci');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'observation.json'), JSON.stringify({ schema: 'ci-run-artifact/v2',
+    producer: { repositoryId: 'fixture/repo', workflow: '.github/workflows/rewrite-ci.yml',
+      databaseRunId: '2', runAttempt: 1, jobKey: 'rewrite-ci', jobName: 'rewrite-ci' },
+    run: { runId: '2.1', sha, branch: 'main', prNumber: null, job: 'rewrite-ci', wallclockMs: 0, runner: 'github-actions' },
+    detail: { schema: 'ci-run-detail/v1', tests: [], fileOutcomes: [], diagnostics: [] },
+    measurementCoverage: { status: 'complete', missingReason: null, startedFileCount: 0, completedFileCount: 0 },
+    gates: [{ gate: 'ci', result: 'unknown-result', metrics: {} }] }));
+} else if (group === 'run' && verb === 'download') { console.error('no artifacts found'); process.exit(1); }
+else console.log('[]');
+`,
         { mode: 0o755 },
       );
       process.env.PATH = `${ghBin}${path.delimiter}${filePath ?? ""}`;
       cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "ci-pull-partial" });
       const pulled = await cell.run({ kind: "ci-observe-pull", runs: [1, 2] }, repoWriteBinding);
       assert.equal(pulled.outcome, "op_rejected", JSON.stringify(pulled));
-      assert.equal(pulled.code, "invalid_command", JSON.stringify(pulled));
+      assert.equal(pulled.code, "invalid_result", JSON.stringify(pulled));
       assert.doesNotMatch(String(pulled.opId), /^ci-observation-/u, JSON.stringify(pulled));
-      assert.match(String(pulled.rejectionExplanation), /ci run observation event envelope or payload is invalid/u);
+      assert.match(String(pulled.rejectionExplanation), /invalid CI gates/u);
       const observed = makeTaskEventReader({ repoId, rootDir })
         .read()
         .events.flatMap((event) => (event.type === "ci_run_observed" ? [event.payload.run.runId] : []));
-      assert.deepEqual(observed, ["1.1"], "the earlier run stays recorded as its own accepted observation");
+      assert.deepEqual(observed, ["1.1", "2.1"], "accepted workflows stay recorded while the later job is rejected");
+      assert.equal(
+        makeTaskEventReader({ repoId, rootDir })
+          .read()
+          .events.some((event) => event.schema === "ci-run-observation/v4" && event.payload.scope === "job"),
+        false,
+      );
     } finally {
       process.env.PATH = filePath;
       await cell?.close();
@@ -1189,28 +1206,47 @@ async function publishCiObservation(
           attempt: 1,
           event: "push",
         });
+      if (args[0] === "api")
+        return JSON.stringify({
+          run_attempt: 1,
+          head_sha: commitSha,
+          head_branch: "main",
+          conclusion: "success",
+          event: "push",
+          path: ".github/workflows/rewrite-ci.yml",
+          workflow_id: 1,
+          name: "rewrite-ci",
+          repository: { full_name: "fixture/repo" },
+        });
       assert.equal(args[1], "download");
-      const output = String(args[args.indexOf("--dir") + 1]);
-      mkdirSync(output, { recursive: true });
-      writeFileSync(
-        path.join(output, "observation.json"),
-        JSON.stringify({
-          schema: "ci-run-artifact/v1",
-          run: {
-            runId: observedRunId,
-            sha: commitSha,
-            branch: "main",
-            prNumber: null,
-            job: "full-check (24)",
-            wallclockMs: 25,
-            runner: "fixture-runner",
-          },
-          tests: [],
-          gates: [{ gate: "ci", result: "pass", metrics: { runAttempt: 1 } }],
-        }),
-      );
       return "";
     });
+    if (!verified) {
+      const fixture: import("@harness-anything/kernel").CiRunObservationEventV4 = JSON.parse(
+        readFileSync(
+          new URL("../../kernel/fixtures/canonical-events/ci-run-observation-v4/workflow.json", import.meta.url),
+          "utf8",
+        ),
+      );
+      const event: import("@harness-anything/kernel").CiRunObservationEventV4 = {
+        ...fixture,
+        eventId: `event-unverified-${databaseId}`,
+        opId: `unverified-${databaseId}`,
+        workspaceRevision: (store.readHead()?.revision ?? 0) + 1,
+        actor,
+        source: "local",
+        occurredAt: cell.now(),
+        payload: {
+          ...fixture.payload,
+          identity: { ...fixture.payload.identity, databaseRunId: String(databaseId), runAttempt: 2 },
+          run: { ...fixture.payload.run, runId: observedRunId, sha: commitSha },
+          verification: null,
+        },
+      };
+      store.append({ event, plan: ciRunObservationWritePlan(event), blobs: [] });
+      await store.drain();
+      return `event:${event.opId}`;
+    }
     const receipt = ingestCiObservations(cell, repoWriteBinding, fetched);
     assert.equal(JSON.parse(receipt.evidence).imported, 1);
     const event = store

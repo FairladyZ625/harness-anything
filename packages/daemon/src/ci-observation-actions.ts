@@ -456,13 +456,15 @@ export function ingestCiObservations(
       };
       const errors = validateCurrentCiRunObservationEvent(event);
       if (errors.length) throw cell.cellCodedError("invalid_result", errors.join("; "));
-      const ref = payload.detailRef;
+      const ref = payload.detailRef,
+        plan = ciRunObservationWritePlan(event);
       const appended = cell.store.append({
         event,
-        plan: ciRunObservationWritePlan(event),
+        plan,
         blobs:
           ref && body !== null ? [{ sha256: ref.sha256, size: ref.encodedBytes, mediaType: ref.mediaType, body }] : [],
       });
+      cell.projection.apply(event, plan);
       imported += 1;
       lastRevision = appended.revision;
       eventRefs.push(`event:${opId}`);

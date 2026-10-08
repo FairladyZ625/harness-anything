@@ -147,3 +147,39 @@ test("v4 workflow positive fixture and negative measurements lock the unique cur
     assert.notDeepEqual(validateCurrentCanonicalEvent(history), []);
   }
 });
+
+test("v4 historical job boundaries tolerate additions while current admission rejects them", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { validateCiRunObservationEventV4 } = await import("../../src/domain/ci-run-observation-v4.ts");
+  const fixture = JSON.parse(
+    readFileSync(new URL("../../fixtures/canonical-events/ci-run-observation-v4/job.json", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(validateCurrentCiRunObservationEvent(fixture), []);
+  const boundaries = [
+    [],
+    ["payload"],
+    ["payload", "identity"],
+    ["payload", "run"],
+    ["payload", "measurementCoverage"],
+    ["payload", "testSummary"],
+    ["payload", "failedTests", 0],
+    ["payload", "failedTests", 0, "declarationLocation"],
+    ["payload", "failedTests", 0, "failureLocation"],
+    ["payload", "fileOutcomes", 0],
+    ["payload", "shardDurations", 0],
+    ["payload", "detailRef"],
+  ];
+  for (const boundary of boundaries) {
+    const event = structuredClone(fixture);
+    let object = event;
+    for (const key of boundary) object = object[key];
+    object.futureOptionalField = true;
+    assert.deepEqual(validateCiRunObservationEventV4(event), [], String(boundary));
+    assert.notDeepEqual(validateCurrentCiRunObservationEvent(event), [], String(boundary));
+  }
+  for (const missing of ["testKey", "declarationLocation", "failureLocation", "durationMs"]) {
+    const event = structuredClone(fixture);
+    delete event.payload.failedTests[0][missing];
+    assert.notDeepEqual(validateCiRunObservationEventV4(event), [], missing);
+  }
+});

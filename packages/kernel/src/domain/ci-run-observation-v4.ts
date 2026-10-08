@@ -12,7 +12,6 @@ import {
   validVerification,
   type CiRunObservationEventV3,
 } from "./ci-run-observation-event.ts";
-import { boundedCiSummary } from "./ci-observation-diagnostics.ts";
 
 export type CiTestOutcome = "passed" | "failed" | "skipped" | "cancelled";
 export type CiFileTerminationOutcome = "timeout" | "hung" | "crashed" | "cancelled";
@@ -149,13 +148,13 @@ export function ciDetailMeasurement(detail: CiRunDetail) {
   };
 }
 
-export function validateCiRunObservationEventV4(value: unknown): readonly string[] {
+export function validateCiRunObservationEventV4(value: unknown, allowUnknownFields = true): readonly string[] {
   if (
     !isRecord(value) ||
-    !hasContractFields(value, CI_RUN_OBSERVATION_SCHEMA.required, false) ||
+    !hasContractFields(value, CI_RUN_OBSERVATION_SCHEMA.required, allowUnknownFields) ||
     value.schema !== "ci-run-observation/v4" ||
     value.type !== "ci_run_observed" ||
-    validateEventEnvelopeIdentity(value, false).length
+    validateEventEnvelopeIdentity(value, allowUnknownFields).length
   )
     return ["invalid v4 CI envelope"];
   const p = value.payload;
@@ -176,13 +175,28 @@ export function validateCiRunObservationEventV4(value: unknown): readonly string
         "shardDurations",
         "detailRef",
       ],
-      false,
+      allowUnknownFields,
     ) ||
     !["workflow", "job"].includes(String(p.scope))
   )
     return ["invalid v4 payload"];
   if (
     !isRecord(p.identity) ||
+    !hasContractFields(
+      p.identity,
+      [
+        "provider",
+        "repositoryId",
+        "workflow",
+        "workflowPath",
+        "workflowId",
+        "databaseRunId",
+        "runAttempt",
+        "jobExecutionId",
+        "jobKey",
+      ],
+      allowUnknownFields,
+    ) ||
     !["github-actions", "local", "write-coordinator"].includes(String(p.identity.provider)) ||
     !text(p.identity.repositoryId) ||
     !text(p.identity.workflow) ||
@@ -193,7 +207,7 @@ export function validateCiRunObservationEventV4(value: unknown): readonly string
   )
     return ["invalid CI identity"];
   if (
-    !validRun(p.run, false) ||
+    !validRun(p.run, allowUnknownFields) ||
     !isRecord(p.run) ||
     !["runId", "sha", "branch", "job", "runner"].every((key) => text((p.run as Record<string, unknown>)[key])) ||
     !nonnegative(p.run.wallclockMs)
@@ -204,15 +218,22 @@ export function validateCiRunObservationEventV4(value: unknown): readonly string
     p.gates.some(
       (gate) =>
         !isRecord(gate) ||
+        !hasContractFields(gate, ["gate", "result", "metrics"], allowUnknownFields) ||
         !text(gate.gate) ||
         !completionEvidenceResults.includes(gate.result as never) ||
         !isRecord(gate.metrics) ||
-        Object.values(gate.metrics).some((metric) => typeof metric !== "number" || !Number.isFinite(metric)),
+        (!allowUnknownFields &&
+          Object.values(gate.metrics).some((metric) => typeof metric !== "number" || !Number.isFinite(metric))),
     )
   )
     return ["invalid CI gates"];
   if (
     !isRecord(p.measurementCoverage) ||
+    !hasContractFields(
+      p.measurementCoverage,
+      ["status", "missingReason", "startedFileCount", "completedFileCount"],
+      allowUnknownFields,
+    ) ||
     !["complete", "partial", "unknown", "no-test-artifact"].includes(String(p.measurementCoverage.status))
   )
     return ["invalid measurement coverage"];
@@ -225,16 +246,28 @@ export function validateCiRunObservationEventV4(value: unknown): readonly string
     return ["invalid measurement file counts"];
   if (
     !Array.isArray(p.failedTests) ||
-    p.failedTests.some((test) => !validFailure(test)) ||
+    p.failedTests.some((test) => !validFailure(test, allowUnknownFields)) ||
     !Array.isArray(p.fileOutcomes) ||
     p.fileOutcomes.some(
       (entry) =>
         !isRecord(entry) ||
+        !hasContractFields(
+          entry,
+          [
+            "file",
+            "outcome",
+            "reason",
+            ...["lastActiveTest", "elapsedMs", "limitMs", "stallSummary", "truncated", "diagnosticRef"].filter(
+              (key) => key in entry,
+            ),
+          ],
+          allowUnknownFields,
+        ) ||
         !text(entry.file) ||
         !["timeout", "hung", "crashed", "cancelled"].includes(String(entry.outcome)) ||
         !text(entry.reason) ||
         (entry.stallSummary !== undefined &&
-          (typeof entry.stallSummary !== "string" || boundedCiSummary(entry.stallSummary).truncated)),
+          (typeof entry.stallSummary !== "string" || !validSummary(entry.stallSummary))),
     )
   )
     return ["invalid CI diagnostics"];
@@ -243,6 +276,7 @@ export function validateCiRunObservationEventV4(value: unknown): readonly string
     p.shardDurations.some(
       (entry) =>
         !isRecord(entry) ||
+        !hasContractFields(entry, ["tier", "shard", "durationMs"], allowUnknownFields) ||
         !text(entry.tier) ||
         !(entry.shard === null || positive(entry.shard)) ||
         !nonnegative(entry.durationMs),
@@ -268,6 +302,11 @@ export function validateCiRunObservationEventV4(value: unknown): readonly string
       !text(p.identity.jobExecutionId) ||
       !text(p.identity.jobKey) ||
       !isRecord(ref) ||
+      !hasContractFields(
+        ref,
+        ["schema", "sha256", "mediaType", "encoding", "encodedBytes", "decodedBytes"],
+        allowUnknownFields,
+      ) ||
       ref.schema !== "ci-run-detail/v1" ||
       ref.mediaType !== "application/json" ||
       ref.encoding !== "identity" ||
@@ -276,6 +315,11 @@ export function validateCiRunObservationEventV4(value: unknown): readonly string
       !integer(ref.encodedBytes) ||
       ref.decodedBytes !== ref.encodedBytes ||
       !isRecord(summary) ||
+      !hasContractFields(
+        summary,
+        ["observationCount", "finalTestCount", "passed", "failed", "skipped", "cancelled"],
+        allowUnknownFields,
+      ) ||
       !["observationCount", "finalTestCount", "passed", "failed", "skipped", "cancelled"].every((key) =>
         integer(summary[key]),
       ) ||
@@ -291,7 +335,7 @@ export function validateCiRunObservationEventV4(value: unknown): readonly string
       p.run.runId !== `${p.identity.databaseRunId}.${p.identity.runAttempt}`)
   )
     return ["invalid provider run identity"];
-  if (!validVerification(p.verification, p.run, false) || (p.scope === "job" && p.verification !== null))
+  if (!validVerification(p.verification, p.run, allowUnknownFields) || (p.scope === "job" && p.verification !== null))
     return ["invalid CI verification"];
   const v = p.verification;
   if (
@@ -313,20 +357,19 @@ export function validateCiRunObservationEventV4(value: unknown): readonly string
     return ["invalid CI verification"];
   return [];
 }
-function validFailure(value: unknown): boolean {
+function validFailure(value: unknown, allowUnknownFields: boolean): boolean {
   return (
-    validDiagnosticTest(value) &&
+    validDiagnosticTest(value, allowUnknownFields) &&
     isRecord(value) &&
-    text(value.testKey) &&
-    text(value.file) &&
-    text(value.name) &&
     value.status === "failed" &&
     typeof value.failureSummary === "string" &&
-    !boundedCiSummary(value.failureSummary).truncated &&
+    validSummary(value.failureSummary) &&
     typeof value.truncated === "boolean" &&
-    !("retry" in value) &&
-    !("error" in value)
+    (allowUnknownFields || (!("retry" in value) && !("error" in value)))
   );
+}
+function validSummary(value: string): boolean {
+  return new TextEncoder().encode(JSON.stringify(value).slice(1, -1)).length <= 256;
 }
 function text(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
@@ -419,9 +462,27 @@ export function legacyCiDetail(
   };
 }
 
-export function validDiagnosticTest(value: unknown): boolean {
+export function validDiagnosticTest(value: unknown, allowUnknownFields = false): boolean {
   return (
     isRecord(value) &&
+    hasContractFields(
+      value,
+      [
+        "testKey",
+        "file",
+        "name",
+        "suite",
+        "executionOrdinal",
+        "declarationLocation",
+        "failureLocation",
+        "tier",
+        "shard",
+        "durationMs",
+        "status",
+        ...["failureSummary", "truncated", "error"].filter((key) => key in value),
+      ],
+      allowUnknownFields,
+    ) &&
     text(value.testKey) &&
     text(value.file) &&
     text(value.name) &&
@@ -429,9 +490,11 @@ export function validDiagnosticTest(value: unknown): boolean {
     value.suite.every(text) &&
     positive(value.executionOrdinal) &&
     isRecord(value.declarationLocation) &&
+    hasContractFields(value.declarationLocation, ["line", "column"], allowUnknownFields) &&
     [value.declarationLocation.line, value.declarationLocation.column].every((n) => n === null || positive(n)) &&
     (value.failureLocation === null ||
       (isRecord(value.failureLocation) &&
+        hasContractFields(value.failureLocation, ["file", "line", "column"], allowUnknownFields) &&
         text(value.failureLocation.file) &&
         positive(value.failureLocation.line) &&
         positive(value.failureLocation.column))) &&
@@ -439,6 +502,6 @@ export function validDiagnosticTest(value: unknown): boolean {
     (value.shard === null || positive(value.shard)) &&
     nonnegative(value.durationMs) &&
     ["passed", "failed", "skipped", "cancelled"].includes(String(value.status)) &&
-    !("retry" in value)
+    (allowUnknownFields || !("retry" in value))
   );
 }

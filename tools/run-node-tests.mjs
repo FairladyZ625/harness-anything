@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-import { boundedCiSummary } from "../packages/kernel/src/domain/ci-observation-diagnostics.ts";
-
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import {
@@ -18,6 +16,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import {
+  boundedCiSummary,
   collectSlowTests,
   coverageReporterArgs,
   ensureFreshBuild,

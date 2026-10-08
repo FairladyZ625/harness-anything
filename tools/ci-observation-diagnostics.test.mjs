@@ -1,11 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  boundedCiSummary,
-  ciFailureDiagnostic,
-  ciTestOutcome,
-} from "../packages/kernel/src/domain/ci-observation-diagnostics.ts";
+import { boundedCiSummary } from "./node-test-runner-lib.mjs";
+import { ciFailureDiagnostic, ciTestOutcome } from "./node-test-observation-reporter.mjs";
 
 test("failure diagnostics preserve causes and unbounded cold stacks", () => {
   const cause = new Error("assertion failed");

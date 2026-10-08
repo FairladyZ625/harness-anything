@@ -2,11 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-  ciFailureDiagnostic,
-  ciFailureLocation,
-  ciTestOutcome,
-} from "../packages/kernel/src/domain/ci-observation-diagnostics.ts";
+import { ciFailureDiagnostic, ciFailureLocation, ciTestOutcome } from "./node-test-observation-reporter.mjs";
 
 export function normalizeTests(value) {
   if (!value || !Array.isArray(value.testResults)) throw new Error("invalid Vitest observation report");

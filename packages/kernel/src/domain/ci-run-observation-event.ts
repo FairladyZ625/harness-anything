@@ -115,7 +115,7 @@ export function validateCiRunObservationEvent(value: unknown): readonly string[]
 }
 
 export function validateCurrentCiRunObservationEvent(value: unknown): readonly string[] {
-  return validateCiRunObservationEventV4(value);
+  return validateCiRunObservationEventV4(value, false);
 }
 
 export function validateCiRunObservationEventV2(value: unknown): readonly string[] {
@@ -154,7 +154,7 @@ export function validVerification(value: unknown, run: unknown, allowUnknownFiel
     isRecord(value) &&
     value.source === "write-coordinator" &&
     value.workflow === "ledger-publication" &&
-    hasContractFields(value, ["source", "workflow", "runId", "attempt", "headSha", "conclusion"], false) &&
+    hasContractFields(value, ["source", "workflow", "runId", "attempt", "headSha", "conclusion"], allowUnknownFields) &&
     typeof value.runId === "string" &&
     value.runId.startsWith("ledger-") &&
     value.attempt === 1 &&
