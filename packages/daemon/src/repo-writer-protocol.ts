@@ -19,7 +19,9 @@ export interface RepoWriterBootstrapV1 {
     readonly mode?: DaemonRepoMode;
     readonly authoredBranch?: string;
     readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
-    readonly bootstrap?: RepoBootstrapInput;
+    readonly bootstrap?: Omit<RepoBootstrapInput, "keycloakAuthorization"> & {
+      readonly keycloakAuthorization?: SerializableKeycloakAuthorization;
+    };
     readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
   };
   readonly capabilities: {
@@ -95,11 +97,33 @@ export type RepoWriterMessageV1 =
   | RepoWriterStatusV1
   | RepoWriterControlV1;
 
-export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "withWriterEpochFence">;
+type KeycloakAuthorization = NonNullable<RepoCellBinding["keycloakAuthorization"]>;
+export type SerializableKeycloakAuthorization = Omit<KeycloakAuthorization, "session"> & {
+  readonly session?: Omit<NonNullable<KeycloakAuthorization["session"]>, "currentAccessToken"> & {
+    readonly currentAccessToken?: true;
+  };
+};
+export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "withWriterEpochFence" | "keycloakAuthorization"> & {
+  readonly keycloakAuthorization?: SerializableKeycloakAuthorization;
+};
+
+export function serializableKeycloakAuthorization(
+  credential: KeycloakAuthorization,
+): SerializableKeycloakAuthorization {
+  const { session, ...rest } = credential;
+  if (!session) return rest;
+  const { currentAccessToken, ...data } = session;
+  return { ...rest, session: { ...data, ...(currentAccessToken ? { currentAccessToken: true as const } : {}) } };
+}
 
 export function serializableRepoCellBinding(binding: RepoCellBinding): SerializableRepoCellBindingV1 {
-  const { withWriterEpochFence: _fence, ...serializable } = binding;
-  return serializable;
+  const { withWriterEpochFence: _fence, keycloakAuthorization, ...serializable } = binding;
+  return {
+    ...serializable,
+    ...(keycloakAuthorization
+      ? { keycloakAuthorization: serializableKeycloakAuthorization(keycloakAuthorization) }
+      : {}),
+  };
 }
 
 export interface SerializedWriterErrorV1 {
@@ -117,6 +141,7 @@ export type RepoWriterCapabilityName =
   | "shouldStop"
   | "runtimeInstances"
   | "keycloakCenter"
+  | "currentAccessToken"
   | "prepareRuntimeLaunch"
   | "prepareWorkerGitEnvironment"
   | "runtimeLaunch"

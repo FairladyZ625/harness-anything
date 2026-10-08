@@ -9,6 +9,7 @@ import {
   REPO_WRITER_PROTOCOL_VERSION,
   deserializeWriterError,
   serializableRepoCellBinding,
+  serializableKeycloakAuthorization,
   serializeWriterError,
   type RepoWriterBootstrapV1,
   type RepoWriterCancelV1,
@@ -78,6 +79,7 @@ export async function openWriterSupervisor(
         readonly resolve: (value: unknown) => void;
         readonly reject: (error: Error) => void;
         readonly cleanup: () => void;
+        readonly currentAccessToken?: () => Promise<string>;
       }
     >(),
     runtimeProcesses = new Map<string, RuntimeProcess>();
@@ -120,7 +122,12 @@ export async function openWriterSupervisor(
           },
           cleanup = () => signal?.removeEventListener("abort", cancel);
         signal?.addEventListener("abort", cancel, { once: true });
-        pending.set(requestId, { resolve: resolve as (value: unknown) => void, reject, cleanup });
+        pending.set(requestId, {
+          resolve: resolve as (value: unknown) => void,
+          reject,
+          cleanup,
+          currentAccessToken: binding?.keycloakAuthorization?.session?.currentAccessToken,
+        });
         try {
           worker!.postMessage(request);
           if (signal?.aborted) cancel();
@@ -323,6 +330,15 @@ export async function openWriterSupervisor(
         return input.shouldStop!();
       case "runtimeInstances":
         return input.runtimeInstances!();
+      case "currentAccessToken": {
+        const requestId = call.payload as string | null,
+          resolver =
+            requestId === null
+              ? input.bootstrap?.keycloakAuthorization?.session?.currentAccessToken
+              : pending.get(requestId)?.currentAccessToken;
+        if (!resolver) throw new Error("Writer session token resolver is unavailable");
+        return resolver();
+      }
       case "keycloakCenter":
         return input.keycloakCenter!();
       case "prepareRuntimeLaunch": {
@@ -416,7 +432,16 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       ...(input.mode ? { mode: input.mode } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
       ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),
-      ...(input.bootstrap ? { bootstrap: input.bootstrap } : {}),
+      ...(input.bootstrap
+        ? {
+            bootstrap: {
+              ...input.bootstrap,
+              keycloakAuthorization: input.bootstrap.keycloakAuthorization
+                ? serializableKeycloakAuthorization(input.bootstrap.keycloakAuthorization)
+                : undefined,
+            },
+          }
+        : {}),
       ...(input.defaultWriterEpochFence ? { defaultWriterEpochFence: input.defaultWriterEpochFence } : {}),
     },
     capabilities: {

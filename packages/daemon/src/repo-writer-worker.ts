@@ -19,6 +19,7 @@ import {
   type RepoWriterStatusV1,
   type RuntimeProcessEventV1,
   type SerializableRepoCellBindingV1,
+  type SerializableKeycloakAuthorization,
 } from "./repo-writer-protocol.ts";
 import type { RuntimeProcess } from "./runtime-spawn.ts";
 import {
@@ -89,6 +90,17 @@ async function startRepoWriterWorker(): Promise<void> {
     const config = bootstrap.config,
       input: RepoCellOpenInput = {
         ...config,
+        bootstrap: config.bootstrap
+          ? {
+              ...config.bootstrap,
+              keycloakAuthorization: config.bootstrap.keycloakAuthorization
+                ? reviveKeycloakAuthorization(
+                    config.bootstrap.keycloakAuthorization,
+                    () => asyncCapability("currentAccessToken", null) as Promise<string>,
+                  )
+                : undefined,
+            }
+          : undefined,
         repoId: config.repoId as RepoCellOpenInput["repoId"],
         rootDir: config.rootDir as RepoCellOpenInput["rootDir"],
         ...(bootstrap.capabilities.now ? { now: () => syncCapability<string>("now", null) } : {}),
@@ -184,7 +196,11 @@ async function startRepoWriterWorker(): Promise<void> {
       return postReceipt(request.requestId, undefined, new Error("RepoWriterCell is unavailable"));
     }
     try {
-      const binding = reviveBinding(request.binding, request.writerEpoch);
+      const binding = reviveBinding(
+        request.binding,
+        request.writerEpoch,
+        () => asyncCapability("currentAccessToken", request.requestId) as Promise<string>,
+      );
       // Reject a stale descriptor before any effect: runtime cancel terminates a process and a
       // resumed spawn launches one before their first ledger append reaches the append fence.
       assertWriterEpoch(request.writerEpoch);
@@ -347,6 +363,7 @@ type RuntimeProcessListeners = {
 function reviveBinding(
   binding: SerializableRepoCellBindingV1 | undefined,
   descriptor: SerializableRepoCellBindingV1["writerEpochFence"] | null,
+  currentAccessToken: () => Promise<string>,
 ): RepoCellBinding | undefined {
   if (!binding) return undefined;
   // Structured clone hands the worker two distinct objects for the same fence, so equality is decided
@@ -355,10 +372,23 @@ function reviveBinding(
     throw new Error("writer epoch descriptor changed in transit");
   return {
     ...binding,
+    keycloakAuthorization: binding.keycloakAuthorization
+      ? reviveKeycloakAuthorization(binding.keycloakAuthorization, currentAccessToken)
+      : undefined,
     ...(descriptor
       ? { withWriterEpochFence: <T>(operation: () => T) => withWriterEpochFenceDescriptor(descriptor, operation) }
       : {}),
   };
+}
+
+function reviveKeycloakAuthorization(
+  credential: SerializableKeycloakAuthorization,
+  currentAccessToken: () => Promise<string>,
+): NonNullable<RepoCellBinding["keycloakAuthorization"]> {
+  const { session, ...rest } = credential;
+  if (!session) return rest;
+  const { currentAccessToken: required, ...data } = session;
+  return { ...rest, session: { ...data, ...(required ? { currentAccessToken } : {}) } };
 }
 
 function assertWriterEpoch(descriptor: SerializableRepoCellBindingV1["writerEpochFence"] | null): void {
