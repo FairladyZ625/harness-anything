@@ -364,8 +364,9 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         .read()
         .events.filter((event) => event.type === "ci_run_observed" && event.workspaceRevision > beforeObservation);
       assert.ok(observations.length > 0, "the explicit observer must ingest the configured run");
+      // CI publication belongs to the center occurrence, not the runtime requesting refresh.
       for (const observation of observations)
-        assert.deepEqual(observation.actor.executor, implementationBinding.actor.executor);
+        assert.deepEqual(observation.actor, { principal: { personId: "owner" }, executor: null });
 
       const beforeSubmission = makeTaskEventReader({ repoId, rootDir: root }).read().revision,
         secondSubmission = await host.run(
