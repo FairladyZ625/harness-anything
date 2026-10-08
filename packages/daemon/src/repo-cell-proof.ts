@@ -377,14 +377,8 @@ export async function proofFor(
   if (command.type === "AdjudicateSubmission") {
     const authorizationDecision = requiredAuthorizationDecision(binding);
     if (!snapshot.task) throw cellCodedError("task_not_found", "Adjudication requires an existing task.");
-    // A task whose frozen profile lifted review (lightweight) promised no review: its cut completes
-    // straight off submitted, so a forward order has no review to send it to.
-    if (command.decision === "forward" && snapshot.task.closeoutOverrides?.review === false)
-      throw cellCodedError(
-        "invalid_transition",
-        `Task ${snapshot.task.taskId} lifted review in its profile; run ha task complete ${snapshot.task.taskId} ` +
-          "instead of forwarding.",
-      );
+    // A forwarded lightweight cut is the owner's review upgrade: the order goes through the standard
+    // corridor, and closeoutReadiness re-arms the verdict requirement from the in_review position.
     return {
       actorBinding: command.actor,
       capability: "task-adjudicate@v1",

@@ -14,6 +14,7 @@ import { CODE_DOC_GATE_ID, gateAppliesToSubmission, type FrozenGateRequirement }
 import type { CoverageRelation } from "./decision-coverage.ts";
 import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import type { CloseoutGate, CloseoutOverridesV1 } from "./settings-closeout.ts";
+import type { ForwardedCutRecord } from "./task-lifecycle-contract-internal-types.ts";
 
 import type { CloseoutGateStatus } from "./status-word-register-closeout.ts";
 export { closeoutGateStatuses, type CloseoutGateStatus } from "./status-word-register-closeout.ts";
@@ -46,6 +47,9 @@ export interface CloseoutSnapshot {
     readonly taskClass?: string;
   } | null;
   readonly executions: readonly ProjectedExecution[];
+  /** The forward adjudications the journal replay recorded; absent in a hand-built snapshot,
+   * which then reads as never forwarded. */
+  readonly forwardedCuts?: readonly ForwardedCutRecord[];
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
   readonly reviewDispositions?: readonly ReviewDispositionV1[];
@@ -103,7 +107,14 @@ export function closeoutReadiness(
       execution,
       snapshot.reviewDispositions ?? [],
     );
-  if (effectiveGates?.review !== false && !approved.length && !consented)
+  // The owner's forward adjudication is the review requirement a lifted profile skipped: the cut
+  // it named owes its verdict even though the frozen profile lifted review. Keyed on the journal's
+  // forward record, not the in_review position — a preset upgrade resets task-bound overrides and
+  // snapshots reach in_review by other paths, so only the order itself buys the verdict.
+  const forwarded = (snapshot.forwardedCuts ?? []).some(
+    (record) => record.executionId === execution.executionId && record.iteration === execution.iteration,
+  );
+  if ((effectiveGates?.review !== false || forwarded) && !approved.length && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
   if (effectiveGates?.consent !== false && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };

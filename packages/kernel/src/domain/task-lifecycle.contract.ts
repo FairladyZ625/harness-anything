@@ -45,6 +45,7 @@ export {
   type CreateReplayTaskCommand,
   type CreateReplayTaskIntent,
   type CreateReplayTaskProof,
+  type ForwardedCutRecord,
   type NormalizedTaskLifecycleCommand,
   type ProofFor,
   type ReconcileCodeDocCommand,

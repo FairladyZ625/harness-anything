@@ -54,7 +54,10 @@ export const availabilityFields = ["consents", "codeDocWitnesses", "gateWitnesse
     "edgesTaken",
     "lease",
     "decisionRelations",
-  ] as const;
+  ] as const,
+  // Snapshot fields only some snapshots carry: reviewDispositions arrives with overridden consents,
+  // forwardedCuts with a journal that recorded the owner's forward adjudications.
+  snapshotOptionalFields = ["reviewDispositions", "forwardedCuts"] as const;
 
 const artifactEntityImportProtocolInput = Object.freeze({
   schema: "entity-action-input/v1",
@@ -490,10 +493,26 @@ function snapshotFailurePaths(value: unknown, availability: unknown): readonly s
   const known = availabilityFields.filter((field) => availability[field] === "known"),
     paths: string[] = [];
   if (
-    !exactRecord(value, [...snapshotBaseFields, ...known]) &&
-    !exactRecord(value, [...snapshotBaseFields, ...known, "reviewDispositions"])
+    !recordWith(value, [...snapshotBaseFields, ...known]) ||
+    Object.keys(value).some(
+      (field) =>
+        !snapshotBaseFields.includes(field as never) &&
+        !known.includes(field as never) &&
+        !snapshotOptionalFields.includes(field as never),
+    )
   )
     paths.push("snapshot");
+  if (
+    value.forwardedCuts !== undefined &&
+    (!Array.isArray(value.forwardedCuts) ||
+      value.forwardedCuts.some(
+        (record) =>
+          !exactRecord(record, ["executionId", "iteration"]) ||
+          !nonEmpty(record.executionId) ||
+          !iteration(record.iteration),
+      ))
+  )
+    paths.push("snapshot.forwardedCuts");
   if (
     value.reviewDispositions !== undefined &&
     (!Array.isArray(value.reviewDispositions) || !value.reviewDispositions.every(reviewDisposition))

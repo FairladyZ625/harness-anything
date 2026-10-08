@@ -8,6 +8,7 @@ import {
   taskCompletionNext,
   completionGuidance,
   completionGateIds,
+  currentSubmittedExecutions,
   effectiveCloseoutGates,
   currentCodeDocWitness,
   consumeKnownError,
@@ -37,7 +38,7 @@ import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { readCompletionContext, factRetirementAssessment } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
-import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
+import { cutReviewDispatchObstruction, dispatchInReviewCutReview, selectReviewAgent } from "./task-review-dispatch.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 
 import {
@@ -706,6 +707,41 @@ export function completionContext(
 }
 
 /**
+ * A forward order on a cut whose frozen task profile lifted review is an upgrade into the review
+ * corridor: it re-arms the verdict requirement, so it may only land where the corridor can serve
+ * it — the reviewer dispatch spawn's own deterministic preconditions must hold. Refused before
+ * any durable write, the lifted default stands and `ha task complete` remains the one path.
+ * Only a task-bound lift upgrades: under a repository-standard baseline the forward is ordinary
+ * triage and keeps its write-then-dispatch retry lane.
+ */
+function assertForwardUpgradeServable(cell: RepoCellOperationalContext, action: RepoTaskAction, taskId: string): void {
+  const read = cell.projection.read(taskId),
+    task = read.snapshot.task;
+  if (!task || task.closeoutOverrides?.review !== false) return;
+  const candidates = currentSubmittedExecutions(read.snapshot),
+    execution =
+      typeof action.executionId === "string"
+        ? candidates.find((value) => value.executionId === action.executionId)
+        : candidates[0];
+  if (!execution?.submission) return; // the transition itself rejects malformed orders
+  const { reviewerId } = selectReviewAgent(
+      execution.submission.completionContract?.reviewer?.agentId,
+      typeof action.reviewer === "string" ? action.reviewer : undefined,
+      cell.settings.readRepository().roles?.defaultReviewer,
+    ),
+    obstruction = cutReviewDispatchObstruction(cell, {
+      reviewerId,
+      ...(typeof action.model === "string" ? { model: action.model } : {}),
+    });
+  if (obstruction)
+    throw cell.cellCodedError(
+      "invalid_transition",
+      `Task ${taskId} lifted review in its profile and the upgrade order cannot dispatch its reviewer: ` +
+        `${obstruction}. Run ha task complete ${taskId} instead of forwarding.`,
+    );
+}
+
+/**
  * The owner's adjudication (owner ruling 2026-09-19): one command, two orders. `--forward`
  * applies the kernel transition and then dispatches the independent reviewer for the forwarded
  * cut through `dispatchInReviewCutReview`, shared with an in-review amendment; `--return` applies the owner's rework
@@ -717,8 +753,9 @@ export async function adjudicateTask(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
-  const taskId = cell.requiredCellText(action.taskId, "taskId"),
-    receipt = await cell.lifecycleAction(action, binding);
+  const taskId = cell.requiredCellText(action.taskId, "taskId");
+  if (action.forward === true) assertForwardUpgradeServable(cell, action, taskId);
+  const receipt = await cell.lifecycleAction(action, binding);
   if (receipt.outcome !== "applied" || action.forward !== true) return receipt;
   const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
   if (!dispatched)

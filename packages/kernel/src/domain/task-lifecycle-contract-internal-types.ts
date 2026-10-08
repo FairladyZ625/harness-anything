@@ -17,6 +17,14 @@ import type { FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
 
 // Shared public contract shapes and internal transition protocol.
+/** The owner's forward adjudication on one cut, keyed (executionId, iteration): the corridor
+ * record that re-arms the review verdict a lifted profile skipped. An amendment replaces the
+ * submission but keeps both keys, so the corridor stance survives a cut replacement; a return
+ * order starts a new iteration and the record stops matching the next cut. */
+export interface ForwardedCutRecord {
+  readonly executionId: string;
+  readonly iteration: number;
+}
 export interface TaskLifecycleSnapshot {
   readonly revision: number;
   readonly task: TaskV2 | null;
@@ -28,6 +36,7 @@ export interface TaskLifecycleSnapshot {
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly edgesTaken: readonly TaskEdgeTaken[];
   readonly lease: LeaseV1 | null;
+  readonly forwardedCuts?: readonly ForwardedCutRecord[];
   readonly decisionRelations?: readonly CoverageRelation[];
 }
 export const TASK_LIFECYCLE_SCHEMA = Object.freeze({

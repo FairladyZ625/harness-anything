@@ -100,7 +100,17 @@ export const adjudicate: Transition = {
     if (command.decision === "forward") {
       const task: TaskV2 = { ...(snapshot.task as TaskV2), status: "in_review" as const };
       return {
-        snapshot: { ...snapshot, revision: command.workspaceRevision, task },
+        snapshot: {
+          ...snapshot,
+          revision: command.workspaceRevision,
+          task,
+          // Mirror of the submission_forwarded replay projection: the live transition and the
+          // journal replay must carry the same corridor record (closeoutReadiness keys on it).
+          forwardedCuts: [
+            ...(snapshot.forwardedCuts ?? []),
+            { executionId: current.executionId, iteration: current.iteration },
+          ],
+        },
         event: envelope<SubmissionForwardedEvent>(command, "submission_forwarded", {
           task,
           execution: current,
