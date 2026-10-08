@@ -375,7 +375,6 @@ export type {
   ArtifactLocator,
   ArtifactSourceIdentityInput,
 } from "./artifact-entity.ts";
-export type { CiRunObservationEventV2, CiRunObservationEventV3 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
 
 export { type ExecutionDelegationRecord } from "./execution-delegation.ts";
@@ -383,3 +382,8 @@ export { type ExecutionDelegationRecord } from "./execution-delegation.ts";
 export { parseDelegatedExecutionToken } from "./delegated-execution-token.ts";
 
 export { type ExecutionDelegationEventV1 } from "./execution-delegation-event.ts";
+
+export type { CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
+
+export { ciDetailMeasurement } from "./ci-run-observation-v4.ts";
+export type { CiRunDetail, CiObservationRead, CiObservationIdentity } from "./ci-run-observation-v4.ts";

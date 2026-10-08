@@ -143,6 +143,9 @@ jobs:
 
   entity-id-links:
     runs-on: ubuntu-latest
+    env:
+      HARNESS_CI_JOB: entity-id-links
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -1,6 +1,6 @@
 import {
   validateCiRunObservationEventV2,
-  validateCurrentCiRunObservationEvent,
+  validateCiRunObservationEvent,
   type CiRunObservationEventV2,
 } from "../domain/ci-run-observation-event.ts";
 import { inferLegacyGateRequirements } from "../domain/completion-contract.ts";
@@ -752,7 +752,7 @@ export const ciRunObservationV3Migration = {
         schema: "ci-run-observation/v3",
         payload: { ...payload, gates },
       } as CanonicalEventV1,
-      issues = validateCurrentCiRunObservationEvent(rewritten);
+      issues = validateCiRunObservationEvent(rewritten);
     if (issues.length) throw new Error(`Invalid historical CI observation ${event.opId}: ${issues.join("; ")}`);
     return {
       event: rewritten,

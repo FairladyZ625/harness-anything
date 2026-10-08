@@ -2,7 +2,7 @@ import {
   CI_RUN_OBSERVATION_SCHEMA,
   CiRunObservationContractError,
   serializeCiRunObservationEvent,
-  validateCiRunObservationEvent,
+  validateCurrentCiRunObservationEvent,
 } from "./ci-run-observation-event.ts";
 
 const ciRunObservationContract = Object.freeze({
@@ -15,7 +15,7 @@ const ciRunObservationContract = Object.freeze({
     Object.freeze({
       id: CI_RUN_OBSERVATION_SCHEMA.id,
       schema: "packages/kernel/src/domain/ci-run-observation-event.ts#CI_RUN_OBSERVATION_SCHEMA",
-      parser: "packages/kernel/src/domain/ci-run-observation-event.ts#validateCiRunObservationEvent",
+      parser: "packages/kernel/src/domain/ci-run-observation-event.ts#validateCurrentCiRunObservationEvent",
       writer: "packages/kernel/src/domain/ci-run-observation-event.ts#serializeCiRunObservationEvent",
       error: "packages/kernel/src/domain/ci-run-observation-event.ts#CiRunObservationContractError",
       negativeFixtures: Object.freeze(["tools/gates/test/fixtures/ci-run-observation-invalid.json"]),
@@ -24,7 +24,7 @@ const ciRunObservationContract = Object.freeze({
 });
 
 void serializeCiRunObservationEvent;
-void validateCiRunObservationEvent;
+void validateCurrentCiRunObservationEvent;
 void CiRunObservationContractError;
 
 export default ciRunObservationContract;

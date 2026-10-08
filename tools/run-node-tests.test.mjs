@@ -235,7 +235,11 @@ test("discoverTestFileTimeouts returns only explicit file overrides", () => {
     discoverTestFileTimeouts(repoRoot, {
       roots: ["tools/test-fixtures/runner-watchdog"],
     }),
-    { "tools/test-fixtures/runner-watchdog/open-handle.test.mjs": undefined },
+    {
+      "tools/test-fixtures/runner-watchdog/a-completed.test.mjs": undefined,
+      "tools/test-fixtures/runner-watchdog/companion.test.mjs": 10000,
+      "tools/test-fixtures/runner-watchdog/open-handle.test.mjs": undefined,
+    },
   );
 });
 

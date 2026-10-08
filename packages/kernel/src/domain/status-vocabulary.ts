@@ -24,7 +24,9 @@ export type StatusEntity =
   | "LegacyFact"
   | "GuiAdapter"
   | "DaemonWire"
-  | "CiTest";
+  | "CiTest"
+  | "CiFile"
+  | "CiMeasurement";
 
 export type StatusDivergence = "entity-scoped" | "divergent";
 
@@ -78,6 +80,32 @@ import { statusWordRegister } from "./status-word-register.ts";
 export { statusWordRegister } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
+  // dec_605F9FBF CH1: v4 observations distinguish test termination, file outcomes and measurement coverage.
+  {
+    id: "ci-test.v4.status",
+    entity: "CiTest",
+    field: "status",
+    module: "packages/kernel/src/domain/ci-run-observation-v4.ts",
+    anchor: "CiTestOutcome",
+    words: ["passed", "failed", "skipped", "cancelled"],
+  },
+  {
+    id: "ci-file.outcome",
+    entity: "CiFile",
+    field: "outcome",
+    module: "packages/kernel/src/domain/ci-run-observation-v4.ts",
+    anchor: "CiFileTerminationOutcome",
+    words: ["timeout", "hung", "crashed", "cancelled"],
+  },
+  {
+    id: "ci-measurement.status",
+    entity: "CiMeasurement",
+    field: "status",
+    module: "packages/kernel/src/domain/ci-run-observation-v4.ts",
+    anchor: "CiMeasurementStatus",
+    words: ["complete", "partial", "unknown", "no-test-artifact"],
+  },
+
   {
     id: "runtimeSession.attempt.fallbackState",
     entity: "RuntimeSession",

@@ -34,6 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HARNESS_CI_JOB: full-check (${{ matrix.node-version }})
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +68,9 @@ jobs:
       fail-fast: false
       matrix:
         node-version: [24]
+    env:
+      HARNESS_CI_JOB: typecheck (${{ matrix.node-version }})
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -87,6 +91,9 @@ jobs:
   fast-contract:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      HARNESS_CI_JOB: fast-contract
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -112,6 +119,9 @@ jobs:
     # not platform defects: they reproduce anywhere git is told to convert. Catching them costs a
     # Linux runner and one config line, so they should never again be found by a person on Windows.
     runs-on: ubuntu-latest
+    env:
+      HARNESS_CI_JOB: crlf-checkout
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - name: Convert line endings on checkout the way a Windows host does
         run: git config --global core.autocrlf true
@@ -147,6 +157,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+    env:
+      HARNESS_CI_JOB: windows-first-run (${{ matrix.os }})
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -173,6 +186,9 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
+    env:
+      HARNESS_CI_JOB: integration-shard (${{ matrix.shard }})
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -206,6 +222,9 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
+    env:
+      HARNESS_CI_JOB: windows-integration-shard (${{ matrix.shard }})
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -295,6 +314,9 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    env:
+      HARNESS_CI_JOB: boundaries
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -321,6 +343,9 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     continue-on-error: true
     runs-on: ubuntu-latest
+    env:
+      HARNESS_CI_JOB: ontology-advisory
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -344,6 +369,9 @@ jobs:
   package-policy:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      HARNESS_CI_JOB: package-policy
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -367,6 +395,9 @@ jobs:
   supply-chain:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      HARNESS_CI_JOB: supply-chain
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -387,6 +418,9 @@ jobs:
   gui-build:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      HARNESS_CI_JOB: gui-build
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -422,6 +456,9 @@ jobs:
           retention-days: 14
   node26-compatibility:
     runs-on: ubuntu-latest
+    env:
+      HARNESS_CI_JOB: node26-compatibility
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
         with:

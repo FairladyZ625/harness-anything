@@ -1,7 +1,18 @@
 #!/usr/bin/env node
+import { boundedCiSummary } from "../packages/kernel/src/domain/ci-observation-diagnostics.ts";
 
+import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -162,7 +173,15 @@ const stallReportMs = finiteTimeouts.length === 0 ? undefined : Math.max(1_000, 
 const daemonOwnerUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-daemon-owner.mjs")).href;
 const coveragePath = options.coverage === undefined ? undefined : resolve(options.coverage);
 if (coveragePath !== undefined) mkdirSync(dirname(coveragePath), { recursive: true });
+const observationDestination = process.env.HARNESS_CI_NODE_TEST_RESULTS ?? process.env.HARNESS_CI_OBSERVATION_RAW;
+const observationRoot = observationDestination ? join(observationDestination, randomUUID()) : null;
+
 const childEnvironment = { ...process.env, HARNESS_TEST_TEMP_ROOT: testTemporaryRoot };
+if (observationRoot) {
+  mkdirSync(observationRoot, { recursive: true });
+  childEnvironment.HARNESS_CI_NODE_TEST_RESULTS = observationRoot;
+}
+
 for (const name of DAEMON_ROUTE_ENVIRONMENT_VARIABLES) delete childEnvironment[name];
 const child = spawn(
   process.execPath,
@@ -204,6 +223,8 @@ const openTestsByFile = new Map();
 let timedOutFiles = [];
 let termination = Promise.resolve();
 const activeFiles = new Map();
+const startedFiles = new Set();
+const completedFiles = new Set();
 const removeSignalForwarding = installSignalForwarding(child);
 const watchdog =
   finiteTimeouts.length === 0
@@ -221,6 +242,7 @@ const watchdog =
           console.error(
             `[node-test-watchdog] test file exceeded timeout: ${overdue.map(stalledFileReport).join(", ")}`,
           );
+          persistFileOutcomes(now, new Set(overdue));
           termination = terminateProcessTree(child);
         },
         Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))),
@@ -245,8 +267,14 @@ const exitCode = await new Promise((resolveRun) => {
     if (watchdog !== null) clearInterval(watchdog);
     removeSignalForwarding();
     void termination.then(() => {
+      refreshActivity();
       rmSync(activityRoot, { recursive: true, force: true });
       rmSync(testTemporaryRoot, { recursive: true, force: true });
+      if (observationRoot)
+        appendFileSync(
+          join(observationRoot, `coverage-${process.pid}.jsonl`),
+          `${JSON.stringify({ kind: "coverage", startedFiles: [...startedFiles], completedFiles: [...completedFiles], missingReason: code === 0 || timedOutFiles.length === 0 ? null : "runner buffers not delivered before kill are unknown" })}\n`,
+        );
       resolveRun(code);
     });
   };
@@ -366,6 +394,40 @@ function stalledFileReport(file) {
     : `${file} (every test finished, last was ${last}; the process did not exit -- look for an open handle, not a slow test)`;
 }
 
+function persistFileOutcomes(now, overdue) {
+  if (!observationRoot) return;
+  const output = join(observationRoot, `files-${process.pid}.jsonl`);
+  mkdirSync(observationRoot, { recursive: true });
+  const diagnostics = readdirSync(observationRoot)
+    .filter((name) => name.startsWith("stall-"))
+    .flatMap((name) =>
+      readFileSync(join(observationRoot, name), "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => ({ name, entry: JSON.parse(line) })),
+    );
+  for (const [file, activity] of activeFiles) {
+    const diagnostic = diagnostics.find(({ entry }) => entry.file && repoRelativeTestFile(entry.file) === file);
+    const summary = boundedCiSummary(diagnostic ? JSON.stringify(diagnostic.entry.report.libuv) : "unavailable");
+    appendFileSync(
+      output,
+      `${JSON.stringify({
+        kind: "file",
+        file,
+        outcome: overdue.has(file) ? "timeout" : "cancelled",
+        lastActiveTest: lastTestByFile.get(file) ?? null,
+        elapsedMs: now - activity.startedAt,
+        limitMs: activity.timeoutMs,
+        reason: overdue.has(file) ? "watchdog deadline" : "same process tree terminated",
+        causedBy: [...overdue],
+        stallSummary: summary.summary,
+        truncated: summary.truncated,
+        diagnosticRef: diagnostic?.name ?? null,
+      })}\n`,
+    );
+  }
+}
+
 function refreshActivity() {
   if (!existsSync(activityPath)) return;
   const source = readFileSync(activityPath, "utf8");
@@ -382,6 +444,7 @@ function refreshActivity() {
     const event = JSON.parse(line);
     if (event.state === "started" && typeof event.file === "string" && Number.isFinite(event.at)) {
       const file = repoRelativeTestFile(event.file);
+      startedFiles.add(file);
       activeFiles.set(file, { startedAt: event.at, timeoutMs: selectedFileTimeouts.get(file) ?? defaultFileTimeoutMs });
     }
     if (event.state === "progress" && typeof event.file === "string" && typeof event.name === "string") {
@@ -395,6 +458,7 @@ function refreshActivity() {
     }
     if (event.state === "finished" && typeof event.file === "string") {
       const owner = repoRelativeTestFile(event.file);
+      completedFiles.add(owner);
       activeFiles.delete(owner);
       lastTestByFile.delete(owner);
       openTestsByFile.delete(owner);

@@ -13,6 +13,8 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     env:
+      HARNESS_CI_JOB: pr-body-lint
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
       HARNESS_CI_NODE_TEST_RESULTS: tmp/ci-observation/node-tests.json
       HARNESS_CI_VITEST_RESULTS: tmp/ci-observation/vitest.json
       HARNESS_CI_GATE_RESULTS: tmp/ci-observation/gates.json
@@ -48,9 +50,10 @@ jobs:
       contents: read
       pull-requests: read
     env:
+      HARNESS_CI_JOB: production-delta
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
       HARNESS_CI_GATE_RESULTS: tmp/ci-observation/gates.json
       HARNESS_CI_OBSERVATION_OUTPUT: tmp/ci-observation/observation.json
-      HARNESS_CI_JOB: ${{ github.job }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -105,9 +108,10 @@ jobs:
       contents: read
       pull-requests: read
     env:
+      HARNESS_CI_JOB: dependency-policy-declaration
+      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
       HARNESS_CI_GATE_RESULTS: tmp/ci-observation/gates.json
       HARNESS_CI_OBSERVATION_OUTPUT: tmp/ci-observation/observation.json
-      HARNESS_CI_JOB: ${{ github.job }}
     steps:
       - uses: actions/checkout@v4
         with:

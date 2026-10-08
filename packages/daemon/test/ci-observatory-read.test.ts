@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { decodeCiObservation } from "../../kernel/test/fixtures/ci-observation.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,8 +8,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { runProcessTextAsync } from "../src/process-port.ts";
 import { readCiObservatory } from "../src/ci-observatory-read.ts";
-import { fetchCiObservations, ingestCiObservations, selectCiObservationRuns } from "../src/ci-observation-actions.ts";
-import type { CiRunObservationEventV3 } from "@harness-anything/kernel";
+import {
+  fetchCiObservations as fetchCiObservationsRaw,
+  ingestCiObservations,
+  selectCiObservationRuns,
+} from "../src/ci-observation-actions.ts";
+import type { CiRunObservationEventV3 } from "../../kernel/test/fixtures/ci-observation.ts";
 
 const actor = { principal: { personId: "person-observatory" }, executor: null } as const;
 const ciSettings = (workflows: readonly string[] = ["rewrite-ci", "rebuild-gates"]) => ({
@@ -58,7 +63,7 @@ function event(
   };
 }
 
-test("CI observatory aggregates filtered runs, retries, percentiles, shards, gates, and quarantine", () => {
+test("CI observatory preserves legacy hot counters and exposes unavailable rerun statistics", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observatory-"));
   mkdirSync(path.join(rootDir, "tools"), { recursive: true });
   writeFileSync(
@@ -127,19 +132,19 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
     const result = readCiObservatory({
       rootDir,
       projection: {
-        readCiRunObservations: () => ({ status: "ready", events: observations, watermark: 3, sourceRevision: 3 }),
+        readCiRunObservations: () => ({
+          status: "ready",
+          events: observations.map(decodeCiObservation),
+          watermark: 3,
+          sourceRevision: 3,
+        }),
       } as never,
       now: "2026-08-27T00:00:00.000Z",
       window: 10,
     });
     assert.equal(result.runs.length, 2);
-    assert.equal(result.flakes[0]?.test, "flaky test");
-    assert.equal(result.flakes[0]?.flakes, 1);
-    assert.equal(result.flakes[0]?.attempts, 2);
-    assert.equal(result.flakes[0]?.p50Ms, 200);
-    assert.equal(result.flakes[0]?.p95Ms, 300);
-    assert.equal(result.flakes[0]?.ownerTask, "task_f9443002d6d995489ebf082911");
-    assert.equal(result.flakes[0]?.quarantineDays, 26);
+    assert.deepEqual(result.flakes, []);
+    assert.equal(result.statisticsAvailability, "pending");
     assert.deepEqual(result.shardDurations, [
       { shard: 2, durationMs: 600 },
       { shard: 3, durationMs: 50 },
@@ -151,8 +156,8 @@ test("CI observatory aggregates filtered runs, retries, percentiles, shards, gat
       [12, 20],
     );
     assert.equal(result.l0MedianMs, 800);
-    assert.equal(result.runs[0]?.pass, false);
-    assert.equal(result.runs[1]?.pass, true);
+    assert.equal(result.runs[0]?.pass, null);
+    assert.equal(result.runs[1]?.pass, null);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -176,7 +181,9 @@ test("CI observatory does not count an advisory gate as a passing run", () => {
         readCiRunObservations: () => ({
           status: "ready",
           events: [
-            event(1, { runId: "advisory-run" }, [], [{ gate: "G32", result: "advisory", metrics: { count: 1 } }]),
+            decodeCiObservation(
+              event(1, { runId: "advisory-run" }, [], [{ gate: "G32", result: "advisory", metrics: { count: 1 } }]),
+            ),
           ],
           watermark: 1,
           sourceRevision: 1,
@@ -184,7 +191,7 @@ test("CI observatory does not count an advisory gate as a passing run", () => {
       } as never,
       window: 1,
     });
-    assert.equal(result.runs[0]?.pass, false);
+    assert.equal(result.runs[0]?.pass, null);
     assert.equal(result.gateTrends[0]?.points[0]?.pass, false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -223,9 +230,9 @@ test("CI observatory window retains every job from the selected workflow run", (
         readCiRunObservations: () => ({
           status: "ready",
           events: [
-            event(3, { runId: "new", job: "typecheck" }, []),
-            event(2, { runId: "new", job: "fast-contract" }, []),
-            event(1, { runId: "old" }, []),
+            decodeCiObservation(event(3, { runId: "new", job: "typecheck" }, [])),
+            decodeCiObservation(event(2, { runId: "new", job: "fast-contract" }, [])),
+            decodeCiObservation(event(1, { runId: "old" }, [])),
           ],
           watermark: 3,
           sourceRevision: 3,
@@ -359,7 +366,7 @@ test("CI observation pull writes canonical events once per run and job", async (
         projection: {
           readCiRunObservations: () => ({
             status: "ready",
-            events: observed,
+            events: observed.map(decodeCiObservation),
             watermark: 2,
             sourceRevision: 2,
           }),
@@ -371,13 +378,11 @@ test("CI observation pull writes canonical events once per run and job", async (
       observed.find((event) => event.payload.run.runId === "102.1")?.payload.verification?.workflow,
       "rebuild-gates",
     );
-    assert.ok([...events.values()].every((observed) => observed.schema === "ci-run-observation/v3"));
+    assert.ok([...events.values()].every((observed) => String(observed.schema) === "ci-run-observation/v4"));
     assert.deepEqual(
       [...events.values()].map((observed) => observed.payload.gates),
-      [
-        [{ gate: "G32", result: "pass", metrics: { files: 42 } }],
-        [{ gate: "G32", result: "pass", metrics: { files: 42 } }],
-      ],
+      [[], []],
+      "legacy artifacts cannot become new job measurements",
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -466,7 +471,7 @@ test("CI observation pull synthesizes a ledger-publication run only for private 
     const ledgerHead = git(ledgerRoot, "rev-parse", "HEAD");
     const privateOnly = await fetchCiObservations(cell, { kind: "ci-observe-pull", limit: 20 }, noRuns);
     assert.deepEqual(
-      privateOnly.runs.map((run) => [run.summary.workflowName, run.summary.headSha, run.artifacts[0]?.run.runId]),
+      privateOnly.runs.map((run) => [run.summary.workflowName, run.summary.headSha, `ledger-${run.summary.headSha}`]),
       [["ledger-publication", ledgerHead, `ledger-${ledgerHead}`]],
     );
     // Once the public repository holds the same commit, GitHub owns the observation.
@@ -628,22 +633,22 @@ test("CI provenance comes from the completed matching GitHub run, not workflow p
       expected: undefined,
     },
     {
-      name: "old attempt",
+      name: "old attempt artifact does not suppress latest workflow witness",
       workflow: "rewrite-ci",
       status: "completed",
       conclusion: "success",
       attempt: 2,
       sha: "commit",
-      expected: undefined,
+      expected: true,
     },
     {
-      name: "other commit",
+      name: "other commit artifact does not alter API witness",
       workflow: "rewrite-ci",
       status: "completed",
       conclusion: "success",
       attempt: 1,
       sha: "other",
-      expected: undefined,
+      expected: true,
     },
   ];
   for (const scenario of cases) {
@@ -1040,57 +1045,30 @@ test("CI observation pull reports rate_limited with the reset hint instead of a 
   }
 });
 
-test("CI observatory fails closed on malformed quarantine ownership", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observatory-invalid-"));
-  mkdirSync(path.join(rootDir, "tools"), { recursive: true });
-  writeFileSync(
-    path.join(rootDir, "tools/test-quarantine.json"),
-    JSON.stringify({
-      schema: "harness-test-quarantine/v1",
-      tests: [{ test: "x", ownerTask: "", quarantinedAt: "2026-08-01" }],
-    }),
-  );
-  try {
-    assert.throws(
-      () =>
-        readCiObservatory({
-          rootDir,
-          projection: {
-            readCiRunObservations: () => ({ status: "ready", events: [], watermark: 0, sourceRevision: 0 }),
-          } as never,
-        }),
-      /ownerTask/u,
-    );
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("CI observatory rejects quarantine ownership outside the two real task id shapes", () => {
-  for (const ownerTask of ["task_owner1", "task_2301", "task_f7cc215a54a194898ad733c20"]) {
-    const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observatory-shape-"));
-    mkdirSync(path.join(rootDir, "tools"), { recursive: true });
-    writeFileSync(
-      path.join(rootDir, "tools/test-quarantine.json"),
-      JSON.stringify({
-        schema: "harness-test-quarantine/v1",
-        tests: [{ test: "x", ownerTask, quarantinedAt: "2026-08-01" }],
-      }),
-    );
-    try {
-      assert.throws(
-        () =>
-          readCiObservatory({
-            rootDir,
-            projection: {
-              readCiRunObservations: () => ({ status: "ready", events: [], watermark: 0, sourceRevision: 0 }),
-            } as never,
-          }),
-        /ownerTask/u,
-        ownerTask,
-      );
-    } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+async function fetchCiObservations(
+  cell: Parameters<typeof fetchCiObservationsRaw>[0],
+  action: Parameters<typeof fetchCiObservationsRaw>[1],
+  runner: NonNullable<Parameters<typeof fetchCiObservationsRaw>[2]>,
+) {
+  const summaries = new Map<string, Record<string, unknown>>();
+  return fetchCiObservationsRaw(cell, action, async (command, args, options) => {
+    const match = args[0] === "api" ? /actions\/runs\/(\d+)\/attempts\/(\d+)$/u.exec(args[1] ?? "") : null;
+    if (!match) {
+      const result = await runner(command, args, options);
+      if (args[1] === "view") summaries.set(args[2]!, JSON.parse(result));
+      return result;
     }
-  }
-});
+    const summary = summaries.get(match[1]!)!;
+    return JSON.stringify({
+      run_attempt: Number(match[2]),
+      head_sha: summary.headSha,
+      head_branch: summary.headBranch,
+      conclusion: summary.conclusion,
+      event: summary.event,
+      path: `.github/workflows/${summary.workflowName}.yml`,
+      workflow_id: 1,
+      name: summary.workflowName,
+      repository: { full_name: "fixture/repository" },
+    });
+  });
+}

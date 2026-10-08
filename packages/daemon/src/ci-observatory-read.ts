@@ -1,17 +1,14 @@
-import { existsSync, readFileSync } from "node:fs";
 import { nonEmpty } from "./migration-import-report.ts";
-
-/** Test outcome labels are observation data, not lifecycle state. */
-const outcomeIs = (entry: { readonly status: string }, outcome: string): boolean => entry.status === outcome;
-import path from "node:path";
-import type { CiRunObservationEventV3, TaskProjection } from "@harness-anything/kernel";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
+
+import type { CiObservationRead, TaskProjection } from "@harness-anything/kernel";
 
 export interface CiObservatoryRead {
   readonly schema: "daemon.ci-observatory/v1";
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly window: number;
+  readonly statisticsAvailability: "pending";
   readonly flakes: readonly {
     readonly test: string;
     readonly file: string;
@@ -46,15 +43,16 @@ export interface CiObservatoryRead {
     readonly wallclockMs: number;
     readonly runner: string;
     readonly occurredAt: string;
-    readonly pass: boolean;
-    readonly testCount: number;
+    readonly pass: boolean | null;
+    readonly testCount: number | null;
+    readonly measurementCoverage: CiObservationRead["payload"]["measurementCoverage"];
+    readonly failedTests: CiObservationRead["payload"]["failedTests"];
+    readonly fileOutcomes: CiObservationRead["payload"]["fileOutcomes"];
     readonly gateCount: number;
   }[];
   readonly watermark: number;
   readonly sourceRevision: number;
 }
-
-type QuarantineEntry = { readonly test: string; readonly ownerTask: string; readonly quarantinedAt: string };
 
 export class CiObservatoryContractError extends Error {
   readonly code = "invalid_result";
@@ -74,27 +72,31 @@ export function readCiObservatory(input: {
   if (!Number.isSafeInteger(window) || window < 1 || window > 100)
     throw new Error("CI observatory window must be 1..100");
   const read = input.projection.readCiRunObservations(Math.max(window * 20, 100)),
-    events = selectRunWindow(read.events.filter(mainBranch), window),
-    // One derivation per event, reused by the run rows and the flake rows.
-    finalOutcomes = events.map((event) => ({ event, outcomes: finalTestOutcomes(event) })),
-    quarantine = new Map(readQuarantine(input.rootDir).map((entry) => [entry.test, entry])),
-    now = Date.parse(input.now ?? new Date().toISOString());
+    events = selectRunWindow(read.events.filter(mainBranch), window);
   return {
     schema: "daemon.ci-observatory/v1",
     ok: true,
     status: read.status,
     window,
-    flakes: flakeRows(finalOutcomes, quarantine, now),
+    flakes: [],
+    statisticsAvailability: "pending",
     shardDurations: shardRows(events),
     gateTrends: gateRows(events),
     l0MedianMs: percentile(l0Wallclocks(events), 0.5),
-    runs: finalOutcomes.map(({ event, outcomes }) => ({
+    runs: events.map((event) => ({
       ...event.payload.run,
       occurredAt: event.occurredAt,
-      pass:
-        outcomes.every((entry) => !outcomeIs(entry, "failed")) &&
-        event.payload.gates.every((entry) => entry.result === "pass"),
-      testCount: event.payload.tests.length,
+      pass: event.payload.verification
+        ? event.payload.verification.conclusion === "success"
+        : event.payload.measurementCoverage.status === "complete"
+          ? event.payload.testSummary!.failed === 0 &&
+            event.payload.fileOutcomes.length === 0 &&
+            event.payload.gates.every((gate) => gate.result === "pass")
+          : null,
+      testCount: event.payload.testSummary?.observationCount ?? null,
+      measurementCoverage: event.payload.measurementCoverage,
+      failedTests: event.payload.failedTests,
+      fileOutcomes: event.payload.fileOutcomes,
       gateCount: event.payload.gates.length,
     })),
     watermark: read.watermark,
@@ -102,10 +104,7 @@ export function readCiObservatory(input: {
   };
 }
 
-function selectRunWindow(
-  events: readonly CiRunObservationEventV3[],
-  window: number,
-): readonly CiRunObservationEventV3[] {
+function selectRunWindow(events: readonly CiObservationRead[], window: number): readonly CiObservationRead[] {
   const selected = new Set<string>();
   for (const event of events) {
     const runId = event.payload.run.runId;
@@ -115,7 +114,7 @@ function selectRunWindow(
   return events.filter((event) => selected.has(event.payload.run.runId));
 }
 
-function mainBranch(event: CiRunObservationEventV3): boolean {
+function mainBranch(event: CiObservationRead): boolean {
   return event.payload.run.branch === "main";
 }
 
@@ -133,7 +132,7 @@ function isL0Job(job: string): boolean {
   ].some((name) => job === name || job.startsWith(`${name} (`));
 }
 
-function l0Wallclocks(events: readonly CiRunObservationEventV3[]): readonly number[] {
+function l0Wallclocks(events: readonly CiObservationRead[]): readonly number[] {
   const runs = new Map<string, number>();
   for (const event of events)
     if (isL0Job(event.payload.run.job))
@@ -141,72 +140,16 @@ function l0Wallclocks(events: readonly CiRunObservationEventV3[]): readonly numb
   return [...runs.values()];
 }
 
-function flakeRows(
-  observations: readonly {
-    readonly event: CiRunObservationEventV3;
-    readonly outcomes: readonly CiRunObservationEventV3["payload"]["tests"][number][];
-  }[],
-  quarantine: ReadonlyMap<string, QuarantineEntry>,
-  now: number,
-): CiObservatoryRead["flakes"] {
-  const rows = new Map<string, { file: string; durations: number[]; attempts: number; flakes: number }>();
-  for (const { outcomes } of observations)
-    for (const observation of outcomes) {
-      if (outcomeIs(observation, "skipped")) continue;
-      const key = observation.name,
-        row = rows.get(key) ?? { file: observation.file, durations: [], attempts: 0, flakes: 0 };
-      row.attempts += 1;
-      row.durations.push(observation.durationMs);
-      if (outcomeIs(observation, "passed") && observation.retry > 0) row.flakes += 1;
-      rows.set(key, row);
-    }
-  return [...rows]
-    .map(([test, row]) => {
-      const entry = quarantine.get(test),
-        quarantinedAt = entry?.quarantinedAt ?? null,
-        sortedDurations = [...row.durations].sort((left, right) => left - right);
-      return {
-        test,
-        file: row.file,
-        attempts: row.attempts,
-        flakes: row.flakes,
-        flakeRate: row.attempts === 0 ? 0 : row.flakes / row.attempts,
-        p50Ms: percentileOfSorted(sortedDurations, 0.5) ?? 0,
-        p95Ms: percentileOfSorted(sortedDurations, 0.95) ?? 0,
-        quarantined: entry !== undefined,
-        ownerTask: entry?.ownerTask ?? null,
-        quarantinedAt,
-        quarantineDays:
-          quarantinedAt === null
-            ? null
-            : Math.max(0, Math.floor((now - Date.parse(`${quarantinedAt}T00:00:00.000Z`)) / 86_400_000)),
-      };
-    })
-    .sort(
-      (left, right) =>
-        right.flakeRate - left.flakeRate || right.p95Ms - left.p95Ms || left.test.localeCompare(right.test),
-    );
-}
-
-function finalTestOutcomes(
-  event: CiRunObservationEventV3,
-): readonly CiRunObservationEventV3["payload"]["tests"][number][] {
-  const outcomes = new Map<string, CiRunObservationEventV3["payload"]["tests"][number]>();
-  for (const observation of event.payload.tests)
-    outcomes.set(`${observation.file}\u0000${observation.name}`, observation);
-  return [...outcomes.values()];
-}
-
-function shardRows(events: readonly CiRunObservationEventV3[]): CiObservatoryRead["shardDurations"] {
+function shardRows(events: readonly CiObservationRead[]): CiObservatoryRead["shardDurations"] {
   const totals = new Map<number, number>();
   for (const event of events)
-    for (const observation of event.payload.tests)
+    for (const observation of event.payload.shardDurations)
       if (observation.shard !== null)
         totals.set(observation.shard, (totals.get(observation.shard) ?? 0) + observation.durationMs);
   return [...totals].sort(([left], [right]) => left - right).map(([shard, durationMs]) => ({ shard, durationMs }));
 }
 
-function gateRows(events: readonly CiRunObservationEventV3[]): CiObservatoryRead["gateTrends"] {
+function gateRows(events: readonly CiObservationRead[]): CiObservatoryRead["gateTrends"] {
   const trends = new Map<
     string,
     {
@@ -248,36 +191,6 @@ function percentile(values: readonly number[], ratio: number): number | null {
     [...values].sort((left, right) => left - right),
     ratio,
   );
-}
-
-// Real task ids come in exactly two shapes: ULID (uppercase Crockford base32) or lowercase hex, both 26 chars.
-const ownerTaskShape = /^task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})$/u;
-
-function readQuarantine(rootDir: string): readonly QuarantineEntry[] {
-  const file = path.join(rootDir, "tools/test-quarantine.json");
-  if (!existsSync(file)) return [];
-  const value = JSON.parse(readFileSync(file, "utf8"));
-  if (!isJsonObject(value) || value.schema !== "harness-test-quarantine/v1" || !Array.isArray(value.tests))
-    throw new Error("test quarantine is invalid");
-  const entries: QuarantineEntry[] = [],
-    seen = new Set<string>();
-  for (const [index, entry] of value.tests.entries()) {
-    if (!isJsonObject(entry) || Object.keys(entry).some((key) => !["test", "ownerTask", "quarantinedAt"].includes(key)))
-      throw new Error(`test quarantine entry ${index + 1} is invalid`);
-    if (typeof entry.test !== "string" || !entry.test.trim() || seen.has(entry.test))
-      throw new Error(`test quarantine entry ${index + 1} has an invalid or duplicate test name`);
-    if (typeof entry.ownerTask !== "string" || !ownerTaskShape.test(entry.ownerTask))
-      throw new Error(`test quarantine entry ${index + 1} requires ownerTask task_<id>`);
-    if (
-      typeof entry.quarantinedAt !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}$/u.test(entry.quarantinedAt) ||
-      !Number.isFinite(Date.parse(`${entry.quarantinedAt}T00:00:00.000Z`))
-    )
-      throw new Error(`test quarantine entry ${index + 1} requires quarantinedAt YYYY-MM-DD`);
-    seen.add(entry.test);
-    entries.push({ test: entry.test, ownerTask: entry.ownerTask, quarantinedAt: entry.quarantinedAt });
-  }
-  return entries;
 }
 
 export function validateCiObservatoryRead(value: unknown): readonly string[] {
@@ -364,8 +277,8 @@ function validRun(value: unknown): boolean {
     value.wallclockMs >= 0 &&
     nonEmpty(value.runner) &&
     isUtcLike(value.occurredAt) &&
-    typeof value.pass === "boolean" &&
-    safeNonNegativeInteger(value.testCount) &&
+    (value.pass === null || typeof value.pass === "boolean") &&
+    (value.testCount === null || safeNonNegativeInteger(value.testCount)) &&
     safeNonNegativeInteger(value.gateCount)
   );
 }

@@ -1,5 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import {
+  ciFailureDiagnostic,
+  ciFailureLocation,
+  ciTestOutcome,
+} from "../packages/kernel/src/domain/ci-observation-diagnostics.ts";
 
 export default async function* reportTestObservations(source) {
   const destination = process.env.HARNESS_CI_NODE_TEST_RESULTS ?? process.env.HARNESS_CI_OBSERVATION_RAW;
@@ -7,73 +12,67 @@ export default async function* reportTestObservations(source) {
     for await (const _event of source) yield "";
     return;
   }
-  const observations = [],
-    failures = new Map();
-  const tierManifest = readTierManifest();
+  mkdirSync(destination, { recursive: true });
+  const output = path.join(destination, `tests-${process.pid}.jsonl`);
+  const tierManifest = JSON.parse(process.env.HARNESS_TEST_TIER_MANIFEST ?? "{}");
+  const suites = new Map(),
+    ordinals = new Map();
   for await (const event of source) {
+    const data = event.data;
+    if (!data || typeof data.file !== "string" || typeof data.name !== "string") continue;
+    const file = repoRelative(data.file);
+    if (event.type === "test:dequeue" && data.type === "suite") suites.set(`${file}:${data.nesting}`, data.name);
     if (event.type !== "test:pass" && event.type !== "test:fail") continue;
-    const data = event.data,
-      file = typeof data?.file === "string" ? repoRelative(data.file) : null,
-      name = typeof data?.name === "string" ? data.name : null;
-    if (!file || !name || isFileEnvelope(data)) continue;
-    const key = `${file}\u0000${name}`,
-      priorFailures = failures.get(key) ?? 0,
-      status = event.type === "test:pass" ? "passed" : isSkipped(data) ? "skipped" : "failed";
-    observations.push({
+    if (data.details?.type === "suite") continue;
+    const fileEnvelope = data.name === data.file || data.name === file;
+    const status = ciTestOutcome(
+      event.type === "test:pass"
+        ? "passed"
+        : data.details?.error?.failureType === "cancelledByParent"
+          ? "cancelled"
+          : "failed",
+      data.skip ?? data.details?.skip,
+      data.todo ?? data.details?.todo,
+    );
+    if (fileEnvelope) {
+      if (status === "failed") {
+        const diagnostic = ciFailureDiagnostic(data.details?.error);
+        appendFileSync(
+          output,
+          `${JSON.stringify({ kind: "file", file, outcome: "crashed", reason: "file envelope failed", stallSummary: diagnostic.failureSummary, truncated: diagnostic.truncated, error: diagnostic.error })}\n`,
+        );
+      }
+      continue;
+    }
+    const suite = [];
+    for (let depth = 0; depth < data.nesting; depth++) {
+      const name = suites.get(`${file}:${depth}`);
+      if (name) suite.push(name);
+    }
+    const key = JSON.stringify([file, suite, data.name, data.line ?? null, data.column ?? null]);
+    const ordinal = (ordinals.get(key) ?? 0) + 1;
+    ordinals.set(key, ordinal);
+    const error = data.details?.error;
+    const observation = {
+      kind: "test",
       file,
-      name,
-      tier: tierOf(file, tierManifest),
-      shard: optionalPositiveInteger(process.env.HARNESS_TEST_SHARD),
-      durationMs: durationMs(data),
+      name: data.name,
+      suite,
+      testKey: `${key}:${ordinal}`,
+      executionOrdinal: ordinal,
+      declarationLocation: { line: data.line ?? null, column: data.column ?? null },
+      failureLocation: ciFailureLocation(error, process.cwd()),
+      tier: ["fast", "contract", "integration"].find((tier) => tierManifest[tier]?.includes(file)) ?? "unknown",
+      shard: process.env.HARNESS_TEST_SHARD ? Number(process.env.HARNESS_TEST_SHARD) : null,
+      durationMs: data.details?.duration_ms ?? 0,
       status,
-      retry: status === "passed" ? priorFailures : priorFailures,
-    });
-    if (status === "failed") failures.set(key, priorFailures + 1);
-  }
-  mkdirSync(path.dirname(destination), { recursive: true });
-  const previous = existsSync(destination) ? JSON.parse(readFileSync(destination, "utf8")) : [];
-  writeFileSync(destination, `${JSON.stringify([...previous, ...observations])}\n`);
-}
-
-function readTierManifest() {
-  try {
-    const value = JSON.parse(process.env.HARNESS_TEST_TIER_MANIFEST ?? "{}");
-    return value && typeof value === "object" ? value : {};
-  } catch {
-    return {};
+      ...(status === "failed" ? ciFailureDiagnostic(error) : {}),
+    };
+    appendFileSync(output, `${JSON.stringify(observation)}\n`);
   }
 }
-
-function tierOf(file, manifest) {
-  for (const tier of ["fast", "contract", "integration"])
-    if (Array.isArray(manifest[tier]) && manifest[tier].includes(file)) return tier;
-  return process.env.HARNESS_TEST_TIER === "gui" ? "gui" : "unknown";
-}
-
-function optionalPositiveInteger(value) {
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
 function repoRelative(file) {
   const normalized = file.replaceAll("\\", "/"),
-    marker = "/packages/";
-  const packageIndex = normalized.lastIndexOf(marker);
-  if (packageIndex >= 0) return normalized.slice(packageIndex + 1);
-  const toolMarker = "/tools/",
-    toolIndex = normalized.lastIndexOf(toolMarker);
-  return toolIndex >= 0 ? normalized.slice(toolIndex + 1) : normalized;
-}
-
-function durationMs(data) {
-  const value = data?.details?.duration_ms ?? data?.details?.durationMs ?? data?.duration_ms;
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
-}
-
-function isSkipped(data) {
-  return data?.details?.skip !== undefined || data?.details?.todo !== undefined;
-}
-
-function isFileEnvelope(data) {
-  return data?.nesting === 0 && data?.line === 1 && data?.column === 1;
+    root = `${process.cwd().replaceAll("\\", "/")}/`;
+  return normalized.startsWith(root) ? normalized.slice(root.length) : normalized;
 }

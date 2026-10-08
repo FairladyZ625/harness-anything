@@ -8,8 +8,11 @@ import {
   inferLegacyGateRequirements,
   isNativeCommitSha,
   validateCurrentCiRunObservationEvent,
-  type CiRunObservationEventV2,
-  type CiRunObservationEventV3,
+  type CiRunObservationEventV4,
+  type CiRunDetail,
+  type CiObservationIdentity,
+  ciDetailMeasurement,
+  canonicalizeContractValue,
   type FrozenGateRequirement,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
@@ -20,12 +23,27 @@ import { strandedDelivery } from "./repo-cell-ci-evidence.ts";
 import { localGitObjectRefStore, resolveHarnessLayout } from "@harness-anything/kernel";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
-type CiRunArtifactGate =
-  | CiRunObservationEventV3["payload"]["gates"][number]
-  | CiRunObservationEventV2["payload"]["gates"][number];
-type CiRunArtifact = Omit<CiRunObservationEventV3["payload"], "verification" | "gates"> & {
-  readonly schema: "ci-run-artifact/v1";
-  readonly gates: readonly CiRunArtifactGate[];
+type CiRunArtifact = {
+  readonly schema: "ci-run-artifact/v2";
+  readonly run: CiRunObservationEventV4["payload"]["run"];
+  readonly producer: {
+    readonly repositoryId: string;
+    readonly workflow: string;
+    readonly databaseRunId: string;
+    readonly runAttempt: number;
+    readonly jobKey: string;
+    readonly jobName: string;
+  };
+  readonly detail: CiRunDetail;
+  readonly gates: CiRunObservationEventV4["payload"]["gates"];
+  readonly measurementCoverage: CiRunObservationEventV4["payload"]["measurementCoverage"];
+};
+type PreparedCiJob = {
+  readonly artifact: CiRunArtifact;
+  readonly jobExecutionId: string;
+  readonly body: string;
+  readonly sha256: string;
+  readonly measurement: ReturnType<typeof ciDetailMeasurement>;
 };
 type CiWorkflowRun = { readonly databaseId: number; readonly headBranch: string; readonly createdAt: string };
 type CiRunListEntry = CiWorkflowRun & {
@@ -47,7 +65,10 @@ type RunGh = (command: string, args: readonly string[], options: { readonly cwd:
 type FetchedCiRun = {
   readonly databaseId: number;
   readonly summary: CiRunSummary;
-  readonly artifacts: readonly CiRunArtifact[];
+  readonly repositoryId: string;
+  readonly workflowPath: string;
+  readonly workflowId: string | null;
+  readonly jobs: readonly PreparedCiJob[];
 };
 type CiObservationFetch = {
   readonly requestedRuns: number;
@@ -165,33 +186,95 @@ export async function fetchCiObservations(
             );
           } catch (error) {
             // A run without ci-observation-* artifacts fails the download; whatever landed is used below.
+            if (
+              !(error instanceof Error) ||
+              !/no (?:valid )?artifacts?(?: found)?|no artifacts match/iu.test(error.message)
+            )
+              throw error;
             consumeKnownError(error);
           }
-          // The run conclusion is the completion verdict; a run that uploads no artifacts still
-          // yields one observation synthesized from its summary (tests/gates stay empty).
-          const artifacts = readArtifacts(runRoot);
+          const attempt = JSON.parse(
+            await runGh(
+              "gh",
+              ["api", `repos/:owner/:repo/actions/runs/${run.databaseId}/attempts/${summary.attempt}`],
+              { cwd: cell.rootDir },
+            ),
+          ) as {
+            readonly run_attempt: number;
+            readonly head_sha: string;
+            readonly head_branch: string;
+            readonly conclusion: string;
+            readonly event: string;
+            readonly path: string;
+            readonly workflow_id: number;
+            readonly name: string;
+            readonly repository: { readonly full_name: string };
+          };
+          if (
+            attempt.run_attempt !== summary.attempt ||
+            attempt.head_sha !== summary.headSha ||
+            attempt.head_branch !== summary.headBranch ||
+            attempt.conclusion !== summary.conclusion
+          )
+            throw cell.cellCodedError(
+              "invalid_result",
+              "CI attempt metadata changed while fetching; no observation accepted.",
+            );
+          const artifacts = readArtifacts(runRoot).filter(
+            (artifact) =>
+              artifact.producer.databaseRunId === String(run.databaseId) &&
+              artifact.producer.runAttempt === summary.attempt,
+          );
+          const jobs: PreparedCiJob[] = [];
+          if (artifacts.length) {
+            const apiJobs = JSON.parse(
+              await runGh(
+                "gh",
+                [
+                  "api",
+                  "--paginate",
+                  "--slurp",
+                  `repos/:owner/:repo/actions/runs/${run.databaseId}/attempts/${summary.attempt}/jobs?per_page=100`,
+                  "--jq",
+                  "[.[] | .jobs[]]",
+                ],
+                { cwd: cell.rootDir },
+              ),
+            ) as never;
+            // gh --slurp keeps pages as one JSON value, avoiding concatenated transport JSON.
+            for (const artifact of artifacts) {
+              const matching = (apiJobs as readonly { readonly id: number; readonly name: string }[]).filter(
+                (job) => job.name === artifact.producer.jobName,
+              );
+              if (
+                matching.length !== 1 ||
+                artifact.producer.repositoryId !== attempt.repository.full_name ||
+                artifact.producer.workflow !== attempt.path ||
+                artifact.run.sha !== attempt.head_sha ||
+                artifact.run.runId !== `${run.databaseId}.${summary.attempt}`
+              )
+                throw cell.cellCodedError(
+                  "invalid_result",
+                  "CI artifact has ambiguous or mismatched attempt/job provenance.",
+                );
+              const body = JSON.stringify(artifact.detail);
+              jobs.push({
+                artifact,
+                jobExecutionId: String(matching[0]!.id),
+                body,
+                sha256: createHash("sha256").update(body).digest("hex"),
+                measurement: ciDetailMeasurement(artifact.detail),
+              });
+            }
+          }
           return {
             fetched: {
               databaseId: run.databaseId,
               summary,
-              artifacts: artifacts.length
-                ? artifacts
-                : [
-                    {
-                      schema: "ci-run-artifact/v1",
-                      run: {
-                        runId: `${run.databaseId}.${summary.attempt}`,
-                        sha: summary.headSha,
-                        branch: summary.headBranch,
-                        prNumber: null,
-                        job: summary.workflowName,
-                        wallclockMs: 0,
-                        runner: "github-actions",
-                      },
-                      tests: [],
-                      gates: [],
-                    },
-                  ],
+              repositoryId: attempt.repository.full_name,
+              workflowPath: attempt.path,
+              workflowId: String(attempt.workflow_id),
+              jobs,
             },
           };
         } catch (failure) {
@@ -224,22 +307,10 @@ export async function fetchCiObservations(
               attempt: 1,
               event: "push",
             },
-            artifacts: [
-              {
-                schema: "ci-run-artifact/v1",
-                run: {
-                  runId: `ledger-${sha}`,
-                  sha,
-                  branch,
-                  prNumber: null,
-                  job: "ledger-publication",
-                  wallclockMs: 0,
-                  runner: "write-coordinator",
-                },
-                tests: [],
-                gates: [],
-              },
-            ],
+            repositoryId: cell.rootDir,
+            workflowPath: "ledger-publication",
+            workflowId: null,
+            jobs: [],
           });
       }
     }
@@ -264,66 +335,139 @@ export function ingestCiObservations(
   let imported = 0,
     duplicate = 0,
     lastRevision = cell.store.readHead()?.revision ?? 0;
-  for (const { databaseId, summary, artifacts } of fetched.runs)
-    for (const artifact of artifacts) {
+  for (const { databaseId, summary, repositoryId, workflowPath, workflowId, jobs } of fetched.runs) {
+    const identity: CiObservationIdentity = {
+      provider: databaseId === 0 ? "write-coordinator" : "github-actions",
+      repositoryId,
+      workflow: databaseId === 0 ? "ledger-publication" : summary.workflowName,
+      workflowPath,
+      workflowId,
+      databaseRunId: databaseId === 0 ? `ledger-${summary.headSha}` : String(databaseId),
+      runAttempt: summary.attempt,
+      jobExecutionId: null,
+      jobKey: null,
+    };
+    const run: CiRunObservationEventV4["payload"]["run"] = {
+      runId: databaseId === 0 ? `ledger-${summary.headSha}` : `${databaseId}.${summary.attempt}`,
+      sha: summary.headSha,
+      branch: summary.headBranch,
+      prNumber: null,
+      job: summary.workflowName,
+      wallclockMs: 0,
+      runner: databaseId === 0 ? "write-coordinator" : "github-actions",
+    };
+    const verification: CiRunObservationEventV4["payload"]["verification"] =
+      databaseId === 0
+        ? {
+            source: "write-coordinator",
+            workflow: "ledger-publication",
+            runId: run.runId,
+            attempt: 1,
+            headSha: summary.headSha,
+            conclusion: summary.conclusion,
+          }
+        : {
+            source: "github-actions",
+            workflow: summary.workflowName,
+            runId: String(databaseId),
+            attempt: summary.attempt,
+            headSha: summary.headSha,
+            conclusion: summary.conclusion,
+            event: summary.event,
+          };
+    const payloads: { readonly payload: CiRunObservationEventV4["payload"]; readonly body: string | null }[] = [
+      {
+        payload: {
+          scope: "workflow",
+          identity,
+          run,
+          verification,
+          gates: [],
+          measurementCoverage: {
+            status: "no-test-artifact",
+            missingReason: null,
+            startedFileCount: null,
+            completedFileCount: null,
+          },
+          testSummary: null,
+          failedTests: [],
+          fileOutcomes: [],
+          shardDurations: [],
+          detailRef: null,
+        },
+        body: null,
+      },
+      ...jobs.map(({ artifact, jobExecutionId, body, sha256, measurement }) => ({
+        payload: {
+          scope: "job" as const,
+          identity: { ...identity, jobExecutionId, jobKey: artifact.producer.jobKey },
+          run: artifact.run,
+          verification: null,
+          gates: artifact.gates,
+          measurementCoverage: artifact.measurementCoverage,
+          ...measurement,
+          detailRef: {
+            schema: "ci-run-detail/v1" as const,
+            sha256,
+            mediaType: "application/json" as const,
+            encoding: "identity" as const,
+            encodedBytes: Buffer.byteLength(body),
+            decodedBytes: Buffer.byteLength(body),
+          },
+        },
+        body,
+      })),
+    ];
+    for (const { payload, body } of payloads) {
       const digest = createHash("sha256")
-          // Reimport appends policy-independent provenance without rewriting previous observations.
-          .update(`verified-v4\u0000${artifact.run.runId}\u0000${artifact.run.job}`)
-          .digest("hex"),
-        opId = `ci-observation-${digest}`;
-      if (cell.store.readEvent(opId)) {
+        .update(
+          JSON.stringify([
+            identity.provider,
+            repositoryId,
+            databaseId,
+            summary.attempt,
+            payload.scope,
+            payload.identity.jobExecutionId,
+          ]),
+        )
+        .digest("hex");
+      const opId = `ci-observation-${digest}`;
+      const existing = cell.store.readEvent(opId);
+      if (existing) {
+        if (
+          JSON.stringify(canonicalizeContractValue(existing.payload)) !==
+          JSON.stringify(canonicalizeContractValue(payload))
+        )
+          throw cell.cellCodedError("op_conflict", "CI observation identity has conflicting content.");
         duplicate += 1;
         eventRefs.push(`event:${opId}`);
         continue;
       }
-      const event: CiRunObservationEventV3 = {
-          schema: "ci-run-observation/v3",
-          eventId: `event-${digest}`,
-          workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
-          opId,
-          type: "ci_run_observed",
-          actor: binding.actor,
-          source: binding.source,
-          occurredAt: cell.now(),
-          payload: {
-            run: artifact.run,
-            tests: artifact.tests,
-            gates: normalizeArtifactGates(artifact.gates),
-            verification:
-              summary.workflowName === "ledger-publication"
-                ? {
-                    source: "write-coordinator" as const,
-                    workflow: "ledger-publication" as const,
-                    runId: artifact.run.runId,
-                    attempt: 1,
-                    headSha: summary.headSha,
-                    conclusion: "success",
-                  }
-                : summary.headBranch === "main" &&
-                    artifact.run.branch === "main" &&
-                    artifact.run.sha === summary.headSha &&
-                    artifact.run.runId === `${databaseId}.${summary.attempt}`
-                  ? {
-                      source: "github-actions",
-                      workflow: summary.workflowName,
-                      runId: String(databaseId),
-                      attempt: summary.attempt,
-                      headSha: summary.headSha,
-                      conclusion: summary.conclusion,
-                      event: summary.event,
-                    }
-                  : null,
-          },
-        },
-        errors = validateCurrentCiRunObservationEvent(event);
-      if (errors.length) throw cell.cellCodedError("invalid_command", errors.join("; "));
-      const plan = ciRunObservationWritePlan(event),
-        appended = cell.store.append({ event, plan, blobs: [] });
-      cell.projection.apply(event, plan);
-      lastRevision = appended.revision;
+      const event: CiRunObservationEventV4 = {
+        schema: "ci-run-observation/v4",
+        eventId: `event-${digest}`,
+        workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
+        opId,
+        type: "ci_run_observed",
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: cell.now(),
+        payload,
+      };
+      const errors = validateCurrentCiRunObservationEvent(event);
+      if (errors.length) throw cell.cellCodedError("invalid_result", errors.join("; "));
+      const ref = payload.detailRef;
+      const appended = cell.store.append({
+        event,
+        plan: ciRunObservationWritePlan(event),
+        blobs:
+          ref && body !== null ? [{ sha256: ref.sha256, size: ref.encodedBytes, mediaType: ref.mediaType, body }] : [],
+      });
       imported += 1;
+      lastRevision = appended.revision;
       eventRefs.push(`event:${opId}`);
     }
+  }
   const appliedCut = cell.projection.readCiRunObservations(1).watermark,
     visible = appliedCut >= lastRevision;
   return {
@@ -350,12 +494,6 @@ export function ingestCiObservations(
       `Imported ${imported} CI observation(s); ${duplicate} already existed.\n` +
       eventRefs.join("\n"),
   } as WriteReceipt;
-}
-
-function normalizeArtifactGates(gates: readonly CiRunArtifactGate[]): CiRunObservationEventV3["payload"]["gates"] {
-  return gates.map((gate) =>
-    "result" in gate ? gate : { gate: gate.gate, result: gate.pass ? "pass" : "fail", metrics: gate.metrics },
-  );
 }
 
 export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: number): readonly CiWorkflowRun[] {
@@ -535,7 +673,12 @@ function readArtifacts(root: string): readonly CiRunArtifact[] {
     .map((file) => JSON.parse(readFileSync(file, "utf8")))
     .filter(
       (value) =>
-        value?.schema === "ci-run-artifact/v1" && value.run && Array.isArray(value.tests) && Array.isArray(value.gates),
+        value?.schema === "ci-run-artifact/v2" &&
+        value.run &&
+        value.producer &&
+        value.detail?.schema === "ci-run-detail/v1" &&
+        Array.isArray(value.detail.tests) &&
+        Array.isArray(value.gates),
     );
 }
 

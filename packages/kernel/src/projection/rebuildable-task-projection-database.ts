@@ -438,7 +438,7 @@ function createTables(db: DatabaseSync): void {
       json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
     CREATE INDEX IF NOT EXISTS event_index_ci_observations ON event_index(workspace_revision)
-      WHERE json_extract(event_json, '$.schema') = 'ci-run-observation/v3';
+      WHERE json_extract(event_json, '$.schema') IN ('ci-run-observation/v2','ci-run-observation/v3','ci-run-observation/v4');
     CREATE INDEX IF NOT EXISTS event_index_schedule_events ON event_index(workspace_revision)
       WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
     CREATE INDEX IF NOT EXISTS event_index_schedule_entity ON event_index (
