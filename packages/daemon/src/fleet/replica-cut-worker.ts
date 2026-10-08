@@ -1,6 +1,11 @@
 import { Worker } from "node:worker_threads";
 import path from "node:path";
-import { openReplicaCutSource, type ReplicaCutSourceOptions, type SnapshotCut } from "./replica-cut-store.ts";
+import {
+  openReplicaCutSource,
+  type ReplicaCutSourceOptions,
+  type SnapshotCut,
+  type ReplicaManifestPage,
+} from "./replica-cut-store.ts";
 import type { FleetBlob, FleetDeltaChange, FleetEntry } from "./contract.ts";
 
 export interface ReplicaCutWorkerInput {
@@ -11,7 +16,9 @@ export interface ReplicaCutWorkerInput {
 }
 export type CutRequest =
   | { readonly kind: "activate" | "kick" }
-  | { readonly kind: "wait" | "manifest"; readonly revision: number }
+  | { readonly kind: "wait"; readonly revision: number }
+  | { readonly kind: "manifestPage"; readonly revision: number; readonly offset: number }
+  | { readonly kind: "manifestEntry"; readonly revision: number; readonly path: string }
   | { readonly kind: "changes"; readonly from: number; readonly to: number }
   | { readonly kind: "content"; readonly blob: FleetBlob };
 export interface CutResponse {
@@ -77,7 +84,10 @@ export function openReplicaCutWorker(options: ReplicaCutSourceOptions, input: Re
     },
     waitForCut: (revision: number) => request<SnapshotCut>({ kind: "wait", revision }),
     delivery: {
-      manifest: (revision: number) => request<readonly FleetEntry[] | null>({ kind: "manifest", revision }),
+      manifestPage: (revision: number, offset: number) =>
+        request<ReplicaManifestPage | null>({ kind: "manifestPage", revision, offset }),
+      manifestEntry: (revision: number, path: string) =>
+        request<FleetEntry | null>({ kind: "manifestEntry", revision, path }),
       changes: (from: number, to: number) => request<readonly FleetDeltaChange[] | null>({ kind: "changes", from, to }),
       content: (blob: FleetBlob) => request<Uint8Array>({ kind: "content", blob }),
     },

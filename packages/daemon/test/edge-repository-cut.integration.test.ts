@@ -11,7 +11,7 @@ import test from "node:test";
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { fleetManifestDigest } from "../src/fleet/contract.ts";
-import { makeOffer } from "../src/fleet/center-replica-offer.ts";
+import { makeOffer, offerFrames } from "../src/fleet/center-replica-offer.ts";
 import { readEdgeRuntimeResult } from "../src/runtime-result-read.ts";
 import { repositoryCutFixture, seedRepositoryFamilies } from "./edge-repository-cut.fixtures.ts";
 
@@ -442,4 +442,57 @@ test("read model repository rows are lazy, repeatable and consumed inside the da
     assert.equal(iterator.next().done, true);
     assert.equal(iterator.next().done, true, "the final SQL row terminates the reader");
   });
+});
+
+test("snapshot manifest pages terminate at the final page and reconcile before blob delivery", async (t) => {
+  const f = repositoryCutFixture(t);
+  const insert = f.db.prepare("INSERT INTO pinned_entities VALUES (?, ?, ?)");
+  for (let index = 0; index < 257; index++) insert.run(`task/task-${index}`, "now", "owner");
+  const cut = (await f.source.prepare())!;
+  const offsets: number[] = [];
+  let contentReads = 0;
+  const source = {
+    ...f.source,
+    delivery: {
+      ...f.source.delivery,
+      manifestPage: async (revision: number, offset: number) => {
+        offsets.push(offset);
+        return f.source.manifestPage(revision, offset);
+      },
+      content: async (blob: Parameters<typeof f.source.content>[0]) => {
+        contentReads++;
+        return f.source.content(blob);
+      },
+    },
+  };
+  const key = { nodeId: "edge", viewId: "edge", repoId: "families" };
+  const offer = { ...key, ...(await makeOffer(key, null, cut, source, "2026-10-07T00:00:00Z")) };
+  const sizes: number[] = [];
+  for await (const frame of offerFrames(offer, source, { owner: "owner", digest: "a".repeat(64) }))
+    if (frame.schema === "fleet.snapshot.page/v1") sizes.push(frame.entries.length);
+  assert.deepEqual(sizes, [128, 128, 2]);
+  assert.deepEqual(offsets, [0, 128, 256, 0, 128, 256], "done ends both passes without a page beyond the final one");
+  const readsBeforeCorruption = contentReads;
+  const corrupt = {
+    ...source,
+    delivery: {
+      ...source.delivery,
+      manifestPage: async (revision: number, offset: number) => {
+        const page = f.source.manifestPage(revision, offset)!;
+        return {
+          ...page,
+          entries: page.entries.map((entry, index) =>
+            offset === 128 && index === 0 ? { ...entry, blob: { ...entry.blob, sha256: "f".repeat(64) } } : entry,
+          ),
+        };
+      },
+    },
+  };
+  const seen: string[] = [];
+  await assert.rejects(async () => {
+    for await (const frame of offerFrames(offer, corrupt, { owner: "owner", digest: "a".repeat(64) }))
+      seen.push(frame.schema);
+  }, /manifest is unavailable or corrupt/u);
+  assert.equal(contentReads, readsBeforeCorruption, "whole-manifest validation is retained before any blob delivery");
+  assert.ok(!seen.includes("fleet.snapshot.finish/v1"), "a partial manifest can never publish an edge cut");
 });
