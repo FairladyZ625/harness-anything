@@ -461,6 +461,32 @@ test("offline identity is confined to replica reads and expires independently of
   assert.equal(bound.oidcPrincipal, undefined);
   assert.equal(bound.replicaReadPrincipal?.personId, "person-zeyu");
   assert.equal(localDefaultBinding(bound, null, true).actor.principal.personId, "person-zeyu");
+  const sessionEnvironment = { TEST_OFFLINE_SESSION: "retained" };
+  const replicaBinding = localDefaultBinding({ ...bound, sessionEnvironment }, null, true);
+  assert.deepEqual(replicaBinding.sessionEnvironment, sessionEnvironment);
+  assert.equal(replicaBinding.keycloakAuthorization, undefined);
+  const withOnlinePrincipal = {
+    ...bound,
+    oidcPrincipal: {
+      personId: "online-person",
+      subject: "online-subject",
+      accessToken: "online-token",
+      expiresAt: Date.now() + 60_000,
+      authority: { url: "https://keycloak.example", realm: "harness", clientId: "harness-center" },
+    },
+  };
+  const preferredReplica = localDefaultBinding(withOnlinePrincipal, null, true);
+  assert.equal(preferredReplica.actor.principal.personId, "person-zeyu");
+  assert.equal(preferredReplica.keycloakAuthorization, undefined);
+  assert.equal(localDefaultBinding(withOnlinePrincipal).actor.principal.personId, "online-person");
+  const expiredReplica = {
+    ...withOnlinePrincipal,
+    replicaReadPrincipal: { personId: "expired-person", sessionExpiresAt: Date.now() - 1 },
+  };
+  assert.equal(localDefaultBinding(expiredReplica, null, true).actor.principal.personId, "online-person");
+  assert.throws(() => localDefaultBinding({ ...expiredReplica, oidcPrincipal: undefined }, null, true), {
+    code: "authentication_required",
+  });
   assert.throws(() => localDefaultBinding(bound), { code: "authentication_required" });
   assert.equal((await active.service.bind(auth)).replicaReadPrincipal, undefined);
   const store = managedRbacSessionStore(active.root);

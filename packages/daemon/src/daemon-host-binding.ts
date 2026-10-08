@@ -62,17 +62,18 @@ export function localDefaultBinding(
   executor: RepoCellBinding["actor"]["executor"] = null,
   replicaRead = false,
 ): RepoCellBinding {
-  if (replicaRead && auth.replicaReadPrincipal && auth.replicaReadPrincipal.sessionExpiresAt > Date.now())
-    return {
-      actor: { principal: { personId: auth.replicaReadPrincipal.personId }, executor },
-      source: "local",
-      ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
-    };
-  if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now())
+  const replicaPrincipal =
+    replicaRead && auth.replicaReadPrincipal && auth.replicaReadPrincipal.sessionExpiresAt > Date.now()
+      ? auth.replicaReadPrincipal
+      : undefined;
+  if (replicaPrincipal) auth = { ...auth, oidcPrincipal: undefined };
+  else if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now())
     throw hostCodedError("authentication_required", "Sign in with Keycloak before performing this action.");
   return withSessionEnvironment(
     {
-      actor: { principal: { personId: auth.oidcPrincipal.personId }, executor },
+      ...(auth.oidcPrincipal
+        ? { actor: { principal: { personId: auth.oidcPrincipal.personId }, executor } }
+        : { actor: { principal: { personId: replicaPrincipal!.personId }, executor } }),
       source: "local",
     },
     auth,
