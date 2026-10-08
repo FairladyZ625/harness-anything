@@ -38,6 +38,8 @@ export interface DaemonAuthenticationContext {
     readonly accessToken: string;
     readonly authority: { readonly url: string; readonly realm: string; readonly clientId: string };
   };
+  /** Resolves the bound local login token at use time; never supplied by a fleet client. */
+  readonly localSessionAccessToken?: () => Promise<string>;
   /** Daemon-owned identity for an unreachable renewal, usable only in a server-selected edge replica read. */
   readonly replicaReadPrincipal?: { readonly personId: string; readonly sessionExpiresAt: number };
   /** Center service authority for evaluating a person who holds no token here; attached by the host only. */

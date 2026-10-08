@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { OidcSessionService, type OidcSessionPorts, type OidcLoginAuthority } from "../src/oidc-session-service.ts";
+import { evaluateKeycloakPerson } from "../src/repo-cell-authorization.ts";
 import { localDefaultBinding } from "../src/daemon-host-binding.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -581,3 +582,61 @@ test("replica reads reject an ended session even when its access token has time 
   assert.equal(bound.replicaReadPrincipal, undefined);
   assert.equal(active.keycloak.refreshes, 0);
 });
+
+test("authorization after delayed preparation renews the originally bound local session before UMA", async () => {
+  const startedAt = Date.now(),
+    active = fixture(startedAt);
+  await signIn(active);
+  const auth = await active.service.bind({ transportKind: "unix-socket" }),
+    binding = localDefaultBinding(auth),
+    seen: unknown[] = [],
+    evaluate = () =>
+      evaluateKeycloakPerson({
+        credential: binding.keycloakAuthorization!,
+        personId: binding.actor.principal.personId,
+        action: "task-complete",
+        resource: { kind: "repository", repoId: "repo-delayed" },
+        fetchPort: (async (_url, init) => {
+          const token = new Headers(init?.headers).get("authorization")!.slice("Bearer ".length),
+            serial = serialOf(token);
+          seen.push(serial);
+          return serial === active.keycloak.issued && active.clock.now < startedAt + active.keycloak.issued * 60_000
+            ? Response.json({ result: true })
+            : Response.json({ error: "invalid_token" }, { status: 401 });
+        }) as typeof fetch,
+      });
+  assert.equal((await evaluate()).outcome, "allowed", "negative control: no preparation delay");
+  active.clock.now += 65_000;
+  assert.equal((await evaluate()).outcome, "allowed", "the write cut must use a live token");
+  assert.deepEqual(seen, [1, 2]);
+  assert.equal(active.keycloak.refreshes, 1, "one normal session renewal, no UMA retry");
+});
+
+for (const endedBy of ["revoked", "expired", "logout", "new-login", "unreachable"] as const) {
+  test(`delayed authorization refuses a session ended by ${endedBy} before sending UMA`, async () => {
+    const active = fixture(Date.now());
+    await signIn(active);
+    const binding = localDefaultBinding(await active.service.bind({ transportKind: "unix-socket" }));
+    active.clock.now += 65_000;
+    if (endedBy === "revoked") active.keycloak.revoked = true;
+    if (endedBy === "expired") active.clock.now += sessionLifetimeSeconds * 1_000;
+    if (endedBy === "logout") await active.service.logout();
+    if (endedBy === "new-login") await signIn(active);
+    if (endedBy === "unreachable") active.keycloak.reachable = false;
+    let evaluations = 0;
+    await assert.rejects(
+      evaluateKeycloakPerson({
+        credential: binding.keycloakAuthorization!,
+        personId: binding.actor.principal.personId,
+        action: "task-complete",
+        resource: { kind: "repository", repoId: "repo-delayed" },
+        fetchPort: (async () => {
+          evaluations += 1;
+          return Response.json({ result: true });
+        }) as typeof fetch,
+      }),
+      { code: endedBy === "unreachable" ? "oidc_session_unavailable" : "authentication_required" },
+    );
+    assert.equal(evaluations, 0);
+  });
+}

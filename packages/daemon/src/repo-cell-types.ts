@@ -53,6 +53,7 @@ export interface RepoCellBinding {
    */
   readonly keycloakAuthorization?: {
     readonly session?: {
+      readonly currentAccessToken?: () => Promise<string>;
       readonly personId: string;
       readonly accessToken: string;
       readonly url: string;

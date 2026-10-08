@@ -102,7 +102,11 @@ export async function evaluateKeycloakPerson(input: {
     return new KeycloakPolicyAdapter(
       { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
       input.fetchPort,
-    ).authorize({ userAccessToken: session.accessToken, action: input.action, resource: input.resource });
+    ).authorize({
+      userAccessToken: session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
+      action: input.action,
+      resource: input.resource,
+    });
   if (!center) return { outcome: "denied", reasonCode: "keycloak_denied" };
   return new KeycloakPolicyAdapter(
     { url: center.url, realm: center.realm, resourceServerClientId: center.clientId },

@@ -91,6 +91,7 @@ function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthentica
             session: {
               personId: auth.oidcPrincipal.personId,
               accessToken: auth.oidcPrincipal.accessToken,
+              ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),
               url: auth.oidcPrincipal.authority.url,
               realm: auth.oidcPrincipal.authority.realm,
               clientId: auth.oidcPrincipal.authority.clientId,
