@@ -71,10 +71,10 @@ export interface ReplicaCutSourceOptions {
 
 export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaCutSource {
   if (!/^[A-Za-z0-9_-]{1,96}$/u.test(options.repoId)) throw new Error("replica repo id is invalid");
-  const root = path.join(options.localRoot, "replica", "repos", options.repoId),
+  const root = path.join(options.localRoot, "replica", "repos", options.repoId, `g${READ_MODEL_SCHEMA_GENERATION}`),
     // A schema upgrade publishes a new derived namespace at the same canonical head.
-    databasePath = path.join(root, `cuts-g${READ_MODEL_SCHEMA_GENERATION}.sqlite`),
-    manifestRoot = path.join(options.localRoot, "replica", "manifests", "sha256"),
+    databasePath = path.join(root, "cuts.sqlite"),
+    manifestRoot = path.join(root, "manifests", "sha256"),
     monotonicNow = options.monotonicNow ?? (() => performance.now());
   let database: DatabaseSync | null = null,
     active = false,

@@ -25,7 +25,7 @@ import { openEdgeReadModel } from "../src/fleet/replica-read-model.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 import { readReplicaHealth } from "../src/fleet/replica-health.ts";
 
-// Seed an old-generation metadata blob with valid CAS and manifest digests.
+// Seed old-generation metadata and rows with valid CAS and manifest digests.
 // Canonical events and the center read basis never change during the upgrade.
 test("schema upgrade republishes the current cut and two edges rebuild without a canonical write", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-schema-"));
@@ -74,25 +74,30 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
   const original = initial.activate()!;
   const entries = initial.manifest(1)!;
   initial.close();
+  const repoRoot = path.join(root, "replica/repos/schema-repo");
+  const generationRoot = path.join(repoRoot, `g${READ_MODEL_SCHEMA_GENERATION}`);
+  const historicalRoot = path.join(repoRoot, `g${READ_MODEL_SCHEMA_GENERATION - 1}`);
+  const blobRoot = path.join(generationRoot, "read-model-blobs");
   const meta = entries.find((entry) => entry.path === READ_MODEL_META_PATH)!;
-  const blobRoot = path.join(root, "replica/repos/schema-repo/read-model-blobs");
   const currentMeta = JSON.parse(readFileSync(path.join(blobRoot, meta.blob.sha256), "utf8"));
-  const oldBytes = Buffer.from(JSON.stringify({ ...currentMeta, schemaGeneration: currentMeta.schemaGeneration - 1 }));
-  const oldSha = sha256Bytes(oldBytes);
-  writeFileSync(path.join(blobRoot, oldSha), oldBytes);
-  const oldEntries = entries.map((entry) =>
-    entry === meta ? { ...entry, blob: { ...entry.blob, sha256: oldSha, size: oldBytes.length } } : entry,
-  );
+  const oldEntries = entries.map((entry) => {
+    const oldBytes = Buffer.from(
+      JSON.stringify({
+        ...JSON.parse(readFileSync(path.join(blobRoot, entry.blob.sha256), "utf8")),
+        schemaGeneration: READ_MODEL_SCHEMA_GENERATION - 1,
+      }),
+    );
+    const oldSha = sha256Bytes(oldBytes);
+    writeFileSync(path.join(blobRoot, oldSha), oldBytes);
+    return { ...entry, blob: { ...entry.blob, sha256: oldSha, size: oldBytes.length } };
+  });
   const manifestBytes = Buffer.from(stableStringify(oldEntries));
   const oldDigest = sha256Bytes(manifestBytes);
-  const manifestPath = path.join(root, "replica/manifests/sha256", oldDigest.slice(0, 2), oldDigest);
+  const manifestPath = path.join(generationRoot, "manifests/sha256", oldDigest.slice(0, 2), oldDigest);
   mkdirSync(path.dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, manifestBytes);
-  const repoRoot = path.join(root, "replica/repos/schema-repo");
-  const currentDatabase = readdirSync(repoRoot).find((name) => /^cuts.*\.sqlite$/u.test(name))!;
-  if (currentDatabase !== "cuts.sqlite")
-    renameSync(path.join(repoRoot, currentDatabase), path.join(repoRoot, "cuts.sqlite"));
-  const db = new DatabaseSync(path.join(repoRoot, "cuts.sqlite"));
+  renameSync(generationRoot, historicalRoot);
+  const db = new DatabaseSync(path.join(historicalRoot, "cuts.sqlite"));
   db.prepare("UPDATE cut SET manifest_digest=?, total_bytes=? WHERE revision=1").run(
     oldDigest,
     oldEntries.reduce((n, entry) => n + entry.blob.size, 0),
@@ -106,7 +111,12 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
       totalBytes: oldEntries.reduce((n, entry) => n + entry.blob.size, 0),
     },
   };
-  const stale = { ...initial, latest: () => staleCut, manifest: () => oldEntries };
+  const stale = {
+    ...initial,
+    latest: () => staleCut,
+    manifest: () => oldEntries,
+    content: (blob: { sha256: string }) => readFileSync(path.join(historicalRoot, "read-model-blobs", blob.sha256)),
+  };
   const edgeRoot = path.join(root, "edges");
   let edge = openFleetEdgeView(edgeRoot, 64 * 1024 * 1024);
   const deliver = async (source: ReturnType<typeof openReplicaCutSource>, nodeId: string) => {
@@ -205,7 +215,7 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
   }
   assert.deepEqual(upgraded.changeLog(), []);
   assert.equal(options.readBasis().watermark, 1);
-  const historical = new DatabaseSync(path.join(repoRoot, "cuts.sqlite"));
+  const historical = new DatabaseSync(path.join(historicalRoot, "cuts.sqlite"));
   assert.equal(
     (historical.prepare("SELECT manifest_digest FROM cut WHERE revision=1").get() as { manifest_digest: string })
       .manifest_digest,
