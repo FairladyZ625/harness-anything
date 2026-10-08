@@ -265,6 +265,9 @@ export async function invalidateLedgerDependents(queryClient: QueryClient, repoI
   ]);
 }
 
+/** living explainer 的包内固定位置:任务包带这一页时,不带显式落点的入口都默认开在它上。 */
+export const TASK_EXPLAINER_DOC = "artifacts/explainer.html";
+
 export function taskDocumentQuery(repoId: string, taskId: string, path: string) {
   return {
     queryKey: taskQueryKeys.document(repoId, taskId, path),

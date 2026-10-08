@@ -2,6 +2,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -335,12 +336,16 @@ describe("the work page absorbs the root task", () => {
     const onOpenTask = vi.fn(),
       renderRootTask = vi.fn(() => createElement("p", { "data-testid": "root-detail-probe" }, "root detail"));
     const page = await render(
-      createElement(WorkspaceView, {
-        scope,
-        projectName: "P",
-        onOpenTask,
-        renderRootTask,
-      }),
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+        createElement(WorkspaceView, {
+          scope,
+          projectName: "P",
+          onOpenTask,
+          renderRootTask,
+        }),
+      ),
     );
     const tab = (label: string) =>
       [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent === label)!;
@@ -367,24 +372,28 @@ describe("the work page absorbs the root task", () => {
       hasChildren: true,
     };
     const page = await render(
-      createElement(WorkspaceView, {
-        scope: {
-          ...scope,
-          groups: [declaredRow],
-          memberTaskIds: ["child", "declaredChild"],
-          tasks: [
-            ...scope.tasks,
-            {
-              ...scope.tasks[0]!,
-              taskId: "declaredChild",
-              title: "T declaredChild",
-              parentTaskId: "declared",
-            },
-          ],
-        },
-        projectName: "P",
-        onOpenTask: () => undefined,
-      }),
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+        createElement(WorkspaceView, {
+          scope: {
+            ...scope,
+            groups: [declaredRow],
+            memberTaskIds: ["child", "declaredChild"],
+            tasks: [
+              ...scope.tasks,
+              {
+                ...scope.tasks[0]!,
+                taskId: "declaredChild",
+                title: "T declaredChild",
+                parentTaskId: "declared",
+              },
+            ],
+          },
+          projectName: "P",
+          onOpenTask: () => undefined,
+        }),
+      ),
     );
     const groupRow = page.querySelector<HTMLButtonElement>('[data-group-filter="declared"] button')!;
     expect(groupRow).not.toBeNull();
@@ -395,11 +404,15 @@ describe("the work page absorbs the root task", () => {
 
   it("has no root section when the caller cannot render the root task", () => {
     const html = renderToStaticMarkup(
-      createElement(WorkspaceView, {
-        scope,
-        projectName: "P",
-        onOpenTask: () => undefined,
-      }),
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient() },
+        createElement(WorkspaceView, {
+          scope,
+          projectName: "P",
+          onOpenTask: () => undefined,
+        }),
+      ),
     );
     expect(html).not.toContain("根任务");
   });

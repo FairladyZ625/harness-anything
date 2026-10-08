@@ -11,6 +11,8 @@ import {
 } from "../../components/primitives/RegionBoard";
 import { SegBar } from "../../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag";
+import { Button } from "../../components/primitives/Button.tsx";
+import { WorkExplainerDocument } from "./WorkExplainer.tsx";
 import { entryTitle, metaLine } from "./entry-lines.tsx";
 import type { WorkLeafRow } from "./WorkTasksTab.tsx";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
@@ -72,6 +74,8 @@ export interface WorkOverviewProps {
   readonly connectionId: string | null;
   /** 分割偏好归属的仓。 */
   readonly repoId: string;
+  /** 工作根任务:概况的工作说明预览读它的 artifacts/explainer.html(与页签同一份)。 */
+  readonly rootTaskId: string;
   readonly submitted: readonly TaskRow[];
   readonly stalled: readonly TaskRow[];
   /** 工作的全部叶子任务(任务页同一份行);阻塞、进行中、接下来三个区域从这里取。 */
@@ -91,6 +95,8 @@ export interface WorkOverviewProps {
   readonly onConsent?: (task: TaskRow, reviewId: string) => void;
   readonly onOpenTask: (taskId: string) => void;
   readonly onOpenProgress: () => void;
+  /** 概况预览的「打开完整工作说明」:切到工作页的工作说明页签。 */
+  readonly onOpenExplainer: () => void;
   readonly onFilterStatus: (status: string) => void;
   readonly onFilterGroup: (group: string) => void;
 }
@@ -100,6 +106,7 @@ const actionButton = "h-6 rounded-xs border px-2.5 ui-meta disabled:opacity-60";
 export function WorkOverview({
   connectionId,
   repoId,
+  rootTaskId,
   submitted,
   stalled,
   leaves,
@@ -116,6 +123,7 @@ export function WorkOverview({
   onConsent,
   onOpenTask,
   onOpenProgress,
+  onOpenExplainer,
   onFilterStatus,
   onFilterGroup,
 }: WorkOverviewProps) {
@@ -283,19 +291,19 @@ export function WorkOverview({
           big={leaves.length}
           footer={t("views.workspace.structure.footer")}
         >
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-px border-t border-border bg-border">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(6rem,1fr))] gap-px border-t border-border bg-border">
             {[...STATUS_ORDER.filter((status) => (leafCounts[status] ?? 0) > 0), null].map((status) => (
               <button
                 key={status ?? "all"}
                 type="button"
                 data-status-filter={status ?? ""}
                 onClick={() => onFilterStatus(status ?? "")}
-                className="bg-surface px-3.5 py-2 text-left hover:bg-surface-raised"
+                className="bg-surface px-2.5 py-1.5 text-left hover:bg-surface-raised"
               >
-                <b className="block font-mono text-base font-semibold leading-tight tabular-nums text-text">
+                <b className="block font-mono text-base font-semibold leading-none tabular-nums text-text">
                   {status === null ? leaves.length : leafCounts[status]}
                 </b>
-                <span className="text-text-faint ui-micro">
+                <span className="mt-0.5 block break-words text-text-faint ui-micro leading-snug">
                   {status === null ? t("views.workspace.rail.all") : t(STATUS_LABEL[status])}
                 </span>
               </button>
@@ -331,6 +339,27 @@ export function WorkOverview({
     </>
   );
 
+  /* 工作说明预览:与工作说明页签同一份根任务文档、同一个隔离 renderer;放右栏顶部
+     与时间线并排,首屏可见可读(高度与时间线均分或占满);「打开完整工作说明」动作留在
+     区域框上,正文在区域内自己滚。 */
+  const explainer = (
+    <BoardSide region="explainer" data-testid="work-explainer">
+      <Region
+        title={t("views.workspace.explainer.regionTitle")}
+        padded
+        footer={
+          <span className="ml-auto">
+            <Button size="sm" variant="ghost" testId="work-explainer-open-full" onClick={onOpenExplainer}>
+              {t("views.workspace.explainer.openFull")}
+            </Button>
+          </span>
+        }
+      >
+        <WorkExplainerDocument repoId={repoId} taskId={rootTaskId} />
+      </Region>
+    </BoardSide>
+  );
+
   return (
     <MovableRegionBoard connectionId={connectionId} repoId={repoId} slot="work-overview" testId="work-overview-board">
       <BoardMain data-testid="work-overview-main">
@@ -339,6 +368,7 @@ export function WorkOverview({
         ) : null}
         <BoardColumn>{outlook}</BoardColumn>
       </BoardMain>
+      {explainer}
       {dayGroups.length > 0 ? (
         <BoardSide region="recent" data-testid="work-timeline">
           <Region

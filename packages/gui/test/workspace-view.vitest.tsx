@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { notifyManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppMotionConfig, MOTION_PREFERENCE_STORAGE_KEY } from "../src/renderer/motion-config.tsx";
 import { PageEntryBoundary } from "../src/renderer/components/primitives/EntryBoundary.tsx";
@@ -31,6 +31,10 @@ vi.mock("motion", async (original) => ({
  */
 
 const SPLIT_STORAGE_KEY = "harness:gui:split-layout";
+
+// React Query defaults observer notifications to a zero-delay timer. Keep this fast-tier test on
+// discrete microtasks so query completion and the corresponding render can be awaited without sleeps.
+notifyManager.setScheduler(queueMicrotask);
 
 const scopeRow = (taskId: string, patch: Partial<WorkspaceScopeRead["tasks"][number]> = {}) =>
   ({
@@ -110,12 +114,37 @@ afterEach(async () => {
 });
 
 async function mount(node: React.ReactNode): Promise<HTMLElement> {
+  // 默认落点(工作说明)要看根任务文档清单:未打桩的清单会在 happy-dom 里走真实传输而
+  // 挂起/报错,让落点定不了案。这里给一个「无 explainer」的默认清单,个案自行覆盖。
+  if (!vi.isMockFunction(harnessClient.getTaskDocuments)) {
+    vi.spyOn(harnessClient, "getTaskDocuments").mockResolvedValue({
+      ok: true,
+      status: "ready",
+      taskId: "task_root",
+      documents: [],
+      watermark: 7,
+      sourceRevision: 7,
+    } as never);
+  }
   const host = document.createElement("div"),
     root = createRoot(host);
   document.body.append(host);
   mounted.push(root);
-  await act(async () => root.render(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>));
+  // retry:false 让失败桩立即定案(与 task-detail fixtures 同一取舍),不进指数退避。
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        {node}
+      </QueryClientProvider>,
+    ),
+  );
+  await settle();
   return host;
+}
+
+/** 等异步查询与落点定案走完，不用墙钟定时器。 */
+async function settle() {
+  for (let index = 0; index < 6; index += 1) await act(async () => Promise.resolve());
 }
 
 const tab = (host: HTMLElement, key: string) => host.querySelector<HTMLButtonElement>(`#workspace-tab-${key}`)!;
@@ -125,16 +154,18 @@ describe("work page header", () => {
     const submittedRow = (taskId: string) =>
       row(taskId, { coordinationStatus: "submitted", parentTaskId: "task_root" });
     const html = renderToStaticMarkup(
-      <WorkspaceView
-        scope={scope({
-          counts: { done: 9, executing: 2, pending: 3, blocked: 0, planned: 1, cancelled: 1 },
-          scope: { descendantCount: 16, executableLeafCount: 16, archivedCount: 0 },
-          memberTaskIds: ["task_w1", "task_w2", "task_w3"],
-        })}
-        projectName="Harness"
-        tasks={[submittedRow("task_w1"), submittedRow("task_w2"), submittedRow("task_w3")]}
-        onOpenTask={() => {}}
-      />,
+      <QueryClientProvider client={new QueryClient()}>
+        <WorkspaceView
+          scope={scope({
+            counts: { done: 9, executing: 2, pending: 3, blocked: 0, planned: 1, cancelled: 1 },
+            scope: { descendantCount: 16, executableLeafCount: 16, archivedCount: 0 },
+            memberTaskIds: ["task_w1", "task_w2", "task_w3"],
+          })}
+          projectName="Harness"
+          tasks={[submittedRow("task_w1"), submittedRow("task_w2"), submittedRow("task_w3")]}
+          onOpenTask={() => {}}
+        />
+      </QueryClientProvider>,
     );
     expect(html).toContain("统一体验");
     expect(html).toMatch(/<h1[^>]*>统一体验<\/h1>/u);
@@ -173,16 +204,18 @@ describe("work page header", () => {
 
   it("renders pending cuts and incomplete parents", () => {
     const html = renderToStaticMarkup(
-      <WorkspaceView
-        scope={scope({
-          status: "pending",
-          sourceRevision: 9,
-          warnings: ["projection_missing"],
-          incompleteParentRefs: ["task_parent"],
-        })}
-        projectName="Harness"
-        onOpenTask={() => {}}
-      />,
+      <QueryClientProvider client={new QueryClient()}>
+        <WorkspaceView
+          scope={scope({
+            status: "pending",
+            sourceRevision: 9,
+            warnings: ["projection_missing"],
+            incompleteParentRefs: ["task_parent"],
+          })}
+          projectName="Harness"
+          onOpenTask={() => {}}
+        />
+      </QueryClientProvider>,
     );
     expect(html).toContain("范围数据尚未完整");
     expect(html).toContain("父链不完整：task_parent");
@@ -357,6 +390,7 @@ describe("overview narrative", () => {
       "run",
       "next",
       "structure",
+      "explainer",
       "recent",
     ]);
     for (const region of regions) {
@@ -531,7 +565,8 @@ describe("overview narrative", () => {
   it("drops empty regions instead of leaving empty frames", async () => {
     const host = await mount(<WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />);
     const keys = [...host.querySelectorAll<HTMLElement>("[data-region]")].map((region) => region.dataset.region);
-    expect(keys).toEqual(["structure"]);
+    // 工作说明区域是「该有而无」的空态(未选仓库),不是可丢的空框,常驻。
+    expect(keys).toEqual(["structure", "explainer"]);
   });
 
   it("collapses progress into day digests and lists planned work as two-line rows", async () => {
@@ -711,6 +746,16 @@ describe("overview narrative", () => {
     );
     const rail = host.querySelector('[data-testid="work-structure"]')!;
     expect(rail.textContent).toContain("结构与统计");
+    // 状态标签完整换行显示:不用省略号截断,列宽预留整词换行(验收:标签必须完整可读)。
+    const labels = [...rail.querySelectorAll<HTMLSpanElement>("[data-status-filter] > span")];
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) {
+      expect(label.className).not.toContain("truncate");
+      expect(label.className).toContain("break-words");
+    }
+    expect(labels[0]!.closest("div")!.className).toContain("minmax(6rem,1fr)");
+    expect(rail.querySelector('[data-status-filter="submitted"]')!.textContent).toContain("待初审");
+    expect(rail.querySelector('[data-status-filter="submitted"] > span')!.textContent).toContain("Submitted");
     // 点状态数字 → 任务页按该状态筛好。
     await act(async () => rail.querySelector<HTMLButtonElement>('[data-status-filter="submitted"]')!.click());
     expect(host.querySelector('[data-testid="work-structure"]')).toBeNull();
@@ -834,6 +879,228 @@ describe("tasks tab", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "/" }));
     });
     expect(search).toBe(document.activeElement);
+  });
+});
+
+describe("work explainer tab and overview preview", () => {
+  const EXPLAINER_PATH = "artifacts/explainer.html";
+  const DATA_URL_PREFIX = "data:text/html;charset=utf-8,";
+
+  const listWith = (explainer: boolean) => ({
+    ok: true,
+    status: "ready" as const,
+    taskId: "task_root",
+    documents: [
+      { path: "task_plan.md", blobSha256: "d".repeat(64), size: 20, mediaType: "text/markdown", uncommitted: false },
+      ...(explainer
+        ? [
+            {
+              path: EXPLAINER_PATH,
+              blobSha256: "1".repeat(64),
+              size: 60,
+              mediaType: "text/html",
+              uncommitted: false,
+            },
+          ]
+        : []),
+    ],
+    watermark: 7,
+    sourceRevision: 7,
+  });
+
+  /** 根任务文档读桩:explainer 正文带 taskId,用来证明两入口同源、切工作不串内容。 */
+  function installDocuments({ explainer = true }: { readonly explainer?: boolean } = {}) {
+    vi.spyOn(harnessClient, "getTaskDocuments").mockImplementation(
+      async ({ taskId }: { taskId: string }) => ({ ...listWith(explainer), taskId }) as never,
+    );
+    vi.spyOn(harnessClient, "getTaskDocument").mockImplementation(
+      async ({ taskId, path }: { taskId: string; path: string }) =>
+        ({
+          ok: true,
+          status: "ready",
+          taskId,
+          path,
+          body: path === EXPLAINER_PATH ? `<h1>living ${taskId}</h1>` : "# plan",
+          blobSha256: `sha256:${"d".repeat(64)}`,
+          contentKind: "text",
+          mediaType: "text/html",
+          size: 60,
+          bytes: null,
+          repositoryPath: `harness/tasks/${taskId}/${path}`,
+          worktreeBody: null,
+          uncommitted: false,
+          watermark: 7,
+          sourceRevision: 7,
+        }) as never,
+    );
+  }
+
+  const webviewSrc = (host: HTMLElement) => {
+    const src = host.querySelector<HTMLElement>('[data-testid="html-artifact-webview"]')?.getAttribute("src");
+    return src === undefined || src === null ? null : decodeURIComponent(src.slice(DATA_URL_PREFIX.length));
+  };
+  const explainerState = (host: HTMLElement) =>
+    host.querySelector<HTMLElement>('[data-testid="work-explainer-document"]')?.getAttribute("data-state") ?? null;
+  const scopeWithRoot = (rootId: string) =>
+    scope({
+      root: scopeRow(rootId, {
+        title: "统一体验",
+        taskClass: "work",
+        parentTaskId: null,
+        status: "active",
+        hasChildren: true,
+      }),
+    });
+
+  it("lands on the permanent explainer tab when the root task package has one", async () => {
+    installDocuments();
+    const host = await mount(
+      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+    );
+    // 常驻页签可访问、语义可辨;根任务带 explainer 且无显式落点 → 首次进入默认选中它。
+    const explainerTab = tab(host, "explainer");
+    expect(explainerTab.getAttribute("aria-selected")).toBe("true");
+    expect(explainerTab.textContent).toContain("工作说明");
+    expect(explainerState(host)).toBeNull();
+    const webview = host.querySelector<HTMLElement>('[data-testid="html-artifact-webview"]');
+    expect(webview?.getAttribute("data-artifact-path")).toBe(EXPLAINER_PATH);
+    expect(webviewSrc(host)).toContain("<h1>living task_root</h1>");
+    // 隔离策略原样搬运:独立 partition、禁脚本,工作页不放宽安全边界。
+    expect(webview?.getAttribute("partition")).toBe("html-artifact-preview");
+    expect(webview?.getAttribute("webpreferences")).toContain("javascript=no");
+  });
+
+  it("previews the same explainer on the overview and opens the full tab from it", async () => {
+    installDocuments();
+    const host = await mount(
+      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+    );
+    await act(async () => tab(host, "overview").click());
+    const region = host.querySelector('[data-testid="work-explainer"]');
+    expect(region).not.toBeNull();
+    // 预览默认可见且同源:同一查询键的同一份正文进同一个隔离 renderer,不是只有按钮。
+    expect(region!.querySelector('[data-testid="html-artifact-webview"]')?.getAttribute("data-artifact-path")).toBe(
+      EXPLAINER_PATH,
+    );
+    expect(webviewSrc(host)).toContain("<h1>living task_root</h1>");
+    const openFull = host.querySelector<HTMLButtonElement>('[data-testid="work-explainer-open-full"]');
+    expect(openFull?.textContent).toContain("打开完整工作说明");
+    await act(async () => openFull!.click());
+    expect(tab(host, "explainer").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("holds a landing placeholder until the manifest decides, without flashing the overview", async () => {
+    installDocuments();
+    const list = vi.spyOn(harnessClient, "getTaskDocuments");
+    let release: ((value: unknown) => void) | undefined;
+    list.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+    const host = await mount(
+      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+    );
+    // 清单未定案:正文停在占位,概况不先渲染再被抢页。
+    expect(host.querySelector('[data-testid="workspace-landing-pending"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="work-overview-board"]')).toBeNull();
+    await act(async () => {
+      release?.(listWith(true));
+    });
+    await settle();
+    expect(host.querySelector('[data-testid="workspace-landing-pending"]')).toBeNull();
+    expect(tab(host, "explainer").getAttribute("aria-selected")).toBe("true");
+    expect(webviewSrc(host)).toContain("<h1>living task_root</h1>");
+  });
+
+  it("keeps the user's manual tab when the manifest arrives late", async () => {
+    installDocuments();
+    const list = vi.spyOn(harnessClient, "getTaskDocuments");
+    let release: ((value: unknown) => void) | undefined;
+    list.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+    const host = await mount(
+      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+    );
+    await act(async () => tab(host, "tasks").click());
+    expect(host.querySelector('[data-testid="workspace-landing-pending"]')).toBeNull();
+    await act(async () => {
+      release?.(listWith(true));
+    });
+    await settle();
+    // 迟到的清单不抢回用户所在页签,explainer 不偷渲染。
+    expect(tab(host, "tasks").getAttribute("aria-selected")).toBe("true");
+    expect(host.querySelector('[data-testid="html-artifact-webview"]')).toBeNull();
+  });
+
+  it("settles on the overview and marks the explainer missing when the package has none", async () => {
+    installDocuments({ explainer: false });
+    const host = await mount(
+      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+    );
+    expect(tab(host, "overview").getAttribute("aria-selected")).toBe("true");
+    expect(host.querySelector('[data-testid="work-overview-board"]')).not.toBeNull();
+    // 缺失是可见的产品信息:概况区域与页签都如实报「还没有」,不冒充空白成功。
+    expect(explainerState(host)).toBe("missing");
+    await act(async () => tab(host, "explainer").click());
+    expect(explainerState(host)).toBe("missing");
+    expect(host.querySelector('[data-testid="html-artifact-webview"]')).toBeNull();
+  });
+
+  it("tells a manifest read failure apart from a missing explainer", async () => {
+    vi.spyOn(harnessClient, "getTaskDocuments").mockRejectedValue(new Error("daemon unreachable"));
+    const host = await mount(
+      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+    );
+    // 清单读失败按「无 explainer」定案落回概况,但状态面如实报失败,不冒充缺失。
+    expect(tab(host, "overview").getAttribute("aria-selected")).toBe("true");
+    const state = host.querySelector<HTMLElement>('[data-testid="work-explainer-document"]');
+    expect(state?.getAttribute("data-state")).toBe("list-error");
+    expect(state?.querySelector('[role="alert"]')).not.toBeNull();
+    expect(state?.textContent).toContain("daemon unreachable");
+  });
+
+  it("tells a pending manifest projection apart from a missing explainer", async () => {
+    vi.spyOn(harnessClient, "getTaskDocuments").mockResolvedValue({
+      ...listWith(false),
+      status: "pending",
+    } as never);
+    const host = await mount(
+      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+    );
+    expect(tab(host, "overview").getAttribute("aria-selected")).toBe("true");
+    expect(explainerState(host)).toBe("list-not-ready");
+    expect(host.textContent).toContain("工作说明清单投影尚未追平");
+  });
+
+  it("surfaces a body read failure without faking an empty page", async () => {
+    vi.spyOn(harnessClient, "getTaskDocuments").mockResolvedValue(listWith(true) as never);
+    vi.spyOn(harnessClient, "getTaskDocument").mockRejectedValue(new Error("blob store offline"));
+    const host = await mount(
+      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+    );
+    const state = host.querySelector<HTMLElement>('[data-testid="work-explainer-document"]');
+    expect(state?.getAttribute("data-state")).toBe("body-error");
+    expect(state?.querySelector('[role="alert"]')).not.toBeNull();
+    expect(state?.textContent).toContain("blob store offline");
+    expect(host.querySelector('[data-testid="html-artifact-webview"]')).toBeNull();
+  });
+
+  it("does not carry one work's explainer into another work", async () => {
+    installDocuments();
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    document.body.append(host);
+    mounted.push(root);
+    const client = new QueryClient();
+    const element = (rootId: string) => (
+      <QueryClientProvider client={client}>
+        <WorkspaceView scope={scopeWithRoot(rootId)} repoId="repo" projectName="Harness" onOpenTask={() => {}} />
+      </QueryClientProvider>
+    );
+    await act(async () => root.render(element("task_root")));
+    await settle();
+    expect(webviewSrc(host)).toContain("<h1>living task_root</h1>");
+    // 同一实例换工作根(不靠重挂载):查询键换到新根,加载中如实停在读态,不显示旧正文。
+    await act(async () => root.render(element("task_other")));
+    await settle();
+    expect(webviewSrc(host)).toContain("<h1>living task_other</h1>");
+    expect(webviewSrc(host)).not.toContain("living task_root");
   });
 });
 
