@@ -7,7 +7,7 @@ import test from "node:test";
 import { makeTaskEventReader, type ScheduleV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { withPolicyGroup, revokeTestPolicyActions } from "./keycloak-policy.fixtures.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 import { builtinCiObserveScheduleId, seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
@@ -238,6 +238,19 @@ test("an old center writer epoch cannot append after provider IO completes", { s
     release();
     const receipt = await collecting;
     assert.ok(receipt.code, JSON.stringify(receipt));
+    assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 0);
+  });
+});
+
+test("CI acceptance reauthorizes after provider IO before appending", { skip: posix }, async () => {
+  await fixture(async ({ cell, release, started, show, events }) => {
+    const collecting = cell.run(claim, binding);
+    await waitForFile(started);
+    revokeTestPolicyActions("ci-center-owner", "ci-fence", ["ci-observe-pull"]);
+    release();
+    const receipt = await collecting;
+    assert.equal(receipt.code, "schedule_builtin_failed", JSON.stringify(receipt));
+    assert.match((await show()).status.ciObserve!.error!, /authorization_denied/);
     assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 0);
   });
 });

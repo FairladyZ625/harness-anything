@@ -16,7 +16,7 @@ import {
 } from "./runtime-execution-credential.ts";
 import { assertWriterEpochFenceDescriptor } from "./writer-epoch.ts";
 import { reconcileCiOccurrence } from "./ci-observe-importer.ts";
-import { ingestCiObservations } from "./ci-observation-actions.ts";
+import { preparedCiObservation } from "./ci-observation-actions.ts";
 import {
   builtinCiObserveScheduleId,
   executeBuiltinScheduleOccurrence,
@@ -185,7 +185,8 @@ export interface RepoCellSynchronousRead {
   ) => DaemonGuiReadResultMap[M];
 }
 
-export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoCellSynchronousRead {
+export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & RepoCellSynchronousRead {
+  const context = Object.assign(apiContext, { refreshCi });
   const bindExecutorClaimAtWriterCut = (action: RepoTaskAction, binding: RepoCellBinding) => {
     if (action.executor == null || !(durablePolicyActions as readonly string[]).includes(action.kind))
       return {
@@ -205,7 +206,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
   };
   const ciRequests: RepoTaskAction[] = [];
   let ciRefresh: Promise<WriteReceipt> | null = null;
-  const refreshCi = async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
+  async function refreshCi(action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {
     const schedule = context.projection.getEntity("schedule", builtinCiObserveScheduleId)?.value as
       | ScheduleV1
       | undefined;
@@ -256,8 +257,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         ciRefresh = null;
       });
     return ciRefresh;
-  };
-  const run = makeRepoCellCommandRunner(context, refreshCi);
+  }
+  const run = makeRepoCellCommandRunner(context);
   const presetRun: RepoCell["presetRun"] = async (action, binding) => {
     const bound = bindExecutorClaimAtWriterCut(action, binding);
     ({ action, binding } = bound.queued ? await bound.result : bound.result);
@@ -883,8 +884,24 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           cell: context.extracted,
           schedule,
           requests: () => ciRequests.splice(0),
-          accept: (fetched) =>
-            executorCell.runSnapshot(() => ingestCiObservations(context.extracted, binding, fetched)),
+          accept: async (fetched) => {
+            const receipt = await run(
+              {
+                kind: "ci-observe-pull",
+                scheduleId: schedule.scheduleId,
+                claimFence: active.claimFence,
+                [preparedCiObservation]: fetched,
+              },
+              {
+                ...binding,
+                withWriterEpochFence: writerFence ?? undefined,
+                writerEpochFence: writerDescriptor ?? undefined,
+              },
+            );
+            if (isSquadControlResult(receipt))
+              throw context.cellCodedError("invalid_command", "CI acceptance requires a write receipt.");
+            return receipt;
+          },
         }),
       runSnapshot: <T>(work: () => T | PromiseLike<T>): Promise<T> => {
         context.queueDepth += 1;

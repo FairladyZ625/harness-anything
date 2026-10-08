@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
-import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes, makeTaskEventReader } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -30,6 +30,9 @@ if (args[0] === "run" && args[1] === "list") {
 } else if (args[0] === "run" && args[1] === "view") {
   process.stdout.write(JSON.stringify(spec.view));
 } else if (args[0] === "api") {
+  const endpoint = args.find(arg => arg.startsWith("repos/")) || "";
+  if (endpoint.includes("/workflows/")) { process.stdout.write(JSON.stringify({workflow_runs: []})); process.exit(0); }
+  if (endpoint.includes("/artifacts")) { process.stdout.write(JSON.stringify([{artifacts: []}])); process.exit(0); }
   const v = spec.view;
   process.stdout.write(JSON.stringify({ run_attempt: v.attempt, head_sha: v.headSha, head_branch: v.headBranch,
     conclusion: v.conclusion, event: v.event, path: ".github/workflows/rewrite-ci.yml", workflow_id: 1,
@@ -82,6 +85,8 @@ test("an owner break-glasses a gate with no automated receipt; a later receipt v
         .outcome,
       "applied",
     );
+    const configured = run(root, userRoot, daemonId, ["init"]);
+    assert.equal(configured.ok, true, JSON.stringify(configured));
     const created = run(root, userRoot, daemonId, [
         "task",
         "create",
@@ -251,7 +256,22 @@ test("an owner break-glasses a gate with no automated receipt; a later receipt v
     );
     const pulled = run(root, userRoot, daemonId, ["ci", "observe", "pull"]);
     assert.equal(pulled.outcome, "applied", JSON.stringify(pulled));
-    assert.match(String(pulled.evidence), /"imported":1/u, `red run must import once: ${pulled.evidence}`);
+    assert.equal(pulled.code, undefined, JSON.stringify(pulled));
+    const reader = makeTaskEventReader({ rootDir: root, repoId: "attest-override-live" });
+    try {
+      const redRuns = reader
+        .read()
+        .events.filter(
+          (event) =>
+            event.schema === "ci-run-observation/v4" &&
+            event.payload.scope === "workflow" &&
+            event.payload.identity.databaseRunId === "7" &&
+            event.payload.verification?.conclusion === "failure",
+        );
+      assert.equal(redRuns.length, 1, "red workflow must be accepted once by the center occurrence");
+    } finally {
+      await reader.drain();
+    }
     const redComplete = runMaybe(root, userRoot, daemonId, ["task", "complete", taskId]);
     const redReceipt = JSON.parse(redComplete.stdout) as Record<string, unknown>;
     const redWitnesses = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId])).gateWitnesses;

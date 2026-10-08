@@ -51,7 +51,10 @@ export async function reconcileCiOccurrence(input: {
   const accept = async (fetched: CiObservationFetch) => {
     const receipt = await input.accept(fetched);
     if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
-      throw cell.cellCodedError(receipt.code ?? "service_rejected", receipt.evidence ?? "CI acceptance failed.");
+      throw cell.cellCodedError(
+        receipt.code ?? "service_rejected",
+        `${receipt.code ?? "service_rejected"}: ${receipt.rejectionExplanation ?? receipt.evidence ?? "CI acceptance failed."}`,
+      );
     for (const run of fetched.runs.filter((entry) => entry.artifactUnavailable)) {
       pending.delete(`${run.databaseId}.${run.summary.attempt}`);
       if (!unavailable.some((target) => target.runId === run.databaseId && target.attempt === run.summary.attempt))

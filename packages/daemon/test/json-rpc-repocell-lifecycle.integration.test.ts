@@ -27,6 +27,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { withPolicyGroup, signInPolicyTestUser, provisionPolicyTestRepository } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 const DOC_POLICY_ID = "markdown-body-replaceable/v1";
@@ -235,6 +236,7 @@ test("code-doc repoint appends a replacement witness and rejects stale or unknow
   try {
     initRepo(rootDir);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "code-doc-repoint" });
+    await seedBuiltinSchedules({ cell, binding: repoWriteBinding });
     await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Repoint Ledger");
     const anchorPath = path.join(
         rootDir,
@@ -376,7 +378,7 @@ test("bootstrap concurrent writer admission commits one complete workspace", asy
   const hosts = await Promise.all(["one", "two"].map((daemonId) => openDaemonHost({ daemonId, userRoot: path.join(parent, daemonId) })));
   try { const results = await Promise.allSettled(hosts.map((host) => host.bootstrap({ rootDir, repoId: "fresh", personId: "owner", displayName: "Owner" }, auth)));
     assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1); assert.equal(results.filter(({ status }) => status === "rejected").length, 1);
-    assert.deepEqual(makeTaskEventReader({rootDir, repoId: "fresh"}).read().events.map((event) => event.type), ["settings_changed", "vertical_declared", "documents_written", "schedule_created", "schedule_created"]); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
+    assert.deepEqual(makeTaskEventReader({rootDir, repoId: "fresh"}).read().events.map((event) => event.type), ["settings_changed", "vertical_declared", "documents_written", "schedule_created", "schedule_created", "schedule_created"]); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
   finally { await Promise.all(hosts.map((host) => host.close())); rmSync(parent, { recursive: true, force: true }); }
 });
 // prettier-ignore
@@ -593,6 +595,8 @@ async function publishCiObservation(
           attempt: 1,
           event: "push",
         });
+      if (args[0] === "api" && args.some((arg) => arg.includes("/artifacts")))
+        return JSON.stringify([{ artifacts: [] }]);
       if (args[0] === "api")
         return JSON.stringify({
           run_attempt: 1,

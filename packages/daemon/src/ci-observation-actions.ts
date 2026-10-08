@@ -70,6 +70,8 @@ type FetchedCiRun = {
   readonly jobs: readonly PreparedCiJob[];
   readonly artifactUnavailable?: boolean;
 };
+export const preparedCiObservation = Symbol("preparedCiObservation");
+
 export type CiObservationFetch = {
   readonly requestedRuns: number;
   readonly runs: readonly FetchedCiRun[];
@@ -424,7 +426,7 @@ export function ingestCiObservations(
           JSON.stringify([
             identity.provider,
             repositoryId,
-            databaseId,
+            databaseId === 0 ? identity.databaseRunId : databaseId,
             summary.attempt,
             payload.scope,
             payload.identity.jobExecutionId,

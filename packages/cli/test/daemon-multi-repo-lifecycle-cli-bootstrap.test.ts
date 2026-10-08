@@ -155,7 +155,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       false,
     );
     // Person identity belongs to Keycloak; init publishes only settings, vertical and scaffold.
-    assert.equal(stream.revision, 5);
+    assert.equal(stream.revision, 6);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
     assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
     assert.equal(

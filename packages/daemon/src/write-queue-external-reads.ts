@@ -4,6 +4,8 @@ import {
   type MappedWitnessAdapterId,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
+import { ingestCiObservations, preparedCiObservation, type CiObservationFetch } from "./ci-observation-actions.ts";
+import type { ScheduleV1 } from "@harness-anything/kernel";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
@@ -60,7 +62,21 @@ export function readBeforeWriteQueue(
       (sourceResolution) => (action, binding) =>
         context.executeAction({ ...action, [artifactImportSourceResolution]: sourceResolution }, binding),
     );
-  if (action.kind === "ci-observe-pull") return refreshCi(action, binding).then((receipt) => () => receipt);
+  if (action.kind === "ci-observe-pull") {
+    const fetched = (action as RepoTaskAction & { readonly [preparedCiObservation]?: CiObservationFetch })[
+      preparedCiObservation
+    ];
+    if (fetched)
+      return Promise.resolve((action, binding) => {
+        const schedule = context.projection.getEntity("schedule", String(action.scheduleId))?.value as
+          | ScheduleV1
+          | undefined;
+        if (!schedule?.status.activeRun || schedule.status.activeRun.claimFence !== action.claimFence)
+          throw context.cellCodedError("schedule_claim_stale", "CI occurrence claim is no longer current.");
+        return ingestCiObservations(context.extracted, binding, fetched);
+      });
+    return refreshCi(action, binding).then((receipt) => () => receipt);
+  }
   if ((action.kind === "task-submit" || action.kind === "task-complete") && typeof action.taskId === "string") {
     const snapshot = context.projection.read(action.taskId).snapshot,
       execution = snapshot.executions.find(

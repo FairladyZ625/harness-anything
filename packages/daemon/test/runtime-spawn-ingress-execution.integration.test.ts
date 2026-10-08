@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { signInPolicyTestUser, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -42,7 +43,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
   const originalPath = process.env.PATH;
   writeProviderExecutable(
     path.join(parent, "gh"),
-    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
+    'if (process.argv[2] === "api") console.log(JSON.stringify({workflow_runs: []})); else if (process.argv[2] === "run" && process.argv[3] === "list") console.log("[]"); else process.exit(1);\n',
   );
   process.env.PATH = `${parent}${path.delimiter}${originalPath ?? ""}`;
   t.after(() => {
@@ -169,6 +170,13 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
     });
   await transport.start();
   try {
+    await seedBuiltinSchedules({
+      cell: { run: (action) => host.run(repoId, action, auth) },
+      binding: withPolicyGroup(
+        { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const },
+        "admin",
+      ),
+    });
     host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
@@ -333,6 +341,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           workflowName: "rewrite-ci", headSha: sha, headBranch: "main", status: "completed",
           conclusion: "failure", attempt: 1, event: "push"
         }));
+        else if (process.argv[2] === "api" && process.argv.some(arg => arg.includes("/artifacts"))) console.log(JSON.stringify([{artifacts: []}]));
+        else if (process.argv[2] === "api" && process.argv[3].includes("/workflows/")) console.log(JSON.stringify({workflow_runs: []}));
         else if (process.argv[2] === "api") console.log(JSON.stringify({
           run_attempt: 1, head_sha: sha, head_branch: "main", conclusion: "failure", event: "push",
           path: ".github/workflows/rewrite-ci.yml", workflow_id: 1, name: "rewrite-ci",
