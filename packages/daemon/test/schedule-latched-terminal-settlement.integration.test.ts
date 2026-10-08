@@ -12,7 +12,7 @@ import {
   provisionPolicyTestRepository,
 } from "./keycloak-policy.fixtures.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
-import { makeTaskEventStore, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { operationId } from "../src/repo-cell-proof.ts";
@@ -194,7 +194,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
       });
       assert.equal(settled, true);
       assert.equal(prompts[0]?.endsWith("HARNESS-OUTCOME: failed"), true);
-      const events = makeTaskEventStore({ repoId, rootDir: root }).read().events,
+      const events = makeTaskEventReader({ repoId, rootDir: root }).read().events,
         claimIndex = events.findIndex((event) => event.type === "schedule_occurrence_claimed"),
         dispatchIndex = events.findIndex((event) => event.type === "runtime_dispatch_requested"),
         terminalIndex = events.findIndex((event) => event.type === "runtime_session_outcome_observed"),
@@ -301,6 +301,10 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
   const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-latched-settlement-")),
     repoId = workspaceId("schedule-latched-settlement"),
     scheduleId = "latched-settlement-probe";
+  let releaseSettlementProjection!: () => void;
+  const settlementProjectionGate = new Promise<void>((resolve) => {
+    releaseSettlementProjection = resolve;
+  });
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null;
   try {
@@ -316,6 +320,17 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
     writerEpoch.close();
     provisionPolicyTestRepository(repoId);
     const cell = await openRepoCell({
+      // Hold the writer after SQLite acceptance, before applying the completed L2 cut.
+      // Ledger visibility alone must not satisfy the terminal read assertion below.
+      killpoint: async (point) => {
+        if (
+          point === "after_sqlite_commit" &&
+          makeTaskEventReader({ repoId, rootDir: root })
+            .read()
+            .events.some((event) => event.type === "schedule_run_settled")
+        )
+          await settlementProjectionGate;
+      },
       keycloakCenter: policyTestCenter,
       repoId,
       rootDir: canonicalRoot(root),
@@ -444,21 +459,27 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
       );
       exit?.(0);
 
-      // No run() is issued here, so no recovery can start: the whole terminal chain
+      // Query-only run() reads cannot start recovery: the whole terminal chain
       // (exit publication, outcome observation, Schedule settlement) must land on the
-      // durable ledger while the cell is still latched.
-      const settledWhileLatched = await eventually(() => {
-        const events = makeTaskEventStore({ repoId, rootDir: root }).read().events;
-        return (
-          events.some((event) => event.type === "runtime_session_exited") &&
-          events.some((event) => event.type === "runtime_session_outcome_observed") &&
-          events.some((event) => event.type === "schedule_run_settled")
-        );
+      // durable ledger and completed projection while the cell is still latched.
+      const settledWhileLatched = await eventually(async () => {
+        const events = makeTaskEventReader({ repoId, rootDir: root }).read().events;
+        if (
+          !events.some((event) => event.type === "runtime_session_exited") ||
+          !events.some((event) => event.type === "runtime_session_outcome_observed") ||
+          !events.some((event) => event.type === "schedule_run_settled")
+        )
+          return false;
+        releaseSettlementProjection();
+        // SQLite acceptance precedes L2 application. Observe the completed read cut,
+        // rather than racing the writer after seeing only its durable event.
+        const schedule = await listedSchedule(cell, scheduleId);
+        return schedule.status.activeRun === null && schedule.status.lastRun?.runtimeSessionId === runtimeSessionId;
       });
       assert.equal(settledWhileLatched, true);
       assert.equal(cell.status().state, "unavailable");
 
-      const events = makeTaskEventStore({ repoId, rootDir: root }).read().events,
+      const events = makeTaskEventReader({ repoId, rootDir: root }).read().events,
         claimIndex = events.findIndex((event) => event.type === "schedule_occurrence_claimed"),
         dispatchIndex = events.findIndex((event) => event.type === "runtime_dispatch_requested"),
         terminalIndex = events.findIndex((event) => event.type === "runtime_session_outcome_observed"),
@@ -500,6 +521,7 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
       assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
       assert.equal(cell.status().state, "attached");
     } finally {
+      releaseSettlementProjection();
       await cell.close();
     }
   } finally {
