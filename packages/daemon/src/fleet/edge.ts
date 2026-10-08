@@ -821,6 +821,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
             path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId, "current.json"),
             {
               cut: inbound.cut,
+              schemaGeneration: current.schemaGeneration,
               manifestDigest: inbound.manifestDigest,
               authorizationOwner: inbound.authorizationOwner,
               authorizationShapeDigest: inbound.authorizationShapeDigest,

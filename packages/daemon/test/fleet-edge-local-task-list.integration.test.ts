@@ -7,6 +7,7 @@ import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 
 const quota = 64 * 1024 * 1024;
@@ -35,6 +36,7 @@ test(
       replica.activate();
       await replica.waitForCut(f.eventCount());
       await pull();
+      assert.equal(locateFleetMirrorView(e.viewRoot, "lease-repo")?.schemaGeneration, READ_MODEL_SCHEMA_GENERATION);
       const answer = await local();
       assert.equal(answer.ok, true, JSON.stringify(answer));
       assert.equal((answer.rows as unknown[]).length, count, JSON.stringify(answer.rows));
