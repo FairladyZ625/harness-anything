@@ -14,6 +14,7 @@ export function CopyContextButton({
   label = "复制上下文",
   title,
   compact = false,
+  testId,
 }: {
   /** 惰性构造:点击时才算上下文文本(避免每帧重算) */
   buildText: () => string;
@@ -21,6 +22,8 @@ export function CopyContextButton({
   /** 悬停说明;缺省沿用上下文包语义,复制单个完整值时给对应说明。 */
   title?: string;
   compact?: boolean;
+  /** 稳定断言钩子(gui-e2e 场景与 vitest 用)。 */
+  testId?: string;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -49,6 +52,7 @@ export function CopyContextButton({
 
   return (
     <button
+      data-testid={testId}
       onClick={onCopy}
       title={copied ? "已复制到剪贴板" : (title ?? "复制 agent 可用的上下文包(粘贴给你自己的 coding agent)")}
       className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ui-meta font-medium transition-colors ${

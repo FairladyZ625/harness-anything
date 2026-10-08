@@ -1691,5 +1691,10 @@
   "views.ci.noDiagnostic": "Diagnostic unavailable",
   "views.ci.truncated": "Summary truncated",
   "views.ci.noFailedTests": "No failed test identities were observed. This does not establish a passing workflow.",
-  "views.ci.detail": "Complete detail"
+  "views.ci.detail": "Complete detail",
+  "views.ci.skipped": "Skipped",
+  "views.ci.cancelled": "Cancelled",
+  "views.ci.copyDetailJson": "Copy detail JSON",
+  "views.ci.copyLocation": "Copy failure location file:line:column",
+  "views.ci.rawDiagnostics": "{count} raw diagnostics are not expanded into rows; copy the detail JSON for the full payload."
 }
