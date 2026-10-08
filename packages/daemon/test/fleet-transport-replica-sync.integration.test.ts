@@ -17,6 +17,7 @@ import { openDaemonHost } from "../src/daemon-host.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { readHeadConfirmation } from "../src/fleet/replica-read-model.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetReplicaPullClient,
@@ -129,6 +130,63 @@ test("cross-repo transfer identity keeps equal node/view/cut/digest isolated", {
 });
 
 const backgroundPaths = ["tasks/task-fleet-fleet/a.md", "tasks/task-fleet-fleet/b.md"];
+test("a node's next pull retires its frozen legacy view row from the center ledger", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  // 测试床 B2 的传输层复现:S8 前静态 assignment 时代的旧 view 行冻结在中心台账里,节点
+  // 已改用 nodeId 命名的新 view 拉取。先在 listener 启动前把残迹种进 ack store。
+  const legacy = { nodeId: "node-one", viewId: "node-one-schedule-view", repoId: fixture.subject.repoId },
+    legacyCut = { revision: 5, headDigest: `sha256:${"a".repeat(64)}` },
+    legacyDigest = "b".repeat(64),
+    seed = openReplicaAckStore(fixture.stateRoot);
+  seed.register(legacy, 3);
+  const legacyLease = seed.delivery.claim(legacy, "holder-legacy", Date.parse("2026-10-05T00:00:00.000Z"), 30_000)!;
+  seed.offer(legacy, {
+    transferId: "transfer-legacy",
+    fromCut: null,
+    toCut: legacyCut,
+    manifestDigest: legacyDigest,
+    kind: "snapshot",
+    issuedAt: "2026-10-05T00:00:00.000Z",
+  });
+  assert.equal(
+    seed.ack(
+      legacy,
+      "transfer-legacy",
+      legacyCut,
+      legacyDigest,
+      "2026-10-05T00:00:01.000Z",
+      "2026-10-04T00:00:00.000Z",
+      legacyLease,
+    ).outcome,
+    "applied",
+  );
+  seed.close();
+
+  const center = await fixture.center();
+  // 症状:退役 view 仍出现在中心 status(它正是 fleet overview 节点卡/links 的数据源),
+  // 带着 seed 时的最后一次 ack。repo 首次 pull 前 cut source 未激活,delivery 如实 degraded。
+  const before = center.status().replicas.find((row) => row.viewId === legacy.viewId)!;
+  assert.equal(before.ackRevision, 5);
+
+  await runFleetReplicaPullClient({
+    port: center.port,
+    ca: fixture.cert,
+    nodeId: fixture.subject.nodeId,
+    credential: "machine-secret",
+    repoId: fixture.subject.repoId,
+    viewRoot: path.join(fixture.root, "edge"),
+    diskQuotaBytes: replicaQuota,
+  });
+  // 节点带着新 view 完成一次 pull(snapshot 传输 + ACK 落定)后,退役 view 被回收,
+  // 节点只剩活跃 view 的 current 行。
+  const rows = center.status().replicas.filter((row) => row.nodeId === fixture.subject.nodeId);
+  assert.deepEqual(
+    rows.map((row) => [row.viewId, row.delivery, row.lagRevisions]),
+    [[fixture.subject.viewId, "current", 0]],
+  );
+});
+
 test("background replica sync follows a new center cut without a read request", { timeout: 30_000 }, async (t) => {
   const fixture = await fleetFixture(t, backgroundPaths);
   t.after(() => fixture.close());

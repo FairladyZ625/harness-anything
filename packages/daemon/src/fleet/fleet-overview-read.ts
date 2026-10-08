@@ -217,10 +217,10 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
   const replicaByNode = new Map<string, FleetReplicaStatus>();
   for (const replica of input.replicas) {
     nodeIds.add(replica.nodeId);
-    // 同一节点多视图时取 ackRevision 最靠前的一行做节点级摘要,全部行仍逐条出现在 links。
+    // 节点只会对它正在拉取的 view 推进 ack,所以最近一次 ack 的行就是活跃 view;冻结在
+    // 旧 ack 上的行属于退役 view(回收发生在该 view 下一次 ACK 落地时),全部行仍逐条出现在 links。
     const existing = replicaByNode.get(replica.nodeId);
-    if (existing === undefined || (replica.ackRevision ?? -1) < (existing.ackRevision ?? -1))
-      replicaByNode.set(replica.nodeId, replica);
+    if (existing === undefined || moreRecentlyAcked(replica, existing)) replicaByNode.set(replica.nodeId, replica);
   }
   const dispatchByTask = new Map<string, FleetDispatchFact>();
   if (input.leaseReads.ok)
@@ -304,6 +304,17 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
 
 function compareNodeIds(left: string, right: string): number {
   return Number(left !== FLEET_CENTER_NODE_ID) - Number(right !== FLEET_CENTER_NODE_ID) || left.localeCompare(right);
+}
+
+/** 节点级摘要的活跃 view 判据:最近一次 ack 更新(ISO 时间可比,空 = 从未 ack);
+ * 同时 ack 时取 ackRevision 更高的一行,保证确定性。 */
+function moreRecentlyAcked(candidate: FleetReplicaStatus, existing: FleetReplicaStatus): boolean {
+  const candidateAck = candidate.ackedAt ?? "",
+    existingAck = existing.ackedAt ?? "";
+  return (
+    candidateAck > existingAck ||
+    (candidateAck === existingAck && (candidate.ackRevision ?? -1) > (existing.ackRevision ?? -1))
+  );
 }
 
 function leaseRows(

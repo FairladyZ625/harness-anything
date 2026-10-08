@@ -122,5 +122,11 @@ export function replicaDeliveryLeases(database: (repoId: string) => DatabaseSync
       lastFailureCode: typeof row?.last_failure_code === "string" ? row.last_failure_code : null,
     };
   };
-  return { active, claim, renew, release, record, metrics };
+  /** Retire the node's other views: their frozen lease/metrics rows must not outlive the view. */
+  const retire = (key: ReplicaDeliveryKey): void => {
+    const store = db(key);
+    store.prepare("DELETE FROM delivery_lease WHERE node_id=? AND view_id<>?").run(key.nodeId, key.viewId);
+    store.prepare("DELETE FROM delivery_metrics WHERE node_id=? AND view_id<>?").run(key.nodeId, key.viewId);
+  };
+  return { active, claim, renew, release, record, metrics, retire };
 }
