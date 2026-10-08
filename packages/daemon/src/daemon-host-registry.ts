@@ -151,7 +151,7 @@ export async function performOpenRegistered(
       ...(progress ?? {}),
     };
   context.input.recordLifecycle?.({ event: "repo_attach_started", ...lifecycle });
-  let opened: RepoCell | undefined;
+  let opened: RepoCell | undefined, publishedState: ReturnType<RepoCell["status"]>["state"] | undefined;
   try {
     opened = await context.openCell({
       repoId: workspaceId(repo.repoId),
@@ -167,8 +167,12 @@ export async function performOpenRegistered(
       ...(context.input.recordLifecycle ? { recordLifecycle: context.input.recordLifecycle } : {}),
       onAttemptTerminal: (_terminal: RuntimeAttemptTerminal) => void context.scheduleScheduler.refresh(),
       onStatus: (status) => {
+        const previousState = publishedState;
+        publishedState = status.state;
         if (context.warming.has(repo.repoId)) context.warming.set(repo.repoId, status);
         context.input.onRepoStatusChange?.();
+        if (context.cells.has(repo.repoId) && previousState !== "attached" && status.state === "attached")
+          void context.scheduleScheduler.refresh();
       },
       // Live getter: cells attach at daemon boot, before the fleet center may be
       // admitted, so the schedule read resolves the roster at read time.
