@@ -105,13 +105,16 @@ export function createDaemonHostRuntimeApi(
     awaitRuntimeSessions: async (repoId, payload, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-sessions-await"), auth);
       await context.attemptHostRecovery(repoId);
-      const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       return orchestrateRuntimeSessionsAwait(payload, {
         readSession: (runtimeSessionId) =>
           context.host.read(repoId, "repo.agentRuntime.sessions.read", { runtimeSessionId }, auth),
         readTaskDispatches: (taskIds) =>
           context.host.read(repoId, "repo.task.dispatches", { taskIds: taskIds as string[] }, auth),
-        awaitSignal: cell.awaitRuntimeSignal,
+        awaitSignal: async () => {
+          await context.waitForWarming(repoId);
+          return context.requiredCell(context.cells, context.warming, context.unavailable, repoId).awaitRuntimeSignal();
+        },
         connectionSignal: auth.connectionSignal,
         codedError: context.hostCodedError,
       });

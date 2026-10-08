@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import type { DaemonHost } from "../daemon-host.ts";
 import type { DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonTrafficLogEntry } from "../conn-log.ts";
@@ -199,6 +200,12 @@ export function createJsonRpcProtocolServer(options: {
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
+    const stoppingRefusal = daemonStoppingRefusal(method, options.stopping?.() === true);
+    if (stoppingRefusal) return reply(method, stoppingRefusal);
+    // These daemon controls use the transport boundary, so center startup cannot block them.
+    const daemonControl = method === "daemon.status" || method === "daemon.stop";
+    if (daemonControl && executionCredential !== undefined)
+      return reply(method, protocolFailure(method, executionCredentialRejected()));
     const relayExecution =
       executionCredential !== undefined &&
       method === "daemon.fleet.task.run" &&
@@ -206,7 +213,7 @@ export function createJsonRpcProtocolServer(options: {
       isJsonObject(params.payload.action) &&
       params.payload.action.kind !== "fleet-runtime" &&
       params.payload.action.kind !== "fleet-schedule";
-    if (executionCredential !== undefined && !relayExecution) {
+    if (!daemonControl && executionCredential !== undefined && !relayExecution) {
       try {
         if (!options.executionPrincipal)
           throw Object.assign(new Error("Execution authentication is unavailable."), {
@@ -217,7 +224,7 @@ export function createJsonRpcProtocolServer(options: {
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
-    } else if (!relayExecution && options.sessionPrincipal) {
+    } else if (!daemonControl && !relayExecution && options.sessionPrincipal) {
       // A connection outlives access tokens: each request carries the session as it is now, renewed or ended.
       try {
         Object.assign(options.authContext, { oidcPrincipal: await options.sessionPrincipal() });
@@ -225,8 +232,6 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure(method, error));
       }
     }
-    const stoppingRefusal = daemonStoppingRefusal(method, options.stopping?.() === true);
-    if (stoppingRefusal) return reply(method, stoppingRefusal);
     const remoteProxy = options.host.remoteProxy;
     if (method === "daemon.repo.bootstrap" && typeof params.repoId === "string" && remoteProxy?.route(params.repoId))
       return reply(
@@ -686,14 +691,7 @@ export function createJsonRpcProtocolServer(options: {
     if (method === "repo.agentRuntime.sessions.await") {
       const repo = params.repo.repoId;
       try {
-        const settled = await raceParkedWait(
-          options.host.awaitRuntimeSessions(repo, params.payload, options.authContext),
-          parkedWaitAborts,
-          options.authContext.connectionSignal,
-        );
-        // Abandonment answers with silence: the connection is closing either way, and the client's
-        // reconnect budget re-issues this idempotent read on the daemon that survives.
-        if (settled === parkedWaitAbandoned) return undefined;
+        const settled = await options.host.awaitRuntimeSessions(repo, params.payload, options.authContext);
         return reply(method, settled);
       } catch (error) {
         // A parked wait that wakes while this daemon drains re-reads through a RepoCell that close()
@@ -784,6 +782,16 @@ export function createJsonRpcProtocolServer(options: {
     }
     if (isDaemonParkedWaitMethod(method) || fleetAwait || method === "observe.tail") {
       releaseHello();
+      if (isDaemonParkedWaitMethod(method) || fleetAwait) {
+        // Register abandonment around authentication as well as the host read: neither phase owns work.
+        const response = await raceParkedWait(
+          run(request, frameReceivedAt),
+          parkedWaitAborts,
+          options.authContext.connectionSignal,
+          options.host.parkedWaitSignal,
+        );
+        return response === parkedWaitAbandoned ? undefined : response;
+      }
       return run(request, frameReceivedAt);
     }
     // Transfer the reservation without a zero-work interval before dispatching the next frame.
@@ -897,6 +905,7 @@ function raceParkedWait<T>(
   parked: Promise<T>,
   abandonments: Set<() => void>,
   connectionSignal: AbortSignal | undefined,
+  hostSignal: AbortSignal | undefined,
 ): Promise<T | typeof parkedWaitAbandoned> {
   // The abandoned park can still reject later — its settle loop wakes against a closing host — and
   // nobody observes that outcome anymore; the abandonment already settled the request.
@@ -905,6 +914,7 @@ function raceParkedWait<T>(
     const release = () => {
       abandonments.delete(abandon);
       connectionSignal?.removeEventListener("abort", onConnectionAbort);
+      hostSignal?.removeEventListener("abort", onConnectionAbort);
     };
     const onConnectionAbort = () => abandon();
     const abandon = () => {
@@ -913,6 +923,8 @@ function raceParkedWait<T>(
     };
     abandonments.add(abandon);
     connectionSignal?.addEventListener("abort", onConnectionAbort, { once: true });
+    hostSignal?.addEventListener("abort", onConnectionAbort, { once: true });
+    if (connectionSignal?.aborted || hostSignal?.aborted) abandon();
     parked.then(
       (value) => {
         release();

@@ -52,6 +52,7 @@ export async function startDaemon(input: {
   readonly openCell?: DaemonHostOpenInput["openCell"];
   readonly runtimeDiscover?: DaemonHostOpenInput["runtimeDiscover"];
   readonly runtimeEnv?: NodeJS.ProcessEnv;
+  readonly managedRbac?: DaemonHostOpenInput["managedRbac"];
   /** Called after a build-superseded exit released everything, so the resident entry can hand the
    * slot to the disk build. */
   readonly onSupersededExit?: () => void | Promise<void>;
@@ -184,10 +185,7 @@ export async function startDaemon(input: {
             const edgeRepo = host!.status().repos.find((repo) => repo.repoId === repoId && repo.mode === "remote-edge");
             const principal = edgeRepo
               ? readRuntimeExecutionPrincipal(edgeRepo.rootDir, credential)
-              : await authenticateRuntimeExecutionCredential(
-                  { ...(await oidc.center()), clientId: "harness-center" },
-                  credential,
-                );
+              : await authenticateRuntimeExecutionCredential(await host!.keycloakCenter(), credential);
             if (!principal)
               throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
                 code: "authorization_denied",
@@ -207,7 +205,7 @@ export async function startDaemon(input: {
               });
             return principal;
           },
-          sessionPrincipal: async () => (await oidc.bind({ transportKind: authContext.transportKind })).oidcPrincipal,
+          sessionPrincipal: () => host!.sessionPrincipal({ transportKind: authContext.transportKind }),
           emit,
           connectionId: connLog.connectionOpened(connectionId, authContext.transportKind),
           recordRequest: requestLog!.record,
