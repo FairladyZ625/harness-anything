@@ -80,7 +80,6 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
     },
     stream: async (repoId, method, payload) => {
       const remote = resolveRoute(repoId);
-      await connectorFor(remote).hello();
       const values: JsonObject[] = [],
         waiters: Array<(value: JsonObject | null) => void> = [];
       let initial: JsonObject | undefined,
@@ -97,6 +96,7 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
           repoId,
           method,
           payload,
+          onHello: (hello) => assertExactProtocol(isJsonRecord(hello) ? hello : {}),
           onValue: (value) => {
             if (!isJsonRecord(value)) return;
             if (initial === undefined) {

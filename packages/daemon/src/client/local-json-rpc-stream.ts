@@ -45,6 +45,7 @@ export async function streamDaemonFacetAt(input: {
   readonly method: keyof DaemonStreamPayloadMap;
   readonly payload: DaemonStreamPayloadMap[keyof DaemonStreamPayloadMap];
   readonly onValue: (value: unknown) => void;
+  readonly onHello?: (value: unknown) => void;
   readonly timeoutMs?: number;
   readonly onClosed?: (failure: DaemonStreamLost) => void;
 }): Promise<() => void> {
@@ -117,7 +118,9 @@ export async function streamDaemonFacetAt(input: {
             readonly result?: unknown;
             readonly error?: { readonly message?: string };
           };
-          if (value.id === 2) {
+          if (value.id === 1) {
+            input.onHello?.(value.result);
+          } else if (value.id === 2) {
             if (value.error) throw new Error(value.error.message ?? "daemon stream failed");
             const initial = parseDaemonStreamResult(input.method, value.result);
             input.onValue(initial);
