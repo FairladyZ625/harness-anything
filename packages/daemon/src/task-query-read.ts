@@ -358,9 +358,11 @@ export function makeTaskQueryReadModel(input: {
         limit: sourceLimit,
         pinnedFirst: true,
         ...(pageCursor ? { cursor: pageCursor } : {}),
+        // --work narrows the page query itself, so a small limit returns that work's rows
+        // instead of the repository's first page with the work's rows filtered away.
+        ...(scope.members === null ? {} : { taskIds: [...scope.members] }),
       }),
-      rows =
-        scope.members === null ? lifecycle.rows : lifecycle.rows.filter(({ taskId }) => scope.members!.has(taskId)),
+      rows = lifecycle.rows,
       graph = readBlockingAssessments(rows.map(({ taskId }) => taskId)),
       readPresetSnapshot = presetSnapshotReader(projection);
     return {
