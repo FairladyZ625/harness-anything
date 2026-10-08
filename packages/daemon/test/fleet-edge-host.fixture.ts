@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { OidcSessionService, type OidcSessionPorts } from "../src/oidc-session-service.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
@@ -26,6 +26,7 @@ export async function fleetEdgeHostFixture(
   },
   options: {
     readonly name?: string;
+    readonly oidcPorts?: Partial<OidcSessionPorts>;
     readonly centerPort?: number;
     readonly openCell?: Parameters<typeof openDaemonHost>[0]["openCell"];
     readonly waitForAttachments?: boolean;
@@ -69,9 +70,11 @@ export async function fleetEdgeHostFixture(
       JSON.stringify({
         schema: "harness-oidc-session/v2",
         accessToken: `token-${personId}`,
+        refreshToken: `refresh-${personId}`,
         subject: personId,
         personId,
         expiresAt: Date.now() + 3_600_000,
+        sessionExpiresAt: Date.now() + 21_600_000,
         roles: [],
         loginTarget: edgeRoot,
         authority: { url: "https://keycloak.example", realm: "harness" },
@@ -98,7 +101,7 @@ export async function fleetEdgeHostFixture(
     ...(options.runtimeLaunch ? { runtimeLaunch: options.runtimeLaunch } : {}),
     ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
     userRoot: edgeUser,
-    oidc: new OidcSessionService(edgeUser, { fetch: f.owners.keycloak.fetch }),
+    oidc: new OidcSessionService(edgeUser, { fetch: f.owners.keycloak.fetch, ...options.oidcPorts }),
   });
   t.after(async () => {
     await host.close();

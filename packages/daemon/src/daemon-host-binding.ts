@@ -60,7 +60,14 @@ function defaultLocalBinding(ownerUid: number, executor: RepoCellBinding["actor"
 export function localDefaultBinding(
   auth: DaemonAuthenticationContext,
   executor: RepoCellBinding["actor"]["executor"] = null,
+  replicaRead = false,
 ): RepoCellBinding {
+  if (replicaRead && auth.replicaReadPrincipal && auth.replicaReadPrincipal.sessionExpiresAt > Date.now())
+    return {
+      actor: { principal: { personId: auth.replicaReadPrincipal.personId }, executor },
+      source: "local",
+      ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
+    };
   if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now())
     throw hostCodedError("authentication_required", "Sign in with Keycloak before performing this action.");
   return withSessionEnvironment(
@@ -129,8 +136,9 @@ export async function binding(
   _rootDir: string,
   auth: DaemonAuthenticationContext,
   executor: RepoCellBinding["actor"]["executor"] = null,
+  replicaRead = false,
 ): Promise<RepoCellBinding> {
   if (auth.transportKind === "fleet-tls") return nodeOwnerBinding(auth);
-  if (auth.oidcPrincipal && auth.oidcPrincipal.expiresAt > Date.now()) return localDefaultBinding(auth, executor);
+  if (replicaRead) return localDefaultBinding(auth, executor, true);
   return localDefaultBinding(auth, executor);
 }

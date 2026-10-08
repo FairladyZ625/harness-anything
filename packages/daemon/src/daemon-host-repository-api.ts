@@ -596,17 +596,18 @@ export function createDaemonHostRepositoryApi(
           `Payload cannot report ${spoof}; daemon binds principal authority, root, revision, and time.`,
         );
       try {
+        // Only server-selected replica queries can use an offline session identity.
+        const edgeRead =
+          command.admission["remote-edge"] === "edge-replica" &&
+          command.repoCellExecution === "query-only" &&
+          cell.status().mode === "remote-edge";
         const serverBinding = await context.binding(
           cell.status().rootDir,
           auth,
           undefined,
           command.commandClass === "repo-read" ? undefined : repoId,
+          edgeRead,
         );
-        // An edge read is authorized by the replica's owner digest inside the edge read session.
-        const edgeRead =
-          command.admission["remote-edge"] === "edge-replica" &&
-          command.repoCellExecution === "query-only" &&
-          cell.status().mode === "remote-edge";
         if (
           !edgeRead &&
           (("repositoryRead" in command && command.repositoryRead === true) ||
@@ -710,7 +711,7 @@ export function createDaemonHostRepositoryApi(
           (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
         );
       if (edge && edge.canonicalRoot) {
-        const binding = await context.binding(edge.canonicalRoot, auth);
+        const binding = await context.binding(edge.canonicalRoot, auth, undefined, undefined, true);
         const cell = context.cells.get(repoId);
         if (cell && (method === "repo.gui.catalog.snapshot" || method === "repo.gui.catalog.preset.read")) {
           // Installed presets/adapters/files are node-local; defaults come from one authorized replica cut.

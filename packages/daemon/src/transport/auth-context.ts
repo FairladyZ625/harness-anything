@@ -38,6 +38,8 @@ export interface DaemonAuthenticationContext {
     readonly accessToken: string;
     readonly authority: { readonly url: string; readonly realm: string; readonly clientId: string };
   };
+  /** Daemon-owned identity for an unreachable renewal, usable only in a server-selected edge replica read. */
+  readonly replicaReadPrincipal?: { readonly personId: string; readonly sessionExpiresAt: number };
   /** Center service authority for evaluating a person who holds no token here; attached by the host only. */
   readonly keycloakCenter?: KeycloakCenterAuthority;
   /** The authenticated node and its owner from the center node registry; never accepted from a fleet frame. */
