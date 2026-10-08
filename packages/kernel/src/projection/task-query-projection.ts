@@ -48,6 +48,8 @@ export interface TaskProjectionListQuery {
   readonly search?: string;
   readonly slug?: string;
   readonly activePackagesOnly?: boolean;
+  /** Membership filter (a work subtree scope) applied before pagination; undefined reads the whole ledger. */
+  readonly taskIds?: readonly string[];
   /** Derive work-root display status without changing event snapshots. */
   readonly presentationStatus?: boolean;
 }
@@ -193,6 +195,10 @@ export function readTaskIndexRows(
     values.push(query.updatedBefore);
   }
   if (query.activePackagesOnly) where.push(`COALESCE(${field("$.task.packageDisposition")}, 'active') = 'active'`);
+  if (query.taskIds !== undefined) {
+    where.push("task_snapshot.task_id IN (SELECT value FROM json_each(?))");
+    values.push(JSON.stringify(query.taskIds));
+  }
   if (query.slug !== undefined) {
     where.push(`${field("$.task.metadata.slug")} = ?`);
     values.push(query.slug);
@@ -733,6 +739,12 @@ export function listTaskRowsNarrow(
     values.push(query.updatedBefore);
   }
   if (query.activePackagesOnly) where.push("task_snapshot.package_disposition = 'active'");
+  // One JSON bind carries the whole membership set, so no variable-size bind list can cross
+  // SQLite's parameter ceiling (the same reason readTaskChildCounts batches via json_each).
+  if (query.taskIds !== undefined) {
+    where.push("task_snapshot.task_id IN (SELECT value FROM json_each(?))");
+    values.push(JSON.stringify(query.taskIds));
+  }
   if (query.cursor !== undefined) {
     if (query.pinnedFirst) {
       const [pinned, taskId] = decodePageCursor(query.cursor, 2);

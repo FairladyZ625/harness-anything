@@ -21,6 +21,7 @@ import { prepareQuery, queryRow, runSql } from "../../src/projection/rebuildable
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
 import {
   createTaskRelationProjectionTable,
+  encodePageCursor,
   listTaskRowsNarrow,
   readTaskChildCounts,
   readTaskDependencyClosureRows,
@@ -963,6 +964,54 @@ test("pinned presentation pages keep kernel cursors when roots become terminal b
       ["a-root"],
     );
     assert.deepEqual(listTaskRowsNarrow(db, { ...query, status: "planned" }).rows, []);
+  } finally {
+    db.close();
+  }
+});
+
+test("taskIds membership narrows the page before the limit and keeps cursor pagination exact", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, snapshot_json TEXT, pinned INTEGER, workspace_revision INTEGER, updated_at TEXT);
+      CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT);
+      CREATE TABLE task_generation (task_id TEXT PRIMARY KEY, generation TEXT);
+      CREATE TABLE event_index (task_id TEXT, workspace_revision INTEGER, event_json TEXT);`);
+    const insert = db.prepare("INSERT INTO task_snapshot VALUES (?, ?, ?, 0, 1, '2026-10-08T00:00:00.000Z')"),
+      // Active rows interleave the release work's members with another work's lanes, and by
+      // task id the two foreign lanes open the sequence — the page shape the agenda bug hid behind.
+      members = ["m-release", "r-release", "z-release"];
+    for (const [id, status] of [
+      ["a-other", "active"],
+      ["b-other", "active"],
+      ["m-release", "active"],
+      ["n-other", "active"],
+      ["r-release", "active"],
+      ["z-release", "active"],
+    ] as const)
+      insert.run(id, status, JSON.stringify({ task: { taskClass: "standard", metadata: { parentTaskId: null } } }));
+    const scoped = { status: "active", taskIds: members, pinnedFirst: true, limit: 2 },
+      first = listTaskRowsNarrow(db, scoped);
+    assert.deepEqual(
+      first.rows.map((row) => row.task_id),
+      ["m-release", "r-release"],
+    );
+    const second = listTaskRowsNarrow(db, { ...scoped, cursor: first.page!.nextCursor! });
+    assert.deepEqual(
+      second.rows.map((row) => row.task_id),
+      ["z-release"],
+    );
+    assert.equal(second.page!.nextCursor, null);
+    // Drive one read past the last member with the real pinned-first cursor encoding.
+    const pastLast = listTaskRowsNarrow(db, { ...scoped, cursor: encodePageCursor(["0", "z-release"]) });
+    assert.deepEqual(pastLast.rows, []);
+    assert.equal(pastLast.page!.nextCursor, null);
+    // Control: without the membership filter the same page serves the repository-wide interleave.
+    assert.deepEqual(
+      listTaskRowsNarrow(db, { status: "active", limit: 2 }).rows.map((row) => row.task_id),
+      ["a-other", "b-other"],
+    );
+    // An empty membership matches nothing rather than degrading to the unfiltered page.
+    assert.deepEqual(listTaskRowsNarrow(db, { status: "active", taskIds: [], limit: 2 }).rows, []);
   } finally {
     db.close();
   }

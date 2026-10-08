@@ -842,9 +842,11 @@ function projectionStub(
     }),
     list: (query: TaskProjectionListQuery = {}) => {
       options.listCalls?.push(query);
-      const selected = query.status
-        ? taskRows.filter((row) => (row as ReturnType<typeof protocolTaskRow>).snapshot.task.status === query.status)
-        : taskRows;
+      const selected = (
+        query.taskIds === undefined
+          ? (taskRows as ReturnType<typeof protocolTaskRow>[])
+          : (taskRows as ReturnType<typeof protocolTaskRow>[]).filter((row) => query.taskIds!.includes(row.taskId))
+      ).filter((row) => (query.status === undefined ? true : row.snapshot.task.status === query.status));
       if (query.limit === undefined && query.cursor === undefined) return { ...cut, rows: selected, warnings: [] };
       const limit = query.limit ?? 100,
         visible = selected.slice(0, limit),
