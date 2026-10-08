@@ -359,6 +359,17 @@ export class OidcSessionService {
     const authority = session.authority ?? (await this.#loginAuthority(session.loginTarget));
     return {
       ...auth,
+      localSessionAccessToken: async () => {
+        const current = await this.#live();
+        if (
+          !current ||
+          generation !== this.#loginGeneration ||
+          current.personId !== session.personId ||
+          current.subject !== session.subject
+        )
+          throw coded("authentication_required", "The originally bound Keycloak session has ended.");
+        return current.accessToken;
+      },
       oidcPrincipal: {
         personId: session.personId,
         subject: session.subject,

@@ -163,6 +163,7 @@ export function resolveRepoBootstrap(
             session: {
               personId: auth.oidcPrincipal.personId,
               accessToken: auth.oidcPrincipal.accessToken,
+              ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),
               ...auth.oidcPrincipal.authority,
             },
           },
