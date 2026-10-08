@@ -23,7 +23,7 @@ import { PageRegions, RegionDragHandle } from "../components/primitives/page-reg
 import type { RelationEdge, TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
-import { useTaskDocumentListQuery, useTaskDocumentQuery } from "../task-data.ts";
+import { TASK_EXPLAINER_DOC, useTaskDocumentListQuery, useTaskDocumentQuery } from "../task-data.ts";
 import { workspaceGoalLine } from "../model/workspace-narrative.ts";
 import { t } from "../i18n/index.tsx";
 import { AwaitsAskStrip } from "../components/AwaitsAskStrip.tsx";
@@ -39,8 +39,8 @@ const tabs = [
   { id: "files", labelKey: "views.taskDetailView.tabFiles" },
 ] as const;
 
-// living explainer 的包内固定位置:任务包带这一页时,任何不带显式落点的入口都默认开在它上。
-const EXPLAINER_DOC = "artifacts/explainer.html";
+// living explainer 的包内固定位置在 task-data.ts 单源定义(TASK_EXPLAINER_DOC);
+// 任务详情与工作页两个入口共用同一常量与同一对查询。
 
 type TaskDetailTab = (typeof tabs)[number]["id"];
 
@@ -144,7 +144,7 @@ export function TaskDetailView({
   const explainerDefault =
     !explicitLanding &&
     documentList.data?.status === "ready" &&
-    documentList.data.documents.some((document) => document.path === EXPLAINER_DOC);
+    documentList.data.documents.some((document) => document.path === TASK_EXPLAINER_DOC);
   // 清单未到(挂起中)才占位等待;读失败按「无 explainer」定案,保持概况+task_plan 现状。
   const defaultLandingPending = !explicitLanding && !defaultLandingSettled && !userMoved;
 
@@ -164,7 +164,7 @@ export function TaskDetailView({
     if (documentList.data === undefined && !documentList.isError) return;
     if (explainerDefault) {
       setActiveTab("files");
-      setActiveDoc(EXPLAINER_DOC);
+      setActiveDoc(TASK_EXPLAINER_DOC);
     }
     setDefaultLandingSettled(true);
   }, [explicitLanding, defaultLandingSettled, userMoved, documentList.data, documentList.isError, explainerDefault]);

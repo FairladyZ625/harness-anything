@@ -11,6 +11,7 @@ import {
 } from "../../components/primitives/RegionBoard";
 import { SegBar } from "../../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag";
+import { WorkExplainerDocument } from "./WorkExplainer.tsx";
 import { entryTitle, metaLine } from "./entry-lines.tsx";
 import type { WorkLeafRow } from "./WorkTasksTab.tsx";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
@@ -72,6 +73,8 @@ export interface WorkOverviewProps {
   readonly connectionId: string | null;
   /** 分割偏好归属的仓。 */
   readonly repoId: string;
+  /** 工作根任务:概况的工作说明预览读它的 artifacts/explainer.html(与页签同一份)。 */
+  readonly rootTaskId: string;
   readonly submitted: readonly TaskRow[];
   readonly stalled: readonly TaskRow[];
   /** 工作的全部叶子任务(任务页同一份行);阻塞、进行中、接下来三个区域从这里取。 */
@@ -91,6 +94,8 @@ export interface WorkOverviewProps {
   readonly onConsent?: (task: TaskRow, reviewId: string) => void;
   readonly onOpenTask: (taskId: string) => void;
   readonly onOpenProgress: () => void;
+  /** 概况预览的「打开完整工作说明」:切到工作页的工作说明页签。 */
+  readonly onOpenExplainer: () => void;
   readonly onFilterStatus: (status: string) => void;
   readonly onFilterGroup: (group: string) => void;
 }
@@ -100,6 +105,7 @@ const actionButton = "h-6 rounded-xs border px-2.5 ui-meta disabled:opacity-60";
 export function WorkOverview({
   connectionId,
   repoId,
+  rootTaskId,
   submitted,
   stalled,
   leaves,
@@ -116,6 +122,7 @@ export function WorkOverview({
   onConsent,
   onOpenTask,
   onOpenProgress,
+  onOpenExplainer,
   onFilterStatus,
   onFilterGroup,
 }: WorkOverviewProps) {
@@ -326,6 +333,27 @@ export function WorkOverview({
               />
             </div>
           ))}
+        </Region>
+      </BoardRegion>
+
+      {/* 工作说明预览:与工作说明页签同一份根任务文档、同一个隔离 renderer;标题与
+          「打开完整工作说明」动作留在区域框上,正文在区域内自己滚。 */}
+      <BoardRegion region="explainer" data-testid="work-explainer">
+        <Region
+          title={t("views.workspace.explainer.regionTitle")}
+          padded
+          footer={
+            <button
+              type="button"
+              data-testid="work-explainer-open-full"
+              className="ml-auto shrink-0 text-accent"
+              onClick={onOpenExplainer}
+            >
+              {t("views.workspace.explainer.openFull")}
+            </button>
+          }
+        >
+          <WorkExplainerDocument repoId={repoId} taskId={rootTaskId} />
         </Region>
       </BoardRegion>
     </>

@@ -8,7 +8,7 @@ import type { WorkspaceScopeRead } from "../../api/renderer-dto.ts";
 import type { DecisionRow, FactRef, RelationEdge, SnapshotStatus, TaskRow } from "../model/types.ts";
 import { deriveAttestationLanes, type AttestationPoolLanes } from "../model/attestation-pool.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
-import { useTaskDocumentQuery } from "../task-data.ts";
+import { TASK_EXPLAINER_DOC, useTaskDocumentListQuery, useTaskDocumentQuery } from "../task-data.ts";
 import { cadenceEventOf } from "../model/cadence.ts";
 import { workDecisionsOf, workspaceEvidenceOf } from "../model/workspace-evidence.ts";
 import { workspaceTitleIndex } from "../model/workspace-readable.ts";
@@ -16,6 +16,7 @@ import { noAgentRunning, workDayGroups, workspaceGoalLine, workSubgroups } from 
 import { dayKeyOf, formatDayKeyLabel, formatRelative, formatTime } from "../model/time.ts";
 import { t } from "../i18n/index.tsx";
 import { WorkDayList, WorkOverview } from "./workspace/WorkOverview.tsx";
+import { WorkExplainerDocument } from "./workspace/WorkExplainer.tsx";
 import { WorkTasksTab, type WorkLeafRow } from "./workspace/WorkTasksTab.tsx";
 import { waitingReason } from "./workspace/entry-lines.tsx";
 import { WorkDecisionsTab } from "./workspace/WorkDecisionsTab.tsx";
@@ -28,7 +29,7 @@ import { WorkInspectTab } from "./workspace/WorkInspectTab.tsx";
  * 总览同一套的区域板(标准 §2.1),右列时间线;实体细节进右侧抽屉;原始事件流只在检修页。
  */
 
-type WorkspaceTab = "overview" | "tasks" | "progress" | "decisions" | "graph" | "inspect" | "root";
+type WorkspaceTab = "overview" | "explainer" | "tasks" | "progress" | "decisions" | "graph" | "inspect" | "root";
 
 export interface WorkspaceViewProps {
   readonly scope: WorkspaceScopeRead;
@@ -92,11 +93,34 @@ export function WorkspaceView({
   const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
+  // 默认落点(工作说明,与任务详情 explainer 同一纪律):根任务带 artifacts/explainer.html
+  // 且调用方没有显式工作页落点时,首次进入默认选工作说明页签。清单是异步投影,定案前
+  // 正文停在占位(不先渲染概况再跳走);用户切页签后迟到的清单不再抢页。
+  const [defaultLandingSettled, setDefaultLandingSettled] = useState(false);
+  const [userMoved, setUserMoved] = useState(false);
+  const goTo = (next: WorkspaceTab) => {
+    setUserMoved(true);
+    setTab(next);
+  };
+
+  const explainerLookup = useTaskDocumentListQuery(repoId, repoId !== "unselected" ? scope.root.taskId : null);
+  const explainerDefault =
+    explainerLookup.data?.status === "ready" &&
+    explainerLookup.data.documents.some(({ path }) => path === TASK_EXPLAINER_DOC);
+  const landingPending = repoId !== "unselected" && !defaultLandingSettled && !userMoved;
+  useEffect(() => {
+    if (repoId === "unselected" || defaultLandingSettled || userMoved) return;
+    // 清单未到(挂起中)才占位等待;读失败按「无 explainer」定案,保持概况现状。
+    if (explainerLookup.data === undefined && !explainerLookup.isError) return;
+    if (explainerDefault) setTab("explainer");
+    setDefaultLandingSettled(true);
+  }, [repoId, defaultLandingSettled, userMoved, explainerLookup.data, explainerLookup.isError, explainerDefault]);
+
   // 页内指向根任务的入口切到根任务分区,不离开工作页。
   const rootRef = `task/${scope.root.taskId}`;
   const openTask = (taskId: string) => {
     if (renderRootTask !== undefined && taskId === scope.root.taskId) {
-      setTab("root");
+      goTo("root");
       return;
     }
     // 抽屉吃完整 TaskRow;行还没投影到(读面未落地)就退到任务详情页。
@@ -104,9 +128,9 @@ export function WorkspaceView({
     else onOpenTask(taskId);
   };
   const openFullDetail = (taskId: string) =>
-    renderRootTask !== undefined && taskId === scope.root.taskId ? setTab("root") : onOpenTask(taskId);
+    renderRootTask !== undefined && taskId === scope.root.taskId ? goTo("root") : onOpenTask(taskId);
   const navigateEntity = (ref: string) =>
-    renderRootTask !== undefined && ref === rootRef ? setTab("root") : onNavigateEntity?.(ref);
+    renderRootTask !== undefined && ref === rootRef ? goTo("root") : onNavigateEntity?.(ref);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -269,6 +293,7 @@ export function WorkspaceView({
         label: t("views.workspace.tab.overview"),
         ...(heroCount > 0 ? { hint: t("views.workspace.tab.awaitingHint", { count: heroCount }) } : {}),
       },
+      { key: "explainer" as const, label: t("views.workspace.tab.explainer") },
       { key: "tasks" as const, label: t("views.workspace.tab.tasks"), count: scope.scope.executableLeafCount },
       { key: "progress" as const, label: t("views.workspace.tab.progress") },
       { key: "decisions" as const, label: t("views.workspace.tab.decisions") },
@@ -326,7 +351,7 @@ export function WorkspaceView({
             {t("views.workspace.lastActivity", { ago: agoOf(lastActivityAt) })}
           </span>
           <div className="ml-auto min-w-0">
-            <Tabs ariaLabel="工作分区" idPrefix="workspace" value={tab} onChange={setTab} tabs={tabs} />
+            <Tabs ariaLabel="工作分区" idPrefix="workspace" value={tab} onChange={goTo} tabs={tabs} />
           </div>
           <input
             ref={searchRef}
@@ -338,8 +363,10 @@ export function WorkspaceView({
               const next = event.target.value;
               setQuery(next);
               // 任务页与「决策与事实」页都吃页内搜索;搜索时停在原页,其余页跳去任务页。
-              if (next.trim() !== "")
+              if (next.trim() !== "") {
+                setUserMoved(true);
                 setTab((current) => (current === "tasks" || current === "decisions" ? current : "tasks"));
+              }
             }}
             className="mb-1.5 h-6 w-[210px] shrink-0 rounded-xs border border-border bg-surface-raised px-2.5 text-text ui-meta outline-none placeholder:text-text-faint focus:border-border-strong"
           />
@@ -357,7 +384,7 @@ export function WorkspaceView({
           className={
             tab === "overview"
               ? "flex h-full min-h-0 flex-col gap-1 p-1"
-              : tab === "graph" || tab === "root"
+              : tab === "graph" || tab === "root" || tab === "explainer"
                 ? "flex h-full min-h-0 flex-col p-1"
                 : "grid grid-cols-1 gap-9 px-5 pb-16 pt-4 md:px-7"
           }
@@ -374,10 +401,17 @@ export function WorkspaceView({
             </div>
           ) : null}
 
-          {tab === "overview" ? (
+          {/* 默认落点未定案(等根任务文档清单)时正文停在占位:概况与工作说明都可能是
+              错的落点,先渲染哪个都会闪;用户手动切页签后立即解除占位。 */}
+          {landingPending ? (
+            <p data-testid="workspace-landing-pending" className="ui-meta p-3 text-text-faint">
+              {t("views.workspace.explainer.landingPending")}
+            </p>
+          ) : tab === "overview" ? (
             <WorkOverview
               connectionId={connectionId}
               repoId={repoId}
+              rootTaskId={scope.root.taskId}
               submitted={submitted}
               stalled={stalled}
               leaves={leafRows}
@@ -397,19 +431,21 @@ export function WorkspaceView({
               onAttest={onAttest}
               onConsent={onConsent}
               onOpenTask={openTask}
-              onOpenProgress={() => setTab("progress")}
+              onOpenProgress={() => goTo("progress")}
+              onOpenExplainer={() => goTo("explainer")}
               onFilterStatus={(status) => {
                 setStatusFilter(status);
-                setTab("tasks");
+                goTo("tasks");
               }}
               onFilterGroup={(group) => {
                 // 点一组是「看这组的任务」这个新意图,不再叠着上一个状态过滤。
                 setGroupFilter(group);
                 setStatusFilter("");
-                setTab("tasks");
+                goTo("tasks");
               }}
             />
           ) : null}
+          {tab === "explainer" ? <WorkExplainerDocument repoId={repoId} taskId={scope.root.taskId} fill /> : null}
           {tab === "tasks" ? (
             <div>
               <WorkTasksTab
@@ -487,7 +523,7 @@ export function WorkspaceView({
               data-testid="workspace-root-task"
               className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-sm border border-border"
             >
-              {renderRootTask(() => setTab("overview"))}
+              {renderRootTask(() => goTo("overview"))}
             </section>
           ) : null}
         </TabPanel>
