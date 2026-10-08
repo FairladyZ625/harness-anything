@@ -7,7 +7,7 @@ import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { recordHeadConfirmation } from "../src/fleet/replica-read-model.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
-import { makeTaskEventReader, sha256Text } from "@harness-anything/kernel";
+import { makeTaskEventReader, READ_MODEL_SCHEMA_GENERATION, sha256Text } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
@@ -536,7 +536,11 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   );
   assert.ok(answer.cut);
   const view = locateFleetMirrorView(b.viewRoot, "lease-repo")!;
-  recordHeadConfirmation(view.viewDir, { revision: view.revision, headDigest: view.headDigest }, 0);
+  recordHeadConfirmation(
+    view.viewDir,
+    { revision: view.revision, headDigest: view.headDigest, schemaGeneration: READ_MODEL_SCHEMA_GENERATION },
+    0,
+  );
   const connections = t.mock.method(tls, "connect");
   syncBuiltinESMExports();
   const response = await b.rpc.handle({

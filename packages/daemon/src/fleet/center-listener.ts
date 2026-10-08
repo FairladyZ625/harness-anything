@@ -16,7 +16,12 @@ import path from "node:path";
 import type { SnapshotCut } from "./replica-cut-store.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { edgeReadAuthorizationShapeDigest, resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import {
+  edgeReadAuthorizationShapeDigest,
+  READ_MODEL_SCHEMA_GENERATION,
+  resolveHarnessLayout,
+  sha256Bytes,
+} from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -698,7 +703,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         receipt.cut &&
         typeof receipt.cut.revision === "number" &&
         typeof receipt.cut.headDigest === "string"
-          ? { appliedCut: { revision: receipt.cut.revision, headDigest: receipt.cut.headDigest } }
+          ? {
+              appliedCut: {
+                revision: receipt.cut.revision,
+                headDigest: receipt.cut.headDigest,
+                schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+              },
+            }
           : {}),
         code: receipt.code ?? null,
         receipt: receipt as unknown as Readonly<Record<string, unknown>>,

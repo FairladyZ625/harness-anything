@@ -136,7 +136,11 @@ test("a node's next pull retires its frozen legacy view row from the center ledg
   // 测试床 B2 的传输层复现:S8 前静态 assignment 时代的旧 view 行冻结在中心台账里,节点
   // 已改用 nodeId 命名的新 view 拉取。先在 listener 启动前把残迹种进 ack store。
   const legacy = { nodeId: "node-one", viewId: "node-one-schedule-view", repoId: fixture.subject.repoId },
-    legacyCut = { revision: 5, headDigest: `sha256:${"a".repeat(64)}` },
+    legacyCut = {
+      revision: 5,
+      headDigest: `sha256:${"a".repeat(64)}`,
+      schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+    },
     legacyDigest = "b".repeat(64),
     seed = openReplicaAckStore(fixture.stateRoot);
   seed.register(legacy, 3);

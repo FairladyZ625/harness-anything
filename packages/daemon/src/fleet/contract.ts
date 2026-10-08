@@ -20,11 +20,11 @@ export const FLEET_FRAME_BYTES = 96 * 1024,
   FLEET_PAGE_ROWS = 128,
   FLEET_KEY_SEND_WINDOW_BYTES = 256 * 1024,
   FLEET_SESSION_SEND_WINDOW_BYTES = 512 * 1024;
-export type FleetCut = Readonly<{ revision: number; headDigest: string }>;
+export type FleetCut = Readonly<{ revision: number; headDigest: string; schemaGeneration: number }>;
 // The edge names the exact cut its carried documents were based on — revision
 // AND head digest — so a center rollback or same-revision rewrite can never
 // pass the mirror gate on numbers alone.
-export type FleetMirrorBaseCut = FleetCut;
+export type FleetMirrorBaseCut = Readonly<{ revision: number; headDigest: string }>;
 export type FleetBlob = Readonly<{ sha256: string; size: number; mediaType: string }>;
 export type FleetDescriptor = FleetBlob & Readonly<{ ref: string }>;
 export type FleetTaskCommandKind = string;
@@ -330,13 +330,17 @@ const base64: Check = (value) =>
 const cut = shape({
     revision: uint,
     headDigest: (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value),
+    schemaGeneration: uint,
   }),
   ledgerCut = shape({
     repoId: id,
     revision: uint,
     headDigest: (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value),
   }),
-  mirrorBaseCutShape = cut;
+  mirrorBaseCutShape = shape({
+    revision: uint,
+    headDigest: (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value),
+  });
 const blob = shape({ sha256: sha64, size: uint, mediaType: text }),
   descriptor = shape({
     ref: (value) => typeof value === "string" && /^doc-sync-claims\/[A-Za-z0-9_-]{1,96}$/u.test(value),

@@ -251,11 +251,9 @@ function finish(
     const previous = readJson<Current>(path.join(viewRoot, "current.json"));
     if (!previous || JSON.stringify(previous.cut) !== JSON.stringify(begin.fromCut))
       throw new Error("snapshot_required: delta base changed");
-    const previousIdentity =
-      previous.schemaGeneration === undefined
-        ? String(previous.cut.revision)
-        : `${previous.cut.revision}-g${previous.schemaGeneration}`;
-    const prior = readJson<Manifest>(path.join(viewRoot, "cuts", previousIdentity, "manifest.json"));
+    const prior = readJson<Manifest>(
+      path.join(viewRoot, "cuts", `${previous.cut.revision}-g${previous.schemaGeneration}`, "manifest.json"),
+    );
     if (!prior) throw new Error("snapshot_required: current manifest missing");
     entries = [...prior.entries];
     changes = pages.flatMap((page) => (page.schema === "fleet.delta.page/v1" ? page.changes : []));
@@ -315,6 +313,7 @@ function finish(
     : 0;
   if (!Number.isSafeInteger(schemaGeneration) || schemaGeneration < 0)
     throw new Error("snapshot schema generation is invalid");
+  if (schemaGeneration !== cut.schemaGeneration) throw new Error("snapshot schema generation does not match its cut");
   const manifest: Manifest = {
     cut,
     schemaGeneration,
@@ -349,15 +348,14 @@ function finish(
   return ack(begin.transferId, cut, digest);
 }
 function collect(viewRoot: string, casRoot: string, currentIdentity: string): void {
-  // Retired revision-only directories keep their CAS references until two-cut retention retires them.
   const cutsRoot = path.join(viewRoot, "cuts"),
     revisions = existsSync(cutsRoot)
       ? readdirSync(cutsRoot)
-          .filter((name) => /^\d+(?:-g\d+)?$/u.test(name))
+          .filter((name) => /^\d+-g\d+$/u.test(name))
           .sort(
             (a, b) =>
               Number(b.split("-g")[0]) - Number(a.split("-g")[0]) ||
-              Number(b.split("-g")[1] ?? -1) - Number(a.split("-g")[1] ?? -1),
+              Number(b.split("-g")[1]) - Number(a.split("-g")[1]),
           )
       : [],
     keep = new Set([currentIdentity, ...revisions.filter((revision) => revision !== currentIdentity).slice(0, 1)]);
@@ -371,7 +369,7 @@ function collect(viewRoot: string, casRoot: string, currentIdentity: string): vo
       const root = path.join(viewsRoot, view, "cuts");
       return existsSync(root)
         ? readdirSync(root)
-            .filter((name) => /^\d+(?:-g\d+)?$/u.test(name))
+            .filter((name) => /^\d+-g\d+$/u.test(name))
             .slice(0, 2)
             .flatMap(
               (revision) =>

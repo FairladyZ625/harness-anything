@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { createServer } from "node:tls";
-import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
+import { READ_MODEL_SCHEMA_GENERATION, sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { digestId } from "../src/fleet/center-transport.ts";
@@ -175,7 +175,11 @@ test(
         schema: "fleet.ack/v1",
         messageId: "forged",
         transferId: "not-issued",
-        cut: { revision: second.center.revision!, headDigest: `sha256:${"0".repeat(64)}` },
+        cut: {
+          revision: second.center.revision!,
+          headDigest: `sha256:${"0".repeat(64)}`,
+          schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+        },
         manifestDigest: "0".repeat(64),
       });
     assert.equal(forged.schema, "fleet.error/v1");

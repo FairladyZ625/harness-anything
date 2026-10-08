@@ -18,6 +18,7 @@ import {
 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { fleetManifestDigest, type FleetBlob, type FleetEntry, type FleetFrameV1 } from "../src/fleet/contract.ts";
+import { digestId } from "../src/fleet/center-transport.ts";
 import { openReplicaAckStore, type ReplicaOffer } from "../src/fleet/replica-ack-store.ts";
 import { openReplicaCutSource, type ReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
 import { makeOffer, offerFrames } from "../src/fleet/center-replica-offer.ts";
@@ -149,7 +150,11 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
       repoId: options.repoId,
       transferId: `old-${nodeId}`,
       fromCut: null,
-      toCut: { revision: 1, headDigest: staleCut.headDigest },
+      toCut: {
+        revision: 1,
+        headDigest: staleCut.headDigest,
+        schemaGeneration: READ_MODEL_SCHEMA_GENERATION - 1,
+      },
       manifestDigest: oldDigest,
       kind: "snapshot" as const,
       issuedAt: "2026-10-08T00:00:00Z",
@@ -201,19 +206,6 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
     assert.deepEqual(readdirSync(path.join(view.viewDir, "cuts")).sort(), ["1", `1-g${currentMeta.schemaGeneration}`]);
     const model = openEdgeReadModel(view, path.join(edgeRoot, "repos/schema-repo/cas/sha256"));
     assert.ok(model, JSON.stringify(readReplicaHealth(view.viewDir)));
-    for (const oldEntry of oldEntries) {
-      const casPath = path.join(
-        edgeRoot,
-        "repos/schema-repo/cas/sha256",
-        oldEntry.blob.sha256.slice(0, 2),
-        oldEntry.blob.sha256,
-      );
-      assert.equal(
-        sha256Bytes(readFileSync(casPath)),
-        oldEntry.blob.sha256,
-        "retained legacy snapshot keeps its CAS bytes through concurrent upgrade",
-      );
-    }
     assert.equal(model.meta.schemaGeneration, currentMeta.schemaGeneration);
     assert.equal(model.meta.sourceRevision, 1);
     const queries = makeEdgeReplicaQueries({ db: model.db, cut: { status: "ready", watermark: 1, sourceRevision: 1 } });
@@ -246,36 +238,48 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
   assert.equal(READ_MODEL_SCHEMA_GENERATION, currentMeta.schemaGeneration);
 });
 
-function deltaFixture(prefix: string) {
+function generationDeltaFixture(prefix: string) {
   const root = mkdtempSync(path.join(tmpdir(), prefix)),
     key = { nodeId: "legacy-node", viewId: "legacy-node", repoId: "legacy-repo" },
     bytes = new Map<string, Buffer>();
   const entry = (logicalPath: string, body: string): FleetEntry => {
       const content = Buffer.from(body),
-        blob: FleetBlob = { sha256: sha256Bytes(content), size: content.length, mediaType: "text/markdown" };
+        blob: FleetBlob = { sha256: sha256Bytes(content), size: content.length, mediaType: "application/json" };
       bytes.set(blob.sha256, content);
       return { path: logicalPath, blob };
     },
-    entries1 = [entry("tasks/example/INDEX.md", "one\n")],
-    entries2 = [entry("tasks/example/INDEX.md", "two\n")],
+    entries1 = [
+      entry(
+        READ_MODEL_META_PATH,
+        JSON.stringify({ schemaGeneration: READ_MODEL_SCHEMA_GENERATION, sourceRevision: 414, rootThreshold: 0 }),
+      ),
+      entry("tasks/example.json", JSON.stringify({ schemaGeneration: READ_MODEL_SCHEMA_GENERATION, value: "one" })),
+    ],
+    entries2 = [
+      entry(
+        READ_MODEL_META_PATH,
+        JSON.stringify({ schemaGeneration: READ_MODEL_SCHEMA_GENERATION, sourceRevision: 415, rootThreshold: 0 }),
+      ),
+      entry("tasks/example.json", JSON.stringify({ schemaGeneration: READ_MODEL_SCHEMA_GENERATION, value: "two" })),
+    ],
     cut1 = {
       repoId: key.repoId,
-      revision: 1,
+      revision: 414,
       headDigest: `sha256:${"1".repeat(64)}`,
       manifest: {
         digest: fleetManifestDigest(entries1),
         entryCount: entries1.length,
-        totalBytes: entries1[0]!.blob.size,
+        totalBytes: entries1.reduce((sum, item) => sum + item.blob.size, 0),
       },
     },
     cut2 = {
       repoId: key.repoId,
-      revision: 2,
+      revision: 415,
       headDigest: `sha256:${"2".repeat(64)}`,
       manifest: {
         digest: fleetManifestDigest(entries2),
         entryCount: entries2.length,
-        totalBytes: entries2[0]!.blob.size,
+        totalBytes: entries2.reduce((sum, item) => sum + item.blob.size, 0),
       },
     },
     source: ReplicaCutSource = {
@@ -291,13 +295,14 @@ function deltaFixture(prefix: string) {
       manifest: (revision) => (revision === cut1.revision ? entries1 : revision === cut2.revision ? entries2 : null),
       changes: (from, to) =>
         from === cut1.revision && to === cut2.revision
-          ? [{ op: "put", path: entries2[0]!.path, blob: entries2[0]!.blob }]
+          ? entries2.map((item) => ({ op: "put" as const, path: item.path, blob: item.blob }))
           : null,
       changeLog: () => [],
       content: (blob) => bytes.get(blob.sha256)!,
       close: () => undefined,
     },
-    edge = openFleetEdgeView(path.join(root, "edge"), 64 * 1024 * 1024),
+    edgeRoot = path.join(root, "edge"),
+    edge = openFleetEdgeView(edgeRoot, 64 * 1024 * 1024),
     authorization = { owner: "person-one", digest: "a".repeat(64) },
     deliver = async (offer: ReplicaOffer) => {
       let ack: Extract<FleetFrameV1, { schema: "fleet.ack/v1" }> | null = null;
@@ -308,111 +313,188 @@ function deltaFixture(prefix: string) {
       assert.ok(ack);
       return ack;
     };
-  return { root, key, cut1, cut2, source, edge, deliver };
+  return { root, key, cut1, cut2, source, edgeRoot, edge, deliver };
 }
 
-test("a retained delta migrates an ACKed revision-only edge base", async () => {
-  const fixture = deltaFixture("ha-replica-legacy-delta-");
+test("generation-bearing wire retires legacy center state before snapshot then retains same-generation delta", async () => {
+  const fixture = generationDeltaFixture("ha-replica-wire-generation-");
+  let store = openReplicaAckStore(path.join(fixture.root, "center"));
   try {
-    const store = openReplicaAckStore(path.join(fixture.root, "center")),
-      baseOffer = {
-        ...fixture.key,
-        ...makeOffer(fixture.key, null, fixture.cut1, fixture.source, "2026-10-08T00:00:00.000Z"),
-      };
-    store.register(fixture.key, 0);
-    const baseLease = store.delivery.claim(fixture.key, "base-holder", Date.parse("2026-10-08T00:00:00.000Z"), 30_000)!,
-      baseAck = await fixture.deliver(baseOffer);
-    store.offer(fixture.key, baseOffer);
-    assert.equal(
-      store.ack(
-        fixture.key,
-        baseAck.transferId,
-        baseAck.cut,
-        baseAck.manifestDigest,
-        "2026-10-08T00:00:01.000Z",
-        "2026-10-08T00:00:00.000Z",
-        baseLease,
-      ).outcome,
-      "applied",
+    assert.equal(store.register(fixture.key, 414), 414);
+    store.close();
+
+    const database = new DatabaseSync(path.join(fixture.root, "center/replica/repos/legacy-repo/ack.sqlite"));
+    database.exec(
+      `CREATE TABLE IF NOT EXISTS ack_proof_g${READ_MODEL_SCHEMA_GENERATION}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,revision INTEGER NOT NULL,head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,transfer_id TEXT NOT NULL,acked_at TEXT NOT NULL,cut_event_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id,revision)); CREATE TABLE IF NOT EXISTS ack_cursor_g${READ_MODEL_SCHEMA_GENERATION}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,revision INTEGER NOT NULL,head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,transfer_id TEXT NOT NULL,acked_at TEXT NOT NULL,cut_event_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id)); CREATE TABLE IF NOT EXISTS active_offer_g${READ_MODEL_SCHEMA_GENERATION}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,transfer_id TEXT NOT NULL UNIQUE,from_revision INTEGER,from_head_digest TEXT,to_revision INTEGER NOT NULL,to_head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,kind TEXT NOT NULL,issued_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id));`,
     );
-    store.delivery.release(baseLease);
+    database
+      .prepare(`INSERT OR REPLACE INTO ack_proof_g${READ_MODEL_SCHEMA_GENERATION} VALUES(?,?,?,?,?,?,?,?)`)
+      .run(
+        fixture.key.nodeId,
+        fixture.key.viewId,
+        414,
+        fixture.cut1.headDigest,
+        fixture.cut1.manifest.digest,
+        "legacy-ack",
+        "2026-10-08T00:00:00.000Z",
+        "2026-10-07T00:00:00.000Z",
+      );
+    database
+      .prepare(`INSERT OR REPLACE INTO ack_cursor_g${READ_MODEL_SCHEMA_GENERATION} VALUES(?,?,?,?,?,?,?,?)`)
+      .run(
+        fixture.key.nodeId,
+        fixture.key.viewId,
+        414,
+        fixture.cut1.headDigest,
+        fixture.cut1.manifest.digest,
+        "legacy-ack",
+        "2026-10-08T00:00:00.000Z",
+        "2026-10-07T00:00:00.000Z",
+      );
+    database
+      .prepare(`INSERT OR REPLACE INTO active_offer_g${READ_MODEL_SCHEMA_GENERATION} VALUES(?,?,?,?,?,?,?,?,?,?)`)
+      .run(
+        fixture.key.nodeId,
+        fixture.key.viewId,
+        "legacy-delta",
+        414,
+        fixture.cut1.headDigest,
+        415,
+        fixture.cut2.headDigest,
+        fixture.cut2.manifest.digest,
+        "delta",
+        "2026-10-08T00:00:01.000Z",
+      );
+    database.close();
 
-    const viewDir = path.join(fixture.root, "edge/repos/legacy-repo/views/legacy-node"),
-      currentPath = path.join(viewDir, "current.json"),
-      legacyCurrent = JSON.parse(readFileSync(currentPath, "utf8"));
-    renameSync(path.join(viewDir, "cuts", "1-g0"), path.join(viewDir, "cuts", "1"));
-    delete legacyCurrent.schemaGeneration;
-    writeFileSync(currentPath, JSON.stringify(legacyCurrent));
+    const viewDir = path.join(fixture.edgeRoot, "repos/legacy-repo/views/legacy-node"),
+      sentinel = "legacy-manifest-must-not-be-read";
+    mkdirSync(path.join(viewDir, "cuts/414"), { recursive: true });
+    writeFileSync(
+      path.join(viewDir, "current.json"),
+      JSON.stringify({
+        cut: { revision: 414, headDigest: fixture.cut1.headDigest },
+        manifestDigest: fixture.cut1.manifest.digest,
+        authorizationOwner: "person-one",
+        authorizationShapeDigest: "a".repeat(64),
+      }),
+    );
+    writeFileSync(path.join(viewDir, "cuts/414/manifest.json"), sentinel);
 
-    const deltaOffer = {
+    const deltaBegin = {
+      schema: "fleet.delta.begin/v1",
+      messageId: "legacy-delta-begin",
+      transferId: "legacy-delta",
+      repoId: fixture.key.repoId,
+      viewId: fixture.key.viewId,
+      fromCut: {
+        revision: 414,
+        headDigest: fixture.cut1.headDigest,
+        schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+      },
+      toCut: {
+        revision: 415,
+        headDigest: fixture.cut2.headDigest,
+        schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+      },
+      changeCount: 2,
+      resultManifestDigest: fixture.cut2.manifest.digest,
+      authorizationOwner: "person-one",
+      authorizationShapeDigest: "a".repeat(64),
+    } as const;
+    assert.throws(() => fixture.edge.receive(deltaBegin), /snapshot_required: delta base cut is not current/u);
+
+    store = openReplicaAckStore(path.join(fixture.root, "center"));
+    assert.equal(store.registrationRevision(fixture.key), 414, "registration remains shared across wire identities");
+    assert.equal(store.cursor(fixture.key), null, "revision-only cursor cannot become a generation-bearing cursor");
+    assert.equal(store.offerFor(fixture.key), null, "revision-only active offer cannot shadow current wire state");
+    const snapshot = {
       ...fixture.key,
-      ...makeOffer(fixture.key, store.cursor(fixture.key), fixture.cut2, fixture.source, "2026-10-08T00:00:02.000Z"),
+      ...makeOffer(fixture.key, store.cursor(fixture.key), fixture.cut1, fixture.source, "2026-10-08T00:00:02.000Z"),
     };
-    assert.equal(deltaOffer.kind, "delta");
-    store.offer(fixture.key, deltaOffer);
-    const deltaLease = store.delivery.claim(
+    assert.equal(snapshot.kind, "snapshot");
+    assert.equal(
+      snapshot.transferId,
+      digestId(
+        fixture.key.nodeId,
+        fixture.key.viewId,
+        fixture.key.repoId,
+        "0",
+        "0",
+        String(snapshot.toCut.revision),
+        String(snapshot.toCut.schemaGeneration),
+        snapshot.manifestDigest,
+      ),
+      "transfer identity includes both endpoint generations",
+    );
+    store.offer(fixture.key, snapshot);
+    const snapshotLease = store.delivery.claim(
         fixture.key,
-        "delta-holder",
+        "snapshot-holder",
         Date.parse("2026-10-08T00:00:02.000Z"),
         30_000,
       )!,
-      deltaAck = await fixture.deliver(deltaOffer);
+      snapshotAck = await fixture.deliver(snapshot);
+    assert.equal(
+      store.ack(
+        fixture.key,
+        snapshotAck.transferId,
+        snapshotAck.cut,
+        snapshotAck.manifestDigest,
+        "2026-10-08T00:00:03.000Z",
+        "2026-10-08T00:00:00.000Z",
+        snapshotLease,
+      ).outcome,
+      "applied",
+    );
+    store.delivery.release(snapshotLease);
+    assert.equal(
+      fixture.edge.current(fixture.key.repoId, fixture.key.viewId)?.schemaGeneration,
+      READ_MODEL_SCHEMA_GENERATION,
+    );
+    assert.equal(readFileSync(path.join(viewDir, "cuts/414/manifest.json"), "utf8"), sentinel);
+
+    const delta = {
+      ...fixture.key,
+      ...makeOffer(fixture.key, store.cursor(fixture.key), fixture.cut2, fixture.source, "2026-10-08T00:00:04.000Z"),
+    };
+    assert.equal(delta.kind, "delta", "the generation-bearing 414 base remains eligible for retained delta");
+    assert.notEqual(delta.transferId, snapshot.transferId);
+    store.offer(fixture.key, delta);
+    const deltaLease = store.delivery.claim(
+        fixture.key,
+        "delta-holder",
+        Date.parse("2026-10-08T00:00:04.000Z"),
+        30_000,
+      )!,
+      deltaAck = await fixture.deliver(delta);
     assert.equal(
       store.ack(
         fixture.key,
         deltaAck.transferId,
         deltaAck.cut,
         deltaAck.manifestDigest,
-        "2026-10-08T00:00:03.000Z",
-        "2026-10-08T00:00:02.000Z",
+        "2026-10-08T00:00:05.000Z",
+        "2026-10-08T00:00:00.000Z",
         deltaLease,
       ).outcome,
       "applied",
     );
-    assert.equal(store.cursor(fixture.key)?.revision, 2);
-    assert.equal(
-      locateFleetMirrorView(path.join(fixture.root, "edge"), fixture.key.repoId, fixture.key.viewId)?.revision,
-      2,
-    );
-    assert.equal(fixture.edge.current(fixture.key.repoId, fixture.key.viewId)?.schemaGeneration, 0);
-    store.close();
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-});
+    assert.equal(store.cursor(fixture.key)?.revision, 415);
+    assert.equal(fixture.edge.current(fixture.key.repoId, fixture.key.viewId)?.cut.revision, 415);
 
-test("a generation-bearing current rejects a delta when its exact manifest is missing", async () => {
-  const fixture = deltaFixture("ha-replica-missing-generation-delta-");
-  try {
-    const baseOffer = {
-      ...fixture.key,
-      ...makeOffer(fixture.key, null, fixture.cut1, fixture.source, "2026-10-08T00:00:00.000Z"),
-    };
-    await fixture.deliver(baseOffer);
-    const viewDir = path.join(fixture.root, "edge/repos/legacy-repo/views/legacy-node");
-    renameSync(path.join(viewDir, "cuts", "1-g0"), path.join(viewDir, "cuts", "1"));
-    assert.equal(fixture.edge.current(fixture.key.repoId, fixture.key.viewId)?.schemaGeneration, 0);
-    const deltaOffer = {
-      ...fixture.key,
-      ...makeOffer(
-        fixture.key,
-        {
-          ...fixture.key,
-          revision: fixture.cut1.revision,
-          headDigest: fixture.cut1.headDigest,
-          manifestDigest: fixture.cut1.manifest.digest,
-          transferId: baseOffer.transferId,
-          ackedAt: "2026-10-08T00:00:01.000Z",
-          cutEventAt: "2026-10-08T00:00:00.000Z",
-        },
-        fixture.cut2,
-        fixture.source,
-        "2026-10-08T00:00:02.000Z",
-      ),
-    };
-    assert.equal(deltaOffer.kind, "delta");
-    await assert.rejects(fixture.deliver(deltaOffer), /snapshot_required: current manifest missing/u);
+    assert.throws(
+      () =>
+        fixture.edge.receive({
+          ...deltaBegin,
+          transferId: "wrong-generation",
+          fromCut: { ...deltaBegin.fromCut, schemaGeneration: READ_MODEL_SCHEMA_GENERATION - 1 },
+          toCut: { ...deltaBegin.toCut, revision: 416 },
+        }),
+      /snapshot_required: delta base cut is not current/u,
+    );
   } finally {
+    store.close();
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
