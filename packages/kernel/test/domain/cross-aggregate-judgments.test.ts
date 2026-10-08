@@ -124,6 +124,33 @@ test("closeout readiness requires a passing exact-cut gate, not witness existenc
   );
 });
 
+test("a forwarded cut owes its review verdict even when the profile lifted review", () => {
+  // The lightweight upgrade: the frozen override lifted review/consent, and the owner answered by
+  // forwarding the cut to in_review — the corridor position itself is the review order.
+  const lifted = Object.freeze({
+      review: false,
+      consent: false,
+      fact: false,
+      factDisposition: false,
+      codeDoc: false,
+    }),
+    forwarded = closeout("pass"),
+    awaiting = {
+      ...forwarded,
+      task: { ...forwarded.task!, closeoutOverrides: { review: false, consent: false, fact: false } },
+      reviews: [],
+      consents: [],
+    };
+  assert.equal(closeoutReadiness(awaiting, undefined, lifted).readiness, "incomplete");
+  assert.equal(closeoutReadiness(awaiting, undefined, lifted).blocker, "review");
+  // An approved review settles the corridor; consent stays lifted with the profile.
+  const approvedOnly = { ...awaiting, reviews: forwarded.reviews, consents: [] };
+  assert.equal(closeoutReadiness(approvedOnly, undefined, lifted).readiness, "ready");
+  // Unforwarded, the lifted default stands: the submitted cut completes straight.
+  const unforwarded = { ...awaiting, task: { ...awaiting.task!, status: "submitted" as const } };
+  assert.equal(closeoutReadiness(unforwarded, undefined, lifted).readiness, "ready");
+});
+
 test("a done projection without an execution cut is not passed", () => {
   const withoutCut = closeout("pass");
   assert.equal(

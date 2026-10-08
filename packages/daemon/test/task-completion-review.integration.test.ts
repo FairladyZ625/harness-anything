@@ -101,6 +101,57 @@ test("owner forward is the only path from submitted into independent review and 
   }
 });
 
+test("a lightweight task's forward order upgrades the cut into the review corridor instead of deadlocking", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, {
+    autoSubmit: false,
+    autoForward: false,
+    create: { profileId: "lightweight" },
+  });
+  try {
+    await f.install();
+    // A task-package-artifact delivery: file the artifact, sync it, and anchor it in the closeout.
+    const report = `${f.packagePath}/artifacts/delivery.md`;
+    mkdirSync(path.dirname(path.join(f.root, "harness", report)), { recursive: true });
+    writeFileSync(path.join(f.root, "harness", report), "Lightweight delivery evidence.\n");
+    const synced = (await f.run({ kind: "doc-submit", taskId })) as Receipt;
+    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+    writeFileSync(
+      path.join(f.root, "harness", f.packagePath, "closeout.md"),
+      `# Closeout\n\n## Summary\n\nReviewed delivery artifact:${report}@${String(synced.revision)}\n\n` +
+        "## Verification\n\nREADME bytes checked.\n\n## Residual Risk\n\nNone.\n\n" +
+        "## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
+    );
+    const submitted = (await f.run({ kind: "task-submit", taskId, executionId })) as Receipt;
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.equal(f.launches.length, 0, "the lightweight submit itself dispatches no reviewer");
+    // The deadloop's other end: dispatch-review advises the forward order, so that order must work.
+    const advised = (await f.run({ kind: "task-dispatch-review", taskIds: [taskId] })) as Receipt;
+    assert.equal(advised.outcome, "op_rejected", JSON.stringify(advised));
+    assert.match(
+      String(advised.rejectionExplanation),
+      /ha task adjudicate [^;]+ --forward/u,
+      "the triage advice still names the forward order",
+    );
+    const forwarded = await f.forward();
+    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+    assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
+    assert.equal(f.launches.length, 1, "the forward order dispatches exactly one reviewer");
+    // The upgrade is real: until the verdict lands, completion owes its review.
+    const early = (await f.complete()) as Receipt;
+    assert.equal(early.outcome, "op_rejected", JSON.stringify(early));
+    assert.equal(early.code, "review_missing", JSON.stringify(early));
+    assert.match(String(early.rejectionExplanation), /no recorded review/u);
+    const reviewed = await f.review(runtimeSessionId(forwarded), "review-lightweight-upgrade");
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    // Consent stays lifted with the profile: the approved verdict is the only added requirement.
+    const completed = (await f.complete()) as Receipt;
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    assert.equal((await taskStatus(f)).status, "done");
+  } finally {
+    await f.close();
+  }
+});
+
 test("changes requested remains in review until the owner returns the cut with instructions", async () => {
   const f = await fixture();
   try {

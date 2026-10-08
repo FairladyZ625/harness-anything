@@ -103,7 +103,10 @@ export function closeoutReadiness(
       execution,
       snapshot.reviewDispositions ?? [],
     );
-  if (effectiveGates?.review !== false && !approved.length && !consented)
+  // The forward order is the only way into in_review, so the corridor position itself re-arms the
+  // review a lifted profile skipped: the owner who forwards a lightweight cut bought the verdict.
+  // Keyed on status, not an override rewrite — a preset upgrade resets task-bound overrides.
+  if ((effectiveGates?.review !== false || task.status === "in_review") && !approved.length && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
   if (effectiveGates?.consent !== false && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
