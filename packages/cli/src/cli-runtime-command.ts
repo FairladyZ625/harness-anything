@@ -19,7 +19,42 @@ export function isRuntimeFacadeCommand(command: ThinCommand): boolean {
 export async function runRuntimeFacadeCommand(
   command: ThinCommand,
   writeActivity: (text: string) => void = (text) => process.stderr.write(text),
+  request: (command: ThinCommand) => Promise<JsonObject> = runCommandThroughDaemon,
 ): Promise<JsonObject> {
+  if (command.action.claimNext === true) {
+    const candidates = await request({
+      ...command,
+      method: "repo.tasks.claimable",
+      action: { kind: "repository-read" },
+    });
+    if (candidates.ok === false) return candidates;
+    // The daemon validates the claimable read schema; use its ordered, bounded snapshot once.
+    const tasks = candidates.tasks as JsonObject[],
+      { claimNext: _claimNext, ...action } = command.action;
+    let taskId: string | undefined;
+    for (const task of tasks) {
+      const started = await request({
+        ...command,
+        method: "repo.task.run",
+        action: { kind: "task-start", taskId: task.taskId },
+      });
+      if (started.outcome === "applied") {
+        taskId = String(task.taskId);
+        break;
+      }
+      const error = started.error as JsonObject | undefined;
+      if ((started.code ?? error?.code) !== "lease_conflict") return started;
+    }
+    if (!taskId)
+      return {
+        ok: true,
+        command: "runtime-run",
+        outcome: "empty",
+        exitCode: 0,
+        summary: "agent run: no claimable task acquired from this candidate pool.",
+      };
+    command = { ...command, action: { ...action, taskId } };
+  }
   const action = command.action;
   if (action.kind.startsWith("runtime-handoff-")) return runCommandThroughDaemon(command);
   if (command.method.startsWith("repo.runtimeInstance.auth.")) return runRuntimeAuthCommand(command, writeActivity);
@@ -55,7 +90,7 @@ export async function runRuntimeFacadeCommand(
       : result;
   }
   const { noStream: _noStream, detach = false, ...spawnAction } = action,
-    spawned = await runCommandThroughDaemon({
+    spawned = await request({
       ...command,
       action: {
         ...spawnAction,
