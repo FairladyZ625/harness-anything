@@ -103,10 +103,10 @@ export function makeScheduleScheduler(input: {
         armRetry();
         return;
       }
-      // A clean settlement re-evaluates at once. A receipt rejection is the cell's final verdict
+      // A changed plan re-evaluates at once. A receipt rejection is the cell's final verdict
       // on that interval — recorded, never retried on a timer — and the due batch below still
       // arms, so one repository's verdict cannot freeze every other schedule.
-      if (settlement === "clean") return reconcile();
+      if (settlement === "changed") return reconcile();
     }
     if (plan.pending) {
       armRetry();
@@ -142,7 +142,7 @@ export function makeScheduleScheduler(input: {
         armRetry();
         return;
       }
-      if (settlement === "clean") {
+      if (settlement === "changed") {
         await reconcile();
         return;
       }
@@ -423,11 +423,11 @@ async function recordMissed(input: MissedOccurrences): Promise<"settled" | "reje
 }
 
 /** Every missed interval settled, receipt-rejected, or left waiting on a transient failure. */
-type MissedSettlement = "clean" | "rejected" | "transient";
+type MissedSettlement = "changed" | "rejected" | "transient";
 
 async function applyMissed(inputs: readonly MissedOccurrences[]): Promise<MissedSettlement> {
   const outcomes = await Promise.allSettled(inputs.map(recordMissed));
-  let settlement: MissedSettlement = "clean";
+  let settlement: MissedSettlement = "rejected";
   for (const [index, outcome] of outcomes.entries()) {
     if (outcome.status === "rejected") {
       consumeKnownError(outcome.reason);
@@ -437,7 +437,7 @@ async function applyMissed(inputs: readonly MissedOccurrences[]): Promise<Missed
           errorMessage(outcome.reason),
       );
       settlement = "transient";
-    } else if (outcome.value === "rejected" && settlement === "clean") settlement = "rejected";
+    } else if (outcome.value === "settled" && settlement !== "transient") settlement = "changed";
   }
   return settlement;
 }
