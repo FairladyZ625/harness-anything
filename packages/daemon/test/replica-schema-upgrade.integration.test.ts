@@ -196,10 +196,7 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
   await Promise.all(["node-one", "node-two"].map((nodeId) => deliver(upgraded, nodeId)));
   for (const nodeId of ["node-one", "node-two"]) {
     const view = locateFleetMirrorView(edgeRoot, options.repoId, nodeId)!;
-    assert.deepEqual(readdirSync(path.join(view.viewDir, "cuts")).sort(), [
-      `1-g${currentMeta.schemaGeneration - 1}`,
-      `1-g${currentMeta.schemaGeneration}`,
-    ]);
+    assert.deepEqual(readdirSync(path.join(view.viewDir, "cuts")).sort(), ["1", `1-g${currentMeta.schemaGeneration}`]);
     const model = openEdgeReadModel(view, path.join(edgeRoot, "repos/schema-repo/cas/sha256"));
     assert.ok(model, JSON.stringify(readReplicaHealth(view.viewDir)));
     for (const oldEntry of oldEntries) {
