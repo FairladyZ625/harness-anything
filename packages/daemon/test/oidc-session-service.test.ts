@@ -450,3 +450,134 @@ test("independent daemons reject each other's state without consuming their own 
   assert.equal((await first.service.complete("a", String(a.state))).authenticated, true);
   assert.equal((await second.service.complete("b", String(b.state))).authenticated, true);
 });
+
+test("offline identity is confined to replica reads and expires independently of the token", async () => {
+  const active = fixture(Date.now());
+  await signIn(active);
+  active.clock.now += 65_000;
+  active.keycloak.reachable = false;
+  const auth = { transportKind: "unix-socket" as const };
+  const bound = await active.service.bind(auth, true);
+  assert.equal(bound.oidcPrincipal, undefined);
+  assert.equal(bound.replicaReadPrincipal?.personId, "person-zeyu");
+  assert.equal(localDefaultBinding(bound, null, true).actor.principal.personId, "person-zeyu");
+  const sessionEnvironment = { TEST_OFFLINE_SESSION: "retained" };
+  const replicaBinding = localDefaultBinding({ ...bound, sessionEnvironment }, null, true);
+  assert.deepEqual(replicaBinding.sessionEnvironment, sessionEnvironment);
+  assert.equal(replicaBinding.keycloakAuthorization, undefined);
+  const withOnlinePrincipal = {
+    ...bound,
+    oidcPrincipal: {
+      personId: "online-person",
+      subject: "online-subject",
+      accessToken: "online-token",
+      expiresAt: Date.now() + 60_000,
+      authority: { url: "https://keycloak.example", realm: "harness", clientId: "harness-center" },
+    },
+  };
+  const preferredReplica = localDefaultBinding(withOnlinePrincipal, null, true);
+  assert.equal(preferredReplica.actor.principal.personId, "person-zeyu");
+  assert.equal(preferredReplica.keycloakAuthorization, undefined);
+  assert.equal(localDefaultBinding(withOnlinePrincipal).actor.principal.personId, "online-person");
+  const expiredReplica = {
+    ...withOnlinePrincipal,
+    replicaReadPrincipal: { personId: "expired-person", sessionExpiresAt: Date.now() - 1 },
+  };
+  assert.equal(localDefaultBinding(expiredReplica, null, true).actor.principal.personId, "online-person");
+  assert.throws(() => localDefaultBinding({ ...expiredReplica, oidcPrincipal: undefined }, null, true), {
+    code: "authentication_required",
+  });
+  assert.throws(() => localDefaultBinding(bound), { code: "authentication_required" });
+  assert.equal((await active.service.bind(auth)).replicaReadPrincipal, undefined);
+  const store = managedRbacSessionStore(active.root);
+  const saved = JSON.parse(store.read()!);
+  active.clock.now = saved.sessionExpiresAt;
+  assert.equal((await active.service.bind(auth, true)).replicaReadPrincipal, undefined);
+  assert.equal(JSON.parse(store.read()!).expiresAt, saved.expiresAt);
+});
+
+for (const end of ["expiry", "logout"] as const)
+  for (const response of ["unreachable", "success"] as const) {
+    test(`a session ending by ${end} while renewal waits for ${response} cannot bind a replica read`, async () => {
+      let started!: () => void, finish!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const waiting = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const active = fixture(Date.now(), {
+        fetch: (async (input, init) => {
+          const grant = (init?.body as URLSearchParams | undefined)?.get("grant_type");
+          if (grant === "refresh_token") {
+            started();
+            await waiting;
+            if (response === "unreachable") throw new TypeError("unreachable");
+            return Response.json({
+              access_token: "x.e30.x",
+              refresh_token: "new",
+              expires_in: 60,
+              refresh_expires_in: 120,
+            });
+          }
+          if (String(input).endsWith("/token"))
+            return Response.json({
+              access_token: "x.e30.x",
+              refresh_token: "refresh",
+              expires_in: 60,
+              refresh_expires_in: 120,
+            });
+          return Response.json({ sub: "subject", harness_person_id: "person-zeyu" });
+        }) as typeof fetch,
+      });
+      await signIn(active);
+      active.clock.now += 65_000;
+      const bound = active.service.bind({ transportKind: "unix-socket" }, true);
+      await entered;
+      const logout = end === "logout" ? active.service.logout() : undefined;
+      if (end === "expiry") active.clock.now += 120_000;
+      finish();
+      const result = await bound;
+      assert.equal(result.oidcPrincipal, undefined);
+      assert.equal(result.replicaReadPrincipal, undefined);
+      if (logout) {
+        await logout;
+        assert.equal(managedRbacSessionStore(active.root).read(), undefined);
+      }
+    });
+  }
+
+test("HTTP 400 clears the session for offline reads and subsequent online uses", async () => {
+  const active = fixture(Date.now());
+  await signIn(active);
+  active.clock.now += 65_000;
+  active.keycloak.revoked = true;
+  const bound = await active.service.bind({ transportKind: "unix-socket" }, true);
+  assert.equal(bound.replicaReadPrincipal, undefined);
+  assert.equal(bound.oidcPrincipal, undefined);
+  assert.equal(managedRbacSessionStore(active.root).read(), undefined);
+  assert.equal((await active.service.status()).authenticated, false);
+  assert.equal(active.keycloak.refreshes, 1);
+});
+
+test("a reachable token endpoint error does not grant an offline identity", async () => {
+  const active = fixture(Date.now());
+  await signIn(active);
+  const store = managedRbacSessionStore(active.root);
+  store.write(JSON.stringify({ ...JSON.parse(store.read()!), expiresAt: Date.now() - 1 }));
+  const service = new OidcSessionService(active.root, {
+    fetch: (async () => new Response(null, { status: 503 })) as typeof fetch,
+  });
+  assert.equal((await service.bind({ transportKind: "unix-socket" }, true)).replicaReadPrincipal, undefined);
+});
+
+test("replica reads reject an ended session even when its access token has time remaining", async () => {
+  const active = fixture(Date.now());
+  await signIn(active);
+  const store = managedRbacSessionStore(active.root);
+  store.write(JSON.stringify({ ...JSON.parse(store.read()!), sessionExpiresAt: active.clock.now - 1 }));
+  const bound = await active.service.bind({ transportKind: "unix-socket" }, true);
+  assert.equal(bound.oidcPrincipal, undefined);
+  assert.equal(bound.replicaReadPrincipal, undefined);
+  assert.equal(active.keycloak.refreshes, 0);
+});

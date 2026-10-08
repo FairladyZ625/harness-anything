@@ -244,7 +244,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     await rbacResumed;
     return { ...(await oidc.center()), clientId: "harness-center" };
   };
-  const hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
+  const hostBinding: DaemonHostApiContext["binding"] = async (
+      rootDir,
+      auth,
+      executor = null,
+      writerRepoId,
+      replicaRead = false,
+    ) => {
       const execution = auth.executionCredential
         ? await authenticateRuntimeExecutionCredential(await keycloakCenter(), auth.executionCredential)
         : auth.executionPrincipal;
@@ -277,10 +283,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         };
         return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
       }
-      const principal = await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor),
-        edge = readDaemonRegistry({ userRoot: input.userRoot }).repos.some(
+      const edge = readDaemonRegistry({ userRoot: input.userRoot }).repos.some(
           (repo) => repo.canonicalRoot === rootDir && repo.mode === "remote-edge",
         ),
+        principal =
+          edge && replicaRead
+            ? await deriveBinding(rootDir, { ...(await oidc.bind(auth, true)), keycloakCenter }, executor, true)
+            : await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor),
         base = edge
           ? principal
           : {

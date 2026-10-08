@@ -326,9 +326,10 @@ export class OidcSessionService {
 
   /**
    * Binds the signed-in person to a request. While Keycloak cannot be reached to renew the session
-   * the request goes unbound: it fails closed, and the operations that bring Keycloak back still run.
+   * only a server-selected edge replica read may retain its unexpired session identity.
+   * Every online caller still requires a usable access token.
    */
-  async bind(auth: DaemonAuthenticationContext): Promise<DaemonAuthenticationContext> {
+  async bind(auth: DaemonAuthenticationContext, replicaRead = false): Promise<DaemonAuthenticationContext> {
     if (auth.transportKind === "fleet-tls") {
       if (!auth.humanAccessToken) return auth;
       const config = this.#config();
@@ -344,8 +345,17 @@ export class OidcSessionService {
         now: this.#ports.now(),
       });
     }
-    const { session } = await this.#use();
-    if (!session) return auth;
+    const generation = this.#loginGeneration;
+    const { session, unavailable } = await this.#use();
+    if (!session || generation !== this.#loginGeneration) return auth;
+    if (replicaRead && session.sessionExpiresAt <= this.#ports.now()) return auth;
+    if (unavailable) {
+      if (!replicaRead || !(session.sessionExpiresAt > this.#ports.now())) return auth;
+      return {
+        ...auth,
+        replicaReadPrincipal: { personId: session.personId, sessionExpiresAt: session.sessionExpiresAt },
+      };
+    }
     const authority = session.authority ?? (await this.#loginAuthority(session.loginTarget));
     return {
       ...auth,
@@ -611,7 +621,12 @@ export class OidcSessionService {
 
   /** One refresh grant per use: Keycloak refusing it ends the session here, and nothing retries. */
   async #renew(session: StoredSession): Promise<SessionUse> {
-    const authority = await this.#loginAuthority(session.loginTarget),
+    const generation = this.#loginGeneration,
+      edge = session.loginTarget ? readFleetEdgeConfig(session.loginTarget) : null,
+      authority =
+        edge && session.authority
+          ? { ...session.authority, clientId: `harness-node-${edge.nodeId}`, clientSecret: edge.credential }
+          : await this.#loginAuthority(session.loginTarget),
       response = await this.#ports
         .fetch(`${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/token`, {
           method: "POST",
@@ -623,7 +638,12 @@ export class OidcSessionService {
           }),
         })
         .catch((error: unknown) => unavailable("Keycloak could not be reached to renew the session.", error));
-    if (response instanceof Error) return { session: undefined, unavailable: response };
+    if (generation !== this.#loginGeneration) return { session: undefined };
+    if (response instanceof Error)
+      return {
+        session: session.sessionExpiresAt > this.#ports.now() ? session : undefined,
+        unavailable: response,
+      };
     // Keycloak answers 400 once the session sat idle past its lifetime, was signed out, or had its token revoked.
     if (response.status === 400) {
       this.#ports.sessionStore.delete();
@@ -634,7 +654,13 @@ export class OidcSessionService {
         session: undefined,
         unavailable: unavailable(`Keycloak session renewal returned HTTP ${response.status}.`),
       };
-    const renewed = this.#issued((await response.json()) as Record<string, unknown>, session, authority);
+    const tokens = (await response.json()) as Record<string, unknown>;
+    if (generation !== this.#loginGeneration) return { session: undefined };
+    if (session.sessionExpiresAt <= this.#ports.now()) {
+      this.#ports.sessionStore.delete();
+      return { session: undefined };
+    }
+    const renewed = this.#issued(tokens, session, authority);
     this.#writeSession(renewed);
     return { session: renewed };
   }

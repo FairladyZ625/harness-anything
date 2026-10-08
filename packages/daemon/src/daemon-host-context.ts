@@ -119,6 +119,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
     auth: DaemonAuthenticationContext,
     executor?: import("./repo-cell-types.ts").RepoCellBinding["actor"]["executor"],
     writerRepoId?: string,
+    replicaRead?: boolean,
   ) => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
   readonly writerEpochFence: (repoId: string, rootDir?: string) => WriterEpochFenceDescriptor;
   readonly writerEpochLease: (repoId: string, rootDir?: string) => WriterEpochLease;

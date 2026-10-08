@@ -8,6 +8,7 @@ import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
+import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 
 const quota = 64 * 1024 * 1024;
@@ -172,3 +173,56 @@ test("same repository pulls keep per-node authorization metadata independent", {
   const allowedTwo = await edgeTwo.command({ kind: "task-list" });
   assert.equal(allowedTwo.ok, true, JSON.stringify(allowedTwo));
 });
+
+test(
+  "expired edge token reads stale locally when center and Keycloak are unreachable; rejection ends the session",
+  { timeout: 180_000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+    await f.command("center-node", { kind: "task-create", taskId: "offline-token", title: "Offline token" });
+    let rejected = false;
+    const e = await fleetEdgeHostFixture(t, f, {
+      oidcPorts: {
+        fetch: (async () => {
+          if (rejected) return Response.json({ error: "invalid_grant" }, { status: 400 });
+          throw new TypeError("Keycloak unreachable");
+        }) as typeof fetch,
+      },
+    });
+    const replica = f.host.replica("lease-repo");
+    replica.activate();
+    await replica.waitForCut(f.eventCount());
+    await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+    const confirmationPath = path.join(
+      locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir,
+      "head-confirmation.json",
+    );
+    const confirmation = JSON.parse(readFileSync(confirmationPath, "utf8"));
+    writeFileSync(confirmationPath, JSON.stringify({ ...confirmation, confirmedAt: Date.now() - 300_000 }));
+    const store = managedRbacSessionStore(e.edgeUser);
+    const session = JSON.parse(store.read()!);
+    store.write(JSON.stringify({ ...session, expiresAt: Date.now() - 1000 }));
+    await f.center.close();
+    const answer = await e.command({ kind: "task-list" });
+    assert.equal(answer.outcome, "applied", JSON.stringify(answer));
+    assert.equal((answer.freshness as { state: string }).state, "stale");
+    assert.ok((answer.rows as { taskId: string }[]).some((row) => row.taskId === "offline-token"));
+    const read = await e.host.read("lease-repo", "repo.tasks.list", {}, localAuthFixture());
+    assert.equal((read.freshness as { state: string }).state, "stale");
+    const write = await e.host.run(
+      "lease-repo",
+      { kind: "task-create", taskId: "closed-write", title: "Closed" } as never,
+      localAuthFixture(),
+    );
+    assert.equal(write.code, "repo_mode_read_only");
+    rejected = true;
+    assert.equal((await e.command({ kind: "task-list" })).code, "authentication_required");
+    assert.equal(store.read(), undefined);
+    e.signIn("person-one");
+    store.write(
+      JSON.stringify({ ...JSON.parse(store.read()!), expiresAt: Date.now() - 1000, sessionExpiresAt: Date.now() - 1 }),
+    );
+    rejected = false;
+    assert.equal((await e.command({ kind: "task-list" })).code, "authentication_required");
+  },
+);
