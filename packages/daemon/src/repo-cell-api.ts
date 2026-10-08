@@ -1,3 +1,4 @@
+import { appendSquadRunObservation } from "./repo-cell-squad-child.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { randomUUID } from "node:crypto";
@@ -795,7 +796,9 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             : {}),
         } as unknown as JsonObject;
       }
-      return context.appendAuxiliaryRuntimeIngress(action, authorizedBinding);
+      return action.kind === "event" && action.type === "runtime_squad_run_observed"
+        ? appendSquadRunObservation(context.extracted, action, authorizedBinding)
+        : context.appendAuxiliaryRuntimeIngress(action, authorizedBinding);
     });
   };
   // Backup lifetimes serialize independently of ledger writes: retention cannot remove

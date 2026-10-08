@@ -1,7 +1,6 @@
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
-import { appendAuxiliaryRuntimeIngress } from "./repo-cell-runtime-ingress.ts";
 import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import {
   bindWriterGenerationToken,
@@ -92,7 +91,12 @@ import { openTerminalHost } from "./terminal-host.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { cancelRejectedSquadChildren } from "./squad-run-state.ts";
 import { reconcileAbandonedTaskWorktrees } from "./task-worktree.ts";
-import { createSquadChild, publishSquadChildDocument, reacquireSquadTaskLease } from "./repo-cell-squad-child.ts";
+import {
+  publishLocalSquadRunObservation,
+  createSquadChild,
+  publishSquadChildDocument,
+  reacquireSquadTaskLease,
+} from "./repo-cell-squad-child.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
@@ -540,20 +544,8 @@ export async function openRepoWriterCell(
     readWorktreeSetup: () => readSettings().worktree.setup,
     query: (read) => read(projection),
     readResult: (ref) => readCanonicalRuntimeResult(store, ref),
-    publishObservation: async (observation, binding) => {
-      const action = {
-        kind: "event" as const,
-        type: "runtime_squad_run_observed" as const,
-        opId: `squad-observed-${observation.squadRunId}-${observation.runRevision}`,
-        payload: { ...observation },
-      };
-      const authorized = await authorizeRuntimeAction(
-        { kind: "runtime-run", executionRuntimeIngress: action },
-        binding,
-        action.opId,
-      );
-      appendAuxiliaryRuntimeIngress(extracted, action, authorized);
-    },
+    publishObservation: (observation, binding) =>
+      publishLocalSquadRunObservation(extracted, observation, binding, authorizeRuntimeAction),
     createChildTask: async (child, binding) => createSquadChild(extracted, child, binding, authorizeRuntimeAction),
     releaseTaskLease: async (taskId, binding, executionId, squadRunId) => {
       const lease = projection.currentLease(taskId, now());

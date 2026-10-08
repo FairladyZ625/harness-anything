@@ -880,6 +880,16 @@ export function makeSquadCoordinator(input: {
   }
   async function publishState(state: SquadState): Promise<void> {
     if (state.revision === 0 || (publicationAcks.get(state.squadRunId) ?? -1) >= state.revision) return;
+    if (state.phase === "failed") {
+      for (const runtimeSessionId of new Set([
+        ...state.leaderTurns.map((turn) => turn.runtimeSessionId),
+        ...state.workerAttempts.flatMap((attempt) => (attempt.runtimeSessionId ? [attempt.runtimeSessionId] : [])),
+      ])) {
+        const session = input.query((projection) => projection.readRuntimeSession(runtimeSessionId));
+        if (session && session.liveness !== "exited" && session.outcome === null)
+          await input.runtimeSpawner().cancel({ runtimeSessionId }, state.binding);
+      }
+    }
     await input.publishObservation(squadRunObservation(state), state.binding);
     appendRuntimeWorkerRecord(input.rootDir, state.stateDispatchId!, {
       kind: "squad_run_publication_ack",
