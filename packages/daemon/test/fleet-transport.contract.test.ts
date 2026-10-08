@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import { READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
 import {
   FLEET_CHUNK_BYTES,
   FLEET_FRAME_BYTES,
@@ -12,8 +13,12 @@ import {
   serializeFleetFrame,
 } from "../src/fleet/contract.ts";
 
-const cut = { revision: 7, headDigest: `sha256:${"b".repeat(64)}` } as const;
-const ledgerCut = { repoId: "repo", ...cut } as const;
+const cut = {
+  revision: 7,
+  headDigest: `sha256:${"b".repeat(64)}`,
+  schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+} as const;
+const ledgerCut = { repoId: "repo", revision: cut.revision, headDigest: cut.headDigest } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
 test("fleet authentication metadata admits a standard JWT and remains separate from closed action fields", () => {
   const frame = {
@@ -34,6 +39,12 @@ test("fleet authentication metadata admits a standard JWT and remains separate f
     () => parseFleetFrame({ ...frame, action: { ...frame.action, accessToken: frame.accessToken } }),
     FleetContractError,
   );
+});
+test("replica cut identity requires schema generation", () => {
+  const frame = frames.find((candidate) => candidate.schema === "fleet.replica.head-hint/v1")!;
+  const { schemaGeneration: _generation, ...revisionOnly } = cut;
+  assert.throws(() => parseFleetFrame({ ...frame, cut: revisionOnly }), FleetContractError);
+  assert.deepEqual(parseFleetFrame(frame), frame);
 });
 test("runtime dispatch frames carry typed center admission context without mirrored budget state", () => {
   const frame = {

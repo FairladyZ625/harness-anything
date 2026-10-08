@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
-import { consumeKnownError, isContractVersionCompatible } from "@harness-anything/kernel";
+import { consumeKnownError, isContractVersionCompatible, READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
 import { writeFileDurably } from "../durable-file.ts";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
@@ -219,7 +219,7 @@ export function ownedUpload(state: State, nodeId: string, uploadId: string): Upl
 }
 
 export function wireCut(cut: SnapshotCut): FleetCut {
-  return { revision: cut.revision, headDigest: cut.headDigest };
+  return { revision: cut.revision, headDigest: cut.headDigest, schemaGeneration: READ_MODEL_SCHEMA_GENERATION };
 }
 
 export function digestId(...parts: string[]): string {

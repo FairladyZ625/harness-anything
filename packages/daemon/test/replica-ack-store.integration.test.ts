@@ -8,7 +8,11 @@ import { DatabaseSync } from "node:sqlite";
 import { READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
 import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 
-const cut = (revision: number, byte: string) => ({ revision, headDigest: `sha256:${byte.repeat(64)}` });
+const cut = (revision: number, byte: string) => ({
+  revision,
+  headDigest: `sha256:${byte.repeat(64)}`,
+  schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+});
 
 test("durable ACK store isolates view keys and commits exact proof with its L1-era registration floor", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-ack-")),
@@ -205,10 +209,10 @@ test("a settled ACK retires the node's frozen other views for that repository an
       for (const suffix of ["", "_g0", `_g${READ_MODEL_SCHEMA_GENERATION - 1}`]) {
         const table = `${family}${suffix}`;
         historicalTables.push(table);
-        inspect.exec(`CREATE TABLE ${table} AS SELECT * FROM ${family}_g${READ_MODEL_SCHEMA_GENERATION}`);
-        inspect.exec(`INSERT INTO ${table} SELECT * FROM ${family}_g${READ_MODEL_SCHEMA_GENERATION}`);
+        inspect.exec(`CREATE TABLE ${table} AS SELECT * FROM ${family}_wire_g${READ_MODEL_SCHEMA_GENERATION}`);
+        inspect.exec(`INSERT INTO ${table} SELECT * FROM ${family}_wire_g${READ_MODEL_SCHEMA_GENERATION}`);
         inspect.prepare(`UPDATE ${table} SET view_id=? WHERE rowid=2`).run(active.viewId);
-        inspect.exec(`INSERT INTO ${table} SELECT * FROM ${family}_g${READ_MODEL_SCHEMA_GENERATION}`);
+        inspect.exec(`INSERT INTO ${table} SELECT * FROM ${family}_wire_g${READ_MODEL_SCHEMA_GENERATION}`);
         inspect.prepare(`UPDATE ${table} SET node_id=?,view_id=? WHERE rowid=3`).run(neighbor.nodeId, neighbor.viewId);
       }
     }
@@ -391,9 +395,9 @@ test("same generation ACK replay converges, rejects changed bytes, and a new gen
     const database = new DatabaseSync(path.join(root, "replica/repos/repo-a/ack.sqlite"));
     for (const table of ["ack_proof", "ack_cursor", "active_offer"])
       database.exec(
-        `ALTER TABLE ${table}_g${READ_MODEL_SCHEMA_GENERATION} RENAME TO ${table}_g${READ_MODEL_SCHEMA_GENERATION - 1}`,
+        `ALTER TABLE ${table}_wire_g${READ_MODEL_SCHEMA_GENERATION} RENAME TO ${table}_wire_g${READ_MODEL_SCHEMA_GENERATION - 1}`,
       );
-    database.exec(`DROP INDEX ack_transfer_g${READ_MODEL_SCHEMA_GENERATION}`);
+    database.exec(`DROP INDEX ack_transfer_wire_g${READ_MODEL_SCHEMA_GENERATION}`);
     database.close();
     store = openReplicaAckStore(root);
     assert.equal(store.registrationRevision(key), 5, "upgrade retains the L1 registration floor");
@@ -405,7 +409,7 @@ test("same generation ACK replay converges, rejects changed bytes, and a new gen
     const inspect = new DatabaseSync(path.join(root, "replica/repos/repo-a/ack.sqlite"));
     assert.equal(
       (
-        inspect.prepare(`SELECT manifest_digest FROM ack_proof_g${READ_MODEL_SCHEMA_GENERATION - 1}`).get() as {
+        inspect.prepare(`SELECT manifest_digest FROM ack_proof_wire_g${READ_MODEL_SCHEMA_GENERATION - 1}`).get() as {
           manifest_digest: string;
         }
       ).manifest_digest,
@@ -413,7 +417,7 @@ test("same generation ACK replay converges, rejects changed bytes, and a new gen
     );
     assert.equal(
       (
-        inspect.prepare(`SELECT transfer_id FROM active_offer_g${READ_MODEL_SCHEMA_GENERATION - 1}`).get() as {
+        inspect.prepare(`SELECT transfer_id FROM active_offer_wire_g${READ_MODEL_SCHEMA_GENERATION - 1}`).get() as {
           transfer_id: string;
         }
       ).transfer_id,
