@@ -298,12 +298,12 @@ export function WorkOverview({
                 type="button"
                 data-status-filter={status ?? ""}
                 onClick={() => onFilterStatus(status ?? "")}
-                className="bg-surface px-3.5 py-2 text-left hover:bg-surface-raised"
+                className="bg-surface px-2.5 py-1.5 text-left hover:bg-surface-raised"
               >
-                <b className="block font-mono text-base font-semibold leading-tight tabular-nums text-text">
+                <b className="block font-mono text-base font-semibold leading-none tabular-nums text-text">
                   {status === null ? leaves.length : leafCounts[status]}
                 </b>
-                <span className="text-text-faint ui-micro">
+                <span className="mt-0.5 block truncate text-text-faint ui-micro leading-snug">
                   {status === null ? t("views.workspace.rail.all") : t(STATUS_LABEL[status])}
                 </span>
               </button>
@@ -336,25 +336,30 @@ export function WorkOverview({
           ))}
         </Region>
       </BoardRegion>
-
-      {/* 工作说明预览:与工作说明页签同一份根任务文档、同一个隔离 renderer;标题与
-          「打开完整工作说明」动作留在区域框上,正文在区域内自己滚。 */}
-      <BoardRegion region="explainer" data-testid="work-explainer">
-        <Region
-          title={t("views.workspace.explainer.regionTitle")}
-          padded
-          footer={
-            <span className="ml-auto">
-              <Button size="sm" variant="ghost" testId="work-explainer-open-full" onClick={onOpenExplainer}>
-                {t("views.workspace.explainer.openFull")}
-              </Button>
-            </span>
-          }
-        >
-          <WorkExplainerDocument repoId={repoId} taskId={rootTaskId} />
-        </Region>
-      </BoardRegion>
     </>
+  );
+
+  {
+    /* 工作说明预览:与工作说明页签同一份根任务文档、同一个隔离 renderer;放右栏顶部
+      与时间线并排,首屏可见可读(高度与时间线均分或占满);「打开完整工作说明」动作留在
+      区域框上,正文在区域内自己滚。 */
+  }
+  const explainer = (
+    <BoardSide region="explainer" data-testid="work-explainer">
+      <Region
+        title={t("views.workspace.explainer.regionTitle")}
+        padded
+        footer={
+          <span className="ml-auto">
+            <Button size="sm" variant="ghost" testId="work-explainer-open-full" onClick={onOpenExplainer}>
+              {t("views.workspace.explainer.openFull")}
+            </Button>
+          </span>
+        }
+      >
+        <WorkExplainerDocument repoId={repoId} taskId={rootTaskId} />
+      </Region>
+    </BoardSide>
   );
 
   return (
@@ -365,6 +370,7 @@ export function WorkOverview({
         ) : null}
         <BoardColumn>{outlook}</BoardColumn>
       </BoardMain>
+      {explainer}
       {dayGroups.length > 0 ? (
         <BoardSide region="recent" data-testid="work-timeline">
           <Region
