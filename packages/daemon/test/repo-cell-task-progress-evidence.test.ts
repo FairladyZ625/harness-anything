@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import type { CiRunObservationEventV3 } from "../../kernel/test/fixtures/ci-observation.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -11,7 +12,6 @@ import {
   readSettingsFacet,
   reviewDigest,
   submissionDigest,
-  type CiRunObservationEventV3,
   type CompletionEvidenceV1,
   type FrozenGateRequirement,
 } from "@harness-anything/kernel";

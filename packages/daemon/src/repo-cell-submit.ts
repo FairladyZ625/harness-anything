@@ -154,8 +154,8 @@ export function deriveCloseoutSubmission(
       `Summary must name each artifact path once. ${artifactAnchorGuidance}`,
     );
   // The delivery falls to the task's own output shape, not its completion gates (dec_BBA713052997C3EF5F5D3DD952):
-  // a repository-diff task always carries a public delivery commit, even under a lightweight profile whose
-  // gate set is empty; a task-package-artifact task always delivers through accepted artifact versions.
+  // a repository-diff task derives its public manifest even under a lightweight profile whose
+  // gate set is empty; a task-package-artifact task delivers through accepted artifact versions.
   if (privateDelivery) {
     if (!artifacts.length)
       throw cell.cellCodedError(
@@ -307,13 +307,16 @@ export function deriveCloseoutSubmission(
   // Deliverables stay paths of the delivery commit: anchored in-package artifacts ride in the
   // artifacts field and outputs lines so commit-based gates never verify ledger paths against
   // the public cut.
-  return {
+  const delivery = {
     ...prose,
-    commitSha,
     ...(artifacts.length ? { artifacts } : {}),
     deliverables,
     outputs: [...commitOutputs, ...artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`)],
   };
+  // An empty public manifest has no code cut to witness, including when HEAD is an empty commit.
+  return deliverables.length || commitOutputs.length
+    ? { ...delivery, commitSha }
+    : { ...delivery, commitSha: null, artifacts };
 }
 
 /** Accepted task artifacts select implicit deliveries; reviewer outputs are credentials, not deliveries. */

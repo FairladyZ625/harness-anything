@@ -112,23 +112,56 @@ test("an independent approved review lets the proposal owner accept the current 
       { outcome: unreviewed.outcome, code: unreviewed.code },
       { outcome: "op_rejected", code: "invalid_transition" },
     );
+    assert.deepEqual(unreviewed.nextActions, [`ha decision dispatch-review ${decisionId}`]);
     const humanApprovedProposal = await cell.run(
         { ...decisionProposal(), body: realizedDecisionBody("Human-approved review requirement") },
         proposer,
       ),
       humanApprovedDecisionId = receiptJson(humanApprovedProposal).decisionId as string,
-      humanApproved = await cell.run(
-        {
-          kind: "decision-accept",
-          decisionId: humanApprovedDecisionId,
-          rationale: "The owner directly approved the current high-risk Decision content.",
-          judgmentOnlyRationale: "Human approval remains authoritative under the review requirement.",
-          consentBy: proposer.actor.principal.personId,
-          consentAt: "2026-09-29T01:02:03.000Z",
-          consentChannel: "chat",
-        },
-        owner,
-      );
+      humanApprovedDigest = (
+        receiptJson(await cell.run({ kind: "decision-show", decisionId: humanApprovedDecisionId }, owner)).decision as {
+          readonly currentReviewContentDigest: `sha256:${string}`;
+        }
+      ).currentReviewContentDigest,
+      consentAccept = {
+        kind: "decision-accept" as const,
+        decisionId: humanApprovedDecisionId,
+        rationale: "The owner approved the current high-risk Decision content.",
+        judgmentOnlyRationale: "Human consent records approval, not an independent review.",
+        consentBy: proposer.actor.principal.personId,
+        consentAt: "2026-09-29T01:02:03.000Z",
+        consentChannel: "chat" as const,
+      },
+      consentWithoutReview = await cell.run(consentAccept, owner);
+    assert.deepEqual(
+      { outcome: consentWithoutReview.outcome, code: consentWithoutReview.code },
+      { outcome: "op_rejected", code: "invalid_transition" },
+      "human consent no longer exempts a high-risk Decision from the review requirement",
+    );
+    assert.match(String(consentWithoutReview.rejectionExplanation), /requires an approved review/u);
+    assert.deepEqual(
+      consentWithoutReview.nextActions,
+      [`ha decision dispatch-review ${humanApprovedDecisionId}`],
+      "the consent-only rejection must point at the review dispatch command",
+    );
+    const humanApprovedReportRef = `decisions/decision-${humanApprovedDecisionId}/artifacts/reports/human-approved.md`;
+    writeReport(rootDir, humanApprovedReportRef);
+    const humanApprovedReview = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId: humanApprovedDecisionId,
+        reviewId: "review-human-approved",
+        reviewContentDigest: humanApprovedDigest,
+        verdict: "approved",
+        reason: "The current content was independently reviewed before the owner accepted it.",
+        findings: [],
+        evidenceChecked: [],
+        reportRef: humanApprovedReportRef,
+      },
+      independentReviewer,
+    );
+    assert.equal(humanApprovedReview.outcome, "applied", JSON.stringify(humanApprovedReview));
+    const humanApproved = await cell.run(consentAccept, owner);
     assert.equal(humanApproved.outcome, "applied", JSON.stringify(humanApproved));
     const humanApprovedConsent = (
       receiptJson(await cell.run({ kind: "decision-show", decisionId: humanApprovedDecisionId }, owner)).decision as {

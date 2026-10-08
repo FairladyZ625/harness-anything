@@ -1,3 +1,4 @@
+import { ciStatusWordRegister } from "./status-word-register-ci.ts";
 import type { StatusWordRegistration } from "./status-vocabulary.ts";
 import { closeoutStatusWordRegister } from "./status-word-register-closeout.ts";
 import { squadRunStatusWordRegister } from "./status-word-register-squad.ts";
@@ -36,28 +37,7 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "divergent",
     resolution: "Replica data freshness, not runtime process liveness; scoped by the receipt freshness field.",
   },
-  // ---- CiTest.status (structured CI test observation) ----
-  {
-    word: "passed",
-    entity: "CiTest",
-    field: "status",
-    meaning: "The CI test completed successfully, including a retry that eventually passed.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "failed",
-    entity: "CiTest",
-    field: "status",
-    meaning: "The CI test completed unsuccessfully after its recorded retries.",
-    divergence: "entity-scoped",
-  },
-  {
-    word: "skipped",
-    entity: "CiTest",
-    field: "status",
-    meaning: "The CI test was intentionally not executed.",
-    divergence: "entity-scoped",
-  },
+  ...ciStatusWordRegister,
   // ---- Agent.state (declaration lifecycle) ----
   {
     word: "configured",

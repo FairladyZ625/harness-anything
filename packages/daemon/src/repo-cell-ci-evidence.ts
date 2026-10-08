@@ -4,7 +4,7 @@ import {
   consumeKnownError,
   localGitObjectRefStore,
   resolveHarnessLayout,
-  type CiRunObservationEventV3,
+  type CiObservationRead,
   type CompletionEvidenceBasis,
   type CompletionEvidenceProvenance,
   type CompletionEvidenceResult,
@@ -67,12 +67,14 @@ export function githubActionsWitnessEvidence(
     throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
   const covers =
     options.coverage === "descendant"
-      ? (event: CiRunObservationEventV3) =>
+      ? (event: CiObservationRead) =>
           event.payload.run.sha === submitted ||
           localGitObjectRefStore.isAncestor(root, submitted, event.payload.run.sha)
-      : (event: CiRunObservationEventV3) => event.payload.run.sha === submitted;
+      : (event: CiObservationRead) => event.payload.run.sha === submitted;
   const events =
-      publicCut && options.selection === "newest" ? newestGithubRuns(observations.events) : observations.events,
+      publicCut && options.selection === "newest"
+        ? newestGithubRuns(observations.events.filter((event) => event.payload.scope !== "job"))
+        : observations.events.filter((event) => event.payload.scope !== "job"),
     workflows = publicCut ? options.workflows : [];
   for (const event of events) {
     if (!covers(event)) continue;
@@ -139,12 +141,12 @@ function targetBranchHead(root: string, branch: string): string | null {
   }
 }
 
-function githubRunOrder(event: CiRunObservationEventV3): readonly [bigint, bigint] | null {
+function githubRunOrder(event: CiObservationRead): readonly [bigint, bigint] | null {
   const match = /^(?<run>[1-9][0-9]*)\.(?<attempt>[1-9][0-9]*)$/u.exec(event.payload.run.runId);
   return match?.groups ? [BigInt(match.groups.run!), BigInt(match.groups.attempt!)] : null;
 }
 
-function newestGithubRuns(events: readonly CiRunObservationEventV3[]): readonly CiRunObservationEventV3[] {
+function newestGithubRuns(events: readonly CiObservationRead[]): readonly CiObservationRead[] {
   const ordered = events
       .map((event, index) => ({ event, index, order: githubRunOrder(event) }))
       .sort((left, right) => {

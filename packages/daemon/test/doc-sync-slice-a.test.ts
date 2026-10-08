@@ -352,12 +352,15 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
     assert.equal(rejected.code, "doc_candidate_too_large");
     assert.match(
       rejected.rejectionExplanation ?? "",
-      new RegExp(`${oversized}.*${DOC_SYNC_INLINE_MAX_BYTES}.*blob`, "u"),
+      new RegExp(`${oversized}.*${DOC_SYNC_INLINE_MAX_BYTES}.*inline prose`, "u"),
     );
     assert.match(rejected.rejectionExplanation ?? "", /next: use the required route/u);
     const oversizedRow = rows((await cell.run({ kind: "doc-status", paths: [oversized] }, binding)).evidence)[0];
     assert.equal(oversizedRow?.size, Buffer.byteLength(`# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`));
-    assert.match(oversizedRow?.reason ?? "", new RegExp(`${oversized}.*${DOC_SYNC_INLINE_MAX_BYTES}.*blob`, "u"));
+    assert.match(
+      oversizedRow?.reason ?? "",
+      new RegExp(`${oversized}.*${DOC_SYNC_INLINE_MAX_BYTES}.*inline prose`, "u"),
+    );
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -429,8 +432,8 @@ test("batch submit commits eligible candidates and reports blocked rows instead 
     }
     assert.deepEqual(
       submitted.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [["context/oversized.md", "blob-content"]],
-      "the oversized candidate is reported with its required route instead of poisoning the batch",
+      [["context/oversized.md", "doc-sync"]],
+      "the oversized prose candidate stays on the doc-sync route; the reason names the inline cap",
     );
     assert.equal(git(rootDir, "ls-files", "harness/context/binary.pdf"), "", "binary content stays unpublished");
     const clean = await cell.run({ kind: "doc-status", paths: [] }, binding);

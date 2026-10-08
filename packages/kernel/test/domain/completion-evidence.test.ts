@@ -128,6 +128,14 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
     },
   };
   assert.deepEqual(validateSubmissionV1(artifactExecution.submission), []);
+  assert.deepEqual(validateSubmissionV1({ ...artifactExecution.submission, artifacts: [] }), []);
+  assert.ok(validateSubmissionV1({ ...artifactExecution.submission, artifacts: undefined }).length);
+  const proseBasis = completionEvidenceBasis({
+    ...artifactExecution,
+    submission: { ...artifactExecution.submission, artifacts: [] },
+  });
+  assert.equal(proseBasis.codeCommit, undefined);
+  assert.equal(proseBasis.ledgerCut, undefined);
   // A commit cut may carry artifact anchors alongside its delivery commit; the anchors document
   // in-package reports but never turn the delivery back into a ledger-cut.
   const hybrid = { ...artifactExecution.submission, commitSha: "a".repeat(40) };

@@ -593,26 +593,19 @@ async function publishCiObservation(
           attempt: 1,
           event: "push",
         });
+      if (args[0] === "api")
+        return JSON.stringify({
+          run_attempt: 1,
+          head_sha: commitSha,
+          head_branch: "main",
+          conclusion: "success",
+          event: "push",
+          path: ".github/workflows/rewrite-ci.yml",
+          workflow_id: 1,
+          name: "rewrite-ci",
+          repository: { full_name: "fixture/repo" },
+        });
       assert.equal(args[1], "download");
-      const output = String(args[args.indexOf("--dir") + 1]);
-      mkdirSync(output, { recursive: true });
-      writeFileSync(
-        path.join(output, "observation.json"),
-        JSON.stringify({
-          schema: "ci-run-artifact/v1",
-          run: {
-            runId: observedRunId,
-            sha: commitSha,
-            branch: "main",
-            prNumber: null,
-            job: "full-check (24)",
-            wallclockMs: 25,
-            runner: "fixture-runner",
-          },
-          tests: [],
-          gates: [{ gate: "ci", result: "pass", metrics: { runAttempt: 1 } }],
-        }),
-      );
       return "";
     });
     const receipt = ingestCiObservations(cell, repoWriteBinding, fetched);

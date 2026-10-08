@@ -96,6 +96,15 @@ export function taskArtifactSubtreePath(value: string): boolean {
   return /^tasks\/[^/]+\/artifacts\/.+/u.test(value);
 }
 
+/**
+ * Any path inside an authored artifacts subtree: the repository-level `artifacts/`, a task package's,
+ * or a Decision package's. Content there rides the blob content contract rather than the inline
+ * prose channel, whatever its extension.
+ */
+export function artifactSubtreePath(value: string): boolean {
+  return artifactPath(value);
+}
+
 export function isOpaqueTextualMediaType(value: unknown): value is OpaqueTextualMediaType {
   return (
     value === "application/json" ||

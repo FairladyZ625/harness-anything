@@ -98,9 +98,10 @@ test("artifact submission pins accepted bytes and both validators accept the sam
   // A commit cut with artifact anchors is the same union: both validators accept it.
   const hybrid = { ...submitted, commitSha: "a".repeat(40) };
   assert.deepEqual(validateGuiSubmission(hybrid), []);
+  assert.deepEqual(validateGuiSubmission({ ...submitted, artifacts: [] }), []);
   for (const invalid of [
     { ...hybrid, artifacts: [] },
-    { ...submitted, artifacts: [] },
+    { ...submitted, artifacts: undefined },
     { ...submitted, artifacts: [{ path, revision: 0, blobSha256: "a".repeat(64) }] },
   ]) {
     assert.ok(validateGuiSubmission(invalid).length);

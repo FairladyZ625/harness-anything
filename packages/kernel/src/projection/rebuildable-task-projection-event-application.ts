@@ -178,7 +178,7 @@ export function applyEvent(
     );
     return;
   }
-  if (event.schema === "ci-run-observation/v2") {
+  if (event.schema === "ci-run-observation/v2" || event.schema === "ci-run-observation/v3") {
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",

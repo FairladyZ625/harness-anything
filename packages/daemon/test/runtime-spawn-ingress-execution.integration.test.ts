@@ -333,15 +333,13 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           workflowName: "rewrite-ci", headSha: sha, headBranch: "main", status: "completed",
           conclusion: "failure", attempt: 1, event: "push"
         }));
-        else if (command === "download") {
-          const dir = process.argv[process.argv.indexOf("--dir") + 1];
-          mkdirSync(dir, { recursive: true });
-          writeFileSync(path.join(dir, "observation.json"), JSON.stringify({
-            schema: "ci-run-artifact/v1",
-            run: { runId: "901.1", sha, branch: "main", prNumber: null, job: "test", wallclockMs: 1, runner: "fixture" },
-            tests: [], gates: []
-          }));
-        } else process.exit(1);
+        else if (process.argv[2] === "api") console.log(JSON.stringify({
+          run_attempt: 1, head_sha: sha, head_branch: "main", conclusion: "failure", event: "push",
+          path: ".github/workflows/rewrite-ci.yml", workflow_id: 1, name: "rewrite-ci",
+          repository: { full_name: "fixture/repo" }
+        }));
+        else if (command === "download") { console.error("no artifacts found"); process.exit(1); }
+        else process.exit(1);
       `,
       );
       const beforeObservation = makeTaskEventReader({ repoId, rootDir: root }).read().revision,

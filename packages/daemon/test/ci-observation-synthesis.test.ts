@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { decodeCiObservation } from "../../kernel/test/fixtures/ci-observation.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -6,9 +7,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { CiRunObservationEventV3, FrozenGateRequirement } from "@harness-anything/kernel";
+import type { FrozenGateRequirement } from "@harness-anything/kernel";
+import type { CiRunObservationEventV3 } from "../../kernel/test/fixtures/ci-observation.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
-import { fetchCiObservations, ingestCiObservations } from "../src/ci-observation-actions.ts";
+import { fetchCiObservations as fetchCiObservationsRaw, ingestCiObservations } from "../src/ci-observation-actions.ts";
 import { githubActionsWitnessEvidence } from "../src/repo-cell-ci-evidence.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
 
@@ -96,7 +98,8 @@ test("an artifact-less green main run synthesizes a passing observation from its
     assert.equal(JSON.parse(receipt.evidence).imported, 1);
     assert.equal(events.length, 1);
     const observed = events[0]!;
-    assert.deepEqual(observed.payload.tests, []);
+    assert.equal(observed.payload.scope, "workflow");
+    assert.equal(observed.payload.testSummary, null);
     assert.deepEqual(observed.payload.gates, []);
     assert.deepEqual(observed.payload.verification, {
       source: "github-actions",
@@ -121,7 +124,7 @@ test("an artifact-less green main run synthesizes a passing observation from its
         projection: {
           readCiRunObservations: () => ({
             status: "ready",
-            events,
+            events: events.map(decodeCiObservation),
             watermark: events.length,
             sourceRevision: events.length,
           }),
@@ -161,7 +164,17 @@ test("reimport authenticates an unconfigured run without letting it shadow confi
         assert.equal(args[1], "download");
         throw new Error("no valid artifacts found to download");
       }) as never),
-      artifact = fetched.runs.find((run) => run.databaseId === 901)!.artifacts[0]!,
+      artifact = {
+        run: {
+          runId: "901.1",
+          job: "other-ci",
+          sha: delivered,
+          branch: "main",
+          prNumber: null,
+          wallclockMs: 0,
+          runner: "github-actions",
+        },
+      },
       oldDigest = createHash("sha256")
         .update(`verified-v3\u0000${artifact.run.runId}\u0000${artifact.run.job}`)
         .digest("hex");
@@ -209,3 +222,31 @@ test("reimport authenticates an unconfigured run without letting it shadow confi
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+async function fetchCiObservations(
+  cell: Parameters<typeof fetchCiObservationsRaw>[0],
+  action: Parameters<typeof fetchCiObservationsRaw>[1],
+  runner: NonNullable<Parameters<typeof fetchCiObservationsRaw>[2]>,
+) {
+  const summaries = new Map<string, Record<string, unknown>>();
+  return fetchCiObservationsRaw(cell, action, async (command, args, options) => {
+    const match = args[0] === "api" ? /actions\/runs\/(\d+)\/attempts\/(\d+)$/u.exec(args[1] ?? "") : null;
+    if (!match) {
+      const result = await runner(command, args, options);
+      if (args[1] === "view") summaries.set(args[2]!, JSON.parse(result));
+      return result;
+    }
+    const summary = summaries.get(match[1]!)!;
+    return JSON.stringify({
+      run_attempt: Number(match[2]),
+      head_sha: summary.headSha,
+      head_branch: summary.headBranch,
+      conclusion: summary.conclusion,
+      event: summary.event,
+      path: `.github/workflows/${summary.workflowName}.yml`,
+      workflow_id: 1,
+      name: summary.workflowName,
+      repository: { full_name: "fixture/repository" },
+    });
+  });
+}

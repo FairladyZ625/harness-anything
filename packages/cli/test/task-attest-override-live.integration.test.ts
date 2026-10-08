@@ -14,7 +14,7 @@ import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 
 // The gh stub answers `run list`/`run view` from a response file the test rewrites between phases;
-// every other invocation exits nonzero (a tolerated artifact-download failure or an outage).
+// attempt API returns the same authoritative run; missing artifacts and outages remain explicit.
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-attest-override-gh-"));
 let stubFile = "";
 const originalPath = process.env.PATH;
@@ -29,7 +29,13 @@ if (args[0] === "run" && args[1] === "list") {
   process.stdout.write(JSON.stringify(spec.list ?? []));
 } else if (args[0] === "run" && args[1] === "view") {
   process.stdout.write(JSON.stringify(spec.view));
-} else process.exit(1);
+} else if (args[0] === "api") {
+  const v = spec.view;
+  process.stdout.write(JSON.stringify({ run_attempt: v.attempt, head_sha: v.headSha, head_branch: v.headBranch,
+    conclusion: v.conclusion, event: v.event, path: ".github/workflows/rewrite-ci.yml", workflow_id: 1,
+    name: v.workflowName, repository: { full_name: "fixture/repo" } }));
+} else if (args[0] === "run" && args[1] === "download") { console.error("no artifacts found"); process.exit(1); }
+else process.exit(1);
 `,
   );
   process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
@@ -112,11 +118,12 @@ test("an owner break-glasses a gate with no automated receipt; a later receipt v
     // cuts of the writes above first; otherwise the two HEAD writers race and git dies with
     // `cannot lock ref 'HEAD'`.
     published(root, userRoot, daemonId, started);
-    // The delivery cut diffs the public repo against the baseline frozen at task start.
-    writeFileSync(path.join(root, "delivery.txt"), "delivered\n");
-    git(root, "add", "delivery.txt");
-    git(root, "commit", "--quiet", "-m", "test: delivery");
-    const deliveredSha = git(root, "rev-parse", "HEAD");
+    // Submit reads the bound task checkout, so its public delivery belongs there.
+    const deliveryRoot = path.join(root, ".worktrees", taskId);
+    writeFileSync(path.join(deliveryRoot, "delivery.txt"), "delivered\n");
+    git(deliveryRoot, "add", "delivery.txt");
+    git(deliveryRoot, "commit", "--quiet", "-m", "test: delivery");
+    const deliveredSha = git(deliveryRoot, "rev-parse", "HEAD");
     writeFileSync(
       path.join(root, "harness", `${packagePath}/closeout.md`),
       `# Closeout\n\n## Summary\n\nDelivered at ${deliveredSha}.\n\n## Verification\n\nLive daemon route.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the witness contract.\n`,
@@ -136,6 +143,7 @@ test("an owner break-glasses a gate with no automated receipt; a later receipt v
     const shown = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId])),
       cutSha = shown.executions[0]?.submission?.commitSha;
     assert.equal(typeof cutSha, "string");
+    assert.equal(cutSha, deliveredSha);
 
     // Phase A: no automated receipt exists. complete stops on the missing gate and offers the
     // owner's break-glass override; approve cannot sign off a gate that has no automated pass.

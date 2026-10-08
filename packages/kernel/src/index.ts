@@ -158,6 +158,7 @@ export {
   resolveDocRoute,
 } from "./domain/doc-sync.contract.ts";
 export {
+  artifactSubtreePath,
   classifyOpaqueTextualArtifactPath,
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
