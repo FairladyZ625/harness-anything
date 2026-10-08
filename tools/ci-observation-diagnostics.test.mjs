@@ -3,6 +3,85 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { boundedCiSummary } from "./node-test-runner-lib.mjs";
 import { ciFailureDiagnostic, ciTestOutcome } from "./node-test-observation-reporter.mjs";
+import reportTestActivity from "./node-test-file-activity-reporter.mjs";
+
+test("file activity preserves the termination signal without losing ordinary completion", async () => {
+  const file = "tools/example.test.mjs";
+  async function* source() {
+    for (const signal of [undefined, "SIGTERM", "SIGKILL"]) {
+      yield {
+        type: "test:complete",
+        data: {
+          name: file,
+          nesting: 0,
+          line: 1,
+          column: 1,
+          details: { error: signal ? { signal } : undefined },
+        },
+      };
+    }
+  }
+  const rows = [];
+  for await (const line of reportTestActivity(source())) rows.push(JSON.parse(line));
+  assert.deepEqual(
+    rows.map(({ state, signal }) => ({ state, signal })),
+    [
+      { state: "finished", signal: null },
+      { state: "finished", signal: "SIGTERM" },
+      { state: "finished", signal: "SIGKILL" },
+    ],
+  );
+});
+
+test("watchdog outcomes supersede only matching signal envelopes, preserving independent crashes", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const { writeCiObservation } = await import("./write-ci-observation.mjs");
+  const root = mkdtempSync(path.join(tmpdir(), "ha-ci-signal-outcomes-"));
+  const rows = [
+    { kind: "file", file: "timeout", outcome: "timeout" },
+    { kind: "file", file: "companion", outcome: "cancelled" },
+    ...["timeout", "companion", "independent"].map((file) => ({
+      kind: "file",
+      file,
+      outcome: "crashed",
+      signal: "SIGTERM",
+    })),
+    { kind: "file", file: "ordinary", outcome: "crashed", signal: null },
+    { kind: "test", name: "delivered", status: "passed" },
+  ];
+  try {
+    writeFileSync(path.join(root, "events.jsonl"), rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
+    mkdirSync(path.join(root, "other-invocation"));
+    writeFileSync(
+      path.join(root, "other-invocation/events.jsonl"),
+      JSON.stringify({
+        kind: "file",
+        file: "companion",
+        outcome: "crashed",
+        signal: "SIGTERM",
+      }) + "\n",
+    );
+    const output = writeCiObservation({
+      HARNESS_CI_NODE_TEST_RESULTS: root,
+      HARNESS_CI_OBSERVATION_OUTPUT: path.join(root, "artifact.json"),
+    });
+    const artifact = JSON.parse(readFileSync(output, "utf8"));
+    assert.deepEqual(artifact.detail.fileOutcomes, [
+      { file: "timeout", outcome: "timeout" },
+      { file: "companion", outcome: "cancelled" },
+      { file: "independent", outcome: "crashed" },
+      { file: "ordinary", outcome: "crashed" },
+      { file: "companion", outcome: "crashed" },
+    ]);
+    assert.deepEqual(artifact.detail.tests, [{ name: "delivered", status: "passed" }]);
+    assert.equal(artifact.measurementCoverage.status, "partial");
+    assert.equal(artifact.measurementCoverage.missingReason, "no runner measurement");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("failure diagnostics preserve causes and unbounded cold stacks", () => {
   const cause = new Error("assertion failed");
@@ -116,41 +195,54 @@ test("Vitest keeps failure messages, duplicate identities and skip/todo semantic
   assert.equal("retry" in rows[1], false);
 });
 
-test("real parent watchdog persists timeout and collateral cancellation while preserving delivered tests", async () => {
-  const { spawnSync } = await import("node:child_process");
-  const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const path = await import("node:path");
-  const { writeCiObservation } = await import("./write-ci-observation.mjs");
-  const root = mkdtempSync(path.join(tmpdir(), "ha-ci-watchdog-"));
-  try {
-    const env = {
-      ...process.env,
-      HARNESS_CI_NODE_TEST_RESULTS: path.join(root, "fragments"),
-      HARNESS_RUNNER_OPEN_HANDLE_FIXTURE: "1",
-      HARNESS_TEST_FILE_TIMEOUT_MS: "2000",
-      HARNESS_TEST_CONCURRENCY: "3",
-    };
-    delete env.NODE_TEST_CONTEXT;
-    const run = spawnSync(
-      process.execPath,
-      ["tools/run-node-tests.mjs", "--tier", "fast", "--prefix", "tools/test-fixtures/runner-watchdog"],
-      { env, encoding: "utf8", timeout: 20000 },
-    );
-    assert.equal(run.status, 1, run.stdout + run.stderr);
-    const output = writeCiObservation({ ...env, HARNESS_CI_OBSERVATION_OUTPUT: path.join(root, "artifact.json") });
-    const artifact = JSON.parse(readFileSync(output, "utf8"));
-    assert.equal(artifact.measurementCoverage.status, "partial");
-    assert.match(artifact.measurementCoverage.missingReason, /unknown/);
-    const outcomes = artifact.detail.fileOutcomes;
-    assert.equal(outcomes.find((row) => row.file.endsWith("open-handle.test.mjs")).outcome, "timeout");
-    assert.equal(outcomes.find((row) => row.file.endsWith("companion.test.mjs")).outcome, "cancelled");
-    assert.ok(
-      artifact.detail.tests.some((row) => row.name === "completed before a different file exceeded its deadline"),
-    );
-    assert.equal(artifact.measurementCoverage.startedFileCount, 3);
-    assert.equal(artifact.measurementCoverage.completedFileCount, 1);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+for (const orderedSignal of [false, true])
+  test(
+    `real parent watchdog preserves delivered tests${orderedSignal ? " when a descendant termination arrives before the host signal" : ""}`,
+    {
+      skip: orderedSignal && process.platform === "win32" ? "requires POSIX process-group signal ordering" : false,
+    },
+    async () => {
+      const { spawnSync } = await import("node:child_process");
+      const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const path = await import("node:path");
+      const { writeCiObservation } = await import("./write-ci-observation.mjs");
+      const root = mkdtempSync(path.join(tmpdir(), "ha-ci-watchdog-"));
+      try {
+        const env = {
+          ...process.env,
+          HARNESS_CI_NODE_TEST_RESULTS: path.join(root, "fragments"),
+          HARNESS_RUNNER_OPEN_HANDLE_FIXTURE: "1",
+          HARNESS_TEST_FILE_TIMEOUT_MS: "2000",
+          HARNESS_TEST_CONCURRENCY: "3",
+        };
+        delete env.NODE_TEST_CONTEXT;
+        if (orderedSignal)
+          env.NODE_OPTIONS = `--import=${new URL("./test-fixtures/watchdog-signal-order.mjs", import.meta.url).href}`;
+        const run = spawnSync(
+          process.execPath,
+          ["tools/run-node-tests.mjs", "--tier", "fast", "--prefix", "tools/test-fixtures/runner-watchdog"],
+          { env, encoding: "utf8", timeout: 20000 },
+        );
+        assert.equal(run.status, 1, run.stdout + run.stderr);
+        const output = writeCiObservation({
+          ...env,
+          HARNESS_CI_OBSERVATION_OUTPUT: path.join(root, "artifact.json"),
+        });
+        const artifact = JSON.parse(readFileSync(output, "utf8"));
+        assert.equal(artifact.measurementCoverage.status, "partial");
+        assert.match(artifact.measurementCoverage.missingReason, /unknown/);
+        const outcomes = artifact.detail.fileOutcomes;
+        assert.equal(outcomes.find((row) => row.file.endsWith("open-handle.test.mjs")).outcome, "timeout");
+        assert.equal(outcomes.find((row) => row.file.endsWith("companion.test.mjs")).outcome, "cancelled");
+        assert.ok(
+          artifact.detail.tests.some((row) => row.name === "completed before a different file exceeded its deadline"),
+        );
+        assert.equal(artifact.measurementCoverage.startedFileCount, 3);
+        assert.equal(artifact.measurementCoverage.completedFileCount, 1);
+        assert.equal(outcomes.length, 2, "signal envelopes must not add a second outcome for a watchdog file");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );

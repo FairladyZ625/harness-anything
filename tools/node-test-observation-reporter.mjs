@@ -35,7 +35,7 @@ export default async function* reportTestObservations(source) {
         const diagnostic = ciFailureDiagnostic(data.details?.error);
         appendFileSync(
           output,
-          `${JSON.stringify({ kind: "file", file, outcome: "crashed", reason: "file envelope failed", stallSummary: diagnostic.failureSummary, truncated: diagnostic.truncated, error: diagnostic.error })}\n`,
+          `${JSON.stringify({ kind: "file", file, outcome: "crashed", signal: data.details?.error?.signal ?? null, reason: "file envelope failed", stallSummary: diagnostic.failureSummary, truncated: diagnostic.truncated, error: diagnostic.error })}\n`,
         );
       }
       continue;

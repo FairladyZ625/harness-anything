@@ -57,7 +57,10 @@ function readFragments(root) {
       return readFileSync(file, "utf8")
         .split("\n")
         .filter(Boolean)
-        .map((line) => JSON.parse(line));
+        .map((line) => {
+          const entry = JSON.parse(line);
+          return entry.kind === "file" ? { ...entry, fragmentRoot: root } : entry;
+        });
     });
 }
 export function writeCiObservation(env = process.env) {
@@ -69,7 +72,20 @@ export function writeCiObservation(env = process.env) {
       : null;
   const tests = [...fragments.filter((entry) => entry.kind === "test"), ...(vitest ? normalizeTests(vitest) : [])];
   const coverage = fragments.filter((entry) => entry.kind === "coverage");
-  const fileOutcomes = fragments.filter((entry) => entry.kind === "file");
+  const terminatedFiles = new Set(
+    fragments
+      .filter((entry) => entry.kind === "file" && ["timeout", "cancelled"].includes(entry.outcome))
+      .map((entry) => JSON.stringify([entry.fragmentRoot, entry.file])),
+  );
+  const fileOutcomes = fragments.filter(
+    (entry) =>
+      entry.kind === "file" &&
+      !(
+        entry.outcome === "crashed" &&
+        ["SIGTERM", "SIGKILL"].includes(entry.signal) &&
+        terminatedFiles.has(JSON.stringify([entry.fragmentRoot, entry.file]))
+      ),
+  );
   if (vitest)
     for (const file of vitest.testResults) {
       if (file.status === "failed" && !file.assertionResults?.length)
@@ -126,7 +142,7 @@ export function writeCiObservation(env = process.env) {
     detail: {
       schema: "ci-run-detail/v1",
       tests: tests.map(({ kind: _kind, ...entry }) => entry),
-      fileOutcomes: fileOutcomes.map(({ kind: _kind, ...entry }) => entry),
+      fileOutcomes: fileOutcomes.map(({ kind: _kind, signal: _signal, fragmentRoot: _root, ...entry }) => entry),
       diagnostics: fragments.filter((entry) => entry.kind === "diagnostic"),
     },
   };
