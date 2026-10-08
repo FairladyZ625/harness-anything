@@ -193,7 +193,7 @@ export function reduceRelationEntity(
     });
   }
   if (relation === null) throw new Error(`Relation ${id} has no facet payload`);
-  assertRelationEventRecord(relation, false, migrated?.kind === "relation" ? migrated.registry : undefined);
+  assertRelationEventRecord(relation, false, migrated?.kind === "relation" ? migrated.registry : undefined, true);
   return Object.freeze({
     ...base,
     ...(reactivated ? { createdAt: base.updatedAt } : {}),
@@ -667,15 +667,29 @@ function relationAdmissionError(
   );
 }
 
-function relationEndpointKinds(record: Pick<EntityRelationRecord, "source" | "target">): {
+// Before 51e107ee81, accepted Artifact refs carried a versioned kind and a 64-bit id.
+// This grammar is only for immutable history, never for current admission.
+const historicalArtifactRefPattern =
+  /^(?<kind>[A-Za-z0-9][A-Za-z0-9_.\-/]*@[1-9][0-9]*)\/[A-Z][A-Z0-9]{0,15}-[a-f0-9]{16}$/u;
+
+function relationEndpointKinds(
+  record: Pick<EntityRelationRecord, "source" | "target">,
+  historical = false,
+): {
   readonly source: string;
   readonly target: string;
 } {
   const source = parseEntityRef(String(record.source)),
-    target = parseEntityRef(String(record.target));
-  if (!source || source.externalHarness || !target || target.externalHarness)
+    target = parseEntityRef(String(record.target)),
+    sourceKind =
+      source?.kind ??
+      (historical ? String(record.source).match(historicalArtifactRefPattern)?.groups?.kind : undefined),
+    targetKind =
+      target?.kind ??
+      (historical ? String(record.target).match(historicalArtifactRefPattern)?.groups?.kind : undefined);
+  if (!sourceKind || source?.externalHarness || !targetKind || target?.externalHarness)
     throw new Error("Relation endpoints must be canonical registered Entity refs");
-  return { source: source.kind, target: target.kind };
+  return { source: sourceKind, target: targetKind };
 }
 
 export function assertRelationRecord(record: EntityRelationRecord): void {
@@ -697,6 +711,7 @@ function assertRelationEventRecord(
   record: unknown,
   allowHistoricalFields = false,
   registry?: GovernedRelationRegistryWitness,
+  allowHistoricalRefs = allowHistoricalFields,
 ): asserts record is RelationEventRecord {
   if (!isRecord(record)) throw new Error("Relation facet is invalid or inconsistent with its deterministic identity");
   const fields = [
@@ -728,7 +743,7 @@ function assertRelationEventRecord(
     );
   // Endpoint refs must resolve here; the triple itself is admitted at write time (assertRelationAdmission),
   // so a later registry revision cannot make stored history unreplayable.
-  else relationEndpointKinds(record as unknown as EntityRelationRecord);
+  else relationEndpointKinds(record as unknown as EntityRelationRecord, allowHistoricalRefs);
   if (
     record.relation_id !== deriveRelationId(record as unknown as EntityRelationRecord) ||
     !relationTypes.includes(record.type as EntityRelationRecord["type"]) ||
