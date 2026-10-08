@@ -1,6 +1,12 @@
-import { squadParentExecutionCurrent } from "./squad-runtime-ingress.ts";
+import {
+  requireSquadRuntimeAdmission,
+  requireSquadRuntimeOwner,
+  squadParentExecutionCurrent,
+} from "./squad-runtime-ingress.ts";
 import {
   DOC_POLICY_ID,
+  isTerminalStatus,
+  type SquadRunObservation,
   isSameExecution,
   type TaskLifecycleSnapshot,
   parseDocWriteIntent,
@@ -8,8 +14,10 @@ import {
   runtimeSessionIdFromActor,
 } from "@harness-anything/kernel";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
+import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
+import { appendAuxiliaryRuntimeIngress } from "./repo-cell-runtime-ingress.ts";
 import { publishDocIntent } from "./doc-sync-publication.ts";
 
 /**
@@ -202,4 +210,85 @@ export async function reacquireSquadTaskLease(input: {
       "squad/execution-lease-reacquisition",
       [`Inspect task/${input.taskId} and retry after the same actor can reacquire execution ${execution.executionId}.`],
     );
+}
+
+/** Both local and fleet observations settle here, inside the center's existing serial queue. */
+export async function appendSquadRunObservation(
+  cell: RepoCellActionContext,
+  action: Extract<RuntimeIngressAction, { kind: "event" }>,
+  binding: RepoCellBinding,
+) {
+  if (action.type !== "runtime_squad_run_observed")
+    throw cell.cellCodedError("invalid_runtime_event", "Expected a valid Squad run observation.");
+  const run = action.payload as unknown as SquadRunObservation;
+  if (!["converged", "cancelled", "failed"].includes(run.phase))
+    return appendAuxiliaryRuntimeIngress(cell, action, binding);
+  // Validate before task writes. Publish the terminal observation last, so its visible cut
+  // cannot announce settlement while assignments still occupy WIP. Partial writes replay by status.
+  requireSquadRuntimeOwner(cell, action, binding);
+  if (cell.store.readEvent(action.opId)) return appendAuxiliaryRuntimeIngress(cell, action, binding);
+  requireSquadRuntimeAdmission(cell, action, binding);
+  const reason = `Squad ${run.squadRunId} ended (${run.phase}); assignment lifecycle belongs to this run.`;
+  const authorize = async (command: RepoTaskAction): Promise<RepoCellBinding> => {
+    const authorizationDecision = await evaluateRepoCellAction({
+      repoId: cell.input.repoId,
+      action: command,
+      binding,
+      actionId: `squad-closeout:${run.squadRunId}:${String(command.taskId)}:${command.kind}`,
+      revision: cell.store.readHead()?.revision ?? 0,
+      now: cell.now(),
+    });
+    if (authorizationDecision.outcome !== "allowed")
+      throw cell.cellCodedError("authorization_denied", "Squad assignment closeout requires task write authority.");
+    return { ...binding, authorizationDecision };
+  };
+  for (const attempt of run.workerAttempts) {
+    // The accepted create key also finds a child created just before dispatch failed to save its task id.
+    const child = cell.projection.readTaskByIdempotencyKey(
+      `${run.squadRunId}:${attempt.leaderTurnId}:${attempt.attemptId}`,
+    );
+    if (!child) continue;
+    if (attempt.taskId !== null && attempt.taskId !== child.taskId)
+      throw cell.cellCodedError("execution_scope_mismatch", "Squad child must match its accepted assignment key.");
+    const snapshot = cell.projection.read(child.taskId).snapshot;
+    if (isTerminalStatus(snapshot.task!.status)) continue;
+    if (snapshot.lease) {
+      const release = {
+        kind: "task-release",
+        taskId: child.taskId,
+        reason,
+        ...(attempt.runtimeSessionId
+          ? {
+              terminalExecutionId: snapshot.lease.executionId,
+              terminalRuntimeSessionId: attempt.runtimeSessionId,
+            }
+          : {}),
+      };
+      const released = cell.taskSurfaceWrite(release, await authorize(release));
+      if (released.outcome !== "applied")
+        throw cell.cellCodedError(released.code ?? "squad_child_release_failed", JSON.stringify(released));
+    }
+    const cancel = { kind: "task-transition", taskId: child.taskId, status: "cancelled", force: true, reason };
+    const cancelled = await cell.lifecycleAction(cancel, await authorize(cancel));
+    if (cancelled.outcome !== "applied")
+      throw cell.cellCodedError(cancelled.code ?? "squad_child_closeout_failed", JSON.stringify(cancelled));
+  }
+  return appendAuxiliaryRuntimeIngress(cell, action, binding);
+}
+
+/** The local coordinator uses the same admitted observation path as fleet owners. */
+export async function publishLocalSquadRunObservation(
+  cell: RepoCellActionContext,
+  observation: SquadRunObservation,
+  binding: RepoCellBinding,
+  authorize: (action: RepoTaskAction, binding: RepoCellBinding, actionId: string) => Promise<RepoCellBinding>,
+): Promise<void> {
+  const action = {
+    kind: "event" as const,
+    type: "runtime_squad_run_observed" as const,
+    opId: `squad-observed-${observation.squadRunId}-${observation.runRevision}`,
+    payload: { ...observation },
+  };
+  const authorized = await authorize({ kind: "runtime-run", executionRuntimeIngress: action }, binding, action.opId);
+  await appendSquadRunObservation(cell, action, authorized);
 }

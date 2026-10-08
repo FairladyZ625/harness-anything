@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
+import { isExecutionWipTask, makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RuntimeLauncher } from "../src/runtime-spawn-types.ts";
 import type { SquadRunReadResult } from "../src/squad-run-contract.ts";
@@ -183,6 +183,7 @@ test(
     );
     await fixture.waitStatus((state) => state.status === "converged");
     // dec_B3A15CC2/CH1: attribution follows the actual handoffs, not the first leader's terminal event.
+    assertChildrenClosed(fixture, running.workerAttempts);
     const finalExecution = fixture.task(fixture.taskId).snapshot.executions.at(-1)!;
     assert.equal(finalExecution.actor.executor?.id, "coordinator");
     assert.notEqual(finalExecution.actor.executor?.id, `runtime-session:${planningLeader}`);
@@ -298,6 +299,59 @@ for (const restart of [false, true])
     },
   );
 
+for (const ending of ["cancelled", "failed"] as const)
+  test(`squad ${ending} closes child tasks and releases their WIP slots`, { timeout: 30_000 }, async (t) => {
+    const fixture = await openFixture(t, `child-closeout-${ending}`);
+    const beforeWip = await fixture.cell.read("repo.tasks.wip", {}, binding);
+    await fixture.plan(["a.txt"], ["b.txt"]);
+    const running = await fixture.waitStatus(
+      (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
+    );
+    for (const child of running.workerAttempts)
+      assert.equal(fixture.task(child.taskId!).snapshot.task?.status, "active");
+    if (ending === "cancelled") {
+      const receipt = await fixture.cell.run({ kind: "squad-cancel", squadRunId: running.squadRunId }, binding);
+      assert.equal(receipt.phase, "cancelled", JSON.stringify(receipt));
+    } else {
+      for (const child of running.workerAttempts) fixture.finish(child.dispatchId!, "completed");
+      const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
+      fixture.finish(
+        resumed.leaderTurns[1].dispatchId,
+        JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
+      );
+      await fixture.waitStatus((state) => state.status === "failed");
+      assert.equal((await fixture.status()).status, "failed");
+    }
+    assertChildrenClosed(fixture, running.workerAttempts);
+    const afterWip = await fixture.cell.read("repo.tasks.wip", {}, binding);
+    assert.equal(afterWip.counted.length, beforeWip.counted.length, "total WIP returns to the pre-stage count");
+    await fixture.reopen();
+    assertChildrenClosed(fixture, running.workerAttempts);
+  });
+
+function assertChildrenClosed(fixture: Awaited<ReturnType<typeof openFixture>>, children: readonly WorkerAttempt[]) {
+  for (const child of children) {
+    const row = fixture.task(child.taskId!),
+      task = row.snapshot.task!;
+    assert.equal(task.status, "cancelled", `child ${child.taskId} must end with its run`);
+    assert.equal(row.snapshot.lease, null);
+    assert.equal(
+      isExecutionWipTask({
+        taskId: task.taskId,
+        title: task.title,
+        status: task.status,
+        taskClass: task.taskClass,
+        packageDisposition: task.packageDisposition ?? "active",
+        hasCloseoutEvidence: false,
+        hasOwnExecution: true,
+        directChildCount: 0,
+      }),
+      false,
+      "settled child must release WIP",
+    );
+  }
+}
+
 test("failed child wakes the leader with the failure after its sibling settles", { timeout: 30_000 }, async (t) => {
   const fixture = await openFixture(t, "failure");
   await fixture.plan(["a.txt"], ["b.txt"]);
@@ -320,6 +374,7 @@ test("failed child wakes the leader with the failure after its sibling settles",
     }),
   );
   await fixture.waitStatus((state) => state.status === "converged");
+  assertChildrenClosed(fixture, running.workerAttempts);
 });
 
 test("overlapping worker declarations reject the second child before execution", { timeout: 30_000 }, async (t) => {
@@ -379,6 +434,7 @@ test(
       }),
     );
     await fixture.waitStatus((state) => state.status === "converged");
+    assertChildrenClosed(fixture, running.workerAttempts);
     fixture.finish(fixture.parentDispatchId!, "parent caller completed");
   },
 );

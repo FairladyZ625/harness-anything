@@ -291,7 +291,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     parentTaskId: taskId,
     squadRunId: runId,
     title: "Owned child",
-    idempotencyKey: `${runId}:child`,
+    idempotencyKey: `${runId}:leader-1:worker-closeout`,
   };
   const foreignChild = await f.command("node-two", childAction);
   assert.notEqual(foreignChild.outcome, "applied", JSON.stringify(foreignChild));
@@ -411,7 +411,37 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     "B's new run does not pretend A's old process stopped",
   );
   await assert.rejects(observation(4), /execution|current/iu);
-  await observation(4, { phase: "cancelled" });
+  const closeoutPayload = {
+    phase: "cancelled",
+    workerAttempts: [
+      {
+        attemptId: "worker-closeout",
+        workerId: "squad-worker",
+        leaderTurnId: "leader-1",
+        taskId: String(child.receipt!.taskId),
+        executionId: null,
+        dispatchId: null,
+        runtimeSessionId: null,
+        rejection: "Stopped before dispatch",
+        branch: null,
+        baseSha: null,
+      },
+    ],
+  };
+  await observation(4, closeoutPayload);
+  const closedChild = await f.host.run(
+    "lease-repo",
+    { kind: "task-show", taskId: String(child.receipt!.taskId) },
+    localAuthFixture(),
+  );
+  assert.equal(
+    JSON.parse(String(closedChild.evidence)).task.status,
+    "cancelled",
+    "center closes the owner's assignment",
+  );
+  const closeoutCut = f.eventCount();
+  assert.equal((await observation(4, closeoutPayload)).receipt.replayed, true);
+  assert.equal(f.eventCount(), closeoutCut, "terminal replay writes no second child cancellation");
   await assert.rejects(observation(5), /op_conflict/iu);
   await assert.rejects(
     observation(5, { phase: "cancelled", executionId: "different-execution" }),
@@ -446,7 +476,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     authority = openPersistentWriterEpoch({ stateRoot: f.writerEpochStateRoot });
   try {
     assert.ok(authority.acquire("lease-repo").epoch > metadata.writerEpoch);
-    await assert.rejects(observation(4, { phase: "cancelled" }), /writer_epoch_stale|writer epoch/iu);
+    await assert.rejects(observation(4, closeoutPayload), /writer_epoch_stale|writer epoch/iu);
   } finally {
     authority.close();
   }
@@ -455,7 +485,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   await f.closeHost(f.host);
   const restartedHost = await f.openHost(),
     restartedCenter = await f.openCenter(restartedHost, f.center.port);
-  assert.equal((await observation(4, { phase: "cancelled" })).receipt.replayed, true);
+  assert.equal((await observation(4, closeoutPayload)).receipt.replayed, true);
   assert.equal(
     f.eventCount(),
     beforeRestart,
