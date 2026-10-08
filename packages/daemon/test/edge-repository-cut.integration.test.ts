@@ -310,3 +310,85 @@ test("historical null results remain explicitly unavailable through snapshot and
   await f.transfer("delta");
   assert.equal(f.source.manifest(101)!.filter((entry) => entry.path === marker.path).length, 1);
 });
+
+test("legacy schedule result details preserve malformed and missing refs as unavailable", async (t) => {
+  for (const resultRef of [
+    `artifact:runtime-result/sha256/${"a".repeat(64)} Occurrence worktree retained at /fixture/occ-old (uncommitted changes).`,
+    "artifact:runtime-result/not-a-digest",
+    `artifact:runtime-result/sha256/${"b".repeat(64)}`,
+  ]) {
+    const f = repositoryCutFixture(t);
+    seedRepositoryFamilies(f.db);
+    const historical = JSON.stringify({
+      schema: "schedule-event/v1",
+      type: "schedule_settled",
+      eventId: "legacy-schedule",
+      workspaceRevision: 50,
+      opId: "legacy-schedule",
+      payload: { schedule: { status: { lastRun: { detail: resultRef } } } },
+    });
+    f.db.prepare("INSERT INTO event_index VALUES ('legacy-schedule', 50, NULL, ?)").run(historical);
+    f.db
+      .prepare(
+        "UPDATE runtime_session SET value_json = json_set(value_json, '$.resultRef', ?) WHERE runtime_session_id='runtime-1'",
+      )
+      .run(resultRef);
+    await f.transfer("snapshot");
+    const session = f.read((q) => q.readRuntimeSession("runtime-1")) as unknown as {
+      resultRef: string;
+      resultAvailability: string;
+      resultDownloadable: boolean;
+    };
+    assert.equal(session.resultRef, resultRef);
+    assert.equal(session.resultAvailability, "unavailable");
+    assert.equal(session.resultDownloadable, false);
+    const markers = f.source
+      .manifest(100)!
+      .filter((entry) => entry.path.startsWith(".read-model/runtime-results-unavailable/"));
+    assert.equal(markers.length, 1);
+    assert.deepEqual(JSON.parse(Buffer.from(f.source.content(markers[0]!.blob)).toString()), {
+      resultRef,
+      availability: "unavailable",
+      downloadable: false,
+    });
+    assert.throws(() => readEdgeRuntimeResult(f.viewRoot, "families", "edge", resultRef), {
+      code: "runtime_result_unavailable",
+    });
+    assert.equal(
+      f.db.prepare("SELECT event_json FROM event_index WHERE op_id='legacy-schedule'").get()?.event_json,
+      historical,
+    );
+    await f.next();
+    await f.transfer("delta");
+    assert.ok(f.source.manifest(101)!.some((entry) => entry.path === markers[0]!.path));
+  }
+});
+
+test("legacy detail never hides a current outcome's missing or corrupt claim", (t) => {
+  for (const bytes of [null, Buffer.from("corrupt")]) {
+    const f = repositoryCutFixture(t);
+    seedRepositoryFamilies(f.db);
+    const digest = "d".repeat(64),
+      resultRef = `artifact:runtime-result/sha256/${digest}`;
+    f.db.prepare("INSERT INTO event_index VALUES ('legacy-detail', 49, NULL, ?)").run(
+      JSON.stringify({
+        schema: "schedule-event/v1",
+        payload: { schedule: { status: { lastRun: { detail: resultRef } } } },
+      }),
+    );
+    f.db.prepare("INSERT INTO event_index VALUES ('current-claim', 50, NULL, ?)").run(
+      JSON.stringify({
+        schema: "agent-runtime-event/v1",
+        type: "runtime_session_outcome_observed",
+        payload: {
+          runtimeSessionId: "runtime-1",
+          resultRef,
+          result: { sha256: digest, size: 7, mediaType: "text/plain; charset=utf-8" },
+        },
+      }),
+    );
+    if (bytes) f.contents.set(digest, bytes);
+    assert.throws(() => f.source.activate(), /Runtime result.*unavailable/u);
+    assert.equal(f.source.latest(), null);
+  }
+});

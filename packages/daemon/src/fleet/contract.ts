@@ -248,7 +248,10 @@ export type FleetFrameV1 =
         code: string | null;
       }
     >
-  | Msg<"fleet.error/v1", { inReplyTo: string; code: string; retryable: boolean; resumeOffset: number | null }>;
+  | Msg<
+      "fleet.error/v1",
+      { inReplyTo: string; code: string; message: string; retryable: boolean; resumeOffset: number | null }
+    >;
 export type FleetManifest = Readonly<{ digest: string; entryCount: number; totalBytes: number }>;
 export type FleetEntry = Readonly<{ path: string; blob: FleetBlob }>;
 export type FleetDocChange = Readonly<{
@@ -858,6 +861,7 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.error/v1": shape({
     ...reply,
     code: text,
+    message: bodyText,
     retryable: (value) => typeof value === "boolean",
     resumeOffset: nullable(uint),
   }),

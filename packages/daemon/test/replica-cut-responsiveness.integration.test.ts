@@ -7,53 +7,66 @@ import { openPeer } from "../src/fleet/edge.ts";
 import { DatabaseSync } from "node:sqlite";
 import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 
-test("hello responds during a large shared cut build", { timeout: 60_000 }, async (t) => {
-  const f = await fleetFixture(t);
-  t.after(() => f.close());
-  const center = await f.center(),
-    replica = f.host.replica(f.subject.repoId),
-    db = new DatabaseSync(path.join(f.repo, ".harness/cache/task.sqlite"));
-  try {
-    // 64 MiB of authored document bodies forces the real readReplicaBasis JSON parse path.
-    const body = "x".repeat(64 * 1024),
-      insert = db.prepare("INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)");
-    db.exec("BEGIN");
-    for (let i = 0; i < 1024; i++) {
-      const itemPath = `context/large-${i}.md`;
-      insert.run(
-        itemPath,
-        1,
-        JSON.stringify({
-          path: itemPath,
-          body,
-          blobSha256: "a".repeat(64),
-          size: Buffer.byteLength(body),
-          mediaType: "text/markdown",
-          policyId: "markdown-body-replaceable/v1",
-          workspaceRevision: 1,
-        }),
-      );
+for (const fixtureMiB of [64, 256]) {
+  test(`hello responds during a ${fixtureMiB} MiB shared cut build`, { timeout: 60_000 }, async (t) => {
+    const f = await fleetFixture(t);
+    t.after(() => f.close());
+    const center = await f.center(),
+      replica = f.host.replica(f.subject.repoId),
+      db = new DatabaseSync(path.join(f.repo, ".harness/cache/task.sqlite"));
+    try {
+      // Authored document bodies exercise the real SQLite descriptor selection during cut construction.
+      const body = "x".repeat(64 * 1024),
+        insert = db.prepare("INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)");
+      db.exec("BEGIN");
+      for (let i = 0; i < fixtureMiB * 16; i++) {
+        const itemPath = `context/large-${i}.md`;
+        insert.run(
+          itemPath,
+          1,
+          JSON.stringify({
+            path: itemPath,
+            body,
+            blobSha256: "a".repeat(64),
+            size: Buffer.byteLength(body),
+            mediaType: "text/markdown",
+            policyId: "markdown-body-replaceable/v1",
+            workspaceRevision: 1,
+          }),
+        );
+      }
+      db.exec("COMMIT");
+    } finally {
+      db.close();
     }
-    db.exec("COMMIT");
-  } finally {
-    db.close();
-  }
-  let complete = false;
-  const first = replica.prepare(),
-    second = replica.prepare();
-  const building = first.then((cut) => {
-    complete = true;
-    return cut;
+    const baselineRss = process.memoryUsage().rss;
+    let peakRss = baselineRss;
+    const sample = setInterval(() => {
+      peakRss = Math.max(peakRss, process.memoryUsage().rss);
+    }, 5);
+    t.after(() => clearInterval(sample));
+    let complete = false;
+    const first = replica.prepare(),
+      second = replica.prepare();
+    const building = first.then((cut) => {
+      complete = true;
+      return cut;
+    });
+    const peer = await rawPeer(f.track, center.port, f.cert, f.subject.nodeId, "machine-secret");
+    assert.equal(complete, false, "real TLS hello must finish before the large cut build");
+    assert.strictEqual(first, second, "concurrent edges share the same construction promise");
+    peer.close();
+    const cut = await building;
+    assert.ok(cut);
+    assert.ok(cut.manifest.totalBytes >= fixtureMiB * 1024 * 1024);
+    assert.equal(replica.latest()?.manifest.digest, cut.manifest.digest);
+    peakRss = Math.max(peakRss, process.memoryUsage().rss);
+    clearInterval(sample);
+    t.diagnostic(
+      `cut RSS fixtureMiB=${fixtureMiB} baselineBytes=${baselineRss} peakBytes=${peakRss} deltaBytes=${peakRss - baselineRss} samplingMs=5`,
+    );
   });
-  const peer = await rawPeer(f.track, center.port, f.cert, f.subject.nodeId, "machine-secret");
-  assert.equal(complete, false, "real TLS hello must finish before the large cut build");
-  assert.strictEqual(first, second, "concurrent edges share the same construction promise");
-  peer.close();
-  const cut = await building;
-  assert.ok(cut);
-  assert.ok(cut.manifest.totalBytes >= 64 * 1024 * 1024);
-  assert.equal(replica.latest()?.manifest.digest, cut.manifest.digest);
-});
+}
 
 test("default TLS name remains localhost and explicit servername is honored", async (t) => {
   const f = await fleetFixture(t);
@@ -112,4 +125,46 @@ test("internal admission failure retains its code without registration advice", 
     },
   );
   assert.match(String((f.transportErrors[0] as { error: unknown }).error), /registry unreadable/u);
+});
+
+test("worker cut failure reaches edge admission with its original cause", async (t) => {
+  const f = await fleetFixture(t);
+  t.after(() => f.close());
+  const center = await f.center();
+  const db = new DatabaseSync(path.join(f.repo, ".harness/cache/task.sqlite"));
+  const resultRef = `artifact:runtime-result/sha256/${"c".repeat(64)}`;
+  try {
+    db.prepare("INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, ?, ?)").run(
+      "current-missing",
+      1,
+      JSON.stringify({ runtimeSessionId: "current-missing", taskBindings: [], resultRef }),
+    );
+  } finally {
+    db.close();
+  }
+  await assert.rejects(
+    syncFleetEdgeMirror({
+      payload: {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: f.certFile,
+        nodeId: f.subject.nodeId,
+        credential: "machine-secret",
+        repoId: f.subject.repoId,
+        viewRoot: path.join(f.root, "failed-worker-edge"),
+        quotaBytes: 64 * 1024 * 1024,
+        workspaceRoot: f.repo,
+      },
+    }),
+    (error: unknown) => {
+      assert.equal((error as { code: string }).code, "handler_failed");
+      assert.match(
+        String(error),
+        /Center replica admission failed: handler_failed: Runtime result.*has no content claim/u,
+      );
+      assert.doesNotMatch(String(error), /Register the node|correct --node-id/u);
+      return true;
+    },
+  );
+  assert.match(String((f.transportErrors[0] as { error: unknown }).error), /has no content claim/u);
 });
