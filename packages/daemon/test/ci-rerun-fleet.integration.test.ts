@@ -110,6 +110,20 @@ async function seed(rootDir: string) {
   }
 }
 
+async function protocolRead(
+  e: Awaited<ReturnType<typeof fleetEdgeHostFixture>>,
+  fetch = false,
+): Promise<Record<string, unknown>> {
+  const response = await e.rpc.handle({
+    jsonrpc: "2.0",
+    id: 77,
+    method: "repo.ci.observatory.read",
+    params: { repo: { repoId: "lease-repo" }, payload: { window: 100, fetchDetails: fetch } },
+  });
+  if (!response || Array.isArray(response) || !("result" in response)) throw new Error(JSON.stringify(response));
+  return response.result as Record<string, unknown>;
+}
+
 test(
   "center and two real edge hosts calculate the same fixed-cut statistics; cached details remain readable offline",
   { timeout: 180_000 },
@@ -134,18 +148,10 @@ test(
     >;
     assert.equal(truth.statisticsAvailability, "ready");
     for (const e of edges) {
-      const before = (await e.host.read("lease-repo", "repo.ci.observatory.read", {}, localAuthFixture())) as Record<
-        string,
-        unknown
-      >;
+      const before = (await protocolRead(e)) as Record<string, unknown>;
       assert.equal(before.statisticsAvailability, "pending");
       assert.deepEqual(before.tests, []);
-      const after = (await e.host.read(
-        "lease-repo",
-        "repo.ci.observatory.read",
-        { fetchDetails: true },
-        localAuthFixture(),
-      )) as Record<string, unknown>;
+      const after = (await protocolRead(e, true)) as Record<string, unknown>;
       assert.equal(after.statisticsAvailability, "ready");
       assert.deepEqual(after.tests, truth.tests);
       assert.deepEqual(after.recoveries, truth.recoveries);
@@ -153,12 +159,7 @@ test(
     }
     await f.center.close();
     for (const e of edges) {
-      const offline = (await e.host.read(
-        "lease-repo",
-        "repo.ci.observatory.read",
-        { fetchDetails: true },
-        localAuthFixture(),
-      )) as Record<string, unknown>;
+      const offline = (await protocolRead(e, true)) as Record<string, unknown>;
       assert.deepEqual(offline.tests, truth.tests);
       assert.deepEqual(offline.recoveries, truth.recoveries);
     }

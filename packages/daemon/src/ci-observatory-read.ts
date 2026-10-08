@@ -267,6 +267,10 @@ function validStatistic(value: unknown): boolean {
     Number(value.recoveredFamilies) <= Number(value.families) &&
     (value.rerunRecoveryRate === null ||
       (finiteNumber(value.rerunRecoveryRate) && value.rerunRecoveryRate >= 0 && value.rerunRecoveryRate <= 1)) &&
+    Array.isArray(value.notRerunAttempts) &&
+    value.notRerunAttempts.every(
+      (row) => isJsonObject(row) && nonEmpty(row.familyKey) && safeNonNegativeInteger(row.attempt) && row.attempt > 0,
+    ) &&
     [value.p50Ms, value.p95Ms].every((n) => n === null || (finiteNumber(n) && n >= 0))
   );
 }

@@ -18,6 +18,7 @@ export type CiTestStatistics = {
   readonly recoveredFamilies: number;
   readonly excludedFamilies: number;
   readonly rerunRecoveryRate: number | null;
+  readonly notRerunAttempts: readonly { readonly familyKey: string; readonly attempt: number }[];
   readonly n: number;
   readonly p50Ms: number | null;
   readonly p95Ms: number | null;
@@ -85,6 +86,7 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
       recovered: Set<string>;
       excluded: Set<string>;
       durations: number[];
+      notRerunAttempts: { familyKey: string; attempt: number }[];
     }
   >();
   for (const [familyKey, family] of families) {
@@ -145,6 +147,7 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
           recovered: new Set(),
           excluded: new Set(),
           durations: [],
+          notRerunAttempts: [],
         };
         for (const duration of durations.get(test.testKey) ?? []) group.durations.push(duration);
         groups.set(key, group);
@@ -157,7 +160,20 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
           a.event.eventId.localeCompare(b.event.eventId),
       );
       const group = groups.get(identity)!;
-      const actual = rows.filter((row) => ["passed", "failed"].includes(row.test.status));
+      for (const attempt of attempts) {
+        if (
+          inventories.some((event) => event.payload.identity.runAttempt === attempt) &&
+          !missing.some((ref) => ref.startsWith(`artifact:${familyKey}:${attempt}:`)) &&
+          !family.some(
+            (event) =>
+              event.payload.scope === "job" &&
+              event.payload.identity.runAttempt === attempt &&
+              event.payload.identity.jobKey === rows[0]!.event.payload.identity.jobKey,
+          )
+        )
+          group.notRerunAttempts.push({ familyKey, attempt });
+      }
+      const actual = rows.filter((row) => row.test.status !== "skipped");
       const ambiguous =
         rows.some(
           (row) =>
@@ -226,6 +242,9 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
         recoveredFamilies: group.recovered.size,
         excludedFamilies: group.excluded.size,
         rerunRecoveryRate: group.eligible.size ? group.recovered.size / group.eligible.size : null,
+        notRerunAttempts: group.notRerunAttempts.sort(
+          (a, b) => a.familyKey.localeCompare(b.familyKey) || a.attempt - b.attempt,
+        ),
         n: sorted.length,
         p50Ms: percentile(0.5),
         p95Ms: percentile(0.95),
@@ -235,7 +254,14 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
   return {
     availability: missingSet.length ? ("pending" as const) : ("ready" as const),
     missing: missingSet,
-    recoveries,
+    recoveries: recoveries.sort(
+      (a, b) =>
+        a.familyKey.localeCompare(b.familyKey) ||
+        a.jobKey.localeCompare(b.jobKey) ||
+        a.testKey.localeCompare(b.testKey) ||
+        a.from.attempt - b.from.attempt ||
+        a.to.attempt - b.to.attempt,
+    ),
     tests: missingSet.length ? [] : tests,
   };
 }

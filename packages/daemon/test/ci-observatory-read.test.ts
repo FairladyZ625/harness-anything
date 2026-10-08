@@ -713,7 +713,7 @@ test("CI provenance comes from the completed matching GitHub run, not workflow p
         },
       );
       assert.equal(events.length, scenario.status === "completed" ? 2 : 0, scenario.name);
-      assert.equal(downloads, scenario.status === "completed" ? 2 : 0, scenario.name);
+      assert.equal(downloads, scenario.status === "completed" ? 1 : 0, scenario.name);
       assert.equal(
         events[0]?.payload.verification ? events[0].payload.verification.conclusion === "success" : undefined,
         scenario.expected,

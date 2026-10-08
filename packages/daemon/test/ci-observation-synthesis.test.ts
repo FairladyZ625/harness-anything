@@ -98,8 +98,8 @@ test("an artifact-less green main run synthesizes a passing observation from its
       { actor, source: "local" },
       await fetchCiObservations(cell as never, { kind: "ci-observe-pull", limit: 5 }, noArtifactRunGh(delivered)),
     );
-    assert.equal(JSON.parse(receipt.evidence).imported, 1);
-    assert.equal(events.length, 1);
+    assert.equal(JSON.parse(receipt.evidence).imported, 2);
+    assert.equal(events.length, 2);
     const observed = events[0]!;
     assert.equal(observed.payload.scope, "workflow");
     assert.equal(observed.payload.testSummary, null);
@@ -196,12 +196,12 @@ test("reimport authenticates an unconfigured run without letting it shadow confi
       },
     });
     const receipt = ingestCiObservations(cell as never, { actor, source: "local" }, fetched);
-    assert.equal(JSON.parse(receipt.evidence).imported, 2);
+    assert.equal(JSON.parse(receipt.evidence).imported, 4);
     assert.equal(events[0]!.payload.verification, null, "accepted history is not rewritten");
     assert.equal(events[1]!.payload.verification?.workflow, "other-ci");
     assert.equal(
       JSON.parse(ingestCiObservations(cell as never, { actor, source: "local" }, fetched).evidence).duplicate,
-      2,
+      4,
     );
     const evidence = githubActionsWitnessEvidence(
       {
@@ -233,6 +233,7 @@ async function fetchCiObservations(
 ) {
   const summaries = new Map<string, Record<string, unknown>>();
   return fetchCiObservationsRaw(cell, action, async (command, args, options) => {
+    if (args.some((arg) => arg.includes("/jobs?"))) return JSON.stringify([{ jobs: [] }]);
     const match = args[0] === "api" ? /actions\/runs\/(\d+)\/attempts\/(\d+)$/u.exec(args[1] ?? "") : null;
     if (!match) {
       const result = await runner(command, args, options);

@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { ciRunWindow, ciRerunStatistics } from "../src/domain/ci-rerun-statistics.ts";
 import type { CiObservationRead, CiRunDetail } from "../src/domain/ci-run-observation-v4.ts";
 import job from "../fixtures/canonical-events/ci-run-observation-v4/job.json" with { type: "json" };
-import { decodeCiObservation } from "../src/domain/ci-run-observation-v4.ts";
+import workflow from "../fixtures/canonical-events/ci-run-observation-v4/workflow.json" with { type: "json" };
+import { validateCiRunObservationEventV4, decodeCiObservation } from "../src/domain/ci-run-observation-v4.ts";
 
 function observation(
   attempt: number,
@@ -131,6 +132,7 @@ test("a job absent from the rerun has no synthetic pass", () => {
   );
   assert.equal(result.recoveries.length, 1);
   assert.equal(result.tests.find((row) => row.identity.includes("absent"))?.n, 1);
+  assert.equal(result.tests.find((row) => row.identity.includes("absent"))?.notRerunAttempts[0]?.attempt, 2);
 });
 test("a missing middle attempt preserves observed recovery but excludes the family from rate", () => {
   const result = stats(observation(1, "failed"), observation(3, "passed"));
@@ -234,4 +236,33 @@ test("conflicting authoritative job inventories are visible", () => {
     () => ciRerunStatistics([a.event, inv, conflict], new Map([[a.event.eventId, a.detail]])),
     /Conflicting/,
   );
+});
+
+test("attempt inventory is closed, unique and cannot fabricate workflow verdicts or test samples", () => {
+  const value = {
+    ...structuredClone(workflow),
+    payload: {
+      ...structuredClone(workflow.payload),
+      scope: "attempt",
+      verification: null,
+      attemptInventory: {
+        jobs: [{ jobExecutionId: "456", name: "fast-contract", conclusion: "success" }],
+        missingArtifactJobIds: ["456"],
+      },
+    },
+  };
+  assert.deepEqual(validateCiRunObservationEventV4(value, false), []);
+  for (const patch of [
+    { attemptInventory: { ...value.payload.attemptInventory, missingArtifactJobIds: ["other"] } },
+    {
+      attemptInventory: {
+        ...value.payload.attemptInventory,
+        jobs: [...value.payload.attemptInventory.jobs, ...value.payload.attemptInventory.jobs],
+      },
+    },
+    { verification: workflow.payload.verification },
+    { testSummary: job.payload.testSummary },
+    { scope: "workflow" },
+  ])
+    assert.ok(validateCiRunObservationEventV4({ ...value, payload: { ...value.payload, ...patch } }, false).length);
 });
