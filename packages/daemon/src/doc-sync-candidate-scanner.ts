@@ -5,6 +5,7 @@ import {
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  artifactSubtreePath,
   classifyOpaqueTextualArtifactPath,
   classifyTextualArtifactPath,
   classifyRawArtifactPath,
@@ -16,6 +17,7 @@ import {
   DOC_POLICY_ID,
   documentPath,
   parseDocWriteIntent,
+  RAW_ARTIFACT_MAX_BYTES,
   resolveDocRoute,
   resolveHarnessLayout,
   resolveLedgerGitLayout,
@@ -205,11 +207,18 @@ export function scanDocCandidates(input: {
         rawTaskArtifactCandidate &&
         fileSize !== null &&
         fileSize > DOC_SYNC_INLINE_MAX_BYTES &&
+        fileSize <= RAW_ARTIFACT_MAX_BYTES &&
         taskArtifactAddAction !== null,
       existingMediaType = classifyTextualArtifactPath(logical)?.mediaType ?? null,
+      // Artifacts-subtree content rides the <=50,000,000 byte blob content contract
+      // (dec_776B4D61DF711D9F31126D375D CH4), not the inline prose channel: the scanner reads it
+      // whole so a system-published dispatch report past the inline cap still scans, compares, and
+      // submits like any other candidate instead of wedging completion. Prose keeps the
+      // descriptor-frame cap the doc-sync channel is sized for.
+      readCap = artifactSubtreePath(logical) ? RAW_ARTIFACT_MAX_BYTES : DOC_SYNC_INLINE_MAX_BYTES,
       rawBytes = inventoried
         ? inventoried.bytes
-        : fileSize !== null && fileSize <= DOC_SYNC_INLINE_MAX_BYTES && safe && existsSync(target)
+        : fileSize !== null && fileSize <= readCap && safe && existsSync(target)
           ? readCandidate(target)
           : null,
       // A path the extension table does not claim is still a doc candidate when
@@ -312,19 +321,20 @@ export function scanDocCandidates(input: {
         projected.document?.blobSha256 ?? null,
         null,
       );
-    if (fileSize !== null && fileSize > DOC_SYNC_INLINE_MAX_BYTES)
+    if (fileSize !== null && fileSize > readCap)
       return scannedCandidateRow(
         "blocked",
-        `${logical} is ${fileSize} bytes; doc sync accepts at most ${DOC_SYNC_INLINE_MAX_BYTES} bytes; ` +
-          (taskArtifactAddAction === null
-            ? "send raw content through the blob content contract"
-            : `publish it with ${taskArtifactAddAction}`),
+        artifactSubtreePath(logical)
+          ? `${logical} is ${fileSize} bytes; task artifacts accept at most ${RAW_ARTIFACT_MAX_BYTES} bytes ` +
+              "through the content object contract"
+          : `${logical} is ${fileSize} bytes; doc sync accepts at most ${DOC_SYNC_INLINE_MAX_BYTES} bytes of ` +
+              "inline prose; split the document or move the bulk under a task package's artifacts/ subtree",
         null,
         projected.document?.blobSha256 ?? null,
         null,
         effective.mediaType,
         "doc_candidate_too_large",
-        taskArtifactAddAction === null ? "blob-content" : "ha task artifact add",
+        artifactSubtreePath(logical) ? "blob-content" : null,
         null,
         fileSize,
       );
