@@ -212,15 +212,13 @@ export async function fetchCiObservations(
             return { fetched: null };
           }
           const runRoot = path.join(temporaryRoot, String(run.databaseId), String(summary.attempt));
-          let artifactUnavailable = false;
-          try {
-            await downloadCiArtifacts(runGh, cell.rootDir, runRoot, run.databaseId, summary.attempt);
-          } catch (error) {
-            // An authoritative missing archive ends this diagnostic, not the trusted workflow verdict.
-            if (!(error instanceof Error) || !/HTTP 404|Not Found/iu.test(error.message)) throw error;
-            consumeKnownError(error);
-            artifactUnavailable = true;
-          }
+          const artifactUnavailable = await downloadCiArtifacts(
+            runGh,
+            cell.rootDir,
+            runRoot,
+            run.databaseId,
+            summary.attempt,
+          );
           const attempt = JSON.parse(
             await runGh(
               "gh",
@@ -684,15 +682,19 @@ async function coversCommit(runGh: RunGh, cwd: string, base: string, head: strin
 const ghRateLimitText = /rate limit|HTTP 429/iu;
 const ghRateLimitResetText = /(?:reset in|try again in) ((?:[0-9]+[a-z]+)+)/iu;
 
-// Non-rate-limit gh failures pass through untouched; rate limits rethrow as rate_limited with
-// the reset hint parsed out of gh's stderr so the receipt names a wait, not a retry.
-function rethrowGhFailureAsRateLimit(cell: Pick<RepoCellOperationalContext, "cellCodedError">, error: unknown): never {
+function ghFailureDetail(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error),
     stderr =
       typeof error === "object" && error !== null && typeof (error as { stderr?: unknown }).stderr === "string"
         ? (error as { stderr: string }).stderr
         : "";
-  const detail = `${message}\n${stderr}`;
+  return `${message}\n${stderr}`;
+}
+
+// Non-rate-limit gh failures pass through untouched; rate limits rethrow as rate_limited with
+// the reset hint parsed out of gh's stderr so the receipt names a wait, not a retry.
+function rethrowGhFailureAsRateLimit(cell: Pick<RepoCellOperationalContext, "cellCodedError">, error: unknown): never {
+  const detail = ghFailureDetail(error);
   if (!ghRateLimitText.test(detail)) throw error;
   const reset = ghRateLimitResetText.exec(detail)?.[1];
   throw cell.cellCodedError(
@@ -789,11 +791,23 @@ async function downloadCiArtifacts(
   root: string,
   runId: number,
   attempt: number,
-): Promise<void> {
+): Promise<boolean> {
   const artifacts = await listCiArtifacts(gh, cwd, runId);
   const names = artifacts
     .filter((entry) => entry.name.startsWith(`ci-observation-${runId}-${attempt}-`) && !entry.expired)
     .map((entry) => entry.name);
-  if (names.length === 0) return;
-  await gh("gh", ["run", "download", String(runId), ...names.flatMap((name) => ["-n", name]), "--dir", root], { cwd });
+  if (names.length === 0) return false;
+  try {
+    await gh("gh", ["run", "download", String(runId), ...names.flatMap((name) => ["-n", name]), "--dir", root], {
+      cwd,
+    });
+    return false;
+  } catch (error) {
+    const detail = ghFailureDetail(error),
+      remoteArchiveFailure =
+        /\bHTTP 5\d\d\b/iu.test(detail) && /\bAzure(?:\s+Blob)?\s+Storage\b|blob\.core\.windows\.net/iu.test(detail);
+    if (!/HTTP 404|Not Found/iu.test(detail) && !remoteArchiveFailure) throw error;
+    consumeKnownError(error);
+    return true;
+  }
 }
