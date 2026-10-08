@@ -74,19 +74,21 @@ export async function cancelRuntime(
       `${opId}-exited`,
       terminalBinding,
     );
+    const resultBody = "Runtime session cancelled after its worker process was no longer available.",
+      resultSha256 = createHash("sha256").update(resultBody).digest("hex");
     await context.publishRuntimeEvent(
       "runtime_session_outcome_observed",
       {
         runtimeSessionId,
         outcome: "cancelled",
         exitCode: null,
-        resultRef: `artifact:runtime-result/sha256/${createHash("sha256").update(runtimeSessionId).digest("hex")}`,
-        result: null,
+        resultRef: `artifact:runtime-result/sha256/${resultSha256}`,
+        result: { sha256: resultSha256, size: Buffer.byteLength(resultBody), mediaType: "text/plain; charset=utf-8" },
         reasonCode: "runtime_process_missing",
       },
       `${opId}-outcome`,
       terminalBinding,
-      "Runtime session cancelled after its worker process was no longer available.",
+      resultBody,
     );
     return context.controlReceipt(opId, runtimeSessionId, "cancelled");
   }

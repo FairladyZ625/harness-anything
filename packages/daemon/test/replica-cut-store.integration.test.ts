@@ -660,7 +660,7 @@ test("RepoCell wakes a pending replica cut when its projection catches up", { ti
     t.diagnostic("stage: first write accepted");
     assert.equal(first.outcome, "applied");
     const replica = host.replica("replica-repo"),
-      bootstrap = replica.activate()!;
+      bootstrap = (await replica.prepare())!;
     assert.equal(bootstrap.revision, first.revision);
     t.signal.addEventListener("abort", () => replica.close(), { once: true });
     armed = true;

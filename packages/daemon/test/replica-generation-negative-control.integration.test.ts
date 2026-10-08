@@ -58,6 +58,12 @@ function generationDeltaFixture(prefix: string) {
     },
     source: ReplicaCutSource = {
       activate: () => cut2,
+      prepare: async () => cut2,
+      delivery: {
+        manifest: async (revision) => source.manifest(revision),
+        changes: async (from, to) => source.changes(from, to),
+        content: async (blob) => source.content(blob),
+      },
       ledgerCut: () => null,
       exactRevision: () => cut2.revision,
       kick: () => undefined,
@@ -90,7 +96,7 @@ function generationDeltaFixture(prefix: string) {
   return { root, key, cut1, cut2, source, edgeRoot, edge, deliver };
 }
 
-test("legacy revision-only cursor selects snapshot rather than retained delta", () => {
+test("legacy revision-only cursor selects snapshot rather than retained delta", async () => {
   const f = generationDeltaFixture("ha-negative-legacy-cursor-");
   let store = openReplicaAckStore(path.join(f.root, "center"));
   try {
@@ -113,7 +119,7 @@ test("legacy revision-only cursor selects snapshot rather than retained delta", 
     db.close();
     store = openReplicaAckStore(path.join(f.root, "center"));
     assert.equal(
-      makeOffer(f.key, store.cursor(f.key), f.cut2, f.source, "2026-10-08T00:00:01Z").kind,
+      (await makeOffer(f.key, store.cursor(f.key), f.cut2, f.source, "2026-10-08T00:00:01Z")).kind,
       "snapshot",
       "legacy wire cursor must not select retained delta",
     );
@@ -128,7 +134,10 @@ test("414-g6 delta fidelity survives unrelated legacy identity mutations", async
   const store = openReplicaAckStore(path.join(f.root, "center"));
   try {
     for (const cut of [f.cut1, f.cut2]) {
-      const offer = { ...f.key, ...makeOffer(f.key, store.cursor(f.key), cut, f.source, "2026-10-08T00:00:00Z") };
+      const offer = {
+        ...f.key,
+        ...(await makeOffer(f.key, store.cursor(f.key), cut, f.source, "2026-10-08T00:00:00Z")),
+      };
       assert.equal(offer.kind, cut.revision === 414 ? "snapshot" : "delta");
       store.offer(f.key, offer);
       const lease = store.delivery.claim(f.key, "fidelity-holder", Date.parse("2026-10-08T00:00:00Z"), 30_000)!;
@@ -161,7 +170,7 @@ test("delta begin rejects generation alone with revision and digest held equal",
     await t.test(generation === undefined ? "missing generation" : "mismatched generation", async () => {
       const f = generationDeltaFixture("ha-negative-generation-only-");
       try {
-        const snapshot = { ...f.key, ...makeOffer(f.key, null, f.cut1, f.source, "2026-10-08T00:00:00Z") };
+        const snapshot = { ...f.key, ...(await makeOffer(f.key, null, f.cut1, f.source, "2026-10-08T00:00:00Z")) };
         await f.deliver(snapshot);
         const begin = {
           schema: "fleet.delta.begin/v1",

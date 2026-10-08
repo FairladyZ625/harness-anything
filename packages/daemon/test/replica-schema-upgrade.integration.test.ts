@@ -116,6 +116,12 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
   };
   const stale = {
     ...initial,
+    delivery: {
+      ...initial.delivery,
+      manifest: async () => oldEntries,
+      content: async (blob: { sha256: string }) =>
+        readFileSync(path.join(historicalRoot, "read-model-blobs", blob.sha256)),
+    },
     latest: () => staleCut,
     manifest: () => oldEntries,
     content: (blob: { sha256: string }) => readFileSync(path.join(historicalRoot, "read-model-blobs", blob.sha256)),
@@ -127,13 +133,13 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
       nodeId,
       viewId: nodeId,
       repoId: options.repoId,
-      ...makeOffer(
+      ...(await makeOffer(
         { nodeId, viewId: nodeId, repoId: options.repoId },
         null,
         source.latest()!,
         source,
         "2026-10-08T00:00:00Z",
-      ),
+      )),
     };
     for await (const frame of offerFrames(offer, source, {
       owner: "person-one",
@@ -284,6 +290,12 @@ function generationDeltaFixture(prefix: string) {
     },
     source: ReplicaCutSource = {
       activate: () => cut2,
+      prepare: async () => cut2,
+      delivery: {
+        manifest: async (revision) => source.manifest(revision),
+        changes: async (from, to) => source.changes(from, to),
+        content: async (blob) => source.content(blob),
+      },
       ledgerCut: () => null,
       exactRevision: () => cut2.revision,
       kick: () => undefined,
@@ -410,7 +422,13 @@ test("generation-bearing wire retires legacy center state before snapshot then r
     assert.equal(store.offerFor(fixture.key), null, "revision-only active offer cannot shadow current wire state");
     const snapshot = {
       ...fixture.key,
-      ...makeOffer(fixture.key, store.cursor(fixture.key), fixture.cut1, fixture.source, "2026-10-08T00:00:02.000Z"),
+      ...(await makeOffer(
+        fixture.key,
+        store.cursor(fixture.key),
+        fixture.cut1,
+        fixture.source,
+        "2026-10-08T00:00:02.000Z",
+      )),
     };
     assert.equal(snapshot.kind, "snapshot");
     assert.equal(
@@ -456,7 +474,13 @@ test("generation-bearing wire retires legacy center state before snapshot then r
 
     const delta = {
       ...fixture.key,
-      ...makeOffer(fixture.key, store.cursor(fixture.key), fixture.cut2, fixture.source, "2026-10-08T00:00:04.000Z"),
+      ...(await makeOffer(
+        fixture.key,
+        store.cursor(fixture.key),
+        fixture.cut2,
+        fixture.source,
+        "2026-10-08T00:00:04.000Z",
+      )),
     };
     assert.equal(delta.kind, "delta", "the generation-bearing 414 base remains eligible for retained delta");
     assert.notEqual(delta.transferId, snapshot.transferId);

@@ -39,7 +39,7 @@ test(
       };
     const settle = async () => {
       const replica = f.host.replica("lease-repo");
-      replica.activate();
+      await replica.prepare();
       await replica.waitForCut(f.eventCount());
       await pull();
     };

@@ -11,17 +11,20 @@ import { type ReplicaAckStore, type ReplicaDeliveryKey, type ReplicaOffer } from
 import type { ReplicaCutSource, SnapshotCut } from "./replica-cut-store.ts";
 import { parseEdgeReadModelMeta, READ_MODEL_META_PATH } from "@harness-anything/kernel";
 
-export function makeOffer(
+export async function makeOffer(
   key: ReplicaDeliveryKey,
   cursor: ReturnType<ReplicaAckStore["cursor"]>,
   latest: SnapshotCut,
   replica: ReplicaCutSource,
   issuedAt: string,
-): Omit<ReplicaOffer, keyof ReplicaDeliveryKey> {
-  const model = replica.manifest(latest.revision)?.find((entry) => entry.path === READ_MODEL_META_PATH);
+): Promise<Omit<ReplicaOffer, keyof ReplicaDeliveryKey>> {
+  const model = (await replica.delivery.manifest(latest.revision))?.find(
+    (entry) => entry.path === READ_MODEL_META_PATH,
+  );
   if (
     model &&
-    parseEdgeReadModelMeta(Buffer.from(replica.content(model.blob)).toString("utf8")).sourceRevision !== latest.revision
+    parseEdgeReadModelMeta(Buffer.from(await replica.delivery.content(model.blob)).toString("utf8")).sourceRevision !==
+      latest.revision
   )
     throw new FleetFault("replica_pending", "The target cut has no read model at its canonical revision.", true);
   let fromCut: FleetCut | null = null,
@@ -33,7 +36,7 @@ export function makeOffer(
       retained.headDigest === cursor.headDigest &&
       retained.manifest.digest === cursor.manifestDigest &&
       latest.revision > cursor.revision &&
-      replica.changes(cursor.revision, latest.revision) !== null
+      (await replica.delivery.changes(cursor.revision, latest.revision)) !== null
     ) {
       fromCut = wireCut(retained);
       // Intermediate revisions may carry only document changes. Fold the existing
@@ -67,7 +70,7 @@ export async function* offerFrames(
   replica: ReplicaCutSource,
   authorization: { readonly owner: string; readonly digest: string },
 ): AsyncGenerator<FleetFrameV1> {
-  const entries = replica.manifest(offer.toCut.revision);
+  const entries = await replica.delivery.manifest(offer.toCut.revision);
   if (!entries || fleetManifestDigest(entries) !== offer.manifestDigest)
     throw new FleetFault("snapshot_required", "Replica cut manifest is unavailable or corrupt.", true);
   if (offer.kind === "snapshot") {
@@ -94,7 +97,8 @@ export async function* offerFrames(
         pageIndex: offset / 128,
         entries: entries.slice(offset, offset + 128),
       };
-    for (const entry of entries) yield* blobFrames("snapshot", offer.transferId, entry, replica.content(entry.blob));
+    for (const entry of entries)
+      yield* blobFrames("snapshot", offer.transferId, entry, await replica.delivery.content(entry.blob));
     yield {
       schema: "fleet.snapshot.finish/v1",
       messageId: mid(offer.transferId, "finish"),
@@ -103,7 +107,7 @@ export async function* offerFrames(
     };
     return;
   }
-  const changes = offer.fromCut && replica.changes(offer.fromCut.revision, offer.toCut.revision);
+  const changes = offer.fromCut && (await replica.delivery.changes(offer.fromCut.revision, offer.toCut.revision));
   if (!offer.fromCut || !changes)
     throw new FleetFault("snapshot_required", "Adjacent replica changelog is outside retention.", true);
   yield {
@@ -133,7 +137,7 @@ export async function* offerFrames(
         "delta",
         offer.transferId,
         { path: change.path, blob: change.blob },
-        replica.content(change.blob),
+        await replica.delivery.content(change.blob),
       );
   yield {
     schema: "fleet.delta.finish/v1",
@@ -149,7 +153,7 @@ export function* blobFrames(
   entry: FleetEntry,
   bytes: Uint8Array,
 ): Generator<FleetFrameV1> {
-  const body = Buffer.from(bytes);
+  const body = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   for (let offset = 0; offset < body.length; offset += FLEET_CHUNK_BYTES)
     yield {
       schema: `fleet.${kind}.chunk/v1`,

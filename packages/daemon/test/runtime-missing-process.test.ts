@@ -174,19 +174,33 @@ test("runtime cancel settles a live projection whose dispatch never recorded a p
     const dispatchId = "dispatch_eeeeeeeeeeeeeeeeeeeeeeee",
       runtimeSessionId = "runtime_eeeeeeeeeeeeeeeeeeeeeeee";
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-cancel-missing-process");
-    const published: Array<{ readonly type: string; readonly payload: Record<string, unknown> }> = [],
+    const published: Array<{
+        readonly type: string;
+        readonly payload: Record<string, unknown>;
+        readonly resultBody?: string;
+      }> = [],
       context = {
         input: { rootDir, repoId: "cancel-missing-process" },
         requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [liveSession(runtimeSessionId)] }),
         processes: new Map(),
         exiting: new Set<string>(),
-        publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
-          published.push({ type, payload });
+        publishRuntimeEvent: async (
+          type: string,
+          payload: Record<string, unknown>,
+          _opId: string,
+          _binding: unknown,
+          resultBody?: string,
+        ) => {
+          published.push({ type, payload, resultBody });
           return {};
         },
         controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
       };
     const receipt = await cancelRuntime(context as never, { runtimeSessionId }, binding);
+    assert.equal(
+      published.find(({ type }) => type === "runtime_session_outcome_observed")?.resultBody,
+      "Runtime session cancelled after its worker process was no longer available.",
+    );
     assert.equal(receipt.detail, "cancelled");
     assert.deepEqual(
       published.map(({ type, payload }) => [type, payload]),
@@ -199,8 +213,14 @@ test("runtime cancel settles a live projection whose dispatch never recorded a p
             runtimeSessionId,
             outcome: "cancelled",
             exitCode: null,
-            resultRef: `artifact:runtime-result/sha256/${createHash("sha256").update(runtimeSessionId).digest("hex")}`,
-            result: null,
+            resultRef: `artifact:runtime-result/sha256/${createHash("sha256").update("Runtime session cancelled after its worker process was no longer available.").digest("hex")}`,
+            result: {
+              sha256: createHash("sha256")
+                .update("Runtime session cancelled after its worker process was no longer available.")
+                .digest("hex"),
+              size: Buffer.byteLength("Runtime session cancelled after its worker process was no longer available."),
+              mediaType: "text/plain; charset=utf-8",
+            },
             reasonCode: "runtime_process_missing",
           },
         ],

@@ -62,7 +62,7 @@ test(
     assert.ok(expectedContent.entries.some((entry) => entry.path === "reserved" && entry.directory));
     const e = await fleetEdgeHostFixture(t, f);
     const replica = f.host.replica("lease-repo");
-    replica.activate();
+    await replica.prepare();
     await replica.waitForCut(f.eventCount());
     await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
     const scope = await f.host.read(

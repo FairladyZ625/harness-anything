@@ -233,7 +233,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     if (decision.outcome !== "allowed")
       throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
-    replica.activate();
+    await replica.prepare();
     return { a, replica, owner };
   };
   // A watch that sees no new cut still answers on the progress interval with the unchanged head, so a
@@ -621,12 +621,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         active &&
         (!replica.cut(active.toCut.revision) ||
           replica.cut(active.toCut.revision)?.manifest.digest !== active.manifestDigest ||
-          (active.fromCut && replica.changes(active.fromCut.revision, active.toCut.revision) === null))
+          (active.fromCut && (await replica.delivery.changes(active.fromCut.revision, active.toCut.revision)) === null))
       ) {
         ackStore.clearOffer(key);
         active = null;
       }
-      const next = active ?? makeOffer(key, cursor, latest, replica, now());
+      const next = active ?? (await makeOffer(key, cursor, latest, replica, now()));
       const offer = active ?? ackStore.offer(key, next);
       window.offers.set(offer.transferId, { key, lease, release });
       ackStore.delivery.record(key, { started: offer.kind });

@@ -34,7 +34,7 @@ test(
     // head, then one pull carries every task.
     const settle = async (count: number) => {
       const replica = f.host.replica("lease-repo");
-      replica.activate();
+      await replica.prepare();
       await replica.waitForCut(f.eventCount());
       await pull();
       assert.equal(locateFleetMirrorView(e.viewRoot, "lease-repo")?.schemaGeneration, READ_MODEL_SCHEMA_GENERATION);
@@ -132,7 +132,7 @@ test(
     await f.command("center-node", { kind: "task-create", taskId: "write-read-base", title: "Base" });
     const e = await fleetEdgeHostFixture(t, f);
     const base = f.host.replica("lease-repo");
-    base.activate();
+    await base.prepare();
     await base.waitForCut(f.eventCount());
     await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
     const written = await e.command({ kind: "task-create", taskId: "independent-write", title: "Independent write" });
@@ -190,7 +190,7 @@ test(
       },
     });
     const replica = f.host.replica("lease-repo");
-    replica.activate();
+    await replica.prepare();
     await replica.waitForCut(f.eventCount());
     await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
     const confirmationPath = path.join(

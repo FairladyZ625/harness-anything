@@ -129,8 +129,10 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
             error.code === "authorization_denied"
               ? `${error.message} Ask a center administrator to grant the node's owner repository-read` +
                 " on this repository, then retry the edge sync."
-              : `${error.message} Register the node at the center and use the credential it issued,` +
-                " or correct --node-id / --credential, then retry the edge sync.",
+              : error.code === "authentication_failed" || error.code === "node_owner_unregistered"
+                ? `${error.message} Register the node at the center and use the credential it issued,` +
+                  " or correct --node-id / --credential, then retry the edge sync."
+                : `Center replica admission failed: ${error.message}`,
           ),
           { code: error.code },
         );
