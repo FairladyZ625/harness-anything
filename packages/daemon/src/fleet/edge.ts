@@ -251,11 +251,9 @@ function finish(
     const previous = readJson<Current>(path.join(viewRoot, "current.json"));
     if (!previous || JSON.stringify(previous.cut) !== JSON.stringify(begin.fromCut))
       throw new Error("snapshot_required: delta base changed");
-    const previousIdentity =
-      previous.schemaGeneration === undefined
-        ? String(previous.cut.revision)
-        : `${previous.cut.revision}-g${previous.schemaGeneration}`;
-    const prior = readJson<Manifest>(path.join(viewRoot, "cuts", previousIdentity, "manifest.json"));
+    const prior = readJson<Manifest>(
+      path.join(viewRoot, "cuts", `${previous.cut.revision}-g${previous.schemaGeneration}`, "manifest.json"),
+    );
     if (!prior) throw new Error("snapshot_required: current manifest missing");
     entries = [...prior.entries];
     changes = pages.flatMap((page) => (page.schema === "fleet.delta.page/v1" ? page.changes : []));
