@@ -746,6 +746,16 @@ describe("overview narrative", () => {
     );
     const rail = host.querySelector('[data-testid="work-structure"]')!;
     expect(rail.textContent).toContain("结构与统计");
+    // 状态标签完整换行显示:不用省略号截断,列宽预留整词换行(验收:标签必须完整可读)。
+    const labels = [...rail.querySelectorAll<HTMLSpanElement>("[data-status-filter] > span")];
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) {
+      expect(label.className).not.toContain("truncate");
+      expect(label.className).toContain("break-words");
+    }
+    expect(labels[0]!.closest("div")!.className).toContain("minmax(6rem,1fr)");
+    expect(rail.querySelector('[data-status-filter="submitted"]')!.textContent).toContain("待初审");
+    expect(rail.querySelector('[data-status-filter="submitted"] > span')!.textContent).toContain("Submitted");
     // 点状态数字 → 任务页按该状态筛好。
     await act(async () => rail.querySelector<HTMLButtonElement>('[data-status-filter="submitted"]')!.click());
     expect(host.querySelector('[data-testid="work-structure"]')).toBeNull();

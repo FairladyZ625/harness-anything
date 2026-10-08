@@ -291,7 +291,7 @@ export function WorkOverview({
           big={leaves.length}
           footer={t("views.workspace.structure.footer")}
         >
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-px border-t border-border bg-border">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(6rem,1fr))] gap-px border-t border-border bg-border">
             {[...STATUS_ORDER.filter((status) => (leafCounts[status] ?? 0) > 0), null].map((status) => (
               <button
                 key={status ?? "all"}
@@ -303,7 +303,7 @@ export function WorkOverview({
                 <b className="block font-mono text-base font-semibold leading-none tabular-nums text-text">
                   {status === null ? leaves.length : leafCounts[status]}
                 </b>
-                <span className="mt-0.5 block truncate text-text-faint ui-micro leading-snug">
+                <span className="mt-0.5 block break-words text-text-faint ui-micro leading-snug">
                   {status === null ? t("views.workspace.rail.all") : t(STATUS_LABEL[status])}
                 </span>
               </button>
@@ -339,11 +339,9 @@ export function WorkOverview({
     </>
   );
 
-  {
-    /* 工作说明预览:与工作说明页签同一份根任务文档、同一个隔离 renderer;放右栏顶部
-      与时间线并排,首屏可见可读(高度与时间线均分或占满);「打开完整工作说明」动作留在
-      区域框上,正文在区域内自己滚。 */
-  }
+  /* 工作说明预览:与工作说明页签同一份根任务文档、同一个隔离 renderer;放右栏顶部
+     与时间线并排,首屏可见可读(高度与时间线均分或占满);「打开完整工作说明」动作留在
+     区域框上,正文在区域内自己滚。 */
   const explainer = (
     <BoardSide region="explainer" data-testid="work-explainer">
       <Region
