@@ -220,7 +220,11 @@ function wireEntry(itemPath: string, bytes: Buffer): FleetEntry {
   return { path: itemPath, blob: { sha256: sha256Bytes(bytes), size: bytes.byteLength, mediaType: "text/markdown" } };
 }
 function wireCut(revision: number): FleetCut {
-  return { revision, headDigest: `sha256:${sha256Bytes(Buffer.from(`head-${revision}`))}` };
+  return {
+    revision,
+    headDigest: `sha256:${sha256Bytes(Buffer.from(`head-${revision}`))}`,
+    schemaGeneration: 0,
+  };
 }
 function snapshotFrames(
   transferId: string,

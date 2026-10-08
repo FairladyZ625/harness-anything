@@ -21,6 +21,7 @@ export interface ReplicaOffer extends ReplicaDeliveryKey {
 export interface ReplicaAckProof extends ReplicaDeliveryKey {
   readonly revision: number;
   readonly headDigest: string;
+  readonly schemaGeneration: number;
   readonly manifestDigest: string;
   readonly transferId: string;
   readonly ackedAt: string;
@@ -50,6 +51,10 @@ export interface ReplicaAckStore {
 
 export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
   const databases = new Map<string, DatabaseSync>(),
+    proofTable = `ack_proof_wire_g${READ_MODEL_SCHEMA_GENERATION}`,
+    cursorTable = `ack_cursor_wire_g${READ_MODEL_SCHEMA_GENERATION}`,
+    offerTable = `active_offer_wire_g${READ_MODEL_SCHEMA_GENERATION}`,
+    transferIndex = `ack_transfer_wire_g${READ_MODEL_SCHEMA_GENERATION}`,
     valid = (value: string) => {
       if (!/^[A-Za-z0-9_-]{1,96}$/u.test(value)) throw new Error("replica delivery key is invalid");
       return value;
@@ -63,7 +68,7 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
       const store = new DatabaseSync(path.join(root, "ack.sqlite"));
       // Registration and delivery leases are shared; proof/cursor/offer belong to this schema generation.
       store.exec(
-        `PRAGMA journal_mode = DELETE; CREATE TABLE IF NOT EXISTS registration(node_id TEXT NOT NULL, view_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(node_id,view_id)); CREATE TABLE IF NOT EXISTS ack_proof_g${READ_MODEL_SCHEMA_GENERATION}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,revision INTEGER NOT NULL,head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,transfer_id TEXT NOT NULL,acked_at TEXT NOT NULL,cut_event_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id,revision)); CREATE UNIQUE INDEX IF NOT EXISTS ack_transfer_g${READ_MODEL_SCHEMA_GENERATION} ON ack_proof_g${READ_MODEL_SCHEMA_GENERATION}(transfer_id); CREATE TABLE IF NOT EXISTS ack_cursor_g${READ_MODEL_SCHEMA_GENERATION}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,revision INTEGER NOT NULL,head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,transfer_id TEXT NOT NULL,acked_at TEXT NOT NULL,cut_event_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id)); CREATE TABLE IF NOT EXISTS active_offer_g${READ_MODEL_SCHEMA_GENERATION}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,transfer_id TEXT NOT NULL UNIQUE,from_revision INTEGER,from_head_digest TEXT,to_revision INTEGER NOT NULL,to_head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,kind TEXT NOT NULL,issued_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id));`,
+        `PRAGMA journal_mode = DELETE; CREATE TABLE IF NOT EXISTS registration(node_id TEXT NOT NULL, view_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(node_id,view_id)); CREATE TABLE IF NOT EXISTS ${proofTable}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,revision INTEGER NOT NULL,head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,transfer_id TEXT NOT NULL,acked_at TEXT NOT NULL,cut_event_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id,revision)); CREATE UNIQUE INDEX IF NOT EXISTS ${transferIndex} ON ${proofTable}(transfer_id); CREATE TABLE IF NOT EXISTS ${cursorTable}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,revision INTEGER NOT NULL,head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,transfer_id TEXT NOT NULL,acked_at TEXT NOT NULL,cut_event_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id)); CREATE TABLE IF NOT EXISTS ${offerTable}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,transfer_id TEXT NOT NULL UNIQUE,from_revision INTEGER,from_head_digest TEXT,to_revision INTEGER NOT NULL,to_head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,kind TEXT NOT NULL,issued_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id));`,
       );
       databases.set(id, store);
       return store;
@@ -79,6 +84,7 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
             ...key,
             revision: Number(row.revision),
             headDigest: String(row.head_digest),
+            schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
             manifestDigest: String(row.manifest_digest),
             transferId: String(row.transfer_id),
             ackedAt: String(row.acked_at),
@@ -99,17 +105,15 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
   const cursor = (key: ReplicaDeliveryKey) =>
       proofFrom(
         key,
-        check(key)
-          .prepare(`SELECT * FROM ack_cursor_g${READ_MODEL_SCHEMA_GENERATION} WHERE node_id=? AND view_id=?`)
-          .get(key.nodeId, key.viewId) as Record<string, unknown> | undefined,
+        check(key).prepare(`SELECT * FROM ${cursorTable} WHERE node_id=? AND view_id=?`).get(key.nodeId, key.viewId) as
+          | Record<string, unknown>
+          | undefined,
       ),
     proof = (key: ReplicaDeliveryKey, revision: number) =>
       proofFrom(
         key,
         check(key)
-          .prepare(
-            `SELECT * FROM ack_proof_g${READ_MODEL_SCHEMA_GENERATION} WHERE node_id=? AND view_id=? AND revision=?`,
-          )
+          .prepare(`SELECT * FROM ${proofTable} WHERE node_id=? AND view_id=? AND revision=?`)
           .get(key.nodeId, key.viewId, revision) as Record<string, unknown> | undefined,
       );
   const offerFrom = (key: ReplicaDeliveryKey, row: Record<string, unknown> | undefined): ReplicaOffer | null =>
@@ -120,8 +124,16 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
             fromCut:
               row.from_revision === null
                 ? null
-                : { revision: Number(row.from_revision), headDigest: String(row.from_head_digest) },
-            toCut: { revision: Number(row.to_revision), headDigest: String(row.to_head_digest) },
+                : {
+                    revision: Number(row.from_revision),
+                    headDigest: String(row.from_head_digest),
+                    schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+                  },
+            toCut: {
+              revision: Number(row.to_revision),
+              headDigest: String(row.to_head_digest),
+              schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+            },
             manifestDigest: String(row.manifest_digest),
             kind: String(row.kind) as "snapshot" | "delta",
             issuedAt: String(row.issued_at),
@@ -130,16 +142,21 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
     offerFor = (key: ReplicaDeliveryKey) =>
       offerFrom(
         key,
-        check(key)
-          .prepare(`SELECT * FROM active_offer_g${READ_MODEL_SCHEMA_GENERATION} WHERE node_id=? AND view_id=?`)
-          .get(key.nodeId, key.viewId) as Record<string, unknown> | undefined,
+        check(key).prepare(`SELECT * FROM ${offerTable} WHERE node_id=? AND view_id=?`).get(key.nodeId, key.viewId) as
+          | Record<string, unknown>
+          | undefined,
       );
   const offer = (key: ReplicaDeliveryKey, input: Omit<ReplicaOffer, keyof ReplicaDeliveryKey>) => {
+      if (
+        input.toCut.schemaGeneration !== READ_MODEL_SCHEMA_GENERATION ||
+        (input.fromCut !== null && input.fromCut.schemaGeneration !== READ_MODEL_SCHEMA_GENERATION)
+      )
+        throw new Error("replica offer schema generation is not current");
       const store = check(key),
         existing = offerFor(key);
       if (existing) return existing;
       store
-        .prepare(`INSERT INTO active_offer_g${READ_MODEL_SCHEMA_GENERATION} VALUES(?,?,?,?,?,?,?,?,?,?)`)
+        .prepare(`INSERT INTO ${offerTable} VALUES(?,?,?,?,?,?,?,?,?,?)`)
         .run(
           key.nodeId,
           key.viewId,
@@ -155,9 +172,7 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
       return { ...key, ...input };
     },
     clearOffer = (key: ReplicaDeliveryKey) => {
-      check(key)
-        .prepare(`DELETE FROM active_offer_g${READ_MODEL_SCHEMA_GENERATION} WHERE node_id=? AND view_id=?`)
-        .run(key.nodeId, key.viewId);
+      check(key).prepare(`DELETE FROM ${offerTable} WHERE node_id=? AND view_id=?`).run(key.nodeId, key.viewId);
     };
   const delivery = replicaDeliveryLeases(db);
   const ackAtCut = (
@@ -169,9 +184,10 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
     cutEventAt: string,
   ) => {
     const store = check(key),
-      priorProof = store
-        .prepare(`SELECT * FROM ack_proof_g${READ_MODEL_SCHEMA_GENERATION} WHERE transfer_id=?`)
-        .get(transferId) as Record<string, unknown> | undefined;
+      priorProof = store.prepare(`SELECT * FROM ${proofTable} WHERE transfer_id=?`).get(transferId) as
+        | Record<string, unknown>
+        | undefined;
+    if (cut.schemaGeneration !== READ_MODEL_SCHEMA_GENERATION) return { outcome: "op_rejected" as const, cursor: null };
     if (priorProof) {
       const exact =
         Number(priorProof.revision) === cut.revision &&
@@ -203,16 +219,14 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
       }
     }
     store
-      .prepare(`INSERT INTO ack_proof_g${READ_MODEL_SCHEMA_GENERATION} VALUES(?,?,?,?,?,?,?,?)`)
+      .prepare(`INSERT INTO ${proofTable} VALUES(?,?,?,?,?,?,?,?)`)
       .run(key.nodeId, key.viewId, cut.revision, cut.headDigest, digest, transferId, ackedAt, cutEventAt);
     store
       .prepare(
-        `INSERT INTO ack_cursor_g${READ_MODEL_SCHEMA_GENERATION} VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(node_id,view_id) DO UPDATE SET revision=excluded.revision,head_digest=excluded.head_digest,manifest_digest=excluded.manifest_digest,transfer_id=excluded.transfer_id,acked_at=excluded.acked_at,cut_event_at=excluded.cut_event_at WHERE excluded.revision>ack_cursor_g${READ_MODEL_SCHEMA_GENERATION}.revision`,
+        `INSERT INTO ${cursorTable} VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(node_id,view_id) DO UPDATE SET revision=excluded.revision,head_digest=excluded.head_digest,manifest_digest=excluded.manifest_digest,transfer_id=excluded.transfer_id,acked_at=excluded.acked_at,cut_event_at=excluded.cut_event_at WHERE excluded.revision>${cursorTable}.revision`,
       )
       .run(key.nodeId, key.viewId, cut.revision, cut.headDigest, digest, transferId, ackedAt, cutEventAt);
-    store
-      .prepare(`DELETE FROM active_offer_g${READ_MODEL_SCHEMA_GENERATION} WHERE node_id=? AND view_id=?`)
-      .run(key.nodeId, key.viewId);
+    store.prepare(`DELETE FROM ${offerTable} WHERE node_id=? AND view_id=?`).run(key.nodeId, key.viewId);
     return { outcome: "applied" as const, cursor: cursor(key) };
   };
   const ack: ReplicaAckStore["ack"] = (key, transferId, cut, digest, ackedAt, cutEventAt, lease) => {
@@ -237,7 +251,7 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
         for (const { name } of tables) {
           if (
             typeof name === "string" &&
-            /^(?:registration|(?:ack_proof|ack_cursor|active_offer)(?:_g[0-9]+)?)$/u.test(name)
+            /^(?:registration|(?:ack_proof|ack_cursor|active_offer)(?:_wire)?(?:_g[0-9]+)?)$/u.test(name)
           )
             store.prepare(`DELETE FROM ${name} WHERE node_id=? AND view_id<>?`).run(key.nodeId, key.viewId);
         }

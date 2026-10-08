@@ -313,6 +313,7 @@ function finish(
     : 0;
   if (!Number.isSafeInteger(schemaGeneration) || schemaGeneration < 0)
     throw new Error("snapshot schema generation is invalid");
+  if (schemaGeneration !== cut.schemaGeneration) throw new Error("snapshot schema generation does not match its cut");
   const manifest: Manifest = {
     cut,
     schemaGeneration,
@@ -347,15 +348,14 @@ function finish(
   return ack(begin.transferId, cut, digest);
 }
 function collect(viewRoot: string, casRoot: string, currentIdentity: string): void {
-  // Retired revision-only directories keep their CAS references until two-cut retention retires them.
   const cutsRoot = path.join(viewRoot, "cuts"),
     revisions = existsSync(cutsRoot)
       ? readdirSync(cutsRoot)
-          .filter((name) => /^\d+(?:-g\d+)?$/u.test(name))
+          .filter((name) => /^\d+-g\d+$/u.test(name))
           .sort(
             (a, b) =>
               Number(b.split("-g")[0]) - Number(a.split("-g")[0]) ||
-              Number(b.split("-g")[1] ?? -1) - Number(a.split("-g")[1] ?? -1),
+              Number(b.split("-g")[1]) - Number(a.split("-g")[1]),
           )
       : [],
     keep = new Set([currentIdentity, ...revisions.filter((revision) => revision !== currentIdentity).slice(0, 1)]);
@@ -369,7 +369,7 @@ function collect(viewRoot: string, casRoot: string, currentIdentity: string): vo
       const root = path.join(viewsRoot, view, "cuts");
       return existsSync(root)
         ? readdirSync(root)
-            .filter((name) => /^\d+(?:-g\d+)?$/u.test(name))
+            .filter((name) => /^\d+-g\d+$/u.test(name))
             .slice(0, 2)
             .flatMap(
               (revision) =>
