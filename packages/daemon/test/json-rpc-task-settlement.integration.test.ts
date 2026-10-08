@@ -878,6 +878,8 @@ test(
       writeFileSync(
         path.join(ghBin, "gh"),
         "#!/usr/bin/env node\nconst fs = require('fs'), path = require('path');\n" +
+          "if (process.argv.includes('--slurp') && (process.argv.includes('--jq') || process.argv.includes('--template')))\n" +
+          "  { console.error('the `--slurp` option is not supported with `--jq` or `--template`'); process.exit(1); }\n" +
           "const [group, verb] = process.argv.slice(2), marker = path.join(__dirname, 'delivery');\n" +
           "const sha = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : null;\n" +
           "const rerun = fs.existsSync(path.join(__dirname, 'rerun')), conclusion = rerun ? 'success' : 'failure';\n" +
@@ -961,9 +963,14 @@ test(
         path.join(ghBin, "gh"),
         `#!/usr/bin/env node
 const fs = require('fs'), path = require('path');
+const argv = process.argv;
+if (argv.includes('--slurp') && (argv.includes('--jq') || argv.includes('--template'))) {
+  console.error('the \`--slurp\` option is not supported with \`--jq\` or \`--template\`');
+  process.exit(1);
+}
 const [group, verb, id] = process.argv.slice(2), sha = 'a'.repeat(40);
 if (group === 'api') {
-  if (process.argv.some(arg => arg.includes('/jobs?'))) console.log(JSON.stringify([{ id: 22, name: 'rewrite-ci' }]));
+  if (process.argv.some(arg => arg.includes('/jobs?'))) console.log(JSON.stringify([{ jobs: [{ id: 22, name: 'rewrite-ci' }] }]));
   else console.log(JSON.stringify({ run_attempt: 1, head_sha: sha, head_branch: 'main', conclusion: 'success',
     event: 'push', path: '.github/workflows/rewrite-ci.yml', workflow_id: 1, name: 'rewrite-ci',
     repository: { full_name: 'fixture/repo' } }));
