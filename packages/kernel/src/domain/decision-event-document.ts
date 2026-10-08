@@ -53,7 +53,7 @@ export function compileDecisionWrite(input: {
       { ...input.currentDecision!, relations: input.currentRelations },
       input.currentDocument!.body,
       input.event,
-      input.approval?.approvedBy === undefined ? input.decisionReviewRequirement : "off",
+      input.decisionReviewRequirement,
     );
   }
   if (input.currentDecision && input.currentDocument)

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertDecisionAcceptReview,
+  compileDecisionWrite,
   decisionAcceptReviewReadiness,
   decisionReviewContentDigest,
   type DecisionDocumentState,
@@ -277,4 +278,83 @@ test("policy-unreviewed acceptance requires a proposer response to every histori
     })),
   };
   assert.doesNotThrow(() => assertDecisionAcceptReview(answered, amendedBody, accept(), "off"));
+});
+
+const consent = {
+  approvedBy: "person-owner",
+  at: "2026-09-28T00:01:30.000Z",
+  channel: "chat" as const,
+};
+
+function compileConsentAccept(state: DecisionDocumentState, requirement: "off" | "high") {
+  const draft = accept();
+  return compileDecisionWrite({
+    event: {
+      ...draft,
+      payload: { ...draft.payload, judgmentOnlyRationale: "Owner judgment recorded alongside the review record." },
+    },
+    approval: consent,
+    currentDecision: state,
+    currentRelations: [],
+    currentDocument: { blobSha256: "sha256:base", body: document() },
+    decisionReviewRequirement: requirement,
+  });
+}
+
+test("human consent does not exempt a high-risk Decision from the repository review requirement", () => {
+  assert.throws(() => compileConsentAccept(decision(), "high"), /requires an approved review/u);
+  for (const riskTier of ["medium", "low"] as const)
+    assert.doesNotThrow(() => compileConsentAccept({ ...decision(), riskTier }, "high"));
+});
+
+test("human consent accepts a reviewed high-risk Decision once current changes_requested blockers are overridden", () => {
+  const current = decision(),
+    digest = decisionReviewContentDigest(current, document()),
+    approved = {
+      reviewId: "review-approved",
+      reviewContentDigest: digest,
+      verdict: "approved" as const,
+      reason: "The evidence supports the proposal.",
+      findings: [],
+      evidenceChecked: ["fact/F-12345678"],
+      reportRef: null,
+      actor: { ...proposer, executor: { kind: "agent" as const, id: "reviewer" } },
+      reviewedAt: "2026-09-28T00:01:00.000Z",
+    },
+    blocking = {
+      reviewId: "review-blocking",
+      reviewContentDigest: digest,
+      verdict: "changes_requested" as const,
+      reason: "The claim lacks evidence.",
+      findings: [{ findingId: "F1", text: "Add evidence." }],
+      evidenceChecked: [],
+      reportRef: null,
+      actor: { ...proposer, executor: { kind: "agent" as const, id: "reviewer" } },
+      reviewedAt: "2026-09-28T00:01:00.000Z",
+    };
+  const compiled = compileConsentAccept({ ...current, reviews: [approved] }, "high");
+  assert.ok(compiled.event.type === "decision_accepted");
+  assert.equal(compiled.event.payload.judgmentConsent.basis, "human");
+  assert.throws(
+    () => compileConsentAccept({ ...current, reviews: [approved, blocking] }, "high"),
+    /unresolved changes_requested/u,
+  );
+  assert.doesNotThrow(() =>
+    compileConsentAccept(
+      {
+        ...current,
+        reviews: [approved, blocking],
+        reviewOverrides: [
+          {
+            reviewContentDigest: digest,
+            reviewIds: [blocking.reviewId],
+            reason: "The owner accepts the documented tradeoff.",
+            actor: proposer,
+            overriddenAt: "2026-09-28T00:02:00.000Z",
+          },
+        ],
+      },
+      "high",
+    ),
+  );
 });
