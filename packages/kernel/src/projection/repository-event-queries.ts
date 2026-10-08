@@ -1,3 +1,5 @@
+import { decodeCiObservation, type CiRunObservationEventV4 } from "../domain/ci-run-observation-v4.ts";
+import type { CiRunObservationEventV2, CiRunObservationEventV3 } from "../domain/ci-run-observation-event.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readEventList } from "./event-list-query.ts";
 import { privateRuntimeEventTypes, publicRuntimeDispatch } from "../domain/runtime-public-query.ts";
@@ -76,7 +78,7 @@ const SCHEDULE_EVENTS_BY_ID_SQL = [
 ].join(" ");
 const CI_RUN_OBSERVATIONS_SQL = [
   "SELECT event_json FROM event_index",
-  "WHERE json_extract(event_json, '$.schema') = 'ci-run-observation/v3'",
+  "WHERE json_extract(event_json, '$.schema') IN ('ci-run-observation/v2','ci-run-observation/v3','ci-run-observation/v4')",
   "ORDER BY workspace_revision DESC LIMIT ?",
 ].join(" ");
 
@@ -294,9 +296,14 @@ export function repositoryEventQueries(
           throw new Error("ci run observation page requires a limit from 1 to 2000");
         return {
           status: cut.status,
-          events: queryRows(db, CI_RUN_OBSERVATIONS_SQL, pageLimit)
-            .map((row) => JSON.parse(String(row.event_json)))
-            .filter((event) => event.schema === "ci-run-observation/v3"),
+          events: queryRows(db, CI_RUN_OBSERVATIONS_SQL, pageLimit).map((row) =>
+            decodeCiObservation(
+              JSON.parse(String(row.event_json)) as
+                | CiRunObservationEventV2
+                | CiRunObservationEventV3
+                | CiRunObservationEventV4,
+            ),
+          ),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

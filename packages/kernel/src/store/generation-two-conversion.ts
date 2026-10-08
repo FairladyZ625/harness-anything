@@ -1,3 +1,4 @@
+import { validateCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
 import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-publication.ts";
@@ -179,7 +180,10 @@ function planConversion(source: SqliteEventStore) {
           reasons.push("repeated installation observation preserved read-only; it adds no new installation fact");
         installations.set(key, value);
       }
-      const issues = validateCurrentCanonicalEvent(event);
+      const issues =
+        event.schema === "ci-run-observation/v3"
+          ? validateCiRunObservationEvent(event)
+          : validateCurrentCanonicalEvent(event);
       if (issues.length) throw new Error(issues.join("; "));
       for (const claim of contentClaims(event)) {
         const bytes = source.readContentObject(claim.sha256);

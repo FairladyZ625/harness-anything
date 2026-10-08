@@ -1,3 +1,4 @@
+import { validateCiRunObservationEventV4, type CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
 import {
   freezeDeclaredWritePlan,
   hasContractFields,
@@ -12,7 +13,7 @@ import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { completionEvidenceResults, type CompletionEvidenceResult } from "./completion-evidence.ts";
 
 export const CI_RUN_OBSERVATION_SCHEMA = Object.freeze({
-  id: "ci-run-observation/v3",
+  id: "ci-run-observation/v4",
   required: Object.freeze([
     "schema",
     "eventId",
@@ -110,11 +111,11 @@ const tiers = ["fast", "contract", "integration", "gui", "nightly", "unknown"] a
 const statuses = ["passed", "failed", "skipped"] as const;
 
 export function validateCiRunObservationEvent(value: unknown): readonly string[] {
-  return validateFields(value, true, CI_RUN_OBSERVATION_SCHEMA.id, "result");
+  return validateFields(value, true, "ci-run-observation/v3", "result");
 }
 
 export function validateCurrentCiRunObservationEvent(value: unknown): readonly string[] {
-  return validateFields(value, false, CI_RUN_OBSERVATION_SCHEMA.id, "result");
+  return validateCiRunObservationEventV4(value, false);
 }
 
 export function validateCiRunObservationEventV2(value: unknown): readonly string[] {
@@ -147,13 +148,13 @@ function validateFields(
     : [];
 }
 
-function validVerification(value: unknown, run: unknown, allowUnknownFields: boolean): boolean {
+export function validVerification(value: unknown, run: unknown, allowUnknownFields: boolean): boolean {
   if (value === null) return true;
   if (
     isRecord(value) &&
     value.source === "write-coordinator" &&
     value.workflow === "ledger-publication" &&
-    hasContractFields(value, ["source", "workflow", "runId", "attempt", "headSha", "conclusion"], false) &&
+    hasContractFields(value, ["source", "workflow", "runId", "attempt", "headSha", "conclusion"], allowUnknownFields) &&
     typeof value.runId === "string" &&
     value.runId.startsWith("ledger-") &&
     value.attempt === 1 &&
@@ -187,7 +188,7 @@ function validVerification(value: unknown, run: unknown, allowUnknownFields: boo
   );
 }
 
-function validRun(value: unknown, allowUnknownFields: boolean): boolean {
+export function validRun(value: unknown, allowUnknownFields: boolean): boolean {
   return (
     isRecord(value) &&
     hasContractFields(
@@ -245,24 +246,34 @@ function nonNegativeNumber(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-export function isCiRunObservationEvent(event: { readonly schema: string }): event is CiRunObservationEventV3 {
+export function isCiRunObservationEvent(event: { readonly schema: string }): event is CiRunObservationEventV4 {
   return event.schema === CI_RUN_OBSERVATION_SCHEMA.id;
 }
 
-export function serializeCiRunObservationEvent(event: CiRunObservationEventV3): string {
+export function serializeCiRunObservationEvent(event: CiRunObservationEventV4): string {
   const errors = validateCurrentCiRunObservationEvent(event);
   if (errors.length) throw new CiRunObservationContractError(errors.join("; "));
   return serializeEventEnvelope(event);
 }
 
-export function ciRunObservationWritePlan(event: CiRunObservationEventV3): FrozenWritePlan<"ci_run_observed"> {
+export function ciRunObservationWritePlan(event: CiRunObservationEventV4): FrozenWritePlan<"ci_run_observed"> {
   return freezeDeclaredWritePlan(
     {
       commandType: event.type,
       targets: [
         { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
         { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
-        { kind: "projection_invalidation", projection: "ci-run-observation/v3", key: event.payload.run.runId },
+        ...(event.payload.detailRef
+          ? [
+              {
+                kind: "content_blob" as const,
+                sha256: event.payload.detailRef.sha256,
+                size: event.payload.detailRef.encodedBytes,
+                mediaType: event.payload.detailRef.mediaType,
+              },
+            ]
+          : []),
+        { kind: "projection_invalidation", projection: "ci-run-observation/v4", key: event.payload.run.runId },
       ],
     },
     [event.type],

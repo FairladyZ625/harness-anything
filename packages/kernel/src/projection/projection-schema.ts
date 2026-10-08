@@ -10,4 +10,5 @@
 // Version 29 derives Squad runs only from canonical events and removes local readiness.
 // Version 30 materializes bounded event summaries and same-revision witnesses for shared repository reads.
 // Version 31 adds event list descriptors without copying canonical payloads.
-export const taskProjectionSchemaVersion = 31;
+// Version 32 indexes all retained CI generations and v4 for the unified observation reader.
+export const taskProjectionSchemaVersion = 32;

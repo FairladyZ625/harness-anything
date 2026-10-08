@@ -1,3 +1,4 @@
+import type { CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
 import type { ExecutionDelegationEventV1 } from "./execution-delegation-event.ts";
 import type { PortableDocumentPath } from "../layout/portable-path.ts";
 import type { EntityEventV1, LegacyAgentEntityEventV1 } from "./entity-event.ts";
@@ -200,7 +201,8 @@ export type CanonicalEventV1 =
   | MigrationImportEventV1
   | LedgerLayoutMigrationEventV1
   | CiRunObservationEventV2
-  | CiRunObservationEventV3;
+  | CiRunObservationEventV3
+  | CiRunObservationEventV4;
 
 /** Canonical events plus retired envelopes that remain readable in append-only history. */
 export type PersistedCanonicalEventV1 = CanonicalEventV1 | LegacyAgentEntityEventV1 | RetiredPeopleEventV1;

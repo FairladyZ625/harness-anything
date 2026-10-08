@@ -340,20 +340,23 @@ function main(argv) {
   console.log(`Manifest gate runner (${selector}): ${plan.length} command(s).`);
   const gateResults = [];
   const failedGateIds = [];
-  for (const entry of plan) {
-    const result = runCommand(entry.id, entry.command);
-    gateResults.push({
-      gate: canonicalGateId(entry.id),
-      result: result.ok ? "pass" : "fail",
-      metrics: { durationMs: result.durationMs },
-    });
-    if (!result.ok) {
-      failedGateIds.push(entry.id);
-      if (options.packageSurface) break;
-      continue;
+  try {
+    for (const entry of plan) {
+      const result = runCommand(entry.id, entry.command);
+      gateResults.push({
+        gate: canonicalGateId(entry.id),
+        result: result.ok ? "pass" : "fail",
+        metrics: { durationMs: result.durationMs },
+      });
+      if (!result.ok) {
+        failedGateIds.push(entry.id);
+        if (options.packageSurface) break;
+        continue;
+      }
     }
+  } finally {
+    writeObservation(gateResults);
   }
-  writeObservation(gateResults);
   if (failedGateIds.length > 0) {
     console.error(`\nManifest gate runner failed (${selector}): ${failedGateIds.join(", ")}.`);
     process.exitCode = 1;
@@ -386,11 +389,12 @@ function writeObservation(gateResults) {
     ],
     { cwd: repoRoot, stdio: "inherit" },
   );
-  spawnSync(process.execPath, [path.join(repoRoot, "tools/write-ci-observation.mjs")], {
+  const observation = spawnSync(process.execPath, [path.join(repoRoot, "tools/write-ci-observation.mjs")], {
     cwd: repoRoot,
     env: process.env,
     stdio: "inherit",
   });
+  if (observation.status !== 0) throw new Error("CI observation artifact finalization failed");
 }
 
 function extractPullRequestNumber() {

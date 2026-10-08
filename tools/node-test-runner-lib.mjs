@@ -282,3 +282,14 @@ function buildLockOwnerAlive(lockPath) {
     return false;
   }
 }
+
+/** Shared observation semantics for Node and Vitest; summaries count JSON-escaped UTF-8 bytes. */
+export function boundedCiSummary(text) {
+  let summary = "";
+  for (const character of text) {
+    const next = summary + character;
+    if (new TextEncoder().encode(JSON.stringify(next).slice(1, -1)).length > 256) return { summary, truncated: true };
+    summary = next;
+  }
+  return { summary, truncated: false };
+}

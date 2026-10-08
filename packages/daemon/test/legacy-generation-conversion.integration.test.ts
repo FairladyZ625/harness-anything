@@ -1118,6 +1118,25 @@ test("offline conversion retains old CI labels as unverified measurements", () =
     const repeated = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(plan.events, () => null) });
     assert.deepEqual(repeated.events, plan.events);
     assert.equal(repeated.rewrites.length, 0);
+    initRepo(root);
+    const snapshotPath = path.join(root, ".harness/store/imports/ci-history.json"),
+      databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite");
+    createImmutableLegacyGenerationSnapshot({
+      repoId: "ci-history",
+      source: arrayStore([converted], () => null),
+      snapshotPath,
+    });
+    const sourceBytes = readFileSync(snapshotPath, "utf8");
+    assert.equal(convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }).active, false);
+    preflightConvertedGenerationActivation({ rootDir: root, snapshotPath, databasePath, repoId: "ci-history" });
+    const stored = openSqliteEventStore({ repoId: "ci-history", databasePath, readOnly: true });
+    try {
+      assert.deepEqual(stored.events()[0], converted);
+      assert.notDeepEqual(validateCurrentCanonicalEvent(stored.events()[0]), []);
+    } finally {
+      stored.close();
+    }
+    assert.equal(readFileSync(snapshotPath, "utf8"), sourceBytes);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

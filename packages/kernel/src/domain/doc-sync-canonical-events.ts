@@ -1,3 +1,4 @@
+import { validateCiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
 import {
   validateExecutionDelegationEvent,
   validateCurrentExecutionDelegationEvent,
@@ -55,6 +56,10 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
   {
     schema: "ci-run-observation/v3",
     validate: validateCiRunObservationEvent,
+  },
+  {
+    schema: "ci-run-observation/v4",
+    validate: validateCiRunObservationEventV4,
     validateCurrent: validateCurrentCiRunObservationEvent,
   },
   {

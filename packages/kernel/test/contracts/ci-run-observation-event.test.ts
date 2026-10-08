@@ -40,10 +40,10 @@ test("v2 retains the legacy boolean gate shape", () => {
   assert.notDeepEqual(validateCurrentCiRunObservationEvent(v2), []);
 });
 
-test("v3 accepts semantic gate results and serializes as current", () => {
+test("v3 remains historical only and cannot be written as current", () => {
   assert.deepEqual(validateCiRunObservationEvent(event), []);
-  assert.deepEqual(validateCurrentCiRunObservationEvent(event), []);
-  assert.equal(JSON.parse(serializeCiRunObservationEvent(event)).schema, "ci-run-observation/v3");
+  assert.notDeepEqual(validateCurrentCiRunObservationEvent(event), []);
+  assert.throws(() => serializeCiRunObservationEvent(event as never), /invalid/u);
 });
 
 test("v3 rejects legacy boolean gates", () => {
@@ -93,7 +93,7 @@ const verified = {
 };
 
 test("v3 requires matching workflow verification when present", () => {
-  assert.deepEqual(validateCurrentCiRunObservationEvent(verified), []);
+  assert.deepEqual(validateCiRunObservationEvent(verified), []);
   const legacy = structuredClone(verified);
   delete legacy.payload.verification.event;
   assert.deepEqual(validateCiRunObservationEvent(legacy), []);
@@ -120,4 +120,66 @@ test("v3 requires matching workflow verification when present", () => {
     { ...verified, payload: { ...verified.payload, run: { ...verified.payload.run, branch: "feature" } } },
   ])
     assert.notDeepEqual(validateCurrentCiRunObservationEvent(candidate), []);
+});
+
+test("v4 workflow positive fixture and negative measurements lock the unique current writer", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { validateCurrentCanonicalEvent, canonicalEventSchemas } = await import(
+    "../../src/domain/doc-sync-canonical-events.ts"
+  );
+  const valid = JSON.parse(
+    readFileSync(
+      new URL("../../fixtures/canonical-events/ci-run-observation-v4/workflow.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const invalid = JSON.parse(
+    readFileSync(
+      new URL("../../../../tools/gates/test/fixtures/ci-run-observation-invalid.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(validateCurrentCanonicalEvent(valid), []);
+  assert.notDeepEqual(validateCurrentCanonicalEvent(invalid), []);
+  assert.equal(JSON.parse(serializeCiRunObservationEvent(valid)).schema, "ci-run-observation/v4");
+  for (const history of [v2, event]) {
+    assert.deepEqual(canonicalEventSchemas.find((entry) => entry.schema === history.schema)!.validate(history), []);
+    assert.notDeepEqual(validateCurrentCanonicalEvent(history), []);
+  }
+});
+
+test("v4 historical job boundaries tolerate additions while current admission rejects them", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { validateCiRunObservationEventV4 } = await import("../../src/domain/ci-run-observation-v4.ts");
+  const fixture = JSON.parse(
+    readFileSync(new URL("../../fixtures/canonical-events/ci-run-observation-v4/job.json", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(validateCurrentCiRunObservationEvent(fixture), []);
+  const boundaries = [
+    [],
+    ["payload"],
+    ["payload", "identity"],
+    ["payload", "run"],
+    ["payload", "measurementCoverage"],
+    ["payload", "testSummary"],
+    ["payload", "failedTests", 0],
+    ["payload", "failedTests", 0, "declarationLocation"],
+    ["payload", "failedTests", 0, "failureLocation"],
+    ["payload", "fileOutcomes", 0],
+    ["payload", "shardDurations", 0],
+    ["payload", "detailRef"],
+  ];
+  for (const boundary of boundaries) {
+    const event = structuredClone(fixture);
+    let object = event;
+    for (const key of boundary) object = object[key];
+    object.futureOptionalField = true;
+    assert.deepEqual(validateCiRunObservationEventV4(event), [], String(boundary));
+    assert.notDeepEqual(validateCurrentCiRunObservationEvent(event), [], String(boundary));
+  }
+  for (const missing of ["testKey", "declarationLocation", "failureLocation", "durationMs"]) {
+    const event = structuredClone(fixture);
+    delete event.payload.failedTests[0][missing];
+    assert.notDeepEqual(validateCiRunObservationEventV4(event), [], missing);
+  }
 });
