@@ -16,6 +16,7 @@ import { t } from "../../i18n/index.tsx";
 type WorkExplainerState =
   | "repo-missing"
   | "list-pending"
+  | "list-not-ready"
   | "list-error"
   | "missing"
   | "body-pending"
@@ -54,6 +55,9 @@ export function WorkExplainerDocument({
     statusLine = (
       <Notice tone="bad">{t("views.workspace.explainer.listFailed", { message: documentList.error.message })}</Notice>
     );
+  } else if (documentList.data.status !== "ready") {
+    state = "list-not-ready";
+    statusLine = <Empty>{t("views.workspace.explainer.listNotReady")}</Empty>;
   } else if (!present) {
     state = "missing";
     statusLine = <Empty>{t("views.workspace.explainer.missing")}</Empty>;

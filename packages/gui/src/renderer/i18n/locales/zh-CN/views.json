@@ -1321,6 +1321,7 @@
   "views.workspace.explainer.landingPending": "正在定位工作说明…",
   "views.workspace.explainer.repoMissing": "未选择仓库，无法读取工作说明。",
   "views.workspace.explainer.listPending": "正在读取工作说明清单…",
+  "views.workspace.explainer.listNotReady": "工作说明清单投影尚未追平。",
   "views.workspace.explainer.listFailed": "工作说明清单读取失败：{message}",
   "views.workspace.explainer.missing": "该工作还没有工作说明页（artifacts/explainer.html）。",
   "views.workspace.explainer.bodyPending": "正在读取工作说明…",

@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { notifyManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppMotionConfig, MOTION_PREFERENCE_STORAGE_KEY } from "../src/renderer/motion-config.tsx";
 import { PageEntryBoundary } from "../src/renderer/components/primitives/EntryBoundary.tsx";
@@ -31,6 +31,10 @@ vi.mock("motion", async (original) => ({
  */
 
 const SPLIT_STORAGE_KEY = "harness:gui:split-layout";
+
+// React Query defaults observer notifications to a zero-delay timer. Keep this fast-tier test on
+// discrete microtasks so query completion and the corresponding render can be awaited without sleeps.
+notifyManager.setScheduler(queueMicrotask);
 
 const scopeRow = (taskId: string, patch: Partial<WorkspaceScopeRead["tasks"][number]> = {}) =>
   ({
@@ -138,14 +142,9 @@ async function mount(node: React.ReactNode): Promise<HTMLElement> {
   return host;
 }
 
-/** 等异步查询与落点定案走完(离散微任务/宏任务推进,零墙钟定时器)。 */
+/** 等异步查询与落点定案走完，不用墙钟定时器。 */
 async function settle() {
-  for (let index = 0; index < 3; index += 1) {
-    await act(async () => {
-      await Promise.resolve();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-  }
+  for (let index = 0; index < 6; index += 1) await act(async () => Promise.resolve());
 }
 
 const tab = (host: HTMLElement, key: string) => host.querySelector<HTMLButtonElement>(`#workspace-tab-${key}`)!;
@@ -1044,6 +1043,19 @@ describe("work explainer tab and overview preview", () => {
     expect(state?.getAttribute("data-state")).toBe("list-error");
     expect(state?.querySelector('[role="alert"]')).not.toBeNull();
     expect(state?.textContent).toContain("daemon unreachable");
+  });
+
+  it("tells a pending manifest projection apart from a missing explainer", async () => {
+    vi.spyOn(harnessClient, "getTaskDocuments").mockResolvedValue({
+      ...listWith(false),
+      status: "pending",
+    } as never);
+    const host = await mount(
+      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+    );
+    expect(tab(host, "overview").getAttribute("aria-selected")).toBe("true");
+    expect(explainerState(host)).toBe("list-not-ready");
+    expect(host.textContent).toContain("工作说明清单投影尚未追平");
   });
 
   it("surfaces a body read failure without faking an empty page", async () => {

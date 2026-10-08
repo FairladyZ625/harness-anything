@@ -1321,6 +1321,7 @@
   "views.workspace.explainer.landingPending": "Locating the work explainer…",
   "views.workspace.explainer.repoMissing": "No repository selected; the work explainer cannot be read.",
   "views.workspace.explainer.listPending": "Reading the work explainer manifest…",
+  "views.workspace.explainer.listNotReady": "The work explainer manifest projection has not caught up yet.",
   "views.workspace.explainer.listFailed": "Failed to read the work explainer manifest: {message}",
   "views.workspace.explainer.missing": "This work has no explainer page (artifacts/explainer.html) yet.",
   "views.workspace.explainer.bodyPending": "Reading the work explainer…",

@@ -11,6 +11,7 @@ import {
 } from "../../components/primitives/RegionBoard";
 import { SegBar } from "../../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag";
+import { Button } from "../../components/primitives/Button.tsx";
 import { WorkExplainerDocument } from "./WorkExplainer.tsx";
 import { entryTitle, metaLine } from "./entry-lines.tsx";
 import type { WorkLeafRow } from "./WorkTasksTab.tsx";
@@ -343,14 +344,11 @@ export function WorkOverview({
           title={t("views.workspace.explainer.regionTitle")}
           padded
           footer={
-            <button
-              type="button"
-              data-testid="work-explainer-open-full"
-              className="ml-auto shrink-0 text-accent"
-              onClick={onOpenExplainer}
-            >
-              {t("views.workspace.explainer.openFull")}
-            </button>
+            <span className="ml-auto">
+              <Button size="sm" variant="ghost" testId="work-explainer-open-full" onClick={onOpenExplainer}>
+                {t("views.workspace.explainer.openFull")}
+              </Button>
+            </span>
           }
         >
           <WorkExplainerDocument repoId={repoId} taskId={rootTaskId} />
