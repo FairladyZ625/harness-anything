@@ -168,6 +168,61 @@ export function splitPrBodyLanguageBlocks(body) {
   };
 }
 
+function normalizedNonEmptyLines(text) {
+  return text
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function isPlaceholderLine(line) {
+  return /^\s*[-*]\s*$/u.test(line) || /^\s*(?:[-*_]){3,}\s*$/u.test(line);
+}
+
+function unfilledSectionTitles(block) {
+  const headings = [...block.matchAll(/^##[ \t]+(\S.*?)[ \t]*$/gmu)];
+  const titles = [];
+  for (let index = 0; index < headings.length; index += 1) {
+    const content = block
+      .slice(headings[index].index + headings[index][0].length, headings[index + 1]?.index ?? block.length)
+      .replace(/<!--[\s\S]*?-->/gu, "");
+    if (!content.split(/\r?\n/u).some((line) => line.trim().length > 0 && !isPlaceholderLine(line))) {
+      titles.push(headings[index][1]);
+    }
+  }
+  return titles;
+}
+
+export function checkUnfilledPrTemplate(body, template) {
+  if (typeof template !== "string" || template.trim().length === 0) {
+    return { ok: true, applicable: false, unfilled: false, unfilledSections: [], issues: [] };
+  }
+  const templateLines = new Set(normalizedNonEmptyLines(template));
+  if (normalizedNonEmptyLines(body).some((line) => !templateLines.has(line))) {
+    return { ok: true, applicable: true, unfilled: false, unfilledSections: [], issues: [] };
+  }
+  const blocks = splitPrBodyLanguageBlocks(body),
+    unfilledSections = [...unfilledSectionTitles(blocks.englishBlock), ...unfilledSectionTitles(blocks.chineseBlock)],
+    englishList = unfilledSections.join(", "),
+    chineseList = unfilledSections.join("、");
+  return {
+    ok: false,
+    applicable: true,
+    unfilled: true,
+    unfilledSections,
+    issues: [
+      `The PR body is the unfilled PR template: no line goes beyond .github/pull_request_template.md.${
+        unfilledSections.length > 0
+          ? ` Fill the empty sections before review: ${englishList}.`
+          : " Fill the template sections before review."
+      }`,
+      `PR 正文是未填写的模板：没有任何一行超出 .github/pull_request_template.md。${
+        unfilledSections.length > 0 ? `请先填写为空的节：${chineseList}。` : "请先填写模板各节再提交。"
+      }`,
+    ],
+  };
+}
+
 function sectionContent(block, headingPattern) {
   const heading = headingPattern.exec(block);
   if (!heading) return null;
@@ -289,8 +344,9 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds, conte
   const blocks = splitPrBodyLanguageBlocks(body);
   const englishCounts = countBilingualSignals(blocks.englishBlock);
   const chineseCounts = countBilingualSignals(blocks.chineseBlock);
+  const unfilledTemplate = checkUnfilledPrTemplate(body, context.prTemplate);
   const perWriteCost = checkPerWriteCost(blocks.englishBlock, context.files);
-  const issues = [...blocks.issues, ...perWriteCost.issues];
+  const issues = [...blocks.issues, ...unfilledTemplate.issues, ...perWriteCost.issues];
   const gateHarvest = checkGateHarvestDeclarations(blocks.englishBlock);
   issues.push(...gateHarvest.issues);
   const eventMigration = checkEventMigrationDeclaration(blocks.englishBlock, context.eventMigration);
@@ -333,6 +389,7 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds, conte
     perWriteCost,
     eventMigration,
     architectureJustification,
+    unfilledTemplate,
     issues,
   };
 }
@@ -355,12 +412,14 @@ function readBodyFromArgs(argv) {
           "",
           "Requires a top-level `# English` block before a top-level `# 中文` block.",
           "The English block must contain at least 20 Latin words; the Chinese block must contain at least 20 CJK characters.",
+          "A body that contributes no line beyond the verbatim PR template is rejected as unfilled, naming its empty sections.",
           "Write/persist/projection/ledger paths under packages/**/src require a completed Per-Write Cost G1 table (see the PR template).",
           "When Deleted-Production-Paths names a path, Deleted-Gates-Fixtures is required.",
           "When the computed production delta exceeds 200 churn lines or +300 net production lines, both language blocks must contain a completed architectural justification section.",
           "When an accepted canonical-event sample changes, Event-Migration must name an existing ha migrate command or explain why no migration is required.",
           "要求顶级 `# English` 块位于顶级 `# 中文` 块之前。",
           "英文块至少包含 20 个拉丁单词；中文块至少包含 20 个 CJK 字符。",
+          "与模板逐字相同、没有任何模板之外新行的正文会被判为未填写而拒绝，并列出为空的节。",
           "当 Deleted-Production-Paths 声明路径时，必须填写 Deleted-Gates-Fixtures。",
           "当机器计算的生产变更超过 200 行 churn 或生产净增 +300 行时，英文和中文块都必须填写完整的架构辩护段。",
           "变更 canonical-event accepted 样本时，Event-Migration 必须声明现有 ha migrate 命令，或说明为什么不需要迁移。",
@@ -382,7 +441,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       head = process.env.PR_HEAD_SHA || "HEAD",
       files = changedFiles(root, base, head),
       productionDelta = computeProductionDelta({ rootDir: root, base }),
-      result = checkPrBodyBilingual(body, defaultThresholds, { files, eventMigration: { files }, productionDelta });
+      prTemplate = readFileSync(new URL("../.github/pull_request_template.md", import.meta.url), "utf8"),
+      result = checkPrBodyBilingual(body, defaultThresholds, {
+        files,
+        eventMigration: { files },
+        productionDelta,
+        prTemplate,
+      });
     if (result.ok) {
       process.stdout.write(
         [

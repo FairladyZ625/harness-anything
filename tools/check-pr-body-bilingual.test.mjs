@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,9 +14,12 @@ import {
   checkGateHarvestDeclarations,
   checkPrBodyBilingual,
   countBilingualSignals,
+  defaultThresholds,
   eventMigrationCommandNames,
 } from "./check-pr-body-bilingual.mjs";
 import { G1_OPERATION_NAMES } from "./gates/cost-budget.mjs";
+
+const pullRequestTemplate = readFileSync(new URL("../.github/pull_request_template.md", import.meta.url), "utf8");
 
 const validEnglish = [
   "# English",
@@ -54,6 +57,45 @@ test("standard two-block PR body passes", () => {
   assert.equal(result.issues.length, 0);
   assert.ok(result.counts.englishLatinWords >= 20);
   assert.ok(result.counts.chineseCjkChars >= 20);
+});
+
+test("a verbatim PR template body is rejected as unfilled and names its empty sections", () => {
+  const result = checkPrBodyBilingual(pullRequestTemplate, undefined, { prTemplate: pullRequestTemplate });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.unfilledTemplate.unfilled, true);
+  const issues = result.issues.join("\n");
+  assert.match(issues, /unfilled PR template/u);
+  assert.match(issues, /未填写的模板/u);
+  for (const title of result.unfilledTemplate.unfilledSections) {
+    assert.ok(issues.includes(title), title);
+  }
+  // The template's own prose already clears the count thresholds, so counting alone cannot catch it.
+  assert.ok(result.counts.englishLatinWords >= defaultThresholds.minLatinWords);
+  assert.ok(result.counts.chineseCjkChars >= defaultThresholds.minCjkChars);
+});
+
+test("a filled body passes with the PR template in context", () => {
+  const result = checkPrBodyBilingual(twoBlockBody(), undefined, { prTemplate: pullRequestTemplate });
+
+  assert.equal(result.ok, true, result.issues.join("\n"));
+  assert.equal(result.unfilledTemplate.unfilled, false);
+});
+
+test("a template body with only a checkbox ticked is no longer verbatim-unfilled", () => {
+  const ticked = pullRequestTemplate.replace("- [ ]", "- [x]");
+  const result = checkPrBodyBilingual(ticked, undefined, { prTemplate: pullRequestTemplate });
+
+  // Documents the criterion boundary: any novel line, even a checkbox tick, lifts the verdict.
+  assert.equal(result.ok, true, result.issues.join("\n"));
+  assert.equal(result.unfilledTemplate.unfilled, false);
+});
+
+test("without a template in context the unfilled check is not applicable", () => {
+  const result = checkPrBodyBilingual(pullRequestTemplate);
+
+  assert.equal(result.unfilledTemplate.applicable, false);
+  assert.equal(result.unfilledTemplate.issues.length, 0);
 });
 
 test("production churn above 200 requires both bilingual justification sections", () => {
@@ -455,4 +497,31 @@ test("PR lint CLI without base/head env or origin/main fails closed with a fix",
   assert.equal(result.status, 1);
   assert.match(result.stderr, /git merge-base origin\/main HEAD` failed/u);
   assert.match(result.stderr, /git fetch origin main/u);
+});
+
+test("PR lint CLI rejects a verbatim template body against the repository template", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "pr-lint-unfilled-"));
+  t.after(() => removeTemporaryDirectory(root));
+  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  git("init", "-q");
+  git("config", "user.name", "Fixture");
+  git("config", "user.email", "fixture@example.invalid");
+  git("commit", "--allow-empty", "-qm", "base");
+  const result = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL("./check-pr-body-bilingual.mjs", import.meta.url)), "--env", "PR_BODY"],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PR_BASE_SHA: git("rev-parse", "HEAD"),
+        PR_HEAD_SHA: git("rev-parse", "HEAD"),
+        PR_BODY: pullRequestTemplate,
+      },
+    },
+  );
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /unfilled PR template/u);
+  assert.match(result.stderr, /未填写的模板/u);
 });
