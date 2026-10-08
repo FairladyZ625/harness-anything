@@ -1691,5 +1691,10 @@
   "views.ci.noDiagnostic": "诊断不可用",
   "views.ci.truncated": "摘要已截断",
   "views.ci.noFailedTests": "未观测到失败测试身份，不能据此断言工作流通过。",
-  "views.ci.detail": "完整明细"
+  "views.ci.detail": "完整明细",
+  "views.ci.skipped": "跳过",
+  "views.ci.cancelled": "已取消",
+  "views.ci.copyDetailJson": "复制明细 JSON",
+  "views.ci.copyLocation": "复制失败位置 file:line:column",
+  "views.ci.rawDiagnostics": "另有 {count} 条原始诊断未按行展开；完整内容走「复制明细 JSON」。"
 }

@@ -59,6 +59,48 @@ it("shared DTO shows failures, timeout, owner/error and missing statistics; requ
   }
 });
 
+it("fetched full detail renders one structured row per test; raw JSON stays behind the copy entry", () => {
+  for (const locale of ["zh-CN", "en-US"] as const) {
+    setActiveLocale(locale);
+    const host = document.createElement("div"),
+      root = createRoot(host),
+      cold = ciPresentationFixture({ cached: true });
+    const failedRun = cold.runs.find((run) => run.fileOutcomes.length > 0)!;
+    act(() =>
+      root.render(
+        createElement(CiFocusDetail, { ci: cold, run: failedRun, error: null, fetching: false, onFetch: vi.fn() }),
+      ),
+    );
+    const detail = host.querySelector('[data-testid="ci-cold-detail"]');
+    expect(detail).not.toBeNull();
+    const rows = host.querySelectorAll('[data-testid="ci-detail-test-row"]');
+    expect(rows.length).toBe(failedRun.detail?.tests.length);
+    expect(detail?.textContent).toContain("CI diagnostic fixture");
+    expect(detail?.textContent).toContain("#1");
+    expect(detail?.textContent).toContain("2 ms");
+    expect(host.querySelector('[data-testid="ci-copy-location"]')?.textContent).toContain("fixture.test.ts:27:5");
+    expect(detail?.textContent).toContain("Expected result to equal 42");
+    expect(detail?.textContent).toContain("Full assertion stack at fixture.test.ts:27:5");
+    expect(detail?.querySelector('[data-status-tone="bad"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="ci-raw-diagnostics-count"]')?.textContent).toContain("1");
+    expect(host.querySelector('[data-testid="ci-copy-detail-json"]')).not.toBeNull();
+    expect(detail?.textContent).not.toContain('"testKey"');
+    expect(detail?.textContent).not.toContain('"ci-run-detail/v1"');
+    const passedRun = cold.runs.find((run) => run.runId === "101.2")!;
+    act(() =>
+      root.render(
+        createElement(CiFocusDetail, { ci: cold, run: passedRun, error: null, fetching: false, onFetch: vi.fn() }),
+      ),
+    );
+    expect(host.querySelectorAll('[data-testid="ci-detail-test-row"]').length).toBe(1);
+    const passedDetail = host.querySelector('[data-testid="ci-cold-detail"]');
+    expect(passedDetail?.textContent).toContain("fixture.test.ts:2:1");
+    expect(passedDetail?.querySelector('[data-status-tone="done"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="ci-raw-diagnostics-count"]')).toBeNull();
+    act(() => root.unmount());
+  }
+});
+
 it("empty observations and workflow with no artifact do not imply all tests passed; reads retain visible failure", () => {
   setActiveLocale("en-US");
   const host = document.createElement("div"),

@@ -149,6 +149,17 @@ export default {
     await page.getByTestId("ci-fetch-details").click();
     await page.getByTestId("ci-cold-detail").waitFor();
     assert.match(await page.getByTestId("ci-cold-detail").innerText(), /Full assertion stack/u);
+    // Structured rows: name / result / ordinal / duration / location / message, one row per test.
+    const detailText = await page.getByTestId("ci-cold-detail").innerText();
+    assert.match(detailText, /CI diagnostic fixture/u);
+    assert.match(detailText, /#1/u);
+    assert.match(detailText, /2 ms/u);
+    assert.match(detailText, /fixture\.test\.ts:27:5/u);
+    assert.match(detailText, /Expected result to equal 42/u);
+    // Default view must not dump the raw ci-run-detail/v1 JSON; it stays behind the copy entry.
+    assert.doesNotMatch(detailText, /"testKey"|"ci-run-detail\/v1"|\{"/u);
+    await page.getByTestId("ci-copy-detail-json").waitFor();
+    await page.getByTestId("ci-copy-location").waitFor();
     assert.match(await page.getByTestId("ci-recoveries").innerText(), /1 → 2/u);
     await shot("ci-recovery-after-detail");
     const geometry = [];

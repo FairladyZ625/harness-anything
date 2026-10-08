@@ -2,14 +2,40 @@ import type { CiObservatoryRead } from "../../api/renderer-dto.ts";
 import { Button } from "../components/primitives/Button.tsx";
 import { BoundedContent } from "../components/primitives/BoundedContent.tsx";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
-import { StatusTag } from "../components/primitives/StatusTag.tsx";
+import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
+import { CopyContextButton } from "../components/CopyContextButton.tsx";
 import { IdText } from "../components/IdText.tsx";
 import { t } from "../i18n/index.tsx";
 
 type Run = CiObservatoryRead["runs"][number];
+type DetailTest = NonNullable<Run["detail"]>["tests"][number];
 const tone = (pass: boolean | null) => (pass === false ? "bad" : pass === true ? "done" : "wait");
 const label = (pass: boolean | null) =>
   t(pass === false ? "views.ci.failed" : pass === true ? "views.ci.passed" : "views.ci.unknown");
+
+/** 测试结果 → 状态色/文案;detail.fileOutcomes 与 run.fileOutcomes 由 daemon 侧校验一致,不在此重复渲染。 */
+const TEST_TONE: Record<DetailTest["status"], StatusTone> = {
+  passed: "done",
+  failed: "bad",
+  skipped: "wait",
+  cancelled: "cancel",
+};
+const TEST_LABEL: Record<
+  DetailTest["status"],
+  "views.ci.passed" | "views.ci.failed" | "views.ci.skipped" | "views.ci.cancelled"
+> = {
+  passed: "views.ci.passed",
+  failed: "views.ci.failed",
+  skipped: "views.ci.skipped",
+  cancelled: "views.ci.cancelled",
+};
+
+/** error 只展示 DTO 原样携带的字符串 stack;不推断新语义(缺 stack 就不渲染)。 */
+function errorStack(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("stack" in error)) return null;
+  const stack = (error as { readonly stack?: unknown }).stack;
+  return typeof stack === "string" && stack.length > 0 ? stack : null;
+}
 
 export function CiFocusList({
   ci,
@@ -196,15 +222,70 @@ export function CiFocusDetail({
           <p data-testid="ci-detail-availability">
             {t("views.ci.detail")}: {run.detailAvailability}
           </p>
-          {run.detail && (
-            <BoundedContent>
-              <pre data-testid="ci-cold-detail" className="overflow-x-auto whitespace-pre text-text-muted">
-                {JSON.stringify(run.detail, null, 2)}
-              </pre>
-            </BoundedContent>
-          )}
+          {run.detail && <CiDetailRows detail={run.detail} />}
         </section>
       )}
     </div>
+  );
+}
+
+/** 完整明细的结构化呈现:每个测试一行;原始 JSON 只保留在次要复制入口,默认视图不显示 JSON。 */
+function CiDetailRows({ detail }: { readonly detail: NonNullable<Run["detail"]> }) {
+  return (
+    <BoundedContent>
+      <div className="flex justify-end">
+        <CopyContextButton
+          testId="ci-copy-detail-json"
+          compact
+          label={t("views.ci.copyDetailJson")}
+          title={t("views.ci.copyDetailJson")}
+          buildText={() => JSON.stringify(detail, null, 2)}
+        />
+      </div>
+      <ul data-testid="ci-cold-detail" className="flex flex-col gap-2">
+        {detail.tests.map((test, index) => (
+          <CiDetailTestRow key={`${test.testKey}.${index}`} test={test} />
+        ))}
+      </ul>
+      {detail.diagnostics.length > 0 && (
+        <p data-testid="ci-raw-diagnostics-count" className="text-text-muted">
+          {t("views.ci.rawDiagnostics", { count: detail.diagnostics.length })}
+        </p>
+      )}
+    </BoundedContent>
+  );
+}
+
+function CiDetailTestRow({ test }: { readonly test: DetailTest }) {
+  // 失败优先给 failureLocation,否则回退声明位置;两处都拼成可复制的 file:line:column。
+  const location = test.failureLocation
+    ? `${test.failureLocation.file}:${test.failureLocation.line}:${test.failureLocation.column}`
+    : `${test.file}:${test.declarationLocation.line ?? "?"}:${test.declarationLocation.column ?? "?"}`;
+  const stack = errorStack(test.error);
+  return (
+    <li data-testid="ci-detail-test-row" className="break-words border-t border-border pt-2">
+      <p className="flex flex-wrap items-center gap-2">
+        <StatusTag tone={TEST_TONE[test.status]} label={t(TEST_LABEL[test.status])} />
+        <strong className="min-w-0">{test.name}</strong>
+        <span className="font-mono tabular-nums text-text-muted ui-meta">#{test.executionOrdinal}</span>
+        <span className="font-mono tabular-nums text-text-muted ui-meta">{test.durationMs} ms</span>
+        <CopyContextButton
+          testId="ci-copy-location"
+          compact
+          label={location}
+          title={t("views.ci.copyLocation")}
+          buildText={() => location}
+        />
+      </p>
+      {test.failureSummary ? (
+        <p>
+          {test.failureSummary}
+          {test.truncated ? ` · ${t("views.ci.truncated")}` : ""}
+        </p>
+      ) : (
+        test.status === "failed" && <p className="text-text-muted ui-meta">{t("views.ci.noDiagnostic")}</p>
+      )}
+      {stack && <pre className="overflow-x-auto whitespace-pre text-text-muted ui-meta">{stack}</pre>}
+    </li>
   );
 }
