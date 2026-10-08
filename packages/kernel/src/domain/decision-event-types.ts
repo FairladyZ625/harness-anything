@@ -43,6 +43,11 @@ export const decisionTransitionDefinitions = Object.freeze([
 }[]);
 export type DecisionTransitionDefinition = (typeof decisionTransitionDefinitions)[number];
 export type DecisionTransitionAction = DecisionTransitionDefinition["action"];
+/**
+ * The Action criterion a review-required accept rejection is attributed to, so settlement can
+ * surface the dispatch-review escape hatch as receipt nextActions instead of a bare refusal.
+ */
+export const DECISION_ACCEPT_REVIEW_CRITERION_REF = "decision/accept-review-readiness";
 export const policyStates = ["draft", "active", "retired"] as const;
 export type PolicyState = (typeof policyStates)[number];
 export const decisionFulfillmentModes = ["evidenced", "delivered", "standing_policy"] as const;

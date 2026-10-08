@@ -1,7 +1,12 @@
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
 import { createAgentActionCatalog } from "./agent-action-contract.ts";
 import { runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
-import { decisionEventTypes, decisionStates, decisionTransitionDefinitions } from "./decision-event-types.ts";
+import {
+  DECISION_ACCEPT_REVIEW_CRITERION_REF,
+  decisionEventTypes,
+  decisionStates,
+  decisionTransitionDefinitions,
+} from "./decision-event-types.ts";
 import {
   ENTITY_DOCUMENT_POLICY_ID,
   requireEntityTypeContract,
@@ -542,7 +547,24 @@ const decisionActionCatalog = Object.freeze({
   ref: "kernel/decision-event/v1",
   actions: Object.freeze([
     decisionWriteAction("propose", "decision-propose"),
-    ...decisionTransitionDefinitions.map(({ action }) => decisionWriteAction(action, `decision-${action}`)),
+    // Accept is the one Decision write whose guard failure must guide the operator: settlement
+    // attributes review-required rejections to this criterion and forwards the dispatch-review
+    // command as receipt nextActions.
+    ...decisionTransitionDefinitions.map(({ action }) =>
+      action === "accept"
+        ? Object.freeze({
+            ...decisionWriteAction(action, `decision-${action}`),
+            criteria: Object.freeze([
+              {
+                ref: DECISION_ACCEPT_REVIEW_CRITERION_REF,
+                failureCode: "review_required",
+                explain:
+                  "Acceptance requires an approved review of the current content whenever repository review policy covers the Decision's risk tier.",
+              },
+            ]),
+          })
+        : decisionWriteAction(action, `decision-${action}`),
+    ),
     ...Object.values(decisionAuxiliaryActions).map(([id, ingress]) => decisionWriteAction(id, ingress)),
     decisionWriteAction("review", "decision-review"),
     decisionWriteAction("respond-review", "decision-respond-review"),
