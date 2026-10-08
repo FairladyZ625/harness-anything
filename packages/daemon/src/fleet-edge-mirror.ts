@@ -1,3 +1,4 @@
+import { readEdgeManifestEntries } from "./fleet/edge-manifest.ts";
 import { closeSync, fsyncSync, openSync, unlinkSync } from "node:fs";
 // Edge-side local mirror controller (design-v2 §3/§4): the replica view store
 // under viewRoot is the transport truth; this module projects it into the
@@ -728,10 +729,11 @@ function fleetMirrorCutEntries(
   revision: number,
   schemaGeneration: number,
 ): ReadonlyMap<string, FleetMirrorBlob> | null {
-  const manifest = fleetMirrorReadJson<{ entries: { path: string; blob: FleetMirrorBlob }[] }>(
-    path.join(viewDir, "cuts", `${revision}-g${schemaGeneration}`, "manifest.json"),
-  );
-  return manifest === null ? null : new Map(manifest.entries.map((entry) => [entry.path, entry.blob]));
+  const file = path.join(viewDir, "cuts", `${revision}-g${schemaGeneration}`, "manifest.json");
+  if (!existsSync(file)) return null;
+  const entries = new Map<string, FleetMirrorBlob>();
+  for (const entry of readEdgeManifestEntries(file)) entries.set(entry.path, entry.blob);
+  return entries;
 }
 /** One path's bytes as the center cut them: what the center said, whatever the registered harness holds now. */
 export function fleetMirrorCutFile(

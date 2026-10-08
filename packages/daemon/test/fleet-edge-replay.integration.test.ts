@@ -10,6 +10,12 @@ import {
   edgeReadAuthorizationShapeDigest,
   sha256Bytes,
 } from "@harness-anything/kernel";
+import {
+  orderedEdgeManifestDigest,
+  readEdgeManifestEntries,
+  readEdgeManifestHeader,
+  serializeEdgeManifest,
+} from "../src/fleet/edge-manifest.ts";
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 import { fleetManifestDigest, type FleetCut, type FleetEntry, type FleetFrameV1 } from "../src/fleet/contract.ts";
 
@@ -397,6 +403,73 @@ test("two retained revision 415 cuts without wire generation converge from stale
       assert.deepEqual(openFleetEdgeView(root, replicaQuota).current("repo", nodeId)?.cut, cut);
       assert.deepEqual(readFileSync(manifestPath), before, "the retained snapshot stays immutable");
       assert.equal(deliver(nodeId, `replay-${nodeId}`)?.schema, "fleet.ack/v1");
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("received complete blobs are verified before finish and pinned across another view's collection", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-ingest-"));
+  try {
+    const body = Buffer.from("waiting for finish"),
+      entry = wireEntry("context/await.md", body),
+      frames = snapshotFrames("receiving", "receiving", wireCut(1), [entry], [body]),
+      view = openFleetEdgeView(root, replicaQuota);
+    for (const frame of frames.slice(0, -1)) view.receive(frame);
+    const cas = path.join(root, "repos/repo/cas/sha256", entry.blob.sha256.slice(0, 2), entry.blob.sha256);
+    assert.equal(readFileSync(cas, "utf8"), body.toString());
+    assert.equal(view.current("repo", "receiving"), null);
+    const other = Buffer.from("other");
+    for (const frame of snapshotFrames("other", "other", wireCut(1), [wireEntry("context/other.md", other)], [other]))
+      view.receive(frame);
+    assert.equal(readFileSync(cas, "utf8"), body.toString(), "GC must retain in-flight verified blobs");
+    assert.equal(view.receive(frames.at(-1)!)?.schema, "fleet.ack/v1");
+    const corrupt = snapshotFrames(
+      "bad",
+      "bad",
+      wireCut(2),
+      [wireEntry("context/bad.md", Buffer.from("good"))],
+      [Buffer.from("evil")],
+    );
+    view.receive(corrupt[0]!);
+    view.receive(corrupt[1]!);
+    assert.throws(() => view.receive(corrupt[2]!), /transfer blob mismatch/u);
+    assert.equal(view.current("repo", "bad"), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("manifest batches preserve JSON, Unicode boundaries, digest and reject truncated input", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-manifest-batch-"));
+  try {
+    const file = path.join(root, "manifest.json"),
+      entries = Array.from({ length: 1025 }, (_, index) =>
+        wireEntry(`context/${String(index).padStart(4, "0")}-中文\\".md`, Buffer.from(String(index))),
+      ),
+      header = { cut: wireCut(1), schemaGeneration: 0, manifestDigest: fleetManifestDigest(entries) };
+    writeFileSync(file, [...serializeEdgeManifest(header, entries)].join(""));
+    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { ...header, entries });
+    assert.deepEqual([...readEdgeManifestEntries(file)], entries);
+    assert.deepEqual(readEdgeManifestHeader(file), header);
+    assert.equal(orderedEdgeManifestDigest(readEdgeManifestEntries(file)), fleetManifestDigest(entries));
+    // Arbitrary field order and whitespace use the same parser, not a format fallback.
+    writeFileSync(file, JSON.stringify({ entries, ...header }, null, 2));
+    assert.deepEqual([...readEdgeManifestEntries(file)], entries);
+    assert.deepEqual(readEdgeManifestHeader(file), header);
+    for (const invalid of [
+      "{}",
+      '{"entries":[],"entries":[]}',
+      '{\u00a0"entries":[]}',
+      '{"entries":[',
+      '{"entries":[],}',
+      '{"entries":[{},]}',
+      '{"entries":[]}x',
+      '{"entries":[]',
+    ]) {
+      writeFileSync(file, invalid);
+      assert.throws(() => [...readEdgeManifestEntries(file)]);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
