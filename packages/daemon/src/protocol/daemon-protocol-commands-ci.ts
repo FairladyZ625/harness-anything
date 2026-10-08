@@ -1,4 +1,8 @@
-import { cliInput, defineCliCommand } from "@harness-anything/preset/internal/preset-command-contract";
+import {
+  cliInput,
+  defineCliCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
+} from "@harness-anything/preset/internal/preset-command-contract";
 
 const ciWriteTopology = {
   commandClass: "repo-write" as const,
@@ -11,6 +15,23 @@ const ciWriteTopology = {
 };
 
 export const ciObservationProtocolCommands = Object.freeze([
+  defineEdgeReplicaQueryOnlyReadCommand({
+    id: "ci-observe-statistics",
+    phase: "PLT-TestEng-W1",
+    path: ["ci", "observe", "statistics"],
+    summary: "Read fixed-cut CI rerun recovery facts and complete-window statistics; fetch missing details on request.",
+    method: "repo.ci.observatory.read",
+    inputs: [
+      cliInput(
+        "--window",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { regex: "^(?:[1-9]|[1-9][0-9]|100)$", projection: "number" },
+      ),
+      cliInput("--fetch-details", "boolean", false, { code: "invalid_field" }),
+    ],
+  }),
   defineCliCommand({
     id: "ci-observe-pull",
     actionKind: "ci-observe-pull",

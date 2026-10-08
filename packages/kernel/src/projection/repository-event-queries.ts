@@ -79,6 +79,7 @@ const SCHEDULE_EVENTS_BY_ID_SQL = [
 const CI_RUN_OBSERVATIONS_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') IN ('ci-run-observation/v2','ci-run-observation/v3','ci-run-observation/v4')",
+  "AND workspace_revision < ?",
   "ORDER BY workspace_revision DESC LIMIT ?",
 ].join(" ");
 
@@ -290,13 +291,13 @@ export function repositoryEventQueries(
           (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
         );
       }),
-    readCiRunObservations: (pageLimit) =>
+    readCiRunObservations: (pageLimit, beforeRevision = Number.MAX_SAFE_INTEGER) =>
       withRead((db, cut) => {
         if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 2_000)
           throw new Error("ci run observation page requires a limit from 1 to 2000");
         return {
           status: cut.status,
-          events: queryRows(db, CI_RUN_OBSERVATIONS_SQL, pageLimit).map((row) =>
+          events: queryRows(db, CI_RUN_OBSERVATIONS_SQL, beforeRevision, pageLimit).map((row) =>
             decodeCiObservation(
               JSON.parse(String(row.event_json)) as
                 | CiRunObservationEventV2

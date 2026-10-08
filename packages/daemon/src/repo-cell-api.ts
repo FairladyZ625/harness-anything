@@ -348,6 +348,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
   const readHandlers = {
     "repo.ci.observatory.read": (payload: Readonly<Record<string, unknown>>) =>
       readCiObservatory({
+        readContentBlob: context.store.readContentBlob,
         rootDir: context.rootDir,
         projection: context.projection,
         ...(payload.window === undefined ? {} : { window: Number(payload.window) }),

@@ -44,7 +44,7 @@ import {
 } from "./center-transport.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./contract.ts";
+import { FLEET_CHUNK_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./contract.ts";
 import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";
 
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
@@ -517,6 +517,35 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         inReplyTo: frame.messageId,
         repoId: frame.repoId,
         cut: wireCut(next),
+      });
+    }
+    if (frame.schema === "fleet.ci-detail.get/v1") {
+      const { replica } = await admitReplica(nodeId, frame.repoId);
+      if (replica.cut(frame.revision)?.headDigest !== frame.headDigest)
+        throw new FleetFault("not_in_cut", "CI detail cut identity is unavailable.");
+      const entry = replica
+        .manifest(frame.revision)
+        ?.find((row) => row.path === `.read-model/ci-details/${frame.eventId}.json`);
+      if (!entry) throw new FleetFault("not_in_cut", "CI observation is not in the authorized cut.");
+      const descriptor = JSON.parse(Buffer.from(replica.content(entry.blob)).toString("utf8")) as {
+        ref: { sha256: string; encodedBytes: number; mediaType: string };
+      };
+      const bytes = replica.content({
+        sha256: descriptor.ref.sha256,
+        size: descriptor.ref.encodedBytes,
+        mediaType: descriptor.ref.mediaType,
+      });
+      if (frame.offset > bytes.byteLength)
+        throw new FleetFault("invalid_offset", "CI detail offset is outside the object.");
+      const end = Math.min(bytes.byteLength, frame.offset + FLEET_CHUNK_BYTES);
+      return immediate({
+        schema: "fleet.ci-detail.chunk/v1",
+        messageId: mid(frame.messageId, "ci-detail"),
+        inReplyTo: frame.messageId,
+        eventId: frame.eventId,
+        offset: frame.offset,
+        dataBase64: Buffer.from(bytes.subarray(frame.offset, end)).toString("base64"),
+        done: end === bytes.byteLength,
       });
     }
     if (frame.schema === "fleet.replica.pull/v1") {

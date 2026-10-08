@@ -385,7 +385,9 @@ export { type ExecutionDelegationEventV1 } from "./execution-delegation-event.ts
 
 export type { CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
 
-export { ciDetailMeasurement } from "./ci-run-observation-v4.ts";
-export type { CiRunDetail, CiObservationRead, CiObservationIdentity } from "./ci-run-observation-v4.ts";
+export { ciDetailMeasurement, validDiagnosticTest } from "./ci-run-observation-v4.ts";
+export type { CiDetailRef, CiRunDetail, CiObservationRead, CiObservationIdentity } from "./ci-run-observation-v4.ts";
 
 export type { CiObserveProgress } from "./schedule-ci-progress.ts";
+
+export { ciRunWindow, ciRerunStatistics } from "./ci-rerun-statistics.ts";
