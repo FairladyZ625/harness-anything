@@ -112,6 +112,7 @@ test("an independent approved review lets the proposal owner accept the current 
       { outcome: unreviewed.outcome, code: unreviewed.code },
       { outcome: "op_rejected", code: "invalid_transition" },
     );
+    assert.deepEqual(unreviewed.nextActions, [`ha decision dispatch-review ${decisionId}`]);
     const humanApprovedProposal = await cell.run(
         { ...decisionProposal(), body: realizedDecisionBody("Human-approved review requirement") },
         proposer,
@@ -138,6 +139,11 @@ test("an independent approved review lets the proposal owner accept the current 
       "human consent no longer exempts a high-risk Decision from the review requirement",
     );
     assert.match(String(consentWithoutReview.rejectionExplanation), /requires an approved review/u);
+    assert.deepEqual(
+      consentWithoutReview.nextActions,
+      [`ha decision dispatch-review ${humanApprovedDecisionId}`],
+      "the consent-only rejection must point at the review dispatch command",
+    );
     const humanApprovedReportRef = `decisions/decision-${humanApprovedDecisionId}/artifacts/reports/human-approved.md`;
     writeReport(rootDir, humanApprovedReportRef);
     const humanApprovedReview = await cell.run(

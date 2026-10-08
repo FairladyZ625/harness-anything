@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DECISION_ACCEPT_REVIEW_CRITERION_REF,
   assertDecisionAcceptReview,
   compileDecisionWrite,
   decisionAcceptReviewReadiness,
@@ -9,7 +10,7 @@ import {
   type DecisionDocumentState,
   type DecisionEventDraftV1,
 } from "../../src/domain/decision-event.ts";
-import type { ActorIdentity } from "../../src/index.ts";
+import { entityActionCriterionFailure, getExecutableEntityAction, type ActorIdentity } from "../../src/index.ts";
 
 const proposer: ActorIdentity = {
   principal: { personId: "person-owner" },
@@ -305,6 +306,29 @@ test("human consent does not exempt a high-risk Decision from the repository rev
   assert.throws(() => compileConsentAccept(decision(), "high"), /requires an approved review/u);
   for (const riskTier of ["medium", "low"] as const)
     assert.doesNotThrow(() => compileConsentAccept({ ...decision(), riskTier }, "high"));
+});
+
+test("a review-required rejection names the dispatch-review command as its next action", () => {
+  const contract = getExecutableEntityAction("decision-accept");
+  assert.ok(contract);
+  assert.ok(
+    contract.criteria.some(({ ref }) => ref === DECISION_ACCEPT_REVIEW_CRITERION_REF),
+    "decision-accept must declare the review criterion its rejections are attributed to",
+  );
+  assert.throws(
+    () => compileConsentAccept(decision(), "high"),
+    (error: unknown) => {
+      const failure = entityActionCriterionFailure(error);
+      return (
+        /requires an approved review/u.test(error instanceof Error ? error.message : "") &&
+        failure?.actionId === "accept" &&
+        failure.criterionRef === DECISION_ACCEPT_REVIEW_CRITERION_REF &&
+        failure.nextActions.length === 1 &&
+        failure.nextActions[0] === `ha decision dispatch-review ${decision().decisionId}`
+      );
+    },
+    "the review-required rejection must carry the dispatch-review next action",
+  );
 });
 
 test("human consent accepts a reviewed high-risk Decision once current changes_requested blockers are overridden", () => {

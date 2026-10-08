@@ -1,7 +1,9 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
+import { attributeEntityActionCriterion } from "./entity-action-execution.ts";
 import {
+  DECISION_ACCEPT_REVIEW_CRITERION_REF,
   DECISION_DOCUMENT_POLICY_ID,
   type CompiledDecisionWrite,
   type DecisionAmendmentV1,
@@ -701,16 +703,24 @@ export function assertDecisionAcceptReview(
     return;
   }
   const blocker = readiness.blocker;
-  if (!readiness.ready && blocker)
+  if (!readiness.ready && blocker) {
+    if (blocker.code === "review_required")
+      // A bare refusal strands the operator; settlement forwards this attribution as receipt
+      // nextActions naming the one command that opens the review path.
+      throw attributeEntityActionCriterion(
+        decisionInvalid(blocker.reason),
+        "accept",
+        DECISION_ACCEPT_REVIEW_CRITERION_REF,
+        [`ha decision dispatch-review ${current.decisionId}`],
+      );
     invalidDecision(
       blocker.code === "changes_requested"
         ? `Decision has unresolved changes_requested reviews: ${blocker.reviewIds.join(", ")}.`
-        : blocker.code === "unanswered_findings"
-          ? `Decision has unanswered review findings: ${blocker.findings
-              .map(({ reviewId, findingId }) => `${reviewId}/${findingId}`)
-              .join(", ")}.`
-          : blocker.reason,
+        : `Decision has unanswered review findings: ${blocker.findings
+            .map(({ reviewId, findingId }) => `${reviewId}/${findingId}`)
+            .join(", ")}.`,
     );
+  }
 }
 export function assertDecisionReviewMutation(
   current: DecisionDocumentState,
@@ -911,8 +921,11 @@ function isDecisionEvidenceTarget(value: string): boolean {
     /^decision\/dec_[A-Za-z0-9_-]+(?:\/[A-Za-z][A-Za-z0-9_-]*)?$/u.test(value)
   );
 }
-function invalidDecision(message: string): never {
+function decisionInvalid(message: string): Error & { code: string } {
   const error = new Error(message) as Error & { code: string };
   error.code = "invalid_transition";
-  throw error;
+  return error;
+}
+function invalidDecision(message: string): never {
+  throw decisionInvalid(message);
 }
