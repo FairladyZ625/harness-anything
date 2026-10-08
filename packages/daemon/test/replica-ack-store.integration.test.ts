@@ -352,6 +352,7 @@ test("same generation ACK replay converges, rejects changed bytes, and a new gen
     assert.equal(store.ack(key, "conflict", target, "c".repeat(64), now, now, lease).outcome, "op_rejected");
     assert.equal(store.cursor(key)?.manifestDigest, digest);
     store.clearOffer(key);
+    offer("old-pending", "d".repeat(64));
     store.close();
     const database = new DatabaseSync(path.join(root, "replica/repos/repo-a/ack.sqlite"));
     for (const table of ["ack_proof", "ack_cursor", "active_offer"])
@@ -363,6 +364,7 @@ test("same generation ACK replay converges, rejects changed bytes, and a new gen
     store = openReplicaAckStore(root);
     assert.equal(store.registrationRevision(key), 5, "upgrade retains the L1 registration floor");
     assert.equal(store.cursor(key), null, "old generation cannot claim current representation");
+    assert.equal(store.offerFor(key), null, "old generation pending offer cannot shadow the new representation");
     offer("new-generation", "c".repeat(64));
     assert.equal(store.ack(key, "new-generation", target, "c".repeat(64), now, now, lease).outcome, "applied");
     assert.equal(store.cursor(key)?.manifestDigest, "c".repeat(64));
@@ -374,6 +376,14 @@ test("same generation ACK replay converges, rejects changed bytes, and a new gen
         }
       ).manifest_digest,
       digest,
+    );
+    assert.equal(
+      (
+        inspect.prepare(`SELECT transfer_id FROM active_offer_g${READ_MODEL_SCHEMA_GENERATION - 1}`).get() as {
+          transfer_id: string;
+        }
+      ).transfer_id,
+      "old-pending",
     );
     inspect.close();
   } finally {

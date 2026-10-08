@@ -167,6 +167,15 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
       "incompatible CAS metadata cannot be repaired by rebuilding SQLite",
     );
   }
+  // Existing deployed snapshots used revision-only directories and no generation in current.json.
+  for (const nodeId of ["node-one", "node-two"]) {
+    const viewDir = path.join(edgeRoot, "repos/schema-repo/views", nodeId);
+    renameSync(path.join(viewDir, "cuts", `1-g${READ_MODEL_SCHEMA_GENERATION - 1}`), path.join(viewDir, "cuts", "1"));
+    const currentPath = path.join(viewDir, "current.json");
+    const legacy = JSON.parse(readFileSync(currentPath, "utf8"));
+    delete legacy.schemaGeneration;
+    writeFileSync(currentPath, JSON.stringify(legacy));
+  }
   stale.close();
   const upgraded = openReplicaCutSource(options);
   t.after(() => upgraded.close());
@@ -182,7 +191,7 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
     if (point === "before_current_rename") throw new Error("crash-before-generation-switch");
   });
   await assert.rejects(deliver(upgraded, "node-one"), /crash-before-generation-switch/u);
-  assert.equal(edge.current(options.repoId, "node-one")?.schemaGeneration, currentMeta.schemaGeneration - 1);
+  assert.equal(edge.current(options.repoId, "node-one")?.manifestDigest, oldDigest);
   edge = openFleetEdgeView(edgeRoot, 64 * 1024 * 1024);
   await Promise.all(["node-one", "node-two"].map((nodeId) => deliver(upgraded, nodeId)));
   for (const nodeId of ["node-one", "node-two"]) {
@@ -193,6 +202,19 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
     ]);
     const model = openEdgeReadModel(view, path.join(edgeRoot, "repos/schema-repo/cas/sha256"));
     assert.ok(model, JSON.stringify(readReplicaHealth(view.viewDir)));
+    for (const oldEntry of oldEntries) {
+      const casPath = path.join(
+        edgeRoot,
+        "repos/schema-repo/cas/sha256",
+        oldEntry.blob.sha256.slice(0, 2),
+        oldEntry.blob.sha256,
+      );
+      assert.equal(
+        sha256Bytes(readFileSync(casPath)),
+        oldEntry.blob.sha256,
+        "retained legacy snapshot keeps its CAS bytes through concurrent upgrade",
+      );
+    }
     assert.equal(model.meta.schemaGeneration, currentMeta.schemaGeneration);
     assert.equal(model.meta.sourceRevision, 1);
     const queries = makeEdgeReplicaQueries({ db: model.db, cut: { status: "ready", watermark: 1, sourceRevision: 1 } });

@@ -212,7 +212,11 @@ function finish(
   const cut = begin.schema === "fleet.snapshot.begin/v1" ? begin.cut : begin.toCut,
     expected = begin.schema === "fleet.snapshot.begin/v1" ? begin.manifest.digest : begin.resultManifestDigest,
     already = readJson<Current>(path.join(viewRoot, "current.json"));
-  if (JSON.stringify(already?.cut) === JSON.stringify(cut) && already?.manifestDigest === expected) {
+  if (
+    Number.isSafeInteger(already?.schemaGeneration) &&
+    JSON.stringify(already?.cut) === JSON.stringify(cut) &&
+    already?.manifestDigest === expected
+  ) {
     recordHeadConfirmation(viewRoot, cut);
     rmSync(staging, { recursive: true, force: true });
     return ack(begin.transferId, cut, expected);
@@ -343,14 +347,15 @@ function finish(
   return ack(begin.transferId, cut, digest);
 }
 function collect(viewRoot: string, casRoot: string, currentIdentity: string): void {
+  // Retired revision-only directories keep their CAS references until two-cut retention retires them.
   const cutsRoot = path.join(viewRoot, "cuts"),
     revisions = existsSync(cutsRoot)
       ? readdirSync(cutsRoot)
-          .filter((name) => /^\d+-g\d+$/u.test(name))
+          .filter((name) => /^\d+(?:-g\d+)?$/u.test(name))
           .sort(
             (a, b) =>
               Number(b.split("-g")[0]) - Number(a.split("-g")[0]) ||
-              Number(b.split("-g")[1]) - Number(a.split("-g")[1]),
+              Number(b.split("-g")[1] ?? -1) - Number(a.split("-g")[1] ?? -1),
           )
       : [],
     keep = new Set([currentIdentity, ...revisions.filter((revision) => revision !== currentIdentity).slice(0, 1)]);
@@ -364,7 +369,7 @@ function collect(viewRoot: string, casRoot: string, currentIdentity: string): vo
       const root = path.join(viewsRoot, view, "cuts");
       return existsSync(root)
         ? readdirSync(root)
-            .filter((name) => /^\d+-g\d+$/u.test(name))
+            .filter((name) => /^\d+(?:-g\d+)?$/u.test(name))
             .slice(0, 2)
             .flatMap(
               (revision) =>
