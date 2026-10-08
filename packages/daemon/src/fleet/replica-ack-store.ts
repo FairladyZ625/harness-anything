@@ -186,7 +186,17 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
     )
       return { outcome: "op_rejected" as const, cursor: null };
     const prior = cursor(key);
-    if (prior && cut.revision < prior.revision) return { outcome: "current" as const, cursor: prior };
+    if (prior) {
+      if (cut.revision < prior.revision) return { outcome: "current" as const, cursor: prior };
+      if (cut.revision === prior.revision) {
+        // A re-delivered transfer to an already-ACKed revision converges only as the same
+        // cut; the recorded proof keeps the first transfer's identity and timestamps.
+        if (cut.headDigest !== prior.headDigest || digest !== prior.manifestDigest)
+          return { outcome: "op_rejected" as const, cursor: null };
+        store.prepare("DELETE FROM active_offer WHERE node_id=? AND view_id=?").run(key.nodeId, key.viewId);
+        return { outcome: "current" as const, cursor: prior };
+      }
+    }
     store
       .prepare("INSERT INTO ack_proof VALUES(?,?,?,?,?,?,?,?)")
       .run(key.nodeId, key.viewId, cut.revision, cut.headDigest, digest, transferId, ackedAt, cutEventAt);
