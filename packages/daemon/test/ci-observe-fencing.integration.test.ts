@@ -58,6 +58,7 @@ while (!fs.existsSync(${JSON.stringify(released)})) await new Promise(r => setTi
 const endpoint = args.find(a => a.startsWith('repos/')) || '';
 const metadata = {name:'rewrite-ci',workflowName:'rewrite-ci',head_sha:'${"a".repeat(40)}',headSha:'${"a".repeat(40)}',head_branch:'main',headBranch:'main',status:'completed',conclusion:'success',run_attempt:1,attempt:1,event:'push',path:'.github/workflows/rewrite-ci.yml',workflow_id:1,repository:{full_name:'fixture/repository'}};
 if (endpoint.includes('/workflows/')) process.stdout.write(JSON.stringify({workflow_runs: endpoint.endsWith('page=1') ? [{id:1,run_attempt:1,head_branch:'main',status:'completed'}] : []}));
+else if (endpoint.includes('/jobs?')) process.stdout.write(JSON.stringify([{jobs:[]}]));
 else if (endpoint.includes('/artifacts')) process.stdout.write(JSON.stringify([{artifacts:[]}]));
 else if (endpoint.includes('/attempts/') || args[1] === 'view') process.stdout.write(JSON.stringify(metadata));
 else if (args[1] === 'download') { process.stderr.write('no artifacts match'); process.exitCode=1; }
@@ -150,10 +151,10 @@ test(
       const collected = await collecting;
       assert.equal(collected.code, undefined, JSON.stringify(collected));
       assert.equal(collected.outcome, "applied");
-      assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 1);
+      assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 2);
       const refresh = await cell.run({ kind: "ci-observe-pull", runs: [1] }, binding);
       assert.equal(refresh.outcome, "applied", JSON.stringify(refresh));
-      assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 1);
+      assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 2);
       assert.equal((await show()).status.activeRun, null);
       assert.equal((await show()).status.ciObserve!.error, null);
       const progress = (await show()).status.ciObserve;
@@ -191,7 +192,7 @@ test(
         assert.deepEqual(recovered.schedule.status.ciObserve, progress);
         const resumed = await reopened.run({ ...claim, idempotencyKey: "resume-after-center-restart" }, binding);
         assert.equal(resumed.code, undefined, JSON.stringify(resumed));
-        assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 1);
+        assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 2);
       } finally {
         scheduler.close();
         await reopened.close();

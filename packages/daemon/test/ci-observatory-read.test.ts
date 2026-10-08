@@ -143,7 +143,7 @@ test("CI observatory preserves legacy hot counters and exposes unavailable rerun
       window: 10,
     });
     assert.equal(result.runs.length, 2);
-    assert.deepEqual(result.flakes, []);
+    assert.deepEqual(result.tests, []);
     assert.equal(result.statisticsAvailability, "pending");
     assert.deepEqual(result.shardDurations, [
       { shard: 2, durationMs: 600 },
@@ -242,7 +242,7 @@ test("CI observatory window retains every job from the selected workflow run", (
     });
     assert.deepEqual(
       result.runs.map((run) => run.job),
-      ["typecheck", "fast-contract"],
+      ["fast-contract", "typecheck"],
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -330,11 +330,11 @@ test("CI observation pull writes canonical events once per run and job", async (
       runGh,
     );
     const eventRefs = [...events.values()].map((event) => `event:${event.opId}`);
-    assert.equal(eventRefs.length, 2);
+    assert.equal(eventRefs.length, 4);
     assert.deepEqual(JSON.parse(first.evidence), {
       eventRefs,
       schema: "ci-observe-pull/v1",
-      imported: 2,
+      imported: 4,
       duplicate: 0,
       requestedRuns: 20,
     });
@@ -342,10 +342,10 @@ test("CI observation pull writes canonical events once per run and job", async (
       eventRefs,
       schema: "ci-observe-pull/v1",
       imported: 0,
-      duplicate: 2,
+      duplicate: 4,
       requestedRuns: 20,
     });
-    assert.equal(events.size, 2);
+    assert.equal(events.size, 4);
     const observed = [...events.values()];
     assert.deepEqual(observed.find((event) => event.payload.run.runId === "101.1")?.payload.verification, {
       source: "github-actions",
@@ -381,7 +381,7 @@ test("CI observation pull writes canonical events once per run and job", async (
     assert.ok([...events.values()].every((observed) => String(observed.schema) === "ci-run-observation/v4"));
     assert.deepEqual(
       [...events.values()].map((observed) => observed.payload.gates),
-      [[], []],
+      [[], [], [], []],
       "legacy artifacts cannot become new job measurements",
     );
   } finally {
@@ -550,7 +550,7 @@ test("CI observation pull imports named main runs without listing recent runs", 
       runGh,
     );
     assert.deepEqual(calls, ["view:700", "download:700"]);
-    assert.equal(events.length, 1);
+    assert.equal(events.length, 2);
     assert.equal(events[0]?.payload.verification?.headSha, "sha-700");
     assert.equal(events[0]?.payload.verification?.workflow, "ci");
     assert.equal(JSON.parse(receipt.evidence).requestedRuns, 1);
@@ -563,15 +563,15 @@ test("CI observation pull imports named main runs without listing recent runs", 
       ),
       /CI run 701 is completed on codex\/feature; only completed main runs can be imported\./u,
     );
-    assert.equal(events.length, 1);
+    assert.equal(events.length, 2);
     const unconfigured = await pullAndIngestCiObservations(
       cell as never,
       { kind: "ci-observe-pull", runs: ["702"] },
       { actor, source: "local" },
       runGh,
     );
-    assert.equal(JSON.parse(unconfigured.evidence).imported, 1);
-    assert.deepEqual(events[1]?.payload.verification, {
+    assert.equal(JSON.parse(unconfigured.evidence).imported, 2);
+    assert.deepEqual(events[2]?.payload.verification, {
       source: "github-actions",
       workflow: "rewrite-ci",
       runId: "702",
@@ -712,7 +712,7 @@ test("CI provenance comes from the completed matching GitHub run, not workflow p
           return "";
         },
       );
-      assert.equal(events.length, scenario.status === "completed" ? 1 : 0, scenario.name);
+      assert.equal(events.length, scenario.status === "completed" ? 2 : 0, scenario.name);
       assert.equal(downloads, scenario.status === "completed" ? 1 : 0, scenario.name);
       assert.equal(
         events[0]?.payload.verification ? events[0].payload.verification.conclusion === "success" : undefined,
@@ -858,7 +858,7 @@ test("CI observation pull --task imports the run the frozen contract judges: the
       { actor, source: "local" },
       runGh,
     );
-    assert.equal(events.length, 1);
+    assert.equal(events.length, 2);
     assert.equal(events[0]?.payload.verification?.runId, "903");
     assert.equal(events[0]?.payload.verification?.headSha, "sha-903");
     assert.equal(events[0]?.payload.verification?.conclusion, "failure");

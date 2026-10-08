@@ -12,6 +12,32 @@ const ciWriteTopology = {
 
 export const ciObservationProtocolCommands = Object.freeze([
   defineCliCommand({
+    id: "ci-observe-statistics",
+    phase: "PLT-TestEng-W1",
+    path: ["ci", "observe", "statistics"],
+    summary: "Read fixed-cut CI rerun recovery facts and complete-window statistics; fetch missing details on request.",
+    method: "repo.ci.observatory.read",
+    // This dedicated read RPC uses RepoCell.read, including asynchronous cold-detail fetch,
+    // rather than the synchronous RepoCell.run action reader.
+    commandClass: "repo-read" as const,
+    admission: {
+      local: "direct" as const,
+      "remote-proxy": "rejected" as const,
+      "remote-center": "direct" as const,
+      "remote-edge": "edge-replica" as const,
+    },
+    inputs: [
+      cliInput(
+        "--window",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { regex: "^(?:[1-9]|[1-9][0-9]|100)$", projection: "number" },
+      ),
+      cliInput("--fetch-details", "boolean", false, { code: "invalid_field" }),
+    ],
+  }),
+  defineCliCommand({
     id: "ci-observe-pull",
     actionKind: "ci-observe-pull",
     phase: "PLT-TestEng-W1",

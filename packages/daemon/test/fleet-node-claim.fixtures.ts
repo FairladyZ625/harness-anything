@@ -32,6 +32,7 @@ export async function fleetNodeClaimFixture(
   loginAuthority?: Parameters<typeof listenFleetTls>[0]["loginAuthority"],
   seedCenterSettings = false,
   runtimeOptions: Pick<Parameters<typeof openDaemonHost>[0], "runtimeDiscover" | "runtimeLaunch"> = {},
+  seedRepository?: (rootDir: string) => Promise<void>,
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
@@ -76,6 +77,7 @@ export async function fleetNodeClaimFixture(
     ],
     { stdio: "ignore" },
   );
+  await seedRepository?.(repo);
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile);
   const owners = await fleetNodeOwners({

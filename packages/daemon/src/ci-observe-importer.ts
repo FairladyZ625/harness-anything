@@ -100,7 +100,7 @@ export async function reconcileCiOccurrence(input: {
       return;
     }
     if (run.artifactUnavailable) return;
-    if (run.jobs.length) pending.delete(key(target));
+    if (run.attemptInventory && run.attemptInventory.missingArtifactJobIds.length === 0) pending.delete(key(target));
     else {
       // Provider expiry is authoritative; an absent artifact remains pending for a later occurrence.
       const artifacts = await listCiArtifacts(gh, cell.rootDir, target.runId);

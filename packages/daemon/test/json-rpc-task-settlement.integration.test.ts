@@ -903,6 +903,7 @@ test(
           "else if (sha && group === 'api' && verb.includes('head_sha=')) process.stdout.write(JSON.stringify([{ ...run, event: 'push', path: '.github/workflows/rewrite-ci.yml', conclusion }]));\n" +
           "else if (group === 'api' && verb.includes('/workflows/')) process.stdout.write(JSON.stringify({ workflow_runs: [] }));\n" +
           "else if (group === 'api' && verb.includes('/artifacts?')) process.stdout.write(JSON.stringify([{ artifacts: [] }]));\n" +
+          "else if (group === 'api' && verb.includes('/jobs?')) process.stdout.write(JSON.stringify([{ total_count: 1, jobs: [{ id: rerun ? 2 : 1, name: 'rewrite-ci', conclusion }] }]));\n" +
           "else if (group === 'api') process.stdout.write(JSON.stringify({ run_attempt: rerun ? 2 : 1, head_sha: sha, head_branch: 'main',\n" +
           "  conclusion, event: 'push', path: '.github/workflows/rewrite-ci.yml', workflow_id: 1, name: 'rewrite-ci', repository: { full_name: 'fixture/repo' } }));\n" +
           "else if (group === 'run' && verb === 'download') { console.error('no artifacts found'); process.exit(1); }\n" +
@@ -1046,8 +1047,23 @@ if (group === 'run' && verb === 'download') {
       assert.match(occurrence.schedule.status.lastRun.detail, /invalid CI gates/u);
       const observed = makeTaskEventReader({ repoId, rootDir })
         .read()
-        .events.flatMap((event) => (event.type === "ci_run_observed" ? [event.payload.run.runId] : []));
+        .events.flatMap((event) =>
+          event.type === "ci_run_observed" &&
+          !(event.schema === "ci-run-observation/v4" && event.payload.scope === "attempt")
+            ? [event.payload.run.runId]
+            : [],
+        );
       assert.deepEqual(observed, ["1.1", "2.1"], "accepted workflows stay recorded while the later job is rejected");
+      const inventories = makeTaskEventReader({ repoId, rootDir })
+        .read()
+        .events.flatMap((event) =>
+          event.schema === "ci-run-observation/v4" && event.payload.scope === "attempt" ? [event.payload] : [],
+        );
+      assert.deepEqual(
+        inventories.map((payload) => payload.run.runId),
+        ["1.1"],
+      );
+      assert.deepEqual(inventories[0]?.attemptInventory?.missingArtifactJobIds, ["22"]);
       assert.equal(
         makeTaskEventReader({ repoId, rootDir })
           .read()
@@ -1259,6 +1275,7 @@ async function publishCiObservation(
           event: "push",
         });
       if (args.some((arg) => arg.includes("/artifacts?"))) return JSON.stringify([{ artifacts: [] }]);
+      if (args.some((arg) => arg.includes("/jobs?"))) return JSON.stringify([{ total_count: 0, jobs: [] }]);
       if (args[0] === "api")
         return JSON.stringify({
           run_attempt: 1,
@@ -1301,7 +1318,8 @@ async function publishCiObservation(
       return `event:${event.opId}`;
     }
     const receipt = ingestCiObservations(cell, repoWriteBinding, fetched);
-    assert.equal(JSON.parse(receipt.evidence).imported, 1);
+    // The importer publishes the workflow verdict and its authoritative attempt inventory.
+    assert.equal(JSON.parse(receipt.evidence).imported, 2);
     const event = store
       .read()
       .events.find(
@@ -1317,9 +1335,20 @@ async function publishCiObservation(
             candidate.type === "execution_submitted" && candidate.payload.execution.executionId === executionId,
         ),
     );
-    await store.drain();
     const eventRefs = JSON.parse(receipt.evidence).eventRefs;
-    assert.deepEqual(eventRefs, [`event:${event.opId}`]);
+    const inventory = store
+      .read()
+      .events.find(
+        (candidate) =>
+          candidate.type === "ci_run_observed" &&
+          candidate.schema === "ci-run-observation/v4" &&
+          candidate.payload.scope === "attempt" &&
+          candidate.payload.run.runId === observedRunId,
+      );
+    assert.ok(inventory && inventory.type === "ci_run_observed" && inventory.schema === "ci-run-observation/v4");
+    assert.deepEqual(inventory.payload.attemptInventory, { jobs: [], missingArtifactJobIds: [] });
+    assert.deepEqual(eventRefs, [`event:${event.opId}`, `event:${inventory.opId}`]);
+    await store.drain();
     return eventRefs[0];
   } finally {
     projection.close();

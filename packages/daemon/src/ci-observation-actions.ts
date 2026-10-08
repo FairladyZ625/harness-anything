@@ -69,6 +69,7 @@ type FetchedCiRun = {
   readonly workflowId: string | null;
   readonly jobs: readonly PreparedCiJob[];
   readonly artifactUnavailable?: boolean;
+  readonly attemptInventory?: NonNullable<CiRunObservationEventV4["payload"]["attemptInventory"]>;
 };
 export const preparedCiObservation = Symbol("preparedCiObservation");
 
@@ -253,11 +254,12 @@ export async function fetchCiObservations(
               artifact.producer.runAttempt === summary.attempt,
           );
           const jobs: PreparedCiJob[] = [];
-          if (artifacts.length) {
+          let apiJobs: readonly { readonly id: number; readonly name: string; readonly conclusion?: string | null }[];
+          {
             // gh --slurp keeps every paginated page in one JSON array, avoiding concatenated
             // transport JSON; gh rejects --jq/--template alongside --slurp, so the pages
             // flatten here instead of in a jq program.
-            const apiJobs = (
+            apiJobs = (
               JSON.parse(
                 await runGh(
                   "gh",
@@ -269,7 +271,13 @@ export async function fetchCiObservations(
                   ],
                   { cwd: cell.rootDir },
                 ),
-              ) as readonly { readonly jobs: readonly { readonly id: number; readonly name: string }[] }[]
+              ) as readonly {
+                readonly jobs: readonly {
+                  readonly id: number;
+                  readonly name: string;
+                  readonly conclusion?: string | null;
+                }[];
+              }[]
             ).flatMap((page) => page.jobs);
             for (const artifact of artifacts) {
               const matching = apiJobs.filter((job) => job.name === artifact.producer.jobName);
@@ -303,6 +311,23 @@ export async function fetchCiObservations(
               workflowPath: attempt.path,
               workflowId: String(attempt.workflow_id),
               jobs,
+              attemptInventory: {
+                jobs: apiJobs
+                  .map((job) => ({
+                    jobExecutionId: String(job.id),
+                    name: job.name,
+                    conclusion: job.conclusion ?? null,
+                  }))
+                  .sort((a, b) => a.jobExecutionId.localeCompare(b.jobExecutionId)),
+                missingArtifactJobIds: apiJobs
+                  .filter(
+                    (job) =>
+                      job.conclusion !== "skipped" &&
+                      !jobs.some((prepared) => prepared.jobExecutionId === String(job.id)),
+                  )
+                  .map((job) => String(job.id))
+                  .sort(),
+              },
             },
           };
         } catch (failure) {
@@ -337,7 +362,7 @@ export function ingestCiObservations(
   let imported = 0,
     duplicate = 0,
     lastRevision = cell.store.readHead()?.revision ?? 0;
-  for (const { databaseId, summary, repositoryId, workflowPath, workflowId, jobs } of fetched.runs) {
+  for (const { databaseId, summary, repositoryId, workflowPath, workflowId, jobs, attemptInventory } of fetched.runs) {
     const identity: CiObservationIdentity = {
       provider: databaseId === 0 ? "write-coordinator" : "github-actions",
       repositoryId,
@@ -420,6 +445,11 @@ export function ingestCiObservations(
         body,
       })),
     ];
+    if (attemptInventory)
+      payloads.push({
+        payload: { ...payloads[0]!.payload, scope: "attempt", verification: null, attemptInventory },
+        body: null,
+      });
     for (const { payload, body } of payloads) {
       const digest = createHash("sha256")
         .update(
@@ -430,6 +460,7 @@ export function ingestCiObservations(
             summary.attempt,
             payload.scope,
             payload.identity.jobExecutionId,
+            ...(payload.scope === "attempt" ? [payload.attemptInventory] : []),
           ]),
         )
         .digest("hex");

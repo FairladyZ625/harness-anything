@@ -307,6 +307,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     if (!options.readEdgeReadModel) return entries;
     if (!model || model.sourceRevision !== revision)
       throw new Error(`Read model is unavailable at revision ${revision}`);
+    const ciDetails: FleetEntry[] = [];
     const results = new Map<string, FleetEntry>(),
       requiredResults = new Set<string>();
     const requireResult = (ref: string | null | undefined) => {
@@ -317,6 +318,14 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         requireResult((JSON.parse(String(row.values.value_json)) as { resultRef?: string | null }).resultRef);
       if (row.table !== "event_index") continue;
       const event = JSON.parse(String(row.values.event_json)) as CanonicalEventV1;
+      if (event.schema === "ci-run-observation/v4" && event.payload.detailRef)
+        ciDetails.push(
+          readModelEntry(
+            `.read-model/ci-details/${event.eventId}.json`,
+            JSON.stringify({ eventId: event.eventId, ref: event.payload.detailRef }),
+            "application/json",
+          ),
+        );
       if (event.schema === "schedule-event/v1") {
         const detail = event.payload.schedule.status.lastRun?.detail;
         if (detail?.startsWith("artifact:runtime-result/")) requireResult(detail);
@@ -340,6 +349,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         throw new Error(`Runtime result ${ref} has no content claim at revision ${revision}`);
     }
     return [
+      ...ciDetails,
       ...results.values(),
       ...entries.filter((entry) => !isReadModelPath(entry.path)),
       ...edgeReadModelEntries({

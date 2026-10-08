@@ -68,7 +68,15 @@ export type CiRunObservationEventV4 = EventEnvelope<
   "ci_run_observed",
   ActorIdentity,
   {
-    readonly scope: "workflow" | "job";
+    readonly scope: "workflow" | "job" | "attempt";
+    readonly attemptInventory?: {
+      readonly jobs: readonly {
+        readonly jobExecutionId: string;
+        readonly name: string;
+        readonly conclusion: string | null;
+      }[];
+      readonly missingArtifactJobIds: readonly string[];
+    };
     readonly identity: CiObservationIdentity;
     readonly run: CiRunObservationEventV3["payload"]["run"];
     readonly verification: CiRunObservationEventV3["payload"]["verification"];
@@ -174,10 +182,11 @@ export function validateCiRunObservationEventV4(value: unknown, allowUnknownFiel
         "fileOutcomes",
         "shardDurations",
         "detailRef",
+        ...("attemptInventory" in p ? ["attemptInventory"] : []),
       ],
       allowUnknownFields,
     ) ||
-    !["workflow", "job"].includes(String(p.scope))
+    !["workflow", "job", "attempt"].includes(String(p.scope))
   )
     return ["invalid v4 payload"];
   if (
@@ -283,7 +292,31 @@ export function validateCiRunObservationEventV4(value: unknown, allowUnknownFiel
     )
   )
     return ["invalid shard durations"];
-  if (p.scope === "workflow") {
+  if (p.scope === "attempt") {
+    const inventory = p.attemptInventory;
+    if (
+      !isRecord(inventory) ||
+      !hasContractFields(inventory, ["jobs", "missingArtifactJobIds"], allowUnknownFields) ||
+      !Array.isArray(inventory.jobs) ||
+      inventory.jobs.some(
+        (job) =>
+          !isRecord(job) ||
+          !hasContractFields(job, ["jobExecutionId", "name", "conclusion"], allowUnknownFields) ||
+          !text(job.jobExecutionId) ||
+          !text(job.name) ||
+          !(job.conclusion === null || text(job.conclusion)),
+      ) ||
+      new Set(inventory.jobs.map((job) => job.jobExecutionId)).size !== inventory.jobs.length ||
+      !Array.isArray(inventory.missingArtifactJobIds) ||
+      new Set(inventory.missingArtifactJobIds).size !== inventory.missingArtifactJobIds.length ||
+      inventory.missingArtifactJobIds.some(
+        (id) => !(inventory.jobs as Record<string, unknown>[]).some((job) => job.jobExecutionId === id),
+      ) ||
+      p.verification !== null
+    )
+      return ["invalid attempt job inventory"];
+  } else if (p.attemptInventory !== undefined) return ["job inventory belongs to attempt scope"];
+  if (p.scope !== "job") {
     if (
       p.detailRef !== null ||
       p.testSummary !== null ||
@@ -388,7 +421,7 @@ function positive(value: unknown): value is number {
 export type CiObservationRead = Omit<CiRunObservationEventV4, "schema" | "payload"> & {
   readonly schema: "ci-run-observation/read-v1";
   readonly payload: Omit<CiRunObservationEventV4["payload"], "scope" | "measurementCoverage"> & {
-    readonly scope: "workflow" | "job" | "legacy";
+    readonly scope: "workflow" | "job" | "attempt" | "legacy";
     readonly measurementCoverage: {
       readonly status: string;
       readonly missingReason: string | null;

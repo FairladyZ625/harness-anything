@@ -73,8 +73,10 @@ export function githubActionsWitnessEvidence(
       : (event: CiObservationRead) => event.payload.run.sha === submitted;
   const events =
       publicCut && options.selection === "newest"
-        ? newestGithubRuns(observations.events.filter((event) => event.payload.scope !== "job"))
-        : observations.events.filter((event) => event.payload.scope !== "job"),
+        ? newestGithubRuns(
+            observations.events.filter((event) => event.payload.scope !== "job" && event.payload.scope !== "attempt"),
+          )
+        : observations.events.filter((event) => event.payload.scope !== "job" && event.payload.scope !== "attempt"),
     workflows = publicCut ? options.workflows : [];
   for (const event of events) {
     if (!covers(event)) continue;

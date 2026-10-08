@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { readEdgeCiDetail, fetchEdgeCiDetails } from "./ci-detail-cache.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
@@ -297,7 +299,10 @@ export async function openRepoCellProxy(
               if (property === "currentCut")
                 return () => ({ repoId: input.repoId, revision: edgeView.revision, headDigest: edgeView.headDigest });
               if (property === "readContentBlob")
-                return (sha256: string) => readEdgeViewBlob(edgeConfig!.viewRoot, edgeView, sha256);
+                return (sha256: string) =>
+                  [...edgeView.entries.values()].some((row) => row.sha256 === sha256)
+                    ? readEdgeViewBlob(edgeConfig!.viewRoot, edgeView, sha256)
+                    : readEdgeCiDetail(edgeConfig!.viewRoot, edgeView, sha256);
               throw cellCodedError(
                 "replica_unavailable",
                 `Replica query requires unmaterialized canonical store operation ${String(property)}.`,
@@ -562,6 +567,35 @@ export async function openRepoCellProxy(
               "Repository cut changed while resolving live action permissions; retry the explanation.",
             );
           return { ...readAtCut(projection, method, payload, prepared), ...frame };
+        }) as never;
+      }
+      if (input.mode === "remote-edge" && method === "repo.ci.observatory.read" && payload.fetchDetails === true) {
+        const selected = edgeReplicaRead(binding, (projection) => ({
+          view: edgeViews.get(projection)!,
+          answer: readAtCut(projection, method, payload, binding) as unknown as { missingDetails: readonly string[] },
+        }));
+        const config = edgeConfig!;
+        await fetchEdgeCiDetails({
+          peer: {
+            hostname: config.host,
+            port: config.port,
+            ca: readFileSync(config.caPath),
+            ...(config.servername ? { servername: config.servername } : {}),
+            nodeId: config.nodeId,
+            credential: config.credential,
+            repoId: config.repoId,
+          },
+          viewRoot: config.viewRoot,
+          view: selected.view,
+          eventIds: selected.answer.missingDetails.filter(
+            (ref) => !["inventory:", "artifact:", "unavailable:"].some((prefix) => ref.startsWith(prefix)),
+          ),
+          quotaBytes: config.quotaBytes,
+        });
+        return edgeReplicaRead(binding, (projection, frame, view) => {
+          if (view.revision !== selected.view.revision || view.headDigest !== selected.view.headDigest)
+            throw cellCodedError("projection_pending", "CI observation cut changed while fetching details.");
+          return { ...readAtCut(projection, method, payload, binding), ...frame };
         }) as never;
       }
       if (input.mode === "remote-edge" && method !== "repo.agent.skills.list")

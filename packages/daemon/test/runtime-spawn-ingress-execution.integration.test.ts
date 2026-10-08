@@ -342,6 +342,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           conclusion: "failure", attempt: 1, event: "push"
         }));
         else if (process.argv[2] === "api" && process.argv.some(arg => arg.includes("/artifacts"))) console.log(JSON.stringify([{artifacts: []}]));
+        // gh --paginate --slurp wraps REST page objects, even without observation artifacts.
+        else if (process.argv[2] === "api" && process.argv.some(arg => arg.includes("/jobs?"))) console.log(JSON.stringify([
+          { total_count: 1, jobs: [{ id: 901, name: "rewrite-ci", conclusion: "failure" }] }
+        ]));
         else if (process.argv[2] === "api" && process.argv[3].includes("/workflows/")) console.log(JSON.stringify({workflow_runs: []}));
         else if (process.argv[2] === "api") console.log(JSON.stringify({
           run_attempt: 1, head_sha: sha, head_branch: "main", conclusion: "failure", event: "push",

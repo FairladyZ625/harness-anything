@@ -33,6 +33,9 @@ if (args[0] === "run" && args[1] === "list") {
   const endpoint = args.find(arg => arg.startsWith("repos/")) || "";
   if (endpoint.includes("/workflows/")) { process.stdout.write(JSON.stringify({workflow_runs: []})); process.exit(0); }
   if (endpoint.includes("/artifacts")) { process.stdout.write(JSON.stringify([{artifacts: []}])); process.exit(0); }
+  if (endpoint.includes("/jobs?")) { process.stdout.write(JSON.stringify([
+    {total_count: 1, jobs: [{id: 1, name: spec.view.workflowName, conclusion: spec.view.conclusion}]}
+  ])); process.exit(0); }
   const v = spec.view;
   process.stdout.write(JSON.stringify({ run_attempt: v.attempt, head_sha: v.headSha, head_branch: v.headBranch,
     conclusion: v.conclusion, event: v.event, path: ".github/workflows/rewrite-ci.yml", workflow_id: 1,

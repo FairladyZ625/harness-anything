@@ -125,7 +125,10 @@ export const daemonGuiReadMethods = Object.freeze([
     phase: "PLT-TestEng-W1",
     method: "repo.ci.observatory.read",
     requiresRepo: true,
-    params: shape({ repo: shape({ repoId: "string" }), payload: shape({ window: "number?" }) }),
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ window: "number?", fetchDetails: "boolean?" }),
+    }),
     guiBridgeMethod: "getCiObservatory",
     httpMethod: "GET",
     path: "/api/ci/observatory",

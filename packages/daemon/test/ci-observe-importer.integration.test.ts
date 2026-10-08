@@ -33,6 +33,7 @@ function provider() {
     runs: 0,
     latestAttempt: 1,
     artifacts: true,
+    extraJob: false,
     artifactsOnSecondPage: false,
     archiveMissing: false,
     expired: false,
@@ -96,7 +97,15 @@ function provider() {
       );
     }
     if (api.includes("/jobs"))
-      return JSON.stringify([{ jobs: [{ id: Number(api.split("/")[5]) * 10, name: "fast" }] }, { jobs: [] }]);
+      return JSON.stringify([
+        {
+          jobs: [
+            { id: Number(api.split("/")[5]) * 10, name: "fast" },
+            ...(state.extraJob ? [{ id: Number(api.split("/")[5]) * 10 + 1, name: "missing-job" }] : []),
+          ],
+        },
+        { jobs: [] },
+      ]);
     if (api.includes("/attempts/")) {
       if (state.missingRun) throw new Error("HTTP 404 Not Found");
       const runId = api.split("/")[5]!,
@@ -225,11 +234,11 @@ test("reconciliation crosses 100 runs and the empty API tail; an old run's new a
     assert.equal(current().status.ciObserve!.scanPass, 1);
     assert.equal(current().status.ciObserve!.nextPage, 1);
     const revision = store.readHead()!.revision;
-    assert.equal(revision, 242, "one workflow and one job per run");
+    assert.equal(revision, 363, "one workflow, one job and one authority inventory per run");
     state.latestAttempt = 2;
     assert.equal((await run()).outcome, "succeeded");
     assert.ok(state.seen.includes("1.2"));
-    assert.equal(store.readHead()!.revision, revision + 40);
+    assert.equal(store.readHead()!.revision, revision + 60);
     assert.equal(current().status.ciObserve!.pending.length, 0);
   });
 });
@@ -239,11 +248,11 @@ test("late and expired artifacts retain the workflow witness and a durable diagn
     state.runs = 1;
     state.artifacts = false;
     assert.equal((await run()).outcome, "succeeded");
-    assert.equal(store.readHead()!.revision, 1);
+    assert.equal(store.readHead()!.revision, 2);
     assert.equal(current().status.ciObserve!.pending.length, 1);
     state.artifacts = true;
     assert.equal((await run()).outcome, "succeeded");
-    assert.equal(store.readHead()!.revision, 2);
+    assert.equal(store.readHead()!.revision, 4);
     assert.equal(current().status.ciObserve!.pending.length, 0);
     state.runs = 2;
     state.artifacts = false;
@@ -253,7 +262,7 @@ test("late and expired artifacts retain the workflow witness and a durable diagn
     assert.equal((await run()).outcome, "succeeded");
     assert.equal(current().status.ciObserve!.pending.length, 0);
     assert.equal(current().status.ciObserve!.unavailable[0]!.reason, "artifact-expired");
-    assert.equal(store.readHead()!.revision, 3, "expiry cannot remove an accepted workflow witness");
+    assert.equal(store.readHead()!.revision, 6, "expiry cannot remove an accepted workflow witness");
   });
 });
 
@@ -286,11 +295,11 @@ test("a crash before acceptance or after append preserves continuation; replay c
     assert.equal(current().status.ciObserve!.nextPage, 1);
     crash("after-accept");
     assert.equal((await run()).outcome, "failed");
-    assert.equal(store.readHead()!.revision, 2);
+    assert.equal(store.readHead()!.revision, 3);
     assert.equal(current().status.ciObserve!.nextPage, 1);
     crash(null);
     assert.equal((await run()).outcome, "succeeded");
-    assert.equal(store.readHead()!.revision, 2);
+    assert.equal(store.readHead()!.revision, 3);
     assert.equal(current().status.ciObserve!.nextPage, 2);
   });
 });
@@ -303,14 +312,14 @@ test("a run with hundreds of attempts resumes a bounded subpage instead of resta
     assert.equal(current().status.ciObserve!.nextRunId, 1);
     assert.equal(current().status.ciObserve!.nextAttempt, 101);
     assert.equal(current().status.ciObserve!.nextPage, 1);
-    assert.equal(store.readHead()!.revision, 200);
+    assert.equal(store.readHead()!.revision, 300);
     assert.equal((await run()).outcome, "succeeded");
     assert.equal(current().status.ciObserve!.nextAttempt, 201);
-    assert.equal(store.readHead()!.revision, 400);
+    assert.equal(store.readHead()!.revision, 600);
     assert.equal((await run()).outcome, "succeeded");
     assert.equal(current().status.ciObserve!.nextRunId, null);
     assert.equal(current().status.ciObserve!.nextPage, 2);
-    assert.equal(store.readHead()!.revision, 402);
+    assert.equal(store.readHead()!.revision, 603);
   });
 });
 
@@ -319,7 +328,7 @@ test("artifact pages beyond 100 download only the exact unexpired attempt name a
     state.runs = 1;
     state.artifactsOnSecondPage = true;
     assert.equal((await run()).outcome, "succeeded");
-    assert.equal(store.readHead()!.revision, 2);
+    assert.equal(store.readHead()!.revision, 3);
     assert.ok(state.calls.some((call) => call.startsWith("run download 1 -n ci-observation-1-1-fast --dir ")));
     assert.equal(
       state.calls.some((call) => call.includes("-n unrelated-")),
@@ -344,10 +353,19 @@ test("a selected archive's authoritative 404 ends diagnostics visibly while reta
     state.runs = 1;
     state.archiveMissing = true;
     assert.equal((await run()).outcome, "succeeded");
-    assert.equal(store.readHead()!.revision, 1, "the workflow verdict survives missing diagnostics");
+    assert.equal(store.readHead()!.revision, 2, "the workflow verdict survives missing diagnostics");
     assert.equal(current().status.ciObserve!.pending.length, 0);
     assert.deepEqual(current().status.ciObserve!.unavailable, [
       { runId: 1, attempt: 1, reason: "provider-artifact-unavailable" },
     ]);
+  });
+});
+
+test("a partially obtained attempt retains its missing job target even when another job detail exists", async () => {
+  await fixture(async ({ run, state, current }) => {
+    state.runs = 1;
+    state.extraJob = true;
+    assert.equal((await run()).outcome, "succeeded");
+    assert.equal(current().status.ciObserve!.pending.length, 1);
   });
 });

@@ -182,6 +182,14 @@ export type FleetFrameV1 =
       }
     >
   | Msg<"fleet.runtime.await.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
+  | Msg<
+      "fleet.ci-detail.get/v1",
+      { repoId: string; revision: number; headDigest: string; eventId: string; offset: number }
+    >
+  | Msg<
+      "fleet.ci-detail.chunk/v1",
+      { inReplyTo: string; eventId: string; offset: number; dataBase64: string; done: boolean }
+    >
   | Msg<"fleet.replica.pull/v1", { repoId: string }>
   | Msg<"fleet.replica.watch/v1", { repoId: string; afterRevision: number }>
   | Msg<"fleet.replica.head-hint/v1", { inReplyTo: string; repoId: string; cut: FleetCut }>
@@ -778,6 +786,22 @@ const schemas: Readonly<Record<string, Check>> = {
     payload: record,
   }),
   "fleet.runtime.await.result/v1": shape({ ...reply, result: record }),
+  "fleet.ci-detail.get/v1": shape({
+    ...common,
+    repoId: id,
+    revision: uint,
+    headDigest: (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value),
+    eventId: id,
+    offset: uint,
+  }),
+  "fleet.ci-detail.chunk/v1": shape({
+    ...common,
+    inReplyTo: id,
+    eventId: id,
+    offset: uint,
+    dataBase64: base64,
+    done: boolean,
+  }),
   "fleet.replica.pull/v1": shape({ ...common, repoId: id }),
   "fleet.replica.watch/v1": shape({ ...common, repoId: id, afterRevision: uint }),
   "fleet.replica.head-hint/v1": shape({ ...reply, repoId: id, cut }),

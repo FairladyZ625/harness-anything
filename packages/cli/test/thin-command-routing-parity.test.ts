@@ -365,7 +365,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "agent-run",
       "agent-validate",
     ],
-    ci: ["ci-observe-pull"],
+    ci: ["ci-observe-pull", "ci-observe-statistics"],
     daemon: [
       "daemon-connection-add",
       "daemon-connection-probe",

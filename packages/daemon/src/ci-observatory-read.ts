@@ -1,3 +1,12 @@
+import {
+  ciRunWindow,
+  ciRerunStatistics,
+  ciDetailMeasurement,
+  validDiagnosticTest,
+  sha256Bytes,
+  canonicalizeContractValue,
+  type CiRunDetail,
+} from "@harness-anything/kernel";
 import { nonEmpty } from "./migration-import-report.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 
@@ -8,20 +17,10 @@ export interface CiObservatoryRead {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly window: number;
-  readonly statisticsAvailability: "pending";
-  readonly flakes: readonly {
-    readonly test: string;
-    readonly file: string;
-    readonly attempts: number;
-    readonly flakes: number;
-    readonly flakeRate: number;
-    readonly p50Ms: number;
-    readonly p95Ms: number;
-    readonly quarantined: boolean;
-    readonly ownerTask: string | null;
-    readonly quarantinedAt: string | null;
-    readonly quarantineDays: number | null;
-  }[];
+  readonly statisticsAvailability: "pending" | "ready";
+  readonly missingDetails: readonly string[];
+  readonly recoveries: ReturnType<typeof ciRerunStatistics>["recoveries"];
+  readonly tests: ReturnType<typeof ciRerunStatistics>["tests"];
   readonly shardDurations: readonly { readonly shard: number; readonly durationMs: number }[];
   readonly gateTrends: readonly {
     readonly gate: string;
@@ -67,55 +66,89 @@ export function readCiObservatory(input: {
   readonly projection: TaskProjection;
   readonly window?: number;
   readonly now?: string;
+  readonly readContentBlob?: (sha256: string) => Uint8Array | null;
 }): CiObservatoryRead {
   const window = input.window ?? 100;
   if (!Number.isSafeInteger(window) || window < 1 || window > 100)
     throw new Error("CI observatory window must be 1..100");
-  const read = input.projection.readCiRunObservations(Math.max(window * 20, 100)),
-    events = selectRunWindow(read.events.filter(mainBranch), window);
+  const read = input.projection.readCiRunObservations(2000);
+  const all = [...read.events];
+  let page = read;
+  while (page.events.length === 2000) {
+    const before = Math.min(...page.events.map((event) => event.workspaceRevision));
+    page = input.projection.readCiRunObservations(2000, before);
+    if (page.sourceRevision !== read.sourceRevision || page.watermark !== read.watermark)
+      throw new Error("CI observation cut changed during pagination");
+    if (page.events.some((event) => event.workspaceRevision >= before))
+      throw new Error("CI observation page did not advance");
+    all.push(...page.events);
+  }
+  const events = ciRunWindow(all, window),
+    details = new Map<string, CiRunDetail>();
+  for (const event of events) {
+    const ref = event.payload.detailRef;
+    if (!ref) continue;
+    const bytes = input.readContentBlob?.(ref.sha256);
+    if (!bytes) continue;
+    if (sha256Bytes(bytes) !== ref.sha256 || bytes.byteLength !== ref.decodedBytes)
+      throw new Error(`CI detail size mismatch: ${event.eventId}`);
+    const detail = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as CiRunDetail;
+    if (
+      detail.schema !== "ci-run-detail/v1" ||
+      !Array.isArray(detail.tests) ||
+      !detail.tests.every((test) => validDiagnosticTest(test)) ||
+      !Array.isArray(detail.fileOutcomes) ||
+      !Array.isArray(detail.diagnostics)
+    )
+      throw new Error(`CI detail schema mismatch: ${event.eventId}`);
+    const measurement = ciDetailMeasurement(detail);
+    const actual = {
+      testSummary: event.payload.testSummary,
+      failedTests: event.payload.failedTests,
+      fileOutcomes: event.payload.fileOutcomes,
+      shardDurations: event.payload.shardDurations,
+    };
+    if (JSON.stringify(canonicalizeContractValue(measurement)) !== JSON.stringify(canonicalizeContractValue(actual)))
+      throw new Error(`CI detail measurement mismatch: ${event.eventId}`);
+    details.set(event.eventId, detail);
+  }
+  const statistics = ciRerunStatistics(events, details);
   return {
     schema: "daemon.ci-observatory/v1",
     ok: true,
     status: read.status,
     window,
-    flakes: [],
-    statisticsAvailability: "pending",
+    statisticsAvailability: read.status === "ready" ? statistics.availability : "pending",
+    missingDetails: statistics.missing,
+    recoveries:
+      read.status === "ready"
+        ? statistics.recoveries
+        : statistics.recoveries.map((fact) => ({ ...fact, complete: false })),
+    tests: read.status === "ready" ? statistics.tests : [],
     shardDurations: shardRows(events),
     gateTrends: gateRows(events),
     l0MedianMs: percentile(l0Wallclocks(events), 0.5),
-    runs: events.map((event) => ({
-      ...event.payload.run,
-      occurredAt: event.occurredAt,
-      pass: event.payload.verification
-        ? event.payload.verification.conclusion === "success"
-        : event.payload.measurementCoverage.status === "complete"
-          ? event.payload.testSummary!.failed === 0 &&
-            event.payload.fileOutcomes.length === 0 &&
-            event.payload.gates.every((gate) => gate.result === "pass")
-          : null,
-      testCount: event.payload.testSummary?.observationCount ?? null,
-      measurementCoverage: event.payload.measurementCoverage,
-      failedTests: event.payload.failedTests,
-      fileOutcomes: event.payload.fileOutcomes,
-      gateCount: event.payload.gates.length,
-    })),
+    runs: events
+      .filter((event) => event.payload.scope !== "attempt")
+      .map((event) => ({
+        ...event.payload.run,
+        occurredAt: event.occurredAt,
+        pass: event.payload.verification
+          ? event.payload.verification.conclusion === "success"
+          : event.payload.measurementCoverage.status === "complete"
+            ? event.payload.testSummary!.failed === 0 &&
+              event.payload.fileOutcomes.length === 0 &&
+              event.payload.gates.every((gate) => gate.result === "pass")
+            : null,
+        testCount: event.payload.testSummary?.observationCount ?? null,
+        measurementCoverage: event.payload.measurementCoverage,
+        failedTests: event.payload.failedTests,
+        fileOutcomes: event.payload.fileOutcomes,
+        gateCount: event.payload.gates.length,
+      })),
     watermark: read.watermark,
     sourceRevision: read.sourceRevision,
   };
-}
-
-function selectRunWindow(events: readonly CiObservationRead[], window: number): readonly CiObservationRead[] {
-  const selected = new Set<string>();
-  for (const event of events) {
-    const runId = event.payload.run.runId;
-    if (!selected.has(runId) && selected.size >= window) continue;
-    selected.add(runId);
-  }
-  return events.filter((event) => selected.has(event.payload.run.runId));
-}
-
-function mainBranch(event: CiObservationRead): boolean {
-  return event.payload.run.branch === "main";
 }
 
 function isL0Job(job: string): boolean {
@@ -163,7 +196,9 @@ function gateRows(events: readonly CiObservationRead[]): CiObservatoryRead["gate
       }[];
     }
   >();
-  for (const event of [...events].reverse())
+  for (const event of [...events].sort(
+    (a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.eventId.localeCompare(b.eventId),
+  ))
     for (const gate of event.payload.gates)
       for (const [metric, value] of Object.entries(gate.metrics)) {
         const key = `${gate.gate}\u0000${metric}`,
@@ -201,8 +236,13 @@ export function validateCiObservatoryRead(value: unknown): readonly string[] {
     !["ready", "pending"].includes(String(value.status)) ||
     !safeNonNegativeInteger(value.window) ||
     value.window < 1 ||
-    !Array.isArray(value.flakes) ||
-    !value.flakes.every(validFlake) ||
+    !["pending", "ready"].includes(String(value.statisticsAvailability)) ||
+    !Array.isArray(value.missingDetails) ||
+    !value.missingDetails.every(nonEmpty) ||
+    !Array.isArray(value.tests) ||
+    !value.tests.every(validStatistic) ||
+    !Array.isArray(value.recoveries) ||
+    !value.recoveries.every(validRecovery) ||
     !Array.isArray(value.shardDurations) ||
     !value.shardDurations.every(validShard) ||
     !Array.isArray(value.gateTrends) ||
@@ -217,24 +257,36 @@ export function validateCiObservatoryRead(value: unknown): readonly string[] {
   return [];
 }
 
-function validFlake(value: unknown): boolean {
+function validStatistic(value: unknown): boolean {
   return (
     isJsonObject(value) &&
-    nonEmpty(value.test) &&
+    nonEmpty(value.identity) &&
     nonEmpty(value.file) &&
-    safeNonNegativeInteger(value.attempts) &&
-    safeNonNegativeInteger(value.flakes) &&
-    finiteNumber(value.flakeRate) &&
-    value.flakeRate >= 0 &&
-    value.flakeRate <= 1 &&
-    finiteNumber(value.p50Ms) &&
-    value.p50Ms >= 0 &&
-    finiteNumber(value.p95Ms) &&
-    value.p95Ms >= 0 &&
-    typeof value.quarantined === "boolean" &&
-    (value.ownerTask === null || nonEmpty(value.ownerTask)) &&
-    (value.quarantinedAt === null || /^\d{4}-\d{2}-\d{2}$/u.test(String(value.quarantinedAt))) &&
-    (value.quarantineDays === null || safeNonNegativeInteger(value.quarantineDays))
+    nonEmpty(value.name) &&
+    [value.families, value.recoveredFamilies, value.excludedFamilies, value.n].every(safeNonNegativeInteger) &&
+    Number(value.recoveredFamilies) <= Number(value.families) &&
+    (value.rerunRecoveryRate === null ||
+      (finiteNumber(value.rerunRecoveryRate) && value.rerunRecoveryRate >= 0 && value.rerunRecoveryRate <= 1)) &&
+    Array.isArray(value.notRerunAttempts) &&
+    value.notRerunAttempts.every(
+      (row) => isJsonObject(row) && nonEmpty(row.familyKey) && safeNonNegativeInteger(row.attempt) && row.attempt > 0,
+    ) &&
+    [value.p50Ms, value.p95Ms].every((n) => n === null || (finiteNumber(n) && n >= 0))
+  );
+}
+function validRecovery(value: unknown): boolean {
+  const ref = (v: unknown) =>
+    isJsonObject(v) && nonEmpty(v.eventId) && safeNonNegativeInteger(v.attempt) && v.attempt > 0;
+  return (
+    isJsonObject(value) &&
+    value.kind === "recoveredAfterRerun" &&
+    nonEmpty(value.familyKey) &&
+    nonEmpty(value.jobKey) &&
+    nonEmpty(value.testKey) &&
+    typeof value.complete === "boolean" &&
+    ["passed", "failed", "skipped", "cancelled"].includes(String(value.finalStatus)) &&
+    ref(value.from) &&
+    ref(value.to)
   );
 }
 

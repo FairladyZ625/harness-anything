@@ -202,11 +202,11 @@ test("artifact producer is bound to the specific attempt/job API before v4 CAS a
     wrong = false;
     const fetched = await fetchCiObservations(cell as never, { kind: "ci-observe-pull", runs: [123] }, runner);
     const first = ingestCiObservations(cell as never, { actor: workflow.actor, source: "local" }, fetched);
-    assert.equal(JSON.parse(first.evidence).imported, 2);
+    assert.equal(JSON.parse(first.evidence).imported, 3);
     assert.equal(
       JSON.parse(ingestCiObservations(cell as never, { actor: workflow.actor, source: "local" }, fetched).evidence)
         .duplicate,
-      2,
+      3,
     );
     projection.catchUp();
     const result = readCiObservatory({ rootDir, projection });
@@ -265,6 +265,7 @@ test("manual pull then completion collection separates ledger commits and preser
       }
       if (args[1] === "repos/:owner/:repo/actions/workflows/rewrite-ci.yml/runs?per_page=20&page=1")
         return JSON.stringify({ workflow_runs: [] });
+      if (args.some((arg) => arg.includes("/jobs?"))) return JSON.stringify([{ jobs: [] }]);
       assert.equal(args[1], "repos/:owner/:repo/actions/runs/123/attempts/2");
       return JSON.stringify({
         run_attempt: 2,
@@ -314,19 +315,19 @@ test("manual pull then completion collection separates ledger commits and preser
     };
     try {
       const manual = await fetchCiObservations(cell as never, { kind: "ci-observe-pull", runs: [123] }, runner);
-      assert.equal(ingest(manual).imported, 1);
+      assert.equal(ingest(manual).imported, 2);
       const githubOpId = `ci-observation-${createHash("sha256")
         .update(JSON.stringify(["github-actions", "fixture/repository", 123, 2, "workflow", null]))
         .digest("hex")}`;
       assert.ok(store.readEvent(githubOpId), "GitHub observation identities remain unchanged");
       const { fetched: first, counts: collected } = await collect();
-      assert.deepEqual([collected.imported, collected.duplicate], [1, 1]);
-      assert.equal(ingest(first).duplicate, 2);
+      assert.deepEqual([collected.imported, collected.duplicate], [1, 2]);
+      assert.equal(ingest(first).duplicate, 3);
       publishLedger("second private publication");
       const { fetched: second, counts: next } = await collect();
-      assert.deepEqual([next.imported, next.duplicate], [1, 1]);
+      assert.deepEqual([next.imported, next.duplicate], [1, 2]);
       const repeated = ingest(second);
-      assert.deepEqual([repeated.imported, repeated.duplicate], [0, 2]);
+      assert.deepEqual([repeated.imported, repeated.duplicate], [0, 3]);
       const ledgerEvents = projection
         .readCiRunObservations(10)
         .events.filter((event) => event.payload.identity.provider === "write-coordinator");
