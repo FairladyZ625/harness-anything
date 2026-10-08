@@ -1,4 +1,4 @@
-import { runtimeEventContentClaims } from "@harness-anything/kernel";
+import { READ_MODEL_SCHEMA_GENERATION, runtimeEventContentClaims } from "@harness-anything/kernel";
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -72,7 +72,8 @@ export interface ReplicaCutSourceOptions {
 export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaCutSource {
   if (!/^[A-Za-z0-9_-]{1,96}$/u.test(options.repoId)) throw new Error("replica repo id is invalid");
   const root = path.join(options.localRoot, "replica", "repos", options.repoId),
-    databasePath = path.join(root, "cuts.sqlite"),
+    // A schema upgrade publishes a new derived namespace at the same canonical head.
+    databasePath = path.join(root, `cuts-g${READ_MODEL_SCHEMA_GENERATION}.sqlite`),
     manifestRoot = path.join(options.localRoot, "replica", "manifests", "sha256"),
     monotonicNow = options.monotonicNow ?? (() => performance.now());
   let database: DatabaseSync | null = null,

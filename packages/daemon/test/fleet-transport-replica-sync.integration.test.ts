@@ -373,7 +373,7 @@ function edgeCurrent(edgeRoot: string, subject: FleetTestSubject): FleetCut {
 }
 function edgeCutFile(edgeRoot: string, subject: FleetTestSubject, revision: number, docPath: string): string {
   return readFileSync(
-    path.join(edgeRoot, "repos", subject.repoId, "views", subject.viewId, "cuts", String(revision), "files", docPath),
+    path.join(edgeRoot, "repos", subject.repoId, "views", subject.viewId, "cuts", `${revision}-g0`, "files", docPath),
     "utf8",
   );
 }
@@ -408,7 +408,7 @@ test("multi-path subject produces a complete first snapshot and a scoped delta",
           "views",
           fixture.subject.viewId,
           "cuts",
-          String(first.center.revision),
+          `${first.center.revision}-g0`,
           "files",
           itemPath,
         ),

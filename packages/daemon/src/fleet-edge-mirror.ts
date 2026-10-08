@@ -32,6 +32,7 @@ export interface FleetMirrorView {
   readonly viewId: string;
   readonly viewDir: string;
   readonly revision: number;
+  readonly schemaGeneration: number;
   readonly headDigest: string;
   readonly manifestDigest: string;
   readonly authorizationOwner: string | null;
@@ -223,25 +224,32 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
     const viewDir = path.join(viewsRoot, candidate.name),
       current = fleetMirrorReadJson<{
         cut: { revision: number; headDigest: string };
+        schemaGeneration: number;
         manifestDigest: string;
         authorizationOwner: string | null;
         authorizationShapeDigest: string;
       }>(path.join(viewDir, "current.json"));
     if (current === null) continue;
-    const manifest = fleetMirrorCutEntries(viewDir, current.cut.revision);
+    const manifest = fleetMirrorCutEntries(viewDir, current.cut.revision, current.schemaGeneration);
     if (manifest === null) continue;
     const view: FleetMirrorView = {
       repoId,
       viewId: candidate.name,
       viewDir,
       revision: current.cut.revision,
+      schemaGeneration: current.schemaGeneration,
       headDigest: current.cut.headDigest,
       manifestDigest: current.manifestDigest,
       authorizationOwner: current.authorizationOwner,
       authorizationShapeDigest: current.authorizationShapeDigest,
       entries: manifest,
     };
-    if (best === null || view.revision > best.revision) best = view;
+    if (
+      best === null ||
+      view.revision > best.revision ||
+      (view.revision === best.revision && view.schemaGeneration > best.schemaGeneration)
+    )
+      best = view;
   }
   return best;
 }
@@ -393,9 +401,12 @@ export function applyFleetMirrorCut(
   const view = locateFleetMirrorView(viewRoot, repoId, context.viewId);
   if (view === null) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
   const materializedRoot = fleetMirrorMaterializedRoot(workspaceRoot);
-  const marker = fleetMirrorReadJson<{ revision: number; manifestDigest: string; blobs: Record<string, string> }>(
-    path.join(view.viewDir, materializationMarker),
-  );
+  const marker = fleetMirrorReadJson<{
+    revision: number;
+    schemaGeneration: number;
+    manifestDigest: string;
+    blobs: Record<string, string>;
+  }>(path.join(view.viewDir, materializationMarker));
   const baseOf = marker?.blobs ?? {};
   // Only ledger documents land in the workspace; the derived read model stays in the view, and any
   // read-model file an earlier materialization wrote leaves as a center deletion.
@@ -433,14 +444,14 @@ export function applyFleetMirrorCut(
         rows.push({ path: logical, baseBlobSha256: oldSha, localBlobSha256: localSha, centerBlobSha256: blob.sha256 });
         stage.push({
           path: logical,
-          base: fleetMirrorBaseBytes(view, marker?.revision ?? null, logical),
+          base: fleetMirrorBaseBytes(view, oldSha, logical),
           local: localBytes,
-          center: fleetMirrorCutFile(view.viewDir, view.revision, logical),
+          center: fleetMirrorCutFile(view.viewDir, view.revision, logical, view.schemaGeneration),
         });
       }
       continue;
     }
-    const centerBytes = fleetMirrorCutFile(view.viewDir, view.revision, logical),
+    const centerBytes = fleetMirrorCutFile(view.viewDir, view.revision, logical, view.schemaGeneration),
       target = path.join(materializedRoot, ...logical.split("/"));
     if (centerBytes !== null) writeFileDurably(target, centerBytes);
     nextBlobs[logical] = blob.sha256;
@@ -462,7 +473,7 @@ export function applyFleetMirrorCut(
     rows.push({ path: logical, baseBlobSha256: oldSha, localBlobSha256: localSha, centerBlobSha256: null });
     stage.push({
       path: logical,
-      base: fleetMirrorBaseBytes(view, marker?.revision ?? null, logical),
+      base: fleetMirrorBaseBytes(view, oldSha, logical),
       local: localBytes,
       center: null,
     });
@@ -491,12 +502,14 @@ export function applyFleetMirrorCut(
   const markerUnchanged =
     marker !== null &&
     marker.revision === view.revision &&
+    marker.schemaGeneration === view.schemaGeneration &&
     marker.manifestDigest === view.manifestDigest &&
     Object.keys(marker.blobs).length === Object.keys(nextBlobs).length &&
     Object.entries(nextBlobs).every(([logical, sha]) => marker.blobs[logical] === sha);
   if (!markerUnchanged)
     fleetMirrorWriteJson(path.join(view.viewDir, materializationMarker), {
       revision: view.revision,
+      schemaGeneration: view.schemaGeneration,
       manifestDigest: view.manifestDigest,
       blobs: nextBlobs,
     });
@@ -674,31 +687,24 @@ function fleetStageOrReuseDivergence(
   ];
 }
 
-// Base bytes for staging come from the marker's cut while retained, else from
-// the dirty-base cache written by earlier materializations.
-function fleetMirrorBaseBytes(
-  view: FleetMirrorView,
-  markerRevision: number | null,
-  logical: string,
-): Uint8Array | null {
-  if (markerRevision !== null) {
-    const fromCut = fleetMirrorCutFile(view.viewDir, markerRevision, logical);
-    if (fromCut !== null) return fromCut;
-  }
+// Base document bytes are identified by the marker's blob digest, independent
+// of the read-model generation; the dirty-base cache retains them after CAS collection.
+function fleetMirrorBaseBytes(view: FleetMirrorView, blobSha256: string | null, logical: string): Uint8Array | null {
+  if (blobSha256 === null) return null;
+  const repoRoot = path.dirname(path.dirname(view.viewDir));
+  const cas = path.join(repoRoot, "cas", "sha256", blobSha256.slice(0, 2), blobSha256);
   const cached = path.join(view.viewDir, materializationBaseCache, ...logical.split("/"));
-  return existsSync(cached) ? readFileSync(cached) : null;
+  const bytes = existsSync(cas) ? readFileSync(cas) : existsSync(cached) ? readFileSync(cached) : null;
+  if (bytes !== null && sha256Bytes(bytes) !== blobSha256)
+    throw new FleetMirrorError("replica_corrupt", `Replica base blob ${blobSha256} is corrupt.`);
+  return bytes;
 }
 function fleetMirrorRefreshBaseCache(view: FleetMirrorView, dirtyPaths: readonly string[]): void {
   const cacheRoot = path.join(view.viewDir, materializationBaseCache);
   const keep = new Set(dirtyPaths);
-  const markerRevision = locateFleetMirrorMarkerRevision(view);
+  const marker = fleetMirrorReadJson<{ blobs: Record<string, string> }>(path.join(view.viewDir, materializationMarker));
   for (const logical of keep) {
-    const bytes =
-      (markerRevision === null ? null : fleetMirrorCutFile(view.viewDir, markerRevision, logical)) ??
-      (() => {
-        const cached = path.join(cacheRoot, ...logical.split("/"));
-        return existsSync(cached) ? readFileSync(cached) : null;
-      })();
+    const bytes = fleetMirrorBaseBytes(view, marker?.blobs[logical] ?? null, logical);
     if (bytes === null) continue;
     const target = path.join(cacheRoot, ...logical.split("/"));
     if (!existsSync(target) || !readFileSync(target).equals(bytes)) {
@@ -711,27 +717,32 @@ function fleetMirrorRefreshBaseCache(view: FleetMirrorView, dirtyPaths: readonly
       if (!keep.has(stale)) rmSync(path.join(cacheRoot, ...stale.split("/")), { force: true });
   }
 }
-function locateFleetMirrorMarkerRevision(view: FleetMirrorView): number | null {
-  const marker = fleetMirrorReadJson<{ revision: number }>(path.join(view.viewDir, materializationMarker));
-  return marker?.revision ?? null;
-}
 function fleetMirrorConflictRoot(workspaceRoot: string): string {
   return path.join(resolveHarnessLayout(workspaceRoot).localRoot, "conflicts");
 }
 function fleetMirrorMaterializedRoot(workspaceRoot: string): string {
   return resolveHarnessLayout(workspaceRoot).authoredRoot;
 }
-function fleetMirrorCutEntries(viewDir: string, revision: number): ReadonlyMap<string, FleetMirrorBlob> | null {
+function fleetMirrorCutEntries(
+  viewDir: string,
+  revision: number,
+  schemaGeneration: number,
+): ReadonlyMap<string, FleetMirrorBlob> | null {
   const manifest = fleetMirrorReadJson<{ entries: { path: string; blob: FleetMirrorBlob }[] }>(
-    path.join(viewDir, "cuts", String(revision), "manifest.json"),
+    path.join(viewDir, "cuts", `${revision}-g${schemaGeneration}`, "manifest.json"),
   );
   return manifest === null ? null : new Map(manifest.entries.map((entry) => [entry.path, entry.blob]));
 }
 /** One path's bytes as the center cut them: what the center said, whatever the registered harness holds now. */
-export function fleetMirrorCutFile(viewDir: string, revision: number, logical: string): Buffer | null {
-  const file = path.join(viewDir, "cuts", String(revision), "files", ...logical.split("/"));
+export function fleetMirrorCutFile(
+  viewDir: string,
+  revision: number,
+  logical: string,
+  schemaGeneration: number,
+): Buffer | null {
+  const file = path.join(viewDir, "cuts", `${revision}-g${schemaGeneration}`, "files", ...logical.split("/"));
   if (existsSync(file) && statSync(file).isFile()) return readFileSync(file);
-  const blob = fleetMirrorCutEntries(viewDir, revision)?.get(logical);
+  const blob = fleetMirrorCutEntries(viewDir, revision, schemaGeneration)?.get(logical);
   if (blob === undefined) return null;
   const repoRoot = path.dirname(path.dirname(viewDir)),
     cas = path.join(repoRoot, "cas", "sha256", blob.sha256.slice(0, 2), blob.sha256);

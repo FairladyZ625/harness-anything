@@ -124,8 +124,27 @@ export interface EdgeReadModel {
  */
 export function openEdgeReadModel(view: FleetMirrorView, casRoot: string): EdgeReadModel | null {
   const file = path.join(view.viewDir, READ_MODEL_FILE);
+  const metaBlob = view.entries.get(READ_MODEL_META_PATH);
+  if (!metaBlob) {
+    recordReplicaHealth(view.viewDir, {
+      modelFailure: { code: "replica_model_absent", message: "Current cut carries no read model" },
+    });
+    return null;
+  }
+  let meta: EdgeReadModelMeta;
+  try {
+    const bytes = readFileSync(path.join(casRoot, metaBlob.sha256.slice(0, 2), metaBlob.sha256));
+    if (sha256Bytes(bytes) !== metaBlob.sha256) throw new Error(`read model blob ${metaBlob.sha256} is corrupt`);
+    meta = parseEdgeReadModelMeta(bytes.toString("utf8"));
+  } catch (error) {
+    // Deleting SQLite cannot repair the cut's incompatible or missing CAS
+    // metadata. Keep the failure visible and leave cache rebuilding alone.
+    consumeKnownError(error);
+    recordReplicaHealth(view.viewDir, { modelFailure: replicaFailure(error, "read_model_rebuild_failed") });
+    return null;
+  }
   const open = () => {
-    const model = synchronize(file, view, casRoot);
+    const model = synchronize(file, view, casRoot, meta);
     try {
       recordReplicaHealth(view.viewDir, {
         modelFailure: model ? null : { code: "replica_model_absent", message: "Current cut carries no read model" },
@@ -157,15 +176,12 @@ export function openEdgeReadModel(view: FleetMirrorView, casRoot: string): EdgeR
   }
 }
 
-function synchronize(file: string, view: FleetMirrorView, casRoot: string): EdgeReadModel | null {
-  const metaBlob = view.entries.get(READ_MODEL_META_PATH);
-  if (!metaBlob) return null;
+function synchronize(file: string, view: FleetMirrorView, casRoot: string, meta: EdgeReadModelMeta): EdgeReadModel {
   const blob = (sha256: string) => {
     const bytes = readFileSync(path.join(casRoot, sha256.slice(0, 2), sha256));
     if (sha256Bytes(bytes) !== sha256) throw new Error(`read model blob ${sha256} is corrupt`);
     return bytes;
   };
-  const meta = parseEdgeReadModelMeta(blob(metaBlob.sha256).toString("utf8"));
   const db = new DatabaseSync(file);
   try {
     db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");

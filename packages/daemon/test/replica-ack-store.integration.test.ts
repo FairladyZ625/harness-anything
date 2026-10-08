@@ -4,6 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
+import { READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
 import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 
 const cut = (revision: number, byte: string) => ({ revision, headDigest: `sha256:${byte.repeat(64)}` });
@@ -324,6 +326,58 @@ test("delivery leases fence expiry across workers and isolate node/repo/view met
   } finally {
     first.close();
     second.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("same generation ACK replay converges, rejects changed bytes, and a new generation preserves old proof", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-ack-generation-"));
+  const key = { nodeId: "node-a", viewId: "view-a", repoId: "repo-a" };
+  const target = cut(8, "a"),
+    digest = "b".repeat(64),
+    now = "2026-10-08T00:00:00Z";
+  let store = openReplicaAckStore(root);
+  try {
+    store.register(key, 5);
+    const lease = store.delivery.claim(key, "holder", Date.parse(now), 30_000)!;
+    const offer = (transferId: string, manifestDigest = digest) =>
+      store.offer(key, { transferId, fromCut: null, toCut: target, manifestDigest, kind: "snapshot", issuedAt: now });
+    offer("first");
+    assert.equal(store.ack(key, "first", target, digest, now, now, lease).outcome, "applied");
+    offer("repeat");
+    assert.equal(store.ack(key, "repeat", target, digest, now, now, lease).outcome, "current");
+    assert.equal(store.offerFor(key), null);
+    assert.equal(store.proof(key, 8)?.transferId, "first", "immutable proof survives another transfer");
+    offer("conflict", "c".repeat(64));
+    assert.equal(store.ack(key, "conflict", target, "c".repeat(64), now, now, lease).outcome, "op_rejected");
+    assert.equal(store.cursor(key)?.manifestDigest, digest);
+    store.clearOffer(key);
+    store.close();
+    const database = new DatabaseSync(path.join(root, "replica/repos/repo-a/ack.sqlite"));
+    for (const table of ["ack_proof", "ack_cursor", "active_offer"])
+      database.exec(
+        `ALTER TABLE ${table}_g${READ_MODEL_SCHEMA_GENERATION} RENAME TO ${table}_g${READ_MODEL_SCHEMA_GENERATION - 1}`,
+      );
+    database.exec(`DROP INDEX ack_transfer_g${READ_MODEL_SCHEMA_GENERATION}`);
+    database.close();
+    store = openReplicaAckStore(root);
+    assert.equal(store.registrationRevision(key), 5, "upgrade retains the L1 registration floor");
+    assert.equal(store.cursor(key), null, "old generation cannot claim current representation");
+    offer("new-generation", "c".repeat(64));
+    assert.equal(store.ack(key, "new-generation", target, "c".repeat(64), now, now, lease).outcome, "applied");
+    assert.equal(store.cursor(key)?.manifestDigest, "c".repeat(64));
+    const inspect = new DatabaseSync(path.join(root, "replica/repos/repo-a/ack.sqlite"));
+    assert.equal(
+      (
+        inspect.prepare(`SELECT manifest_digest FROM ack_proof_g${READ_MODEL_SCHEMA_GENERATION - 1}`).get() as {
+          manifest_digest: string;
+        }
+      ).manifest_digest,
+      digest,
+    );
+    inspect.close();
+  } finally {
+    store.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
