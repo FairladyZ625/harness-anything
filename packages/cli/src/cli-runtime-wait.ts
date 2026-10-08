@@ -273,16 +273,7 @@ async function readDaemonSubscription(
   let attempt = 0;
   for (;;) {
     try {
-      const result = await read();
-      // A daemon-side failure it could not classify is infrastructure, not a verdict about the
-      // waited sessions: across a build-superseded handoff the re-issued reads' per-request
-      // identity-center authorization can lose one fetch to a transient transport reset while the
-      // successor is already serving, and the very next request answers fine. The wait rides one
-      // such receipt out under the same budget transport failures get; a receipt that keeps
-      // coming back is returned unchanged once that budget ends.
-      if (!isUnclassifiedDaemonFailure(result)) return result;
-      if (attempt >= subscriptionReconnectAttemptLimit) return result;
-      await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** attempt++, 5_000)));
+      return await read();
     } catch (error) {
       consumeKnownError(error);
       const stoppedAt = await stopped();
@@ -296,17 +287,6 @@ async function readDaemonSubscription(
       await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** attempt++, 5_000)));
     }
   }
-}
-
-/** The daemon's protocol fallback labels failures that carry no domain verdict — raw transport and
- *  infrastructure errors — with this one code. Coded verdicts like repo_unavailable stay terminal
- *  (the 2026-10-05 handoff incidents); only the unclassified fallback is a transient by shape. */
-function isUnclassifiedDaemonFailure(receipt: JsonObject): boolean {
-  const error =
-    receipt.error && typeof receipt.error === "object" && !Array.isArray(receipt.error)
-      ? (receipt.error as JsonObject)
-      : null;
-  return receipt.ok !== true && (receipt.code === "bootstrap_failed" || error?.code === "bootstrap_failed");
 }
 
 function recoverableSubscriptionFailure(error: unknown): boolean {
