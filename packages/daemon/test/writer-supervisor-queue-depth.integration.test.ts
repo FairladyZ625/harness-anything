@@ -81,26 +81,30 @@ test("writer supervisor observes internal runtime work draining to zero", async 
         defaultWriterEpochFence: fence,
       })
     ).close();
-    const runtimeExited = deferred<void>();
-    supervisor = await openWriterSupervisor({
-      repoId,
-      rootDir,
-      ownerId: "writer-queue-depth",
-      defaultWriterEpochFence: fence,
-      runtimeInstances: () => [instance],
-      prepareRuntimeLaunch: async (_instanceId, request) => ({
-        definition,
-        installation,
-        executablePath,
-        args: ["exec", "--json", "--model", definition.model, "-"],
-        env: process.env,
-        cwd: request.cwd,
-        prompt: request.prompt,
-      }),
-      onRuntimeOutcome: (event) => {
-        if (event.type === "runtime_session_outcome_observed") runtimeExited.resolve();
+    const runtimeExited = deferred<void>(),
+      publishedQueueDepths: (number | null)[] = [];
+    supervisor = await openWriterSupervisor(
+      {
+        repoId,
+        rootDir,
+        ownerId: "writer-queue-depth",
+        defaultWriterEpochFence: fence,
+        runtimeInstances: () => [instance],
+        prepareRuntimeLaunch: async (_instanceId, request) => ({
+          definition,
+          installation,
+          executablePath,
+          args: ["exec", "--json", "--model", definition.model, "-"],
+          env: process.env,
+          cwd: request.cwd,
+          prompt: request.prompt,
+        }),
+        onRuntimeOutcome: (event) => {
+          if (event.type === "runtime_session_outcome_observed") runtimeExited.resolve();
+        },
       },
-    });
+      { onPublishedStatus: (status) => publishedQueueDepths.push(status.queueDepth) },
+    );
     const binding = withPolicyGroup(
         { actor, source: "local" as const, writerEpoch: fence.epoch, writerEpochFence: fence },
         "contributor",
@@ -125,6 +129,8 @@ test("writer supervisor observes internal runtime work draining to zero", async 
     ]);
     await waitUntil(() => supervisor!.status().queueDepth === 0);
     assert.equal(supervisor.status().queueDepth, 0);
+    assert.ok(publishedQueueDepths.some((depth) => depth !== null && depth > 0));
+    assert.equal(publishedQueueDepths.at(-1), 0, "the status callback witnesses the drained writer cut");
   } finally {
     await supervisor?.close();
     rmSync(parent, { recursive: true, force: true });

@@ -514,6 +514,9 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
       cwd: request.cwd,
       prompt: request.prompt,
     });
+  let queuedStatusHeld = false,
+    drainObserved = false,
+    publishDrainedStatus: (() => void) | undefined;
   let daemon: RunningDaemon | undefined,
     replacement: RunningDaemon | undefined,
     successorStart: Promise<void> | undefined,
@@ -531,8 +534,15 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
       cells.push(cell);
       if (cells.length !== 1) return cell;
       const observed = Object.create(cell);
+      // Hold the host-side writer status past the reply, as a delayed worker status message can.
+      // Releasing it emits the existing status notification without another request or runtime exit.
+      Object.defineProperty(observed, "status", {
+        value: () => ({ ...cell.status(), ...(queuedStatusHeld ? { queueDepth: 1 } : {}) }),
+      });
+      publishDrainedStatus = () => input.onStatus?.(cell.status());
       Object.defineProperty(observed, "close", {
         value: async () => {
+          drainObserved = true;
           drainStarted.resolve();
           await drainGate.promise;
           await cell.close();
@@ -607,6 +617,7 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
         return null;
       }
     });
+    queuedStatusHeld = true;
     writeFileSync(buildIdPath, "build-b\n", "utf8");
     const served = await requestDaemonJsonRpcAt(
       daemon.endpoint,
@@ -618,6 +629,12 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
       true,
     );
     assert.equal(served.outcome, "applied", JSON.stringify(served));
+    await eventLoopTurn();
+    await eventLoopTurn();
+    assert.equal(drainObserved, false, "the delayed queued status keeps supersession resident");
+    queuedStatusHeld = false;
+    publishDrainedStatus!();
+    await waitUntil(() => drainObserved);
     await drainStarted.promise;
     assert.equal(successorStart, undefined, "the successor must not start before the repository drain completes");
     assert.equal(

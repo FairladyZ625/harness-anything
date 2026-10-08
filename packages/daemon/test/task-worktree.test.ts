@@ -1,12 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
+import { makeTaskEventReader, type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
@@ -19,7 +20,9 @@ import {
 import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/squad-worker-checkout.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
 import { readWorktreeSetupSucceeded, runWorktreeSetup, worktreeSetupFailure } from "../src/worktree-setup.ts";
-import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
+import { seedSquadWaitState } from "./squad-terminal-wait.fixtures.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 
 const taskId = "task_12345678",
@@ -32,7 +35,8 @@ test("attach cancels a rejected Squad child through the task lifecycle writer", 
     cellBinding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     orphanTaskId = "task-squad-orphan",
     squadRunId = "squad_0123456789abcdef01234567",
-    leaderDispatchId = "dispatch_000000000000000000000001";
+    hash = createHash("sha256").update(`${repoId}\0squad-wait:${squadRunId}`).digest("hex"),
+    leaderDispatchId = `dispatch_${hash.slice(0, 24)}`;
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const first = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "first-open" });
@@ -41,21 +45,52 @@ test("attach cancels a rejected Squad child through the task lifecycle writer", 
       .outcome,
     "applied",
   );
+  const parent = await first.run(
+    { kind: "task-create", taskId: "task-squad-parent", title: "Squad parent" },
+    cellBinding,
+  );
+  assert.equal(parent.outcome, "applied");
+  await waitForFixturePublication(first, parent.opId!, cellBinding);
+  await realizeTaskPlanFixture(rootDir, String(parent.packagePath), (planPath) =>
+    first.run({ kind: "doc-submit", paths: [planPath] }, cellBinding),
+  );
+  await seedSquadWaitState(
+    first,
+    repoId,
+    {
+      squadRunId,
+      squadId: "core-squad",
+      taskId: "task-squad-parent",
+      executionId: "execution-squad-parent",
+      mission: "Rejected child fixture",
+      leaderAgentId: "fable",
+      runRevision: 1,
+      phase: "planning",
+      error: null,
+      currentLeaderRuntimeSessionId: null,
+      leaderTurns: [],
+      workerAttempts: [],
+      workerCallbackCount: 0,
+      pendingLeaderCallbackCount: 0,
+      synthesisReportPath: null,
+    },
+    cellBinding,
+  );
   await first.close();
-  // Model a coordinator crash after appending its local control state.
+  // Model a coordinator crash after appending its next local state, before canonical publication.
   openDispatchStream(rootDir, {
     dispatchId: leaderDispatchId,
     taskId: "task-squad-parent",
     executionId: "execution-squad-parent",
     agentId: "fable",
-    runtimeSessionId: "runtime-squad-leader",
+    runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
     instanceId: "runtime-squad-instance",
     startedAt: "2026-09-29T00:00:00.000Z",
   });
   appendRuntimeWorkerRecord(rootDir, leaderDispatchId, {
     kind: "squad_run_state",
     squadRunId,
-    revision: 1,
+    revision: 2,
     state: {
       schema: "squad-run/v1",
       executionId: "execution-squad-parent",
@@ -97,7 +132,7 @@ test("attach cancels a rejected Squad child through the task lifecycle writer", 
       workerWaits: [],
       pendingLeaderTriggers: [],
       phase: "failed",
-      revision: 1,
+      revision: 2,
       error: "leader budget exhausted",
     },
   });
@@ -117,6 +152,23 @@ test("attach cancels a rejected Squad child through the task lifecycle writer", 
     String((await reopened.run({ kind: "task-show", taskId: orphanTaskId }, cellBinding)).evidence),
   ) as { readonly task: { readonly status: string } };
   assert.equal(shown.task.status, "cancelled");
+  const reader = makeTaskEventReader({ repoId, rootDir });
+  try {
+    assert.ok(
+      reader
+        .read()
+        .events.some(
+          (event) =>
+            event.type === "runtime_squad_run_observed" &&
+            event.payload.squadRunId === squadRunId &&
+            event.payload.runRevision === 2 &&
+            event.payload.phase === "failed",
+        ),
+      "startup reconciliation must publish the terminal Squad state through an accepted owner dispatch",
+    );
+  } finally {
+    await reader.drain();
+  }
 });
 // The binding is derived from the task and the output shape of the preset snapshot it was compiled from.
 const repositoryDiff = () => ({ profile: { outputShape: "repository-diff" } });

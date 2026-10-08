@@ -162,7 +162,7 @@ export async function startDaemon(input: {
   };
   try {
     const oidc = new OidcSessionService(input.userRoot);
-    host = await openDaemonHost({ ...input, endpoint, recordLifecycle, oidc });
+    host = await openDaemonHost({ ...input, endpoint, recordLifecycle, oidc, onRepoStatusChange: requestDrainCheck });
     // One sink for the daemon; the protocol server is created per connection and reports into it.
     requestLog = openDaemonRequestLog({
       resolveRootDir: (repoId) => host!.status().repos.find((repo) => repo.repoId === repoId)?.rootDir,
