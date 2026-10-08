@@ -613,7 +613,16 @@ function opensslAvailable() {
 function assertReplicaContent(viewRoot, repoId, viewId, current) {
   const manifest = JSON.parse(
     readFileSync(
-      path.join(viewRoot, "repos", repoId, "views", viewId, "cuts", String(current.cut.revision), "manifest.json"),
+      path.join(
+        viewRoot,
+        "repos",
+        repoId,
+        "views",
+        viewId,
+        "cuts",
+        `${current.cut.revision}-g${current.schemaGeneration}`,
+        "manifest.json",
+      ),
       "utf8",
     ),
   );

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
+  READ_MODEL_SCHEMA_GENERATION,
   compileTaskLifecycleWrite,
   lifecycleDocumentFetchPaths,
   makeTaskEventStore,
@@ -258,7 +259,14 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
  * digest 取该修订的真实 cut 行;absent 是「不种」(账本无行)。
  */
 export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot, repoId }) {
-  const cutsPath = path.join(resolveHarnessLayout({ rootDir }).localRoot, "replica", "repos", repoId, "cuts.sqlite");
+  const cutsPath = path.join(
+    resolveHarnessLayout({ rootDir }).localRoot,
+    "replica",
+    "repos",
+    repoId,
+    `g${READ_MODEL_SCHEMA_GENERATION}`,
+    "cuts.sqlite",
+  );
   assert.ok(existsSync(cutsPath), `replica cut store missing at ${cutsPath}`);
   const cuts = new DatabaseSync(cutsPath, { readOnly: true });
   let window;
