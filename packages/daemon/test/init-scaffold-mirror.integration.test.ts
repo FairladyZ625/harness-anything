@@ -80,6 +80,25 @@ async function initializedCenterWithEdge() {
   // The full `ha init` shape: nothing but the bootstrap command touches the ledger.
   const initialized = await host.bootstrap({ rootDir: repo, repoId, personId: "owner", displayName: "Owner" }, auth);
   assert.equal(initialized.outcome, "applied", JSON.stringify(initialized));
+  const seeds = async () =>
+    (await host.run(repoId, { kind: "schedule-list" }, auth)) as {
+      schedules: readonly { scheduleId: string; createdBy: { principal: { personId: string } } }[];
+    };
+  const beforeSeeds = (await seeds()).schedules;
+  assert.equal(beforeSeeds.filter((s) => s.scheduleId === "builtin-ci-observe").length, 1);
+  assert.equal(
+    beforeSeeds.find((s) => s.scheduleId === "builtin-ci-observe")!.createdBy.principal.personId,
+    "person-node-one",
+  );
+  const configured = await host.bootstrap({ rootDir: repo, configureOnly: true }, auth);
+  assert.equal(configured.ok, true, JSON.stringify(configured));
+  const reconfigured = await host.bootstrap({ rootDir: repo, configureOnly: true }, auth);
+  assert.equal(reconfigured.ok, true, JSON.stringify(reconfigured));
+  assert.deepEqual(
+    (await seeds()).schedules.map((s) => [s.scheduleId, s.createdBy]),
+    beforeSeeds.map((s) => [s.scheduleId, s.createdBy]),
+    "authenticated configure is idempotent and preserves the seed principal",
+  );
   // Bootstrap accepts the builtin schedules in SQLite before its Git follower publishes them.
   // Sample Git only after that accepted cut is materialized, matching the replica's read cut.
   await host.settleMaterialization(repoId, "scaffold mirror baseline");

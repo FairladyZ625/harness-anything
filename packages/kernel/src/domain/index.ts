@@ -387,3 +387,5 @@ export type { CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
 
 export { ciDetailMeasurement } from "./ci-run-observation-v4.ts";
 export type { CiRunDetail, CiObservationRead, CiObservationIdentity } from "./ci-run-observation-v4.ts";
+
+export type { CiObserveProgress } from "./schedule-ci-progress.ts";

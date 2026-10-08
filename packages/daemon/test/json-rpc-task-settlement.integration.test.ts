@@ -37,6 +37,7 @@ import { serveKeycloak, signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
+import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-protocol-ci-")),
   originalPath = process.env.PATH;
 before(() => {
@@ -92,7 +93,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       source: "local" as const,
     }, "contributor"), "maintainer");
   try {
-    initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n  closeout:\n    profile: strict\n"); /* The completion facade is a strict-profile closeout gate. */ cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
+    initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n  closeout:\n    profile: strict\n"); /* The completion facade is a strict-profile closeout gate. */ cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); await seedBuiltinSchedules({ cell, binding: repoWriteBinding }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
     const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "work-closeout" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
     const activeRow = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)!,
       guiActive = (await cell.read("repo.tasks.completion.read", { taskId })).completionNext, eventsBefore = store().read().events,
@@ -136,8 +137,8 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       { outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps },
       { outcome: "op_rejected", code: "ci_missing", steps: [] },
     );
-    assert.equal((missingCi.next as readonly { readonly action: string }[])[0]?.action, "ha ci observe pull");
-    assert.equal(store().read().revision, beforeMissingCi, "ci_missing must not append a lifecycle event");
+    assert.equal((missingCi.next as readonly { readonly action: string }[])[0]?.action, "Wait for the center CI Schedule to collect the workflow witness; inspect ha schedule show builtin-ci-observe.");
+    assert.deepEqual(store().read().events.slice(beforeMissingCi).map((event) => event.type), ["schedule_occurrence_claimed", "schedule_run_settled"], "ci_missing may only advance the independent CI Schedule");
     assert.equal(
       store()
         .read()
@@ -725,6 +726,7 @@ test("task complete rejects a passing observation for another submitted commit",
       "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n",
     ); // CI witnessing is opt-in
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-ci-binding" });
+    await seedBuiltinSchedules({ cell, binding: repoWriteBinding });
     await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "CI Binding", false, "f".repeat(40));
     const store = makeTaskEventReader({ repoId, rootDir }),
       submitted = store
@@ -737,7 +739,14 @@ test("task complete rejects a passing observation for another submitted commit",
     const unrelatedCut = store.read().revision;
     const unrelated = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
     assert.equal(unrelated.code, "ci_missing", JSON.stringify(unrelated));
-    assert.equal(store.read().revision, unrelatedCut);
+    assert.deepEqual(
+      store
+        .read()
+        .events.slice(unrelatedCut)
+        .map((event) => event.type),
+      ["schedule_occurrence_claimed", "schedule_run_settled"],
+      "missing CI may only advance its independent Schedule",
+    );
     await publishCiObservation(
       repoId,
       rootDir,
@@ -880,7 +889,7 @@ test(
         "#!/usr/bin/env node\nconst fs = require('fs'), path = require('path');\n" +
           "if (process.argv.includes('--slurp') && (process.argv.includes('--jq') || process.argv.includes('--template')))\n" +
           "  { console.error('the `--slurp` option is not supported with `--jq` or `--template`'); process.exit(1); }\n" +
-          "const [group, verb] = process.argv.slice(2), marker = path.join(__dirname, 'delivery');\n" +
+          "const [group, rawVerb] = process.argv.slice(2), marker = path.join(__dirname, 'delivery'); const verb = group === 'api' ? process.argv.find(arg => arg.startsWith('repos/')) ?? rawVerb : rawVerb;\n" +
           "const sha = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : null;\n" +
           "const rerun = fs.existsSync(path.join(__dirname, 'rerun')), conclusion = rerun ? 'success' : 'failure';\n" +
           "const run = { databaseId: 36464979857, headBranch: 'main', headSha: sha, status: 'completed' };\n" +
@@ -889,6 +898,11 @@ test(
           "else if (sha && group === 'run' && verb === 'view')\n" +
           "  process.stdout.write(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',\n" +
           "    status: 'completed', conclusion, attempt: rerun ? 2 : 1, event: 'push' }));\n" +
+          "else if (sha && group === 'api' && verb.includes('/commits?')) process.stdout.write(JSON.stringify([{ sha, parents: [] }]));\n" +
+          "else if (sha && group === 'api' && verb.includes('/compare/')) process.stdout.write(JSON.stringify({ status: 'identical' }));\n" +
+          "else if (sha && group === 'api' && verb.includes('head_sha=')) process.stdout.write(JSON.stringify([{ ...run, event: 'push', path: '.github/workflows/rewrite-ci.yml', conclusion }]));\n" +
+          "else if (group === 'api' && verb.includes('/workflows/')) process.stdout.write(JSON.stringify({ workflow_runs: [] }));\n" +
+          "else if (group === 'api' && verb.includes('/artifacts?')) process.stdout.write(JSON.stringify([{ artifacts: [] }]));\n" +
           "else if (group === 'api') process.stdout.write(JSON.stringify({ run_attempt: rerun ? 2 : 1, head_sha: sha, head_branch: 'main',\n" +
           "  conclusion, event: 'push', path: '.github/workflows/rewrite-ci.yml', workflow_id: 1, name: 'rewrite-ci', repository: { full_name: 'fixture/repo' } }));\n" +
           "else if (group === 'run' && verb === 'download') { console.error('no artifacts found'); process.exit(1); }\n" +
@@ -897,6 +911,7 @@ test(
       );
       process.env.PATH = `${ghBin}${path.delimiter}${filePath ?? ""}`;
       cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-ci-red" });
+      await seedBuiltinSchedules({ cell, binding: repoWriteBinding });
       await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "CI Red", false);
       const reader = makeTaskEventReader({ repoId, rootDir }),
         submitted = reader
@@ -947,7 +962,7 @@ test(
   },
 );
 test(
-  "ci observe pull that rejects a later run never borrows the acceptance of an earlier imported run",
+  "CI refresh records its failed occurrence without borrowing a workflow acceptance",
   { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
   async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ci-pull-partial-")),
@@ -969,36 +984,66 @@ if (argv.includes('--slurp') && (argv.includes('--jq') || argv.includes('--templ
   process.exit(1);
 }
 const [group, verb, id] = process.argv.slice(2), sha = 'a'.repeat(40);
-if (group === 'api') {
-  if (process.argv.some(arg => arg.includes('/jobs?'))) console.log(JSON.stringify([{ jobs: [{ id: 22, name: 'rewrite-ci' }] }]));
+if (group === 'run' && verb === 'download') {
+  const args = process.argv.slice(2), dir = args[args.indexOf('--dir') + 1];
+  if (args[3] !== '-n' || args[4] !== 'ci-observation-2-1-rewrite-ci') throw new Error('unexpected artifact name');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(path.join(__dirname, 'observation.json'), path.join(dir, 'observation.json'));
+} else if (group === 'api') {
+  if (argv.some(arg => arg.includes('/artifacts?'))) console.log(JSON.stringify([{ artifacts: argv.some(arg => arg.includes('/runs/2/')) ? [{ id:22, name:'ci-observation-2-1-rewrite-ci', expired:false }] : [] }]));
+  else if (process.argv.some(arg => arg.includes('/jobs?'))) console.log(JSON.stringify([{ jobs: [{ id: 22, name: 'rewrite-ci' }] }]));
   else console.log(JSON.stringify({ run_attempt: 1, head_sha: sha, head_branch: 'main', conclusion: 'success',
     event: 'push', path: '.github/workflows/rewrite-ci.yml', workflow_id: 1, name: 'rewrite-ci',
     repository: { full_name: 'fixture/repo' } }));
 } else if (group === 'run' && verb === 'view') {
   console.log(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',
     status: 'completed', conclusion: 'success', attempt: 1, event: 'push' }));
-} else if (group === 'run' && verb === 'download' && id === '2') {
-  const dir = path.join(process.argv[process.argv.indexOf('--dir') + 1], 'ci-observation-rewrite-ci');
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'observation.json'), JSON.stringify({ schema: 'ci-run-artifact/v2',
-    producer: { repositoryId: 'fixture/repo', workflow: '.github/workflows/rewrite-ci.yml',
-      databaseRunId: '2', runAttempt: 1, jobKey: 'rewrite-ci', jobName: 'rewrite-ci' },
-    run: { runId: '2.1', sha, branch: 'main', prNumber: null, job: 'rewrite-ci', wallclockMs: 0, runner: 'github-actions' },
-    detail: { schema: 'ci-run-detail/v1', tests: [], fileOutcomes: [], diagnostics: [] },
-    measurementCoverage: { status: 'complete', missingReason: null, startedFileCount: 0, completedFileCount: 0 },
-    gates: [{ gate: 'ci', result: 'unknown-result', metrics: {} }] }));
-} else if (group === 'run' && verb === 'download') { console.error('no artifacts found'); process.exit(1); }
-else console.log('[]');
+} else console.log('[]');
+
 `,
         { mode: 0o755 },
       );
+      writeFileSync(
+        path.join(ghBin, "observation.json"),
+        JSON.stringify({
+          schema: "ci-run-artifact/v2",
+          producer: {
+            repositoryId: "fixture/repo",
+            workflow: ".github/workflows/rewrite-ci.yml",
+            databaseRunId: "2",
+            runAttempt: 1,
+            jobKey: "rewrite-ci",
+            jobName: "rewrite-ci",
+          },
+          run: {
+            runId: "2.1",
+            sha: "a".repeat(40),
+            branch: "main",
+            prNumber: null,
+            job: "rewrite-ci",
+            wallclockMs: 0,
+            runner: "github-actions",
+          },
+          detail: { schema: "ci-run-detail/v1", tests: [], fileOutcomes: [], diagnostics: [] },
+          measurementCoverage: { status: "complete", missingReason: null, startedFileCount: 0, completedFileCount: 0 },
+          gates: [{ gate: "ci", result: "unknown-result", metrics: {} }],
+        }),
+      );
       process.env.PATH = `${ghBin}${path.delimiter}${filePath ?? ""}`;
       cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "ci-pull-partial" });
+      await seedBuiltinSchedules({ cell, binding: repoWriteBinding });
       const pulled = await cell.run({ kind: "ci-observe-pull", runs: [1, 2] }, repoWriteBinding);
-      assert.equal(pulled.outcome, "op_rejected", JSON.stringify(pulled));
-      assert.equal(pulled.code, "invalid_result", JSON.stringify(pulled));
+      assert.equal(pulled.outcome, "applied", JSON.stringify(pulled));
+      assert.equal(pulled.code, "schedule_builtin_failed", JSON.stringify(pulled));
       assert.doesNotMatch(String(pulled.opId), /^ci-observation-/u, JSON.stringify(pulled));
-      assert.match(String(pulled.rejectionExplanation), /invalid CI gates/u);
+      const occurrence = (await cell.run(
+        { kind: "schedule-show", scheduleId: "builtin-ci-observe" },
+        repoWriteBinding,
+      )) as unknown as {
+        schedule: { status: { lastRun: { outcome: string; detail: string } } };
+      };
+      assert.equal(occurrence.schedule.status.lastRun.outcome, "failed");
+      assert.match(occurrence.schedule.status.lastRun.detail, /invalid CI gates/u);
       const observed = makeTaskEventReader({ repoId, rootDir })
         .read()
         .events.flatMap((event) => (event.type === "ci_run_observed" ? [event.payload.run.runId] : []));
@@ -1213,6 +1258,7 @@ async function publishCiObservation(
           attempt: 1,
           event: "push",
         });
+      if (args.some((arg) => arg.includes("/artifacts?"))) return JSON.stringify([{ artifacts: [] }]);
       if (args[0] === "api")
         return JSON.stringify({
           run_attempt: 1,

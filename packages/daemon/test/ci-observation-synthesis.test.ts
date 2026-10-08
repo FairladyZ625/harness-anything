@@ -3,14 +3,18 @@ import { decodeCiObservation } from "../../kernel/test/fixtures/ci-observation.t
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { FrozenGateRequirement } from "@harness-anything/kernel";
 import type { CiRunObservationEventV3 } from "../../kernel/test/fixtures/ci-observation.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
-import { fetchCiObservations as fetchCiObservationsRaw, ingestCiObservations } from "../src/ci-observation-actions.ts";
+import {
+  fetchCiObservations as fetchCiObservationsRaw,
+  ingestCiObservations,
+  privateLedgerCiObservations,
+} from "../src/ci-observation-actions.ts";
 import { githubActionsWitnessEvidence } from "../src/repo-cell-ci-evidence.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
 
@@ -79,9 +83,8 @@ const noArtifactRunGh = (delivered: string) =>
         attempt: 1,
         event: "push",
       });
-    assert.equal(args[1], "download");
-    // A workflow that uploads no ci-observation-* artifacts fails the pattern download.
-    throw new Error("no valid artifacts found to download");
+    assert.ok(args.includes("--paginate") && args.includes("--slurp"));
+    return JSON.stringify([{ artifacts: [] }]);
   }) as never;
 
 test("an artifact-less green main run synthesizes a passing observation from its run summary", async () => {
@@ -161,8 +164,8 @@ test("reimport authenticates an unconfigured run without letting it shadow confi
             attempt: 1,
             event: "push",
           });
-        assert.equal(args[1], "download");
-        throw new Error("no valid artifacts found to download");
+        assert.ok(args.includes("--paginate") && args.includes("--slurp"));
+        return JSON.stringify([{ artifacts: [] }]);
       }) as never),
       artifact = {
         run: {
@@ -250,3 +253,31 @@ async function fetchCiObservations(
     });
   });
 }
+
+test("distinct private ledger commits keep distinct observation identities and replay once", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ci-private-ledger-")),
+    ledger = path.join(rootDir, "harness"),
+    events: CiRunObservationEventV3[] = [],
+    cell = ingestCell(rootDir, events);
+  try {
+    initMainRepo(rootDir);
+    mkdirSync(ledger);
+    initMainRepo(ledger);
+    for (const body of ["first private ledger cut", "second private ledger cut"]) {
+      writeFileSync(path.join(ledger, "README.md"), body);
+      git(ledger, "add", "README.md");
+      git(ledger, "commit", "-qm", body);
+      const fetched = privateLedgerCiObservations(cell);
+      assert.equal(fetched.runs.length, 1);
+      const accepted = ingestCiObservations(cell as never, { actor, source: "local" }, fetched);
+      assert.equal(JSON.parse(accepted.evidence).imported, 1);
+      const replay = ingestCiObservations(cell as never, { actor, source: "local" }, fetched);
+      assert.equal(JSON.parse(replay.evidence).duplicate, 1);
+    }
+    assert.equal(events.length, 2);
+    assert.notEqual(events[0]!.opId, events[1]!.opId);
+    assert.notEqual(events[0]!.payload.run.sha, events[1]!.payload.run.sha);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

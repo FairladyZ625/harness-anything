@@ -511,6 +511,7 @@ export async function openRepoCellProxy(
     },
   };
   return {
+    hasBuiltinExecutor: (claimFence) => supervisor.request("hasBuiltinExecutor", { claimFence }),
     get bootstrapReceipt() {
       return supervisor.bootstrapReceipt() as RepoCell["bootstrapReceipt"];
     },

@@ -41,6 +41,7 @@ export interface RepoWriterRequestV1 {
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly requestId: string;
   readonly method:
+    | "hasBuiltinExecutor"
     | "run"
     | "presetRun"
     | "spawnRuntime"

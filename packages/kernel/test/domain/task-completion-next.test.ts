@@ -247,7 +247,10 @@ test("a profile that lifted the fact gate completes without facts; the gate stay
 test("missing CI witness precedes independent review and requests canonical observation", () => {
   const result = taskCompletionNext(gatedAt([ciRequirement], 6), context);
   assert.equal(result.blocker?.code, "ci_missing");
-  assert.equal(result.next?.action, "ha ci observe pull");
+  assert.equal(
+    result.next?.action,
+    "Wait for the center CI Schedule to collect the workflow witness; inspect ha schedule show builtin-ci-observe.",
+  );
 });
 
 // Q1-R1-003: an adverse verdict on the current cut is the owner's to adjudicate, not a missing review.

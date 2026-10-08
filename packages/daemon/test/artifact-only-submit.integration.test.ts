@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
+import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import { isTaskEvent, makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -60,6 +61,7 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
     ownerId: "artifact-only-fixture",
   });
   try {
+    await seedBuiltinSchedules({ cell, binding: holder });
     const created = await cell.run({ kind: "task-create", taskId, title: "Artifact-only task" }, holder);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await waitForFixturePublication(cell, created.opId, holder);

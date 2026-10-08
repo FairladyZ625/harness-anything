@@ -4,8 +4,9 @@ import {
   type MappedWitnessAdapterId,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
+import { ingestCiObservations, preparedCiObservation, type CiObservationFetch } from "./ci-observation-actions.ts";
+import type { ScheduleV1 } from "@harness-anything/kernel";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
-import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -31,6 +32,7 @@ export function readBeforeWriteQueue(
   context: RepoCellApiContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
+  refreshCi: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceiptDraft>,
 ): Promise<QueuedPublication> | null {
   const baseline =
     action.kind === "task-start" && typeof action.taskId === "string"
@@ -60,10 +62,21 @@ export function readBeforeWriteQueue(
       (sourceResolution) => (action, binding) =>
         context.executeAction({ ...action, [artifactImportSourceResolution]: sourceResolution }, binding),
     );
-  if (action.kind === "ci-observe-pull")
-    return fetchCiObservations(context.extracted, action).then(
-      (fetched) => (_action, binding) => ingestCiObservations(context.extracted, binding, fetched),
-    );
+  if (action.kind === "ci-observe-pull") {
+    const fetched = (action as RepoTaskAction & { readonly [preparedCiObservation]?: CiObservationFetch })[
+      preparedCiObservation
+    ];
+    if (fetched)
+      return Promise.resolve((action, binding) => {
+        const schedule = context.projection.getEntity("schedule", String(action.scheduleId))?.value as
+          | ScheduleV1
+          | undefined;
+        if (!schedule?.status.activeRun || schedule.status.activeRun.claimFence !== action.claimFence)
+          throw context.cellCodedError("schedule_claim_stale", "CI occurrence claim is no longer current.");
+        return ingestCiObservations(context.extracted, binding, fetched);
+      });
+    return refreshCi(action, binding).then((receipt) => () => receipt);
+  }
   if ((action.kind === "task-submit" || action.kind === "task-complete") && typeof action.taskId === "string") {
     const snapshot = context.projection.read(action.taskId).snapshot,
       execution = snapshot.executions.find(
@@ -78,6 +91,23 @@ export function readBeforeWriteQueue(
     // queue the collected values are re-judged against the frozen cut before any canonical write.
     // Cuts frozen before the contract carry no requirement list; their effective gates are
     // inferred from the rules in force at the time (ci -> github-actions, code-doc -> checker).
+    const requirements =
+      execution.submission.completionContract?.gates ??
+      inferLegacyGateRequirements(
+        snapshot.task?.completionGateIds ?? [],
+        context.extracted.settings.read().ci.workflows,
+      );
+    const needsCi =
+      action.kind === "task-complete" &&
+      requirements.some(
+        (requirement) =>
+          requirement.witness.adapterId === "github-actions" &&
+          gateAppliesToSubmission(requirement, execution.submission!) &&
+          !acceptedGateWitness(snapshot, execution, requirement.gateId) &&
+          !gateWaived(snapshot, execution, requirement) &&
+          witnessAdapters["github-actions"].evaluate(context.extracted, requirement, execution, undefined)?.result !==
+            "pass",
+      );
     const pending = (
       execution.submission.completionContract?.gates ??
       inferLegacyGateRequirements(
@@ -86,7 +116,7 @@ export function readBeforeWriteQueue(
       )
     ).flatMap((requirement) => {
       // Submission freezes the delivery cut; GitHub observation belongs to the independent
-      // `ci observe pull` or completion path and must never delay submit or its idempotent replay.
+      // center builtin occurrence and must never delay submit or its idempotent replay.
       if (action.kind === "task-submit" && requirement.witness.adapterId === "github-actions") return [];
       const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
       return adapter?.collect &&
@@ -98,24 +128,32 @@ export function readBeforeWriteQueue(
         ? [{ requirement, adapter }]
         : [];
     });
+    const refreshed = needsCi
+      ? refreshCi({ kind: "ci-observe-pull", taskId: action.taskId }, binding)
+      : Promise.resolve();
+    if (needsCi && pending.length === 0)
+      return refreshed.then(() => (action, binding) => context.executeAction(action, binding));
     if (pending.length)
-      return Promise.all(
-        pending.map(async ({ requirement, adapter }) => {
-          const collected = await adapter.collect!(context.extracted, requirement, execution).catch(
-            (error: unknown) => {
-              if (requirement.allowOverride !== true) throw error;
-              throw context.extracted.cellCodedError(
-                (error as { readonly code?: string }).code ?? "witness_unavailable",
-                `${error instanceof Error ? error.message : String(error)} ` +
-                  `The task owner may still break-glass this gate: ha task attest ${execution.taskId} ` +
-                  `--gate ${requirement.gateId} --result pass --mode override ` +
-                  "--rationale <why-no-automated-witness-is-acceptable>.",
-              );
-            },
-          );
-          return [requirement.gateId, { adapter, collected }] as const;
-        }),
-      ).then((entries) =>
+      return Promise.all([
+        refreshed,
+        Promise.all(
+          pending.map(async ({ requirement, adapter }) => {
+            const collected = await adapter.collect!(context.extracted, requirement, execution).catch(
+              (error: unknown) => {
+                if (requirement.allowOverride !== true) throw error;
+                throw context.extracted.cellCodedError(
+                  (error as { readonly code?: string }).code ?? "witness_unavailable",
+                  `${error instanceof Error ? error.message : String(error)} ` +
+                    `The task owner may still break-glass this gate: ha task attest ${execution.taskId} ` +
+                    `--gate ${requirement.gateId} --result pass --mode override ` +
+                    "--rationale <why-no-automated-witness-is-acceptable>.",
+                );
+              },
+            );
+            return [requirement.gateId, { adapter, collected }] as const;
+          }),
+        ),
+      ]).then(([, entries]) =>
         Object.assign(
           (action: RepoTaskAction, binding: RepoCellBinding) =>
             context.executeAction(

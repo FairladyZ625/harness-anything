@@ -6,6 +6,7 @@ import {
   readSettingsFacet,
   resolveHarnessLayout,
   type ScheduleMissedReason,
+  type ScheduleActiveRunV1,
 } from "@harness-anything/kernel";
 import type { ScheduleTriggerV1 } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -234,6 +235,24 @@ export function makeScheduleScheduler(input: {
         // other occurrence executes where its runtime lives, which is never a remote-center.
         const builtin = schedule.state !== "invalid" && schedule.spec.target.kind === "builtin";
         if (mode === "remote-edge" ? builtin : mode === "remote-center" && !builtin) continue;
+        if (
+          builtin &&
+          schedule.status.activeRun &&
+          !(await cell.hasBuiltinExecutor((schedule.status.activeRun as ScheduleActiveRunV1).claimFence))
+        ) {
+          const active = schedule.status.activeRun as ScheduleActiveRunV1;
+          await target.execute({
+            kind: "schedule-settle",
+            scheduleId: schedule.scheduleId,
+            claimFence: active.claimFence,
+            outcome: "unknown",
+            endedAt: observedAt,
+            detail: "In-process builtin executor absent after center restart; resume durable checkpoint.",
+            idempotencyKey: `builtin-recovery:${active.claimFence}`,
+          });
+          pending = true;
+          continue;
+        }
         const evaluated = evaluateSchedule(target, schedule, observedAt, admissionWindowMs);
         if (evaluated.due) {
           const key = occurrenceKey(evaluated.due);

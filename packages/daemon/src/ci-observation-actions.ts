@@ -61,7 +61,6 @@ type CiRunSummary = {
   readonly attempt: number;
   readonly event: string;
 };
-type RunGh = (command: string, args: readonly string[], options: { readonly cwd: string }) => Promise<string>;
 type FetchedCiRun = {
   readonly databaseId: number;
   readonly summary: CiRunSummary;
@@ -69,8 +68,11 @@ type FetchedCiRun = {
   readonly workflowPath: string;
   readonly workflowId: string | null;
   readonly jobs: readonly PreparedCiJob[];
+  readonly artifactUnavailable?: boolean;
 };
-type CiObservationFetch = {
+export const preparedCiObservation = Symbol("preparedCiObservation");
+
+export type CiObservationFetch = {
   readonly requestedRuns: number;
   readonly runs: readonly FetchedCiRun[];
   /** --task: the delivery and the run its frozen contract judges, reported with the run's conclusion. */
@@ -88,7 +90,7 @@ export async function fetchCiObservations(
     readonly projection?: Pick<TaskProjection, "read">;
   },
   action: RepoTaskAction,
-  ghRunner: RunGh = (command, args, options) => runProcessTextAsync(command, args, options.cwd),
+  ghRunner: RunGh = runCiProviderCommand,
 ): Promise<CiObservationFetch> {
   // GitHub rate limits surface as gh 403 stderr; classifying them here reports rate_limited with
   // the reset hint, so callers wait instead of retrying a raw service_rejected dump that deepens
@@ -113,7 +115,11 @@ export async function fetchCiObservations(
   if (namedRuns && (namedRuns.length > 100 || namedRuns.some((id) => !Number.isSafeInteger(id) || id < 1)))
     throw cell.cellCodedError("invalid_command", "CI observation pull accepts 1..100 positive --run ids.");
   const witness = taskId === null ? null : taskWitnessContract(cell, taskId, workflows);
-  const temporaryRoot = mkdtempSync(path.join(tmpdir(), "ha-ci-observe-"));
+  const owner = createHash("sha256")
+    .update(JSON.stringify([cell.rootDir, action.occurrenceId, action.claimFence]))
+    .digest("hex")
+    .slice(0, 20);
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), `ha-ci-observe-${owner}-`));
   try {
     const listed =
         namedRuns === null && witness === null
@@ -151,23 +157,52 @@ export async function fetchCiObservations(
     const fetchResults = await Promise.all(
       runs.map(async (run): Promise<{ fetched: FetchedCiRun | null } | { failure: unknown }> => {
         try {
-          const summary = JSON.parse(
-            await runGh(
-              "gh",
-              [
-                "run",
-                "view",
-                String(run.databaseId),
-                "--json",
-                "workflowName,headSha,headBranch,status,conclusion,attempt,event",
-              ],
-              { cwd: cell.rootDir },
-            ),
-          ) as CiRunSummary;
+          const fixedAttempt = (action.attempts as Readonly<Record<string, number>> | undefined)?.[run.databaseId];
+          const fixed =
+            fixedAttempt === undefined
+              ? null
+              : (JSON.parse(
+                  await runGh(
+                    "gh",
+                    ["api", `repos/:owner/:repo/actions/runs/${run.databaseId}/attempts/${fixedAttempt}`],
+                    { cwd: cell.rootDir },
+                  ),
+                ) as {
+                  name: string;
+                  head_sha: string;
+                  head_branch: string;
+                  status: string;
+                  conclusion: string;
+                  run_attempt: number;
+                  event: string;
+                });
+          const summary: CiRunSummary = fixed
+            ? {
+                workflowName: fixed.name,
+                headSha: fixed.head_sha,
+                headBranch: fixed.head_branch,
+                status: fixed.status,
+                conclusion: fixed.conclusion,
+                attempt: fixed.run_attempt,
+                event: fixed.event,
+              }
+            : (JSON.parse(
+                await runGh(
+                  "gh",
+                  [
+                    "run",
+                    "view",
+                    String(run.databaseId),
+                    "--json",
+                    "workflowName,headSha,headBranch,status,conclusion,attempt,event",
+                  ],
+                  { cwd: cell.rootDir },
+                ),
+              ) as CiRunSummary);
           const { status: runLifecycleState } = summary;
           // Publish immutable observations only for main runs that have a final conclusion.
           if (summary.headBranch !== "main" || runLifecycleState !== "completed") {
-            if (namedRuns)
+            if (namedRuns && fixedAttempt === undefined)
               throw cell.cellCodedError(
                 "invalid_command",
                 `CI run ${run.databaseId} is ${runLifecycleState} on ${summary.headBranch}; ` +
@@ -175,23 +210,15 @@ export async function fetchCiObservations(
               );
             return { fetched: null };
           }
-          const runRoot = path.join(temporaryRoot, String(run.databaseId));
+          const runRoot = path.join(temporaryRoot, String(run.databaseId), String(summary.attempt));
+          let artifactUnavailable = false;
           try {
-            await runGh(
-              "gh",
-              ["run", "download", String(run.databaseId), "--pattern", "ci-observation-*", "--dir", runRoot],
-              {
-                cwd: cell.rootDir,
-              },
-            );
+            await downloadCiArtifacts(runGh, cell.rootDir, runRoot, run.databaseId, summary.attempt);
           } catch (error) {
-            // A run without ci-observation-* artifacts fails the download; whatever landed is used below.
-            if (
-              !(error instanceof Error) ||
-              !/no (?:valid )?artifacts?(?: found)?|no artifacts match/iu.test(error.message)
-            )
-              throw error;
+            // An authoritative missing archive ends this diagnostic, not the trusted workflow verdict.
+            if (!(error instanceof Error) || !/HTTP 404|Not Found/iu.test(error.message)) throw error;
             consumeKnownError(error);
+            artifactUnavailable = true;
           }
           const attempt = JSON.parse(
             await runGh(
@@ -271,6 +298,7 @@ export async function fetchCiObservations(
             fetched: {
               databaseId: run.databaseId,
               summary,
+              artifactUnavailable,
               repositoryId: attempt.repository.full_name,
               workflowPath: attempt.path,
               workflowId: String(attempt.workflow_id),
@@ -287,33 +315,7 @@ export async function fetchCiObservations(
     const fetched = fetchResults.flatMap((result) =>
       "fetched" in result && result.fetched !== null ? [result.fetched] : [],
     );
-    if (!namedRuns) {
-      const authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot;
-      if (existsSync(authoredRoot)) {
-        const branch = localGitObjectRefStore.currentBranch(authoredRoot),
-          sha = branch ? localGitObjectRefStore.resolveCommit(authoredRoot, `refs/heads/${branch}`) : null;
-        // A ledger commit that is also in the public repository belongs to the
-        // GitHub observation path; synthesize only for private-ledger commits. `git rev-parse`
-        // echoes any 40-hex string back, so existence must be asked with `cat-file -e`.
-        if (branch && sha && !localGitObjectRefStore.hasCommit(cell.rootDir, sha))
-          fetched.push({
-            databaseId: 0,
-            summary: {
-              workflowName: "ledger-publication",
-              headSha: sha,
-              headBranch: branch,
-              status: "completed",
-              conclusion: "success",
-              attempt: 1,
-              event: "push",
-            },
-            repositoryId: cell.rootDir,
-            workflowPath: "ledger-publication",
-            workflowId: null,
-            jobs: [],
-          });
-      }
-    }
+    if (!namedRuns) fetched.push(...privateLedgerRuns(cell));
     return {
       requestedRuns: namedRuns?.length ?? (witnessRun ? 1 : limit),
       runs: fetched,
@@ -527,7 +529,7 @@ function taskWitnessContract(
     throw cell.cellCodedError(
       "ci_witness_delivery_unresolved",
       `Task ${taskId} has no submitted execution with a delivery commit. ` +
-        `next: submit the task delivery, then retry ha ci observe pull --task ${taskId}.`,
+        `next: submit the task delivery; the center CI Schedule will collect its witness.`,
     );
   if (strandedDelivery(cell.rootDir, submission))
     throw cell.cellCodedError(
@@ -648,7 +650,7 @@ async function coversCommit(runGh: RunGh, cwd: string, base: string, head: strin
   return compare.status === "ahead" || compare.status === "identical";
 }
 
-const ghRateLimitText = /rate limit/iu;
+const ghRateLimitText = /rate limit|HTTP 429/iu;
 const ghRateLimitResetText = /(?:reset in|try again in) ((?:[0-9]+[a-z]+)+)/iu;
 
 // Non-rate-limit gh failures pass through untouched; rate limits rethrow as rate_limited with
@@ -665,7 +667,7 @@ function rethrowGhFailureAsRateLimit(cell: Pick<RepoCellOperationalContext, "cel
   throw cell.cellCodedError(
     "rate_limited",
     `GitHub rate-limited the gh call while observing CI.${reset ? ` Rate limit resets in ${reset}.` : ""} ` +
-      "next: wait for the reset, then retry ha ci observe pull; nothing was imported.",
+      "next: the center CI Schedule resumes reconciliation after the reset.",
   );
 }
 
@@ -690,4 +692,77 @@ function walk(root: string): readonly string[] {
     const target = path.join(root, entry.name);
     return entry.isDirectory() ? walk(target) : [target];
   });
+}
+
+/** Prepare the existing private-ledger witness; the occurrence owns its acceptance too. */
+export function privateLedgerCiObservations(cell: Pick<RepoCellOperationalContext, "rootDir">): CiObservationFetch {
+  return { requestedRuns: 0, runs: privateLedgerRuns(cell) };
+}
+
+function privateLedgerRuns(cell: Pick<RepoCellOperationalContext, "rootDir">): readonly FetchedCiRun[] {
+  const authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot;
+  if (existsSync(authoredRoot)) {
+    const branch = localGitObjectRefStore.currentBranch(authoredRoot),
+      sha = branch ? localGitObjectRefStore.resolveCommit(authoredRoot, `refs/heads/${branch}`) : null;
+    // A ledger commit that is also in the public repository belongs to the
+    // GitHub observation path; synthesize only for private-ledger commits. `git rev-parse`
+    // echoes any 40-hex string back, so existence must be asked with `cat-file -e`.
+    if (branch && sha && !localGitObjectRefStore.hasCommit(cell.rootDir, sha))
+      return [
+        {
+          databaseId: 0,
+          summary: {
+            workflowName: "ledger-publication",
+            headSha: sha,
+            headBranch: branch,
+            status: "completed",
+            conclusion: "success",
+            attempt: 1,
+            event: "push",
+          },
+          repositoryId: cell.rootDir,
+          workflowPath: "ledger-publication",
+          workflowId: null,
+          jobs: [],
+        },
+      ];
+  }
+  return [];
+}
+
+export type RunGh = (command: string, args: readonly string[], options: { readonly cwd: string }) => Promise<string>;
+export interface CiArtifactMetadata {
+  readonly id: number;
+  readonly name: string;
+  readonly expired: boolean;
+}
+
+export const runCiProviderCommand: RunGh = (command, args, options) => runProcessTextAsync(command, args, options.cwd);
+
+export async function listCiArtifacts(gh: RunGh, cwd: string, runId: number): Promise<readonly CiArtifactMetadata[]> {
+  const pages = JSON.parse(
+    await gh(
+      "gh",
+      ["api", "--paginate", "--slurp", `repos/:owner/:repo/actions/runs/${runId}/artifacts?per_page=100`],
+      { cwd },
+    ),
+  ) as readonly {
+    readonly artifacts: readonly CiArtifactMetadata[];
+  }[];
+  return pages.flatMap((page) => page.artifacts);
+}
+
+async function downloadCiArtifacts(
+  gh: RunGh,
+  cwd: string,
+  root: string,
+  runId: number,
+  attempt: number,
+): Promise<void> {
+  const artifacts = await listCiArtifacts(gh, cwd, runId);
+  const names = artifacts
+    .filter((entry) => entry.name.startsWith(`ci-observation-${runId}-${attempt}-`) && !entry.expired)
+    .map((entry) => entry.name);
+  if (names.length === 0) return;
+  await gh("gh", ["run", "download", String(runId), ...names.flatMap((name) => ["-n", name]), "--dir", root], { cwd });
 }

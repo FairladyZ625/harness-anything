@@ -135,58 +135,6 @@ test(
   },
 );
 
-test(
-  "ci observe pull does not hold the repository write queue while gh hangs",
-  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
-  async () => {
-    const parent = mkdtempSync(path.join(tmpdir(), "ha-ci-pull-queue-")),
-      rootDir = path.join(parent, "repo"),
-      stubDir = path.join(parent, "bin"),
-      started = path.join(parent, "gh.started"),
-      release = path.join(parent, "gh.release"),
-      originalPath = process.env.PATH;
-    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-    try {
-      mkdirSync(rootDir);
-      mkdirSync(stubDir);
-      writeFileSync(
-        path.join(stubDir, "gh"),
-        `#!/bin/sh\n: > '${started}'\nwhile [ -d '${parent}' ] && [ ! -f '${release}' ]; do sleep 0.05; done\nexit 1\n`,
-        { mode: 0o755 },
-      );
-      initRepo(rootDir);
-      // An explicit witness list keeps `ci observe pull` invoking gh; the default now witnesses nothing.
-      mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-      writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n");
-      // The writer thread copies the environment when it starts, so the stub goes on PATH first.
-      process.env.PATH = `${stubDir}${path.delimiter}${originalPath ?? ""}`;
-      cell = await openRepoCell({
-        repoId: workspaceId("ci-pull-queue"),
-        rootDir: canonicalRoot(rootDir),
-        ownerId: "ci-pull-queue-center",
-        now: () => "2026-09-11T02:00:00.000Z",
-      });
-      const pulling = cell.run({ kind: "ci-observe-pull", limit: 1 }, binding);
-      await waitForFile(started);
-      // The write is awaited while the stub gh still hangs (release is only written below): settling
-      // at all proves the queue is free for it, whenever the runner gets around to it.
-      const write = await cell.run(
-        { kind: "task-create", taskId: "ci-pull-concurrent-write", title: "Concurrent write" },
-        binding,
-      );
-      assert.equal(write.outcome, "applied", JSON.stringify(write));
-      writeFileSync(release, "");
-      const pulled = await pulling;
-      assert.equal(pulled.outcome, "op_rejected", JSON.stringify(pulled));
-    } finally {
-      writeFileSync(release, "");
-      process.env.PATH = originalPath;
-      await cell?.close();
-      rmSync(parent, { recursive: true, force: true });
-    }
-  },
-);
-
 test("a Keycloak authorization that never answers times out and releases the repository write queue", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-keycloak-hang-")),
     rootDir = path.join(parent, "repo"),
