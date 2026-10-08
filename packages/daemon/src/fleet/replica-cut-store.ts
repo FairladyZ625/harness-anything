@@ -70,11 +70,15 @@ export interface ReplicaCutSourceOptions {
   readonly readApplied?: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly monotonicNow?: () => number;
   /** The edge read model at the projection's current revision, or null while it is not ready. */
-  readonly readEdgeReadModel?: () => {
-    readonly sourceRevision: number;
-    readonly rootThreshold: number;
-    readonly rows: EdgeReadModelRows;
-  } | null;
+  readonly readEdgeReadModel?: <T>(
+    read: (
+      model: {
+        readonly sourceRevision: number;
+        readonly rootThreshold: number;
+        readonly rows: EdgeReadModelRows;
+      } | null,
+    ) => T,
+  ) => T;
 }
 
 export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaCutSource {
@@ -311,105 +315,114 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     return { path: entryPath, blob: { sha256, size: body.byteLength, mediaType } };
   };
   const withReadModel = (entries: FleetEntry[], revision: number): FleetEntry[] => {
-    const model = options.readEdgeReadModel?.();
     if (!options.readEdgeReadModel) return entries;
-    if (!model || model.sourceRevision !== revision)
-      throw new Error(`Read model is unavailable at revision ${revision}`);
-    const ciDetails: FleetEntry[] = [];
-    const results = new Map<string, FleetEntry>(),
-      requiredResults = new Set<string>(),
-      unavailable = new Set<string>(),
-      unavailableEntries: FleetEntry[] = [];
-    const requireResult = (ref: string | null | undefined) => {
-      if (ref) requiredResults.add(ref);
-    };
-    for (const row of model.rows.repository) {
-      if (row.table === "runtime_session")
-        requireResult((JSON.parse(String(row.values.value_json)) as { resultRef?: string | null }).resultRef);
-      if (row.table !== "event_index") continue;
-      const event = JSON.parse(String(row.values.event_json)) as CanonicalEventV1;
-      if (event.schema === "ci-run-observation/v4" && event.payload.detailRef)
-        ciDetails.push(
-          readModelEntry(
-            `.read-model/ci-details/${event.eventId}.json`,
-            JSON.stringify({ eventId: event.eventId, ref: event.payload.detailRef }),
-            "application/json",
-          ),
-        );
-      if (event.schema === "schedule-event/v1") {
-        const detail = event.payload.schedule.status.lastRun?.detail;
-        // Retired schedule settlement stored a result ref plus cleanup prose in detail.
-        // Current outcomes carry claims; their missing/corrupt content still fails below.
-        if (detail?.startsWith("artifact:runtime-result/")) {
-          requireResult(detail);
-          unavailable.add(detail);
+    return options.readEdgeReadModel((model) => {
+      if (!model || model.sourceRevision !== revision)
+        throw new Error(`Read model is unavailable at revision ${revision}`);
+      const ciDetails: FleetEntry[] = [];
+      const results = new Map<string, FleetEntry>(),
+        requiredResults = new Set<string>(),
+        unavailable = new Set<string>(),
+        unavailableEntries: FleetEntry[] = [];
+      const requireResult = (ref: string | null | undefined) => {
+        if (ref) requiredResults.add(ref);
+      };
+      for (const row of model.rows.repository) {
+        if (row.table === "runtime_session")
+          requireResult((JSON.parse(String(row.values.value_json)) as { resultRef?: string | null }).resultRef);
+        if (row.table !== "event_index") continue;
+        const event = JSON.parse(String(row.values.event_json)) as CanonicalEventV1;
+        if (event.schema === "ci-run-observation/v4" && event.payload.detailRef)
+          ciDetails.push(
+            readModelEntry(
+              `.read-model/ci-details/${event.eventId}.json`,
+              JSON.stringify({ eventId: event.eventId, ref: event.payload.detailRef }),
+              "application/json",
+            ),
+          );
+        if (event.schema === "schedule-event/v1") {
+          const detail = event.payload.schedule.status.lastRun?.detail;
+          // Retired schedule settlement stored a result ref plus cleanup prose in detail.
+          // Current outcomes carry claims; their missing/corrupt content still fails below.
+          if (detail?.startsWith("artifact:runtime-result/")) {
+            requireResult(detail);
+            unavailable.add(detail);
+          }
+        }
+        if (event.schema !== "agent-runtime-event/v1" || event.type !== "runtime_session_outcome_observed") continue;
+        requireResult(event.payload.resultRef);
+        if (event.payload.result === null) unavailable.add(event.payload.resultRef);
+        for (const claim of runtimeEventContentClaims(event)) {
+          const bytes = options.readContentBlob(claim.sha256);
+          if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
+            throw new Error(`Runtime result ${claim.sha256} is unavailable at revision ${revision}`);
+          if (!existsSync(readModelBlobPath(claim.sha256))) writeFileDurably(readModelBlobPath(claim.sha256), bytes);
+          results.set(claim.sha256, {
+            path: `.read-model/runtime-results/${claim.sha256}`,
+            blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
+          });
         }
       }
-      if (event.schema !== "agent-runtime-event/v1" || event.type !== "runtime_session_outcome_observed") continue;
-      requireResult(event.payload.resultRef);
-      if (event.payload.result === null) unavailable.add(event.payload.resultRef);
-      for (const claim of runtimeEventContentClaims(event)) {
-        const bytes = options.readContentBlob(claim.sha256);
-        if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
-          throw new Error(`Runtime result ${claim.sha256} is unavailable at revision ${revision}`);
-        if (!existsSync(readModelBlobPath(claim.sha256))) writeFileDurably(readModelBlobPath(claim.sha256), bytes);
-        results.set(claim.sha256, {
-          path: `.read-model/runtime-results/${claim.sha256}`,
-          blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
-        });
+      for (const ref of requiredResults) {
+        const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref)?.[1];
+        if (
+          (!digest || !results.has(digest)) &&
+          unavailable.has(ref) &&
+          (!digest || options.readContentBlob(digest) === null)
+        ) {
+          unavailable.add(ref);
+          unavailableEntries.push(
+            readModelEntry(
+              `.read-model/runtime-results-unavailable/${digest ?? `ref-${sha256Text(ref)}`}`,
+              stableStringify({ resultRef: ref, availability: "unavailable", downloadable: false }),
+              "application/json",
+            ),
+          );
+          continue;
+        }
+        if (!digest || !results.has(digest))
+          throw new Error(`Runtime result ${ref} has no content claim at revision ${revision}`);
       }
-    }
-    for (const ref of requiredResults) {
-      const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref)?.[1];
-      if (
-        (!digest || !results.has(digest)) &&
-        unavailable.has(ref) &&
-        (!digest || options.readContentBlob(digest) === null)
-      ) {
-        unavailable.add(ref);
-        unavailableEntries.push(
-          readModelEntry(
-            `.read-model/runtime-results-unavailable/${digest ?? `ref-${sha256Text(ref)}`}`,
-            stableStringify({ resultRef: ref, availability: "unavailable", downloadable: false }),
-            "application/json",
-          ),
-        );
-        continue;
-      }
-      if (!digest || !results.has(digest))
-        throw new Error(`Runtime result ${ref} has no content claim at revision ${revision}`);
-    }
-    return [
-      ...ciDetails,
-      ...unavailableEntries,
-      ...results.values(),
-      ...entries.filter((entry) => !isReadModelPath(entry.path)),
-      ...edgeReadModelEntries({
+      const published = [
+        ...ciDetails,
+        ...unavailableEntries,
+        ...results.values(),
+        ...entries.filter((entry) => !isReadModelPath(entry.path)),
+      ];
+      for (const entry of edgeReadModelEntries({
         sourceRevision: revision,
         rootThreshold: model.rootThreshold,
         rows: {
           ...model.rows,
-          repository: model.rows.repository.map((row) => {
-            if (row.table !== "runtime_session") return row;
-            const session = JSON.parse(String(row.values.value_json)) as { resultRef?: string };
-            if (!session.resultRef || !unavailable.has(session.resultRef)) return row;
-            const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(session.resultRef)?.[1];
-            if (digest && results.has(digest)) return row;
-            return {
-              ...row,
-              values: {
-                ...row.values,
-                value_json: stableStringify({
-                  ...session,
-                  resultAvailability: "unavailable",
-                  resultDownloadable: false,
-                }),
-              },
-            };
-          }),
+          repository: (function* () {
+            for (const row of model.rows.repository) {
+              yield publicSession(row);
+            }
+          })(),
         },
-      }).map((entry) => readModelEntry(entry.path, entry.text, "application/json")),
-    ].sort((left, right) => left.path.localeCompare(right.path));
+      }))
+        published.push(readModelEntry(entry.path, entry.text, "application/json"));
+      return published.sort((left, right) => left.path.localeCompare(right.path));
+
+      function publicSession(row: EdgeReadModelRows["repository"] extends Iterable<infer R> ? R : never) {
+        if (row.table !== "runtime_session") return row;
+        const session = JSON.parse(String(row.values.value_json)) as { resultRef?: string };
+        if (!session.resultRef || !unavailable.has(session.resultRef)) return row;
+        const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(session.resultRef)?.[1];
+        if (digest && results.has(digest)) return row;
+        return {
+          ...row,
+          values: {
+            ...row.values,
+            value_json: stableStringify({
+              ...session,
+              resultAvailability: "unavailable",
+              resultDownloadable: false,
+            }),
+          },
+        };
+      }
+    });
   };
   const documentDigest = (entries: readonly FleetEntry[]) =>
     fleetManifestDigest(entries.filter((entry) => !isReadModelPath(entry.path)));

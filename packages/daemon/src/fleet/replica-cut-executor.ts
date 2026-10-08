@@ -24,7 +24,7 @@ const ledger = makeTaskEventReader(input),
     readBasis: (after) => projection!.readReplicaBasis(after),
     readLedgerCut: ledger.currentCut,
     readContentBlob: ledger.readContentBlob,
-    readEdgeReadModel: () => centerEdgeReadModel(projection!),
+    readEdgeReadModel: (read) => centerEdgeReadModel(projection!, read),
   });
 port.on("message", async ({ id, command }: { readonly id: number; readonly command: CutRequest }) => {
   try {

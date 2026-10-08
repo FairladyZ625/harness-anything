@@ -132,16 +132,19 @@ export function createRepositoryReadModelTables(db: DatabaseSync): void {
   );
 }
 
-export function readRepositoryReadModelRows(db: DatabaseSync): readonly RepositoryReadModelRow[] {
-  return tables.flatMap((table) =>
-    (
-      db
-        .prepare(
-          `SELECT ${table.columns.join(", ")} FROM ${table.name} ${"where" in table ? table.where : ""} ORDER BY ${table.keys.join(", ")}`,
-        )
-        .all() as RepositoryReadModelRow["values"][]
-    ).map((values) => ({ table: table.name, values: publicRow(table.name, values) })),
-  );
+/** Re-iterable within the caller's snapshot; only the current SQL row is materialized. */
+export function readRepositoryReadModelRows(db: DatabaseSync): Iterable<RepositoryReadModelRow> {
+  return {
+    *[Symbol.iterator]() {
+      for (const table of tables)
+        for (const values of db
+          .prepare(
+            `SELECT ${table.columns.join(", ")} FROM ${table.name} ${"where" in table ? table.where : ""} ORDER BY ${table.keys.join(", ")}`,
+          )
+          .iterate())
+          yield { table: table.name, values: publicRow(table.name, values as RepositoryReadModelRow["values"]) };
+    },
+  };
 }
 
 export function repositoryReadModelPath(row: RepositoryReadModelRow): string {

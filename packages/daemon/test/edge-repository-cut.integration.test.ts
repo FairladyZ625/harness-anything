@@ -1,9 +1,16 @@
 // harness-test-tier: integration
-import { sha256Bytes, publicRuntimeInstallation, publicRuntimeSession } from "@harness-anything/kernel";
+import {
+  sha256Bytes,
+  sha256Text,
+  edgeReadModelEntries,
+  publicRuntimeInstallation,
+  publicRuntimeSession,
+} from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import test from "node:test";
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import { fleetManifestDigest } from "../src/fleet/contract.ts";
 import { makeOffer } from "../src/fleet/center-replica-offer.ts";
 import { readEdgeRuntimeResult } from "../src/runtime-result-read.ts";
 import { repositoryCutFixture, seedRepositoryFamilies } from "./edge-repository-cut.fixtures.ts";
@@ -11,6 +18,20 @@ import { repositoryCutFixture, seedRepositoryFamilies } from "./edge-repository-
 test("repository families survive real snapshot and delta update/delete with center query parity", async (t) => {
   const f = repositoryCutFixture(t);
   seedRepositoryFamilies(f.db);
+  // Golden produced by the eager implementation at 736c7bbe: streaming cannot change cut identity.
+  f.center.readEdgeReadModel(({ rows }) => {
+    const entries = [...edgeReadModelEntries({ sourceRevision: 100, rootThreshold: 10, rows })];
+    assert.equal(entries.length, 20);
+    assert.equal(
+      fleetManifestDigest(
+        entries.map(({ path, text }) => ({
+          path,
+          blob: { sha256: sha256Text(text), size: Buffer.byteLength(text), mediaType: "application/json" },
+        })),
+      ),
+      "dc134b8862c7b4fb8bc61959095a0183be53249a48b31782b1399e9cd949cde7",
+    );
+  });
   await f.transfer("snapshot");
   const parity = () => {
     const read = (q: typeof f.center) => ({
@@ -55,7 +76,10 @@ test("repository families survive real snapshot and delta update/delete with cen
   assert.equal(f.read((q) => q.readLeaseIntervals("task-1"))[0]?.releasedRevision, null);
   assert.equal(f.read((q) => q.listPinnedEntities())[0]?.entityRef, "squad/squad-1");
   assert.ok(!f.source.manifest(100)!.some((e) => /event_source|archived_entity/u.test(e.path)));
-  const model = f.center.readEdgeReadModel();
+  const model = f.center.readEdgeReadModel((model) => ({
+    ...model,
+    rows: { ...model.rows, repository: [...model.rows.repository] },
+  }));
   assert.equal(
     JSON.stringify(model.rows).includes("/private/owner"),
     false,
@@ -391,4 +415,31 @@ test("legacy detail never hides a current outcome's missing or corrupt claim", (
     assert.throws(() => f.source.activate(), /Runtime result.*unavailable/u);
     assert.equal(f.source.latest(), null);
   }
+});
+
+test("read model repository rows are lazy, repeatable and consumed inside the database read", (t) => {
+  const f = repositoryCutFixture(t);
+  const insert = f.db.prepare("INSERT INTO runtime_installation VALUES (?, ?, ?)");
+  insert.run("first", 1, JSON.stringify({ installationId: "first", hostRef: "/private/host" }));
+  // The next row must only be decoded when the consumer advances to it. Eager table materialization
+  // reaches this row before the callback can consume or stop at the first logical unit.
+  insert.run("second", 2, "invalid-json");
+  f.center.readEdgeReadModel(({ rows }) => {
+    for (let pass = 0; pass < 2; pass++) {
+      const iterator = rows.repository[Symbol.iterator]();
+      const first = iterator.next();
+      assert.equal(first.done, false);
+      assert.equal(first.value?.values.installation_id, "first");
+      assert.doesNotMatch(String(first.value?.values.value_json), /private/u);
+      iterator.return?.();
+    }
+    assert.throws(() => [...rows.repository], SyntaxError, "later invalid rows are still validated");
+  });
+  f.db.prepare("DELETE FROM runtime_installation WHERE installation_id = ?").run("second");
+  f.center.readEdgeReadModel(({ rows }) => {
+    const iterator = rows.repository[Symbol.iterator]();
+    assert.equal(iterator.next().done, false);
+    assert.equal(iterator.next().done, true);
+    assert.equal(iterator.next().done, true, "the final SQL row terminates the reader");
+  });
 });

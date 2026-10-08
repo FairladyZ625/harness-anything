@@ -132,7 +132,7 @@ test("a cut requires its complete read model and a published cut is immutable on
         localRoot: root,
         readBasis: () => basis,
         readContentBlob: () => null,
-        readEdgeReadModel: () => model,
+        readEdgeReadModel: (read) => read(model),
       });
     const source = open(null);
     assert.throws(() => source.activate(), /Read model is unavailable/u);
