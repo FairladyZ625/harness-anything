@@ -220,9 +220,9 @@ export async function startDaemon(input: {
           onBuildDriftObserved: () => {
             buildSupersessionObserved = true;
           },
-          onRequestSettled: (method) => {
+          onRequestSettled: () => {
             activeRequests = Math.max(0, activeRequests - 1);
-            if (method !== "protocol.hello") requestDrainCheck();
+            requestDrainCheck();
           },
           requestShutdown:
             input.requestShutdown ??

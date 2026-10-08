@@ -5,6 +5,9 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import net from "node:net";
+import { JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
+import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import test from "node:test";
 import {
   consumeKnownError,
@@ -21,6 +24,111 @@ import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
 import { daemonPidPath, readDaemonPid, startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+
+for (const phase of ["attached", "attaching", "abandoned"] as const) {
+  test(`supersession keeps the hello exchange admitted until its ${phase} client requests or disconnects`, async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-hello-drain-")),
+      rootDir = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      repoId = `hello-drain-${phase}`,
+      runtimeFile = builtRuntime(path.join(parent, "runtime"), "build-a"),
+      buildIdPath = path.join(parent, "runtime/packages/cli/dist/build-id.txt"),
+      cellOpened = deferred<void>(),
+      attachmentGate = deferred<void>(),
+      superseded = deferred<void>();
+    let daemon: RunningDaemon | undefined,
+      client: JsonRpcLineClient | undefined,
+      cellClosing = false,
+      notifyStatus: (() => void) | undefined,
+      queueIsEmpty: (() => boolean) | undefined;
+    initializeRepo(rootDir, repoId);
+    signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    try {
+      daemon = runningDaemon(
+        await startDaemon({
+          daemonId: repoId,
+          userRoot,
+          runtimeFile,
+          onSupersededExit: () => superseded.resolve(),
+          openCell: async (input) => {
+            const cell = await openBootstrappedRepoCell(input);
+            // A real status update can arm drain independently of the request that observed drift.
+            notifyStatus = () => input.onStatus?.(cell.status());
+            queueIsEmpty = () => cell.status().queueDepth === 0;
+            cellOpened.resolve();
+            if (phase === "attaching") await attachmentGate.promise;
+            return {
+              ...cell,
+              close: async () => {
+                cellClosing = true;
+                await cell.close();
+              },
+            };
+          },
+        }),
+      );
+      await cellOpened.promise;
+      await waitUntil(() => queueIsEmpty!());
+      if (phase !== "attaching")
+        await waitUntil(async () => {
+          const status = await requestDaemonJsonRpcAt(daemon!.endpoint, "daemon.status", {}, 2_000, 2_000);
+          return (status.repos as { readonly state: string }[])[0]?.state === "attached";
+        });
+      writeFileSync(buildIdPath, "build-b\n", "utf8");
+      const socket = net.createConnection(daemon.endpoint);
+      client = new JsonRpcLineClient(socket, socket);
+      const hello = await client.request(
+        "protocol.hello",
+        {
+          protocolVersion: currentDaemonProtocolVersion,
+          reportStaleBuild: true,
+        },
+        2_000,
+      );
+      assert.equal(hello.ok, true);
+      assert.equal((hello.warning as Record<string, unknown>).code, "daemon_build_stale");
+      notifyStatus!();
+      // A separate client's completed read also checks drain, independently of this hello.
+      await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.status", {}, 2_000, 2_000);
+      await eventLoopTurn();
+      await eventLoopTurn();
+      assert.equal(cellClosing, false, "a status-triggered drain must not strand the hello client's next frame");
+      assert.equal(readDaemonPid(userRoot, repoId), process.pid);
+      if (phase === "abandoned") {
+        client.close();
+        client = undefined;
+        await superseded.promise;
+      } else {
+        const taskId = `task-${repoId}`,
+          receiptPromise = client.request(
+            "repo.task.create",
+            {
+              repo: { repoId },
+              payload: { taskId, title: "Admitted hello exchange" },
+            },
+            5_000,
+          );
+        attachmentGate.resolve();
+        const receipt = await receiptPromise;
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        client.close();
+        client = undefined;
+        await superseded.promise;
+        const created = makeTaskEventReader({ repoId, rootDir })
+          .read()
+          .events.filter((event) => event.type === "task_bootstrapped" && event.taskId === taskId);
+        assert.equal(created.length, 1, "the accepted write remains canonical after complete teardown");
+      }
+      assert.equal(readDaemonPid(userRoot, repoId), null);
+    } finally {
+      attachmentGate.resolve();
+      client?.close();
+      await daemon?.stop();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+}
 
 test("the daemon binds and serves status and queued commands before repository attachment settles", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-bind-before-attach-")),

@@ -90,6 +90,15 @@ export function createJsonRpcProtocolServer(options: {
   readonly onBuildDriftObserved?: () => void;
 }): JsonRpcProtocolServer {
   let handshaken = false;
+  // Hello and its next frame are one admitted exchange. A host status callback can request
+  // supersession in the wire gap between them, so retain the work until the frame or disconnect.
+  let helloPending = false;
+  const releaseHello = (): void => {
+    if (!helloPending) return;
+    helloPending = false;
+    options.onRequestSettled?.("protocol.hello");
+  };
+  options.authContext.connectionSignal?.addEventListener("abort", releaseHello);
   let executionCredential: string | undefined;
   // Every client — CLI, GUI, fleet — converges on this server, and every dispatched response is
   // built by the reply() below, so one hook there observes the whole request surface.
@@ -762,9 +771,24 @@ export function createJsonRpcProtocolServer(options: {
       isJsonObject(fleetAction) &&
       fleetAction.kind === "fleet-runtime" &&
       fleetAction.method === "repo.agentRuntime.sessions.await";
-    if (isDaemonParkedWaitMethod(method) || fleetAwait || method === "observe.tail")
+    if (method === "protocol.hello") {
+      if (!helloPending) {
+        helloPending = true;
+        options.onRequestStarted?.(method);
+      }
+      try {
+        return await run(request, frameReceivedAt);
+      } finally {
+        if (!handshaken || options.authContext.connectionSignal?.aborted) releaseHello();
+      }
+    }
+    if (isDaemonParkedWaitMethod(method) || fleetAwait || method === "observe.tail") {
+      releaseHello();
       return run(request, frameReceivedAt);
+    }
+    // Transfer the reservation without a zero-work interval before dispatching the next frame.
     options.onRequestStarted?.(method);
+    releaseHello();
     try {
       return await run(request, frameReceivedAt);
     } finally {
@@ -779,6 +803,8 @@ export function createJsonRpcProtocolServer(options: {
           )
         : one(message, timing?.frameReceivedAt),
     close: () => {
+      options.authContext.connectionSignal?.removeEventListener("abort", releaseHello);
+      releaseHello();
       for (const subscription of subscriptions) subscription.detach();
       subscriptions.clear();
       // Parked waits hold no work, so teardown owes them no drain window: settle them now, in
