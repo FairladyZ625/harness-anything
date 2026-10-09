@@ -378,7 +378,36 @@ function finish(
     }
   }
   const digest = orderedEdgeManifestDigest(entries);
-  if (digest !== expected) throw new Error("result manifest mismatch");
+  if (digest !== expected) {
+    let firstOrderingDifference: { index: number; received: FleetEntry; local: FleetEntry } | null = null;
+    if (begin.schema === "fleet.snapshot.begin/v1") {
+      let index = 0;
+      for (const page of pages()) {
+        if (page.schema !== "fleet.snapshot.page/v1") continue;
+        for (const received of page.entries) {
+          const local = entries[index]!;
+          if (received.path !== local.path) {
+            firstOrderingDifference = { index, received, local };
+            break;
+          }
+          index++;
+        }
+        if (firstOrderingDifference) break;
+      }
+    }
+    // The wire carries only the expected digest. Its snapshot page order is
+    // available for comparison; other expected per-entry values are not.
+    throw new Error(
+      `result manifest mismatch: ${JSON.stringify({
+        transferId: frame.transferId,
+        revision: cut.revision,
+        expectedDigest: expected,
+        actualDigest: digest,
+        locale: Intl.Collator().resolvedOptions().locale,
+        firstOrderingDifference,
+      })}`,
+    );
+  }
   const meta = entries.find((entry) => entry.path === READ_MODEL_META_PATH);
   const schemaGeneration = meta
     ? (

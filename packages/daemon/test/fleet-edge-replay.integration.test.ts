@@ -168,6 +168,78 @@ test("edge staging replays snapshot/delta pages and chunks and switches only com
   }
 });
 
+test("snapshot mismatch identifies the first wire/local ordering difference without publishing or ACK", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-manifest-order-"));
+  try {
+    const bodies = [Buffer.from("b"), Buffer.from("a")],
+      entries = [wireEntry("context/b.md", bodies[0]!), wireEntry("context/a.md", bodies[1]!)],
+      expected = orderedEdgeManifestDigest(entries),
+      actual = fleetManifestDigest(entries),
+      frames = snapshotFrames("order", "view", wireCut(1), entries, bodies).map((frame) =>
+        frame.schema === "fleet.snapshot.begin/v1"
+          ? { ...frame, manifest: { ...frame.manifest, digest: expected } }
+          : frame.schema === "fleet.snapshot.finish/v1"
+            ? { ...frame, manifestDigest: expected }
+            : frame,
+      ),
+      view = openFleetEdgeView(root, replicaQuota);
+    for (const frame of frames.slice(0, -1)) view.receive(frame);
+    assert.throws(
+      () => view.receive(frames.at(-1)!),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.ok(error.message.startsWith("result manifest mismatch: "));
+        const details = JSON.parse(error.message.slice("result manifest mismatch: ".length));
+        assert.deepEqual(details, {
+          transferId: "order",
+          revision: 1,
+          expectedDigest: expected,
+          actualDigest: actual,
+          locale: Intl.Collator().resolvedOptions().locale,
+          firstOrderingDifference: { index: 0, received: entries[0], local: entries[1] },
+        });
+        return true;
+      },
+    );
+    assert.equal(view.current("repo", "view"), null);
+    assert.equal(existsSync(path.join(root, "repos/repo/views/view/cuts/1-g0")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("snapshot mismatch reports digest values when the transmitted order already matches", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-manifest-digest-"));
+  try {
+    const body = Buffer.from("one"),
+      entry = wireEntry("context/a.md", body),
+      expected = "0".repeat(64),
+      frames = snapshotFrames("digest", "view", wireCut(1), [entry], [body]).map((frame) =>
+        frame.schema === "fleet.snapshot.begin/v1"
+          ? { ...frame, manifest: { ...frame.manifest, digest: expected } }
+          : frame.schema === "fleet.snapshot.finish/v1"
+            ? { ...frame, manifestDigest: expected }
+            : frame,
+      ),
+      view = openFleetEdgeView(root, replicaQuota);
+    for (const frame of frames.slice(0, -1)) view.receive(frame);
+    assert.throws(
+      () => view.receive(frames.at(-1)!),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        const details = JSON.parse(error.message.slice("result manifest mismatch: ".length));
+        assert.equal(details.expectedDigest, expected);
+        assert.equal(details.actualDigest, fleetManifestDigest([entry]));
+        assert.equal(details.firstOrderingDifference, null);
+        assert.equal(view.current("repo", "view"), null);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("edge chunk replay compares only the named window against the staged blob", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-edge-window-"));
   try {
