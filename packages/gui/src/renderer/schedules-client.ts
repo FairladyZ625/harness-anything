@@ -92,9 +92,7 @@ export interface ScheduleDefinitionInput {
   readonly cronExpression?: string;
   readonly timezone?: string;
   readonly agentId: string;
-  readonly runtimeInstanceId: string;
   readonly mission: string;
-  readonly model?: string | null;
   readonly reasoningEffort?: string | null;
   readonly fast?: boolean;
 }

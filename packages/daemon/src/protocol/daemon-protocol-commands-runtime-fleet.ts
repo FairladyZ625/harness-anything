@@ -340,9 +340,7 @@ export const scheduleShowJsonFields = Object.freeze(["scheduleId"] as const),
     "cronExpression",
     "timezone",
     "agentId",
-    "runtimeInstanceId",
     "mission",
-    "model",
     "reasoningEffort",
     "fast",
     "keepDays",
@@ -385,7 +383,7 @@ export const scheduleProtocolCommands = Object.freeze([
     id: "schedule-create",
     phase: "Schedule-S3",
     path: ["schedule", "create", "<schedule-id>"],
-    summary: "Create an interval or cron Schedule targeting one declared Agent and runtime instance.",
+    summary: "Create an interval or cron Schedule using one Agent’s ordered runtime declarations.",
     method: "repo.task.run",
     positional: "scheduleId",
     inputs: [
@@ -413,17 +411,11 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--agent", "single", true, {
         code: "missing_field",
       }),
-      cliInput("--instance", "single", true, {
-        code: "missing_field",
-      }),
       cliInput("--mission", "single", false, {
         code: "missing_field",
       }),
       cliInput("--mission-file", "single", false, {
         code: "missing_field",
-      }),
-      cliInput("--model", "single", false, {
-        code: "invalid_field",
       }),
       cliInput(
         "--effort",
@@ -526,16 +518,10 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--agent", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--instance", "single", false, {
-        code: "invalid_field",
-      }),
       cliInput("--mission", "single", false, {
         code: "invalid_field",
       }),
       cliInput("--mission-file", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--model", "single", false, {
         code: "invalid_field",
       }),
       cliInput(

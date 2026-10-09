@@ -38,7 +38,6 @@ const schedule = (scheduleId: string) => ({
   mode: "detect",
   everyMs: 300_000,
   agentId: "probe-agent",
-  runtimeInstanceId: definition.instanceId,
   mission: "Inspect the repository and report success.",
   idempotencyKey: `seed-${scheduleId}`,
 });

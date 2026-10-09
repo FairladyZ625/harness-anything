@@ -255,7 +255,7 @@ function schedule(): ScheduleV1 {
     mode: "detect",
     spec: {
       trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-26T10:00:00.000Z" },
-      target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+      target: { kind: "agent", agentId: "codex" },
       mission: "Project Schedule occurrences.",
     },
     actor,

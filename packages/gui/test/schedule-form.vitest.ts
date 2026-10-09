@@ -42,9 +42,8 @@ const initialRow: ScheduleGuiRowDto = {
   trigger: { kind: "interval", everyMs: 7_200_000, timezone: null, summary: "every 2h" },
   target: {
     kind: "agent",
+    runtimes: [{ type: "codex", model: "gpt-5.6-sol" }],
     agentId: "probe-agent",
-    runtimeInstanceId: "codex-schedule",
-    model: "gpt-5.6",
     reasoningEffort: "high",
     fast: true,
     cwd: null,
@@ -289,7 +288,7 @@ describe("segmented guided form (M5)", () => {
       } satisfies Partial<ScheduleDefinitionInput>),
     );
   });
-  it("offers only the instances the selected agent's runtime type can run", async () => {
+  it("shows the selected agent runtime order without an instance or model picker", async () => {
     const mixed: ScheduleGuiOptionsDto = {
       ...options,
       agents: [...options.agents, { agentId: "any-agent", name: "Any Agent", runtimes: [] }],
@@ -321,18 +320,15 @@ describe("segmented guided form (M5)", () => {
       );
     });
     mounted.push({ root, container });
-    const instanceOptions = () =>
-      [...container.querySelectorAll<HTMLSelectElement>('[data-testid="schedule-form-instance"] option')].map(
-        (option) => option.value,
-      );
-    // probe-agent declares runtimes codex, so the claude instance is not offered.
-    expect(instanceOptions()).toEqual(["codex-schedule"]);
-    const agent = container.querySelector<HTMLSelectElement>('[data-testid="schedule-form-agent"]');
+    expect(container.querySelector('[data-testid="schedule-form-instance"]')).toBeNull();
+    expect(container.querySelector('[data-testid="schedule-form-model"]')).toBeNull();
+    expect(container.querySelector('[data-testid="schedule-form-runtime-order"]')?.textContent).toBe("codex");
+    const selectedAgent = container.querySelector<HTMLSelectElement>('[data-testid="schedule-form-agent"]');
     await act(async () => {
-      agent!.value = "any-agent";
-      agent!.dispatchEvent(new Event("change", { bubbles: true }));
+      selectedAgent!.value = "any-agent";
+      selectedAgent!.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    expect(instanceOptions()).toEqual(["codex-schedule", "claude-schedule"]);
+    expect(container.querySelector('[data-testid="schedule-form-runtime-order"]')?.textContent).toBe("—");
   });
 });
 
@@ -420,15 +416,6 @@ describe("real submit() payloads clear the preload and daemon gates", () => {
     return { container, onSubmit };
   }
 
-  async function chooseSelect(container: HTMLElement, testId: string, value: string): Promise<void> {
-    const select = container.querySelector<HTMLSelectElement>(`[data-testid="${testId}"]`);
-    if (!select) throw new Error(`missing ${testId}`);
-    await act(async () => {
-      select.value = value;
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-  }
-
   it("sends the stored mode and interval trigger on update, and both gates accept it", async () => {
     const onSubmit = vi.fn();
     const container = document.createElement("div");
@@ -449,12 +436,12 @@ describe("real submit() payloads clear the preload and daemon gates", () => {
       );
     });
     mounted.push({ root, container });
-    await chooseSelect(container, "schedule-form-model", "gpt-5.6-sol");
     await click(container, "schedule-form-submit");
     expect(onSubmit).toHaveBeenCalledTimes(1);
     const payload = onSubmit.mock.calls[0][0] as ScheduleDefinitionInput;
     expect(payload.mode).toBe("remediate");
-    expect(payload.model).toBe("gpt-5.6-sol");
+    expect(payload).not.toHaveProperty("model");
+    expect(payload).not.toHaveProperty("runtimeInstanceId");
     expect(payload.everyMs).toBe(7_200_000);
     expect(payload.cronExpression).toBeUndefined();
     expect(() => preloadGate("updateSchedule", payload as Record<string, unknown>)).not.toThrow();
@@ -591,29 +578,56 @@ describe("cron round-trip on edit", () => {
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ cronExpression: "15 9 * * *" }));
   });
 
-  it("keeps a stored model that the instance no longer lists instead of silently clearing it", async () => {
+  it("creates a schedule without local instances and rejects retired fields at both ingress boundaries", async () => {
     const onSubmit = vi.fn();
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
-    await act(async () => {
+    await act(async () =>
       root.render(
         createElement(ScheduleFormDialog, {
-          options,
+          options: {
+            agents: [
+              {
+                agentId: "probe-agent",
+                name: "Probe Agent",
+                runtimes: [
+                  { type: "codex", model: "gpt-5.6-sol" },
+                  { type: "claude", model: "GLM-5.3" },
+                ],
+              },
+            ],
+            instances: [],
+          },
           scheduleIds: [],
-          initial: { ...initialRow, target: { ...initialRow.target, model: "gpt-5.6-max" } },
+          initial: initialRow,
           busy: false,
           error: null,
           onCancel: () => undefined,
           onSubmit,
         }),
-      );
-    });
+      ),
+    );
     mounted.push({ root, container });
-    const modelSelect = container.querySelector<HTMLSelectElement>('[data-testid="schedule-form-model"]');
-    expect(modelSelect?.value).toBe("gpt-5.6-max");
-    expect([...(modelSelect?.options ?? [])].some((option) => option.value === "gpt-5.6-max")).toBe(true);
+    expect(container.querySelector('[data-testid="schedule-form-runtime-order"]')?.textContent).toBe(
+      "codex · gpt-5.6-sol → claude · GLM-5.3",
+    );
     await click(container, "schedule-form-submit");
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-max" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const payload = onSubmit.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("runtimeInstanceId");
+    expect(payload).not.toHaveProperty("model");
+    for (const retired of [{ runtimeInstanceId: "retired" }, { model: "retired" }]) {
+      expect(() => preloadGate("updateSchedule", { ...payload, ...retired })).toThrow();
+      expect(
+        validateDaemonRpcCall({
+          method: "repo.schedule.update",
+          params: {
+            repo: { repoId: "schedule-gui" },
+            payload: { ...payload, ...retired, idempotencyKey: "retired-field" },
+          },
+        }),
+      ).not.toEqual([]);
+    }
   });
 });

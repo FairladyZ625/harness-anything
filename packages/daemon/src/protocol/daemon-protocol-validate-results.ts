@@ -41,7 +41,7 @@ export type ValidScheduleListRow = {
       | { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string }
       | { readonly kind: "cron"; readonly expression: string; readonly timezone: string };
     readonly target:
-      | { readonly kind: "agent"; readonly agentId: string; readonly runtimeInstanceId: string }
+      | { readonly kind: "agent"; readonly agentId: string }
       | { readonly kind: "squad"; readonly squadId: string }
       | { readonly kind: "builtin"; readonly builtinId: string }
       | { readonly kind: "agent-unconfigured" };
@@ -169,7 +169,7 @@ function scheduleListRow(value: unknown): value is ScheduleListRow {
       Number(trigger.everyMs) >= 60_000 &&
       nonEmpty(trigger.anchorAt)) ||
       (trigger.kind === "cron" && nonEmpty(trigger.expression) && nonEmpty(trigger.timezone))) &&
-    ((target.kind === "agent" && nonEmpty(target.agentId) && nonEmpty(target.runtimeInstanceId)) ||
+    ((target.kind === "agent" && nonEmpty(target.agentId)) ||
       (target.kind === "squad" && nonEmpty(target.squadId)) ||
       (target.kind === "builtin" && nonEmpty(target.builtinId)) ||
       target.kind === "agent-unconfigured") &&

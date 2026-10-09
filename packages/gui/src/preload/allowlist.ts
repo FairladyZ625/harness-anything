@@ -326,9 +326,7 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     "cronExpression",
     "timezone",
     "agentId",
-    "runtimeInstanceId",
     "mission",
-    "model",
     "reasoningEffort",
     "fast",
     "keepDays",
@@ -354,7 +352,7 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
   // name, trigger, and retention only, never agent target fields.
   const requiredText = nullableOptionals
     ? ["repoId", "scheduleId", "idempotencyKey"]
-    : ["repoId", "scheduleId", "name", "agentId", "runtimeInstanceId", "mission", "idempotencyKey"];
+    : ["repoId", "scheduleId", "name", "agentId", "mission", "idempotencyKey"];
   if (
     !triggerOk ||
     !requiredText.every((field) => typeof value[field] === "string" && String(value[field]).trim().length > 0) ||
@@ -368,11 +366,11 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     (value.keepMonthly === undefined || typeof value.keepMonthly === "boolean") &&
     (nullableOptionals || value.keepDays === undefined) &&
     (nullableOptionals || value.keepMonthly === undefined) &&
-    ["name", "agentId", "runtimeInstanceId", "mission"].every(
+    ["name", "agentId", "mission"].every(
       (field) =>
         value[field] === undefined || (typeof value[field] === "string" && String(value[field]).trim().length > 0),
     ) &&
-    [value.model, value.reasoningEffort].every(
+    [value.reasoningEffort].every(
       (field) =>
         field === undefined ||
         (nullableOptionals && field === null) ||

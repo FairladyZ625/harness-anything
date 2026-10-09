@@ -123,8 +123,6 @@ export function ScheduleForm({
       initialTrigger?.kind === "cron" && initialCron === null ? initialTrigger.expression : null,
     ),
     [agentId, setAgentId] = useState(initialAgentTarget?.agentId ?? availableAgents[0]?.agentId ?? ""),
-    [runtimeInstanceId, setRuntimeInstanceId] = useState(initialAgentTarget?.runtimeInstanceId ?? ""),
-    [model, setModel] = useState(initialAgentTarget?.model ?? ""),
     [reasoningEffort, setReasoningEffort] = useState(initialAgentTarget?.reasoningEffort ?? ""),
     [fast, setFast] = useState(initialAgentTarget?.fast ?? false),
     [mission, setMission] = useState(initial?.mission ?? ""),
@@ -136,23 +134,14 @@ export function ScheduleForm({
       () => compatibleScheduleInstances(agent, options.instances),
       [agent, options.instances],
     ),
-    instance =
-      compatibleInstances.find((candidate) => candidate.instanceId === runtimeInstanceId) ??
-      compatibleInstances[0] ??
-      null,
-    selectedInstanceId = instance?.instanceId ?? "",
-    // 已存值不在实例清单里时仍列为可选项(带标注),而不是静默回落成实例默认再写 null。
-    modelChoices =
-      instance === null || model === "" || instance.models.includes(model)
-        ? (instance?.models ?? [])
-        : [...(instance?.models ?? []), model],
-    effortChoices =
-      instance === null || reasoningEffort === "" || instance.efforts.includes(reasoningEffort)
-        ? (instance?.efforts ?? [])
-        : [...(instance?.efforts ?? []), reasoningEffort],
-    selectedModel = modelChoices.includes(model) ? model : "",
-    selectedEffort = effortChoices.includes(reasoningEffort) ? reasoningEffort : "",
-    selectedFast = instance?.kindId === "codex" && fast,
+    effortChoices = [
+      ...new Set([
+        ...compatibleInstances.flatMap((instance) => instance.efforts),
+        ...(reasoningEffort ? [reasoningEffort] : []),
+      ]),
+    ],
+    selectedEffort = reasoningEffort,
+    selectedFast = fast,
     builtCron = useMemo(
       () => buildCronExpression(cronFrequency, cronTime, cronWeekdays),
       [cronFrequency, cronTime, cronWeekdays],
@@ -171,9 +160,9 @@ export function ScheduleForm({
       !duplicate &&
       name.trim().length > 0 &&
       triggerReady &&
-      (builtinTarget !== undefined ? keepDaysValid : agent !== null && instance !== null && mission.trim().length > 0);
+      (builtinTarget !== undefined ? keepDaysValid : agent !== null && mission.trim().length > 0);
   const submit = () => {
-    if (!ready || (builtinTarget === undefined && instance === null)) return;
+    if (!ready) return;
     const trigger =
       triggerKind === "interval"
         ? intervalMs !== null && { everyMs: intervalMs }
@@ -195,19 +184,16 @@ export function ScheduleForm({
       mode,
       ...trigger,
       agentId,
-      runtimeInstanceId: instance.instanceId,
       mission: mission.trim(),
       ...(initial === null
         ? {
-            ...(selectedModel ? { model: selectedModel } : {}),
             ...(selectedEffort ? { reasoningEffort: selectedEffort } : {}),
             ...(selectedFast ? { fast: true } : {}),
           }
         : {
-            model: selectedModel || null,
             reasoningEffort: selectedEffort || null,
-            // fast 只随 codex 实例发送;省略时 kernel 保留已存值,不静默改写。
-            ...(instance.kindId === "codex" ? { fast: selectedFast } : {}),
+            // Fast is declared for Codex; other runtime kinds keep their native launch behavior.
+            ...(agent?.runtimes.some((runtime) => runtime.type === "codex") ? { fast: selectedFast } : {}),
           }),
     };
     onSubmit(base);
@@ -378,8 +364,6 @@ export function ScheduleForm({
                 value={agentId}
                 onChange={(event) => {
                   setAgentId(event.target.value);
-                  setRuntimeInstanceId("");
-                  setModel("");
                   setReasoningEffort("");
                   setFast(false);
                 }}
@@ -401,41 +385,12 @@ export function ScheduleForm({
                 </span>
               ))}
             </FormField>
-            <FormField label={t("schedules.fields.instance")}>
-              <select
-                data-testid="schedule-form-instance"
-                className="control w-full"
-                value={selectedInstanceId}
-                onChange={(event) => {
-                  setRuntimeInstanceId(event.target.value);
-                  setModel("");
-                  setReasoningEffort("");
-                }}
-              >
-                {compatibleInstances.map((option) => (
-                  <option key={option.instanceId} value={option.instanceId}>
-                    {option.name} · {option.instanceId}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label={t("schedules.fields.model")}>
-              <select
-                data-testid="schedule-form-model"
-                className="control w-full"
-                value={selectedModel}
-                onChange={(event) => setModel(event.target.value)}
-              >
-                <option value="">{t("schedules.form.instanceDefault")}</option>
-                {modelChoices.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                    {option === model && !instance?.models.includes(option)
-                      ? ` · ${t("schedules.form.notInInstanceList")}`
-                      : ""}
-                  </option>
-                ))}
-              </select>
+            <FormField label={t("schedules.fields.runtimeOrder")}>
+              <p data-testid="schedule-form-runtime-order" className="font-mono ui-micro">
+                {agent?.runtimes
+                  .map((runtime) => `${runtime.type}${runtime.model ? ` · ${runtime.model}` : ""}`)
+                  .join(" → ") || "—"}
+              </p>
             </FormField>
             <FormField label={t("schedules.form.effort")}>
               <select
@@ -448,14 +403,15 @@ export function ScheduleForm({
                 {effortChoices.map((option) => (
                   <option key={option} value={option}>
                     {option}
-                    {option === reasoningEffort && !instance?.efforts.includes(option)
+                    {option === reasoningEffort &&
+                    !compatibleInstances.some((instance) => instance.efforts.includes(option))
                       ? ` · ${t("schedules.form.notInInstanceList")}`
                       : ""}
                   </option>
                 ))}
               </select>
             </FormField>
-            {instance?.kindId === "codex" ? (
+            {agent?.runtimes.some((runtime) => runtime.type === "codex") ? (
               <FormField label={t("agentRuntime.fast")}>
                 <span
                   data-testid="schedule-form-fast"

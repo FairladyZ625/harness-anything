@@ -33,9 +33,8 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
     trigger: { kind: "interval", everyMs: 7_200_000, timezone: null, summary: "every 2h" },
     target: {
       kind: "agent",
+      runtimes: [{ type: "codex", model: "gpt-5.6-sol" }],
       agentId: "probe-agent",
-      runtimeInstanceId: "codex-schedule",
-      model: "gpt-5.6",
       reasoningEffort: "high",
       cwd: null,
     },
@@ -72,6 +71,7 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
       runtimeSessionId: "runtime-active",
     },
     lastRun: {
+      runtime: { instanceId: "codex-actual", kindId: "codex", model: "gpt-5.6-sol" },
       occurrenceId: "occurrence_prior",
       scheduledFor: "2026-08-27T06:00:00.000Z",
       endedAt: "2026-08-27T06:04:12.000Z",

@@ -39,7 +39,6 @@ test(
         mode: "detect",
         everyMs: 300_000,
         agentId: "test-agent",
-        runtimeInstanceId: "test-instance",
         mission: "Inspect the repository",
         disabled: true,
         idempotencyKey: "edge-schedule-create",

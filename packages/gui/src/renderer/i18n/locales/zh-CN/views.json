@@ -631,6 +631,8 @@
   "schedules.fields.definitionRevision": "定义版本",
   "schedules.fields.updatedAt": "更新时间",
   "schedules.fields.agent": "Agent",
+  "schedules.fields.runtimeOrder": "运行时顺序",
+  "schedules.fields.lastRuntime": "上次实际运行时",
   "schedules.fields.instance": "实例",
   "schedules.fields.model": "模型",
   "schedules.fields.cwd": "工作目录",

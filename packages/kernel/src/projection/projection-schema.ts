@@ -12,4 +12,5 @@
 // Version 31 adds event list descriptors without copying canonical payloads.
 // Version 32 indexes all retained CI generations and v4 for the unified observation reader.
 // Version 33 replays Agent retirement reason, time, and successor into canonical entity views.
-export const taskProjectionSchemaVersion = 33;
+// Version 34 removes retired Schedule instance/model pins when replaying historical definitions.
+export const taskProjectionSchemaVersion = 34;

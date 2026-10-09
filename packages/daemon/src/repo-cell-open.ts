@@ -887,6 +887,30 @@ export async function openRepoWriterCell(
   settleScheduledOutcome = async (terminal) => {
     const scheduled = terminal.schedule;
     if (!scheduled) return;
+    const current = extracted.projection.getEntity("schedule", scheduled.scheduleId)?.value as
+      | { readonly status: { readonly activeRun: { readonly runtimeSessionId?: string } | null } }
+      | undefined;
+    if (current?.status.activeRun?.runtimeSessionId !== terminal.runtimeSessionId) {
+      const link = {
+          kind: "schedule-dispatch-link",
+          scheduleId: scheduled.scheduleId,
+          claimFence: scheduled.claimFence,
+          dispatchId: terminal.dispatchId,
+          runtimeSessionId: terminal.runtimeSessionId,
+          idempotencyKey: `${terminal.runtimeSessionId}:terminal-link`,
+        },
+        linkBinding = await authorizeRuntimeAction(
+          link,
+          terminal.binding,
+          `runtime-schedule-link:${terminal.runtimeSessionId}`,
+        );
+      await entityActionExecutor.run(
+        link,
+        linkBinding,
+        operationId(link, linkBinding, input.repoId, 0),
+        entityActionRuntimes,
+      );
+    }
     const detail = await scheduleSettlementDetail(rootDir, scheduled, terminal.reason);
     const settlement = {
         scheduleId: scheduled.scheduleId,

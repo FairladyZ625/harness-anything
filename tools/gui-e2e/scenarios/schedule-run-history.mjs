@@ -6,8 +6,7 @@ import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/loca
 // 夹具路径:隔离仓没有任何已安装的 agent runtime,所以「立即运行」会在派工处真实失败——
 // 这恰好是一次**确定性的失败 occurrence**:claim → spawn(runtime_instance_not_found)→
 // settle failed,detail 是真实错误原因。种数据走隔离 daemon 的 schedule 写 RPC(与 CLI
-// `ha schedule create` 同一条写路;GUI 表单桥今天发不出 mode 字段——preload 的 create
-// 载荷闭集没有 mode,而 daemon 动作要求它——那是表单在飞任务的修复面,不在本场景)。
+// `ha schedule create` 同一条写路)，不提供已退役的实例/模型字段。
 //
 // 断言面:失败详情可见、无派工/无报告/无产出都是真实空态、健康度 rollup 直接渲染、
 // 页面上没有任何「待后端投影 / 执行体接线后」占位句。报告内嵌(markdown/JSON)与
@@ -35,7 +34,6 @@ export default {
       mode: "detect",
       everyMs: 3_600_000,
       agentId: "e2e-probe",
-      runtimeInstanceId: "gui-e2e-instance",
       mission: "Probe the schedule run-history detail page.",
       idempotencyKey: "gui-e2e:schedule-run-history:create",
     });

@@ -25,8 +25,7 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
     "30m",
     "--agent",
     "probe-agent",
-    "--instance",
-    "codex-probe",
+
     "--mission",
     "Run the probe",
     "--fast",
@@ -43,7 +42,6 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
       mode: "detect",
       everyMs: 1_800_000,
       agentId: "probe-agent",
-      runtimeInstanceId: "codex-probe",
       mission: "Run the probe",
       fast: true,
       disabled: true,
@@ -74,8 +72,7 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
     "2h",
     "--mission",
     "Run the updated probe",
-    "--model",
-    "gpt-5.6-sol",
+
     "--effort",
     "high",
     "--fast",
@@ -90,7 +87,6 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
       name: "Updated probe",
       everyMs: 7_200_000,
       mission: "Run the updated probe",
-      model: "gpt-5.6-sol",
       reasoningEffort: "high",
       fast: true,
       idempotencyKey: "update-e2e-probe",
@@ -145,8 +141,6 @@ test("Schedule CLI accepts cron and rejects ambiguous triggers, sub-minute inter
     "5m",
     "--agent",
     "agent",
-    "--instance",
-    "instance",
   ];
   assert.equal(parseThinCommand([...base, "--mission", "one", "--mission-file", "mission.md"]).ok, false);
   assert.equal(parseThinCommand([...base, "--cron", "* * * * *", "--mission", "one"]).ok, false);
@@ -168,8 +162,7 @@ test("Schedule CLI accepts cron and rejects ambiguous triggers, sub-minute inter
     "Asia/Taipei",
     "--agent",
     "agent",
-    "--instance",
-    "instance",
+
     "--mission",
     "one",
   ]);
@@ -183,7 +176,6 @@ test("Schedule CLI accepts cron and rejects ambiguous triggers, sub-minute inter
       cronExpression: "30 2 * * *",
       timezone: "Asia/Taipei",
       agentId: "agent",
-      runtimeInstanceId: "instance",
       mission: "one",
     });
   assert.equal(parseThinCommand(["schedule", "update", "probe"]).ok, false);
@@ -312,7 +304,7 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
       mode: "detect",
       spec: {
         trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-08-26T13:59:00.000Z" },
-        target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+        target: { kind: "agent", agentId: "codex" },
         mission: "Run the armed Schedule.",
       },
       actor,
@@ -325,7 +317,7 @@ test("Schedule list human renderer shows state, next occurrence, and single-flig
       mode: "detect",
       spec: {
         trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-08-26T13:59:00.000Z" },
-        target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+        target: { kind: "agent", agentId: "codex" },
         mission: "Run the paused Schedule.",
       },
       actor,

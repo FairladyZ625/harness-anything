@@ -168,7 +168,6 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           mode: "detect",
           everyMs: 300_000,
           agentId: "probe-agent",
-          runtimeInstanceId: definition.instanceId,
           mission: "Inspect the repository and report success.",
           fast: true,
           idempotencyKey: "seed-e2e-probe",
@@ -190,7 +189,6 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           mode: "detect",
           everyMs: 300_000,
           agentId: "probe-agent",
-          runtimeInstanceId: definition.instanceId,
           mission: "Inspect the repository and report success.",
           fast: true,
           idempotencyKey: "seed-e2e-probe",
@@ -297,6 +295,14 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       assert.equal(settled, true);
       assert.equal(launchCount, 2);
 
+      const completed = (await cell.run({ kind: "schedule-show", scheduleId: "e2e-probe" }, actor)) as unknown as {
+        readonly schedule: { readonly status: { readonly lastRun: { readonly runtimeSessionId: string } } };
+      };
+      const { session: finalSession } = await cell.read("repo.agentRuntime.sessions.read", {
+        runtimeSessionId: completed.schedule.status.lastRun.runtimeSessionId,
+      });
+      assert.equal(finalSession?.instanceId, "codex-schedule-secondary");
+      assert.equal(finalSession.definitionSnapshot?.model, definition.model);
       const beforeMissed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
           readonly schedules: readonly {
             readonly scheduleId: string;
@@ -435,7 +441,6 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           mode: "detect",
           everyMs: 900_000,
           agentId: "probe-agent",
-          runtimeInstanceId: definition.instanceId,
           mission: "Run the recreated probe.",
           idempotencyKey: "recreate-e2e-probe",
         },
@@ -460,7 +465,6 @@ test("run-now launches only after an applied claim, stays single-flight, and set
               mode: "detect",
               everyMs: 300_000,
               agentId: "probe-agent",
-              runtimeInstanceId: definition.instanceId,
               mission: "Resume the claimed heartbeat.",
               idempotencyKey: "seed-restart-heartbeat",
             },
@@ -721,7 +725,6 @@ test(
         mode: "detect",
         everyMs: 300_000,
         agentId: "probe-agent",
-        runtimeInstanceId: definition.instanceId,
         mission: "Inspect the repository and report success.",
         idempotencyKey: "fleet-create",
       });

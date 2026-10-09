@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { AgentRole, TaskProjection } from "@harness-anything/kernel";
-import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import { agentRuntimeTargetSummary, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
@@ -91,6 +91,7 @@ export function dispatchMissionForPermission(mission: string, permissionMode: st
 export function resolveRuntimeInstanceCandidates(input: {
   readonly requested?: string;
   readonly providerSessionId?: string;
+  readonly unavailableReasons?: string[];
   readonly agent: RuntimeAgent | null;
   readonly model?: string;
   /** The concrete kind selected for an unbound runtime dispatch. */
@@ -108,6 +109,27 @@ export function resolveRuntimeInstanceCandidates(input: {
   const declaredModel = input.model,
     declaredType = input.runtimeKind,
     declaredTargets = input.agent?.runtimes;
+  const unavailable = input.unavailableReasons ?? [];
+  for (const target of declaredTargets ?? (declaredType ? [{ type: declaredType }] : []))
+    if (!input.instances.some((instance) => instance.kindId === target.type))
+      unavailable.push(`${target.type}: runtime_instance_not_found (no local instance)`);
+  for (const instance of input.instances) {
+    if (
+      (declaredType !== undefined && declaredType !== instance.kindId) ||
+      (declaredTargets !== undefined && !agentRuntimeKindMatches(declaredTargets, instance.kindId))
+    )
+      continue;
+    const model = declaredModel ?? declaredTargets?.find((row) => row.type === instance.kindId)?.model;
+    const reason = !instance.enabled
+      ? "runtime_instance_disabled"
+      : model !== undefined && !instance.models.includes(model)
+        ? `agent_model_unavailable (${model})`
+        : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
+          ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
+          : undefined;
+    if (reason) unavailable.push(`${instance.kindId}/${instance.instanceId}: ${reason}`);
+  }
+  const detail = unavailable.length ? ` Candidates: ${unavailable.join("; ")}` : "";
   const typed = input.instances.filter(
     (instance) =>
       instance.enabled &&
@@ -128,7 +150,8 @@ export function resolveRuntimeInstanceCandidates(input: {
       throw runtimeSpawnError(
         "agent_runtime_unavailable",
         `Agent ${input.agent.id} requires ${targetSummary}, ` +
-          "but no enabled instance of those runtime kinds is available on this node.",
+          "but no enabled instance of those runtime kinds is available on this node." +
+          detail,
       );
     // A model constraint excluded every typed instance: name it whether it came from the
     // --model override or from the runtimes row binding each kind's model.
@@ -140,7 +163,7 @@ export function resolveRuntimeInstanceCandidates(input: {
         .join(", ");
     throw runtimeSpawnError(
       typeCandidates ? "agent_model_unavailable" : "agent_runtime_unavailable",
-      typeCandidates
+      (typeCandidates
         ? [
             "No enabled runtime instance declares model ",
             `${modelConstraint}`,
@@ -154,7 +177,7 @@ export function resolveRuntimeInstanceCandidates(input: {
               targetSummary,
               ".",
             ].join("")
-          : `No enabled runtime instance is compatible with runtime type ${targetSummary}.`,
+          : `No enabled runtime instance is compatible with runtime type ${targetSummary}.`) + detail,
     );
   }
   const ready = declared.filter(
@@ -164,9 +187,9 @@ export function resolveRuntimeInstanceCandidates(input: {
   if (ready.length === 0)
     throw runtimeSpawnError(
       "runtime_model_not_ready",
-      declaredModel
+      (declaredModel
         ? `Runtime instances declare model ${declaredModel}, but none are authentication-ready.`
-        : `Compatible runtime instances exist for ${targetSummary}, but none are authentication-ready.`,
+        : `Compatible runtime instances exist for ${targetSummary}, but none are authentication-ready.`) + detail,
     );
   const active = new Map<string, number>(ready.map((instance) => [instance.instanceId, 0]));
   for (const session of input.sessions)
@@ -188,18 +211,40 @@ export function resolveRuntimeInstanceCandidates(input: {
     .map((instance) => instance.instanceId);
 }
 
-export async function resolveRuntimeInstanceId(input: {
-  readonly requested?: string;
-  readonly providerSessionId?: string;
-  readonly agent: RuntimeAgent | null;
-  readonly model?: string;
-  readonly instances: readonly RuntimeInstanceSummary[];
-  readonly sessions: readonly RuntimeSessionSelection[];
-}): Promise<string> {
-  const [selected] = resolveRuntimeInstanceCandidates(input);
-  if (!selected)
-    throw runtimeSpawnError("agent_runtime_unavailable", "No enabled runtime instance is available for this dispatch.");
-  return selected;
+/** Select before launch: machine availability can change after the instance definition was written. */
+export async function prepareRuntimeInstance<T>(
+  input: Parameters<typeof resolveRuntimeInstanceCandidates>[0],
+  prepare: (instanceId: string) => Promise<T>,
+): Promise<{ readonly instanceId: string; readonly launch: T }> {
+  const reasons: string[] = [],
+    candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons });
+  for (const instanceId of candidates) {
+    try {
+      return { instanceId, launch: await prepare(instanceId) };
+    } catch (error) {
+      const code = (error as { readonly code?: string }).code;
+      if (
+        !code ||
+        ![
+          "runtime_instance_disabled",
+          "runtime_instance_not_found",
+          "runtime_installation_not_found",
+          "runtime_credential_unavailable",
+          "runtime_subscription_required",
+          "runtime_auth_in_progress",
+          "runtime_auth_probe_failed",
+          "invalid_runtime_model",
+        ].includes(code)
+      )
+        throw error;
+      consumeKnownError(error);
+      reasons.push(`${instanceId}: ${code}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  throw runtimeSpawnError(
+    "agent_runtime_unavailable",
+    `No runtime launch is available. Candidates: ${reasons.join("; ")}`,
+  );
 }
 
 /** Task-bound dispatches use injected context and reads admitted by their execution credential. */

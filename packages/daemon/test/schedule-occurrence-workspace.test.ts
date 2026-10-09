@@ -48,7 +48,7 @@ test("scheduled dispatch spawns from the occurrence workspace without extra writ
       mode: "remediate",
       spec: {
         trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-09-15T00:00:00.000Z" },
-        target: { kind: "agent", agentId: "backup-agent", runtimeInstanceId: "codex-backup" },
+        target: { kind: "agent", agentId: "backup-agent" },
         mission: "Back up the ledger.",
       },
       actor: { principal: { personId: "schedule-test" }, executor: null },

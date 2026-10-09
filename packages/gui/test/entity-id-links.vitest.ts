@@ -442,9 +442,8 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
         trigger: { kind: "interval", everyMs: 1_800_000, timezone: null, summary: "every 30m" },
         target: {
           kind: "agent",
+          runtimes: [{ type: "codex", model: "gpt-5.6-sol" }],
           agentId: AGENT_ID,
-          runtimeInstanceId: PROVIDER_ID,
-          model: null,
           reasoningEffort: null,
           cwd: null,
         },

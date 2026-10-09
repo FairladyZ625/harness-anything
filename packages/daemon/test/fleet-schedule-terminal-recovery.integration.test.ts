@@ -165,7 +165,6 @@ for (const restart of [false, true])
       mode: "detect",
       everyMs: 300_000,
       agentId: "recovery-agent",
-      runtimeInstanceId: definition.instanceId,
       mission: "Check state.",
       idempotencyKey: "create-recovery",
     });

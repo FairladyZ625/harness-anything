@@ -55,7 +55,7 @@ test("Schedule creation trims authored text and starts with an empty projected r
     mode: "detect",
     spec: {
       trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-26T10:00:00.000Z" },
-      target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+      target: { kind: "agent", agentId: "codex" },
       mission: "  Check repository health.  ",
     },
     actor,
@@ -170,7 +170,7 @@ function fixtureSchedule(): ScheduleV1 {
     mode: "detect",
     spec: {
       trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-26T10:00:00.000Z" },
-      target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+      target: { kind: "agent", agentId: "codex" },
       mission: "Check repository health.",
     },
     actor,
@@ -204,4 +204,19 @@ test("Schedule persists bounded typed CI reconciliation checkpoints and rejects 
   ])
     assert.notDeepEqual(validateScheduleV1({ ...base, status: { ...base.status, ciObserve } }), []);
   assert.deepEqual(validateScheduleV1(base), [], "pre-checkpoint Schedule values retain their exact valid shape");
+});
+
+test("new schedule inputs reject retired pins and historical projection removes them", async () => {
+  const { projectScheduleHistory } = await import("../src/domain/schedule.ts"),
+    schedule = fixtureSchedule(),
+    pinned = {
+      ...schedule,
+      spec: {
+        ...schedule.spec,
+        target: { ...schedule.spec.target, runtimeInstanceId: "disabled-old-instance", model: "old-model" },
+      },
+    };
+  assert.ok(validateScheduleV1(pinned).length > 0);
+  assert.deepEqual(projectScheduleHistory(pinned), schedule);
+  assert.deepEqual(validateScheduleV1(projectScheduleHistory(pinned)), []);
 });

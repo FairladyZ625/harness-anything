@@ -20,7 +20,7 @@ import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
-import { definition, initHarnessRepo } from "./schedule-actions.fixtures.ts";
+import { initHarnessRepo } from "./schedule-actions.fixtures.ts";
 
 type Receipt = { readonly outcome: string; readonly code?: string };
 type ScheduleRow = {
@@ -37,7 +37,6 @@ const agentSchedule = (scheduleId: string) => ({
   mode: "detect",
   everyMs: 300_000,
   agentId: "probe-agent",
-  runtimeInstanceId: definition.instanceId,
   mission: "Inspect the repository and report success.",
   idempotencyKey: `seed-${scheduleId}`,
 });

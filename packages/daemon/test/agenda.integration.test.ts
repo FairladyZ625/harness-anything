@@ -837,7 +837,6 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
               mode: "detect",
               everyMs: 300_000,
               agentId: "probe-agent",
-              runtimeInstanceId: "runtime-local",
               mission: "Run nightly reckoning.",
               idempotencyKey: "agenda-pin:schedule",
             },

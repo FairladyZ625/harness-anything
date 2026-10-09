@@ -243,7 +243,7 @@ function baseSchedule(): ScheduleV1 {
     mode: "detect",
     spec: {
       trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-26T10:00:00.000Z" },
-      target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+      target: { kind: "agent", agentId: "codex" },
       mission: "Check repository health.",
     },
     actor,
@@ -258,7 +258,7 @@ function cronSchedule(): ScheduleV1 {
     mode: "detect",
     spec: {
       trigger: { kind: "cron", expression: "0 * * * *", timezone: "UTC" },
-      target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+      target: { kind: "agent", agentId: "codex" },
       mission: "Check repository health.",
     },
     actor,

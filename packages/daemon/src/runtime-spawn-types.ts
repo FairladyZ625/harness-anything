@@ -93,9 +93,7 @@ export interface TrustedScheduleRuntime {
 
 export interface TrustedScheduleSpawn extends TrustedScheduleRuntime {
   readonly mission: string;
-  readonly runtimeInstanceId: string;
   readonly agentId: string;
-  readonly model?: string;
   readonly effort?: string;
   readonly fast?: boolean;
   readonly cwd: string;
