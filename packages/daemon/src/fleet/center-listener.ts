@@ -650,8 +650,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("connection_closed", "Delivery connection closed", true);
       }
       const guard = () => {
+        if (!replica.pinActive(lease!)) throw fenced(lease!, "Delivery", false, Date.now());
         const at = Date.now();
-        if (!replica.pinActive(lease!)) throw fenced(lease!, "Delivery", false, at);
         if (!ackStore.delivery.renew(lease!, at, ttlMs)) throw fenced(lease!, "Delivery", true, at);
       };
       let offer;
@@ -980,8 +980,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         key = delivery?.key;
       if (!key || !delivery || key.nodeId !== nodeId)
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
+      if (!options.host.replica(key.repoId).pinActive(delivery.lease))
+        throw fenced(delivery.lease, "ACK", false, Date.now());
       const at = Date.now();
-      if (!options.host.replica(key.repoId).pinActive(delivery.lease)) throw fenced(delivery.lease, "ACK", false, at);
       if (!ackStore.delivery.renew(delivery.lease, at, 30_000)) throw fenced(delivery.lease, "ACK", true, at);
       const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
       if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
