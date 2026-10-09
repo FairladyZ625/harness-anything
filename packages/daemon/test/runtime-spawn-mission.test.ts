@@ -108,7 +108,8 @@ test("PR body protocol follows the document slot, including lightweight explicit
   assert.match(mission, /cost-budget\.mjs/u);
   assert.match(mission, /production-delta\.mjs/u);
   assert.match(mission, /check-pr-body-bilingual\.mjs --file/u);
-  assert.match(mission, /Artifact-Anchor/u);
+  assert.match(mission, /自动冻结/u);
+  assert.doesNotMatch(mission, /Artifact-Anchor/u);
   assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "baseline"), /# PR Body Delivery Protocol/u);
   assert.doesNotMatch(
     explicitPromptMission(null, null, "Go.", "baseline", "artifacts/pr-body.md"),

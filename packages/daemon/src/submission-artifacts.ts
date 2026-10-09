@@ -1,90 +1,18 @@
 import { isUtf8 } from "node:buffer";
-import { readdirSync, statSync } from "node:fs";
-import path from "node:path";
 import {
   isDocEvent,
   isTaskBootstrapEvent,
   isTaskEvent,
   isTaskProgressEvent,
   normalizeRelativeDocumentPath,
-  resolveHarnessLayout,
   sha256Bytes,
   type ArtifactDelivery,
 } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
-export const artifactAnchorGuidance =
-  "Use artifact:artifacts/report.md; submit pins the current center-accepted revision. " +
-  "Only anchors naming this task's artifacts select deliverables; other artifact: text " +
-  "(for example a quoted runtime-result ref) is prose and selects nothing.";
-
-// Non-ASCII punctuation (Unicode \p{P}) and fullwidth-block symbols end the anchor, so
-// 「artifact:artifacts/design.md、」 cannot swallow the next anchor, while CJK letters and other
-// non-ASCII path material still count as path characters: artifacts/实测报告.md parses. ASCII
-// handling keeps the pre-CJK-fix rules — whitespace, backtick, angle brackets, comma, and right
-// paren terminate, and a trailing `.` terminates without being consumed. A malformed @revision
-// fails the whole anchor attempt rather than degrading to pinning the current revision.
-const nonAsciiBreak = "[[\\p{P}--[\\x00-\\x7F]][[\\uFF00-\\uFFEF]--[\\p{L}]--[\\p{N}]]]";
-const anchorBreak = "[[\\s`<>,\\)]" + nonAsciiBreak + "]";
-const artifactAnchorPattern = new RegExp(
-  "artifact:([[^\\s`<>@]--[" +
-    nonAsciiBreak +
-    "]]+?)(?:@([1-9][0-9]*))?" +
-    "(?=$|" +
-    anchorBreak +
-    "|[.](?=$|" +
-    anchorBreak +
-    "))",
-  "gv",
-);
-
-type ArtifactAnchorMatch = {
-  readonly path: string;
-  readonly revision?: number;
-  readonly start: number;
-  readonly end: number;
-};
-
-function artifactAnchorMatches(summary: string): readonly ArtifactAnchorMatch[] {
-  return [...summary.matchAll(artifactAnchorPattern)].map((match) => ({
-    path: match[1]!,
-    ...(match[2] === undefined ? {} : { revision: Number(match[2]) }),
-    start: match.index!,
-    end: match.index! + match[0]!.length,
-  }));
-}
-
 /** Anchors name this task's artifacts package-relative; the frozen cut stores the full task-package path. */
 export function submissionArtifactPath(packagePath: string, path: string): string {
   return path.startsWith("artifacts/") ? `${packagePath}/${path}` : path;
-}
-
-/**
- * A directory deliverable anchor (`artifact:artifacts/raw/`) expands to every file under that
- * directory in the task package. Submit then requires each file to have a center-accepted
- * revision, so an unfiled file rejects the submit naming the count instead of surfacing as a
- * review rejection after the cut froze. `directory` is authored-root relative; so are the
- * returned paths.
- */
-export function submissionArtifactDirectoryFiles(rootDir: string, directory: string): readonly string[] {
-  const absolute = path.join(resolveHarnessLayout(rootDir).authoredRoot, directory);
-  let state;
-  try {
-    state = statSync(absolute);
-  } catch {
-    return [];
-  }
-  if (!state.isDirectory()) return [];
-  return walk(absolute)
-    .map((file) => `${directory}${path.relative(absolute, file).split(path.sep).join("/")}`)
-    .sort();
-}
-
-function walk(root: string): readonly string[] {
-  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
-    const target = path.join(root, entry.name);
-    return entry.isDirectory() ? walk(target) : [target];
-  });
 }
 
 /** Resolve only center-accepted bytes; current workspace files are never evidence for a historical cut. */
@@ -94,20 +22,31 @@ export function readSubmissionArtifact(
   path: string,
   revision: number,
   expectedBlob?: string,
-): { readonly anchor: ArtifactDelivery; readonly body: string; readonly acceptance: string } {
+): {
+  readonly anchor: ArtifactDelivery;
+  readonly body: string;
+  readonly encoding: "utf8" | "base64";
+  readonly acceptance: string;
+} {
   const invalid = (reason: string): never => {
     throw cell.cellCodedError(
       "invalid_submission",
-      `Artifact ${path}@${revision}: ${reason}. ${artifactAnchorGuidance}`,
+      `Artifact ${path}@${revision}: ${reason}. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
     );
   };
   let normalized: string;
   try {
     normalized = normalizeRelativeDocumentPath(path);
   } catch (cause) {
-    throw Object.assign(new Error(`Artifact path is invalid: ${path}. ${artifactAnchorGuidance}`, { cause }), {
-      code: "invalid_submission",
-    });
+    throw Object.assign(
+      new Error(
+        `Artifact path is invalid: ${path}. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
+        { cause },
+      ),
+      {
+        code: "invalid_submission",
+      },
+    );
   }
   const artifact = submissionArtifactPath(packagePath, normalized);
   if (normalized !== path || !artifact.startsWith(`${packagePath}/artifacts/`))
@@ -127,38 +66,7 @@ export function readSubmissionArtifact(
   const bytes = cell.store.readContentBlob(blobSha256);
   if (!bytes || sha256Bytes(bytes) !== blobSha256 || (expectedBlob !== undefined && expectedBlob !== blobSha256))
     return invalid("accepted content is unavailable or does not match its frozen identity");
-  if (!isUtf8(bytes)) return invalid("review delivery must be UTF-8 text");
-  const body = new TextDecoder().decode(bytes);
-  return { anchor: { path: artifact, revision, blobSha256 }, body, acceptance: event.opId };
-}
-
-/**
- * Deliverable anchors are the `artifact:` runs naming a path under this task's artifacts
- * namespace (`artifacts/…` package-relative or `<packagePath>/artifacts/…` full). `artifact:`
- * prefixes other namespaces too — runtime-result refs quote as `artifact:runtime-result/sha256/…` —
- * so a run outside this task's artifacts is mention text: it selects no deliverable and rejects
- * nothing, exactly like prose that never used the sigil.
- */
-export function artifactAnchors(
-  summary: string,
-  packagePath: string,
-): readonly { readonly path: string; readonly revision?: number }[] {
-  return artifactAnchorMatches(summary)
-    .filter(({ path }) => submissionArtifactPath(packagePath, path).startsWith(`${packagePath}/artifacts/`))
-    .map(({ path, revision }) => ({
-      path,
-      ...(revision === undefined ? {} : { revision }),
-    }));
-}
-
-/**
- * `artifact:` occurrences that did not parse as anchors, each quoted to the end of its
- * whitespace-free run. Only `artifact:` immediately followed by a non-space character is an
- * anchor attempt; prose labels like "Delivery artifact:" end in whitespace and count for nothing.
- */
-export function unparsedArtifactAnchorText(summary: string): readonly string[] {
-  const anchorStarts = new Set(artifactAnchorMatches(summary).map(({ start }) => start));
-  return [...summary.matchAll(/artifact:\S/gu)]
-    .filter((attempt) => !anchorStarts.has(attempt.index!))
-    .map((attempt) => summary.slice(attempt.index!).match(/\S*/u)![0]!);
+  const encoding = isUtf8(bytes) ? "utf8" : "base64",
+    body = Buffer.from(bytes).toString(encoding);
+  return { anchor: { path: artifact, revision, blobSha256 }, body, encoding, acceptance: event.opId };
 }

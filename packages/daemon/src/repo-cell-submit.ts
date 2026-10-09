@@ -21,14 +21,7 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
-import {
-  artifactAnchorGuidance,
-  artifactAnchors,
-  readSubmissionArtifact,
-  submissionArtifactDirectoryFiles,
-  submissionArtifactPath,
-  unparsedArtifactAnchorText,
-} from "./submission-artifacts.ts";
+import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
@@ -45,7 +38,7 @@ import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./ta
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-/** Structured execution binding selects the public delivery commit; Summary only selects artifacts. */
+/** Structured execution binding selects the public delivery commit; Accepted task documents select artifacts. */
 export function deriveCloseoutSubmission(
   cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "store" | "cellCodedError" | "settings">,
   taskId: string,
@@ -78,81 +71,30 @@ export function deriveCloseoutSubmission(
     prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
     readPresetSnapshot = presetSnapshotReader(cell.projection),
     privateDelivery = taskOutputShape(snapshot.task, readPresetSnapshot) !== "repository-diff",
-    explicitAnchors = artifactAnchors(prose.completionClaim, document.packagePath),
-    anchors =
-      privateDelivery && explicitAnchors.length === 0
-        ? automaticSubmissionArtifactPaths(
-            cell.projection,
-            snapshot,
-            taskId,
-            document.packagePath,
-            carried?.changes,
-          ).map((path) => ({ path, revision: undefined }))
-        : explicitAnchors,
-    unparsed = unparsedArtifactAnchorText(prose.completionClaim);
-  if (unparsed.length !== 0)
-    throw cell.cellCodedError(
-      "invalid_submission",
-      `Summary contains artifact: text that is not a parsable anchor: ${unparsed.join(", ")}. ` +
-        artifactAnchorGuidance,
+    artifactPaths = automaticSubmissionArtifactPaths(
+      cell.projection,
+      snapshot,
+      taskId,
+      document.packagePath,
+      carried?.changes,
     );
-  const freezeArtifact = (artifact: string, revision?: number) => {
+  const freezeArtifact = (artifact: string) => {
     const candidate = carried?.changes.find((change) => change.path === artifact)?.candidate;
-    if (candidate && (revision === undefined || revision === carried!.revision)) {
+    if (candidate) {
       const body = bodyOverrides?.get(artifact);
       if (body === undefined || sha256Text(body) !== candidate.sha256)
         throw cell.cellCodedError("invalid_submission", `Carried artifact ${artifact} does not match its candidate.`);
       return { path: artifact, revision: carried!.revision, blobSha256: candidate.sha256 };
     }
-    const acceptedRevision = revision ?? cell.projection.readDocument(artifact).document?.workspaceRevision;
+    const acceptedRevision = cell.projection.readDocument(artifact).document?.workspaceRevision;
     if (acceptedRevision === undefined)
       throw cell.cellCodedError(
         "invalid_submission",
-        `Artifact ${artifact}: no center-accepted revision exists. ${artifactAnchorGuidance}`,
+        `Artifact ${artifact}: no center-accepted revision exists. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
       );
     return readSubmissionArtifact(cell, document.packagePath, artifact, acceptedRevision).anchor;
   };
-  const artifacts = anchors.flatMap(({ path, revision }) => {
-    if (!path.endsWith("/")) {
-      const artifact = submissionArtifactPath(document.packagePath, path);
-      return [freezeArtifact(artifact, revision)];
-    }
-    // Directory deliverable: expand to every file under it; each pins its own current
-    // center-accepted revision, and any unfiled file rejects the submit naming the count.
-    if (revision !== undefined)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        `Artifact ${path}: a directory deliverable pins each file's own accepted revision; ` +
-          `remove @${String(revision)}. ` +
-          artifactAnchorGuidance,
-      );
-    const directoryArtifact = submissionArtifactPath(document.packagePath, path),
-      files = submissionArtifactDirectoryFiles(cell.rootDir, directoryArtifact);
-    if (files.length === 0)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        `Artifact ${path}: the directory deliverable contains no files. ${artifactAnchorGuidance}`,
-      );
-    const unfiled = files.filter(
-      (file) =>
-        !carried?.changes.some((change) => change.path === file && change.candidate) &&
-        cell.projection.readDocument(file).document?.workspaceRevision === undefined,
-    );
-    if (unfiled.length > 0)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        `Artifact ${path}: ${String(unfiled.length)} of ${String(files.length)} file(s) have no center-accepted ` +
-          `revision (${unfiled.slice(0, 8).join(", ")}${unfiled.length > 8 ? ", …" : ""}). File every deliverable ` +
-          "with ha doc sync --submit --task <task-id> or ha task artifact add before ha task submit. " +
-          artifactAnchorGuidance,
-      );
-    return files.map((file) => freezeArtifact(file));
-  });
-  if (new Set(artifacts.map((anchor) => anchor.path)).size !== artifacts.length)
-    throw cell.cellCodedError(
-      "invalid_submission",
-      `Summary must name each artifact path once. ${artifactAnchorGuidance}`,
-    );
+  const artifacts = artifactPaths.map(freezeArtifact);
   // The delivery falls to the task's own output shape, not its completion gates (dec_BBA713052997C3EF5F5D3DD952):
   // a repository-diff task derives its public manifest even under a lightweight profile whose
   // gate set is empty; a task-package-artifact task delivers through accepted artifact versions.
@@ -160,7 +102,7 @@ export function deriveCloseoutSubmission(
     if (!artifacts.length)
       throw cell.cellCodedError(
         "invalid_submission",
-        `No accepted task artifacts were found. ${artifactAnchorGuidance}`,
+        `No accepted task artifacts were found. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
       );
     return {
       ...prose,
@@ -327,29 +269,29 @@ function automaticSubmissionArtifactPaths(
   packagePath: string,
   carried: readonly DocEventChange[] = [],
 ): readonly string[] {
-  const reviewStems = new Set([
+  const reportStems = new Set([
       ...snapshot.reviews.map((review) => review.reviewId.replace(/^review-/u, "")),
       ...snapshot.executions.flatMap((execution) =>
         projection
           .readRuntimeDispatchesByTaskExecution(taskId, execution.executionId)
-          .filter(({ event }) => event.payload.role === "reviewer")
           .map(({ event }) => event.payload.dispatchId),
       ),
     ]),
-    reviewPaths = new Set(
-      [...reviewStems].flatMap((stem) => [
+    runtimeReportPaths = new Set(
+      [...reportStems].flatMap((stem) => [
         `${packagePath}/artifacts/reports/${stem}.md`,
         `${packagePath}/artifacts/reports/${stem}.json`,
       ]),
     );
   return [
     ...new Set([
-      ...projection.readReplicaBasis(null).documents.map(({ path }) => path),
+      ...projection.readDocuments(`${packagePath}/artifacts/`).documents.map(({ path }) => path),
       ...carried.filter((change) => change.candidate !== null).map(({ path }) => path),
     ]),
   ]
     .filter(
-      (path) => path.startsWith(`${packagePath}/artifacts/`) && !path.endsWith("/.gitkeep") && !reviewPaths.has(path),
+      (path) =>
+        path.startsWith(`${packagePath}/artifacts/`) && !path.endsWith("/.gitkeep") && !runtimeReportPaths.has(path),
     )
     .sort();
 }

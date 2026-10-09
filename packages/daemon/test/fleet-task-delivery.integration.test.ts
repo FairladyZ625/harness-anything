@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { sha256Text } from "@harness-anything/kernel";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -61,6 +62,9 @@ for (const explicit of [false, true])
         body =
           "## Summary\nRepository delivery.\n## Verification\nReal isolated CLI tested.\n## Residual Risk\nReal provider unverified.\n## Same Mechanism Elsewhere\nSubmission precedes runtime exit.\n";
       fixture.writeWorktree("node-one", closeout, body);
+      const reportPath = `${created.packagePath}/artifacts/report.md`,
+        reportBody = "# Edge report\n";
+      fixture.writeWorktree("node-one", reportPath, reportBody);
       registerDaemonRepo({
         canonicalRoot: edgeRoot,
         repoId: "dual-repo",
@@ -171,7 +175,10 @@ for (const explicit of [false, true])
         .snapshot as unknown as DaemonTaskRuntimeContextResult["snapshot"];
       assert.equal(accepted.executions[0].submission.commitSha, commitSha);
       assert.deepEqual(accepted.executions[0].submission.deliverables, ["delivery.ts"]);
-      assert.deepEqual(accepted.executions[0].submission.outputs, []);
+      assert.equal(
+        accepted.executions[0].submission.artifacts?.find((artifact) => artifact.path === reportPath)?.blobSha256,
+        sha256Text(reportBody),
+      );
       assert.equal(accepted.lease, null, "submission atomically releases the lease");
       assert.equal(git(remote, "rev-parse", `refs/heads/${created.taskId}`), commitSha);
       assert.equal(readFileSync(fixture.worktree("node-one", closeout), "utf8"), body);

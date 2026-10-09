@@ -163,7 +163,7 @@ test("worker PR body is synchronized before submit and the receipt names the fro
     await waitForFixturePublication(cell, accepted.opId, binding);
     writeFileSync(
       path.join(packageRoot, "closeout.md"),
-      `## Summary\nDelivered ${sha}. Artifact-Anchor: artifact:artifacts/pr-body.md@${String(accepted.revision)}\n## Verification\nBilingual check and template headings passed.\n`,
+      `## Summary\nDelivered ${sha} and the accepted PR body.\n## Verification\nBilingual check and template headings passed.\n`,
     );
     let submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
     for (let attempt = 0; submitted.outcome === "pending" && attempt < 4; attempt += 1) {

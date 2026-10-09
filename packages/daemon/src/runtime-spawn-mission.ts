@@ -269,8 +269,8 @@ export function prBodyDeliveryProtocol(documentPath: string | null): string | nu
       "机读声明只写真实适用项。未运行的验证、CI 与现场验收明确标为 unverified。",
     `- 运行 node tools/check-pr-body-bilingual.mjs --file <任务包根>/${documentPath}，` +
       "并逐项比对模板标题，确认没有遗漏、占位内容或未填写骨架。",
-    "- 随 ha doc sync --submit --task 同步正文，在 closeout Summary 写正文 Artifact-Anchor: " +
-      `artifact:${documentPath}（需要固定 revision 时使用该正文被接受的 revision）。再同步 closeout 并执行 ha task submit。`,
+    "- 随 ha doc sync --submit --task 同步正文与 closeout，再执行 ha task submit；" +
+      "提交自动冻结中心已接受的任务 artifacts，无需在 Summary 手写交付物锚。",
     "- submit 回执中的 prBody 指向已冻结正文；CEO 开 PR 直接使用该正文。worker 不 push、不开 PR。",
   ].join("\n");
 }

@@ -99,9 +99,7 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
     }
     writeFileSync(
       path.join(ledger, packagePath, "closeout.md"),
-      (artifact
-        ? "## Summary\nDelivered artifact:artifacts/report.md.\n"
-        : "## Summary\nCompleted ledger coordination.\n") +
+      (artifact ? "## Summary\nDelivered the accepted report.\n" : "## Summary\nCompleted ledger coordination.\n") +
         "## Verification\nArtifact bytes accepted.\n" +
         "## Residual Risk\nNo public implementation delivered.\n" +
         "## Same Mechanism Elsewhere\nBaseline belongs to another task.\n",
@@ -128,10 +126,20 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
     assert.equal(event.payload.execution.submission?.commitSha, hasPublicDiff ? deliveryHead : null);
     assert.equal(git(worker, "rev-parse", "HEAD"), deliveryHead, "submission must not create an empty commit");
     assert.deepEqual(event.payload.execution.submission?.deliverables, publicChange === "add" ? ["delivery.txt"] : []);
-    assert.deepEqual(event.payload.execution.submission?.outputs, [
-      ...(publicChange === "delete" ? ["Deleted-Production-Paths: foreign.txt"] : []),
-      ...(artifact ? [`Artifact-Anchor: ${packagePath}/artifacts/report.md@${docs.revision}`] : []),
-    ]);
+    const explainerPath = `${packagePath}/artifacts/explainer.html`;
+    assert.deepEqual(
+      event.payload.execution.submission?.artifacts?.map(({ path }) => path),
+      [explainerPath, ...(artifact ? [`${packagePath}/artifacts/report.md`] : [])],
+    );
+    assert.deepEqual(
+      event.payload.execution.submission?.outputs.filter(
+        (output) => !output.startsWith(`Artifact-Anchor: ${explainerPath}@`),
+      ),
+      [
+        ...(publicChange === "delete" ? ["Deleted-Production-Paths: foreign.txt"] : []),
+        ...(artifact ? [`Artifact-Anchor: ${packagePath}/artifacts/report.md@${docs.revision}`] : []),
+      ],
+    );
     const forward = await cell.run(
       { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards verified delivery." },
       holder,
