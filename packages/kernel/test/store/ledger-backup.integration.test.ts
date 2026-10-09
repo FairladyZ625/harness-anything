@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -30,6 +31,75 @@ import { localContentObjectFileSystem, localLedgerBackupFileSystem } from "../..
 import { objectPath } from "../../src/store/task-event-store-claims-layout.ts";
 import { sha256Bytes, sha256Text } from "../../src/integrity/stable-hash.ts";
 import { event, flatLedgerFixture } from "./task-event-store.fixtures.ts";
+
+test("backup, verification, restore and drill digest files above the whole-file read limit", (t) => {
+  const root = fixture("bounded-read"),
+    backupDir = path.join(root, "backup"),
+    large = path.join(root, "harness", "large.bin"),
+    // Inject Node's whole-file read limit without allocating a 2 GiB CI fixture.
+    limit = 256 * 1024,
+    body = Buffer.alloc(limit * 5 + 17, 0xa5),
+    originalRead = localLedgerBackupFileSystem.read;
+  try {
+    writeFileSync(large, body);
+    writeFileSync(path.join(root, "harness", "empty.bin"), "");
+    t.mock.method(localLedgerBackupFileSystem, "read", (file: string, ...args: unknown[]) => {
+      if (statSync(file).size > limit)
+        throw Object.assign(new Error("file exceeds whole-file read limit"), { code: "ERR_FS_FILE_TOO_LARGE" });
+      return Reflect.apply(originalRead, localLedgerBackupFileSystem, [file, ...args]);
+    });
+    const manifest = createLedgerBackup({ rootInput: root, backupDir }),
+      entry = manifest.files.find(({ path: file }) => file === "harness/large.bin")!;
+    assert.equal(entry.size, body.byteLength);
+    assert.equal(entry.backupSha256, `sha256:${sha256Bytes(body)}`);
+    assert.equal(
+      manifest.files.find(({ path: file }) => file === "harness/empty.bin")!.backupSha256,
+      `sha256:${sha256Bytes(Buffer.alloc(0))}`,
+    );
+    assert.deepEqual(readVerifiedLedgerBackup(backupDir), manifest);
+    const restored = restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "restored") }),
+      drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadows") });
+    for (const destination of [restored.restoredRoot, drilled.shadowRoot])
+      assert.deepEqual(readFileSync(path.join(destination, "harness/large.bin")), body);
+  } finally {
+    t.mock.restoreAll();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("failed capture and manifest publication remove only the new backup and retain the original error", (t) => {
+  const root = fixture("failed-backup"),
+    backupDir = path.join(root, "backup"),
+    failure = new Error("injected backup failure");
+  try {
+    for (const phase of ["capture", "manifest"]) {
+      if (phase === "manifest")
+        t.mock.method(localLedgerBackupFileSystem, "write", () => {
+          throw failure;
+        });
+      assert.throws(
+        () =>
+          createLedgerBackup({
+            rootInput: root,
+            backupDir,
+            onSnapshotCaptured: () => {
+              if (phase === "capture") throw failure;
+            },
+          }),
+        (error) => error === failure,
+      );
+      assert.equal(existsSync(backupDir), false);
+      assert.equal(readOfflineLedgerEvents({ rootInput: root }).length, 1);
+      assert.throws(() => restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "restored") }), {
+        code: "ENOENT",
+      });
+      t.mock.restoreAll();
+    }
+  } finally {
+    t.mock.restoreAll();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("generation-aware backup preserves legacy sources and does not create an absent generation", () => {
   const root = fixture("legacy"),

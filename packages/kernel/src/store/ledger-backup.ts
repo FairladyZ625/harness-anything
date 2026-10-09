@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { contentClaims, objectPath } from "./task-event-store-claims-layout.ts";
@@ -7,7 +7,10 @@ import { DEFAULT_RESTORE_DRILL_RETENTION, readSettingsFacet } from "../domain/se
 import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
-import { localLedgerBackupFileSystem as fileSystem } from "../local/local-layout-file-system.ts";
+import {
+  localLedgerBackupFileSystem as fileSystem,
+  localRuntimeStateFileSystem,
+} from "../local/local-layout-file-system.ts";
 import { decodeLegacyEventBytes, readStoppedLegacyGeneration } from "./legacy-generation-source.ts";
 import { localGitText } from "./local-version-control-system.ts";
 import { openSqliteEventStore, resolveActiveGeneration, sqliteLedgerPath } from "./sqlite-event-store.ts";
@@ -58,48 +61,53 @@ export function createLedgerBackup(input: {
     sqlitePath = sqliteLedgerPath(input.rootInput, generation),
     sqlitePresent = fileSystem.exists(sqlitePath);
   fileSystem.mkdir(payloadRoot, { recursive: true });
-  copyWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot);
-  for (const sourcePath of sourcePaths) copySource(layout.rootDir, sourcePath, payloadRoot);
-  for (const generation of [1, 2]) {
-    const database = sqliteLedgerPath(input.rootInput, generation);
-    if (fileSystem.exists(database)) vacuumSqlite(layout.rootDir, database, payloadRoot);
+  try {
+    copyWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot);
+    for (const sourcePath of sourcePaths) copySource(layout.rootDir, sourcePath, payloadRoot);
+    for (const generation of [1, 2]) {
+      const database = sqliteLedgerPath(input.rootInput, generation);
+      if (fileSystem.exists(database)) vacuumSqlite(layout.rootDir, database, payloadRoot);
+    }
+    input.onSnapshotCaptured?.();
+    const sqlite = sqlitePresent
+        ? inspectSqlite(path.join(payloadRoot, path.relative(layout.rootDir, sqlitePath)))
+        : null,
+      legacy = sqlitePresent ? null : readStoppedLegacyGeneration({ rootInput: payloadRoot }),
+      files = inventory(payloadRoot).map((backupFile) => {
+        const relative = portable(path.relative(payloadRoot, backupFile)),
+          vacuumed = /^\.harness\/store\/generations\/[12]\/ledger\.sqlite$/u.test(relative),
+          backup = entryDigest(backupFile);
+        return {
+          path: relative,
+          size: backup.size,
+          backupSha256: backup.sha256,
+          method: vacuumed ? "vacuum-into" : backup.symlink ? "symlink" : "copy",
+        } satisfies LedgerBackupFileV1;
+      });
+    for (const database of files.filter(({ method }) => method === "vacuum-into"))
+      if (database.path !== portable(path.relative(layout.rootDir, sqlitePath)))
+        inspectSqlite(path.join(payloadRoot, database.path));
+    const manifest: LedgerBackupManifestV1 = {
+      schema: "ledger-backup/v1",
+      tag: `backup-${(input.now ?? new Date()).toISOString().replace(/[:.]/gu, "-")}-${randomUUID()}`,
+      createdAt: (input.now ?? new Date()).toISOString(),
+      sourceRoot: layout.rootDir,
+      accepted: sqlite
+        ? { revision: sqlite.revision, opIds: sqlite.opIds }
+        : {
+            revision: legacy!.eventEntries.length,
+            opIds: new Set(legacy!.eventEntries.map(({ event }) => event.opId)).size,
+          },
+      sqlite: { present: sqlitePresent, integrity: sqlite?.integrity ?? null, generation },
+      registration: input.registration ?? null,
+      files,
+    };
+    fileSystem.write(path.join(backupDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    return manifest;
+  } catch (error) {
+    fileSystem.remove(backupDir);
+    throw error;
   }
-  input.onSnapshotCaptured?.();
-  const sqlite = sqlitePresent
-      ? inspectSqlite(path.join(payloadRoot, path.relative(layout.rootDir, sqlitePath)))
-      : null,
-    legacy = sqlitePresent ? null : readStoppedLegacyGeneration({ rootInput: payloadRoot }),
-    files = inventory(payloadRoot).map((backupFile) => {
-      const relative = portable(path.relative(payloadRoot, backupFile)),
-        vacuumed = /^\.harness\/store\/generations\/[12]\/ledger\.sqlite$/u.test(relative),
-        backup = entryDigest(backupFile);
-      return {
-        path: relative,
-        size: backup.size,
-        backupSha256: backup.sha256,
-        method: vacuumed ? "vacuum-into" : backup.symlink ? "symlink" : "copy",
-      } satisfies LedgerBackupFileV1;
-    });
-  for (const database of files.filter(({ method }) => method === "vacuum-into"))
-    if (database.path !== portable(path.relative(layout.rootDir, sqlitePath)))
-      inspectSqlite(path.join(payloadRoot, database.path));
-  const manifest: LedgerBackupManifestV1 = {
-    schema: "ledger-backup/v1",
-    tag: `backup-${(input.now ?? new Date()).toISOString().replace(/[:.]/gu, "-")}-${randomUUID()}`,
-    createdAt: (input.now ?? new Date()).toISOString(),
-    sourceRoot: layout.rootDir,
-    accepted: sqlite
-      ? { revision: sqlite.revision, opIds: sqlite.opIds }
-      : {
-          revision: legacy!.eventEntries.length,
-          opIds: new Set(legacy!.eventEntries.map(({ event }) => event.opId)).size,
-        },
-    sqlite: { present: sqlitePresent, integrity: sqlite?.integrity ?? null, generation },
-    registration: input.registration ?? null,
-    files,
-  };
-  fileSystem.write(path.join(backupDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  return manifest;
 }
 
 export function drillLedgerBackup(input: {
@@ -471,7 +479,17 @@ function inventory(root: string): readonly string[] {
 }
 
 function sha256File(file: string): string {
-  return `sha256:${sha256Bytes(fileSystem.read(file))}`;
+  return localRuntimeStateFileSystem.withReadDescriptor(file, (descriptor) => {
+    const hash = createHash("sha256"),
+      buffer = Buffer.allocUnsafe(64 * 1024);
+    // The descriptor advances by bytesRead; zero is the reader's EOF signal.
+    for (;;) {
+      const bytesRead = fileSystem.readChunk(descriptor, buffer, 0, buffer.byteLength, null);
+      if (bytesRead === 0) break;
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+    return `sha256:${hash.digest("hex")}`;
+  });
 }
 function portable(value: string): string {
   return value.split(path.sep).join("/");
