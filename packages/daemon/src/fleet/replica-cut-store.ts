@@ -346,7 +346,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       const acknowledged = cursor?.revision === Number(pin.to_revision);
       const remaining = pin.remaining === null ? 64 : Number(pin.remaining) - 1;
       const from = acknowledged ? cursor.revision : Number(pin.from_revision);
-      const reason = (acknowledged ? remaining <= 0 : !liveLease(lease, String(pin.lease_root)))
+      const observed = acknowledged ? null : leaseStore(String(pin.lease_root)).delivery.inspect(lease, Date.now());
+      const reason = (acknowledged ? remaining <= 0 : observed!.state !== "active")
         ? acknowledged
           ? "ack_window_exhausted"
           : "lease_inactive"
@@ -356,15 +357,15 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
             ? "cursor_advanced"
             : null;
       if (reason) {
+        const evidence = observed ?? leaseStore(String(pin.lease_root)).delivery.inspect(lease, Date.now());
         store.prepare("DELETE FROM delivery_pin WHERE id=?").run(String(pin.id));
-        const at = Date.now();
         pinReleaseLogs.push(
           JSON.stringify({
             event: "replica_pin_released",
             reason,
-            now: at,
+            now: evidence.now,
             requested: lease,
-            lease: leaseStore(String(pin.lease_root)).delivery.inspect(lease, at),
+            lease: evidence,
           }),
         );
         continue;
