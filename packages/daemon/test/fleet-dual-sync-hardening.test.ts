@@ -23,6 +23,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   applyFleetMirrorCut,
+  cacheFleetMirrorDirtyBases,
   readFleetConflictRecord,
   readFleetUnresolvedConflicts,
   scanFleetMirrorWorktree,
@@ -481,7 +482,6 @@ function mirrorCutFixture(
     writeJson(path.join(viewDir, "cuts", `${cut.revision}-g0`, "manifest.json"), header);
     for (const entry of cut.entries) {
       writeBytes(path.join(viewDir, "../../cas/sha256", sha(entry.body).slice(0, 2), sha(entry.body)), entry.body);
-      writeBytes(path.join(viewDir, "cuts", `${cut.revision}-g0`, "files", ...entry.path.split("/")), entry.body);
     }
   }
   writeJson(path.join(viewDir, "current.json"), {
@@ -492,7 +492,7 @@ function mirrorCutFixture(
   return { root, viewRoot: path.join(root, "view"), workspace, worktree };
 }
 
-test("mirror rejects unsafe manifest paths and corrupt CAS fallback bytes", (t) => {
+test("mirror rejects unsafe manifest paths and corrupt CAS bytes", (t) => {
   const unsafe = mirrorCutFixture("unsafe-path", [{ revision: 1, entries: [] }], 1),
     unsafeView = path.join(unsafe.viewRoot, "repos", "repo", "views", "edge-view");
   t.after(() => rmSync(unsafe.root, { recursive: true, force: true }));
@@ -513,10 +513,8 @@ test("mirror rejects unsafe manifest paths and corrupt CAS fallback bytes", (t) 
 
   const body = "expected",
     corrupt = mirrorCutFixture("corrupt-cas", [{ revision: 1, entries: [{ path: "context/note.md", body }] }], 1),
-    viewDir = path.join(corrupt.viewRoot, "repos", "repo", "views", "edge-view"),
     digest = sha(body);
   t.after(() => rmSync(corrupt.root, { recursive: true, force: true }));
-  rmSync(path.join(viewDir, "cuts", "1-g0", "files", "context", "note.md"));
   writeBytes(path.join(corrupt.viewRoot, "repos", "repo", "cas", "sha256", digest.slice(0, 2), digest), "bad");
   assert.throws(
     () => applyFleetMirrorCut(corrupt.viewRoot, "repo", corrupt.workspace, "pull"),
@@ -573,6 +571,8 @@ test("F3: a staged conflict keeps its base/ bytes after the base cut leaves the 
     "replica bookkeeping stays outside the authored harness",
   );
   writeBytes(path.join(fixture.worktree, ...logical.split("/")), localBody);
+  // Doc sync caches the observed dirty base before pulling, including an unchanged center path.
+  cacheFleetMirrorDirtyBases(fixture.viewRoot, "repo", fixture.workspace);
   setCurrent(2);
   const dirty = applyFleetMirrorCut(fixture.viewRoot, "repo", fixture.workspace, "pull", { kind: "shared-docs" });
   assert.equal(

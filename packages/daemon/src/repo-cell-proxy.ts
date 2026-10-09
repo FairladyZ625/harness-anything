@@ -1,3 +1,4 @@
+import { edgeManifestBlob } from "./fleet/replica-read-model.ts";
 import { readFileSync } from "node:fs";
 import { readEdgeCiDetail, fetchEdgeCiDetails } from "./ci-detail-cache.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
@@ -302,7 +303,7 @@ export async function openRepoCellProxy(
                 return () => ({ repoId: input.repoId, revision: edgeView.revision, headDigest: edgeView.headDigest });
               if (property === "readContentBlob")
                 return (sha256: string) =>
-                  [...edgeView.entries.values()].some((row) => row.sha256 === sha256)
+                  edgeManifestBlob(edgeView.viewDir, edgeView, sha256)
                     ? readEdgeViewBlob(edgeConfig!.viewRoot, edgeView, sha256)
                     : readEdgeCiDetail(edgeConfig!.viewRoot, edgeView, sha256);
               throw cellCodedError(

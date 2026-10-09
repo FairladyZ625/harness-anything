@@ -1,6 +1,6 @@
 import { readReplicaHealth, recordReplicaHealth, replicaFailure } from "./replica-health.ts";
 import type { FleetCut, FleetEntry, FleetDeltaChange } from "./contract.ts";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -13,56 +13,22 @@ import {
   docByteLength,
   deleteEdgeReadModelEntry,
   DOC_POLICY_ID,
-  INITIAL_SETTINGS_V1,
   isReadModelPath,
   parseEdgeReadModelMeta,
   RAW_ARTIFACT_MEDIA_TYPE,
   RAW_ARTIFACT_POLICY_ID,
   READ_MODEL_META_PATH,
-  repositorySettings,
-  SETTINGS_ID,
   sha256Bytes,
   type DocumentState,
   type EdgeReadModelMeta,
-  type EdgeReadModelRows,
-  type RepositorySettingsV1,
-  type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { writeFileDurably } from "../durable-file.ts";
 import type { FleetMirrorView } from "../fleet-edge-mirror.ts";
-import { resolveTaskRootThreshold } from "../task-wip-settings.ts";
 
 /** The edge view's materialized read model and its last center head confirmation, beside current.json. */
 const READ_MODEL_FILE = "read-model.sqlite";
 const HEAD_CONFIRMATION_FILE = "head-confirmation.json";
 const READ_DENIED_FILE = "read-denied.json";
-
-/** The center side: what one cut publishes for the edge read model. */
-export function centerEdgeReadModel<T>(
-  projection: TaskProjectionQueries,
-  consume: (
-    model: {
-      readonly sourceRevision: number;
-      readonly rootThreshold: number;
-      readonly rows: EdgeReadModelRows;
-    } | null,
-  ) => T,
-): T {
-  return projection.readEdgeReadModel((read) => {
-    if (read.status !== "ready") return consume(null);
-    const projected = read.rows.entities.find(
-      (row) => row.entityKind === "settings" && row.entityId === SETTINGS_ID,
-    )?.valueJson;
-    const settings = repositorySettings(
-      projected === undefined ? INITIAL_SETTINGS_V1 : (JSON.parse(projected) as RepositorySettingsV1),
-    );
-    return consume({
-      sourceRevision: read.sourceRevision,
-      rootThreshold: resolveTaskRootThreshold({ tasks: settings.tasks }).threshold,
-      rows: read.rows,
-    });
-  });
-}
 
 export interface HeadConfirmation {
   readonly headRevision: number;
@@ -317,7 +283,10 @@ export interface EdgeManifestHeader {
 
 /** One durable sparse index per repository, shared by its independently published views. */
 export function withEdgeManifest<T>(viewDir: string, read: (db: DatabaseSync, viewId: string) => T): T {
-  const repo = path.dirname(path.dirname(viewDir));
+  return withEdgeRepository(path.dirname(path.dirname(viewDir)), (db) => read(db, path.basename(viewDir)));
+}
+
+function withEdgeRepository<T>(repo: string, read: (db: DatabaseSync) => T): T {
   mkdirSync(repo, { recursive: true });
   const db = new DatabaseSync(path.join(repo, "manifests.sqlite"));
   try {
@@ -330,7 +299,16 @@ export function withEdgeManifest<T>(viewDir: string, read: (db: DatabaseSync, vi
       CREATE INDEX IF NOT EXISTS edge_entry_revision ON edge_entry(view_id,generation,revision);
       CREATE INDEX IF NOT EXISTS edge_entry_end ON edge_entry(view_id,generation,end_revision);
       CREATE INDEX IF NOT EXISTS edge_entry_blob ON edge_entry(sha256);
+      CREATE TABLE IF NOT EXISTS edge_content (sha256 TEXT PRIMARY KEY, size INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS edge_content_usage (id INTEGER PRIMARY KEY CHECK(id=1), bytes INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS edge_orphan (sha256 TEXT PRIMARY KEY);
+      CREATE TRIGGER IF NOT EXISTS edge_content_added AFTER INSERT ON edge_content BEGIN
+        UPDATE edge_content_usage SET bytes=bytes+NEW.size WHERE id=1;
+        INSERT OR IGNORE INTO edge_orphan SELECT NEW.sha256 WHERE NOT EXISTS
+          (SELECT 1 FROM edge_entry WHERE sha256=NEW.sha256);
+      END;
+      CREATE TRIGGER IF NOT EXISTS edge_content_removed AFTER DELETE ON edge_content
+        BEGIN UPDATE edge_content_usage SET bytes=bytes-OLD.size WHERE id=1; END;
       CREATE TRIGGER IF NOT EXISTS edge_content_adopt AFTER INSERT ON edge_entry
         WHEN NEW.sha256 IS NOT NULL BEGIN DELETE FROM edge_orphan WHERE sha256=NEW.sha256; END;
       CREATE TABLE IF NOT EXISTS materialized_cut (view_id TEXT PRIMARY KEY, revision INTEGER NOT NULL,
@@ -338,7 +316,25 @@ export function withEdgeManifest<T>(viewDir: string, read: (db: DatabaseSync, vi
       CREATE TABLE IF NOT EXISTS materialized_base (view_id TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT,
         dirty INTEGER NOT NULL, PRIMARY KEY(view_id,path));
       CREATE INDEX IF NOT EXISTS materialized_dirty ON materialized_base(view_id,dirty);`);
-    return read(db, path.basename(viewDir));
+    if (!db.prepare("SELECT 1 FROM edge_content_usage WHERE id=1").get()) {
+      // One inventory when creating the index, including CAS left by an older cache generation.
+      // Thereafter rename/delete owners maintain the counter; reopening never recounts the CAS.
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        db.prepare("INSERT INTO edge_content_usage VALUES (1,0)").run();
+        const cas = path.join(repo, "cas", "sha256");
+        if (existsSync(cas))
+          for (const prefix of readdirSync(cas))
+            for (const sha of readdirSync(path.join(cas, prefix))) {
+              db.prepare("INSERT INTO edge_content VALUES (?,?)").run(sha, statSync(path.join(cas, prefix, sha)).size);
+            }
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    }
+    return read(db);
   } finally {
     db.close();
   }
@@ -560,13 +556,38 @@ export function edgeManifestPaths(viewDir: string, cut: FleetCut, prefix: string
   });
 }
 
+/** A shared CAS object is readable only when this view's retained cut names it. */
+export function edgeManifestBlob(viewDir: string, cut: FleetCut, sha256: string): FleetEntry["blob"] | null {
+  return withEdgeManifest(viewDir, (db, viewId) => {
+    const root = cutRoot(db, viewId, cut);
+    if (root === null) return null;
+    const row = db
+      .prepare(
+        `SELECT blob_json FROM edge_entry WHERE sha256=? AND view_id=? AND generation=?
+      AND revision>=? AND revision<=? AND (end_revision IS NULL OR end_revision>?) LIMIT 1`,
+      )
+      .get(sha256, viewId, cut.schemaGeneration, root, cut.revision, cut.revision);
+    return row ? (JSON.parse(String(row.blob_json)) as FleetEntry["blob"]) : null;
+  });
+}
+
 /** Verified content can outlive an interrupted transfer before any entry adopts it. */
-export function markEdgeContent(viewDir: string, sha: string): void {
+export function edgeContentBytes(repo: string): number {
+  return withEdgeRepository(repo, (db) =>
+    Number(db.prepare("SELECT bytes FROM edge_content_usage WHERE id=1").get()!.bytes),
+  );
+}
+
+export function markEdgeContent(viewDir: string, sha: string, size: number): void {
   withEdgeManifest(viewDir, (db) => {
-    if (!db.prepare("SELECT 1 FROM edge_entry WHERE sha256=? LIMIT 1").get(sha))
-      db.prepare("INSERT OR IGNORE INTO edge_orphan VALUES (?)").run(sha);
+    // Reserve before the CAS rename. A crash can overcount an orphan until collection,
+    // but can never hide durable content from the quota on restart.
+    db.prepare("INSERT OR IGNORE INTO edge_content VALUES (?,?)").run(sha, size);
   });
 }
 export function forgetEdgeContent(viewDir: string, sha: string): void {
-  withEdgeManifest(viewDir, (db) => db.prepare("DELETE FROM edge_orphan WHERE sha256=?").run(sha));
+  withEdgeManifest(viewDir, (db) => {
+    db.prepare("DELETE FROM edge_content WHERE sha256=?").run(sha);
+    db.prepare("DELETE FROM edge_orphan WHERE sha256=?").run(sha);
+  });
 }

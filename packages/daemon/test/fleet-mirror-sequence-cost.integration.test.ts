@@ -10,7 +10,7 @@ import { READ_MODEL_META_PATH, READ_MODEL_SCHEMA_GENERATION, sha256Bytes } from 
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 import { fleetManifestDigest, type FleetEntry, type FleetFrameV1 } from "../src/fleet/contract.ts";
 import { openEdgeReadModel } from "../src/fleet/replica-read-model.ts";
-import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { applyFleetMirrorCut, cacheFleetMirrorDirtyBases, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 
 for (const size of [200, 2000]) {
   test(`measure one document update through the real mirror (${size})`, (t) => {
@@ -25,7 +25,7 @@ for (const size of [200, 2000]) {
       next = Buffer.from("second\n");
     const blob = (bytes: Buffer) => ({ sha256: sha256Bytes(bytes), size: bytes.length, mediaType: "text/markdown" });
     const entries: FleetEntry[] = Array.from({ length: size }, (_, i) => ({
-      path: `context/item-${String(i).padStart(4, "0")}.md`,
+      path: `tasks/task-${String(i).padStart(4, "0")}/task_plan.md`,
       blob: blob(bodies[i]!),
     }));
     const cut = (revision: number) => ({
@@ -40,7 +40,11 @@ for (const size of [200, 2000]) {
     entries.push({ path: READ_MODEL_META_PATH, blob: { ...blob(meta(1)), mediaType: "application/json" } });
     const casRoot = path.join(viewRoot, "repos/repo/cas/sha256");
     const model = () => openEdgeReadModel(locateFleetMirrorView(viewRoot, "repo", "edge")!, casRoot)!;
-    const send = (frame: FleetFrameV1) => view.receive(frame);
+    const send = (frame: FleetFrameV1) => {
+      const response = view.receive(frame);
+      if (response?.schema === "fleet.ack/v1") view.collect("repo", "edge", response.transferId);
+      return response;
+    };
     const beforeDigest = fleetManifestDigest(entries);
     send({
       schema: "fleet.snapshot.begin/v1",
@@ -117,6 +121,10 @@ for (const size of [200, 2000]) {
       return statement;
     });
     syncBuiltinESMExports();
+    const scan = cacheFleetMirrorDirtyBases(viewRoot, "repo", workspace, "tasks/task-0000");
+    assert.ok(scan);
+    assert.equal(scan.changes.length, 0);
+    assert.equal(scan.cleanCount, 1, "task carry scans only its package");
     entries[0] = { ...entries[0]!, blob: blob(next) };
     entries[entries.length - 1] = {
       path: READ_MODEL_META_PATH,
@@ -174,7 +182,7 @@ for (const size of [200, 2000]) {
     const original = fs.readFileSync;
     const readMock = t.mock.method(fs, "readFileSync", (...args: Parameters<typeof fs.readFileSync>) => {
       const result = original(...args);
-      if (String(args[0]).startsWith(path.join(workspace, "harness", "context") + path.sep)) {
+      if (String(args[0]).startsWith(path.join(workspace, "harness", "tasks") + path.sep)) {
         localDocumentReads++;
         localDocumentBytes += Buffer.byteLength(result);
       }

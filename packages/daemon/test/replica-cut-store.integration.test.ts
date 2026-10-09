@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import type { EdgeReadModelRows } from "../../kernel/test/store/replica-model.fixture.ts";
 import { type ReplicaProjectionBasis } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -22,7 +23,6 @@ import {
   sha256Text,
   type DocEventV1,
   type CanonicalEventV1,
-  type EdgeReadModelRows,
   artifactEntityContractSnapshot,
   canonicalSourceIdentity,
   compileVerticalContract,

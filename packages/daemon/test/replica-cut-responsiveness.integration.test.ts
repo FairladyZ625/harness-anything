@@ -19,6 +19,7 @@ for (const fixtureMiB of [64, 256]) {
       // Authored document bodies exercise the real SQLite descriptor selection during cut construction.
       const body = "x".repeat(64 * 1024),
         insert = db.prepare("INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)");
+      const entry = db.prepare("INSERT INTO replica_entry VALUES (?,?,NULL,'document',?)");
       db.exec("BEGIN");
       for (let i = 0; i < fixtureMiB * 16; i++) {
         const itemPath = `context/large-${i}.md`;
@@ -34,6 +35,12 @@ for (const fixtureMiB of [64, 256]) {
             policyId: "markdown-body-replaceable/v1",
             workspaceRevision: 1,
           }),
+        );
+        // Seed completed producer output as well as its projection, not a serving-only mutation.
+        entry.run(
+          itemPath,
+          JSON.stringify({ sha256: "a".repeat(64), size: Buffer.byteLength(body), mediaType: "text/markdown" }),
+          JSON.stringify([itemPath]),
         );
       }
       db.exec("COMMIT");
@@ -68,19 +75,16 @@ for (const fixtureMiB of [64, 256]) {
     );
     assert.equal(written.outcome, "applied");
     await waitForFleetPublication(f.host, f.subject.repoId, written.opId, f.auth);
-    let rebuilt = false;
-    const rebuilding = replica.waitForCut(written.revision!).then((value) => {
-      rebuilt = true;
-      return value;
-    });
+    const rebuilding = replica.waitForCut(written.revision!);
     const readStarted = performance.now();
     const page = await replica.delivery.manifestPage(cut.revision, 0);
     assert.ok(page?.entries.length);
-    assert.equal(rebuilt, false, "delivery reads are independent of the builder response queue");
-    t.diagnostic(
-      `immutable page delivery gap=${performance.now() - readStarted}ms while checkpoint builder is pending`,
+    assert.equal(
+      (await rebuilding).revision,
+      written.revision,
+      "continuous publication advances while the retained page stays readable",
     );
-    await rebuilding;
+    t.diagnostic(`immutable page delivery gap=${performance.now() - readStarted}ms through incremental publication`);
     peakRss = Math.max(peakRss, process.memoryUsage().rss);
     clearInterval(sample);
     t.diagnostic(
@@ -153,13 +157,10 @@ test("worker cut failure reaches edge admission with its original cause", async 
   t.after(() => f.close());
   const center = await f.center();
   const db = new DatabaseSync(path.join(f.repo, ".harness/cache/task.sqlite"));
-  const resultRef = `artifact:runtime-result/sha256/${"c".repeat(64)}`;
   try {
-    db.prepare("INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, ?, ?)").run(
-      "current-missing",
-      1,
-      JSON.stringify({ runtimeSessionId: "current-missing", taskBindings: [], resultRef }),
-    );
+    // A malformed persisted sequence identity makes the real worker's read fail.
+    // Missing runtime claims belong to the canonical writer validation tests.
+    db.exec("UPDATE replica_revision SET event_json='broken-replica-revision'");
   } finally {
     db.close();
   }
@@ -179,15 +180,12 @@ test("worker cut failure reaches edge admission with its original cause", async 
     }),
     (error: unknown) => {
       assert.equal((error as { code: string }).code, "handler_failed");
-      assert.match(
-        String(error),
-        /Center replica admission failed: handler_failed: Runtime result.*has no content claim/u,
-      );
+      assert.match(String(error), /Center replica admission failed: handler_failed:.*JSON/u);
       assert.doesNotMatch(String(error), /Register the node|correct --node-id/u);
       return true;
     },
   );
-  assert.match(String((f.transportErrors[0] as { error: unknown }).error), /has no content claim/u);
+  assert.match(String((f.transportErrors[0] as { error: unknown }).error), /JSON/u);
 });
 
 test("captured worker OOM error reaches the edge without a closed-schema rejection", async (t) => {
@@ -226,10 +224,12 @@ for (const phase of ["prepare", "checkpoint"] as const) {
     let waitingSignal: AbortSignal | undefined;
     t.mock.method(replica, "prepare", () => (phase === "prepare" ? new Promise(() => {}) : Promise.resolve(null)));
     if (phase === "checkpoint") {
-      const wait = replica.waitForCut;
       t.mock.method(replica, "waitForCut", (revision: number, signal?: AbortSignal) => {
         waitingSignal = signal;
-        return wait(revision, signal);
+        void revision;
+        return new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
       });
     }
     const center = await f.center(undefined, { replicaPreparationTimeoutMs: 100, replicaWatchProgressMs: 10 });

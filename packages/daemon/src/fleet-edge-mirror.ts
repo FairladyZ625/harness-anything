@@ -285,11 +285,31 @@ export function cacheFleetMirrorDirtyBases(
   viewRoot: string,
   repoId: string,
   workspaceRoot: string,
+  packagePath?: string,
 ): FleetMirrorScan | null {
   const view = locateFleetMirrorView(viewRoot, repoId);
   const materializedRoot = fleetMirrorMaterializedRoot(workspaceRoot);
   if (view === null || !existsSync(materializedRoot)) return null;
-  const scan = scanFleetMirrorWorktree(view, workspaceRoot);
+  const selection =
+    packagePath === undefined
+      ? undefined
+      : [
+          ...new Set([
+            ...edgeManifestPaths(
+              view.viewDir,
+              {
+                revision: view.revision,
+                schemaGeneration: view.schemaGeneration,
+                headDigest: view.headDigest,
+              },
+              `${packagePath}/`,
+            ),
+            ...fleetMirrorMaterializedPaths(path.join(materializedRoot, ...packagePath.split("/"))).map(
+              (relative) => `${packagePath}/${relative}`,
+            ),
+          ]),
+        ];
+  const scan = scanFleetMirrorWorktree(view, workspaceRoot, selection);
   withEdgeManifest(view.viewDir, (db, viewId) => {
     for (const logical of [...scan.changes.map((change) => change.path), ...scan.deletedPaths])
       db.prepare(
@@ -301,6 +321,7 @@ export function cacheFleetMirrorDirtyBases(
     fleetMirrorRefreshBaseCache(
       view,
       scan.changes.map((change) => change.path),
+      packagePath,
     );
   return scan;
 }
@@ -555,7 +576,7 @@ export function applyFleetMirrorCut(
         dirtyPaths.push(logical);
     }
     // Cache base bytes for every dirty/diverged path while they are still
-    // obtainable: the replica view retains only two cuts, so a later pull that
+    // obtainable: the replica view retains a bounded window, so a later pull that
     // jumps several revisions can collect the base cut before the divergence is
     // detected (F3).
     fleetMirrorRefreshBaseCache(view, dirtyPaths);
@@ -781,7 +802,7 @@ function fleetMirrorBaseBytes(view: FleetMirrorView, blobSha256: string | null, 
     throw new FleetMirrorError("replica_corrupt", `Replica base blob ${blobSha256} is corrupt.`);
   return bytes;
 }
-function fleetMirrorRefreshBaseCache(view: FleetMirrorView, dirtyPaths: readonly string[]): void {
+function fleetMirrorRefreshBaseCache(view: FleetMirrorView, dirtyPaths: readonly string[], packagePath?: string): void {
   const cacheRoot = path.join(view.viewDir, materializationBaseCache);
   const keep = new Set(dirtyPaths);
   for (const logical of keep) {
@@ -799,8 +820,13 @@ function fleetMirrorRefreshBaseCache(view: FleetMirrorView, dirtyPaths: readonly
     }
   }
   if (existsSync(cacheRoot)) {
-    for (const stale of fleetMirrorMaterializedPaths(cacheRoot))
-      if (!keep.has(stale)) rmSync(path.join(cacheRoot, ...stale.split("/")), { force: true });
+    const paths =
+      packagePath === undefined
+        ? fleetMirrorMaterializedPaths(cacheRoot)
+        : fleetMirrorMaterializedPaths(path.join(cacheRoot, ...packagePath.split("/"))).map(
+            (relative) => `${packagePath}/${relative}`,
+          );
+    for (const stale of paths) if (!keep.has(stale)) rmSync(path.join(cacheRoot, ...stale.split("/")), { force: true });
   }
 }
 function fleetMirrorConflictRoot(workspaceRoot: string): string {

@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { FleetFrameV1 } from "./contract.ts";
 
-/** Read the durable manifests and staging pages that pin shared edge CAS blobs. */
+/** Read durable in-flight pages; published references live in the sparse entry index. */
 export function referencedEdgeBlobs(viewsRoot: string, views: readonly string[]): ReadonlySet<string> {
   const referenced = new Set<string>();
   for (const view of views) {
@@ -21,7 +21,6 @@ export function referencedEdgeBlobs(viewsRoot: string, views: readonly string[])
             if ("blob" in entry) referenced.add(entry.blob.sha256);
         }
       }
-
   }
   return referenced;
 }

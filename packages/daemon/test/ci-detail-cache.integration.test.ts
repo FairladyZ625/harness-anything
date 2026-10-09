@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { commitEdgeManifest } from "../src/fleet/replica-read-model.ts";
+import { fleetManifestDigest } from "../src/fleet/contract.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +13,7 @@ import type { FleetPeerOptions } from "../src/fleet/edge.ts";
 
 function fixture(t: import("node:test").TestContext, count: number) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-ci-detail-cache-")),
-    viewDir = path.join(root, "view"),
+    viewDir = path.join(root, "repos", "repo_measure", "views", "measure"),
     entries = new Map<string, FleetMirrorBlob>(),
     digests: string[] = [];
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -27,9 +29,24 @@ function fixture(t: import("node:test").TestContext, count: number) {
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, descriptor);
     writeFileSync(path.join(viewDir, "ci-detail-cache", digest), bytes);
-    entries.set(`.read-model/ci-details/event${i}`, { sha256, size: descriptor.length, mediaType: "application/json" });
+    entries.set(`.read-model/ci-details/event${i}.json`, {
+      sha256,
+      size: descriptor.length,
+      mediaType: "application/json",
+    });
     digests.push(digest);
   }
+  const manifest = [...entries].map(([path, blob]) => ({ path, blob }));
+  commitEdgeManifest(
+    viewDir,
+    {
+      cut: { revision: 1, schemaGeneration: 1, headDigest: "a".repeat(64) },
+      schemaGeneration: 1,
+      manifestDigest: fleetManifestDigest(manifest),
+    },
+    null,
+    manifest.map((entry) => ({ op: "put", ...entry })),
+  );
   let entryAccesses = 0;
   const view: FleetMirrorView = {
     repoId: "repo_measure",
@@ -49,7 +66,7 @@ function fixture(t: import("node:test").TestContext, count: number) {
   return { root, view, digests, accesses: () => entryAccesses };
 }
 
-test("fetching cached CI details reads the authorized descriptor set once per request", async (t) => {
+test("fetching cached CI details reads only requested descriptors with indexed authorization", async (t) => {
   const { root, view, accesses } = fixture(t, 200);
   await fetchEdgeCiDetails({
     viewRoot: root,
@@ -59,8 +76,8 @@ test("fetching cached CI details reads the authorized descriptor set once per re
     // Every requested object is cached: a network connection would fail this test.
     peer: { hostname: "invalid", port: 0 } as FleetPeerOptions,
   });
-  // One enumeration plus one authorization lookup for each descriptor blob; independent of K.
-  assert.equal(accesses(), 201);
+  // Thirty requested descriptors among 200; no whole-manifest authorization scan.
+  assert.equal(accesses(), 30);
 });
 
 test("CI detail reads still reject unauthorized and altered cached bytes", async (t) => {

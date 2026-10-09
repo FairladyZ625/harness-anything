@@ -1,19 +1,26 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { sha256Bytes, type CiDetailRef } from "@harness-anything/kernel";
 import { readEdgeViewBlob } from "./runtime-result-read.ts";
 import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
-import { openPeer, type FleetPeerOptions } from "./fleet/edge.ts";
+import { edgeManifestPaths } from "./fleet/replica-read-model.ts";
+import { fleetReplicaDiskUsage, openPeer, type FleetPeerOptions } from "./fleet/edge.ts";
 import { writeFileDurably } from "./durable-file.ts";
 
 type Descriptor = { eventId: string; ref: CiDetailRef };
-export function edgeCiDetailDescriptors(viewRoot: string, view: FleetMirrorView): readonly Descriptor[] {
-  return [...view.entries]
-    .filter(([logical]) => logical.startsWith(".read-model/ci-details/"))
-    .map(
-      ([, blob]) =>
-        JSON.parse(Buffer.from(readEdgeViewBlob(viewRoot, view, blob.sha256)).toString("utf8")) as Descriptor,
-    );
+export function edgeCiDetailDescriptors(
+  viewRoot: string,
+  view: FleetMirrorView,
+  eventIds?: readonly string[],
+): readonly Descriptor[] {
+  const paths = eventIds
+    ? eventIds.map((id) => `.read-model/ci-details/${id}.json`)
+    : edgeManifestPaths(view.viewDir, view, ".read-model/ci-details/");
+  return paths.map((logical) => {
+    const blob = view.entries.get(logical);
+    if (!blob) throw new Error(`CI observation ${logical} is not in the authorized cut`);
+    return JSON.parse(Buffer.from(readEdgeViewBlob(viewRoot, view, blob.sha256)).toString("utf8")) as Descriptor;
+  });
 }
 function cachePath(view: FleetMirrorView, digest: string): string {
   return path.join(view.viewDir, "ci-detail-cache", digest);
@@ -38,7 +45,7 @@ export async function fetchEdgeCiDetails(input: {
   readonly eventIds: readonly string[];
   readonly quotaBytes: number;
 }): Promise<void> {
-  const descriptors = edgeCiDetailDescriptors(input.viewRoot, input.view);
+  const descriptors = edgeCiDetailDescriptors(input.viewRoot, input.view, input.eventIds);
   const needed = input.eventIds
     .map((id) => {
       const row = descriptors.find((row) => row.eventId === id);
@@ -47,13 +54,10 @@ export async function fetchEdgeCiDetails(input: {
     })
     .filter((row) => !readCachedCiDetail(input.view, row));
   if (!needed.length) return;
-  const usage = (root: string): number =>
-    !existsSync(root)
-      ? 0
-      : statSync(root).isDirectory()
-        ? readdirSync(root).reduce((sum, name) => sum + usage(path.join(root, name)), 0)
-        : statSync(root).size;
-  if (usage(input.viewRoot) + needed.reduce((sum, row) => sum + row.ref.encodedBytes, 0) > input.quotaBytes)
+  if (
+    fleetReplicaDiskUsage(input.viewRoot) + needed.reduce((sum, row) => sum + row.ref.encodedBytes, 0) >
+    input.quotaBytes
+  )
     throw new Error("replica_quota_exceeded: CI detail cache exceeds persistent quota");
   const session = await openPeer(input.peer);
   try {

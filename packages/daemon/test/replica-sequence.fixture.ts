@@ -1,3 +1,5 @@
+import type { EdgeReadModelRows } from "../../kernel/test/store/replica-model.fixture.ts";
+export { readEdgeManifestEntries } from "../src/fleet/replica-read-model.ts";
 import { edgeReadModelEntries } from "../../kernel/test/store/replica-model.fixture.ts";
 import { type ReplicaProjectionBasis } from "../../kernel/test/store/replica-model.fixture.ts";
 import { type ReplicaChange } from "../../kernel/test/store/replica-model.fixture.ts";
@@ -6,7 +8,6 @@ import {
   serializePersistedCanonicalEvent,
   sha256Text,
   stableStringify,
-  type EdgeReadModelRows,
   type ReplicaRevision,
   type ReplicaSequenceRead,
 } from "@harness-anything/kernel";

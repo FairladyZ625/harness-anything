@@ -249,7 +249,7 @@ export async function runFleetEdgeTask(
           "execution_credential_rejected",
           "Task document selection cannot name other paths.",
         );
-      const scan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
+      const scan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot, packagePath);
       if (!scan) throw new FleetEdgeTaskError("mirror_missing", "Task document scan is unavailable.");
       const changes = scan.changes.filter((change) => change.path.startsWith(`${packagePath}/`));
       const admission = await readFleetRepositoryMetadataClient({ ...peer, taskId, actionKind: "doc-submit" });
@@ -496,9 +496,10 @@ export async function runFleetEdgeTask(
     if (view === null) return null;
     // The pre-pull base-cache scan over this same view and tree is exactly the
     // dirty-detection the carry set needs; reuse it instead of scanning twice.
-    const preScan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
     const packagePath = fleetExactTaskPackagePath(view, workspaceRoot, taskId);
-    if (packagePath === null || preScan === null) return null;
+    if (packagePath === null) return null;
+    const preScan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot, packagePath);
+    if (preScan === null) return null;
     const reportPath =
       action.kind === "task-review-execution" ? reviewReportRelativePath(packagePath, String(action.reviewId)) : null;
     const candidates = preScan.changes.filter((change) =>

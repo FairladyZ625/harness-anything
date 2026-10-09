@@ -3,6 +3,7 @@ import { referencedEdgeBlobs } from "./edge-view-references.ts";
 import {
   commitEdgeManifest,
   markEdgeContent,
+  edgeContentBytes,
   forgetEdgeContent,
   pruneEdgeManifests,
   readEdgeManifestHeader,
@@ -129,7 +130,7 @@ export function openFleetEdgeView(
   let knownDiskBytes: number | null = null;
   const incomingSizes = new Map<string, Map<string, number>>();
   const active = new Map<string, string>(),
-    accountedDiskBytes = () => (knownDiskBytes ??= diskUsage(rootDir)),
+    accountedDiskBytes = () => (knownDiskBytes ??= fleetReplicaDiskUsage(rootDir)),
     repoRoot = (repoId: string) => path.join(rootDir, "repos", repoId),
     viewRoot = (repoId: string, viewId: string) => path.join(repoRoot(repoId), "views", viewId),
     current = (repoId: string, viewId: string): Current | null =>
@@ -228,7 +229,7 @@ export function openFleetEdgeView(
         }
         if (target !== cas && expectedSize !== undefined && statSync(target).size === expectedSize) {
           if (sha256Bytes(readFileSync(target)) !== frame.blobSha256) throw new Error("transfer blob mismatch");
-          markEdgeContent(root, frame.blobSha256);
+          markEdgeContent(root, frame.blobSha256, expectedSize);
           mkdirSync(path.dirname(cas), { recursive: true });
           renameSync(target, cas);
         }
@@ -314,7 +315,7 @@ function finish(
       if (!existsSync(incoming)) {
         if (entry.blob.size !== 0 || entry.blob.sha256 !== sha256Bytes(Buffer.alloc(0)))
           throw new Error("transfer blob missing");
-        markEdgeContent(viewRoot, entry.blob.sha256);
+        markEdgeContent(viewRoot, entry.blob.sha256, entry.blob.size);
         writeFileDurably(cas, Buffer.alloc(0));
       } else {
         // Incoming bytes are hashed exactly once, here; the CAS file is the
@@ -323,7 +324,7 @@ function finish(
         const bytes = readFileSync(incoming);
         if (bytes.byteLength !== entry.blob.size || sha256Bytes(bytes) !== entry.blob.sha256)
           throw new Error("transfer blob mismatch");
-        markEdgeContent(viewRoot, entry.blob.sha256);
+        markEdgeContent(viewRoot, entry.blob.sha256, entry.blob.size);
         mkdirSync(path.dirname(cas), { recursive: true });
         renameSync(incoming, cas);
       }
@@ -997,10 +998,12 @@ function writeEdgeDurableJson(file: string, value: unknown): void {
 function readJson<T>(file: string): T | null {
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as T) : null;
 }
-function diskUsage(root: string): number {
+export function fleetReplicaDiskUsage(root: string, repos = path.join(root, "repos")): number {
   if (!existsSync(root)) return 0;
+  if (path.basename(root) === "cas" && path.dirname(path.dirname(root)) === repos)
+    return edgeContentBytes(path.dirname(root));
   const stat = statSync(root);
   return stat.isDirectory()
-    ? readdirSync(root).reduce((sum, name) => sum + diskUsage(path.join(root, name)), 0)
+    ? readdirSync(root).reduce((sum, name) => sum + fleetReplicaDiskUsage(path.join(root, name), repos), 0)
     : stat.size;
 }

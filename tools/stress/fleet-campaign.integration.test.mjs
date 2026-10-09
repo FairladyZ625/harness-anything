@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { readEdgeManifestEntries } from "../../packages/daemon/src/fleet/replica-read-model.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -610,22 +611,17 @@ function opensslAvailable() {
 }
 
 function assertReplicaContent(viewRoot, repoId, viewId, current) {
-  const manifest = JSON.parse(
-    readFileSync(
-      path.join(
-        viewRoot,
-        "repos",
-        repoId,
-        "views",
-        viewId,
-        "cuts",
-        `${current.cut.revision}-g${current.schemaGeneration}`,
-        "manifest.json",
-      ),
-      "utf8",
-    ),
+  const manifest = path.join(
+    viewRoot,
+    "repos",
+    repoId,
+    "views",
+    viewId,
+    "cuts",
+    `${current.cut.revision}-g${current.schemaGeneration}`,
+    "manifest.json",
   );
-  for (const entry of manifest.entries) {
+  for (const entry of readEdgeManifestEntries(manifest)) {
     const bytes = readFileSync(
       path.join(viewRoot, "repos", repoId, "cas", "sha256", entry.blob.sha256.slice(0, 2), entry.blob.sha256),
     );

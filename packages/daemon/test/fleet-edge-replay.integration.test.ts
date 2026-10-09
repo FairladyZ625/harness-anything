@@ -93,8 +93,7 @@ test("edge staging replays snapshot/delta pages and chunks and switches only com
     );
     assert.equal(view.current("repo", "many")?.cut.revision, 1);
     // Snapshot cuts address their blobs through the verified CAS instead of
-    // copying the tree into cuts/<revision>-g<generation>/files/; only delta cuts
-    // materialize changed files beside their manifest.
+    // copying the tree into cuts/<revision>-g<generation>/files/.
     assert.equal(existsSync(path.join(root, "repos/repo/views/many/cuts/1-g0/files/tasks/t/many-05.md")), false);
     assert.equal(
       readFileSync(
@@ -233,6 +232,61 @@ test("edge chunk replay compares only the named window against the staged blob",
 function wireEntry(itemPath: string, bytes: Buffer): FleetEntry {
   return { path: itemPath, blob: { sha256: sha256Bytes(bytes), size: bytes.byteLength, mediaType: "text/markdown" } };
 }
+
+test("reopening the receiver preserves the verified CAS charge before accepting delta chunks", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-quota-reopen-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const body = Buffer.alloc(1024 * 1024, "q"),
+    entry = wireEntry("context/large.md", body);
+  const first = openFleetEdgeView(root, replicaQuota);
+  for (const frame of snapshotFrames("seed", "edge", wireCut(1), [entry], [body])) first.receive(frame);
+  first.collect("repo", "edge", "seed");
+  const next = wireEntry("context/small.md", Buffer.from("small"));
+  const begin: FleetFrameV1 = {
+    schema: "fleet.delta.begin/v1",
+    messageId: "begin",
+    transferId: "next",
+    repoId: "repo",
+    viewId: "edge",
+    fromCut: wireCut(1),
+    toCut: wireCut(2),
+    changeCount: 1,
+    resultManifestDigest: fleetManifestDigest([entry, next]),
+  };
+  const page: FleetFrameV1 = {
+    schema: "fleet.delta.page/v1",
+    messageId: "page",
+    transferId: "next",
+    pageIndex: 0,
+    changes: [{ op: "put", ...next }],
+  };
+  const chunk: FleetFrameV1 = {
+    schema: "fleet.delta.chunk/v1",
+    messageId: "chunk",
+    transferId: "next",
+    blobSha256: next.blob.sha256,
+    offset: 0,
+    dataBase64: Buffer.from("small").toString("base64"),
+  };
+  const limited = openFleetEdgeView(root, 512 * 1024);
+  limited.receive(begin);
+  limited.receive(page);
+  assert.throws(() => limited.receive(chunk), /replica_quota_exceeded/u);
+  assert.equal(limited.current("repo", "edge")!.cut.revision, 1);
+  const resumed = openFleetEdgeView(root, replicaQuota);
+  resumed.receive(begin);
+  resumed.receive(page);
+  resumed.receive(chunk);
+  assert.equal(
+    resumed.receive({
+      schema: "fleet.delta.finish/v1",
+      messageId: "finish",
+      transferId: "next",
+      resultManifestDigest: fleetManifestDigest([entry, next]),
+    })?.schema,
+    "fleet.ack/v1",
+  );
+});
 function wireCut(revision: number): FleetCut {
   return {
     revision,
@@ -467,6 +521,7 @@ test("received complete blobs are verified before finish and pinned across anoth
       [other],
     ))
       view.receive(frame);
+    view.collect("repo", "other", "other-next");
     assert.equal(
       existsSync(abandonedCas),
       false,

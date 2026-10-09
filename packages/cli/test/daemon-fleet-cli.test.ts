@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { readEdgeManifestEntries } from "../../daemon/test/replica-sequence.fixture.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { localDaemonTargetKey } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
@@ -629,17 +630,14 @@ function retryReplicaPending(sync: () => Record<string, unknown>): Record<string
 }
 // Snapshot cuts address their blobs through the verified edge CAS instead of
 // materializing cuts/<revision>-g<generation>/files/, so a cut document is read through its
-// manifest entry (delta cuts materialize changed files, snapshots do not).
+// indexed manifest entry for both snapshot and delta cuts.
 function readCutFile(viewRoot: string, revision: number, logical: string): string {
   const current = JSON.parse(readFileSync(path.join(viewRoot, "current.json"), "utf8")) as {
     schemaGeneration: number;
   };
-  const manifest = JSON.parse(
-    readFileSync(path.join(viewRoot, "cuts", `${revision}-g${current.schemaGeneration}`, "manifest.json"), "utf8"),
-  ) as {
-    entries: readonly { readonly path: string; readonly blob: { readonly sha256: string } }[];
-  };
-  const entry = manifest.entries.find((row) => row.path === logical);
+  const entry = readEdgeManifestEntries(
+    path.join(viewRoot, "cuts", `${revision}-g${current.schemaGeneration}`, "manifest.json"),
+  ).find((row) => row.path === logical);
   if (entry === undefined) throw new Error(`cut ${revision} manifest has no entry for ${logical}`);
   return readFileSync(
     path.join(path.resolve(viewRoot, "..", ".."), "cas", "sha256", entry.blob.sha256.slice(0, 2), entry.blob.sha256),
