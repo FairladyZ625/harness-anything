@@ -37,7 +37,11 @@ export interface ReplicaManifestPage {
 export interface ReplicaChanges {
   readonly count: number;
   readonly totalBytes: number;
-  readonly page: (offset: number) => { readonly changes: readonly FleetDeltaChange[]; readonly done: boolean };
+  readonly page: (after: readonly [number, number] | null) => {
+    readonly changes: readonly FleetDeltaChange[];
+    readonly cursor: readonly [number, number] | null;
+    readonly done: boolean;
+  };
 }
 export interface ReplicaCutSource {
   readonly pin: (
@@ -53,7 +57,7 @@ export interface ReplicaCutSource {
   readonly activate: () => SnapshotCut | null;
   readonly prepare: () => Promise<SnapshotCut | null>;
   readonly delivery: {
-    readonly manifestPage: (revision: number, offset: number) => Promise<ReplicaManifestPage | null>;
+    readonly manifestPage: (revision: number, afterPath: string) => Promise<ReplicaManifestPage | null>;
     readonly manifestEntry: (revision: number, path: string) => Promise<FleetEntry | null>;
     readonly changes: (from: number, to: number) => Promise<ReplicaChanges | null>;
     readonly content: (blob: FleetBlob) => Promise<Uint8Array>;
@@ -67,7 +71,7 @@ export interface ReplicaCutSource {
   readonly eventAt: (revision: number) => string | null;
   readonly receiptBasis: (opId: string) => { readonly event: CanonicalEventV1; readonly applied: boolean } | null;
   readonly manifest: (revision: number) => readonly FleetEntry[] | null;
-  readonly manifestPage: (revision: number, offset: number) => ReplicaManifestPage | null;
+  readonly manifestPage: (revision: number, afterPath: string) => ReplicaManifestPage | null;
   readonly manifestEntry: (revision: number, path: string) => FleetEntry | null;
   readonly changes: (fromRevision: number, toRevision: number) => ReplicaChanges | null;
   readonly changeLog: () => readonly ReplicaChangeLogEntry[];
@@ -159,14 +163,15 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       .get(itemPath, revision, target.root_revision);
     return row?.entry_json ? (JSON.parse(String(row.entry_json)) as FleetEntry) : null;
   };
-  const manifestPage = (revision: number, offset: number): ReplicaManifestPage | null => {
+  const manifestPage = (revision: number, afterPath: string): ReplicaManifestPage | null => {
     if (!cut(revision)) return null;
     const target = db().prepare("SELECT root_revision FROM cut WHERE revision=?").get(revision)!;
+    // Seek the existing path primary key; revision-index scans would sort the full cut per page.
     const rows = db()
       .prepare(
-        `SELECT entry_json FROM entry e WHERE revision<=? AND revision>=? AND (end_revision IS NULL OR end_revision>?) AND entry_json IS NOT NULL ORDER BY path LIMIT 129 OFFSET ?`,
+        `SELECT entry_json FROM entry e INDEXED BY sqlite_autoindex_entry_1 WHERE path>? AND revision<=? AND revision>=? AND (end_revision IS NULL OR end_revision>?) AND entry_json IS NOT NULL ORDER BY path LIMIT 129`,
       )
-      .all(revision, target.root_revision, revision, offset);
+      .all(afterPath, revision, target.root_revision, revision);
     return {
       entries: rows.slice(0, 128).map((row) => JSON.parse(String(row.entry_json)) as FleetEntry),
       done: rows.length <= 128,
@@ -176,7 +181,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     if (!cut(revision)) return null;
     const entries: FleetEntry[] = [];
     for (;;) {
-      const page = manifestPage(revision, entries.length)!;
+      const page = manifestPage(revision, entries.at(-1)?.path ?? "")!;
       entries.push(...page.entries);
       if (page.done) return entries;
     }
@@ -421,15 +426,26 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     return {
       count: Number(summary.count),
       totalBytes: Number(summary.bytes),
-      page: (offset) => {
+      page: (after) => {
+        // The revision index includes rowid: seek it without scanning unrelated paths or
+        // keeping a SQLite cursor open while an edge waits on its transport.
+        const [revision, rowid] = after ?? [from + 1, 0];
         const rows = db()
-          .prepare(`SELECT path,entry_json FROM entry WHERE ${where} ORDER BY path LIMIT 129 OFFSET ?`)
-          .all(from, to, to, offset);
+          .prepare(
+            `SELECT rowid AS entry_id,revision,path,entry_json FROM entry
+            WHERE revision=? AND rowid>? AND revision<=? AND (end_revision IS NULL OR end_revision>?)
+            UNION ALL SELECT rowid AS entry_id,revision,path,entry_json FROM entry
+            WHERE revision>? AND revision<=? AND (end_revision IS NULL OR end_revision>?)
+            ORDER BY revision,entry_id LIMIT 129`,
+          )
+          .all(revision, rowid, to, to, revision, to, to);
+        const last = rows[Math.min(rows.length, 128) - 1];
         return {
           changes: rows.slice(0, 128).map((row): FleetDeltaChange => {
             const entry = row.entry_json ? (JSON.parse(String(row.entry_json)) as FleetEntry) : null;
             return entry ? { op: "put", ...entry } : { op: "delete", path: String(row.path) };
           }),
+          cursor: last ? [Number(last.revision), Number(last.entry_id)] : null,
           done: rows.length <= 128,
         };
       },
@@ -548,13 +564,13 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       for (const row of db().prepare("SELECT * FROM link ORDER BY to_revision").iterate()) {
         const sequence = changes(Number(row.from_revision), Number(row.to_revision));
         if (!sequence) continue;
-        let offset = 0;
+        let cursor: readonly [number, number] | null = null;
         for (;;) {
-          const page = sequence.page(offset);
+          const page = sequence.page(cursor);
           for (const change of page.changes)
             result.push({ fromRevision: Number(row.from_revision), toRevision: Number(row.to_revision), change });
           if (page.done) break;
-          offset += page.changes.length;
+          cursor = page.cursor;
         }
       }
       return result;
@@ -574,7 +590,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     },
     pinActive: (lease) => !!db().prepare("SELECT 1 FROM delivery_pin WHERE id=?").get(pinId(lease)),
     delivery: {
-      manifestPage: async (revision, offset) => manifestPage(revision, offset),
+      manifestPage: async (revision, afterPath) => manifestPage(revision, afterPath),
       manifestEntry: async (revision, itemPath) => entryAt(revision, itemPath),
       changes: async (from, to) => changes(from, to),
       content: async (blob) => content(blob),

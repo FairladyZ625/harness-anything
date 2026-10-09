@@ -79,7 +79,7 @@ for (const fixtureMiB of [64, 256]) {
     await waitForFleetPublication(f.host, f.subject.repoId, written.opId, f.auth);
     const rebuilding = replica.waitForCut(written.revision!);
     const readStarted = performance.now();
-    const page = await replica.delivery.manifestPage(cut.revision, 0);
+    const page = await replica.delivery.manifestPage(cut.revision, "");
     assert.ok(page?.entries.length);
     assert.equal(
       (await rebuilding).revision,

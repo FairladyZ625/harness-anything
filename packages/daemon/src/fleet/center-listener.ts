@@ -615,7 +615,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           lifecycle: deliveries.admit(),
           signal,
           connectionSignal,
-          preparationDeadlineAt,
           quotaBytes: options.replicaDiskQuotaBytes!,
           stateRoot: options.stateRoot,
           issuedAt: now(),

@@ -119,10 +119,10 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
     ...initial,
     delivery: {
       ...initial.delivery,
-      manifestPage: async (_revision: number, offset: number) => ({
-        entries: oldEntries.slice(offset, offset + 128),
-        done: offset + 128 >= oldEntries.length,
-      }),
+      manifestPage: async (_revision: number, afterPath: string) => {
+        const offset = afterPath === "" ? 0 : oldEntries.findIndex((entry) => entry.path === afterPath) + 1;
+        return { entries: oldEntries.slice(offset, offset + 128), done: offset + 128 >= oldEntries.length };
+      },
       manifestEntry: async (_revision: number, entryPath: string) =>
         oldEntries.find((entry) => entry.path === entryPath) ?? null,
       content: async (blob: { sha256: string }) => blobs.get(blob.sha256)!,
