@@ -12,4 +12,4 @@ Record inputs, known facts, and constraints: relevant code and document paths, o
 
 ## Verification
 
-List acceptance: the targeted tests and checks that must go green, required negative controls, and the stop point.
+List acceptance: the targeted tests and checks that must go green, and the stop point; add a negative control when the task repairs a defect.

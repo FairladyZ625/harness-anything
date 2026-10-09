@@ -52,7 +52,7 @@ Task Contract: harness-task v1
 
 ## Evidence Protocol
 
-写明证据粒度、需要的阴性对照或变异检查，以及 reviewer 必须拒收的条件。这里描述如何证明，`Verification` 描述什么必须为真。
+写明证据粒度与 reviewer 必须拒收的条件；修复缺陷时再写明阴性对照或变异检查。这里描述如何证明，`Verification` 描述什么必须为真。
 
 在收口前闭合回环：至少用 `ha fact record --task <task-id> ...` 记录一条观察，并把回执保存在 Execution outputs 中。Fact 是 decision 的 evidence 输入，因此在接受或 reckon 该 decision 前，用 `ha relation relate --source-ref decision/<decision-id>/<claim-id> --target-ref fact/F-XXXXXXXX --type evidenced-by --rationale "<why>" --expected-version 0` 把它挂到对应主张上。如果 proposal 还没有 fact evidence，`ha decision propose` 仍会成功，但回执会指向这两个命令。
 

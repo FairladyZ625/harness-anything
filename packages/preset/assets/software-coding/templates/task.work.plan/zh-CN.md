@@ -83,7 +83,7 @@ Task Contract: harness-task v1
 
 ## Evidence Protocol
 
-写明使用证明、阴性对照、变异检查与 reviewer 拒收条件；不得用汇总性的「已通过」代替实际 runner 输出和消费证据。
+写明使用证明与 reviewer 拒收条件；修复缺陷时再写明阴性对照或变异检查；不得用汇总性的「已通过」代替实际 runner 输出和消费证据。
 
 在工作收口前闭合回环：至少用 `ha fact record --task <task-id> ...` 记录一条观察，并把回执保存在 Execution outputs 中。Fact 是 decision 的 evidence 输入，因此在接受或 reckon 该 decision 前，用 `ha relation relate --source-ref decision/<decision-id>/<claim-id> --target-ref fact/F-XXXXXXXX --type evidenced-by --rationale "<why>" --expected-version 0` 把它挂到对应主张上。如果 proposal 还没有 fact evidence，`ha decision propose` 仍会成功，但回执会指向这两个命令。
 
