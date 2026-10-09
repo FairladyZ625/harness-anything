@@ -1,3 +1,4 @@
+import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import {
   nextScheduleOccurrence,
   validateScheduleV1,
@@ -7,7 +8,6 @@ import {
 } from "@harness-anything/kernel";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { storedAgentDeclarationOutcome } from "./agent-entities.ts";
-import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { scheduleReasoningEfforts } from "./protocol/daemon-protocol-commands-runtime-fleet.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
@@ -358,14 +358,14 @@ function scheduleAgentOptions(context: SchedulesGuiReadContext): readonly Schedu
       let hint = `Agent projection ${agentId} is not current.`;
       const uninterpretable = storedAgentDeclarationOutcome({
         agentId,
-        read: () => parseAgentDeclarationV1(row.value),
+        read: () => readProjectedAgentDeclaration(row.value),
       });
       if (uninterpretable.kind === "invalid") hint = uninterpretable.error.message;
       return { agentId, state: "invalid", error: { code: "invalid_entity_projection", hint } };
     }
     const outcome = storedAgentDeclarationOutcome({
       agentId,
-      read: () => parseAgentDeclarationV1(row.value),
+      read: () => readProjectedAgentDeclaration(row.value),
     });
     if (outcome.kind === "ok") {
       const agent = outcome.value;

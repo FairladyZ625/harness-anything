@@ -1,8 +1,8 @@
+import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import {
   createEntityStore,
-  parseAgentDeclarationV1,
   parseSquadDeclarationV1,
   type SquadDeclarationV1,
   type WriteReceiptDraft as WriteReceipt,
@@ -72,7 +72,7 @@ function listAgents(cell: RepoCellRuntimeContext): object {
       };
     const outcome = storedAgentDeclarationOutcome({
       agentId: id,
-      read: () => parseAgentDeclarationV1(value),
+      read: () => readProjectedAgentDeclaration(value),
     });
     if (outcome.kind !== "ok")
       return {
@@ -105,7 +105,7 @@ function inspectAgent(cell: RepoCellRuntimeContext, agentId: string): object {
       ["Run ha agent list and choose an existing Agent id."],
     );
   try {
-    return { schema: "agent-inspection/v1", agent: parseAgentDeclarationV1(row.value) };
+    return { schema: "agent-inspection/v1", agent: readProjectedAgentDeclaration(row.value) };
   } catch (error) {
     // An installed declaration whose stored shape the current schema rejects is a reinstall need
     // for that agent; the inspect read answers with the command, not the raw contract message.
@@ -225,7 +225,7 @@ function unavailableMember(
   if (agent === null) return { agentId, hint: `Install agent/${agentId}` };
   const outcome = storedAgentDeclarationOutcome({
     agentId,
-    read: () => parseAgentDeclarationV1(agent.value),
+    read: () => readProjectedAgentDeclaration(agent.value),
   });
   if (outcome.kind === "ok") return null;
   return {

@@ -11,4 +11,5 @@
 // Version 30 materializes bounded event summaries and same-revision witnesses for shared repository reads.
 // Version 31 adds event list descriptors without copying canonical payloads.
 // Version 32 indexes all retained CI generations and v4 for the unified observation reader.
-export const taskProjectionSchemaVersion = 32;
+// Version 33 replays Agent retirement reason, time, and successor into canonical entity views.
+export const taskProjectionSchemaVersion = 33;

@@ -241,8 +241,13 @@ export function applyEvent(
       } else if (event.type === "agent_retired") {
         runSql(
           db,
-          "UPDATE entity_projection SET workspace_revision = ?, value_json = json_set(value_json, '$.lifecycleState', 'retired') WHERE entity_kind = 'agent' AND entity_id = ? AND task_id = '' AND workspace_revision <= ?",
+          "UPDATE entity_projection SET workspace_revision = ?, value_json = json_set(value_json, '$.lifecycleState', 'retired', '$.retirement', json(?)) WHERE entity_kind = 'agent' AND entity_id = ? AND task_id = '' AND workspace_revision <= ?",
           event.workspaceRevision,
+          JSON.stringify({
+            retiredAt: event.payload.retiredAt,
+            reason: event.payload.reason,
+            ...(event.payload.successor === undefined ? {} : { successor: event.payload.successor }),
+          }),
           event.payload.entityId,
           event.workspaceRevision,
         );

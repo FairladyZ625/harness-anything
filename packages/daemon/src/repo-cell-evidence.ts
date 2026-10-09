@@ -51,14 +51,26 @@ export function renderEvidenceRows(rows: readonly unknown[], named = false): str
     ? "(none)"
     : rows
         .map((row) =>
-          row !== null && typeof row === "object" && !Array.isArray(row)
-            ? Object.entries(row)
-                .filter(([, value]) => value === null || typeof value !== "object")
-                .map(([key, value]) => (named ? `${key}=${String(value)}` : String(value)))
-                .join(named ? "  " : "\t")
-            : String(row),
+          row !== null && typeof row === "object" && !Array.isArray(row) ? renderEvidenceRow(row, named) : String(row),
         )
         .join("\n");
+}
+
+function renderEvidenceRow(row: object, named: boolean): string {
+  const scalars = Object.entries(row)
+    .filter(([, value]) => value === null || typeof value !== "object")
+    .map(([key, value]) => (named ? `${key}=${String(value)}` : String(value)));
+  const agent = row as {
+    readonly schema?: string;
+    readonly retirement?: { readonly retiredAt: string; readonly reason: string; readonly successor?: string };
+  };
+  if (agent.schema === "agent-declaration/v1" && agent.retirement)
+    scalars.push(
+      `successor=${agent.retirement.successor ?? "none"}`,
+      `reason=${agent.retirement.reason}`,
+      `retiredAt=${agent.retirement.retiredAt}`,
+    );
+  return scalars.join(named ? "  " : "\t");
 }
 
 /**

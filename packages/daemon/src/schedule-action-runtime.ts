@@ -1,8 +1,8 @@
+import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import {
   getExecutableEntityAction,
   isScheduleEvent,
   nextScheduleOccurrence,
-  parseAgentDeclarationV1,
   type EntityActionCompileInput,
   type ScheduleActionDraft,
   type ScheduleV1,
@@ -161,17 +161,13 @@ function trustedScheduleAgent(cell: RepoCellRuntimeContext, agentId: string) {
       `Schedule Agent ${agentId} is unavailable at the claimed center cut.`,
     );
   try {
-    const { lifecycleState, ...declaration } = row.value,
-      agent = parseAgentDeclarationV1(declaration);
-    assertAgentDispatchable({
-      ...agent,
-      lifecycleState: lifecycleState as "configured" | "active" | "retired" | undefined,
-    });
+    const agent = readProjectedAgentDeclaration(row.value);
+    assertAgentDispatchable(agent);
     return agent;
   } catch (error) {
     const code = (error as { readonly code?: unknown }).code;
     if (code === "agent_retired" || code === "agent_not_active")
-      throw cell.cellCodedError(String(code), `Schedule Agent ${agentId} cannot accept a new dispatch claim.`);
+      throw cell.cellCodedError(String(code), error instanceof Error ? error.message : String(error));
     throw cell.cellCodedError(
       "schedule_agent_unavailable",
       `Schedule Agent ${agentId} projection evidence is invalid.`,

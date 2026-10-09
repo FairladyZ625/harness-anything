@@ -1,3 +1,4 @@
+import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import { squadReadError } from "./squad-run-list.ts";
 import { requireSquadParentExecution, squadParentExecutionCurrent } from "./squad-runtime-ingress.ts";
 import { squadRunObservation } from "./squad-observation.ts";
@@ -7,7 +8,6 @@ import {
   consumeKnownError,
   isSameExecution,
   localGitObjectRefStore,
-  parseAgentDeclarationV1,
   parseSquadDeclarationV1,
   type AgentRuntimeEventV1,
   type TaskProjection,
@@ -293,10 +293,16 @@ export function makeSquadCoordinator(input: {
             agentId,
             read: () => {
               const agent = entityStore.get("agent", agentId);
-              return agent === null ? null : parseAgentDeclarationV1(agent.value);
+              return agent === null ? null : readProjectedAgentDeclaration(agent.value);
             },
           });
-          if (outcome.kind === "ok") return null;
+          if (outcome.kind === "ok") {
+            if (outcome.value.lifecycleState !== "retired") return null;
+            return {
+              agentId,
+              hint: `Agent ${agentId} is retired.${outcome.value.retirement?.successor ? ` Use agent/${outcome.value.retirement.successor} instead` : " Choose an active agent"}`,
+            };
+          }
           return {
             agentId,
             hint: outcome.kind === "invalid" ? outcome.error.message : `Install agent/${agentId}`,
