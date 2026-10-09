@@ -4,7 +4,11 @@
 import { describe, expect, it } from "vitest";
 import { REPLAY_TASK_GRAPH } from "@harness-anything/kernel";
 import type { TaskSnapshotProjectionRow } from "../src/api/renderer-dto.ts";
-import { adaptTaskExecutions, buildExecutionEvidenceContext } from "../src/renderer/model/execution-evidence.ts";
+import {
+  adaptTaskExecutions,
+  buildExecutionEvidenceContext,
+  outputReceiptState,
+} from "../src/renderer/model/execution-evidence.ts";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -110,6 +114,32 @@ describe("execution evidence model", () => {
     ]) {
       expect(context).toContain(text);
     }
+  });
+
+  it("classifies receipt states: no-checker (null) stays distinct from missing projection fields", () => {
+    // receiptRef=null 是「没有检查器」(文档类产出的常态,daemon 投影一律如此);
+    // 字段缺失才是「数据没到」。两种状态共用警示文案是本次修正的对象,模型层
+    // 必须能区分它们。回执有值而 result 未知是领域允许的第三种(结论未给)。
+    expect(outputReceiptState({ checkerReceiptRef: null, checkerResult: "unknown" })).toEqual({ kind: "no-checker" });
+    expect(outputReceiptState({ checkerReceiptRef: undefined, checkerResult: undefined })).toEqual({ kind: "missing" });
+    expect(outputReceiptState({ checkerReceiptRef: "receipt-a", checkerResult: "pass" })).toEqual({
+      kind: "pass",
+      receiptRef: "receipt-a",
+    });
+    expect(outputReceiptState({ checkerReceiptRef: "receipt-b", checkerResult: "fail" })).toEqual({
+      kind: "fail",
+      receiptRef: "receipt-b",
+    });
+    expect(outputReceiptState({ checkerReceiptRef: "receipt-c", checkerResult: "unknown" })).toEqual({
+      kind: "no-result",
+      receiptRef: "receipt-c",
+    });
+  });
+
+  it("adapts the fixture's pass and no-checker outputs into distinct receipt states", () => {
+    const outputs = adaptTaskExecutions(row())[0]!.outputs;
+    expect(outputReceiptState(outputs[0]!)).toEqual({ kind: "pass", receiptRef: "receipt-pass" });
+    expect(outputReceiptState(outputs[1]!)).toEqual({ kind: "no-checker" });
   });
 });
 
