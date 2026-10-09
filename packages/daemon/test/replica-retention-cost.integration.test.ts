@@ -1,13 +1,13 @@
 // harness-test-tier: integration
+import type { EdgeReadModelRows } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import type { EdgeReadModelRows } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
+import { openReplicaCutSource } from "./replica-sequence.fixture.ts";
 import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 import { makeOffer } from "../src/fleet/center-replica-offer.ts";
 
@@ -47,14 +47,14 @@ test("pin admission and ACK-window pruning do not scan retained manifest entries
   t.mock.method(Date, "now", () => now);
   const prepare = DatabaseSync.prototype.prepare;
   t.mock.method(DatabaseSync.prototype, "prepare", function (this: DatabaseSync, sql: string) {
-    if (sql === "SELECT revision FROM cut ORDER BY revision DESC LIMIT 64") {
+    if (sql.includes("SELECT revision FROM cut ORDER BY revision DESC LIMIT 64")) {
       pruning = true;
       pruneStarted = performance.now();
     }
-    if ((pruning || admitting) && /FROM manifest_entry/u.test(sql)) scans++;
-    if (coldOpening && /FROM manifest_entry/u.test(sql)) coldManifestScans++;
+    if ((pruning || admitting) && /FROM entry(?: e)? WHERE revision/u.test(sql)) scans++;
+    if (coldOpening && /FROM entry(?: e)? WHERE revision/u.test(sql)) coldManifestScans++;
     const statement = prepare.call(this, sql);
-    if (sql === "DELETE FROM checkpoint_link WHERE from_revision < ?") {
+    if (sql === "DELETE FROM content WHERE sha256=? AND NOT EXISTS (SELECT 1 FROM entry WHERE blob_sha256=?)") {
       const run = statement.run.bind(statement);
       statement.run = (...args) => {
         const result = run(...args);
@@ -151,7 +151,7 @@ test("pin admission and ACK-window pruning do not scan retained manifest entries
     t.diagnostic(
       JSON.stringify({ samples, coldActivationMs, reopenedPinMs, coldManifestScans, hotManifestScans: scans }),
     );
-    assert.equal(coldManifestScans, 1, "reopen seeds one manifest and replays the sparse change chain");
+    assert.equal(coldManifestScans, 0, "reopen uses the durable retention totals without scanning manifests");
     assert.equal(scans, 0, "quota reads must use maintained bytes, not re-scan manifest entries");
   } finally {
     source.close();

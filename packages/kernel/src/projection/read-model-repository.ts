@@ -1,3 +1,4 @@
+import { selectReadModelRows, type ReadModelSelection } from "./read-model-selection.ts";
 import { CI_OBSERVATION_WINDOW_INDEX_SQL } from "./ci-observation-window-query.ts";
 import {
   privateRuntimeEventTypes,
@@ -63,7 +64,7 @@ export const REPOSITORY_READ_TABLES_SQL = `
 `;
 
 const prefix = ".read-model/repository/";
-const tables = [
+export const repositoryReadModelTables = [
   {
     name: "artifact_entity_state",
     keys: ["entity_kind", "entity_id"],
@@ -122,7 +123,7 @@ const tables = [
 ] as const;
 
 export interface RepositoryReadModelRow {
-  readonly table: (typeof tables)[number]["name"];
+  readonly table: (typeof repositoryReadModelTables)[number]["name"];
   readonly values: Readonly<Record<string, string | number | null>>;
 }
 
@@ -134,29 +135,38 @@ export function createRepositoryReadModelTables(db: DatabaseSync): void {
 }
 
 /** Re-iterable within the caller's snapshot; only the current SQL row is materialized. */
-export function readRepositoryReadModelRows(db: DatabaseSync): Iterable<RepositoryReadModelRow> {
+export function readRepositoryReadModelRows(
+  db: DatabaseSync,
+  selection?: ReadModelSelection,
+): Iterable<RepositoryReadModelRow> {
   return {
     *[Symbol.iterator]() {
-      for (const table of tables)
+      for (const table of repositoryReadModelTables) {
+        if (selection && (!selection.has(table.name) || selection.get(table.name) === "0")) continue;
         for (const values of db
           .prepare(
-            `SELECT ${table.columns.join(", ")} FROM ${table.name} ${"where" in table ? table.where : ""} ORDER BY ${table.keys.join(", ")}`,
+            selectReadModelRows(
+              `SELECT ${table.columns.join(", ")} FROM ${table.name} ${"where" in table ? table.where : ""} ORDER BY ${table.keys.join(", ")}`,
+              table.name,
+              selection,
+            ),
           )
           .iterate())
           yield { table: table.name, values: publicRow(table.name, values as RepositoryReadModelRow["values"]) };
+      }
     },
   };
 }
 
 export function repositoryReadModelPath(row: RepositoryReadModelRow): string {
-  const table = tables.find(({ name }) => name === row.table)!;
+  const table = repositoryReadModelTables.find(({ name }) => name === row.table)!;
   const key = Buffer.from(JSON.stringify(table.keys.map((column) => row.values[column]))).toString("base64url");
   return `${prefix}${table.name}/${key}.json`;
 }
 
 export function applyRepositoryReadModelRow(db: DatabaseSync, entryPath: string, row: RepositoryReadModelRow): boolean {
   if (!entryPath.startsWith(prefix)) return false;
-  const table = tables.find(({ name }) => name === row.table);
+  const table = repositoryReadModelTables.find(({ name }) => name === row.table);
   if (!table || repositoryReadModelPath(row) !== entryPath)
     throw new Error("repository read model row key is incompatible");
   db.prepare(
@@ -168,7 +178,7 @@ export function applyRepositoryReadModelRow(db: DatabaseSync, entryPath: string,
 export function deleteRepositoryReadModelRow(db: DatabaseSync, entryPath: string): boolean {
   if (!entryPath.startsWith(prefix)) return false;
   const [name, key] = entryPath.slice(prefix.length, -".json".length).split("/");
-  const table = tables.find((table) => table.name === name);
+  const table = repositoryReadModelTables.find((table) => table.name === name);
   if (!table || !key) throw new Error("repository read model row key is incompatible");
   const values = JSON.parse(Buffer.from(key, "base64url").toString("utf8")) as SQLInputValue[];
   if (values.length !== table.keys.length) throw new Error("repository read model row key is incompatible");

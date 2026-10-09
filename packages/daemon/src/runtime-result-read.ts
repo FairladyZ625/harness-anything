@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { edgeManifestBlob } from "./fleet/replica-read-model.ts";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { sha256Bytes, sha256Text, type CanonicalEventStore } from "@harness-anything/kernel";
 
@@ -53,7 +54,7 @@ export function readEdgeRuntimeResultBytes(
 
 /** Only objects in the already-authorized immutable view may be read; sharing the CAS grants no authority. */
 export function readEdgeViewBlob(viewRoot: string, view: FleetMirrorView, sha256: string): Uint8Array {
-  const entry = [...view.entries.values()].find((candidate) => candidate.sha256 === sha256);
+  const entry = edgeManifestBlob(view.viewDir, view, sha256);
   if (!entry)
     throw Object.assign(new Error("Content is not present in the authorized replica cut."), {
       code: "replica_unavailable",

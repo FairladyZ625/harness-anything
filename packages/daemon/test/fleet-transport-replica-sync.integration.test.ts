@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { edgeManifestEntries } from "../src/fleet/replica-read-model.ts";
+import { locateFleetMirrorView, fleetMirrorCutFile } from "../src/fleet-edge-mirror.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -373,20 +375,19 @@ function edgeCurrent(edgeRoot: string, subject: FleetTestSubject): FleetCut {
   ).cut;
 }
 function edgeCutFile(edgeRoot: string, subject: FleetTestSubject, revision: number, docPath: string): string {
-  return readFileSync(
-    path.join(
-      edgeRoot,
-      "repos",
-      subject.repoId,
-      "views",
-      subject.viewId,
-      "cuts",
-      `${revision}-g${READ_MODEL_SCHEMA_GENERATION}`,
-      "files",
-      docPath,
-    ),
-    "utf8",
-  );
+  const view = locateFleetMirrorView(edgeRoot, subject.repoId, subject.viewId)!;
+  return fleetMirrorCutFile(
+    {
+      ...view,
+      revision,
+      entries: edgeManifestEntries(view.viewDir, {
+        revision,
+        schemaGeneration: view.schemaGeneration,
+        headDigest: view.headDigest,
+      })!,
+    },
+    docPath,
+  )!.toString("utf8");
 }
 test("multi-path subject produces a complete first snapshot and a scoped delta", { timeout: 30_000 }, async (t) => {
   const paths = ["tasks/task-fleet-fleet/a.md", "tasks/task-fleet-fleet/b.md"],
@@ -410,23 +411,7 @@ test("multi-path subject produces a complete first snapshot and a scoped delta",
   assert.equal(first.replica.schema, "fleet.ack.result/v1");
   assert.ok(firstSchemas.includes("fleet.delta.begin/v1"));
   for (const [index, itemPath] of paths.entries())
-    assert.equal(
-      readFileSync(
-        path.join(
-          edgeRoot,
-          "repos",
-          fixture.subject.repoId,
-          "views",
-          fixture.subject.viewId,
-          "cuts",
-          `${first.center.revision}-g${READ_MODEL_SCHEMA_GENERATION}`,
-          "files",
-          itemPath,
-        ),
-        "utf8",
-      ),
-      firstBodies[index],
-    );
+    assert.equal(edgeCutFile(edgeRoot, fixture.subject, first.center.revision!, itemPath), firstBodies[index]);
   const base = await ledgerBase(fixture),
     secondSchemas: string[] = [],
     nextBody = `${firstBodies[1]}Second.\n`,

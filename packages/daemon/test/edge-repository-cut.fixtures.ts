@@ -1,3 +1,4 @@
+import { replicaModelFixtureSnapshot } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,11 +11,10 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
+import { openReplicaCutSource } from "./replica-sequence.fixture.ts";
 import { makeOffer, offerFrames } from "../src/fleet/center-replica-offer.ts";
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
-import { centerEdgeReadModel } from "../src/fleet/replica-read-model.ts";
 import type { ReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 
 /** Seed completed projection rows; publication, frames, CAS, receiver and queries are production paths. */
@@ -58,7 +58,7 @@ export function repositoryCutFixture(t: TestContext) {
       documents: [],
     }),
     readContentBlob: (sha: string) => contents.get(sha) ?? null,
-    readEdgeReadModel: (read) => centerEdgeReadModel(center, read),
+    snapshotEntries: () => replicaModelFixtureSnapshot(db, head()),
   });
   const viewRoot = path.join(root, "edge"),
     receiver = openFleetEdgeView(viewRoot, 64 * 1024 * 1024);
@@ -76,6 +76,7 @@ export function repositoryCutFixture(t: TestContext) {
     center,
     source,
     viewRoot,
+    current: () => receiver.current("families", "edge"),
     next: async (count = 1) => {
       revision += count;
       seal();

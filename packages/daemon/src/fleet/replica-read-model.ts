@@ -1,10 +1,11 @@
 import { readReplicaHealth, recordReplicaHealth, replicaFailure } from "./replica-health.ts";
-import type { FleetCut } from "./contract.ts";
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import type { FleetCut, FleetEntry, FleetDeltaChange } from "./contract.ts";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   consumeKnownError,
+  updateReplicaManifestDigest,
   applyEdgeReadModelEntry,
   canonicalJson,
   classifyTextualArtifactPath,
@@ -12,56 +13,22 @@ import {
   docByteLength,
   deleteEdgeReadModelEntry,
   DOC_POLICY_ID,
-  INITIAL_SETTINGS_V1,
   isReadModelPath,
   parseEdgeReadModelMeta,
   RAW_ARTIFACT_MEDIA_TYPE,
   RAW_ARTIFACT_POLICY_ID,
   READ_MODEL_META_PATH,
-  repositorySettings,
-  SETTINGS_ID,
   sha256Bytes,
   type DocumentState,
   type EdgeReadModelMeta,
-  type EdgeReadModelRows,
-  type RepositorySettingsV1,
-  type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { writeFileDurably } from "../durable-file.ts";
 import type { FleetMirrorView } from "../fleet-edge-mirror.ts";
-import { resolveTaskRootThreshold } from "../task-wip-settings.ts";
 
 /** The edge view's materialized read model and its last center head confirmation, beside current.json. */
 const READ_MODEL_FILE = "read-model.sqlite";
 const HEAD_CONFIRMATION_FILE = "head-confirmation.json";
 const READ_DENIED_FILE = "read-denied.json";
-
-/** The center side: what one cut publishes for the edge read model. */
-export function centerEdgeReadModel<T>(
-  projection: TaskProjectionQueries,
-  consume: (
-    model: {
-      readonly sourceRevision: number;
-      readonly rootThreshold: number;
-      readonly rows: EdgeReadModelRows;
-    } | null,
-  ) => T,
-): T {
-  return projection.readEdgeReadModel((read) => {
-    if (read.status !== "ready") return consume(null);
-    const projected = read.rows.entities.find(
-      (row) => row.entityKind === "settings" && row.entityId === SETTINGS_ID,
-    )?.valueJson;
-    const settings = repositorySettings(
-      projected === undefined ? INITIAL_SETTINGS_V1 : (JSON.parse(projected) as RepositorySettingsV1),
-    );
-    return consume({
-      sourceRevision: read.sourceRevision,
-      rootThreshold: resolveTaskRootThreshold({ tasks: settings.tasks }).threshold,
-      rows: read.rows,
-    });
-  });
-}
 
 export interface HeadConfirmation {
   readonly headRevision: number;
@@ -194,20 +161,30 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string, meta:
     createEdgeReadModelTables(db);
     db.exec(
       `CREATE TABLE IF NOT EXISTS read_model_row (entry_path TEXT PRIMARY KEY, blob_sha256 TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS read_model_cut (id INTEGER PRIMARY KEY CHECK(id = 1), manifest_digest TEXT NOT NULL);`,
+      CREATE TABLE IF NOT EXISTS read_model_cut (id INTEGER PRIMARY KEY CHECK(id = 1), manifest_digest TEXT NOT NULL, revision INTEGER NOT NULL, generation INTEGER NOT NULL);`,
     );
-    const synced = db.prepare("SELECT manifest_digest FROM read_model_cut WHERE id = 1").get() as
-      | { readonly manifest_digest: string }
+    const synced = db.prepare("SELECT * FROM read_model_cut WHERE id = 1").get() as
+      | { readonly manifest_digest: string; readonly revision: number; readonly generation: number }
       | undefined;
     if (synced?.manifest_digest !== view.manifestDigest) {
-      const loaded = new Map(
-        (
-          db.prepare("SELECT entry_path, blob_sha256 FROM read_model_row").all() as unknown as readonly {
-            readonly entry_path: string;
-            readonly blob_sha256: string;
-          }[]
-        ).map((row) => [row.entry_path, row.blob_sha256]),
-      );
+      const changed = synced
+        ? edgeChangedPaths(
+            view.viewDir,
+            { revision: synced.revision, schemaGeneration: synced.generation },
+            { revision: view.revision, schemaGeneration: view.schemaGeneration, headDigest: view.headDigest },
+          )
+        : null;
+      const full = changed === null ? new Map(view.entries) : null;
+      const paths = changed ?? [
+        ...new Set([
+          ...full!.keys(),
+          ...db
+            .prepare("SELECT entry_path FROM read_model_row")
+            .all()
+            .map((row) => String(row.entry_path)),
+        ]),
+      ];
+      const loaded = db.prepare("SELECT blob_sha256 FROM read_model_row WHERE entry_path=?");
       const upsertRow = db.prepare("INSERT OR REPLACE INTO read_model_row(entry_path, blob_sha256) VALUES (?, ?)"),
         forgetRow = db.prepare("DELETE FROM read_model_row WHERE entry_path = ?"),
         upsertDocument = db.prepare(
@@ -216,9 +193,11 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string, meta:
         forgetDocument = db.prepare("DELETE FROM document WHERE path = ?");
       db.exec("BEGIN IMMEDIATE");
       try {
-        for (const [entryPath, entry] of view.entries)
-          if (entryPath !== READ_MODEL_META_PATH) {
-            if (loaded.get(entryPath) === entry.sha256) continue;
+        for (const entryPath of paths) {
+          if (entryPath === READ_MODEL_META_PATH) continue;
+          const entry = (full ?? view.entries).get(entryPath);
+          if (entry) {
+            if (loaded.get(entryPath)?.blob_sha256 === entry.sha256) continue;
             if (
               entryPath.startsWith(".read-model/runtime-results/") ||
               entryPath.startsWith(".read-model/runtime-results-unavailable/") ||
@@ -251,9 +230,7 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string, meta:
               upsertDocument.run(entryPath, view.revision, canonicalJson(state));
             }
             upsertRow.run(entryPath, entry.sha256);
-          }
-        for (const entryPath of loaded.keys())
-          if (!view.entries.has(entryPath)) {
+          } else {
             if (
               entryPath.startsWith(".read-model/runtime-results/") ||
               entryPath.startsWith(".read-model/runtime-results-unavailable/") ||
@@ -264,7 +241,12 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string, meta:
             else forgetDocument.run(entryPath);
             forgetRow.run(entryPath);
           }
-        db.prepare("INSERT OR REPLACE INTO read_model_cut(id, manifest_digest) VALUES (1, ?)").run(view.manifestDigest);
+        }
+        db.prepare("INSERT OR REPLACE INTO read_model_cut VALUES (1, ?, ?, ?)").run(
+          view.manifestDigest,
+          view.revision,
+          view.schemaGeneration,
+        );
         db.exec("COMMIT");
       } catch (error) {
         db.exec("ROLLBACK");
@@ -291,4 +273,321 @@ export function recordNodeReadDenied(viewRoot: string, repoId: string, nodeId: s
   if (!existsSync(views)) return;
   for (const view of readdirSync(views, { withFileTypes: true }))
     if (view.isDirectory() && view.name === nodeId) recordReadDenied(path.join(views, view.name));
+}
+
+export interface EdgeManifestHeader {
+  readonly cut: FleetCut;
+  readonly schemaGeneration: number;
+  readonly manifestDigest: string;
+}
+
+/** One durable sparse index per repository, shared by its independently published views. */
+export function withEdgeManifest<T>(viewDir: string, read: (db: DatabaseSync, viewId: string) => T): T {
+  return withEdgeRepository(path.dirname(path.dirname(viewDir)), (db) => read(db, path.basename(viewDir)));
+}
+
+function withEdgeRepository<T>(repo: string, read: (db: DatabaseSync) => T): T {
+  mkdirSync(repo, { recursive: true });
+  const db = new DatabaseSync(path.join(repo, "manifests.sqlite"));
+  try {
+    db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+      CREATE TABLE IF NOT EXISTS edge_cut (view_id TEXT NOT NULL, revision INTEGER NOT NULL, generation INTEGER NOT NULL,
+        root_revision INTEGER NOT NULL, header TEXT NOT NULL, PRIMARY KEY(view_id,revision,generation));
+      CREATE TABLE IF NOT EXISTS edge_entry (view_id TEXT NOT NULL, path TEXT NOT NULL, revision INTEGER NOT NULL,
+        generation INTEGER NOT NULL, end_revision INTEGER, blob_json TEXT, sha256 TEXT,
+        PRIMARY KEY(view_id,path,revision,generation));
+      CREATE INDEX IF NOT EXISTS edge_entry_revision ON edge_entry(view_id,generation,revision);
+      CREATE INDEX IF NOT EXISTS edge_entry_end ON edge_entry(view_id,generation,end_revision);
+      CREATE INDEX IF NOT EXISTS edge_entry_blob ON edge_entry(sha256);
+      CREATE TABLE IF NOT EXISTS edge_content (sha256 TEXT PRIMARY KEY, size INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS edge_content_usage (id INTEGER PRIMARY KEY CHECK(id=1), bytes INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS edge_orphan (sha256 TEXT PRIMARY KEY);
+      CREATE TRIGGER IF NOT EXISTS edge_content_added AFTER INSERT ON edge_content BEGIN
+        UPDATE edge_content_usage SET bytes=bytes+NEW.size WHERE id=1;
+        INSERT OR IGNORE INTO edge_orphan SELECT NEW.sha256 WHERE NOT EXISTS
+          (SELECT 1 FROM edge_entry WHERE sha256=NEW.sha256);
+      END;
+      CREATE TRIGGER IF NOT EXISTS edge_content_removed AFTER DELETE ON edge_content
+        BEGIN UPDATE edge_content_usage SET bytes=bytes-OLD.size WHERE id=1; END;
+      CREATE TRIGGER IF NOT EXISTS edge_content_adopt AFTER INSERT ON edge_entry
+        WHEN NEW.sha256 IS NOT NULL BEGIN DELETE FROM edge_orphan WHERE sha256=NEW.sha256; END;
+      CREATE TABLE IF NOT EXISTS materialized_cut (view_id TEXT PRIMARY KEY, revision INTEGER NOT NULL,
+        generation INTEGER NOT NULL, manifest_digest TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS materialized_base (view_id TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT,
+        dirty INTEGER NOT NULL, PRIMARY KEY(view_id,path));
+      CREATE INDEX IF NOT EXISTS materialized_dirty ON materialized_base(view_id,dirty);`);
+    if (!db.prepare("SELECT 1 FROM edge_content_usage WHERE id=1").get()) {
+      // One inventory when creating the index, including CAS left by an older cache generation.
+      // Thereafter rename/delete owners maintain the counter; reopening never recounts the CAS.
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        db.prepare("INSERT INTO edge_content_usage VALUES (1,0)").run();
+        const cas = path.join(repo, "cas", "sha256");
+        if (existsSync(cas))
+          for (const prefix of readdirSync(cas))
+            for (const sha of readdirSync(path.join(cas, prefix))) {
+              db.prepare("INSERT INTO edge_content VALUES (?,?)").run(sha, statSync(path.join(cas, prefix, sha)).size);
+            }
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    }
+    return read(db);
+  } finally {
+    db.close();
+  }
+}
+
+function cutRoot(db: DatabaseSync, viewId: string, cut: FleetCut): number | null {
+  const row = db
+    .prepare("SELECT root_revision FROM edge_cut WHERE view_id=? AND revision=? AND generation=?")
+    .get(viewId, cut.revision, cut.schemaGeneration);
+  return row ? Number(row.root_revision) : null;
+}
+function entryAt(db: DatabaseSync, viewId: string, cut: FleetCut, root: number, entryPath: string): FleetEntry | null {
+  const row = db
+    .prepare(
+      `SELECT blob_json FROM edge_entry WHERE view_id=? AND path=? AND generation=?
+    AND revision>=? AND revision<=? ORDER BY revision DESC LIMIT 1`,
+    )
+    .get(viewId, entryPath, cut.schemaGeneration, root, cut.revision);
+  return row?.blob_json ? { path: entryPath, blob: JSON.parse(String(row.blob_json)) as FleetEntry["blob"] } : null;
+}
+
+/** Transport validation and all entry replacements commit before the current pointer is published. */
+export function commitEdgeManifest(
+  viewDir: string,
+  header: EdgeManifestHeader,
+  from: FleetCut | null,
+  changes: readonly FleetDeltaChange[],
+): void {
+  withEdgeManifest(viewDir, (db, viewId) => {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const retained = db
+        .prepare("SELECT header FROM edge_cut WHERE view_id=? AND revision=? AND generation=?")
+        .get(viewId, header.cut.revision, header.schemaGeneration);
+      if (retained) {
+        if (String(retained.header) !== JSON.stringify(header)) throw new Error("immutable snapshot identity conflict");
+        db.exec("COMMIT");
+        return;
+      }
+      const root = from ? cutRoot(db, viewId, from) : header.cut.revision;
+      if (root === null) throw new Error("snapshot_required: current manifest missing");
+      let digest = "0".repeat(64);
+      if (from) {
+        const prior = db
+          .prepare("SELECT header FROM edge_cut WHERE view_id=? AND revision=? AND generation=?")
+          .get(viewId, from.revision, from.schemaGeneration)!;
+        digest = (JSON.parse(String(prior.header)) as EdgeManifestHeader).manifestDigest;
+      } else {
+        db.prepare(
+          "UPDATE edge_entry SET end_revision=? WHERE view_id=? AND generation=? AND end_revision IS NULL",
+        ).run(header.cut.revision, viewId, header.schemaGeneration);
+      }
+      const seen = new Set<string>();
+      for (const change of changes) {
+        // A repeated wire path would otherwise cancel its XOR contribution and make the
+        // declared state ambiguous. The center writer cannot validate received wire bytes.
+        if (seen.has(change.path)) throw new Error("duplicate manifest path");
+        seen.add(change.path);
+        const before = from ? entryAt(db, viewId, from, root, change.path) : null;
+        if (before) digest = updateReplicaManifestDigest(digest, before);
+        if (change.op === "put") digest = updateReplicaManifestDigest(digest, { path: change.path, blob: change.blob });
+        db.prepare(
+          `UPDATE edge_entry SET end_revision=? WHERE view_id=? AND path=? AND generation=? AND end_revision IS NULL`,
+        ).run(header.cut.revision, viewId, change.path, header.schemaGeneration);
+        db.prepare("INSERT INTO edge_entry VALUES (?,?,?,?,NULL,?,?)").run(
+          viewId,
+          change.path,
+          header.cut.revision,
+          header.schemaGeneration,
+          change.op === "put" ? JSON.stringify(change.blob) : null,
+          change.op === "put" ? change.blob.sha256 : null,
+        );
+      }
+      if (digest !== header.manifestDigest) throw new Error("result manifest mismatch");
+      db.prepare("INSERT INTO edge_cut VALUES (?,?,?,?,?)").run(
+        viewId,
+        header.cut.revision,
+        header.schemaGeneration,
+        root,
+        JSON.stringify(header),
+      );
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+export function readEdgeManifestHeader(file: string): EdgeManifestHeader {
+  return JSON.parse(readFileSync(file, "utf8")) as EdgeManifestHeader;
+}
+export function readEdgeManifestEntries(file: string): FleetEntry[] {
+  const header = readEdgeManifestHeader(file),
+    viewDir = path.dirname(path.dirname(path.dirname(file)));
+  return readEntriesAt(viewDir, header.cut);
+}
+function readEntriesAt(viewDir: string, cut: FleetCut): FleetEntry[] {
+  return withEdgeManifest(viewDir, (db, viewId) => {
+    const root = cutRoot(db, viewId, cut);
+    if (root === null) throw new Error("snapshot_required: manifest is not retained");
+    return db
+      .prepare(
+        `SELECT path,blob_json FROM edge_entry WHERE view_id=? AND generation=? AND revision>=?
+      AND revision<=? AND (end_revision IS NULL OR end_revision>?) AND blob_json IS NOT NULL ORDER BY path`,
+      )
+      .all(viewId, cut.schemaGeneration, root, cut.revision, cut.revision)
+      .map((row) => ({ path: String(row.path), blob: JSON.parse(String(row.blob_json)) as FleetEntry["blob"] }));
+  });
+}
+
+/** Path lookups stay indexed; only callers explicitly enumerating the complete state load all rows. */
+export function edgeManifestEntries(viewDir: string, cut: FleetCut): ReadonlyMap<string, FleetEntry["blob"]> | null {
+  const file = path.join(viewDir, "cuts", `${cut.revision}-g${cut.schemaGeneration}`, "manifest.json");
+  if (!existsSync(file)) return null;
+  const all = () => new Map(readEntriesAt(viewDir, cut).map((entry) => [entry.path, entry.blob]));
+  const get = (key: string) =>
+    withEdgeManifest(viewDir, (db, viewId) => {
+      const root = cutRoot(db, viewId, cut);
+      return root === null ? undefined : entryAt(db, viewId, cut, root, key)?.blob;
+    });
+  return {
+    get,
+    has: (key) => get(key) !== undefined,
+    get size() {
+      return all().size;
+    },
+    entries: () => all().entries(),
+    keys: () => all().keys(),
+    values: () => all().values(),
+    [Symbol.iterator]: () => all()[Symbol.iterator](),
+    forEach: (callback, thisArg) => all().forEach(callback, thisArg),
+  };
+}
+
+/** Null requires a full rebuild: the consumer's base is outside the retained local sequence. */
+export function edgeChangedPaths(
+  viewDir: string,
+  from: { revision: number; schemaGeneration: number },
+  to: FleetCut,
+): string[] | null {
+  if (from.revision === to.revision && from.schemaGeneration === to.schemaGeneration) return [];
+  if (from.schemaGeneration !== to.schemaGeneration) return null;
+  return withEdgeManifest(viewDir, (db, viewId) => {
+    const root = cutRoot(db, viewId, to),
+      priorRoot = cutRoot(db, viewId, { ...to, ...from });
+    if (root === null || priorRoot !== root) return null;
+    return db
+      .prepare(`SELECT DISTINCT path FROM edge_entry WHERE view_id=? AND generation=? AND revision>? AND revision<=?`)
+      .all(viewId, to.schemaGeneration, from.revision, to.revision)
+      .map((row) => String(row.path));
+  });
+}
+
+/** Pruning visits retired versions, then tests only their blobs against the shared index. */
+export function pruneEdgeManifests(viewDir: string): string[] {
+  return withEdgeManifest(viewDir, (db, viewId) => {
+    const keep = db
+      .prepare(
+        "SELECT revision,generation FROM edge_cut WHERE view_id=? ORDER BY revision DESC,generation DESC LIMIT 64",
+      )
+      .all(viewId);
+    if (keep.length < 64)
+      return db
+        .prepare("SELECT sha256 FROM edge_orphan")
+        .all()
+        .map((row) => String(row.sha256));
+    const oldest = Number(keep.at(-1)!.revision),
+      generation = Number(keep.at(-1)!.generation);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const retired = [
+        ...db
+          .prepare("DELETE FROM edge_entry WHERE view_id=? AND generation<? RETURNING sha256")
+          .all(viewId, generation),
+        ...db
+          .prepare("DELETE FROM edge_entry WHERE view_id=? AND generation=? AND end_revision<=? RETURNING sha256")
+          .all(viewId, generation, oldest),
+      ];
+      db.prepare("DELETE FROM edge_entry WHERE view_id=? AND generation=? AND revision<? AND blob_json IS NULL").run(
+        viewId,
+        generation,
+        oldest,
+      );
+      db.prepare("DELETE FROM edge_cut WHERE view_id=? AND (revision<? OR (revision=? AND generation<?))").run(
+        viewId,
+        oldest,
+        oldest,
+        generation,
+      );
+      const released = [...new Set(retired.filter((row) => row.sha256 !== null).map((row) => String(row.sha256)))];
+      for (const sha of released)
+        if (!db.prepare("SELECT 1 FROM edge_entry WHERE sha256=? LIMIT 1").get(sha))
+          db.prepare("INSERT OR IGNORE INTO edge_orphan VALUES (?)").run(sha);
+      db.exec("COMMIT");
+      return db
+        .prepare("SELECT sha256 FROM edge_orphan")
+        .all()
+        .map((row) => String(row.sha256));
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+/** Indexed package lookup: a task operation does not enumerate other tasks' documents. */
+export function edgeManifestPaths(viewDir: string, cut: FleetCut, prefix: string): string[] {
+  return withEdgeManifest(viewDir, (db, viewId) => {
+    const root = cutRoot(db, viewId, cut);
+    if (root === null) return [];
+    return db
+      .prepare(
+        `SELECT path FROM edge_entry WHERE view_id=? AND path>=? AND path<? AND generation=?
+      AND revision>=? AND revision<=? AND (end_revision IS NULL OR end_revision>?) AND blob_json IS NOT NULL`,
+      )
+      .all(viewId, prefix, `${prefix}\u{10ffff}`, cut.schemaGeneration, root, cut.revision, cut.revision)
+      .map((row) => String(row.path));
+  });
+}
+
+/** A shared CAS object is readable only when this view's retained cut names it. */
+export function edgeManifestBlob(viewDir: string, cut: FleetCut, sha256: string): FleetEntry["blob"] | null {
+  return withEdgeManifest(viewDir, (db, viewId) => {
+    const root = cutRoot(db, viewId, cut);
+    if (root === null) return null;
+    const row = db
+      .prepare(
+        `SELECT blob_json FROM edge_entry WHERE sha256=? AND view_id=? AND generation=?
+      AND revision>=? AND revision<=? AND (end_revision IS NULL OR end_revision>?) LIMIT 1`,
+      )
+      .get(sha256, viewId, cut.schemaGeneration, root, cut.revision, cut.revision);
+    return row ? (JSON.parse(String(row.blob_json)) as FleetEntry["blob"]) : null;
+  });
+}
+
+/** Verified content can outlive an interrupted transfer before any entry adopts it. */
+export function edgeContentBytes(repo: string): number {
+  return withEdgeRepository(repo, (db) =>
+    Number(db.prepare("SELECT bytes FROM edge_content_usage WHERE id=1").get()!.bytes),
+  );
+}
+
+export function markEdgeContent(viewDir: string, sha: string, size: number): void {
+  withEdgeManifest(viewDir, (db) => {
+    // Reserve before the CAS rename. A crash can overcount an orphan until collection,
+    // but can never hide durable content from the quota on restart.
+    db.prepare("INSERT OR IGNORE INTO edge_content VALUES (?,?)").run(sha, size);
+  });
+}
+export function forgetEdgeContent(viewDir: string, sha: string): void {
+  withEdgeManifest(viewDir, (db) => {
+    db.prepare("DELETE FROM edge_content WHERE sha256=?").run(sha);
+    db.prepare("DELETE FROM edge_orphan WHERE sha256=?").run(sha);
+  });
 }

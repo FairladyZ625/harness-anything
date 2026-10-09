@@ -11,6 +11,7 @@ import { createDecisionProjectionTables } from "./decision-projection-schema.ts"
 import { createFactProjectionTables } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { createTaskRelationProjectionTable, refreshTaskRelationProjection } from "./task-query-projection.ts";
+import { selectReadModelRows, type ReadModelSelection } from "./read-model-selection.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 
 /**
@@ -20,7 +21,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
  * from the same DDL so the center's own queries run unchanged on the edge. Documents are not
  * published here: they already ride the cut as ledger content entries.
  */
-export const READ_MODEL_SCHEMA_GENERATION = 6 as const;
+export const READ_MODEL_SCHEMA_GENERATION = 8 as const;
 export const READ_MODEL_META_PATH = ".read-model/meta.json";
 export const TASK_READ_MODEL_PREFIX = ".read-model/tasks/";
 const TASK_GENERATION_PREFIX = ".read-model/task-generation/";
@@ -286,11 +287,16 @@ function decodeEntityKeySegment(value: string): string {
   return decoded;
 }
 
-export function readTaskReadModelRows(db: DatabaseSync): readonly TaskReadModelRow[] {
+export function readTaskReadModelRows(db: DatabaseSync, selection?: ReadModelSelection): readonly TaskReadModelRow[] {
+  if (selection && (!selection.has("task_snapshot") || selection.get("task_snapshot") === "0")) return [];
   return (
     db
       .prepare(
-        "SELECT task_snapshot.task_id, workspace_revision, snapshot_json, status, updated_at, package_path FROM task_snapshot LEFT JOIN task_package USING(task_id) ORDER BY task_snapshot.task_id",
+        selectReadModelRows(
+          "SELECT task_snapshot.task_id, workspace_revision, snapshot_json, status, updated_at, package_path FROM task_snapshot LEFT JOIN task_package USING(task_id) ORDER BY task_snapshot.task_id",
+          "task_snapshot",
+          selection,
+        ),
       )
       .all() as readonly Record<string, unknown>[]
   ).map((row) => ({
@@ -310,11 +316,15 @@ const nullableText = (row: SqlRow, key: string): string | null => (row[key] === 
 const integral = (row: SqlRow, key: string): number => Number(row[key]);
 
 /** Reads every replicated table from the center projection at one completed revision. */
-export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
+export function readEdgeReadModelRows(db: DatabaseSync, selection?: ReadModelSelection): EdgeReadModelRows {
+  const selected = (sql: string, table: string) =>
+    selection && (!selection.has(table) || selection.get(table) === "0")
+      ? []
+      : all(db, selectReadModelRows(sql, table, selection));
   const progress = new Map<string, TaskProgressEntry[]>();
-  for (const row of all(
-    db,
+  for (const row of selected(
     "SELECT task_id, workspace_revision, execution_id, event_json FROM task_progress ORDER BY task_id, workspace_revision",
+    "task_progress",
   )) {
     const taskId = text(row, "task_id");
     (progress.get(taskId) ?? progress.set(taskId, []).get(taskId)!).push({
@@ -350,10 +360,11 @@ export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
         reviewEvents: [],
       })
       .get(decisionId)!;
-  for (const row of all(db, "SELECT decision_id FROM decision ORDER BY decision_id")) bundle(text(row, "decision_id"));
-  for (const row of all(
-    db,
+  for (const row of selected("SELECT decision_id FROM decision ORDER BY decision_id", "decision"))
+    bundle(text(row, "decision_id"));
+  for (const row of selected(
     "SELECT decision_id, state, title, question, risk_tier, urgency, vertical, preset, decision_class, applies_json, proposer_json, arbiter_json, proposed_at, decided_at, provenance_json, workspace_revision FROM decision ORDER BY decision_id",
+    "decision",
   ))
     bundle(text(row, "decision_id")).decision = {
       state: text(row, "state"),
@@ -372,9 +383,9 @@ export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
       provenanceJson: text(row, "provenance_json"),
       workspaceRevision: integral(row, "workspace_revision"),
     };
-  for (const row of all(
-    db,
+  for (const row of selected(
     "SELECT decision_id, kind, option_id, position, text, rationale, workspace_revision FROM decision_option ORDER BY decision_id, kind, position, option_id",
+    "decision_option",
   ))
     bundle(text(row, "decision_id")).options.push({
       kind: text(row, "kind"),
@@ -384,9 +395,9 @@ export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
       rationale: nullableText(row, "rationale"),
       workspaceRevision: integral(row, "workspace_revision"),
     });
-  for (const row of all(
-    db,
+  for (const row of selected(
     "SELECT decision_id, claim_id, position, text, load_bearing, fulfillment, declared_revision, fulfilled_revision FROM decision_claim ORDER BY decision_id, position, claim_id",
+    "decision_claim",
   ))
     bundle(text(row, "decision_id")).claims.push({
       claimId: text(row, "claim_id"),
@@ -397,36 +408,36 @@ export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
       declaredRevision: integral(row, "declared_revision"),
       fulfilledRevision: row.fulfilled_revision === null ? null : Number(row.fulfilled_revision),
     });
-  for (const row of all(
-    db,
+  for (const row of selected(
     "SELECT consent_id, decision_id, workspace_revision, value_json FROM decision_judgment_consent ORDER BY decision_id, workspace_revision",
+    "decision_judgment_consent",
   ))
     bundle(text(row, "decision_id")).consents.push({
       consentId: text(row, "consent_id"),
       workspaceRevision: integral(row, "workspace_revision"),
       valueJson: text(row, "value_json"),
     });
-  for (const row of all(
-    db,
+  for (const row of selected(
     "SELECT amendment_id, decision_id, workspace_revision, value_json FROM decision_amendment ORDER BY decision_id, workspace_revision",
+    "decision_amendment",
   ))
     bundle(text(row, "decision_id")).amendments.push({
       amendmentId: text(row, "amendment_id"),
       workspaceRevision: integral(row, "workspace_revision"),
       valueJson: text(row, "value_json"),
     });
-  for (const row of all(
-    db,
+  for (const row of selected(
     "SELECT pin_id, decision_id, workspace_revision, value_json FROM decision_content_pin ORDER BY decision_id, workspace_revision",
+    "decision_content_pin",
   ))
     bundle(text(row, "decision_id")).pins.push({
       pinId: text(row, "pin_id"),
       workspaceRevision: integral(row, "workspace_revision"),
       valueJson: text(row, "value_json"),
     });
-  for (const row of all(
-    db,
+  for (const row of selected(
     "SELECT event_id, decision_id, kind, workspace_revision, value_json FROM decision_review_event ORDER BY decision_id, workspace_revision",
+    "decision_review_event",
   ))
     bundle(text(row, "decision_id")).reviewEvents.push({
       eventId: text(row, "event_id"),
@@ -435,16 +446,18 @@ export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
       valueJson: text(row, "value_json"),
     });
   return {
-    repository: readRepositoryReadModelRows(db),
-    tasks: readTaskReadModelRows(db),
-    taskGeneration: all(db, "SELECT task_id, generation FROM task_generation ORDER BY task_id").map((row) => ({
-      taskId: text(row, "task_id"),
-      generation: text(row, "generation"),
-    })),
+    repository: readRepositoryReadModelRows(db, selection),
+    tasks: readTaskReadModelRows(db, selection),
+    taskGeneration: selected("SELECT task_id, generation FROM task_generation ORDER BY task_id", "task_generation").map(
+      (row) => ({
+        taskId: text(row, "task_id"),
+        generation: text(row, "generation"),
+      }),
+    ),
     taskProgress: [...progress].map(([taskId, entries]) => ({ taskId, entries })),
-    entities: all(
-      db,
+    entities: selected(
       "SELECT entity_kind, entity_id, task_id, workspace_revision, freshness, current_version, value_json FROM entity_projection ORDER BY entity_kind, entity_id, task_id",
+      "entity_projection",
     ).map((row) => ({
       entityKind: text(row, "entity_kind"),
       entityId: text(row, "entity_id"),
@@ -454,13 +467,13 @@ export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
       currentVersion: row.current_version === null ? null : Number(row.current_version),
       valueJson: text(row, "value_json"),
     })),
-    leases: all(db, "SELECT task_id, lease_json FROM lease_cas ORDER BY task_id").map((row) => ({
+    leases: selected("SELECT task_id, lease_json FROM lease_cas ORDER BY task_id", "lease_cas").map((row) => ({
       taskId: text(row, "task_id"),
       leaseJson: text(row, "lease_json"),
     })),
-    relations: all(
-      db,
+    relations: selected(
       "SELECT relation_id, source_ref, target_ref, relation_type, state, target_observed_version, owner_ref, workspace_revision, updated_at, row_json FROM relation_edge ORDER BY relation_id",
+      "relation_edge",
     ).map((row) => ({
       relationId: text(row, "relation_id"),
       sourceRef: text(row, "source_ref"),
@@ -475,9 +488,9 @@ export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
       rowJson: text(row, "row_json"),
     })),
     decisions: [...bundles.values()],
-    facts: all(
-      db,
+    facts: selected(
       "SELECT task_id, fact_id, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json FROM fact ORDER BY fact_id",
+      "fact",
     ).map((row) => ({
       taskId: text(row, "task_id"),
       factId: text(row, "fact_id"),
@@ -490,13 +503,14 @@ export function readEdgeReadModelRows(db: DatabaseSync): EdgeReadModelRows {
       workspaceRevision: integral(row, "workspace_revision"),
       rowJson: text(row, "row_json"),
     })),
-    presetSnapshots: all(db, "SELECT digest, workspace_revision, value_json FROM preset_snapshot ORDER BY digest").map(
-      (row) => ({
-        digest: text(row, "digest"),
-        workspaceRevision: integral(row, "workspace_revision"),
-        valueJson: text(row, "value_json"),
-      }),
-    ),
+    presetSnapshots: selected(
+      "SELECT digest, workspace_revision, value_json FROM preset_snapshot ORDER BY digest",
+      "preset_snapshot",
+    ).map((row) => ({
+      digest: text(row, "digest"),
+      workspaceRevision: integral(row, "workspace_revision"),
+      valueJson: text(row, "value_json"),
+    })),
   };
 }
 

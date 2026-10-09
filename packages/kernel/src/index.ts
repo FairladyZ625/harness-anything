@@ -276,14 +276,13 @@ export {
   applyEdgeReadModelEntry,
   createEdgeReadModelTables,
   deleteEdgeReadModelEntry,
-  edgeReadModelEntries,
   edgeReadAuthorizationShapeDigest,
   isReadModelPath,
   parseEdgeReadModelMeta,
   READ_MODEL_META_PATH,
   READ_MODEL_SCHEMA_GENERATION,
 } from "./projection/read-model.ts";
-export type { EdgeReadModelMeta, EdgeReadModelRows } from "./projection/read-model.ts";
+export type { EdgeReadModelMeta } from "./projection/read-model.ts";
 export { canonicalJson } from "./projection/rebuildable-task-projection-sql.ts";
 export { makeEdgeReplicaQueries, type EdgeReplicaQueries } from "./projection/edge-replica-queries.ts";
 export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
@@ -297,8 +296,6 @@ export {
   validateVerticalDeclarationRead,
 } from "./schemas/vertical-definition.ts";
 export {
-  canonicalDocumentClaims,
-  canonicalDocumentRetirements,
   canonicalEventCut,
   canonicalEventWritePlan,
   createLedgerBackup,
@@ -342,7 +339,6 @@ export type {
   MaterializationHealth,
   MaterializationState,
   ProjectionPage,
-  ReplicaProjectionBasis,
   TaskIndexProjectionRow,
   TaskProjection,
   TaskProjectionQueries,
@@ -401,3 +397,10 @@ export type { CanonicalEventSummary } from "./domain/canonical-event-summary.ts"
 export type { EventListQuery } from "./domain/event-list.ts";
 
 export { reduceArtifactEntityState, type ArtifactEntityState } from "./domain/artifact-entity-state.ts";
+
+export {
+  replicaManifestDigest,
+  updateReplicaManifestDigest,
+  type ReplicaSequenceRead,
+  type ReplicaRevision,
+} from "./projection/replica-sequence.ts";

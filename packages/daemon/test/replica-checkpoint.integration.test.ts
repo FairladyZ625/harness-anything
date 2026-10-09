@@ -1,12 +1,14 @@
 // harness-test-tier: integration
+import type { EdgeReadModelRows } from "../../kernel/test/store/replica-model.fixture.ts";
+import { type ReplicaProjectionBasis } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { READ_MODEL_META_PATH, type EdgeReadModelRows, type ReplicaProjectionBasis } from "@harness-anything/kernel";
+import { READ_MODEL_META_PATH } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
+import { openReplicaCutSource } from "./replica-sequence.fixture.ts";
 
 const rows: EdgeReadModelRows = {
   tasks: [],
@@ -90,7 +92,7 @@ test("zero-change checkpoint links distinguish a complete chain from a missing l
       path.join(root, "replica/repos/chain", `g${READ_MODEL_SCHEMA_GENERATION}`, "checkpoints.sqlite"),
     );
     try {
-      db.prepare("DELETE FROM checkpoint_link WHERE to_revision=72").run();
+      db.prepare("DELETE FROM link WHERE to_revision=72").run();
     } finally {
       db.close();
     }

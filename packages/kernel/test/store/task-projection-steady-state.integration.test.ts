@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { edgeReadModelEntries } from "../../src/projection/read-model.ts";
 import { canonicalEventWritePlan, type AgentRuntimeEventV1 } from "../../src/index.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -33,6 +34,100 @@ test("steady apply reads only the projection rows its event touches", async () =
     }
     assert.equal(projection.read("task-1").snapshot.task?.status, "done");
     projection.close();
+  });
+});
+test("replica sequence matches the independent full model after every lifecycle transaction and replay", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
+    const projection = makeTaskProjection({ rootDir, eventStore });
+    try {
+      const accumulated = new Map<
+        string,
+        { path: string; blob: { sha256: string; size: number; mediaType: string } }
+      >();
+      let from: number | null = null;
+      for (const event of lifecycleFixture().events) {
+        eventStore.append(taskBundle(event));
+        projection.apply(event);
+        const sequence = projection.readReplicaSequence(from)!;
+        assert.equal(sequence.to.revision, event.workspaceRevision);
+        for (const change of sequence.changes) {
+          if (change.op === "delete") accumulated.delete(change.path);
+          else
+            accumulated.set(change.path, {
+              path: change.path,
+              blob: change.blob ?? {
+                sha256: sha256Text(change.text!),
+                size: Buffer.byteLength(change.text!),
+                mediaType: "application/json",
+              },
+            });
+        }
+        const expected = projection.readEdgeReadModel((model) =>
+          [...edgeReadModelEntries({ sourceRevision: model.sourceRevision, rootThreshold: 3, rows: model.rows })].map(
+            (entry) => ({
+              path: entry.path,
+              blob: {
+                sha256: sha256Text(entry.text),
+                size: Buffer.byteLength(entry.text),
+                mediaType: "application/json",
+              },
+            }),
+          ),
+        );
+        assert.deepEqual(
+          [...accumulated.values()].sort((a, b) => a.path.localeCompare(b.path)),
+          expected.sort((a, b) => a.path.localeCompare(b.path)),
+        );
+        from = event.workspaceRevision;
+        assert.throws(
+          () =>
+            projection.readEdgeReadModel(() => {
+              throw new Error("close this projection connection");
+            }),
+          /close this projection connection/u,
+        );
+      }
+      const before = projection.readReplicaSequence(null);
+      projection.apply(lifecycleFixture().events.at(-1)!);
+      assert.deepEqual(
+        projection.readReplicaSequence(null),
+        before,
+        "duplicate application has no second sequence record",
+      );
+      projection.rebuild();
+      assert.deepEqual(projection.readReplicaSequence(null), before);
+    } finally {
+      projection.close();
+    }
+  });
+});
+test("schema 34 cache rebuilds the replica sequence from the canonical stream", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
+    let projection = makeTaskProjection({ rootDir, eventStore });
+    try {
+      for (const event of lifecycleFixture().events) {
+        eventStore.append(taskBundle(event));
+        projection.apply(event);
+      }
+      const expected = projection.readReplicaSequence(null);
+      const head = eventStore.readHead();
+      projection.close();
+      const oldCache = new DatabaseSync(projection.path);
+      // main's schema 34 already normalizes Schedule history but has no replica sequence.
+      oldCache.exec(`DROP TABLE replica_revision; DROP TABLE replica_entry; DROP TABLE replica_change;
+        UPDATE projection_meta SET schema_version=34 WHERE singleton=1`);
+      oldCache.close();
+      projection = makeTaskProjection({ rootDir, eventStore });
+      projection.catchUp();
+      assert.deepEqual(projection.readReplicaSequence(null), expected);
+      assert.deepEqual(eventStore.readHead(), head, "cache upgrade does not append a canonical event");
+    } finally {
+      projection.close();
+    }
   });
 });
 // harness-contract: projection.deterministic-rebuild

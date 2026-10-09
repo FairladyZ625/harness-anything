@@ -19,7 +19,6 @@ import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSe
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { openReplicaCutWorker } from "./fleet/replica-cut-worker.ts";
-import { centerEdgeReadModel } from "./fleet/replica-read-model.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -189,12 +188,12 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         {
           repoId: context.input.repoId,
           localRoot: path.dirname(path.dirname(projection.path)),
-          readBasis: projection.readReplicaBasis,
+          readSequence: projection.readReplicaSequence,
+          readRevision: projection.readReplicaRevision,
           readLedgerCut: store.currentCut,
           readContentBlob: store.readContentBlob,
           readEvent: store.readEvent,
           readApplied: projection.readOperation,
-          readEdgeReadModel: (read) => centerEdgeReadModel(projection!, read),
         },
         {
           repoId: context.input.repoId,

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { type ReplicaProjectionBasis } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,13 +15,13 @@ import {
   emptyTaskLifecycleSnapshot,
   sha256Bytes,
   stableStringify,
-  type ReplicaProjectionBasis,
 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { fleetManifestDigest, type FleetBlob, type FleetEntry, type FleetFrameV1 } from "../src/fleet/contract.ts";
 import { digestId } from "../src/fleet/center-transport.ts";
 import { openReplicaAckStore, type ReplicaOffer } from "../src/fleet/replica-ack-store.ts";
-import { openReplicaCutSource, type ReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
+import type { ReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
+import { openReplicaCutSource } from "./replica-sequence.fixture.ts";
 import { makeOffer, offerFrames } from "../src/fleet/center-replica-offer.ts";
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
@@ -94,13 +95,12 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
     );
     const oldSha = sha256Bytes(oldBytes);
     blobs.set(oldSha, oldBytes);
-    db.prepare("INSERT INTO read_model_blob VALUES (?, ?)").run(oldSha, oldBytes);
+    db.prepare("INSERT INTO content VALUES (?, ?)").run(oldSha, oldBytes);
     return { ...entry, blob: { ...entry.blob, sha256: oldSha, size: oldBytes.length } };
   });
-  const manifestBytes = Buffer.from(stableStringify(oldEntries));
-  const oldDigest = sha256Bytes(manifestBytes);
-  const insert = db.prepare("INSERT INTO manifest_entry VALUES (?, ?, ?, ?)");
-  for (const [index, entry] of oldEntries.entries()) insert.run(oldDigest, index, entry.path, stableStringify(entry));
+  const oldDigest = fleetManifestDigest(oldEntries);
+  const insert = db.prepare("UPDATE entry SET entry_json=?,blob_sha256=? WHERE path=?");
+  for (const entry of oldEntries) insert.run(stableStringify(entry), entry.blob.sha256, entry.path);
   db.prepare("UPDATE cut SET manifest_digest=?, total_bytes=? WHERE revision=1").run(
     oldDigest,
     oldEntries.reduce((n, entry) => n + entry.blob.size, 0),

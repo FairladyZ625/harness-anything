@@ -1,3 +1,4 @@
+import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 // Edge-side product write path: routes one `ha task ...` write command through
 // the fleet TLS channel, attaches to the center's wait queue for as long as the
@@ -120,7 +121,7 @@ export function fleetDocPathInTaskPackage(value: string, taskId: string): boolea
 function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string, taskId: string): string | null {
   const materializedRoot = resolveHarnessLayout(workspaceRoot).authoredRoot;
   const paths = new Set<string>();
-  for (const logical of view.entries.keys()) {
+  for (const logical of fleetMirrorTaskPaths(view, taskId)) {
     const match = /^(tasks\/[^/]+)\/INDEX\.md$/u.exec(logical);
     if (!match) continue;
     try {
@@ -248,7 +249,7 @@ export async function runFleetEdgeTask(
           "execution_credential_rejected",
           "Task document selection cannot name other paths.",
         );
-      const scan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
+      const scan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot, packagePath);
       if (!scan) throw new FleetEdgeTaskError("mirror_missing", "Task document scan is unavailable.");
       const changes = scan.changes.filter((change) => change.path.startsWith(`${packagePath}/`));
       const admission = await readFleetRepositoryMetadataClient({ ...peer, taskId, actionKind: "doc-submit" });
@@ -495,9 +496,10 @@ export async function runFleetEdgeTask(
     if (view === null) return null;
     // The pre-pull base-cache scan over this same view and tree is exactly the
     // dirty-detection the carry set needs; reuse it instead of scanning twice.
-    const preScan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot);
     const packagePath = fleetExactTaskPackagePath(view, workspaceRoot, taskId);
-    if (packagePath === null || preScan === null) return null;
+    if (packagePath === null) return null;
+    const preScan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot, packagePath);
+    if (preScan === null) return null;
     const reportPath =
       action.kind === "task-review-execution" ? reviewReportRelativePath(packagePath, String(action.reviewId)) : null;
     const candidates = preScan.changes.filter((change) =>

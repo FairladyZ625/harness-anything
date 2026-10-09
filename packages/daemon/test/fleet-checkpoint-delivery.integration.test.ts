@@ -355,6 +355,13 @@ test(
         const objectDir = path.join(objectRoot, digest.slice(0, 2));
         mkdirSync(objectDir, { recursive: true });
         writeFileSync(path.join(objectDir, digest.slice(2)), body);
+        // Seed the disposable canonical-state fixture beside document rows; no production
+        // exporter reads ad hoc writes to the projection's serving tables.
+        db.prepare("INSERT INTO replica_entry VALUES (?, ?, NULL, 'document', ?)").run(
+          itemPath,
+          JSON.stringify({ sha256: digest, size: Buffer.byteLength(body), mediaType: "text/markdown" }),
+          JSON.stringify([itemPath]),
+        );
         insert.run(
           itemPath,
           1,

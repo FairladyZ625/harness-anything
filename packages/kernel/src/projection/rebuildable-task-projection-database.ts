@@ -1,3 +1,4 @@
+import { createReplicaSequence, initializeReplicaSequenceConnection } from "./replica-sequence.ts";
 import { CI_OBSERVATION_WINDOW_INDEX_SQL } from "./ci-observation-window-query.ts";
 // @write-boundary-exemption rebuildable-projection
 import path from "node:path";
@@ -230,6 +231,7 @@ function projectionDatabaseOwner(
       throw new ProjectionSchemaMismatchError(observed, projectionPath);
     }
     if (!schemaChecked || observed === null) createTables(db!);
+    initializeReplicaSequenceConnection(db!);
     schemaChecked = true;
   };
   const use = <A>(operation: (database: DatabaseSync) => A): A => {
@@ -522,6 +524,7 @@ ${CI_OBSERVATION_WINDOW_INDEX_SQL}
   createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);
   createDecisionProjectionTables(db);
+  createReplicaSequence(db);
 }
 
 export function projectionSchemaVersion(db: DatabaseSync): number | null {

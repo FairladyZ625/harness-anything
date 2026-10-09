@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, mkdtempSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,11 +11,10 @@ import {
   sha256Bytes,
 } from "@harness-anything/kernel";
 import {
-  orderedEdgeManifestDigest,
+  commitEdgeManifest,
   readEdgeManifestEntries,
   readEdgeManifestHeader,
-  serializeEdgeManifest,
-} from "../src/fleet/edge-manifest.ts";
+} from "../src/fleet/replica-read-model.ts";
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 import { fleetManifestDigest, type FleetCut, type FleetEntry, type FleetFrameV1 } from "../src/fleet/contract.ts";
 
@@ -94,8 +93,7 @@ test("edge staging replays snapshot/delta pages and chunks and switches only com
     );
     assert.equal(view.current("repo", "many")?.cut.revision, 1);
     // Snapshot cuts address their blobs through the verified CAS instead of
-    // copying the tree into cuts/<revision>-g<generation>/files/; only delta cuts
-    // materialize changed files beside their manifest.
+    // copying the tree into cuts/<revision>-g<generation>/files/.
     assert.equal(existsSync(path.join(root, "repos/repo/views/many/cuts/1-g0/files/tasks/t/many-05.md")), false);
     assert.equal(
       readFileSync(
@@ -140,7 +138,7 @@ test("edge staging replays snapshot/delta pages and chunks and switches only com
     view = openFleetEdgeView(root, replicaQuota);
     for (const frame of deltaTwo) view.receive(frame);
     assert.equal(view.current("repo", "view")?.cut.revision, 2);
-    assert.equal(readFileSync(path.join(root, "repos/repo/views/view/cuts/2-g0/files", pathA), "utf8"), "one-a-two");
+    assert.equal(fleetMirrorCutFile(locateFleetMirrorView(root, "repo", "view")!, pathA)!.toString(), "one-a-two");
     assert.equal(existsSync(otherCas), true);
     const threeA = Buffer.from("one-a-two-three"),
       entriesThree = [wireEntry(pathA, threeA)],
@@ -234,6 +232,61 @@ test("edge chunk replay compares only the named window against the staged blob",
 function wireEntry(itemPath: string, bytes: Buffer): FleetEntry {
   return { path: itemPath, blob: { sha256: sha256Bytes(bytes), size: bytes.byteLength, mediaType: "text/markdown" } };
 }
+
+test("reopening the receiver preserves the verified CAS charge before accepting delta chunks", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-quota-reopen-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const body = Buffer.alloc(1024 * 1024, "q"),
+    entry = wireEntry("context/large.md", body);
+  const first = openFleetEdgeView(root, replicaQuota);
+  for (const frame of snapshotFrames("seed", "edge", wireCut(1), [entry], [body])) first.receive(frame);
+  first.collect("repo", "edge", "seed");
+  const next = wireEntry("context/small.md", Buffer.from("small"));
+  const begin: FleetFrameV1 = {
+    schema: "fleet.delta.begin/v1",
+    messageId: "begin",
+    transferId: "next",
+    repoId: "repo",
+    viewId: "edge",
+    fromCut: wireCut(1),
+    toCut: wireCut(2),
+    changeCount: 1,
+    resultManifestDigest: fleetManifestDigest([entry, next]),
+  };
+  const page: FleetFrameV1 = {
+    schema: "fleet.delta.page/v1",
+    messageId: "page",
+    transferId: "next",
+    pageIndex: 0,
+    changes: [{ op: "put", ...next }],
+  };
+  const chunk: FleetFrameV1 = {
+    schema: "fleet.delta.chunk/v1",
+    messageId: "chunk",
+    transferId: "next",
+    blobSha256: next.blob.sha256,
+    offset: 0,
+    dataBase64: Buffer.from("small").toString("base64"),
+  };
+  const limited = openFleetEdgeView(root, 512 * 1024);
+  limited.receive(begin);
+  limited.receive(page);
+  assert.throws(() => limited.receive(chunk), /replica_quota_exceeded/u);
+  assert.equal(limited.current("repo", "edge")!.cut.revision, 1);
+  const resumed = openFleetEdgeView(root, replicaQuota);
+  resumed.receive(begin);
+  resumed.receive(page);
+  resumed.receive(chunk);
+  assert.equal(
+    resumed.receive({
+      schema: "fleet.delta.finish/v1",
+      messageId: "finish",
+      transferId: "next",
+      resultManifestDigest: fleetManifestDigest([entry, next]),
+    })?.schema,
+    "fleet.ack/v1",
+  );
+});
 function wireCut(revision: number): FleetCut {
   return {
     revision,
@@ -366,14 +419,11 @@ test("retained revision 415 replay remains stale until the center confirms its h
     for (const nodeId of ["edge-one", "edge-two"]) {
       deliver(nodeId, `seed-${nodeId}`);
       const viewDir = path.join(root, "repos/repo/views", nodeId);
-      // Match the deployed pre-B4 format: generation already exists at the
-      // manifest top level and in the directory, but not inside its wire cut.
-      for (const file of ["current.json", `cuts/415-g${READ_MODEL_SCHEMA_GENERATION}/manifest.json`]) {
-        const target = path.join(viewDir, file),
-          persisted = JSON.parse(readFileSync(target, "utf8"));
-        delete persisted.cut.schemaGeneration;
-        writeFileSync(target, JSON.stringify(persisted));
-      }
+      // Force retained-cut recovery instead of the already-published replay shortcut.
+      const currentFile = path.join(viewDir, "current.json"),
+        current = JSON.parse(readFileSync(currentFile, "utf8"));
+      delete current.cut.schemaGeneration;
+      writeFileSync(currentFile, JSON.stringify(current));
       recordHeadConfirmation(viewDir, cut, Date.now() - 60 * 60 * 1000);
       assert.equal(read(nodeId).freshness.state, "stale");
     }
@@ -450,41 +500,70 @@ test("received complete blobs are verified before finish and pinned across anoth
     view.receive(corrupt[1]!);
     assert.throws(() => view.receive(corrupt[2]!), /transfer blob mismatch/u);
     assert.equal(view.current("repo", "bad"), null);
+    const abandoned = Buffer.from("verified but never published"),
+      abandonedEntry = wireEntry("context/abandoned.md", abandoned);
+    const abandonedFrames = snapshotFrames("z-abandoned", "receiving", wireCut(2), [abandonedEntry], [abandoned]);
+    for (const frame of abandonedFrames.slice(0, -1)) view.receive(frame);
+    const abandonedCas = path.join(
+      root,
+      "repos/repo/cas/sha256",
+      abandonedEntry.blob.sha256.slice(0, 2),
+      abandonedEntry.blob.sha256,
+    );
+    assert.equal(existsSync(abandonedCas), true);
+    for (let index = 0; index < 65; index++)
+      view.receive({ ...abandonedFrames[0]!, transferId: `q-${String(index).padStart(3, "0")}` } as FleetFrameV1);
+    for (const frame of snapshotFrames(
+      "other-next",
+      "other",
+      wireCut(2),
+      [wireEntry("context/other.md", other)],
+      [other],
+    ))
+      view.receive(frame);
+    view.collect("repo", "other", "other-next");
+    assert.equal(
+      existsSync(abandonedCas),
+      false,
+      "evicting an unfinished transfer releases its verified orphan content",
+    );
+    assert.equal(existsSync(cas), true, "a published view retains its adopted content");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("manifest batches preserve JSON, Unicode boundaries, digest and reject truncated input", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-manifest-batch-"));
+test("sparse manifests preserve Unicode paths and reject duplicate or incomplete state before publication", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-manifest-index-"));
   try {
-    const file = path.join(root, "manifest.json"),
+    const viewDir = path.join(root, "repos/repo/views/view"),
+      file = path.join(viewDir, "cuts/1-g0/manifest.json"),
       entries = Array.from({ length: 1025 }, (_, index) =>
-        wireEntry(`context/${String(index).padStart(4, "0")}-中文\\".md`, Buffer.from(String(index))),
+        wireEntry(`context/${String(index).padStart(4, "0")}-中文".md`, Buffer.from(String(index))),
       ),
-      header = { cut: wireCut(1), schemaGeneration: 0, manifestDigest: fleetManifestDigest(entries) };
-    writeFileSync(file, [...serializeEdgeManifest(header, entries)].join(""));
-    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { ...header, entries });
-    assert.deepEqual([...readEdgeManifestEntries(file)], entries);
+      header = { cut: wireCut(1), schemaGeneration: 0, manifestDigest: fleetManifestDigest(entries) },
+      changes = entries.map((entry) => ({ op: "put" as const, ...entry }));
+    assert.throws(
+      () => commitEdgeManifest(viewDir, header, null, [...changes, changes[0]!]),
+      /duplicate manifest path/u,
+    );
+    assert.throws(() => commitEdgeManifest(viewDir, header, null, changes.slice(1)), /result manifest mismatch/u);
+    assert.throws(
+      () =>
+        commitEdgeManifest(
+          viewDir,
+          header,
+          null,
+          changes.map((change, index) => (index ? change : { ...change, path: "substituted" })),
+        ),
+      /result manifest mismatch/u,
+    );
+    commitEdgeManifest(viewDir, header, null, changes);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(header));
     assert.deepEqual(readEdgeManifestHeader(file), header);
-    assert.equal(orderedEdgeManifestDigest(readEdgeManifestEntries(file)), fleetManifestDigest(entries));
-    // Arbitrary field order and whitespace use the same parser, not a format fallback.
-    writeFileSync(file, JSON.stringify({ entries, ...header }, null, 2));
-    assert.deepEqual([...readEdgeManifestEntries(file)], entries);
-    assert.deepEqual(readEdgeManifestHeader(file), header);
-    for (const invalid of [
-      "{}",
-      '{"entries":[],"entries":[]}',
-      '{\u00a0"entries":[]}',
-      '{"entries":[',
-      '{"entries":[],}',
-      '{"entries":[{},]}',
-      '{"entries":[]}x',
-      '{"entries":[]',
-    ]) {
-      writeFileSync(file, invalid);
-      assert.throws(() => [...readEdgeManifestEntries(file)]);
-    }
+    assert.deepEqual(readEdgeManifestEntries(file), entries);
+    assert.equal(fleetManifestDigest(readEdgeManifestEntries(file)), header.manifestDigest);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

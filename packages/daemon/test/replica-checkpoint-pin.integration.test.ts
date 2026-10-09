@@ -1,13 +1,14 @@
 // harness-test-tier: integration
+import type { EdgeReadModelRows } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { READ_MODEL_SCHEMA_GENERATION, sha256Bytes, type EdgeReadModelRows } from "@harness-anything/kernel";
+import { READ_MODEL_SCHEMA_GENERATION, sha256Bytes } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
+import { openReplicaCutSource } from "./replica-sequence.fixture.ts";
 import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 import { makeOffer, offerFrames } from "../src/fleet/center-replica-offer.ts";
 

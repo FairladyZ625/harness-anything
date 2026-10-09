@@ -4,8 +4,7 @@ import {
   CONTRACT_VERSION_1_0,
   getExecutableEntityAction,
   isContractVersion,
-  sha256Text,
-  stableStringify,
+  replicaManifestDigest,
   type ContractVersion,
   type LedgerCutIdentity,
   type EntityActionInputField,
@@ -268,9 +267,7 @@ export type FleetDocChange = Readonly<{
 }>;
 export type FleetDeltaChange = Readonly<{ op: "put"; path: string; blob: FleetBlob } | { op: "delete"; path: string }>;
 export function fleetManifestDigest(entries: readonly FleetEntry[]): string {
-  return sha256Text(
-    stableStringify(entries.map(({ path, blob }) => ({ path, blob })).sort((a, b) => a.path.localeCompare(b.path))),
-  );
+  return replicaManifestDigest(entries);
 }
 
 export class FleetContractError extends Error {

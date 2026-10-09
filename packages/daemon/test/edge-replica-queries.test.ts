@@ -1,11 +1,11 @@
 // harness-test-tier: fast
+import { edgeReadModelEntries } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   applyEdgeReadModelEntry,
   deleteEdgeReadModelEntry,
-  edgeReadModelEntries,
   createEdgeReadModelTables,
   makeEdgeReplicaQueries,
 } from "@harness-anything/kernel";

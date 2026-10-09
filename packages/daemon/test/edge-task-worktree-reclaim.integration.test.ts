@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { commitEdgeManifest } from "../src/fleet/replica-read-model.ts";
+import { fleetManifestDigest } from "../src/fleet/contract.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -171,15 +173,26 @@ function setCut(
         `  engine: kernel/task-lifecycle/v1\n  status: ${status}\n` +
         `packageDisposition: ${dispositions[taskId] ?? "active"}\nowner: machine\n---\n# Task\n\nstatus: done\n`,
     }));
-  writeJson(path.join(cutDir, "manifest.json"), {
-    entries: files.map((file) => ({
-      path: file.path,
-      blob: { sha256: sha(file.body), size: Buffer.byteLength(file.body), mediaType: "text/markdown" },
-    })),
-  });
+  const entries = files.map((file) => ({
+    path: file.path,
+    blob: { sha256: sha(file.body), size: Buffer.byteLength(file.body), mediaType: "text/markdown" },
+  }));
+  const header = {
+    cut: { revision, schemaGeneration: 0, headDigest: `sha256:${sha(`head-${revision}`)}` },
+    schemaGeneration: 0,
+    manifestDigest: fleetManifestDigest(entries),
+  };
+  commitEdgeManifest(
+    viewDir,
+    header,
+    null,
+    entries.map((entry) => ({ op: "put", ...entry })),
+  );
+  writeJson(path.join(cutDir, "manifest.json"), header);
   for (const file of files) {
-    mkdirSync(path.dirname(path.join(cutDir, "files", file.path)), { recursive: true });
-    writeFileSync(path.join(cutDir, "files", file.path), file.body);
+    const cas = path.join(viewDir, "../../cas/sha256", sha(file.body).slice(0, 2), sha(file.body));
+    mkdirSync(path.dirname(cas), { recursive: true });
+    writeFileSync(cas, file.body);
   }
   writeJson(path.join(viewDir, "current.json"), {
     schemaGeneration: 0,
