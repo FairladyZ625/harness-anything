@@ -83,7 +83,7 @@ State the work's final deliverables, destinations, recipients, first consumer, a
 
 ## Evidence Protocol
 
-State the required usage proof, negative controls, mutation checks, and reviewer rejection conditions. Never replace actual runner output and consumption evidence with a summary claim.
+State the required usage proof and reviewer rejection conditions; when the task repairs a defect, also state its negative control or mutation check. Never replace actual runner output and consumption evidence with a summary claim.
 
 Close the loop before work closeout: record at least one observation with `ha fact record --task <task-id> ...` and preserve its receipt in the Execution outputs. A fact is an evidence input to a decision, so attach it to the relevant claim with `ha relation relate --source-ref decision/<decision-id>/<claim-id> --target-ref fact/F-XXXXXXXX --type evidenced-by --rationale "<why>" --expected-version 0` before accepting or reckoning that decision. If a proposal has no fact evidence yet, `ha decision propose` still succeeds, but its receipt points to these two commands.
 

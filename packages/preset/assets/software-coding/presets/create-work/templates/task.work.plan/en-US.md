@@ -83,7 +83,7 @@ State the work's final deliverables, destinations, recipients, first consumer, a
 
 ## Evidence Protocol
 
-State the required usage proof, negative controls, mutation checks, and reviewer rejection conditions. Never replace actual runner output and consumption evidence with a summary claim.
+State the required usage proof and reviewer rejection conditions; when the task repairs a defect, also state its negative control or mutation check. Never replace actual runner output and consumption evidence with a summary claim.
 
 ## Verification
 

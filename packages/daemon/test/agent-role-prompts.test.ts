@@ -122,6 +122,9 @@ test("task-bound unbound dispatch retains worker implementation permissions", ()
   const prompt = assembleUnboundPrompt("Implement the bounded change.");
   for (const grant of writeGrants) assert.equal(prompt.includes(grant), true, grant);
   assert.match(prompt, /# Worker Role/u);
+  // The simplicity rules live in the inlined block: a worktree does not carry the repository agent entry.
+  assert.match(prompt, /A fix deletes or narrows by default/u);
+  assert.match(prompt, /Do not add a hash, checksum, re-validation/u);
 });
 
 test("unbound reviewer dispatch does not inherit implementation permissions", () => {

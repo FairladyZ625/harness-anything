@@ -83,7 +83,7 @@ Task Contract: harness-task v1
 
 ## Evidence Protocol
 
-写明使用证明、阴性对照、变异检查与 reviewer 拒收条件；不得用汇总性的「已通过」代替实际 runner 输出和消费证据。
+写明使用证明与 reviewer 拒收条件；修复缺陷时再写明阴性对照或变异检查；不得用汇总性的「已通过」代替实际 runner 输出和消费证据。
 
 ## Verification
 
