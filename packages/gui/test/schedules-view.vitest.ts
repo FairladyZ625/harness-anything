@@ -130,6 +130,8 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     );
     const text = container.textContent ?? "";
     expect(text).toContain("Heartbeat probe");
+    expect(text).toContain("codex-actual");
+    expect(text).toContain("gpt-5.6-sol");
     expect(text).toContain("every 30m");
     expect(text).toMatch(/08-27 \d{2}:30/u);
     // 正常状态不占标签:「本节点可执行」「已布防」不上卡。

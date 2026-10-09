@@ -258,6 +258,11 @@ test(
         const afterRun = (await list()).schedules[0] as ScheduleGuiRowDto;
         assert.notEqual(afterRun.lastRun!.runtimeSessionId, null);
         assert.equal(afterRun.lastRun!.nodeId, "local");
+        assert.deepEqual(afterRun.lastRun!.runtime, {
+          instanceId: definition.instanceId,
+          kindId: definition.kindId,
+          model: definition.model,
+        });
         assert.equal(afterRun.missed.count, 0);
         assert.equal(afterRun.actions.runNow.available, true);
 
