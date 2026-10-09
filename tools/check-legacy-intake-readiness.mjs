@@ -302,6 +302,15 @@ const gitCheckIgnoreChunkBytes = 64 * 1024;
 
 export function collectGitIgnoredFiles(root, files, options = {}) {
   if (files.length === 0) return new Set();
+  // `-z`/`--stdin` delimits paths with NUL; a path containing an embedded NUL
+  // would be split into two entries and desynchronize git's output from our
+  // input, letting a crafted filename spoof the ignore status of another
+  // path. Reject such paths instead of feeding them to git.
+  for (const file of files) {
+    if (file.includes("\0")) {
+      throw new Error(`collectGitIgnoredFiles: refusing path with embedded NUL byte: ${JSON.stringify(file)}`);
+    }
+  }
 
   const ignored = new Set();
   const run = options.spawnSync ?? spawnSync;
