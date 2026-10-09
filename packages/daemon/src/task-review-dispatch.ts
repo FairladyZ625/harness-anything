@@ -11,7 +11,6 @@ import {
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import { derivedTaskActionProtocolCommands } from "./protocol/daemon-protocol-commands-task.ts";
-import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
@@ -211,26 +210,8 @@ export function reviewDispatchIds(
   };
 }
 
-/**
- * Inline cap for frozen artifact bodies in the review prompt: a delivery's raw evidence files can
- * be hundreds of KB each, and the prompt must stay under the reviewer provider's input limit. The
- * anchor (path, revision, blobSha256) still identifies the full frozen content for retrieval.
- */
-const reviewArtifactInlineLimit = 16 * 1024;
-
-function reviewArtifactRecord(artifact: ReturnType<typeof readSubmissionArtifact>) {
-  return artifact.body.length > reviewArtifactInlineLimit
-    ? {
-        ...artifact,
-        body: artifact.body.slice(0, reviewArtifactInlineLimit),
-        bodyTruncatedFromChars: artifact.body.length,
-      }
-    : artifact;
-}
-
 /** The review packet prompt every reviewer dispatch carries; each dispatch owns exactly one task. */
 export function reviewDispatchPrompt(input: {
-  readonly cell: RepoCellOperationalContext;
   readonly taskId: string;
   readonly packagePath: string;
   readonly dispatchId: string;
@@ -238,7 +219,7 @@ export function reviewDispatchPrompt(input: {
   readonly gates: readonly string[];
   readonly ownerNote?: string;
 }): string {
-  const { cell, taskId, packagePath, dispatchId, execution, gates } = input,
+  const { taskId, packagePath, dispatchId, execution, gates } = input,
     inapplicable = (execution.submission?.completionContract?.gates ?? [])
       .filter((gate) => !gateAppliesToSubmission(gate, execution.submission!))
       .map((gate) => gate.gateId),
@@ -253,24 +234,18 @@ export function reviewDispatchPrompt(input: {
             input.ownerNote,
         ]
       : []),
-    `The exact submission digest is ${submissionDigest(execution.submission!)}; ` +
-      `delivery ${JSON.stringify(execution.submission!)}.`,
+    `The exact submission digest is ${submissionDigest(execution.submission!)}.`,
+    `Read ha task show ${taskId} --json and select execution ${execution.executionId} from executions. ` +
+      "Its submission contains the authoritative delivery, frozen completion contract, and complete artifact anchors. " +
+      "The prompt references that submission; it does not inline evidence or enumerate anchors.",
     `The execution-frozen delivery baseline is ${JSON.stringify(execution.deliveryBaseline ?? null)}; ` +
       "treat it and the submission delivery as authoritative. Read the G33 production-delta result for this cut; " +
       "do not compare either machine-derived value against closeout prose.",
-    ...(execution.submission!.artifacts ?? []).map((anchor) =>
-      JSON.stringify(
-        reviewArtifactRecord(
-          readSubmissionArtifact(cell, packagePath, anchor.path, anchor.revision, anchor.blobSha256),
-        ),
-      ),
-    ),
-    "For artifact anchors, review the center-accepted frozen contents above against the contract; " +
-      "do not substitute local files or require Git ancestry for them. " +
-      "Bodies longer than the inline limit are truncated and marked bodyTruncatedFromChars; " +
-      "Read each full frozen artifact with ha doc show --path <anchor.path> --raw. " +
+    "For every artifact anchor in that submission, read the full center-accepted frozen content with " +
+      "ha doc show --path <anchor.path> --raw; do not substitute local files or require Git ancestry. " +
+      `Resolve package-relative artifacts/ paths under ${packagePath}/; full tasks/ paths are already resolved. ` +
       "Your reviewer credential resolves only this submission's registered anchors at their frozen revisions " +
-      "through the center, including on an edge; binary artifact bodies use the anchor record's base64 encoding.",
+      "through the center, including on an edge; binary artifact bodies are returned as base64.",
     `Effective completion gates: ${gates.length ? gates.join(", ") : "none"}.`,
     "These are task completion requirements. Follow the repository's ordering of source review, " +
       "pre-merge checks, and post-merge verification. Distinguish observed check failures from pending " +
@@ -364,7 +339,6 @@ export async function spawnCutReviewDispatch(
       ...(typeof extras.effort === "string" ? { effort: extras.effort } : {}),
       ...(extras.fast === true ? { fast: true } : {}),
       prompt: reviewDispatchPrompt({
-        cell,
         ownerNote: input.ownerNote,
         taskId: input.taskId,
         packagePath: input.packagePath,
@@ -588,7 +562,6 @@ export async function dispatchTaskReview(
         ...(typeof action.effort === "string" ? { effort: action.effort } : {}),
         ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
         prompt: reviewDispatchPrompt({
-          cell,
           taskId,
           packagePath: read.packagePath,
           dispatchId: ids.dispatchId,

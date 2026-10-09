@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { makeTaskEventReader, makeTaskProjection, blockingOf } from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection, blockingOf, submissionDigest } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -248,7 +248,14 @@ test("stacked integration submits and dispatches review for CEO merge-main and o
     assert.equal(dispatch.outcome, "already_dispatched");
     const prompt = f.launches.at(-1)!.prompt;
     assert.ok(prompt.includes(JSON.stringify(execution.deliveryBaseline)));
-    assert.ok(prompt.includes(JSON.stringify(execution.submission)));
+    assert.ok(prompt.includes(submissionDigest(execution.submission!)));
+    assert.ok(prompt.includes(`ha task show ${integrationTaskId} --json`));
+    const shown = await run({ kind: "task-show", taskId: integrationTaskId });
+    assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+    const reviewed = JSON.parse(String(shown.evidence)).executions.find(
+      (candidate: { executionId: string }) => candidate.executionId === integrationExecutionId,
+    );
+    assert.deepEqual(reviewed.submission, execution.submission);
     assert.ok(prompt.includes(`artifacts/reports/${dispatch.dispatchId}.md`));
     assert.deepEqual(git(worktree, "rev-list", "--first-parent", `${anchor}..${delivery}`).split("\n"), [
       delivery,

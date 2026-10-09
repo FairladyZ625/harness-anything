@@ -49,6 +49,29 @@ export const principal = withPolicyGroup(
 );
 export const taskId = "task-completion-review",
   executionId = "execution-completion-review";
+export function reviewerExecutionBinding(runtimeSessionId: string, dispatchId: string) {
+  return withPolicyGroup(
+    {
+      actor: {
+        principal: owner.actor.principal,
+        executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+      },
+      source: "local" as const,
+      executionPrincipal: {
+        personId: owner.actor.principal.personId,
+        repoId: "completion-review",
+        dispatchId,
+        runtimeSessionId,
+        taskId,
+        executionId,
+        role: "reviewer" as const,
+        source: "local" as const,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    },
+    "admin",
+  );
+}
 const installation = {
   installationId: "installation-review",
   kindId: "codex" as const,
@@ -95,6 +118,8 @@ export async function fixture(
   reviewReturnBudget?: number,
   options: {
     readonly autoSubmit?: boolean;
+    /** Simulate a provider rejecting its first input before a turn can start. */
+    readonly providerInputLimit?: number;
     /** False stops after submit: the cut awaits the owner's triage. */
     readonly autoForward?: boolean;
     readonly closeoutProfile?: "standard" | "strict";
@@ -164,6 +189,8 @@ export async function fixture(
         prompt: request.prompt,
       }),
       runtimeLaunch: (prepared, persistence): RuntimeProcess => {
+        if (options.providerInputLimit !== undefined && prepared.prompt.length > options.providerInputLimit)
+          throw new Error(`input_too_large: ${prepared.prompt.length} > ${options.providerInputLimit}`);
         launches.push({
           prompt: prepared.prompt,
           instanceId: prepared.definition.instanceId,
@@ -417,10 +444,10 @@ export async function fixture(
         } finally {
           await reader.drain();
         }
-        if (artifactDelivery) assert.match(launches.at(-1)!.prompt, /Frozen artifact evidence/u);
+        if (artifactDelivery) assert.match(launches.at(-1)!.prompt, /ha doc show --path <anchor.path> --raw/u);
       } else if (hybridDelivery) {
         assert.match(String(reviewedCommit), /^[0-9a-f]{40}$/u);
-        assert.match(launches.at(-1)!.prompt, /Frozen hybrid evidence/u);
+        assert.match(launches.at(-1)!.prompt, /ha doc show --path <anchor.path> --raw/u);
       } else assert.equal(git(root, "show", `${reviewedCommit}:README.md`), "# Reviewed delivery");
       assert.match(
         readFileSync(path.join(root, "harness", packagePath, "closeout.md"), "utf8"),

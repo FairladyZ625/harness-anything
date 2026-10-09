@@ -10,9 +10,10 @@ import {
   serializeEventHead,
   serializePersistedCanonicalEvent,
   sha256Text,
+  submissionDigest,
 } from "@harness-anything/kernel";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
+import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
 import { makeDaemonCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
 
@@ -34,6 +35,53 @@ const reviewerActor = (runtimeSessionId: string) =>
     },
     "admin",
   );
+
+test("review dispatch starts over provider-sized evidence and reads every frozen anchor", async (t) => {
+  const f = await fixture(false, true, false, false, false, undefined, {
+    autoSubmit: false,
+    closeoutProfile: "standard",
+    providerInputLimit: 1_048_576,
+  });
+  try {
+    await f.install();
+    const artifacts = Array.from({ length: 80 }, (_, i) => ({
+      path: `${f.packagePath}/artifacts/evidence-${i}.log`,
+      body: `FROZEN-${i}-HEAD\n${"accepted evidence line\n".repeat(1600)}FROZEN-${i}-TAIL\n`,
+    }));
+    assert.ok(artifacts.reduce((size, artifact) => size + artifact.body.length, 0) > 1_048_576);
+    for (const artifact of artifacts) writeFileSync(path.join(f.root, "harness", artifact.path), artifact.body);
+    assert.equal((await f.run({ kind: "doc-submit", taskId })).outcome, "applied");
+    await f.submit();
+    assert.equal((await f.forward()).outcome, "applied");
+    const dispatched = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] }),
+      step = dispatchesOf(dispatched)[0]!;
+    assert.equal(step.outcome, "already_dispatched", JSON.stringify(step));
+    assert.equal(f.launches.length, 1, "the provider accepted the first input");
+    const { dispatchId, runtimeSessionId } = step as Required<DispatchStep>,
+      binding = reviewerExecutionBinding(runtimeSessionId, dispatchId),
+      shown = await f.cell().run({ kind: "task-show", taskId }, binding),
+      submitted = JSON.parse(String(shown.evidence)).executions.find(
+        (execution: { executionId: string }) => execution.executionId === executionId,
+      ).submission;
+    assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+    assert.match(f.launches[0]!.prompt, new RegExp(submissionDigest(submitted)));
+    for (const artifact of artifacts) {
+      const anchor = submitted.artifacts.find((entry: { path: string }) => entry.path === artifact.path);
+      assert.ok(anchor, `task-show exposes ${artifact.path}`);
+      writeFileSync(path.join(f.root, "harness", artifact.path), "changed after submission\n");
+      const read = await f.cell().run({ kind: "doc-show", path: anchor.path, raw: true }, binding);
+      assert.equal(read.outcome, "applied", JSON.stringify(read));
+      assert.equal(read.revision, anchor.revision);
+      assert.equal(read.evidence, artifact.body);
+      assert.equal(sha256Text(String(read.evidence)), anchor.blobSha256);
+    }
+    t.diagnostic(
+      `Provider accepted ${f.launches[0]!.prompt.length}-character first input; all 80 frozen evidence files match submission digests.`,
+    );
+  } finally {
+    await f.close();
+  }
+});
 
 test("expanded reviewer runtime publishes only its bound report atomically", async () => {
   const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
