@@ -326,7 +326,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
           .all() as unknown as readonly { readonly blob_sha256: string }[]
       ).map((row) => row.blob_sha256),
     );
-    for (const retained of store.prepare("SELECT revision FROM cut").all())
+    for (const retained of store.prepare("SELECT MIN(revision) AS revision FROM cut GROUP BY manifest_digest").all())
       for (const entry of manifest(Number(retained.revision)) ?? [])
         if (isReadModelPath(entry.path)) live.add(entry.blob.sha256);
     transact(store, () => {
