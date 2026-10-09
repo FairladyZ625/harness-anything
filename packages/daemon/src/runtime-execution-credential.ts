@@ -19,8 +19,16 @@ export interface RuntimeExecutionPrincipal {
   readonly expiresAt: string;
 }
 
-export function executionCredentialRejected(): Error {
-  return Object.assign(new Error("Execution credential is expired, revoked, or outside its dispatch scope."), {
+export function executionCredentialRejected(
+  reason: "scope" | "expired" | "revoked" | "authentication" = "scope",
+): Error {
+  const message = {
+    scope: "Execution request is outside its dispatch scope.",
+    expired: "Execution credential is expired.",
+    revoked: "Execution credential is revoked.",
+    authentication: "Execution credential authentication was rejected.",
+  }[reason];
+  return Object.assign(new Error(message), {
     code: "execution_credential_rejected",
   });
 }
@@ -59,7 +67,8 @@ export async function authenticateRuntimeExecutionCredential(
   fetchPort: typeof fetch = fetch,
 ): Promise<RuntimeExecutionPrincipal> {
   const match = /^(harness-execution-[A-Za-z0-9._-]+):([A-Za-z0-9_-]{43})$/u.exec(credential);
-  if (!match) throw executionCredentialRejected();
+  if (!match) throw executionCredentialRejected("authentication");
+  const principal = await readRuntimeExecutionPrincipal(center, match[1]!.slice(clientPrefix.length), fetchPort);
   const response = await fetchPort(
     `${center.url}/realms/${encodeURIComponent(center.realm)}/protocol/openid-connect/token`,
     {
@@ -69,10 +78,10 @@ export async function authenticateRuntimeExecutionCredential(
       signal: AbortSignal.timeout(10_000),
     },
   );
-  if (!response.ok) throw executionCredentialRejected();
-  // The token proves client authentication; the center reads the authoritative scope separately.
+  if (!response.ok) throw executionCredentialRejected("authentication");
+  // The token proves client authentication; scope comes from the authoritative client above.
   await response.arrayBuffer();
-  return readRuntimeExecutionPrincipal(center, match[1]!.slice(clientPrefix.length), fetchPort);
+  return principal;
 }
 
 /** A publication queued before revocation must also observe the current Keycloak client. */
@@ -94,17 +103,15 @@ export async function readRuntimeExecutionPrincipal(
   const clients: unknown = await (
     await adminRequest(center, `/clients?clientId=${encodeURIComponent(clientId)}&max=2`, fetchPort)
   ).json();
-  if (!Array.isArray(clients) || clients.length !== 1) throw executionCredentialRejected();
+  if (!Array.isArray(clients) || clients.length !== 1) throw executionCredentialRejected("revoked");
   const client = clients[0];
-  if (
-    client.clientId !== clientId ||
-    client.enabled !== true ||
-    typeof client.attributes?.harness_execution !== "string"
-  )
+  if (client.enabled !== true) throw executionCredentialRejected("revoked");
+  if (client.clientId !== clientId || typeof client.attributes?.harness_execution !== "string")
     throw executionCredentialRejected();
   const principal: unknown = JSON.parse(client.attributes.harness_execution);
   if (!validPrincipal(principal) || `${clientPrefix}${principal.dispatchId}` !== clientId)
     throw executionCredentialRejected();
+  if (Date.parse(principal.expiresAt) <= Date.now()) throw executionCredentialRejected("expired");
   if (typeof principal.source === "object" && principal.source.kind === "node") {
     const node = await new KeycloakPolicyAdapter(
       { url: center.url, realm: center.realm, resourceServerClientId: center.clientId },
@@ -137,7 +144,6 @@ function validPrincipal(value: unknown): value is RuntimeExecutionPrincipal {
     ) &&
     (p.role === "implementation" || p.role === "reviewer") &&
     typeof p.expiresAt === "string" &&
-    Date.parse(p.expiresAt) > Date.now() &&
     Date.parse(p.expiresAt) <= Date.now() + runtimeExecutionLifetimeMs
   );
 }
@@ -153,7 +159,7 @@ async function adminRequest(
     headers: { authorization: `Bearer ${center.accessToken}`, "content-type": "application/json" },
     signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok) throw executionCredentialRejected();
+  if (!response.ok) throw executionCredentialRejected("authentication");
   return response;
 }
 

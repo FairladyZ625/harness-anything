@@ -183,9 +183,15 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
   const implementation = await launch("implementation");
   const signedInRead = await implementation.cli(["task", "show", taskId]);
   assert.equal(signedInRead.outcome, "applied", JSON.stringify(signedInRead));
+  const events = await implementation.cli(["event", "list", "--type", "runtime_session_started", "--limit", "100"]);
+  assert.equal(events.outcome, "applied", JSON.stringify(events));
+  const eventRows = (JSON.parse(String(events.evidence)) as { rows: { type: string }[] }).rows;
+  assert.ok(eventRows.length > 0, JSON.stringify(events));
+  assert.ok(eventRows.every((row) => row.type === "runtime_session_started"));
   const logout = await rpc("daemon.rbac.manage", { operation: "logout" });
   assert.equal(logout.ok, true, JSON.stringify(logout));
   for (const args of [
+    ["event", "list", "--limit", "1"],
     ["task", "show", taskId],
     ["task", "read-set", taskId],
     ["doc", "status", "--task", taskId],
@@ -211,6 +217,7 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
     assert.equal(denied.code, "execution_credential_rejected", JSON.stringify(denied));
   }
   realm.keycloak.revoke("owner", repoId, ["repository-read"]);
+  assert.equal((await implementation.cli(["event", "list"])).code, "authorization_denied");
   assert.equal((await implementation.cli(["task", "read-set", taskId])).code, "authorization_denied");
   realm.keycloak.permit("owner", repoId, ["repository-read"]);
   writeFileSync(path.join(root, "incoming.md"), "Logout execution evidence.\n");
