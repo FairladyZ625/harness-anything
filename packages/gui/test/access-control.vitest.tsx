@@ -55,9 +55,12 @@ const trusted = { sender: { id: 7 }, senderFrame: { url: "file:///renderer/index
  * process handler, the daemon's JSON-RPC contract, and the access administration service. Only
  * Keycloak itself is the in-memory realm the daemon's own tests use.
  */
+const fixtureCleanups: Array<() => void> = [];
+
 async function stack() {
   const keycloak = fakeKeycloak(),
     user = keycloakUserRoot(),
+    userCleanup = user.cleanup,
     oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: keycloak.fetch }),
     server = createJsonRpcProtocolServer({
@@ -71,6 +74,7 @@ async function stack() {
     keycloak.fetch,
   ).syncBasePolicy("center-token");
   keycloak.writes.length = 0;
+  fixtureCleanups.push(userCleanup);
   let requestId = 1;
   await server.handle({
     jsonrpc: "2.0",
@@ -190,6 +194,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const cleanup of fixtureCleanups.splice(0)) cleanup();
   act(() => root.unmount());
   container.remove();
   Reflect.deleteProperty(window, "harness");

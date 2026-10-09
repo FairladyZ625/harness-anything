@@ -7,9 +7,10 @@ import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
 
-test("work teams use native membership, reject stale edits, and do not grant business permissions", async () => {
+test("work teams use native membership, reject stale edits, and do not grant business permissions", async (t) => {
   const kc = fakeKeycloak(),
     user = keycloakUserRoot(),
+    teamCleanup = user.cleanup,
     oidc = new OidcSessionService(user.root, { fetch: kc.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: kc.fetch }),
     adapter = new KeycloakPolicyAdapter(
@@ -17,6 +18,7 @@ test("work teams use native membership, reject stale edits, and do not grant bus
       kc.fetch,
     ),
     run = (request: Parameters<typeof admin.run>[0]) => admin.run({ operationId: randomUUID(), ...request });
+  t.after(teamCleanup);
   kc.account("alice");
   await adapter.syncBasePolicy("center-token");
   assert.equal((await run({ operation: "team-create", teamName: "Builders" })).outcome, "applied");
