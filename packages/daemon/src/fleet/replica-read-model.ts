@@ -493,6 +493,30 @@ export function edgeChangedPaths(
   });
 }
 
+/** Roll back only this view's unpublished suffix; other views share the content index. */
+export function discardUnpublishedEdgeManifests(viewDir: string, current: FleetCut | null): string[] {
+  return withEdgeManifest(viewDir, (db, viewId) => {
+    const revision = current?.revision ?? -1,
+      generation = current?.schemaGeneration ?? -1,
+      suffix = "view_id=? AND (revision>? OR (revision=? AND generation>?))",
+      parameters = [viewId, revision, revision, generation];
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const retired = db.prepare(`DELETE FROM edge_entry WHERE ${suffix} RETURNING sha256`).all(...parameters);
+      const cuts = db.prepare(`DELETE FROM edge_cut WHERE ${suffix} RETURNING revision,generation`).all(...parameters);
+      db.prepare("UPDATE edge_entry SET end_revision=NULL WHERE view_id=? AND end_revision>?").run(viewId, revision);
+      for (const sha of new Set(retired.filter((row) => row.sha256 !== null).map((row) => String(row.sha256))))
+        if (!db.prepare("SELECT 1 FROM edge_entry WHERE sha256=? LIMIT 1").get(sha))
+          db.prepare("INSERT OR IGNORE INTO edge_orphan VALUES (?)").run(sha);
+      db.exec("COMMIT");
+      return cuts.map((row) => `${row.revision}-g${row.generation}`);
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
 /** Pruning visits retired versions, then tests only their blobs against the shared index. */
 export function pruneEdgeManifests(viewDir: string): string[] {
   return withEdgeManifest(viewDir, (db, viewId) => {
@@ -589,9 +613,22 @@ export function markEdgeContent(viewDir: string, sha: string, size: number): voi
     db.prepare("INSERT OR IGNORE INTO edge_content VALUES (?,?)").run(sha, size);
   });
 }
-export function forgetEdgeContent(viewDir: string, sha: string): void {
+export function forgetEdgeContent(viewDir: string, released: readonly string[], compact = false): void {
   withEdgeManifest(viewDir, (db) => {
-    db.prepare("DELETE FROM edge_content WHERE sha256=?").run(sha);
-    db.prepare("DELETE FROM edge_orphan WHERE sha256=?").run(sha);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const content = db.prepare("DELETE FROM edge_content WHERE sha256=?"),
+        orphan = db.prepare("DELETE FROM edge_orphan WHERE sha256=?");
+      for (const sha of released) {
+        content.run(sha);
+        orphan.run(sha);
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    // Deleted first-snapshot rows must release disk space, not consume the next pull's quota.
+    if (compact) db.exec("VACUUM");
   });
 }
