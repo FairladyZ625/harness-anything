@@ -39,17 +39,11 @@ port.on("message", async ({ id, command }: { readonly id: number; readonly comma
       case "wait":
         value = await source.waitForCut(command.revision);
         break;
-      case "manifestPage":
-        value = source.manifestPage(command.revision, command.offset);
+      case "releasePin":
+        source.releasePin(command.lease);
         break;
-      case "manifestEntry":
-        value = source.manifestEntry(command.revision, command.path);
-        break;
-      case "changes":
-        value = source.changes(command.from, command.to);
-        break;
-      case "content":
-        value = source.content(command.blob);
+      case "pin":
+        value = await source.pin(command.lease, command.from, command.quota, command.leaseRoot);
         break;
     }
     if (value instanceof Uint8Array) {

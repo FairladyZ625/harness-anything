@@ -638,6 +638,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       const release = () => {
         ackStore.delivery.release(lease);
+        replica.releasePin(lease);
+        ackStore.clearOffer(key);
         connectionSignal?.removeEventListener("abort", release);
       };
       connectionSignal?.addEventListener("abort", release, { once: true });
@@ -646,21 +648,25 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("connection_closed", "Delivery connection closed", true);
       }
       const guard = () => {
-        if (!ackStore.delivery.renew(lease, Date.parse(now()), ttlMs))
+        if (!replica.pinActive(lease) || !ackStore.delivery.renew(lease, Date.parse(now()), ttlMs))
           throw new FleetFault("replica_delivery_fenced", "Delivery lease expired or was replaced", true);
       };
-      let active = ackStore.offerFor(key);
-      if (
-        active &&
-        (!replica.cut(active.toCut.revision) ||
-          replica.cut(active.toCut.revision)?.manifest.digest !== active.manifestDigest ||
-          (active.fromCut && (await replica.delivery.changes(active.fromCut.revision, active.toCut.revision)) === null))
-      ) {
+      let offer;
+      try {
+        const pinned = await replica.pin(
+          lease,
+          cursor?.revision ?? null,
+          options.replicaDiskQuotaBytes!,
+          options.stateRoot,
+        );
+        guard();
         ackStore.clearOffer(key);
-        active = null;
+        offer = ackStore.offer(key, await makeOffer(key, cursor, pinned, replica, now()));
+        guard();
+      } catch (error) {
+        release();
+        throw error;
       }
-      const next = active ?? (await makeOffer(key, cursor, latest, replica, now()));
-      const offer = active ?? ackStore.offer(key, next);
       window.offers.set(offer.transferId, { key, lease, release });
       ackStore.delivery.record(key, { started: offer.kind });
       return {
@@ -940,7 +946,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         key = delivery?.key;
       if (!key || !delivery || key.nodeId !== nodeId)
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
-      if (!ackStore.delivery.renew(delivery.lease, Date.parse(now()), 30_000))
+      if (
+        !options.host.replica(key.repoId).pinActive(delivery.lease) ||
+        !ackStore.delivery.renew(delivery.lease, Date.parse(now()), 30_000)
+      )
         throw new FleetFault("replica_delivery_fenced", "ACK belongs to an expired or replaced delivery lease", true);
       const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
       if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
