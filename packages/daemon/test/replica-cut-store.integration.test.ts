@@ -176,7 +176,12 @@ test("a cut requires its complete read model and a published cut is immutable on
     assert.equal(broken.latest(), null);
     broken.close();
     const store = new DatabaseSync(
-      path.join(root, "replica/repos/repo-existing-read-model", `g${READ_MODEL_SCHEMA_GENERATION}`, "cuts-v2.sqlite"),
+      path.join(
+        root,
+        "replica/repos/repo-existing-read-model",
+        `g${READ_MODEL_SCHEMA_GENERATION}`,
+        "checkpoints.sqlite",
+      ),
     );
     try {
       assert.equal(
@@ -328,7 +333,7 @@ test("an activated source persists zero-change revisions as exact cuts with an e
     assert.notEqual(two.headDigest, one.headDigest);
     assert.deepEqual(source.changeLog(), []);
     const stored = new DatabaseSync(
-      path.join(root, "replica/repos/repo-zero", `g${READ_MODEL_SCHEMA_GENERATION}`, "cuts-v2.sqlite"),
+      path.join(root, "replica/repos/repo-zero", `g${READ_MODEL_SCHEMA_GENERATION}`, "checkpoints.sqlite"),
     );
     try {
       assert.equal(stored.prepare("SELECT count(DISTINCT manifest_digest) AS n FROM manifest_entry").get()?.n, 1);
@@ -341,7 +346,7 @@ test("an activated source persists zero-change revisions as exact cuts with an e
   }
 });
 
-test("an active cut pump yields after its 100ms round budget and resumes from the last exact cut", async () => {
+test("an active cut pump publishes the fixed snapshot endpoint without intermediate cuts", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-round-"));
   try {
     const first = lifecycleFixture().events[0]!,
@@ -380,7 +385,6 @@ test("an active cut pump yields after its 100ms round budget and resumes from th
         ],
       },
       afters: Array<number | null> = [],
-      ticks = [0, 101, 0, 101, 0],
       source = openReplicaCutSource({
         repoId: "repo-round",
         localRoot: root,
@@ -394,12 +398,13 @@ test("an active cut pump yields after its 100ms round budget and resumes from th
               };
         },
         readContentBlob: () => null,
-        monotonicNow: () => ticks.shift() ?? 101,
       });
     source.activate();
     source.kick();
     await source.waitForCut(4);
-    assert.deepEqual(afters, [null, 1, 2, 3]);
+    assert.deepEqual(afters, [null, 1]);
+    assert.equal(source.cut(2), null);
+    assert.equal(source.cut(3), null);
     source.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -535,7 +540,7 @@ test("retention keeps exactly 64 cuts and 63 adjacent changelogs per repo", asyn
     mkdirSync(path.dirname(historicalBlob), { recursive: true });
     writeFileSync(historicalBlob, "historical derived bytes");
     const currentOrphan = sha256Bytes(Buffer.from("historical derived bytes"));
-    derived = new DatabaseSync(path.join(currentRoot, "cuts-v2.sqlite"));
+    derived = new DatabaseSync(path.join(currentRoot, "checkpoints.sqlite"));
     derived
       .prepare("INSERT INTO read_model_blob VALUES (?, ?)")
       .run(currentOrphan, Buffer.from("historical derived bytes"));
@@ -730,7 +735,7 @@ test("RepoCell wakes a pending replica cut when its projection catches up", { ti
       true,
     );
     const corrupt = new DatabaseSync(
-      path.join(repo, ".harness/replica/repos/replica-repo", `g${READ_MODEL_SCHEMA_GENERATION}`, "cuts-v2.sqlite"),
+      path.join(repo, ".harness/replica/repos/replica-repo", `g${READ_MODEL_SCHEMA_GENERATION}`, "checkpoints.sqlite"),
     );
     try {
       corrupt.prepare("UPDATE manifest_entry SET entry_json = '{}' WHERE manifest_digest = ?").run(cut.manifest.digest);

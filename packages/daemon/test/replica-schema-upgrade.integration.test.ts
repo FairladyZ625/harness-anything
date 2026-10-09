@@ -82,7 +82,7 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
   const repoRoot = path.join(root, "replica/repos/schema-repo");
   const generationRoot = path.join(repoRoot, `g${READ_MODEL_SCHEMA_GENERATION}`);
   const historicalRoot = path.join(repoRoot, `g${READ_MODEL_SCHEMA_GENERATION - 1}`);
-  const db = new DatabaseSync(path.join(generationRoot, "cuts-v2.sqlite"));
+  const db = new DatabaseSync(path.join(generationRoot, "checkpoints.sqlite"));
   const meta = entries.find((entry) => entry.path === READ_MODEL_META_PATH)!;
   const currentMeta = JSON.parse(blobs.get(meta.blob.sha256)!.toString("utf8"));
   const oldEntries = entries.map((entry) => {
@@ -240,7 +240,7 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
   }
   assert.deepEqual(upgraded.changeLog(), []);
   assert.equal(options.readBasis().watermark, 1);
-  const historical = new DatabaseSync(path.join(historicalRoot, "cuts-v2.sqlite"));
+  const historical = new DatabaseSync(path.join(historicalRoot, "checkpoints.sqlite"));
   assert.equal(
     (historical.prepare("SELECT manifest_digest FROM cut WHERE revision=1").get() as { manifest_digest: string })
       .manifest_digest,

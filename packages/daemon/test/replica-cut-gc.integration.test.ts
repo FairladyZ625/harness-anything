@@ -26,7 +26,6 @@ for (const size of [200, 2000]) {
       mediaType: "text/plain",
     }));
     let head = 1,
-      tick = 0,
       scans = 0;
     const parse = JSON.parse;
     // Every full manifest read parses this entry once; writing a manifest does not parse entries.
@@ -46,30 +45,12 @@ for (const size of [200, 2000]) {
         documents,
       }),
       readContentBlob: () => null,
-      monotonicNow: () => (tick += 101),
-      readEdgeReadModel: (read) =>
-        read({
-          sourceRevision: head,
-          rootThreshold: 0,
-          rows: {
-            tasks: [],
-            taskGeneration: [],
-            taskProgress: [],
-            entities: [],
-            leases: [],
-            relations: [],
-            decisions: [],
-            facts: [],
-            presetSnapshots: [],
-            repository: [],
-          },
-        }),
     });
     try {
       assert.equal(source.activate()?.revision, 1);
-      head = 72;
       const samples = [];
-      for (let revision = 2; revision <= head; revision += 1) {
+      for (let revision = 2; revision <= 72; revision += 1) {
+        head = revision;
         const before = scans,
           started = performance.now();
         await source.waitForCut(revision);
@@ -80,8 +61,8 @@ for (const size of [200, 2000]) {
       assert.equal(source.cut(9)?.revision, 9);
       assert.equal(source.latest()?.revision, 72);
       for (const sample of samples) {
-        // One build read, then one GC read per digest. Revision 72 adds a new read-model digest.
-        assert.equal(sample.scans, sample.revision <= 64 ? 1 : sample.revision === 72 ? 3 : 2);
+        // One build read plus one GC read of the shared document-only digest.
+        assert.equal(sample.scans, sample.revision <= 64 ? 1 : 2);
       }
     } finally {
       source.close();
@@ -100,8 +81,7 @@ for (const corruptRetained of [false, true]) {
       opId: `retained-${index + 1}`,
       eventId: `retained-event-${index + 1}`,
     }));
-    let head = 1,
-      tick = 0;
+    let head = 1;
     const source = openReplicaCutSource({
       repoId: "gc",
       localRoot: root,
@@ -113,7 +93,6 @@ for (const corruptRetained of [false, true]) {
         documents: [],
       }),
       readContentBlob: () => null,
-      monotonicNow: () => (tick += 101),
       readEdgeReadModel: (read) =>
         read({
           sourceRevision: head,
@@ -137,27 +116,23 @@ for (const corruptRetained of [false, true]) {
       const initial = source.activate()!;
       const oldEntry = source.manifestEntry(1, ".read-model/meta.json")!;
       const oldBytes = source.content(oldEntry.blob);
-      head = 32;
-      await source.waitForCut(32);
+      for (head = 2; head <= 64; head++) await source.waitForCut(head);
       const newerEntry = source.manifestEntry(32, ".read-model/meta.json")!;
       assert.notEqual(oldEntry.blob.sha256, newerEntry.blob.sha256);
-      head = 96;
-      await source.waitForCut(65);
-      assert.equal(source.cut(1), null);
-      assert.equal(source.cut(2)?.manifest.digest, initial.manifest.digest);
       assert.deepEqual(source.content(oldEntry.blob), oldBytes);
       assert.ok(source.content(newerEntry.blob).length > 0);
       database = new DatabaseSync(
-        path.join(root, "replica/repos/gc", `g${READ_MODEL_SCHEMA_GENERATION}`, "cuts-v2.sqlite"),
+        path.join(root, "replica/repos/gc", `g${READ_MODEL_SCHEMA_GENERATION}`, "checkpoints.sqlite"),
       );
       if (corruptRetained) {
         // Corrupt an older digest, not the builder's latest manifest: only GC reads it next round.
         database
           .prepare("UPDATE manifest_entry SET entry_json = '{}' WHERE manifest_digest = ?")
-          .run(initial.manifest.digest);
-        await assert.rejects(source.waitForCut(66), /replica manifest .* is corrupt/u);
+          .run(source.cut(2)!.manifest.digest);
+        head = 65;
+        await assert.rejects(source.waitForCut(65), /replica manifest .* is corrupt/u);
       } else {
-        await source.waitForCut(96);
+        for (head = 65; head <= 96; head++) await source.waitForCut(head);
         assert.equal(source.cut(32), null);
         assert.equal(source.cut(33)?.revision, 33);
         assert.equal(
@@ -168,7 +143,7 @@ for (const corruptRetained of [false, true]) {
           database.prepare("SELECT 1 FROM read_model_blob WHERE sha256 = ?").get(oldEntry.blob.sha256),
           undefined,
         );
-        assert.ok(source.content(newerEntry.blob).length > 0);
+        assert.throws(() => source.content(newerEntry.blob), /unavailable or corrupt/u);
         assert.ok(source.changes(33, 96));
         assert.equal(source.changes(32, 96), null);
       }

@@ -75,7 +75,6 @@ export interface ReplicaCutSourceOptions {
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly readEvent?: (opId: string) => CanonicalEventV1 | null;
   readonly readApplied?: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
-  readonly monotonicNow?: () => number;
   /** The edge read model at the projection's current revision, or null while it is not ready. */
   readonly readEdgeReadModel?: <T>(
     read: (
@@ -92,9 +91,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   if (!/^[A-Za-z0-9_-]{1,96}$/u.test(options.repoId)) throw new Error("replica repo id is invalid");
   const root = path.join(options.localRoot, "replica", "repos", options.repoId, `g${READ_MODEL_SCHEMA_GENERATION}`),
     // A schema upgrade publishes a new derived namespace at the same canonical head.
-    // Derived cache format v2 stores row blobs atomically with its cuts; old caches are rebuilt.
-    databasePath = path.join(root, "cuts-v2.sqlite"),
-    monotonicNow = options.monotonicNow ?? (() => performance.now());
+    // Complete checkpoints use their own derived namespace; integer cuts are not checkpoints.
+    databasePath = path.join(root, "checkpoints.sqlite");
   let database: DatabaseSync | null = null,
     active = false,
     scheduled = false,
@@ -106,7 +104,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     database = new DatabaseSync(databasePath);
     database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
     database.exec(
-      "CREATE TABLE IF NOT EXISTS cut (repo_id TEXT NOT NULL, revision INTEGER PRIMARY KEY, head_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL, entry_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, event_occurred_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS change (repo_id TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL, blob_sha256 TEXT, size INTEGER, media_type TEXT, PRIMARY KEY(repo_id, from_revision, to_revision, path)); CREATE TABLE IF NOT EXISTS read_model_blob (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL); CREATE TABLE IF NOT EXISTS manifest_entry (manifest_digest TEXT NOT NULL, ordinal INTEGER NOT NULL, path TEXT NOT NULL, entry_json TEXT NOT NULL, PRIMARY KEY(manifest_digest, ordinal), UNIQUE(manifest_digest, path));",
+      "CREATE TABLE IF NOT EXISTS cut (repo_id TEXT NOT NULL, revision INTEGER PRIMARY KEY, head_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL, entry_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, event_occurred_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS change (repo_id TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL, blob_sha256 TEXT, size INTEGER, media_type TEXT, PRIMARY KEY(repo_id, from_revision, to_revision, path)); CREATE TABLE IF NOT EXISTS checkpoint_link (to_revision INTEGER PRIMARY KEY, from_revision INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS read_model_blob (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL); CREATE TABLE IF NOT EXISTS manifest_entry (manifest_digest TEXT NOT NULL, ordinal INTEGER NOT NULL, path TEXT NOT NULL, entry_json TEXT NOT NULL, PRIMARY KEY(manifest_digest, ordinal), UNIQUE(manifest_digest, path));",
     );
     return database;
   };
@@ -231,6 +229,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     ).map((row) => row.manifest_digest);
     store.prepare("DELETE FROM cut WHERE revision < ?").run(oldest);
     store.prepare("DELETE FROM change WHERE from_revision < ?").run(oldest);
+    store.prepare("DELETE FROM checkpoint_link WHERE from_revision < ?").run(oldest);
     return digests;
   };
   // Cut and manifest rows share the round transaction; unreferenced content is reclaimed afterwards.
@@ -283,6 +282,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       entries.reduce((sum, entry) => sum + entry.blob.size, 0),
       event.occurredAt,
     );
+    if (previous)
+      store.prepare("INSERT INTO checkpoint_link VALUES (?, ?)").run(event.workspaceRevision, previous.revision);
     for (const change of changes)
       insertChange.run(
         options.repoId,
@@ -477,70 +478,55 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   };
   const documentDigest = (entries: readonly FleetEntry[]) =>
     fleetManifestDigest(entries.filter((entry) => !isReadModelPath(entry.path)));
-  const nextEntries = (prior: readonly FleetEntry[], event: CanonicalEventV1) => {
-    const entries = new Map(prior.map((entry) => [entry.path, entry]));
-    for (const retirement of canonicalDocumentRetirements(event)) entries.delete(retirement.path);
-    for (const claim of canonicalDocumentClaims(event))
-      entries.set(claim.path, {
-        path: claim.path,
-        blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
-      });
-    return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path));
-  };
   const settle = (cut: SnapshotCut) => {
-    const rows = waiters.get(cut.revision);
-    if (!rows) return;
-    waiters.delete(cut.revision);
-    for (const row of rows) row.resolve(cut);
+    for (const [revision, rows] of waiters) {
+      if (revision > cut.revision) continue;
+      waiters.delete(revision);
+      for (const row of rows) row.resolve(cut);
+    }
   };
   const readSnapshot = options.withReadSnapshot ?? (<T>(read: () => T): T => read());
   const buildRound = () => {
-    const initial = latest();
+    const initial = latest(),
+      basis = options.readBasis(initial?.revision ?? null);
+    if (basis.watermark === 0 || basis.watermark !== basis.sourceRevision || !basis.headEvent) return;
+    if (initial && basis.watermark <= initial.revision) return;
     if (!initial) {
-      const basis = options.readBasis(null);
-      if (basis.watermark === 0 || basis.watermark !== basis.sourceRevision || !basis.headEvent) return false;
-      const first = persistInitial(basis.headEvent, entriesFrom(basis));
-      settle(first);
-      return false;
+      settle(persistInitial(basis.headEvent, entriesFrom(basis)));
+      return;
     }
-    const published = initial,
-      basis = options.readBasis(published.revision),
-      started = monotonicNow(),
-      store = db();
-    let entries = manifest(published.revision)!,
-      current: SnapshotCut = published,
-      processed = 0;
-    const settled: SnapshotCut[] = [],
-      pruned: string[] = [];
-    // One transaction drains the whole round: each commit under the old
-    // rollback journal paid its own journal fsync chain per event. Waiters are
-    // settled only after the commit, so a rolled-back round resolves nobody.
-    // Retained cuts address immutable manifests by digest, including intermediate revisions.
-    transact(store, () => {
-      for (const event of basis.events) {
-        if (processed > 0 && monotonicNow() - started >= 100) break;
-        if (event.workspaceRevision !== current.revision + 1)
-          throw new Error(`replica cut gap after ${current.revision}`);
-        const before = entries;
-        entries = nextEntries(entries, event);
-        if (event.workspaceRevision === basis.watermark) entries = withReadModel(entries, event.workspaceRevision);
-        if (
-          event.workspaceRevision === basis.watermark &&
-          documentDigest(entries) !== documentDigest(entriesFrom(basis))
-        )
-          throw new Error(`replica manifest drift at revision ${event.workspaceRevision}`);
-        const digest = writeManifest(entries);
-        const persisted = persistCut(store, event, entries, { revision: current.revision, entries: before }, digest);
-        current = persisted.cut;
-        settled.push(persisted.cut);
-        pruned.push(...persisted.pruned);
-        processed += 1;
-      }
-      return pruned;
+    const before = manifest(initial.revision)!,
+      store = db(),
+      entries = new Map(before.map((entry) => [entry.path, entry]));
+    // Reconcile the captured event suffix once, without publishing mixed-model intermediate cuts.
+    for (const event of basis.events) {
+      for (const retirement of canonicalDocumentRetirements(event)) entries.delete(retirement.path);
+      for (const claim of canonicalDocumentClaims(event))
+        entries.set(claim.path, {
+          path: claim.path,
+          blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
+        });
+    }
+    let published!: SnapshotCut;
+    const pruned = transact(store, () => {
+      const complete = withReadModel(
+        [...entries.values()].sort((a, b) => a.path.localeCompare(b.path)),
+        basis.watermark,
+      );
+      if (documentDigest(complete) !== documentDigest(entriesFrom(basis)))
+        throw new Error(`replica manifest drift at revision ${basis.watermark}`);
+      const persisted = persistCut(
+        store,
+        basis.headEvent!,
+        complete,
+        { revision: initial.revision, entries: before },
+        writeManifest(complete),
+      );
+      published = persisted.cut;
+      return persisted.pruned;
     });
     pruneContent(store, pruned);
-    for (const cut of settled) settle(cut);
-    return current.revision < basis.watermark;
+    settle(published);
   };
   const runRound = () => readSnapshot(buildRound);
   const waiters = new Map<
@@ -570,7 +556,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     setImmediate(() => {
       scheduled = false;
       try {
-        if (runRound()) kick();
+        runRound();
       } catch (error) {
         consumeKnownError(error);
         const pending = [...waiters.values()].flat();
@@ -581,7 +567,9 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   };
   const waitForCut = (revision: number) => {
     const row = cutFrom(
-      db().prepare("SELECT * FROM cut WHERE revision = ?").get(revision) as Record<string, unknown> | undefined,
+      db().prepare("SELECT * FROM cut WHERE revision >= ? ORDER BY revision LIMIT 1").get(revision) as
+        | Record<string, unknown>
+        | undefined,
     );
     if (row) return Promise.resolve(row);
     const promise = new Promise<SnapshotCut>((resolve, reject) => {
@@ -621,14 +609,18 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   };
   const changeLog = () => changeRows();
   const changes = (fromRevision: number, toRevision: number) => {
-    const cuts = db()
-      .prepare("SELECT revision FROM cut WHERE revision >= ? AND revision <= ? ORDER BY revision")
-      .all(fromRevision, toRevision) as unknown as readonly { readonly revision: number }[];
-    if (
-      cuts.length !== toRevision - fromRevision + 1 ||
-      cuts.some((cut, index) => cut.revision !== fromRevision + index)
-    )
-      return null;
+    if (!cut(fromRevision) || !cut(toRevision) || fromRevision > toRevision) return null;
+    const links = db()
+      .prepare(
+        "SELECT from_revision, to_revision FROM checkpoint_link WHERE to_revision > ? AND to_revision <= ? ORDER BY to_revision",
+      )
+      .all(fromRevision, toRevision);
+    let reached = fromRevision;
+    for (const link of links) {
+      if (Number(link.from_revision) !== reached) return null;
+      reached = Number(link.to_revision);
+    }
+    if (reached !== toRevision) return null;
     const folded = new Map<string, FleetDeltaChange>();
     for (const row of changeRows({ from: fromRevision, to: toRevision })) folded.set(row.change.path, row.change);
     return [...folded.values()].sort((left, right) => left.path.localeCompare(right.path));
