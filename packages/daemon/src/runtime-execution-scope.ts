@@ -26,7 +26,16 @@ export function requireExecutionRequestScope(
 }
 
 export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action: RepoTaskAction): void {
-  const reads = ["event-list", "task-show", "task-read-set", "task-dispatches", "doc-status", "doc-dry-run"],
+  const frozenDocument = p.role === "reviewer" && action.kind === "doc-show",
+    reads = [
+      "event-list",
+      "task-show",
+      "task-read-set",
+      "task-dispatches",
+      "doc-status",
+      "doc-dry-run",
+      ...(frozenDocument ? ["doc-show"] : []),
+    ],
     writes =
       p.role === "reviewer"
         ? ["task-review-execution"]
@@ -35,7 +44,8 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     (action.kind.startsWith("doc-") &&
       (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))) ||
     ![...reads, ...writes].includes(action.kind) ||
-    (action.kind !== "event-list" && action.taskId !== p.taskId) ||
+    (action.kind !== "event-list" && !frozenDocument && action.taskId !== p.taskId) ||
+    (frozenDocument && action.taskId !== undefined && action.taskId !== p.taskId) ||
     (action.executionId !== undefined && action.executionId !== p.executionId) ||
     (action.executor != null &&
       (!isJsonObject(action.executor) ||

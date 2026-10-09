@@ -507,7 +507,11 @@ export function createJsonRpcProtocolServer(options: {
                     code: "authorization_denied",
                   });
                 })();
-        if (isFleetEdgeRepositoryRead(fleetAction as DaemonFleetTaskAction)) {
+        // Frozen submission blobs are center-owned; an edge replica may only hold the latest document.
+        if (
+          isFleetEdgeRepositoryRead(fleetAction as DaemonFleetTaskAction) &&
+          !(executionCredential && fleetAction.kind === "doc-show")
+        ) {
           // The edge cell answers from its replica under the same principal the local daemon binds.
           const readAuth = relayedExecutionPrincipal
             ? { ...options.authContext, executionPrincipal: relayedExecutionPrincipal }

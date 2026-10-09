@@ -822,12 +822,31 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         ]);
       if (receipt.outcome === "applied" && frame.artifact)
         discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.artifact }]);
-      return immediate({
+      const response: Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }> = {
         schema: "fleet.task.result/v1",
         messageId: mid(frame.messageId, "task"),
         inReplyTo: frame.messageId,
         ...result,
-      });
+      };
+      if (command.kind === "doc-show" && receipt.outcome === "applied") {
+        const { evidence, ...metadata } = result.receipt,
+          bytes = Buffer.from(evidence as string);
+        return {
+          key: null,
+          frames: (async function* () {
+            for (let offset = 0; offset < bytes.length; offset += FLEET_CHUNK_BYTES) {
+              yield {
+                schema: "fleet.task.evidence/v1" as const,
+                messageId: mid(frame.messageId, `evidence-${offset}`),
+                inReplyTo: frame.messageId,
+                dataBase64: bytes.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
+              };
+            }
+            yield { ...response, receipt: metadata };
+          })(),
+        };
+      }
+      return immediate(response);
     }
     if (frame.schema === "fleet.schedule.command/v1") {
       const a = await nodeContext(nodeId, frame.repoId);

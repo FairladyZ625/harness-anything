@@ -124,6 +124,7 @@ export type FleetFrameV1 =
         accessToken?: string;
       }
     >
+  | Msg<"fleet.task.evidence/v1", { inReplyTo: string; dataBase64: string }>
   | Msg<
       "fleet.task.result/v1",
       {
@@ -380,9 +381,11 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
     daemonProtocolCommands.find(
       (command) =>
         ("actionKind" in command ? command.actionKind : command.id) === kind &&
-        command.admission["remote-edge"] === "via-center-forward" &&
-        command.path[0] !== "doc" &&
-        command.path[0] !== "schedule",
+        ((command.admission["remote-edge"] === "via-center-forward" &&
+          command.path[0] !== "doc" &&
+          command.path[0] !== "schedule") ||
+          // Execution-bound doc-show resolves frozen submission blobs at the center.
+          command.id === "doc-show"),
     ),
   declaredActionFields = (kind: string): readonly EntityActionInputField[] | null => {
     const command = fleetCommand(kind);
@@ -746,6 +749,7 @@ const schemas: Readonly<Record<string, Check>> = {
     },
     ["schema", "messageId", "writerEpoch", "opId", "repoId", "taskId", "action", "docChanges", "mirrorBaseCut"],
   ),
+  "fleet.task.evidence/v1": shape({ ...common, inReplyTo: id, dataBase64: base64 }),
   "fleet.task.result/v1": optionalShape(
     {
       ...reply,

@@ -63,6 +63,8 @@ test("review prompts truncate oversized artifact bodies and keep the frozen anch
   assert.match(prompt, /REVIEW-ARTIFACT-HEAD/u);
   assert.doesNotMatch(prompt, /REVIEW-ARTIFACT-TAIL/u);
   assert.match(prompt, /bodyTruncatedFromChars/u);
+  assert.match(prompt, /ha doc show --path <anchor.path> --raw/u);
+  assert.match(prompt, /registered anchors at their frozen revisions/u);
   assert.match(prompt, /REVIEW-SMALL-ARTIFACT-FULL-BODY/u);
   assert.match(prompt, new RegExp(sha256(bigBody), "u"));
 });

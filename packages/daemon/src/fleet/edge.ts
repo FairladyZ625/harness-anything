@@ -1,3 +1,4 @@
+import { uploadFleetChange } from "./upload-client.ts";
 import {
   orderedEdgeManifestDigest,
   readEdgeManifestEntries,
@@ -30,7 +31,6 @@ import { recordHeadConfirmation, recordNodeReadDenied } from "./replica-read-mod
 import { READ_MODEL_META_PATH, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, writeFileDurably } from "../durable-file.ts";
 import {
-  FLEET_CHUNK_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
   FleetUtf8LineDecoder,
   currentFleetProtocolVersion,
@@ -664,48 +664,6 @@ export async function awaitFleetRuntimeSessionsClient(
     session.close();
   }
 }
-type FleetUploadSession = {
-  readonly messageId: () => string;
-  readonly request: (frame: FleetFrameV1) => Promise<FleetFrameV1>;
-};
-async function uploadFleetChange(
-  session: FleetUploadSession,
-  repoId: string,
-  input: FleetEdgeChange,
-): Promise<FleetDescriptor> {
-  const body = Buffer.isBuffer(input.body) ? input.body : Buffer.from(input.body),
-    content = {
-      sha256: sha256Bytes(body),
-      size: body.byteLength,
-      mediaType: input.mediaType ?? (input.path.endsWith(".md") ? "text/markdown" : "text/plain"),
-    },
-    ready = await session.request({
-      schema: "fleet.upload.begin/v1",
-      messageId: session.messageId(),
-      repoId,
-      content,
-    });
-  if (ready.schema !== "fleet.upload.ready/v1") throw new Error("upload ready expected");
-  let offset = ready.resumeOffset;
-  while (offset < body.length) {
-    const response = await session.request({
-      schema: "fleet.upload.chunk/v1",
-      messageId: session.messageId(),
-      uploadId: ready.uploadId,
-      offset,
-      dataBase64: body.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
-    });
-    if (response.schema !== "fleet.upload.ready/v1") throw new Error("chunk receipt expected");
-    offset = response.resumeOffset;
-  }
-  const uploaded = await session.request({
-    schema: "fleet.upload.finish/v1",
-    messageId: session.messageId(),
-    uploadId: ready.uploadId,
-  });
-  if (uploaded.schema !== "fleet.upload.result/v1") throw new Error("upload result expected");
-  return uploaded.descriptor;
-}
 export interface FleetTaskCommandClientOptions extends FleetPeerOptions {
   readonly privatePayload?: Uint8Array;
   readonly artifact?: FleetDescriptor;
@@ -751,6 +709,7 @@ export async function runFleetTaskCommandClient(
         })
       : null;
     let result: FleetFrameV1;
+    const evidence: Buffer[] = [];
     try {
       result = await session.request({
         schema: "fleet.task.command/v1",
@@ -766,6 +725,11 @@ export async function runFleetTaskCommandClient(
         mirrorBaseCut: options.mirrorBaseCut ?? null,
         ...(options.accessToken ? { accessToken: options.accessToken } : {}),
       });
+      // Bytes advance on each chunk; the result frame is the reader's completion signal.
+      while (result.schema === "fleet.task.evidence/v1") {
+        evidence.push(Buffer.from(result.dataBase64, "base64"));
+        result = await session.next();
+      }
     } catch (error) {
       if (error instanceof FleetRemoteError && error.code === "writer_epoch_stale") {
         const queried = await session.request({
@@ -789,7 +753,9 @@ export async function runFleetTaskCommandClient(
       throw error;
     }
     if (result.schema !== "fleet.task.result/v1") throw new Error("task result expected");
-    return result;
+    return options.action.kind === "doc-show" && result.receipt?.outcome === "applied"
+      ? { ...result, receipt: { ...result.receipt, evidence: Buffer.concat(evidence).toString("utf8") } }
+      : result;
   } finally {
     session.close();
   }

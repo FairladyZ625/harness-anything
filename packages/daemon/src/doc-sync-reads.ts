@@ -29,6 +29,8 @@ import {
 } from "./doc-sync-files.ts";
 import { scanReceipt, scopeTouches } from "./doc-sync-settlement.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
+import { executionCredentialRejected } from "./runtime-execution-credential.ts";
+import { readSubmissionArtifact, submissionArtifactPath } from "./submission-artifacts.ts";
 
 export function readAction(input: Input): WriteReceipt {
   if (input.action.kind !== "doc-show") return scanReceipt(input, scannerRead(input));
@@ -52,6 +54,32 @@ export function readAction(input: Input): WriteReceipt {
     paths = rawPaths.map((item) => documentPath(String(item)));
   } catch {
     throw docSyncError("invalid_command", `${input.action.kind} requires valid doc-sync paths`);
+  }
+  const principal = input.binding.executionPrincipal;
+  if (principal?.role === "reviewer") {
+    const task = input.projection.read(principal.taskId),
+      execution = task.snapshot.executions.find((entry) => entry.executionId === principal.executionId),
+      requested = paths[0],
+      anchor = execution?.submission?.artifacts?.find(
+        (entry) => submissionArtifactPath(task.packagePath!, entry.path) === requested,
+      );
+    // Caller-selected paths must belong to the dispatch's frozen delivery, not the live projection.
+    if (!task.packagePath || !anchor) throw executionCredentialRejected();
+    const artifact = readSubmissionArtifact(
+      { store: input.store, cellCodedError: docSyncError },
+      task.packagePath,
+      anchor.path,
+      anchor.revision,
+      anchor.blobSha256,
+    );
+    return {
+      outcome: "applied",
+      opId: artifact.acceptance,
+      revision: anchor.revision,
+      evidence: artifact.body,
+      visibility: "center",
+      proof: proof(anchor.revision, anchor.revision, true, false),
+    };
   }
   if (!directPaths(input.rootDir, paths) || paths.some((candidate) => !resolveDocRoute(candidate).allowed))
     throw docSyncError("invalid_command", `${input.action.kind} requires valid doc-sync paths`);
