@@ -143,7 +143,8 @@ describe("Task detail expression", () => {
     expect(byTestId("task-execution-execution-w3").textContent).toContain("execution-w3");
     expect(byTestId("task-execution-execution-w3").textContent).toContain("evidence_111111111111111111111111");
     expect(byTestId("task-execution-execution-w3").textContent).toContain("receipt-dom");
-    expect(byTestId("task-execution-execution-w3").textContent).toContain("1 passing");
+    // 计数行走如实分桶文案(task_3c3bd2eaa89460dbae843fa737):1 个产出 · 1 通过。
+    expect(byTestId("task-execution-execution-w3").textContent).toContain("1 个产出 · 1 通过");
 
     await clickTab("文件");
     expect(byTestId("task-document-tree").textContent).toContain("INDEX.md");

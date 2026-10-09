@@ -6,11 +6,12 @@ import type { TaskRow } from "../../model/types.ts";
 import {
   adaptTaskExecutions,
   buildExecutionEvidenceContext,
-  checkerResultField,
-  field,
-  receiptField,
+  outputReceiptState,
+  type ExecutionEvidenceOutput,
   type ExecutionEvidenceRow,
+  type OutputReceiptState,
 } from "../../model/execution-evidence.ts";
+import { t } from "../../i18n/index.tsx";
 import { CloseoutBadge } from "../badges.tsx";
 import { CopyContextButton } from "../CopyContextButton.tsx";
 import { IdText } from "../IdText.tsx";
@@ -333,6 +334,69 @@ function AuditGroup({
   );
 }
 
+/**
+ * 收口页 Execution 输出区的回执显示(task_3c3bd2eaa89460dbae843fa737):三种状态
+ * 互不混淆——有检查器(通过=绿/未通过=红/有回执无结论=橙)、没有检查器(文档类
+ * 产出的常态,receiptRef=null,中性灰)与数据确实缺失(投影缺字段,橙「未投影」)。
+ * 旧显示把常态拼成「none / 无 receipt · unknown / 未投影」套警示色,业主把常态
+ * 当成了故障。文案走 i18n;计数行按同一分类如实分桶,不把「无检查器」算作未通过。
+ */
+
+/** 展示侧缺字段文案:i18n 单语,区别于复制上下文里机器读的「unknown / 未投影」。 */
+function displayField(value: unknown): string {
+  return value === undefined || value === null || value === ""
+    ? t("components.executionOutputs.missing")
+    : String(value);
+}
+
+function receiptDisplay(state: OutputReceiptState): { readonly text: string; readonly className: string } {
+  switch (state.kind) {
+    case "pass":
+      return {
+        text: `${state.receiptRef} · ${t("components.executionOutputs.receiptPass")}`,
+        className: "text-status-done",
+      };
+    case "fail":
+      return {
+        text: `${state.receiptRef} · ${t("components.executionOutputs.receiptFail")}`,
+        className: "text-status-unknown",
+      };
+    case "no-result":
+      return {
+        text: `${state.receiptRef} · ${t("components.executionOutputs.receiptNoResult")}`,
+        className: "text-stale",
+      };
+    case "no-checker":
+      return { text: t("components.executionOutputs.receiptNoChecker"), className: "text-text-faint" };
+    case "missing":
+      return { text: t("components.executionOutputs.missing"), className: "text-stale" };
+  }
+}
+
+function outputsCountText(outputs: readonly ExecutionEvidenceOutput[]): string {
+  const counts: Record<OutputReceiptState["kind"], number> = {
+    pass: 0,
+    fail: 0,
+    "no-result": 0,
+    "no-checker": 0,
+    missing: 0,
+  };
+  for (const output of outputs) counts[outputReceiptState(output).kind] += 1;
+  const parts = [t("components.executionOutputs.countTotal", { count: outputs.length })];
+  if (outputs.length > 0 && counts["no-checker"] === outputs.length) {
+    parts.push(t("components.executionOutputs.countAllUnchecked"));
+    return parts.join(" · ");
+  }
+  if (counts.pass > 0) parts.push(t("components.executionOutputs.countPass", { count: counts.pass }));
+  if (counts.fail > 0) parts.push(t("components.executionOutputs.countFail", { count: counts.fail }));
+  if (counts["no-result"] > 0)
+    parts.push(t("components.executionOutputs.countNoResult", { count: counts["no-result"] }));
+  if (counts["no-checker"] > 0)
+    parts.push(t("components.executionOutputs.countNoChecker", { count: counts["no-checker"] }));
+  if (counts.missing > 0) parts.push(t("components.executionOutputs.countMissing", { count: counts.missing }));
+  return parts.join(" · ");
+}
+
 function ExecutionOutputsGroup({
   executions,
   focusedRecordRef,
@@ -357,53 +421,52 @@ function ExecutionOutputsGroup({
               {/* executionId 是任务内记录的裸标识(行本体就是导航目标):展示叶截断 + 悬停完整值。 */}
               <IdText value={execution.executionId} className="font-semibold text-text" />
               <span className="rounded border border-border px-1.5 py-0.5 text-text-muted">
-                {field(execution.state)}
+                {displayField(execution.state)}
               </span>
               {execution.origin && (
                 <span className="rounded border border-border px-1.5 py-0.5 text-text-faint">{execution.origin}</span>
               )}
               <span className="text-text-faint">
-                iteration {field(execution.iteration)} · commit{" "}
-                {field(execution.commitSha && execution.commitSha.slice(0, 10))}
+                iteration {displayField(execution.iteration)} ·{" "}
+                {execution.commitSha
+                  ? `commit ${execution.commitSha.slice(0, 10)}`
+                  : `commit ${t("components.executionOutputs.commitUncommitted")}`}
               </span>
-              <span className="ml-auto text-text-faint">
-                {execution.outputs.length} outputs ·{" "}
-                {execution.outputs.filter(({ isPassingReceipt }) => isPassingReceipt).length} passing
+              <span data-testid="execution-outputs-count" className="ml-auto text-text-faint">
+                {outputsCountText(execution.outputs)}
               </span>
             </div>
             {execution.outputs.length === 0 ? (
               <p className="ui-meta text-text-faint">该 execution 没有输出记录。</p>
             ) : (
               <div className="grid grid-cols-[minmax(0,1fr)] gap-1">
-                {execution.outputs.map((output, index) => (
-                  // 输出记录行(evidence 回执)与收口记录行同一 RecordRow 布局:
-                  // 长 evidenceId 截断、长 locator 词内换行留在自身列,复制在行尾动作位。
-                  <RecordRow
-                    key={`${output.evidenceId ?? "unknown"}-${index}`}
-                    id={<IdText value={field(output.evidenceId)} className="text-text" />}
-                    state={
-                      <span
-                        className={
-                          output.isPassingReceipt
-                            ? "text-status-done"
-                            : output.checkerReceiptRef === null
-                              ? "text-stale"
-                              : "text-status-unknown"
-                        }
-                      >
-                        {receiptField(output.checkerReceiptRef)} · {checkerResultField(output.checkerResult)}
-                      </span>
-                    }
-                    summary={
-                      <span className="font-mono ui-micro text-text-muted">
-                        {field(output.substrate)} · {field(output.locator)}
-                      </span>
-                    }
-                    action={
-                      <CopyContextButton compact buildText={() => buildExecutionEvidenceContext(execution, output)} />
-                    }
-                  />
-                ))}
+                {execution.outputs.map((output, index) => {
+                  const receipt = receiptDisplay(outputReceiptState(output));
+                  return (
+                    // 输出记录行(evidence 回执)与收口记录行同一 RecordRow 布局:
+                    // 长 evidenceId 截断、长 locator 词内换行留在自身列,复制在行尾动作位。
+                    <RecordRow
+                      key={`${output.evidenceId ?? "unknown"}-${index}`}
+                      id={<IdText value={displayField(output.evidenceId)} className="text-text" />}
+                      state={
+                        <span
+                          data-testid={`output-receipt-state-${index}`}
+                          className={`font-mono ui-micro ${receipt.className}`}
+                        >
+                          {receipt.text}
+                        </span>
+                      }
+                      summary={
+                        <span className="font-mono ui-micro text-text-muted">
+                          {displayField(output.substrate)} · {displayField(output.locator)}
+                        </span>
+                      }
+                      action={
+                        <CopyContextButton compact buildText={() => buildExecutionEvidenceContext(execution, output)} />
+                      }
+                    />
+                  );
+                })}
               </div>
             )}
           </article>

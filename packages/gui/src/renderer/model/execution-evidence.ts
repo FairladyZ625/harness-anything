@@ -115,6 +115,31 @@ export function checkerResultField(value: ExecutionEvidenceOutput["checkerResult
   return value === "unknown" ? UNKNOWN_EVIDENCE_FIELD : field(value);
 }
 
+/**
+ * 输出回执的展示分类(收口页行级文案/配色与计数行共用的同一判定):区分
+ * 「没有检查器」(receiptRef=null 且 checkerResult 显式 unknown,文档类产出的
+ * 常态,daemon 投影两个回执字段恒显式写出)与「投影缺字段」(任一回执字段没到
+ * =数据缺失,含 {receiptRef:null} 而无 checkerResult——那不是常态形状)。两者
+ * 在旧显示里共用同一句警示文案,是本次修正的对象。receiptRef 有值而 result
+ * 显式 unknown 是领域模型允许的第三种(回执在、结论未给),单列一类。
+ */
+export type OutputReceiptState =
+  | { readonly kind: "pass"; readonly receiptRef: string }
+  | { readonly kind: "fail"; readonly receiptRef: string }
+  | { readonly kind: "no-result"; readonly receiptRef: string }
+  | { readonly kind: "no-checker" }
+  | { readonly kind: "missing" };
+
+export function outputReceiptState(
+  output: Pick<ExecutionEvidenceOutput, "checkerReceiptRef" | "checkerResult">,
+): OutputReceiptState {
+  if (output.checkerReceiptRef === undefined || output.checkerResult === undefined) return { kind: "missing" };
+  if (output.checkerReceiptRef === null) return { kind: "no-checker" };
+  if (output.checkerResult === "pass") return { kind: "pass", receiptRef: output.checkerReceiptRef };
+  if (output.checkerResult === "fail") return { kind: "fail", receiptRef: output.checkerReceiptRef };
+  return { kind: "no-result", receiptRef: output.checkerReceiptRef };
+}
+
 function adaptExecution(
   row: ExecutionEvidenceSourceRow,
   execution: Execution,
