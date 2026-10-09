@@ -212,13 +212,9 @@ export async function fetchCiObservations(
             return { fetched: null };
           }
           const runRoot = path.join(temporaryRoot, String(run.databaseId), String(summary.attempt));
-          const artifactUnavailable = await downloadCiArtifacts(
-            runGh,
-            cell.rootDir,
-            runRoot,
-            run.databaseId,
-            summary.attempt,
-          );
+          const downloaded = witness
+            ? { artifacts: [], unavailable: false }
+            : await downloadCiArtifacts(runGh, cell.rootDir, runRoot, run.databaseId, summary.attempt);
           const attempt = JSON.parse(
             await runGh(
               "gh",
@@ -246,7 +242,18 @@ export async function fetchCiObservations(
               "invalid_result",
               "CI attempt metadata changed while fetching; no observation accepted.",
             );
-          const artifacts = readArtifacts(runRoot).filter(
+          if (witness)
+            return {
+              fetched: {
+                databaseId: run.databaseId,
+                summary,
+                repositoryId: attempt.repository.full_name,
+                workflowPath: attempt.path,
+                workflowId: String(attempt.workflow_id),
+                jobs: [],
+              },
+            };
+          const artifacts = downloaded.artifacts.filter(
             (artifact) =>
               artifact.producer.databaseRunId === String(run.databaseId) &&
               artifact.producer.runAttempt === summary.attempt,
@@ -304,7 +311,7 @@ export async function fetchCiObservations(
             fetched: {
               databaseId: run.databaseId,
               summary,
-              artifactUnavailable,
+              artifactUnavailable: downloaded.unavailable,
               repositoryId: attempt.repository.full_name,
               workflowPath: attempt.path,
               workflowId: String(attempt.workflow_id),
@@ -786,29 +793,39 @@ export async function listCiArtifacts(gh: RunGh, cwd: string, runId: number): Pr
   return pages.flatMap((page) => page.artifacts);
 }
 
+// Unaccepted preparation belongs to a repository/run/attempt, not an occurrence claim.
+// Retain completed units after a provider interruption; acceptance still uses the current fence.
+const partialCiDownloads = new Map<string, Map<number, readonly CiRunArtifact[]>>();
+
 async function downloadCiArtifacts(
   gh: RunGh,
   cwd: string,
   root: string,
   runId: number,
   attempt: number,
-): Promise<boolean> {
-  const artifacts = await listCiArtifacts(gh, cwd, runId);
-  const names = artifacts
-    .filter((entry) => entry.name.startsWith(`ci-observation-${runId}-${attempt}-`) && !entry.expired)
-    .map((entry) => entry.name);
-  if (names.length === 0) return false;
+): Promise<{ readonly artifacts: readonly CiRunArtifact[]; readonly unavailable: boolean }> {
+  const key = JSON.stringify([cwd, runId, attempt]);
+  const artifacts = (await listCiArtifacts(gh, cwd, runId)).filter(
+    (entry) => entry.name.startsWith(`ci-observation-${runId}-${attempt}-`) && !entry.expired,
+  );
+  const completed = partialCiDownloads.get(key) ?? new Map<number, readonly CiRunArtifact[]>();
   try {
-    await gh("gh", ["run", "download", String(runId), ...names.flatMap((name) => ["-n", name]), "--dir", root], {
-      cwd,
-    });
-    return false;
+    for (const artifact of artifacts) {
+      if (completed.has(artifact.id)) continue;
+      const dir = path.join(root, String(artifact.id));
+      await gh("gh", ["run", "download", String(runId), "-n", artifact.name, "--dir", dir], { cwd });
+      completed.set(artifact.id, readArtifacts(dir));
+      partialCiDownloads.set(key, completed);
+    }
+    partialCiDownloads.delete(key);
+    return { artifacts: artifacts.flatMap((artifact) => completed.get(artifact.id)!), unavailable: false };
   } catch (error) {
     if (isTransientCiProviderFailure(error)) throw error;
+    partialCiDownloads.delete(key);
     if (isFatalCiProviderFailure(error)) throw error;
     if (!/\bHTTP [45]\d\d\b|Not Found/iu.test(ghFailureDetail(error))) throw error;
     consumeKnownError(error);
-    return true;
+    return { artifacts: [], unavailable: true };
   }
 }
 

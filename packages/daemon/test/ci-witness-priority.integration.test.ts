@@ -143,8 +143,9 @@ test("a submitted CI cut survives center reopen and is accepted before 60 pendin
           attempt: 1,
         });
       }
-      if (endpoint.includes("/artifacts?")) return JSON.stringify([{ artifacts: [] }]);
-      if (endpoint.includes("/jobs?")) return JSON.stringify([{ jobs: [] }]);
+      if (endpoint.includes("/artifacts?") || (args[0] === "run" && args[1] === "download"))
+        assert.fail("task witness must not wait for diagnostic artifacts");
+      if (endpoint.includes("/jobs?")) assert.fail("task witness requires no diagnostic job inventory");
       if (endpoint.includes("/attempts/")) {
         const run = Number(endpoint.split("/")[5]);
         if (run !== 900) {

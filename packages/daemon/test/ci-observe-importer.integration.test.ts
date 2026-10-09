@@ -7,7 +7,7 @@ import { makeTaskEventStore, makeTaskProjection, createScheduleV1, type Schedule
 import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
 import { reconcileCiOccurrence } from "../src/ci-observe-importer.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
-import { ingestCiObservations, type RunGh } from "../src/ci-observation-actions.ts";
+import { ingestCiObservations, runCiProviderCommand, type RunGh } from "../src/ci-observation-actions.ts";
 
 const actor = { principal: { personId: "ci-import-test" }, executor: null } as const;
 const binding = { actor, source: "local" as const };
@@ -32,6 +32,9 @@ function schedule(): ScheduleV1 {
 function provider() {
   const state = {
     runs: 0,
+    slowArtifacts: false,
+    interruptLastArtifact: false,
+    downloaded: [] as string[],
     latestAttempt: 1,
     artifacts: true,
     extraJob: false,
@@ -74,8 +77,13 @@ function provider() {
       throw new Error("Get https://api.github.com/artifacts: EOF");
     if (api.includes("/artifacts?")) {
       const runId = Number(api.split("/")[5]);
-      const artifacts =
-        state.artifacts || state.expired
+      const artifacts = state.slowArtifacts
+        ? ["fast", "second", "third"].map((name, i) => ({
+            id: runId * 1000 + i,
+            name: `ci-observation-${runId}-${requestedAttempt}-${name}`,
+            expired: false,
+          }))
+        : state.artifacts || state.expired
           ? [
               {
                 id: runId * 1000 + requestedAttempt,
@@ -111,6 +119,9 @@ function provider() {
           jobs: [
             { id: Number(api.split("/")[5]) * 10, name: "fast" },
             ...(state.extraJob ? [{ id: Number(api.split("/")[5]) * 10 + 1, name: "missing-job" }] : []),
+            ...(state.slowArtifacts
+              ? ["second", "third"].map((name, i) => ({ id: Number(api.split("/")[5]) * 10 + i + 1, name }))
+              : []),
           ],
         },
         { jobs: [] },
@@ -139,7 +150,13 @@ function provider() {
       if (state.archiveMissing) throw new Error("HTTP 404 Not Found: selected artifact archive");
       const runId = args[2]!,
         dir = args[args.indexOf("--dir") + 1]!;
-      assert.deepEqual(args.slice(3, -2), ["-n", `ci-observation-${runId}-${requestedAttempt}-fast`]);
+      const name = args[args.indexOf("-n") + 1]!.split("-").at(-1)!;
+      if (state.slowArtifacts) {
+        state.downloaded.push(name);
+        if (name === "third" && state.interruptLastArtifact) throw new Error("unexpected EOF");
+        const units = args.filter((arg) => arg === "-n").length;
+        await runCiProviderCommand(process.execPath, ["-e", `setTimeout(() => {}, ${units * 16000})`], options);
+      } else assert.deepEqual(args.slice(3, -2), ["-n", `ci-observation-${runId}-${requestedAttempt}-fast`]);
       assert.equal(options.cwd.length > 0, true);
       mkdirSync(dir, { recursive: true });
       for (let attempt = requestedAttempt; attempt <= requestedAttempt; attempt++)
@@ -152,14 +169,14 @@ function provider() {
               workflow: ".github/workflows/rewrite-ci.yml",
               databaseRunId: runId,
               runAttempt: attempt,
-              jobKey: '["fast",{}]',
-              jobName: "fast",
+              jobKey: JSON.stringify([name, {}]),
+              jobName: name,
             },
             run: {
               runId: `${runId}.${attempt}`,
               sha,
               branch: "main",
-              job: "fast",
+              job: name,
               prNumber: null,
               wallclockMs: 1,
               runner: "github-actions",
@@ -633,5 +650,27 @@ test("an unfinished pending target rotates behind later diagnostics instead of s
     for (let occurrence = 0; occurrence < 3; occurrence++) assert.equal((await run()).outcome, "succeeded");
     assert.deepEqual(current().status.ciObserve!.pending, [{ runId: 1, attempt: 1, workflow: "rewrite-ci" }]);
     assert.ok(state.seen.includes("12.1"));
+  });
+});
+
+test("a progressing download exceeds the provider deadline and resumes completed artifacts across occurrences", async (t) => {
+  await fixture(async ({ run, state, current, store }) => {
+    state.runs = 1;
+    state.slowArtifacts = true;
+    state.interruptLastArtifact = true;
+    const started = performance.now();
+    assert.equal((await run()).outcome, "succeeded");
+    assert.ok(performance.now() - started > 30000, "two completed units exceed the whole-batch deadline");
+    assert.deepEqual(state.downloaded, ["fast", "second", "third"]);
+    assert.deepEqual(
+      current().status.ciObserve!.pending.map((target) => target.runId),
+      [1],
+    );
+    state.interruptLastArtifact = false;
+    assert.equal((await run()).outcome, "succeeded");
+    assert.deepEqual(state.downloaded, ["fast", "second", "third", "third"], "completed units must not download again");
+    assert.equal(current().status.ciObserve!.pending.length, 0);
+    assert.equal(store.readHead()!.revision, 5, "workflow, three job details and complete attempt accepted");
+    t.diagnostic(JSON.stringify({ elapsedMs: performance.now() - started, downloads: state.downloaded, pending: 0 }));
   });
 });
