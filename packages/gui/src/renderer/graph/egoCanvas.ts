@@ -250,7 +250,7 @@ const GAP_Y = 36;
 const H_CAP_FOCUS = 640;
 const H_CAP_PERIPH = 480;
 
-/** 卡片高度的内容感知估算(地板与 cap 由 egoNodeDims 叠加)。 */
+/** Content-aware reading footprint; egoNodeDims caps long bodies. */
 export function estimateEgoCardHeight(entity: EgoEntity, row: EgoNodeMeta["row"], width: number): number {
   const cpl = Math.max(20, Math.floor((width - 24) / 8.5));
   const LINE = 22;
@@ -280,19 +280,19 @@ export function estimateEgoCardHeight(entity: EgoEntity, row: EgoNodeMeta["row"]
   return height;
 }
 
-/** 节点尺寸:chip 定值;卡片按内容估高 + 可读地板 + 硬 cap(超出由内部滚动兜底)。 */
+/** Chips stay compact; cards follow content up to the viewport reading cap, then scroll. */
 export function egoNodeDims(
   entity: EgoEntity,
   expanded: boolean,
   row: EgoNodeMeta["row"] | undefined,
   isFocus: boolean,
+  cardHeightCap?: number,
 ): { w: number; h: number } {
   if (!expanded || !row) return { w: CHIP_W, h: CHIP_H };
   const visual = entityKindVisual(entity);
   const w = isFocus ? visual.cardWFocus : visual.cardW;
-  const minH = isFocus ? visual.minHFocus : visual.minHPeriph;
-  const cap = isFocus ? H_CAP_FOCUS : H_CAP_PERIPH;
-  return { w, h: Math.min(Math.max(estimateEgoCardHeight(entity, row, w), minH), cap) };
+  const cap = Math.min(isFocus ? H_CAP_FOCUS : H_CAP_PERIPH, cardHeightCap ?? Infinity);
+  return { w, h: Math.min(estimateEgoCardHeight(entity, row, w), cap) };
 }
 
 export interface EgoCanvasInput {
@@ -306,6 +306,8 @@ export interface EgoCanvasInput {
   expanded: ReadonlySet<string>;
   /** 已摆放的中心,显式重铺时由宿主清空。 */
   centers?: ReadonlyMap<string, { x: number; y: number }>;
+  /** Shared long-content cap resolved against the actual graph viewport. */
+  cardHeightCap?: number;
 }
 
 export interface EgoCanvasLayout {
@@ -337,9 +339,8 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
   const typeOn = (entity: EgoEntity): boolean => filters.types === null || filters.types.has(entity);
   const dimOf = (id: string) => {
     const meta = byId.get(id);
-    const dims = egoNodeDims(meta?.entity ?? "task", true, meta?.row, id === focusId);
-    // 初次摆放预留卡片的最大阅读范围,展开时无须挪动邻居让位。
-    return { w: dims.w, h: id === focusId ? H_CAP_FOCUS : H_CAP_PERIPH };
+    // Reserve the actual reading footprint; short cards do not reserve the maximum body cap.
+    return egoNodeDims(meta?.entity ?? "task", true, meta?.row, id === focusId, input.cardHeightCap);
   };
 
   // ── 可见集:shown ∩ 类型开关;焦点恒可见(不被自身类型开关抹掉) ──
@@ -454,7 +455,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     if (!meta) continue;
     const center = placed.get(id)!;
     const isExpanded = expanded.has(id);
-    const { w, h } = egoNodeDims(meta.entity, isExpanded, meta.row, id === focusId);
+    const { w, h } = egoNodeDims(meta.entity, isExpanded, meta.row, id === focusId, input.cardHeightCap);
     // 「还有多少邻居没铺开」—— chip 上的 +N 徽章,点开这张卡片会长出它们。
     let hiddenCount = 0;
     for (const entry of adj.get(id) ?? []) {
@@ -484,7 +485,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
         navRef: meta.entity === "task" ? `task/${id}` : id,
       },
       draggable: false,
-      zIndex: id === focusId ? 6 : 1,
+      zIndex: id === focusId ? 6 : isExpanded ? 5 : 1,
     });
   }
 

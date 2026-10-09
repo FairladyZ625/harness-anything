@@ -1146,3 +1146,8 @@ html[data-theme="light"] ::selection {
   }
 }
 
+
+/* Keep the spotlight direction flow at the archive reading pace, using the existing RF animation. */
+.graph-ego-canvas .react-flow__edge.animated path {
+  animation-duration: 2.8s;
+}

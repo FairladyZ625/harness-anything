@@ -183,11 +183,18 @@ function GraphViewInner({
   // 领地摆放区宽度(ResizeObserver 实测):列数由它派生,而非固定 3 列。
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [cardHeightCap, setCardHeightCap] = useState<number>();
   useEffect(() => {
     const host = canvasHostRef.current;
     if (!host) return;
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width ?? 0;
+      // --long-content-cap is the shared cqb contract; resolve it against this graph pane.
+      const height = entries[0]?.contentRect.height ?? 0;
+      if (height > 0)
+        setCardHeightCap(
+          (height * Number.parseFloat(getComputedStyle(host).getPropertyValue("--long-content-cap"))) / 100,
+        );
       setContainerWidth((prev) => (Math.abs(prev - width) > 1 ? width : prev));
     });
     observer.observe(host);
@@ -626,6 +633,7 @@ function GraphViewInner({
           <EgoNeighborhood
             repoId={repoId}
             rememberSession
+            cardHeightCap={cardHeightCap}
             focusRef={focusRef}
             tasks={tasks}
             decisions={decisions}
