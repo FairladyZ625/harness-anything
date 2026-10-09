@@ -58,7 +58,7 @@ export function repositoryCutFixture(t: TestContext) {
       documents: [],
     }),
     readContentBlob: (sha: string) => contents.get(sha) ?? null,
-    readEdgeReadModel: () => centerEdgeReadModel(center),
+    readEdgeReadModel: (read) => centerEdgeReadModel(center, read),
   });
   const viewRoot = path.join(root, "edge"),
     receiver = openFleetEdgeView(viewRoot, 64 * 1024 * 1024);

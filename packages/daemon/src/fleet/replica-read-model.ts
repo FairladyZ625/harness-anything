@@ -37,24 +37,30 @@ const HEAD_CONFIRMATION_FILE = "head-confirmation.json";
 const READ_DENIED_FILE = "read-denied.json";
 
 /** The center side: what one cut publishes for the edge read model. */
-export function centerEdgeReadModel(projection: TaskProjectionQueries): {
-  readonly sourceRevision: number;
-  readonly rootThreshold: number;
-  readonly rows: EdgeReadModelRows;
-} | null {
-  const read = projection.readEdgeReadModel();
-  if (read.status !== "ready") return null;
-  const projected = read.rows.entities.find(
-    (row) => row.entityKind === "settings" && row.entityId === SETTINGS_ID,
-  )?.valueJson;
-  const settings = repositorySettings(
-    projected === undefined ? INITIAL_SETTINGS_V1 : (JSON.parse(projected) as RepositorySettingsV1),
-  );
-  return {
-    sourceRevision: read.sourceRevision,
-    rootThreshold: resolveTaskRootThreshold({ tasks: settings.tasks }).threshold,
-    rows: read.rows,
-  };
+export function centerEdgeReadModel<T>(
+  projection: TaskProjectionQueries,
+  consume: (
+    model: {
+      readonly sourceRevision: number;
+      readonly rootThreshold: number;
+      readonly rows: EdgeReadModelRows;
+    } | null,
+  ) => T,
+): T {
+  return projection.readEdgeReadModel((read) => {
+    if (read.status !== "ready") return consume(null);
+    const projected = read.rows.entities.find(
+      (row) => row.entityKind === "settings" && row.entityId === SETTINGS_ID,
+    )?.valueJson;
+    const settings = repositorySettings(
+      projected === undefined ? INITIAL_SETTINGS_V1 : (JSON.parse(projected) as RepositorySettingsV1),
+    );
+    return consume({
+      sourceRevision: read.sourceRevision,
+      rootThreshold: resolveTaskRootThreshold({ tasks: settings.tasks }).threshold,
+      rows: read.rows,
+    });
+  });
 }
 
 export interface HeadConfirmation {

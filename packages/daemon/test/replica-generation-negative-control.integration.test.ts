@@ -60,10 +60,17 @@ function generationDeltaFixture(prefix: string) {
       activate: () => cut2,
       prepare: async () => cut2,
       delivery: {
-        manifest: async (revision) => source.manifest(revision),
+        manifestPage: async (revision, offset) => source.manifestPage(revision, offset),
+        manifestEntry: async (revision, entryPath) => source.manifestEntry(revision, entryPath),
         changes: async (from, to) => source.changes(from, to),
         content: async (blob) => source.content(blob),
       },
+      manifestPage: (revision, offset) => {
+        const entries = source.manifest(revision);
+        return entries ? { entries: entries.slice(offset, offset + 128), done: offset + 128 >= entries.length } : null;
+      },
+      manifestEntry: (revision, entryPath) =>
+        source.manifest(revision)?.find((entry) => entry.path === entryPath) ?? null,
       ledgerCut: () => null,
       exactRevision: () => cut2.revision,
       kick: () => undefined,
