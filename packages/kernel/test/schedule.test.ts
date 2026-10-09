@@ -218,5 +218,8 @@ test("new schedule inputs reject retired pins and historical projection removes 
     };
   assert.ok(validateScheduleV1(pinned).length > 0);
   assert.deepEqual(projectScheduleHistory(pinned), schedule);
+  const { status: _oldStatus, ...pinnedDefinition } = pinned;
+  const { status: _status, ...definition } = schedule;
+  assert.deepEqual(projectScheduleHistory(pinnedDefinition), definition);
   assert.deepEqual(validateScheduleV1(projectScheduleHistory(pinned)), []);
 });

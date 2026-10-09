@@ -2,6 +2,13 @@
  "schema": "harness-anything/gate-allowlist/v1",
  "gateId": "check-fallback-boundaries",
  "baseline": "Existing CH4 fallback exits are ratcheted here; remove a key when the corresponding production exit is deleted.",
+ "rationales": {
+  "packages/daemon/src/runtime-spawn-mission.ts#prepareRuntimeInstance": {
+   "task": "task_1103403e13bb17aa06cc3ebb10",
+   "errors": "runtime_instance_disabled, runtime_instance_not_found, runtime_installation_not_found, runtime_credential_unavailable, runtime_subscription_required, runtime_auth_in_progress, runtime_auth_probe_failed, invalid_runtime_model",
+   "reason": "Only automatic declaration selection consumes named pre-launch unavailability to try the next local candidate. Installation and login state can change after configuration writes; explicit instance and resume requests preserve the original error. Owner iteration-4 inventory authorization, 2026-10-09."
+  }
+ },
  "entries": {
   "consumeKnownError": [
    "packages/application/src/task-lifecycle-service.ts#releaseReservation",
@@ -156,6 +163,7 @@
    "packages/daemon/src/runtime-orchestration.ts#orchestrateRuntimeBatch",
    "packages/daemon/src/runtime-orchestration.ts#worker",
    "packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation",
+   "packages/daemon/src/runtime-spawn-mission.ts#prepareRuntimeInstance",
    "packages/daemon/src/runtime-spawn-process.ts#drain",
    "packages/daemon/src/runtime-spawn-process.ts#launchExitNotification",
    "packages/daemon/src/runtime-spawn-process.ts#observeResumeProcess",

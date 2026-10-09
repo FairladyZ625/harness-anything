@@ -378,7 +378,6 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           name: "Updated E2E probe",
           everyMs: 600_000,
           mission: "Inspect the updated repository and report success.",
-          model: definition.model,
           reasoningEffort: "high",
           idempotencyKey: "update-e2e-probe",
         }),

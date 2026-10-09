@@ -19,6 +19,7 @@ import {
   seedTriadicReviewAwait,
   writeTriadicLedger,
 } from "../../packages/gui/test-support/triadic-ledger.mjs";
+import { seedScheduleRuntimeOrder } from "./scenarios/schedule-run-history.mjs";
 import { seedGuiE2eRuntimeSessions, seedGuiE2eSessionTasks } from "./scenarios/sessions-grouping.mjs";
 import { seedGuiE2eCollaborationTasks, seedGuiE2eCollaborationLeases } from "./scenarios/collaboration-view.mjs";
 import { warmDaemonProjection } from "../e2e-probe.mjs";
@@ -154,6 +155,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       },
       beforeRestart: async (rootDir, repoId, writerFence) => {
         await seedTriadicEvents(rootDir, repoId, writerFence);
+        await seedScheduleRuntimeOrder(rootDir, repoId, writerFence);
         await seedSupersedeChain(rootDir, repoId, writerFence);
         await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, sessionTaskPackages);
         await seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence);

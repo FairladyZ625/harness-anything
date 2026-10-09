@@ -162,3 +162,30 @@ test("prepare exhaustion lists every attempted instance, and unknown errors prop
   );
   assert.equal(attempts, 1);
 });
+
+for (const code of [
+  "runtime_instance_not_found",
+  "invalid_runtime_model",
+  "runtime_subscription_required",
+  "runtime_credential_unavailable",
+]) {
+  test(`pinned preparation preserves ${code} for explicit requests and resume`, async () => {
+    const original = Object.assign(new Error(code), { code });
+    for (const pin of [{ requested: "missing" }, { providerSessionId: "resume" }]) {
+      await assert.rejects(
+        prepareRuntimeInstance(
+          {
+            ...pin,
+            agent: null,
+            instances: [],
+            sessions: [{ providerSessionId: "resume", instanceId: "missing" } as never],
+          },
+          async () => {
+            throw original;
+          },
+        ),
+        (observed) => observed === original,
+      );
+    }
+  });
+}

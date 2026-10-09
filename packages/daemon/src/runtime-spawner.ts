@@ -385,6 +385,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
       localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
       runtimeInstances = input.runtimeInstances?.() ?? [],
+      initialFallback =
+        inheritedFallback ??
+        initialFallbackAttempt(
+          agent,
+          explicitRuntimeInstanceId,
+          model,
+          providerSessionId,
+          idempotencyKey,
+          mission,
+          runtimeInstances,
+          localRuntimeSessions,
+        ),
       selection = await prepareRuntimeInstance(
         {
           requested:
@@ -398,7 +410,21 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           sessions: localRuntimeSessions,
         },
         async (runtimeInstanceId) => {
-          const fallbackCandidate = inheritedFallback?.candidates[inheritedFallback.attemptIndex],
+          const fallbackAttempt =
+              initialFallback &&
+              initialFallback.candidates[initialFallback.attemptIndex]?.instance !== runtimeInstanceId
+                ? initialFallbackAttempt(
+                    agent,
+                    runtimeInstanceId,
+                    model,
+                    providerSessionId,
+                    idempotencyKey,
+                    mission,
+                    runtimeInstances,
+                    localRuntimeSessions,
+                  )
+                : initialFallback,
+            fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
             runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
             // Model resolution order: --model override > the runtimes row matching the selected
             // instance's kind > the instance default (undefined defers to prepareLaunch).
@@ -483,6 +509,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   ...(providerSessionId ? { providerSessionId } : {}),
                 }),
             result = {
+              fallbackAttempt,
               runtimeInstance,
               effectivePermissionMode,
               callbackRelay,
@@ -498,18 +525,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       { runtimeInstance, effectivePermissionMode, callbackRelay, readOnlyDispatch, prompt, preview } = selection.launch;
     if (preview) return preview;
     const prepared = selection.launch.prepared!,
-      fallbackAttempt =
-        inheritedFallback ??
-        initialFallbackAttempt(
-          agent,
-          runtimeInstanceId,
-          model,
-          providerSessionId,
-          idempotencyKey,
-          mission,
-          runtimeInstances,
-          localRuntimeSessions,
-        ),
+      fallbackAttempt = selection.launch.fallbackAttempt,
       definition = prepared.definition,
       installation = prepared.installation,
       declaredKindId = runtimeKindForId(definition.kindId).kindId,

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { compileEntityUpsert, makeTaskEventStore } from "../../../packages/kernel/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 
 // Schedule 运行历史详情页(task: schedule-gui-report-md-occurrence-fact-decision-rollup)。
 //
 // 夹具路径:隔离仓没有任何已安装的 agent runtime,所以「立即运行」会在派工处真实失败——
-// 这恰好是一次**确定性的失败 occurrence**:claim → spawn(runtime_instance_not_found)→
+// 这恰好是一次**确定性的失败 occurrence**:claim → spawn(agent_runtime_unavailable)→
 // settle failed,detail 是真实错误原因。种数据走隔离 daemon 的 schedule 写 RPC(与 CLI
 // `ha schedule create` 同一条写路)，不提供已退役的实例/模型字段。
 //
@@ -73,11 +74,8 @@ export default {
 
     // 5. 失败详情是 settle 的真实原因,不是模板句。
     const failure = await page.getByTestId("schedule-run-failure-detail").innerText();
-    assert.match(
-      failure,
-      /e2e-probe|gui-e2e-instance/u,
-      "the failure detail must name the unresolvable agent or runtime instance",
-    );
+    assert.match(failure, /codex: runtime_instance_not_found/u);
+    assert.match(failure, /claude: runtime_instance_not_found/u);
 
     // 6. 无派工/无报告/无产出都是真实空态。
     await page.getByTestId("schedule-run-session-empty").waitFor();
@@ -107,8 +105,51 @@ export default {
       0,
       "a modal without a footer prop must not render an empty footer band",
     );
+    await page.getByTestId("schedule-form-agent").selectOption("e2e-probe");
+    assert.match(
+      await page.getByTestId("schedule-form-runtime-order").innerText(),
+      /codex.*probe-first.*claude.*probe-second/u,
+    );
+    await page.getByTestId("schedule-form-id").fill("gui-e2e-no-instances");
+    await page.getByTestId("schedule-form-name").fill("Saved without local instances");
+    await page.getByTestId("schedule-form-mission").fill("Inspect local availability at execution time.");
     await shot("schedule-form-modal");
-    await page.getByTestId("schedule-form-cancel").click();
+    assert.equal(await page.getByTestId("schedule-form-submit").isEnabled(), true);
+    await page.getByTestId("schedule-form-submit").click();
+    await page.getByTestId("schedule-detail").waitFor();
+    assert.match(await page.getByTestId("schedule-detail").innerText(), /Saved without local instances/u);
+    await shot("schedule-saved-without-instances");
+    await page.getByTestId("schedule-detail-back").click();
     await page.getByTestId("schedules-view").waitFor();
   },
 };
+
+// Seed an already accepted declaration while the isolated daemon is stopped. This models
+// an executor installed on a node whose local runtimes later became unavailable.
+export async function seedScheduleRuntimeOrder(rootDir, repoId, writerFence) {
+  const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence });
+  try {
+    const bundle = compileEntityUpsert({
+      entityKind: "agent",
+      entity: {
+        schema: "agent-declaration/v1",
+        id: "e2e-probe",
+        name: "Ordered Schedule Probe",
+        instructions: "Inspect the scheduled occurrence.",
+        runtimes: [
+          { type: "codex", model: "probe-first" },
+          { type: "claude", model: "probe-second" },
+        ],
+      },
+      actor: { principal: { personId: "person-gui" }, executor: null },
+      source: "local",
+      opId: "gui-e2e-schedule-agent",
+      eventId: "event-gui-e2e-schedule-agent",
+      occurredAt: new Date().toISOString(),
+      workspaceRevision: (store.readHead()?.revision ?? 0) + 1,
+    });
+    store.append(bundle);
+  } finally {
+    await store.drain();
+  }
+}

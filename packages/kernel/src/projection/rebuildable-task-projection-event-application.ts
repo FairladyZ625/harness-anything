@@ -52,7 +52,7 @@ import { isValidCloseoutOverrides } from "../domain/settings-closeout.ts";
 import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
 import { isRetiredPeopleEvent } from "../domain/people-event.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
-import { scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
+import { projectScheduleHistory, scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
 import { lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "../layout/index.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
@@ -375,9 +375,10 @@ export function applyEvent(
       } catch {
         throw new Error(`schedule definition blob ${claim.sha256} is not JSON`);
       }
+      value = projectScheduleHistory(value);
       if (
         validateScheduleDefinitionV1(value).length > 0 ||
-        canonicalJson(value) !== canonicalJson(scheduleDefinition(event.payload.schedule))
+        canonicalJson(value) !== canonicalJson(projectScheduleHistory(scheduleDefinition(event.payload.schedule)))
       )
         throw new Error(`schedule definition blob ${claim.sha256} does not match the event definition facet`);
       const document: DocumentState = {

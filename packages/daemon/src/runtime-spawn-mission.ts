@@ -224,6 +224,8 @@ export async function prepareRuntimeInstance<T>(
     } catch (error) {
       const code = (error as { readonly code?: string }).code;
       if (
+        input.requested ||
+        input.providerSessionId ||
         !code ||
         ![
           "runtime_instance_disabled",

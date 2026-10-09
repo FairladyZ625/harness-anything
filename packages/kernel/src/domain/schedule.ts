@@ -287,7 +287,7 @@ export function createScheduleV1(input: {
 
 /** Project accepted historical evidence into the current run view; never used for new wire input. */
 export function projectScheduleHistory(value: unknown): unknown {
-  if (!isRecord(value) || !isRecord(value.status)) return value;
+  if (!isRecord(value)) return value;
   const run = (entry: unknown): unknown => {
     if (!isRecord(entry) || !Object.hasOwn(entry, "assignmentId")) return entry;
     const { assignmentId: _retired, ...current } = entry;
@@ -305,7 +305,9 @@ export function projectScheduleHistory(value: unknown): unknown {
           },
         }
       : {}),
-    status: { ...value.status, activeRun: run(value.status.activeRun), lastRun: run(value.status.lastRun) },
+    ...(isRecord(value.status)
+      ? { status: { ...value.status, activeRun: run(value.status.activeRun), lastRun: run(value.status.lastRun) } }
+      : {}),
   };
 }
 
