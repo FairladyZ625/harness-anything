@@ -1,7 +1,8 @@
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
-import type { FleetReplicaStatus } from "./center-types.ts";
+import { FleetFault, type FleetReplicaStatus } from "./center-types.ts";
 import { FLEET_KEY_SEND_WINDOW_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES } from "./contract.ts";
 import { type ReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";
+import type { ReplicaDeliveryLease } from "./replica-delivery-lease.ts";
 import type { ReplicaCutSource } from "./replica-cut-store.ts";
 
 export function deriveReplicaReceipt(
@@ -125,3 +126,26 @@ export function replicaStatus(
     diskQuotaBytes,
   };
 }
+
+export const replicaDeliveryFenced = (
+  lease: ReplicaDeliveryLease,
+  phase: "Delivery" | "ACK",
+  pinActive: boolean,
+  evidence: ReturnType<ReplicaAckStore["delivery"]["inspect"]>,
+) =>
+  new FleetFault(
+    "replica_delivery_fenced",
+    `${phase} ${pinActive ? "lease renewal failed: expired or replaced" : "checkpoint pin is no longer active"} diagnostics=${JSON.stringify(
+      {
+        phase,
+        branch: pinActive ? "lease_renewal_failed" : "pin_inactive",
+        now: evidence.now,
+        requested: lease,
+        lease: evidence,
+        pinActive,
+        // Removal is logged by the cut owner; no tombstone survives a pin DELETE.
+        pinReleaseReason: pinActive ? null : "not_retained; correlate pin-release log",
+      },
+    )}`,
+    true,
+  );

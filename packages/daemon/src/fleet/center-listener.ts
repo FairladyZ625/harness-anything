@@ -34,7 +34,7 @@ import {
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
 import { makeOffer, offerFrames } from "./center-replica-offer.ts";
-import { deriveReplicaReceipt, replicaStatus } from "./center-replica-receipt.ts";
+import { deriveReplicaReceipt, replicaDeliveryFenced as fenced, replicaStatus } from "./center-replica-receipt.ts";
 import {
   digestId,
   immediate,
@@ -73,28 +73,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
   for (const repo of options.host.status().repos)
     if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
-  const fenced = (
-    lease: ReplicaDeliveryLease,
-    phase: "Delivery" | "ACK",
-    pinActive: boolean,
-    evidence: ReturnType<typeof ackStore.delivery.inspect>,
-  ) =>
-    new FleetFault(
-      "replica_delivery_fenced",
-      `${phase} ${pinActive ? "lease renewal failed: expired or replaced" : "checkpoint pin is no longer active"} diagnostics=${JSON.stringify(
-        {
-          phase,
-          branch: pinActive ? "lease_renewal_failed" : "pin_inactive",
-          now: evidence.now,
-          requested: lease,
-          lease: evidence,
-          pinActive,
-          // Removal is logged by the cut owner; no tombstone survives a pin DELETE.
-          pinReleaseReason: pinActive ? null : "not_retained; correlate pin-release log",
-        },
-      )}`,
-      true,
-    );
   // A center must keep using the epoch it acquired, even after another center
   // advances the shared state. Reading the latest row here would let a stale
   // process silently adopt its successor's epoch and defeat fencing.
@@ -635,7 +613,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
       const lifecycle = deliveries.admit();
       let lease: ReplicaDeliveryLease | undefined;
+      let renewalTimer: ReturnType<typeof setInterval> | undefined;
+      const renewalFailure = new AbortController();
       const release = (acknowledged = false) => {
+        clearInterval(renewalTimer);
         if (lease) {
           ackStore.clearOffer(lease);
           ackStore.delivery.release(lease);
@@ -653,6 +634,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("connection_closed", "Delivery connection closed", true);
       }
       const guard = () => {
+        renewalFailure.signal.throwIfAborted();
         if (!replica.pinActive(lease!))
           throw fenced(lease!, "Delivery", false, ackStore.delivery.inspect(lease!, Date.now()));
         const at = Date.now();
@@ -670,6 +652,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         );
         lease = pinned.lease;
         if (connectionSignal?.aborted) throw new FleetFault("connection_closed", "Delivery connection closed", true);
+        // The connected delivery owns preparation, reads, drain waits and the wait for ACK.
+        // Frame progress alone cannot renew while any of those legitimate waits is pending.
+        renewalTimer = setInterval(() => {
+          void Promise.resolve()
+            .then(guard)
+            .then(undefined, (error: unknown) => {
+              renewalFailure.abort(error);
+              clearInterval(renewalTimer);
+            });
+        }, ttlMs / 3);
         const prepared = await makeOffer(key, cursor, pinned.cut, replica, now());
         guard();
         ackStore.clearOffer(lease);
@@ -985,37 +977,42 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         key = delivery?.key;
       if (!key || !delivery || key.nodeId !== nodeId)
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
-      if (!options.host.replica(key.repoId).pinActive(delivery.lease))
-        throw fenced(delivery.lease, "ACK", false, ackStore.delivery.inspect(delivery.lease, Date.now()));
-      const at = Date.now();
-      const renewal = ackStore.delivery.renew(delivery.lease, at, 30_000);
-      if (!renewal.renewed) throw fenced(delivery.lease, "ACK", true, renewal.evidence);
-      const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
-      if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
-      const result = ackStore.ack(
-        key,
-        frame.transferId,
-        frame.cut,
-        frame.manifestDigest,
-        new Date(Date.now()).toISOString(),
-        cutEventAt,
-        delivery.lease,
-      );
-      if (result.outcome === "op_rejected" || !result.cursor)
-        throw new FleetFault("invalid_ack", "ACK cut or manifest differs from its exact active offer.");
-      delivery.release(true);
-      window.offers.delete(frame.transferId);
-      window.keys.delete(keyId(key));
-      return immediate({
-        schema: "fleet.ack.result/v1",
-        messageId: mid(frame.messageId, "ack"),
-        inReplyTo: frame.messageId,
-        outcome: result.outcome,
-        viewId: key.viewId,
-        ackCut: result.cursor.revision,
-        knownHead: wireCut(options.host.replica(key.repoId).ledgerCut()!),
-        code: null,
-      });
+      let acknowledged = false;
+      try {
+        if (!options.host.replica(key.repoId).pinActive(delivery.lease))
+          throw fenced(delivery.lease, "ACK", false, ackStore.delivery.inspect(delivery.lease, Date.now()));
+        const at = Date.now();
+        const renewal = ackStore.delivery.renew(delivery.lease, at, 30_000);
+        if (!renewal.renewed) throw fenced(delivery.lease, "ACK", true, renewal.evidence);
+        const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
+        if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
+        const result = ackStore.ack(
+          key,
+          frame.transferId,
+          frame.cut,
+          frame.manifestDigest,
+          new Date(Date.now()).toISOString(),
+          cutEventAt,
+          delivery.lease,
+        );
+        if (result.outcome === "op_rejected" || !result.cursor)
+          throw new FleetFault("invalid_ack", "ACK cut or manifest differs from its exact active offer.");
+        acknowledged = true;
+        return immediate({
+          schema: "fleet.ack.result/v1",
+          messageId: mid(frame.messageId, "ack"),
+          inReplyTo: frame.messageId,
+          outcome: result.outcome,
+          viewId: key.viewId,
+          ackCut: result.cursor.revision,
+          knownHead: wireCut(options.host.replica(key.repoId).ledgerCut()!),
+          code: null,
+        });
+      } finally {
+        delivery.release(acknowledged);
+        window.offers.delete(frame.transferId);
+        window.keys.delete(keyId(key));
+      }
     }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
   };
