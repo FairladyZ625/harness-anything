@@ -1,4 +1,3 @@
-import { FleetFault } from "./center-types.ts";
 import type { ReplicaCutSource, SnapshotCut } from "./replica-cut-store.ts";
 
 // A watch that sees no new cut still answers on the progress interval with the unchanged head, so a
@@ -27,13 +26,10 @@ export const headAfterOrProgress = async (
 // The wait starts only once the session is known to be open: a wait started during shutdown would be
 // rejected by the closing cut source with nobody left to observe it.
 export const untilAborted = <T>(start: () => Promise<T>, stop: AbortSignal): Promise<T> => {
-  if (stop.aborted) return Promise.reject(new FleetFault("busy", "The replica session closed.", true));
+  if (stop.aborted) return Promise.reject(stop.reason);
   const pending = start();
   return new Promise<T>((resolve, reject) => {
-    const abort = () =>
-      reject(
-        stop.reason instanceof FleetFault ? stop.reason : new FleetFault("busy", "The replica session closed.", true),
-      );
+    const abort = () => reject(stop.reason);
     stop.addEventListener("abort", abort, { once: true });
     pending.then(
       (value) => {

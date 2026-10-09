@@ -1,4 +1,10 @@
 import { digestId, mid, wireCut } from "./center-transport.ts";
+import type { Delivery, SessionWindow } from "./center-types.ts";
+import type { ReplicaDeliveryLease } from "./replica-delivery-lease.ts";
+import type { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
+import { untilAborted } from "./center-replica-wait.ts";
+import { replicaDeliveryFenced as fenced } from "./center-replica-receipt.ts";
+import { runtimeErrorCode } from "../runtime-spawn-errors.ts";
 import { FleetFault } from "./center-types.ts";
 import { FLEET_CHUNK_BYTES, type FleetCut, type FleetEntry, type FleetFrameV1 } from "./contract.ts";
 import { type ReplicaAckStore, type ReplicaDeliveryKey, type ReplicaOffer } from "./replica-ack-store.ts";
@@ -179,4 +185,145 @@ export function* blobFrames(
       offset,
       dataBase64: body.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
     } as FleetFrameV1;
+}
+
+// Resource occupancy bound: the measured Windows first sync took 538s for 3.5GB / 380k entries.
+// Thirty minutes allows about three times that duration, without extending the 30s delivery lease.
+const REPLICA_DELIVERY_DEADLINE_MS = 30 * 60_000;
+
+/** Owns one pinned offer until ACK, failure or expiry, including otherwise unobservable waits. */
+export async function deliverReplicaOffer(input: {
+  key: ReplicaDeliveryKey;
+  replica: ReplicaCutSource;
+  ackStore: ReplicaAckStore;
+  window: SessionWindow;
+  lifecycle: ReturnType<ReturnType<typeof createFleetDeliveryDrain>["admit"]>;
+  signal: AbortSignal;
+  connectionSignal: AbortSignal;
+  preparationDeadlineAt: number;
+  quotaBytes: number;
+  stateRoot: string;
+  issuedAt: string;
+  authorization: { owner: string; digest: string };
+}): Promise<Delivery> {
+  const { key, replica, ackStore, window, lifecycle } = input;
+  const ttlMs = 30_000;
+  const renewalFailure = new AbortController();
+  const signal = AbortSignal.any([input.connectionSignal, renewalFailure.signal]);
+  let lease: ReplicaDeliveryLease | undefined, offer: ReplicaOffer | undefined;
+  let renewalTimer: ReturnType<typeof setInterval> | undefined;
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  let preparing = true,
+    awaitingAck = false,
+    expiresAt = 0;
+  let drainedAtRenewal = window.drainedBytes();
+  const release = (acknowledged = false) => {
+    clearInterval(renewalTimer);
+    clearTimeout(deadline);
+    if (lease) {
+      ackStore.clearOffer(lease);
+      ackStore.delivery.release(lease);
+      if (!acknowledged) replica.releasePin(lease);
+    }
+    input.connectionSignal.removeEventListener("abort", disconnected);
+    lifecycle.released();
+  };
+  const disconnected = () => release();
+  const fail = (error: unknown) => {
+    renewalFailure.abort(error);
+    release();
+  };
+  const guard = () => {
+    signal.throwIfAborted();
+    if (!replica.pinActive(lease!))
+      throw fenced(lease!, "Delivery", false, ackStore.delivery.inspect(lease!, Date.now()));
+    const at = Date.now(),
+      drained = window.drainedBytes();
+    // Queuing a frame is not transport progress. An idle sender keeps the last expiry;
+    // when it arrives the original conditional renewal supplies the fenced failure.
+    if (!preparing && !awaitingAck && drained <= drainedAtRenewal && at < expiresAt) return;
+    const renewal = ackStore.delivery.renew(lease!, at, ttlMs);
+    if (!renewal.renewed) throw fenced(lease!, "Delivery", true, renewal.evidence);
+    expiresAt = at + ttlMs;
+    drainedAtRenewal = drained;
+  };
+  input.connectionSignal.addEventListener("abort", disconnected, { once: true });
+  try {
+    input.signal.throwIfAborted();
+    const pinned = await replica.pin(
+      key,
+      window.holderId,
+      ackStore.cursor(key)?.revision ?? null,
+      input.quotaBytes,
+      input.stateRoot,
+    );
+    lease = pinned.lease;
+    expiresAt = lease.expiresAt;
+    input.signal.throwIfAborted();
+    deadline = setTimeout(
+      () => fail(new FleetFault("replica_delivery_fenced", "Replica delivery deadline exceeded.")),
+      REPLICA_DELIVERY_DEADLINE_MS,
+    );
+    renewalTimer = setInterval(() => {
+      void Promise.resolve().then(guard).then(undefined, fail);
+    }, ttlMs / 3);
+    const prepared = await untilAborted(
+      () => makeOffer(key, ackStore.cursor(key), pinned.cut, replica, input.issuedAt),
+      AbortSignal.any([input.signal, signal]),
+    );
+    guard();
+    ackStore.clearOffer(lease);
+    offer = ackStore.offer(key, prepared);
+  } catch (error) {
+    lifecycle.sendingFinished();
+    if (runtimeErrorCode(error) === "replica_delivery_busy")
+      ackStore.delivery.record(key, { failureCode: "replica_delivery_busy" });
+    release();
+    throw error;
+  } finally {
+    preparing = false;
+    lifecycle.preparationFinished();
+  }
+  window.offers.set(offer.transferId, { key, lease, renewalFailure: renewalFailure.signal, release });
+  ackStore.delivery.record(key, { started: offer.kind });
+  let preparationRemainingMs = input.preparationDeadlineAt - Date.now();
+  return {
+    key: `${key.nodeId}\0${key.viewId}\0${key.repoId}`,
+    signal,
+    beforeSend: guard,
+    onSent: (bytes) => ackStore.delivery.record(key, { bytes }),
+    onComplete: () => {
+      awaitingAck = true;
+      lifecycle.sendingFinished();
+    },
+    onFailure: (error) => {
+      lifecycle.sendingFinished();
+      ackStore.delivery.record(key, { failureCode: runtimeErrorCode(error) ?? "replica_delivery_failed" });
+      fail(error);
+    },
+    frames: (async function* () {
+      const iterator = offerFrames(offer, replica, input.authorization);
+      for (;;) {
+        if (preparationRemainingMs <= 0)
+          throw new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false);
+        const readStartedAt = Date.now();
+        preparing = true;
+        const timeout = setTimeout(
+          () => fail(new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false)),
+          preparationRemainingMs,
+        );
+        let next;
+        try {
+          next = await untilAborted(() => iterator.next(), signal);
+        } finally {
+          clearTimeout(timeout);
+          // Only center work consumes the original preparation budget; socket waits pause it.
+          preparationRemainingMs -= Date.now() - readStartedAt;
+          preparing = false;
+        }
+        if (next.done) return;
+        yield next.value;
+      }
+    })(),
+  };
 }

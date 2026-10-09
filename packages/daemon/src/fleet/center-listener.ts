@@ -1,6 +1,5 @@
 import { headAfterOrProgress, untilAborted } from "./center-replica-wait.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
-import type { ReplicaDeliveryLease } from "./replica-delivery-lease.ts";
 import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
@@ -33,8 +32,8 @@ import {
   findOwnedClaim as findOwnedClaimImpl,
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
-import { makeOffer, offerFrames } from "./center-replica-offer.ts";
-import { deriveReplicaReceipt, replicaStatus } from "./center-replica-receipt.ts";
+import { deliverReplicaOffer } from "./center-replica-offer.ts";
+import { deriveReplicaReceipt, replicaDeliveryFenced as fenced, replicaStatus } from "./center-replica-receipt.ts";
 import {
   digestId,
   immediate,
@@ -73,28 +72,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
   for (const repo of options.host.status().repos)
     if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
-  const fenced = (
-    lease: ReplicaDeliveryLease,
-    phase: "Delivery" | "ACK",
-    pinActive: boolean,
-    evidence: ReturnType<typeof ackStore.delivery.inspect>,
-  ) =>
-    new FleetFault(
-      "replica_delivery_fenced",
-      `${phase} ${pinActive ? "lease renewal failed: expired or replaced" : "checkpoint pin is no longer active"} diagnostics=${JSON.stringify(
-        {
-          phase,
-          branch: pinActive ? "lease_renewal_failed" : "pin_inactive",
-          now: evidence.now,
-          requested: lease,
-          lease: evidence,
-          pinActive,
-          // Removal is logged by the cut owner; no tombstone survives a pin DELETE.
-          pinReleaseReason: pinActive ? null : "not_retained; correlate pin-release log",
-        },
-      )}`,
-      true,
-    );
   // A center must keep using the epoch it acquired, even after another center
   // advances the shared state. Reading the latest row here would let a stale
   // process silently adopt its successor's epoch and defeat fencing.
@@ -536,9 +513,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const { a, replica, owner } = await admitReplica(nodeId, frame.repoId);
       const preparation = new AbortController();
       const signal = AbortSignal.any([connectionSignal, closing.signal, preparation.signal]);
+      const preparationDeadlineAt = Date.now() + (options.replicaPreparationTimeoutMs ?? 60_000);
       const deadline = setTimeout(
         () => preparation.abort(new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false)),
-        options.replicaPreparationTimeoutMs ?? 60_000,
+        preparationDeadlineAt - Date.now(),
       );
       let prepared: { latest: SnapshotCut; ledgerCut: NonNullable<ReturnType<typeof replica.ledgerCut>> };
       try {
@@ -583,125 +561,70 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           prepared = outcome.value;
           break;
         }
+        const { latest, ledgerCut } = prepared,
+          key = { nodeId, viewId: nodeId, repoId: a.repoId },
+          id = keyId(key);
+        if (!window.keys.has(id) && window.keys.size >= 8)
+          throw new FleetFault("busy", "Session already has eight active replica keys.", true);
+        if (latest.manifest.totalBytes * 2 + FLEET_SESSION_SEND_WINDOW_BYTES > options.replicaDiskQuotaBytes!)
+          throw new FleetFault(
+            "replica_quota_insufficient",
+            "Replica quota cannot hold current, incoming, and staging reserve.",
+          );
+        window.keys.add(id);
+        knownKeys.set(id, key);
+        ackStore.register(key, latest.revision);
+        const cursor = ackStore.cursor(key);
+        if (
+          cursor?.revision === latest.revision &&
+          cursor.headDigest === latest.headDigest &&
+          cursor.manifestDigest === latest.manifest.digest
+        ) {
+          window.keys.delete(id);
+          return immediate({
+            schema:
+              latest.revision === ledgerCut.revision && latest.headDigest === ledgerCut.headDigest
+                ? "fleet.replica.current/v1"
+                : "fleet.replica.checkpoint/v1",
+            messageId: mid(frame.messageId, "current"),
+            inReplyTo: frame.messageId,
+            repoId: key.repoId,
+            viewId: key.viewId,
+            cut: wireCut(latest),
+            knownHead: wireCut(ledgerCut),
+            manifestDigest: latest.manifest.digest,
+            authorizationOwner: owner,
+            authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
+          });
+        }
+        if (
+          [...window.offers.values()].some((delivery) => keyId(delivery.key) === id && !delivery.renewalFailure.aborted)
+        )
+          throw new FleetFault(
+            "replica_delivery_busy",
+            "This session already has a delivery for the node/repository",
+            true,
+          );
+        if (options.buildDraining?.())
+          throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
+        return await deliverReplicaOffer({
+          key,
+          replica,
+          ackStore,
+          window,
+          lifecycle: deliveries.admit(),
+          signal,
+          connectionSignal,
+          preparationDeadlineAt,
+          quotaBytes: options.replicaDiskQuotaBytes!,
+          stateRoot: options.stateRoot,
+          issuedAt: now(),
+          authorization: { owner, digest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }) },
+        });
       } finally {
         clearTimeout(deadline);
         preparation.abort();
       }
-      const { latest, ledgerCut } = prepared,
-        key = { nodeId, viewId: nodeId, repoId: a.repoId },
-        id = keyId(key);
-      if (!window.keys.has(id) && window.keys.size >= 8)
-        throw new FleetFault("busy", "Session already has eight active replica keys.", true);
-      if (latest.manifest.totalBytes * 2 + FLEET_SESSION_SEND_WINDOW_BYTES > options.replicaDiskQuotaBytes!)
-        throw new FleetFault(
-          "replica_quota_insufficient",
-          "Replica quota cannot hold current, incoming, and staging reserve.",
-        );
-      window.keys.add(id);
-      knownKeys.set(id, key);
-      ackStore.register(key, latest.revision);
-      const cursor = ackStore.cursor(key);
-      if (
-        cursor?.revision === latest.revision &&
-        cursor.headDigest === latest.headDigest &&
-        cursor.manifestDigest === latest.manifest.digest
-      ) {
-        window.keys.delete(id);
-        return immediate({
-          schema:
-            latest.revision === ledgerCut.revision && latest.headDigest === ledgerCut.headDigest
-              ? "fleet.replica.current/v1"
-              : "fleet.replica.checkpoint/v1",
-          messageId: mid(frame.messageId, "current"),
-          inReplyTo: frame.messageId,
-          repoId: key.repoId,
-          viewId: key.viewId,
-          cut: wireCut(latest),
-          knownHead: wireCut(ledgerCut),
-          manifestDigest: latest.manifest.digest,
-          authorizationOwner: owner,
-          authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
-        });
-      }
-      if ([...window.offers.values()].some((delivery) => keyId(delivery.key) === id))
-        throw new FleetFault(
-          "replica_delivery_busy",
-          "This session already has a delivery for the node/repository",
-          true,
-        );
-      // Transport leases share the host wall clock with cut-worker pin/GC, not the business event clock.
-      const ttlMs = 30_000;
-      if (options.buildDraining?.())
-        throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
-      const lifecycle = deliveries.admit();
-      let lease: ReplicaDeliveryLease | undefined;
-      const release = (acknowledged = false) => {
-        if (lease) {
-          ackStore.clearOffer(lease);
-          ackStore.delivery.release(lease);
-          if (!acknowledged) replica.releasePin(lease);
-        }
-        connectionSignal?.removeEventListener("abort", disconnected);
-        lifecycle.released();
-      };
-      const disconnected = () => release();
-      connectionSignal?.addEventListener("abort", disconnected, { once: true });
-      if (connectionSignal?.aborted) {
-        lifecycle.preparationFinished();
-        lifecycle.sendingFinished();
-        release();
-        throw new FleetFault("connection_closed", "Delivery connection closed", true);
-      }
-      const guard = () => {
-        if (!replica.pinActive(lease!))
-          throw fenced(lease!, "Delivery", false, ackStore.delivery.inspect(lease!, Date.now()));
-        const at = Date.now();
-        const renewal = ackStore.delivery.renew(lease!, at, ttlMs);
-        if (!renewal.renewed) throw fenced(lease!, "Delivery", true, renewal.evidence);
-      };
-      let offer;
-      try {
-        const pinned = await replica.pin(
-          key,
-          window.holderId,
-          cursor?.revision ?? null,
-          options.replicaDiskQuotaBytes!,
-          options.stateRoot,
-        );
-        lease = pinned.lease;
-        if (connectionSignal?.aborted) throw new FleetFault("connection_closed", "Delivery connection closed", true);
-        const prepared = await makeOffer(key, cursor, pinned.cut, replica, now());
-        guard();
-        ackStore.clearOffer(lease);
-        offer = ackStore.offer(key, prepared);
-      } catch (error) {
-        lifecycle.sendingFinished();
-        if (runtimeErrorCode(error) === "replica_delivery_busy")
-          ackStore.delivery.record(key, { failureCode: "replica_delivery_busy" });
-        release();
-        throw error;
-      } finally {
-        lifecycle.preparationFinished();
-      }
-      window.offers.set(offer.transferId, { key, lease, release });
-      ackStore.delivery.record(key, { started: offer.kind });
-      return {
-        key: id,
-        beforeSend: guard,
-        onSent: (bytes) => ackStore.delivery.record(key, { bytes }),
-        onComplete: () => {
-          lifecycle.sendingFinished();
-        },
-        onFailure: (error) => {
-          lifecycle.sendingFinished();
-          ackStore.delivery.record(key, { failureCode: runtimeErrorCode(error) ?? "replica_delivery_failed" });
-          release();
-        },
-        frames: offerFrames(offer, replica, {
-          owner,
-          digest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
-        }),
-      };
     }
 
     if (frame.schema === "fleet.task.command/v1") {
@@ -985,37 +908,43 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         key = delivery?.key;
       if (!key || !delivery || key.nodeId !== nodeId)
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
-      if (!options.host.replica(key.repoId).pinActive(delivery.lease))
-        throw fenced(delivery.lease, "ACK", false, ackStore.delivery.inspect(delivery.lease, Date.now()));
-      const at = Date.now();
-      const renewal = ackStore.delivery.renew(delivery.lease, at, 30_000);
-      if (!renewal.renewed) throw fenced(delivery.lease, "ACK", true, renewal.evidence);
-      const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
-      if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
-      const result = ackStore.ack(
-        key,
-        frame.transferId,
-        frame.cut,
-        frame.manifestDigest,
-        new Date(Date.now()).toISOString(),
-        cutEventAt,
-        delivery.lease,
-      );
-      if (result.outcome === "op_rejected" || !result.cursor)
-        throw new FleetFault("invalid_ack", "ACK cut or manifest differs from its exact active offer.");
-      delivery.release(true);
-      window.offers.delete(frame.transferId);
-      window.keys.delete(keyId(key));
-      return immediate({
-        schema: "fleet.ack.result/v1",
-        messageId: mid(frame.messageId, "ack"),
-        inReplyTo: frame.messageId,
-        outcome: result.outcome,
-        viewId: key.viewId,
-        ackCut: result.cursor.revision,
-        knownHead: wireCut(options.host.replica(key.repoId).ledgerCut()!),
-        code: null,
-      });
+      let acknowledged = false;
+      try {
+        delivery.renewalFailure.throwIfAborted();
+        if (!options.host.replica(key.repoId).pinActive(delivery.lease))
+          throw fenced(delivery.lease, "ACK", false, ackStore.delivery.inspect(delivery.lease, Date.now()));
+        const at = Date.now();
+        const renewal = ackStore.delivery.renew(delivery.lease, at, 30_000);
+        if (!renewal.renewed) throw fenced(delivery.lease, "ACK", true, renewal.evidence);
+        const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
+        if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
+        const result = ackStore.ack(
+          key,
+          frame.transferId,
+          frame.cut,
+          frame.manifestDigest,
+          new Date(Date.now()).toISOString(),
+          cutEventAt,
+          delivery.lease,
+        );
+        if (result.outcome === "op_rejected" || !result.cursor)
+          throw new FleetFault("invalid_ack", "ACK cut or manifest differs from its exact active offer.");
+        acknowledged = true;
+        return immediate({
+          schema: "fleet.ack.result/v1",
+          messageId: mid(frame.messageId, "ack"),
+          inReplyTo: frame.messageId,
+          outcome: result.outcome,
+          viewId: key.viewId,
+          ackCut: result.cursor.revision,
+          knownHead: wireCut(options.host.replica(key.repoId).ledgerCut()!),
+          code: null,
+        });
+      } finally {
+        delivery.release(acknowledged);
+        window.offers.delete(frame.transferId);
+        window.keys.delete(keyId(key));
+      }
     }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
   };

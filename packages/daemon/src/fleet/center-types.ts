@@ -88,6 +88,7 @@ export type State = { uploads: Record<string, Upload> };
 
 export type SessionWindow = {
   readonly holderId: string;
+  readonly drainedBytes: () => number;
   readonly uploads: Set<string>;
   readonly keys: Set<string>;
   readonly offers: Map<
@@ -95,12 +96,14 @@ export type SessionWindow = {
     {
       readonly key: ReplicaDeliveryKey;
       readonly lease: ReplicaDeliveryLease;
+      readonly renewalFailure: AbortSignal;
       readonly release: (acknowledged?: boolean) => void;
     }
   >;
 };
 
 export type Delivery = {
+  readonly signal?: AbortSignal;
   readonly key: string | null;
   readonly frames: AsyncIterable<FleetFrameV1>;
   readonly beforeSend?: () => void;
