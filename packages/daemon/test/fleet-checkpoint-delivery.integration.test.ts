@@ -6,6 +6,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { sqliteLedgerPath, resolveActiveGeneration } from "@harness-anything/kernel";
 import test from "node:test";
+import workerThreads from "node:worker_threads";
+import { syncBuiltinESMExports } from "node:module";
 import { fleetFixture } from "./fleet-tls-session.fixture.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { openPeer, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
@@ -321,12 +323,50 @@ test(
       t.diagnostic(JSON.stringify({ writesDuringBuild, writesDuringDelivery, progress }));
       for (const entry of f.transportErrors) t.diagnostic(String((entry as { error: Error }).error?.stack));
     });
+    // Pause the real executor after it captures the read snapshot, before its first build transaction.
+    const control = new Int32Array(new SharedArrayBuffer(4));
+    const { promise: buildHeld, resolve: markBuildHeld } = Promise.withResolvers<void>();
+    const Worker = workerThreads.Worker;
+    const workerMock = t.mock.method(
+      workerThreads,
+      "Worker",
+      class extends Worker {
+        constructor(url: string | URL, options: workerThreads.WorkerOptions = {}) {
+          const checkpoint = String(url).endsWith("/replica-cut-executor.ts");
+          super(checkpoint ? new URL("./fleet-checkpoint-build-barrier.fixture.ts", import.meta.url) : url, {
+            ...options,
+            ...(checkpoint ? { workerData: { ...options.workerData, control, moduleUrl: String(url) } } : {}),
+          });
+          if (checkpoint)
+            this.on("message", (message) => {
+              if (message.checkpointBuildHeld) markBuildHeld();
+            });
+        }
+      },
+    );
+    syncBuiltinESMExports();
+    const releaseBuild = () => {
+      Atomics.store(control, 0, 0);
+      Atomics.notify(control, 0);
+    };
+    t.after(() => {
+      releaseBuild();
+      workerMock.mock.restore();
+      syncBuiltinESMExports();
+    });
+    const { promise: deliveryWrite, resolve: markDeliveryWrite } = Promise.withResolvers<void>();
+    const content = source.delivery.content;
+    t.mock.method(source.delivery, "content", async (blob) => {
+      if (blob.mediaType === "text/markdown" && blob.size >= 32 * 1024) await deliveryWrite;
+      return content(blob);
+    });
     const building = source.prepare().then((cut) => {
       built = true;
       sample("built");
       return cut;
     });
     const writing = (async () => {
+      await buildHeld;
       while (!acknowledged && writes < 200) {
         const result = await f.host.run(
           f.subject.repoId,
@@ -337,7 +377,11 @@ test(
         await waitForFleetPublication(f.host, f.subject.repoId, result.opId, f.auth);
         writes++;
         if (!built) writesDuringBuild++;
-        if (began && !acknowledged) writesDuringDelivery++;
+        if (writesDuringBuild === 2) releaseBuild();
+        if (began && !acknowledged) {
+          writesDuringDelivery++;
+          markDeliveryWrite();
+        }
         sample("write");
       }
     })();
