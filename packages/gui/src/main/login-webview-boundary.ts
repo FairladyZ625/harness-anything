@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { X509Certificate } from "node:crypto";
-import { consumeKnownError } from "@harness-anything/kernel";
 
 /**
  * The one certificate an embedded sign-in may trust: the leaf of the listener configuration the
@@ -31,16 +30,10 @@ export function resolveLoginListenerTrust(input: {
   const { hostname, port, certificateFile } = listener as Record<string, unknown>;
   if (typeof hostname !== "string" || typeof certificateFile !== "string") return null;
   if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65_535) return null;
-  try {
-    const origin = `https://${hostname.toLowerCase()}:${port}`;
-    if (new URL(input.authorizationUrl).origin !== origin) return null;
-    return { origin, fingerprint256: certificateFingerprint256(input.readCertificateFile(certificateFile)) };
-  } catch (error) {
-    // A certificate that cannot be read or parsed is not a trust anchor; the sign-in page then
-    // loads (or fails) under normal verification and the failure is shown in the login panel.
-    consumeKnownError(error);
-    return null;
-  }
+  const origin = `https://${hostname.toLowerCase()}:${port}`;
+  if (new URL(input.authorizationUrl).origin !== origin) return null;
+  // A configured certificate that cannot be read or parsed fails the sign-in with its own error.
+  return { origin, fingerprint256: certificateFingerprint256(input.readCertificateFile(certificateFile)) };
 }
 
 /** The leaf is the first certificate in the file, which is the certificate the listener serves. */

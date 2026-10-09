@@ -58,14 +58,13 @@ test("any other origin, listener shape, or certificate file earns no trust", () 
   for (const [name, listenerReply] of refusals) {
     assert.equal(resolve(authorizationUrl, listenerReply)?.fingerprint256, undefined, name);
   }
-  assert.equal(
-    resolve(authorizationUrl, { listener: listener({ certificateFile: "/nonexistent/login.pem" }) }),
-    null,
+  // A configured certificate that cannot be read or parsed fails the sign-in visibly.
+  assert.throws(
+    () => resolve(authorizationUrl, { listener: listener({ certificateFile: "/nonexistent/login.pem" }) }),
     "missing certificate file",
   );
-  assert.equal(
-    resolve(authorizationUrl, { listener: listener() }, () => "not a certificate"),
-    null,
+  assert.throws(
+    () => resolve(authorizationUrl, { listener: listener() }, () => "not a certificate"),
     "unparseable certificate file",
   );
 });

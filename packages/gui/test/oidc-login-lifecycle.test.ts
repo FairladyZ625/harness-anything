@@ -21,9 +21,9 @@ function fixture(ports: Partial<OidcSessionPorts> = {}) {
   const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
   const sender = Object.assign(new EventEmitter(), {
     id: 7,
-    send: (_channel: string, url: string) => {
-      urls.push(url);
-      navigation.resolve(url);
+    send: (_channel: string, page: { readonly url: string }) => {
+      urls.push(page.url);
+      navigation.resolve(page.url);
     },
   });
   const event = { sender, senderFrame: { url: "file:///renderer/index.html" } } as unknown as IpcMainInvokeEvent;
