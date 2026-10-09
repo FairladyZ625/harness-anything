@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -220,30 +220,78 @@ export async function main(argv = process.argv.slice(2)) {
   return exitCode;
 }
 
+export function ubuntuQueueCommand(workspaceRoot) {
+  const script = readFileSync(new URL("./isolated-test-queue.py", import.meta.url), "utf8");
+  return `python3 -u -c ${shellQuote(script)} ${shellQuote(workspaceRoot)}`;
+}
+
 async function runUbuntu(options, runId, snapshotRoot, files) {
   const workspaceRoot = `/tmp/${runId}`;
   const stateRoot = `${workspaceRoot}/.test-isolation-state`;
+  const owner = spawn("ssh", ["ubuntu", ubuntuQueueCommand(workspaceRoot)], {
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  let admitted, finished;
+  const admission = new Promise((resolve) => {
+    admitted = resolve;
+  });
+  const completion = new Promise((resolve) => {
+    finished = resolve;
+  });
+  let pending = "";
+  owner.stdout.on("data", (chunk) => {
+    process.stdout.write(chunk);
+    pending += chunk.toString();
+    let newline;
+    while ((newline = pending.indexOf("\n")) !== -1) {
+      const line = pending.slice(0, newline);
+      pending = pending.slice(newline + 1);
+      if (!line.startsWith("[test-isolation-queue] ")) continue;
+      const event = JSON.parse(line.slice("[test-isolation-queue] ".length));
+      if (event.event === "admitted") admitted(true);
+      if (event.event === "finished") finished(event.code);
+    }
+  });
+  const closed = waitFor(owner).then((code) => {
+    admitted(false);
+    finished(code);
+    return code;
+  });
+  // Ending the control pipe cancels target preparation/execution and makes its
+  // reaper clean the workspace before the ticket releases admission.
+  let cancelled = false;
+  const cancel = () => {
+    cancelled = true;
+    owner.stdin.end();
+  };
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, cancel);
+  owner.stdin.on("error", (error) => {
+    if (error.code !== "EPIPE") throw error;
+  });
   let exitCode = 1;
   try {
-    console.log(`[test-isolation] sync=rsync destination=ubuntu:${workspaceRoot}`);
-    if (
-      (await run("ssh", ["ubuntu", `mkdir -p -- ${shellQuote(workspaceRoot)}`])) === 0 &&
-      (await runWithInput(
+    if (await admission) {
+      console.log(`[test-isolation] sync=rsync destination=ubuntu:${workspaceRoot}`);
+      exitCode = await runWithInput(
         "rsync",
         sourceRsyncArgs(snapshotRoot, `ubuntu:${workspaceRoot}/`),
         encodeFileList(files),
-      )) === 0
-    ) {
-      exitCode = await run("ssh", ["ubuntu", posixTestScript(workspaceRoot, stateRoot, options)]);
-      if (exitCode === 0 && options.coverage !== undefined) {
-        exitCode = await returnCoverage(options.coverage, "rsync", ["-a", `ubuntu:${coveragePath(workspaceRoot)}`]);
+      );
+      if (exitCode === 0 && !cancelled) {
+        owner.stdin.write(`${JSON.stringify(posixTestScript(workspaceRoot, stateRoot, options))}\n`);
+        exitCode = await completion;
+        if (exitCode === 0 && options.coverage !== undefined && !cancelled) {
+          exitCode = await returnCoverage(options.coverage, "rsync", ["-a", `ubuntu:${coveragePath(workspaceRoot)}`]);
+        }
       }
     }
   } finally {
-    const cleanupCode = await run("ssh", ["ubuntu", `rm -rf -- ${shellQuote(workspaceRoot)}`], { quiet: true });
+    owner.stdin.end();
+    const cleanupCode = await closed;
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.off(signal, cancel);
     if (exitCode === 0 && cleanupCode !== 0) exitCode = cleanupCode;
   }
-  return exitCode;
+  return cancelled ? 130 : exitCode;
 }
 
 async function runDocker(options, runId, snapshotRoot, files) {
@@ -402,7 +450,7 @@ function waitFor(child) {
 }
 
 function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\\"'\\\"")}'`;
+  return "'" + String(value).replaceAll("'", "'\\''") + "'";
 }
 
 function powerShellLiteral(value) {
