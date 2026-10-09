@@ -103,6 +103,33 @@ test("replica sequence matches the independent full model after every lifecycle 
     }
   });
 });
+test("schema 34 cache rebuilds the replica sequence from the canonical stream", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
+    let projection = makeTaskProjection({ rootDir, eventStore });
+    try {
+      for (const event of lifecycleFixture().events) {
+        eventStore.append(taskBundle(event));
+        projection.apply(event);
+      }
+      const expected = projection.readReplicaSequence(null);
+      const head = eventStore.readHead();
+      projection.close();
+      const oldCache = new DatabaseSync(projection.path);
+      // main's schema 34 already normalizes Schedule history but has no replica sequence.
+      oldCache.exec(`DROP TABLE replica_revision; DROP TABLE replica_entry; DROP TABLE replica_change;
+        UPDATE projection_meta SET schema_version=34 WHERE singleton=1`);
+      oldCache.close();
+      projection = makeTaskProjection({ rootDir, eventStore });
+      projection.catchUp();
+      assert.deepEqual(projection.readReplicaSequence(null), expected);
+      assert.deepEqual(eventStore.readHead(), head, "cache upgrade does not append a canonical event");
+    } finally {
+      projection.close();
+    }
+  });
+});
 // harness-contract: projection.deterministic-rebuild
 test("steady apply and rebuild use the same reducer and reproduce watermark, op index, lease intervals", async () => {
   await withTempStoreAsync(async (rootDir) => {

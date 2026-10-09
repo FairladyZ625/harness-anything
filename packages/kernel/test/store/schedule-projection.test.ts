@@ -78,7 +78,7 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
     }
 
     // dec_6BD784D4 adds the canonical replica sequence to the rebuildable projection.
-    assert.equal(taskProjectionSchemaVersion, 34);
+    assert.equal(taskProjectionSchemaVersion, 35);
     assert.equal(projection.readCut().status, "ready");
     const definition = projection.readDocument("schedules/schedule-heartbeat.json").document,
       row = projection.getEntity("schedule", "schedule-heartbeat"),
