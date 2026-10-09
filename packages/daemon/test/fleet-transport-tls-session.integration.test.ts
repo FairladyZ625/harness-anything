@@ -376,11 +376,13 @@ test("replica pull rejects a snapshot that has not caught up to the ledger cut",
   t.after(() => fixture.close());
   const center = await fixture.center(replicaQuota, true),
     peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
-    response = await peer.request({
+    preparing = await peer.request({
       schema: "fleet.replica.pull/v1",
       messageId: "replica-behind-ledger",
       repoId: fixture.subject.repoId,
     });
+  assert.equal(preparing.schema, "fleet.replica.preparing/v1");
+  const response = await peer.receive();
   assert.equal(response.schema, "fleet.error/v1");
   if (response.schema === "fleet.error/v1") assert.equal(response.code, "replica_pending");
 });
@@ -625,11 +627,13 @@ test(
     });
     assert.equal(replayedHello.schema, "fleet.error/v1");
     if (replayedHello.schema === "fleet.error/v1") assert.equal(replayedHello.code, "hello_replayed");
-    const insufficientQuota = await peer.request({
+    const preparing = await peer.request({
       schema: "fleet.replica.pull/v1",
       messageId: "insufficient-quota",
       repoId: fixture.subject.repoId,
     });
+    assert.equal(preparing.schema, "fleet.replica.preparing/v1");
+    const insufficientQuota = await peer.receive();
     assert.equal(insufficientQuota.schema, "fleet.error/v1");
     if (insufficientQuota.schema === "fleet.error/v1")
       assert.equal(insufficientQuota.code, "replica_quota_insufficient");

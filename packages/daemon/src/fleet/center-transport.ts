@@ -30,6 +30,7 @@ export async function serve(
     window: SessionWindow,
     clientGone: () => boolean,
     connectionSignal: AbortSignal,
+    progress: (frame: FleetFrameV1) => Promise<void>,
   ) => Promise<Delivery>,
   sessions: Map<string, Set<TLSSocket>>,
 ): Promise<void> {
@@ -157,7 +158,16 @@ export async function serve(
       }
       if (frame.schema === "fleet.session.hello/v1")
         throw new FleetFault("hello_replayed", "Session hello is only valid as the first frame.");
-      await enqueue(await handle(nodeId, frame, window, () => socket.destroyed, disconnected.signal));
+      await enqueue(
+        await handle(
+          nodeId,
+          frame,
+          window,
+          () => socket.destroyed,
+          disconnected.signal,
+          (progress) => enqueue(immediate(progress)),
+        ),
+      );
     } catch (error) {
       consumeKnownError(error);
       const contractError = error instanceof FleetContractError;

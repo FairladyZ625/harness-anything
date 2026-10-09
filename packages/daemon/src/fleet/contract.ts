@@ -191,6 +191,7 @@ export type FleetFrameV1 =
       { inReplyTo: string; eventId: string; offset: number; dataBase64: string; done: boolean }
     >
   | Msg<"fleet.replica.pull/v1", { repoId: string }>
+  | Msg<"fleet.replica.preparing/v1", { inReplyTo: string; repoId: string }>
   | Msg<"fleet.replica.watch/v1", { repoId: string; afterRevision: number }>
   | Msg<"fleet.replica.head-hint/v1", { inReplyTo: string; repoId: string; cut: FleetCut }>
   | Msg<
@@ -806,6 +807,7 @@ const schemas: Readonly<Record<string, Check>> = {
     done: boolean,
   }),
   "fleet.replica.pull/v1": shape({ ...common, repoId: id }),
+  "fleet.replica.preparing/v1": shape({ ...reply, repoId: id }),
   "fleet.replica.watch/v1": shape({ ...common, repoId: id, afterRevision: uint }),
   "fleet.replica.head-hint/v1": shape({ ...reply, repoId: id, cut }),
   "fleet.replica.current/v1": shape({

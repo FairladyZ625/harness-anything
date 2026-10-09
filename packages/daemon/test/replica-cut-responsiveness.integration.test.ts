@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import path from "node:path";
 import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
-import { openPeer } from "../src/fleet/edge.ts";
+import { openPeer, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { DatabaseSync } from "node:sqlite";
 import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 
@@ -195,4 +195,85 @@ test("captured worker OOM error reaches the edge without a closed-schema rejecti
       return true;
     },
   );
+});
+
+for (const phase of ["prepare", "exact-cut"] as const) {
+  test(`first pull survives ${phase} longer than the 60s frame deadline`, { timeout: 100_000 }, async (t) => {
+    const f = await fleetFixture(t);
+    t.after(() => f.close());
+    const center = await f.center(
+      undefined,
+      false,
+      phase === "prepare" ? 61_000 : 0,
+      phase === "exact-cut" ? 61_000 : 0,
+    );
+    const frames: Array<{ schema: string; at: number }> = [];
+    const started = performance.now();
+    const result = await runFleetReplicaPullClient({
+      port: center.port,
+      ca: f.cert,
+      nodeId: f.subject.nodeId,
+      credential: "machine-secret",
+      repoId: f.subject.repoId,
+      viewRoot: path.join(f.root, `cold-${phase}`),
+      diskQuotaBytes: 64 * 1024 * 1024,
+      timeoutMs: 60_000,
+      onFrame: (frame) => frames.push({ schema: frame.schema, at: performance.now() }),
+    });
+    assert.equal(result.replica.schema, "fleet.ack.result/v1");
+    const progress = frames.filter((frame) => frame.schema === "fleet.replica.preparing/v1");
+    assert.ok(progress.length >= 4);
+    assert.ok(progress[0]!.at - started < 5_000, "first preparing is immediate");
+    for (let i = 1; i < progress.length; i++) assert.ok(progress[i]!.at - progress[i - 1]!.at < 60_000);
+    assert.ok(performance.now() - started > 60_000);
+    t.diagnostic(JSON.stringify({ phase, elapsedMs: performance.now() - started, progress }));
+  });
+}
+
+test("closing a preparing connection releases its wait without claiming a delivery", async (t) => {
+  const f = await fleetFixture(t);
+  t.after(() => f.close());
+  const replica = f.host.replica(f.subject.repoId);
+  const original = replica.prepare;
+  let buildCalls = 0;
+  let complete!: (value: Awaited<ReturnType<typeof original>>) => void;
+  const pending = new Promise<Awaited<ReturnType<typeof original>>>((resolve) => {
+    complete = resolve;
+  });
+  replica.prepare = () => {
+    buildCalls++;
+    return pending;
+  };
+  const center = await f.center();
+  const peer = await openPeer({
+    port: center.port,
+    ca: f.cert,
+    nodeId: f.subject.nodeId,
+    credential: "machine-secret",
+  });
+  peer.send({ schema: "fleet.replica.pull/v1", messageId: peer.messageId(), repoId: f.subject.repoId });
+  assert.equal((await peer.next()).schema, "fleet.replica.preparing/v1");
+  peer.close();
+  await center.close();
+  assert.equal(buildCalls, 1);
+  assert.equal(center.status().replicas.length, 0);
+  complete(await original());
+  replica.prepare = original;
+});
+
+test("repository authorization fails before any preparing frame", async (t) => {
+  const f = await fleetFixture(t);
+  t.after(() => f.close());
+  f.owners.keycloak.account("person-denied");
+  f.owners.keycloak.node(f.subject.nodeId, "person-denied");
+  const center = await f.center();
+  const peer = await rawPeer(f.track, center.port, f.cert, f.subject.nodeId, "machine-secret");
+  const response = await peer.request({
+    schema: "fleet.replica.pull/v1",
+    messageId: "denied",
+    repoId: f.subject.repoId,
+  });
+  assert.equal(response.schema, "fleet.error/v1");
+  if (response.schema === "fleet.error/v1") assert.equal(response.code, "authorization_denied");
+  assert.equal(center.status().replicas.length, 0);
 });
