@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
+import path from "node:path";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
@@ -11,11 +12,11 @@ test(
   { timeout: 180_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
-    const e = await fleetEdgeHostFixture(t, f);
+    const viewRoot = path.join(f.root, "edge-view");
     const replica = f.host.replica("lease-repo");
     await replica.prepare();
     await replica.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
+    await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
     const truth = await f.host.run("lease-repo", { kind: "settings-read" }, localAuthFixture());
     assert.equal(truth.outcome, "applied", JSON.stringify(truth));
     const updated = await f.host.run(
@@ -50,13 +51,15 @@ test(
     const frames: string[] = [];
     await runFleetReplicaPullClient({
       ...f.peer("node-one"),
-      viewRoot: e.viewRoot,
+      viewRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
       onFrame: (frame) => {
         frames.push(frame.schema);
       },
     });
     assert.ok(frames.includes("fleet.delta.begin/v1"), "authored settings update must arrive by delta");
+    // Start the resident sync only after the observed pull owns the settings delta.
+    const e = await fleetEdgeHostFixture(t, f, { viewRoot });
     const updatedTruth = await f.host.run("lease-repo", { kind: "settings-read" }, localAuthFixture());
     const listTruth = await f.host.run("lease-repo", { kind: "schedule-list" }, localAuthFixture());
     const showTruth = await f.host.run(
