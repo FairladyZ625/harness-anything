@@ -270,6 +270,9 @@ test("restored centers replace the same and different ports only after valid inp
     file = fleetCenterConfigPath(f.userRoot, "replace"),
     saved = readFileSync(file, "utf8"),
     port = Number(original.port);
+  // Bootstrap Git subprocesses can inherit the listener until exec; settle that fixture work before rebinding.
+  await restored.read(f.request.repoId, "repo.tasks.list", {}, auth);
+  await restored.settleMaterialization(f.request.repoId, "restored center replacement fixture ready");
   const badCert = path.join(f.root, "invalid.crt");
   writeFileSync(badCert, "not a certificate");
   for (const invalid of [
