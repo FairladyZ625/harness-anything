@@ -14,7 +14,7 @@ function hold(): void {
   Atomics.wait(control, 0, 1);
 }
 const remove = fs.rmSync,
-  read = fs.readFileSync,
+  open = fs.openSync,
   copy = fs.cpSync;
 fs.rmSync = (candidate, options) => {
   if (
@@ -26,9 +26,10 @@ fs.rmSync = (candidate, options) => {
     hold();
   return remove(candidate, options);
 };
-fs.readFileSync = (...args: Parameters<typeof fs.readFileSync>): ReturnType<typeof fs.readFileSync> => {
-  if (workerData.phase === "manifest" && String(args[0]).includes(`${path.sep}payload${path.sep}`)) hold();
-  return read(...args);
+fs.openSync = (candidate, flags, mode) => {
+  const descriptor = open(candidate, flags, mode);
+  if (workerData.phase === "manifest" && String(candidate).includes(`${path.sep}payload${path.sep}`)) hold();
+  return descriptor;
 };
 fs.cpSync = (source, destination, options) => {
   if (workerData.phase === "drill" && String(destination).includes(`${path.sep}restore-drills${path.sep}`)) hold();
