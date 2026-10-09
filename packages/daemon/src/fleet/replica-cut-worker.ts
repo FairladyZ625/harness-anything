@@ -49,7 +49,7 @@ export function openReplicaCutWorker(options: ReplicaCutSourceOptions, input: Re
       });
       worker.once("error", fail);
       worker.once("exit", (code) => {
-        if (!closed) fail(new Error(`replica cut worker exited ${code}`));
+        if (!closed && !failure) fail(new Error(`replica cut worker exited ${code}`));
       });
     }
     const id = ++nextId;

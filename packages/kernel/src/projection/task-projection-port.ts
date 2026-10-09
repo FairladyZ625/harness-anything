@@ -155,7 +155,7 @@ export interface TaskProjection {
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
   readonly readDocument: (path: string) => DocumentProjectionRead;
   readonly readReplicaRevision: (revision?: number) => ReplicaRevision | null;
-  readonly readReplicaSequence: (from: number | null) => ReplicaSequenceRead | null;
+  readonly readReplicaSequence: <A>(from: number | null, read: (sequence: ReplicaSequenceRead | null) => A) => A;
   readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis;
   readonly taskIdForDocumentPath: (path: string) => string | null;
   readonly readTaskSubmissionOperation: (taskId: string, executionId: string) => string | null;

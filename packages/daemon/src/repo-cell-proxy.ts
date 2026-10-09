@@ -171,7 +171,7 @@ export async function openRepoCellProxy(
       {
         repoId: input.repoId,
         localRoot: path.dirname(path.dirname(reader.path)),
-        readSequence: (from) => reader.withSession((projection) => projection.readReplicaSequence(from)),
+        readSequence: (from, read) => reader.withSession((projection) => projection.readReplicaSequence(from, read)),
         readRevision: (revision) => reader.withSession((projection) => projection.readReplicaRevision(revision)),
         // Fleet replication follows the acknowledged writer cut, including the durable
         // ledger suffix that may not have reached Git yet. This reader is immutable; the

@@ -50,7 +50,7 @@ test("replica sequence matches the independent full model after every lifecycle 
       for (const event of lifecycleFixture().events) {
         eventStore.append(taskBundle(event));
         projection.apply(event);
-        const sequence = projection.readReplicaSequence(from)!;
+        const sequence = projection.readReplicaSequence(from, materializeSequence)!;
         assert.equal(sequence.to.revision, event.workspaceRevision);
         for (const change of sequence.changes) {
           if (change.op === "delete") accumulated.delete(change.path);
@@ -89,15 +89,15 @@ test("replica sequence matches the independent full model after every lifecycle 
           /close this projection connection/u,
         );
       }
-      const before = projection.readReplicaSequence(null);
+      const before = projection.readReplicaSequence(null, materializeSequence);
       projection.apply(lifecycleFixture().events.at(-1)!);
       assert.deepEqual(
-        projection.readReplicaSequence(null),
+        projection.readReplicaSequence(null, materializeSequence),
         before,
         "duplicate application has no second sequence record",
       );
       projection.rebuild();
-      assert.deepEqual(projection.readReplicaSequence(null), before);
+      assert.deepEqual(projection.readReplicaSequence(null, materializeSequence), before);
     } finally {
       projection.close();
     }
@@ -113,7 +113,7 @@ test("schema 34 cache rebuilds the replica sequence from the canonical stream", 
         eventStore.append(taskBundle(event));
         projection.apply(event);
       }
-      const expected = projection.readReplicaSequence(null);
+      const expected = projection.readReplicaSequence(null, materializeSequence);
       const head = eventStore.readHead();
       projection.close();
       const oldCache = new DatabaseSync(projection.path);
@@ -123,10 +123,50 @@ test("schema 34 cache rebuilds the replica sequence from the canonical stream", 
       oldCache.close();
       projection = makeTaskProjection({ rootDir, eventStore });
       projection.catchUp();
-      assert.deepEqual(projection.readReplicaSequence(null), expected);
+      assert.deepEqual(projection.readReplicaSequence(null, materializeSequence), expected);
       assert.deepEqual(eventStore.readHead(), head, "cache upgrade does not append a canonical event");
     } finally {
       projection.close();
+    }
+  });
+});
+test("interrupted schema upgrade resumes from the committed replica batch", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
+    let projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2 });
+    try {
+      for (const event of lifecycleFixture().events) {
+        eventStore.append(taskBundle(event));
+        projection.apply(event);
+      }
+      const expected = projection.readReplicaSequence(null, materializeSequence);
+      projection.close();
+      const oldCache = new DatabaseSync(projection.path);
+      oldCache.exec(`DROP TABLE replica_revision; DROP TABLE replica_entry; DROP TABLE replica_change;
+        UPDATE projection_meta SET schema_version=34 WHERE singleton=1`);
+      oldCache.close();
+      let batches = 0;
+      const interrupted = {
+        ...eventStore,
+        readBatch: (...args: Parameters<typeof eventStore.readBatch>) => {
+          if (++batches === 3) throw new Error("interrupt after committed upgrade batches");
+          return eventStore.readBatch(...args);
+        },
+      };
+      projection = makeTaskProjection({ rootDir, eventStore: interrupted, catchUpLimit: 2 });
+      assert.throws(() => projection.catchUp(), /interrupt after committed upgrade batches/u);
+      const committed = projection.readReplicaRevision()!.revision;
+      assert.ok(committed > 0 && committed < expected!.to.revision);
+      projection.close();
+      projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2 });
+      assert.equal(projection.readReplicaRevision()!.revision, committed);
+      const result = projection.catchUp();
+      assert.ok(result.metrics.maxBatchItems <= 2);
+      assert.deepEqual(projection.readReplicaSequence(null, materializeSequence), expected);
+    } finally {
+      projection.close();
+      await eventStore.drain();
     }
   });
 });
@@ -703,4 +743,8 @@ function initRepo(rootDir: string): void {
 }
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function materializeSequence(sequence: import("../../src/projection/replica-sequence.ts").ReplicaSequenceRead | null) {
+  return sequence && { ...sequence, changes: [...sequence.changes] };
 }

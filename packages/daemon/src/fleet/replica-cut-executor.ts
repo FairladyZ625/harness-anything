@@ -10,7 +10,7 @@ const ledger = makeTaskEventReader(input),
   source = openReplicaCutSource({
     repoId: input.repoId,
     localRoot: input.localRoot,
-    readSequence: (from) => reader.withSession((projection) => projection.readReplicaSequence(from)),
+    readSequence: (from, read) => reader.withSession((projection) => projection.readReplicaSequence(from, read)),
     readRevision: (revision) => reader.withSession((projection) => projection.readReplicaRevision(revision)),
     readLedgerCut: ledger.currentCut,
     readContentBlob: ledger.readContentBlob,

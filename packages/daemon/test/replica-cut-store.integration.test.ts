@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { collectReplicaChanges } from "./replica-sequence.fixture.ts";
 import type { EdgeReadModelRows } from "../../kernel/test/store/replica-model.fixture.ts";
 import { type ReplicaProjectionBasis } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
@@ -476,7 +477,7 @@ test("document revisions persist only adjacent path/blob changes", async () => {
       },
     };
     assert.deepEqual(source.changeLog(), [{ fromRevision: 1, toRevision: 2, change }]);
-    assert.deepEqual(source.changes(1, 2), [change]);
+    assert.deepEqual(collectReplicaChanges(source.changes(1, 2)), [change]);
     assert.deepEqual(source.manifest(2), [{ path: itemPath, blob: change.blob }]);
     source.close();
   } finally {
@@ -579,7 +580,7 @@ test("retention keeps exactly 64 cuts and 63 adjacent changelogs per repo", asyn
     assert.equal(source.changeLog()[0]?.fromRevision, 3);
     assert.equal(source.changeLog().at(-1)?.toRevision, 66);
     assert.equal(source.changes(2, 66), null);
-    assert.equal(source.changes(3, 66)?.length, 1);
+    assert.equal(source.changes(3, 66)?.count, 1);
     assert.deepEqual(
       readFileSync(historicalManifest),
       manifestBytes,
@@ -778,7 +779,7 @@ test("retired audit documents survive cold replay for both retained cuts and fre
     source.activate();
     const cut = await source.waitForCut(2);
     assert.deepEqual(source.manifest(2), expected);
-    assert.deepEqual(source.changes(1, 2), [{ op: "put", ...expected[0] }]);
+    assert.deepEqual(collectReplicaChanges(source.changes(1, 2)), [{ op: "put", ...expected[0] }]);
     assert.equal(fresh.activate()?.manifest.digest, cut.manifest.digest);
     assert.deepEqual(fresh.manifest(2), expected);
     assert.deepEqual(source.content(blob), body);
@@ -851,7 +852,7 @@ test("a canonical document deletion removes retained and fresh replica entries",
     retained.kick();
     const cut = await retained.waitForCut(2);
     assert.deepEqual(retained.manifest(2), []);
-    assert.deepEqual(retained.changes(1, 2), [{ op: "delete", path: itemPath }]);
+    assert.deepEqual(collectReplicaChanges(retained.changes(1, 2)), [{ op: "delete", path: itemPath }]);
     assert.deepEqual(retained.changeLog(), [
       { fromRevision: 1, toRevision: 2, change: { op: "delete", path: itemPath } },
     ]);
@@ -869,7 +870,7 @@ test("a canonical document deletion removes retained and fresh replica entries",
       readContentBlob: () => body,
     });
     assert.deepEqual(reopened.manifest(2), []);
-    assert.deepEqual(reopened.changes(1, 2), [{ op: "delete", path: itemPath }]);
+    assert.deepEqual(collectReplicaChanges(reopened.changes(1, 2)), [{ op: "delete", path: itemPath }]);
     reopened.close();
   } finally {
     retained.close();
@@ -1196,7 +1197,7 @@ for (const scenario of [
       retained.kick();
       const cut = await retained.waitForCut(2);
       assert.deepEqual(retained.manifest(2), next);
-      assert.deepEqual(retained.changes(1, 2), changes);
+      assert.deepEqual(collectReplicaChanges(retained.changes(1, 2)), changes);
       assert.deepEqual(
         retained.changeLog().map(({ change }) => change),
         changes,
@@ -1211,7 +1212,7 @@ for (const scenario of [
         readContentBlob: (sha) => blobs.get(sha) ?? null,
       });
       assert.deepEqual(reopened.manifest(2), next);
-      assert.deepEqual(reopened.changes(1, 2), changes);
+      assert.deepEqual(collectReplicaChanges(reopened.changes(1, 2)), changes);
       reopened.close();
       assert.deepEqual(events.map(serializeCanonicalEvent), historicalBytes);
     } finally {
@@ -1288,7 +1289,7 @@ async function verifyCanonicalRetirement(
     retained.kick();
     const cut = await retained.waitForCut(2);
     assert.deepEqual(retained.manifest(2), [], name);
-    assert.deepEqual(retained.changes(1, 2), [{ op: "delete", path: itemPath }], name);
+    assert.deepEqual(collectReplicaChanges(retained.changes(1, 2)), [{ op: "delete", path: itemPath }], name);
     assert.deepEqual(
       retained.changeLog(),
       [{ fromRevision: 1, toRevision: 2, change: { op: "delete", path: itemPath } }],
@@ -1304,7 +1305,7 @@ async function verifyCanonicalRetirement(
       readContentBlob: (sha) => (sha === sha256Bytes(bytes) ? bytes : null),
     });
     assert.deepEqual(reopened.manifest(2), [], name);
-    assert.deepEqual(reopened.changes(1, 2), [{ op: "delete", path: itemPath }], name);
+    assert.deepEqual(collectReplicaChanges(reopened.changes(1, 2)), [{ op: "delete", path: itemPath }], name);
     reopened.close();
     assert.deepEqual(events.map(serializeCanonicalEvent), historicalBytes, name);
   } finally {

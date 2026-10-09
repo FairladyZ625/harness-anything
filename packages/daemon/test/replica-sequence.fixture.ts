@@ -64,18 +64,31 @@ export function openReplicaCutSource(options: FixtureOptions) {
       const current = capture(states.size ? Math.max(...states.keys()) : null);
       return revision === undefined ? (current?.identity ?? null) : (states.get(revision)?.identity ?? null);
     },
-    readSequence: (from): ReplicaSequenceRead | null => {
-      const current = capture(from);
-      if (!current) return null;
-      if (from === current.identity.revision) return { from: current.identity, to: current.identity, changes: [] };
-      const previous = from === null ? null : states.get(from);
-      if (from !== null && !previous) return null;
-      const changes: ReplicaChange[] = [];
-      for (const entry of current.entries.values())
-        if (stableStringify(previous?.entries.get(entry.path)) !== stableStringify(entry)) changes.push(entry);
-      for (const itemPath of previous?.entries.keys() ?? [])
-        if (!current.entries.has(itemPath)) changes.push({ op: "delete", path: itemPath });
-      return { from: previous?.identity ?? null, to: current.identity, changes };
+    readSequence: (from, read) => {
+      const captureSequence = (): ReplicaSequenceRead | null => {
+        const current = capture(from);
+        if (!current) return null;
+        if (from === current.identity.revision) return { from: current.identity, to: current.identity, changes: [] };
+        const previous = from === null ? null : states.get(from);
+        if (from !== null && !previous) return null;
+        const changes: ReplicaChange[] = [];
+        for (const entry of current.entries.values())
+          if (stableStringify(previous?.entries.get(entry.path)) !== stableStringify(entry)) changes.push(entry);
+        for (const itemPath of previous?.entries.keys() ?? [])
+          if (!current.entries.has(itemPath)) changes.push({ op: "delete", path: itemPath });
+        return { from: previous?.identity ?? null, to: current.identity, changes };
+      };
+      return read(captureSequence());
     },
   });
+}
+
+export function collectReplicaChanges(sequence: import("../src/fleet/replica-cut-store.ts").ReplicaChanges | null) {
+  if (!sequence) return null;
+  const result: import("../src/fleet/contract.ts").FleetDeltaChange[] = [];
+  for (;;) {
+    const page = sequence.page(result.length);
+    result.push(...page.changes);
+    if (page.done) return result;
+  }
 }

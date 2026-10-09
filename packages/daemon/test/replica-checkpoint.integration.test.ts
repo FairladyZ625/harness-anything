@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { collectReplicaChanges } from "./replica-sequence.fixture.ts";
 import type { EdgeReadModelRows } from "../../kernel/test/store/replica-model.fixture.ts";
 import { type ReplicaProjectionBasis } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
@@ -85,7 +86,7 @@ test("zero-change checkpoint links distinguish a complete chain from a missing l
     assert.equal((await source.waitForCut(2)).revision, 72);
     revision = 100;
     await source.waitForCut(100);
-    assert.deepEqual(source.changes(1, 100), []);
+    assert.deepEqual(collectReplicaChanges(source.changes(1, 100)), []);
     const { DatabaseSync } = await import("node:sqlite");
     const { READ_MODEL_SCHEMA_GENERATION } = await import("@harness-anything/kernel");
     const db = new DatabaseSync(
@@ -97,7 +98,7 @@ test("zero-change checkpoint links distinguish a complete chain from a missing l
       db.close();
     }
     assert.equal(source.changes(1, 100), null);
-    assert.deepEqual(source.changes(72, 100), []);
+    assert.deepEqual(collectReplicaChanges(source.changes(72, 100)), []);
   } finally {
     source.close();
     rmSync(root, { recursive: true, force: true });

@@ -55,7 +55,8 @@ for (const fixtureMiB of [64, 256]) {
     t.after(() => clearInterval(sample));
     let complete = false;
     const first = replica.prepare(),
-      second = replica.prepare();
+      second = replica.prepare(),
+      third = replica.prepare();
     const building = first.then((cut) => {
       complete = true;
       return cut;
@@ -63,6 +64,7 @@ for (const fixtureMiB of [64, 256]) {
     const peer = await rawPeer(f.track, center.port, f.cert, f.subject.nodeId, "machine-secret");
     assert.equal(complete, false, "real TLS hello must finish before the large cut build");
     assert.strictEqual(first, second, "concurrent edges share the same construction promise");
+    assert.strictEqual(second, third, "three edges still share one construction promise");
     peer.close();
     const cut = await building;
     assert.ok(cut);

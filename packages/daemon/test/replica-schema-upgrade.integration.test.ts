@@ -320,7 +320,16 @@ function generationDeltaFixture(prefix: string) {
       manifest: (revision) => (revision === cut1.revision ? entries1 : revision === cut2.revision ? entries2 : null),
       changes: (from, to) =>
         from === cut1.revision && to === cut2.revision
-          ? entries2.map((item) => ({ op: "put" as const, path: item.path, blob: item.blob }))
+          ? {
+              count: entries2.length,
+              totalBytes: entries2.reduce((sum, item) => sum + item.blob.size, 0),
+              page: (offset) => ({
+                changes: entries2
+                  .slice(offset, offset + 128)
+                  .map((item) => ({ op: "put" as const, path: item.path, blob: item.blob })),
+                done: offset + 128 >= entries2.length,
+              }),
+            }
           : null,
       changeLog: () => [],
       content: (blob) => bytes.get(blob.sha256)!,

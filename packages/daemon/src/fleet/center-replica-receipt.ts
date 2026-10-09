@@ -100,11 +100,7 @@ export function replicaStatus(
     current = cursor?.revision === latest.revision,
     centerEventAt = replica.eventAt(latest.revision),
     ackCutEventAt = cursor?.cutEventAt ?? null,
-    catchUpBytes = current
-      ? 0
-      : changes
-        ? changes.reduce((sum, change) => sum + (change.op === "put" ? change.blob.size : 0), 0)
-        : latest.manifest.totalBytes;
+    catchUpBytes = current ? 0 : changes ? changes.totalBytes : latest.manifest.totalBytes;
   return {
     ...key,
     centerRevision: latest.revision,
