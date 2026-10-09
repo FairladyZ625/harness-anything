@@ -7,7 +7,12 @@ import test from "node:test";
 import { makeTaskEventReader, type ScheduleV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { withPolicyGroup, revokeTestPolicyActions } from "./keycloak-policy.fixtures.ts";
+import {
+  withPolicyGroup,
+  revokeTestPolicyActions,
+  grantTestPolicyGroups,
+  revokeTestPolicyGroup,
+} from "./keycloak-policy.fixtures.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 import { builtinCiObserveScheduleId, seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
@@ -156,6 +161,7 @@ test(
       assert.equal(refresh.outcome, "applied", JSON.stringify(refresh));
       assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 2);
       assert.equal((await show()).status.activeRun, null);
+      assert.equal((await show()).status.lastRun!.outcome, "succeeded");
       assert.equal((await show()).status.ciObserve!.error, null);
       const progress = (await show()).status.ciObserve;
       const orphan = await cell.run(
@@ -255,3 +261,23 @@ test("CI acceptance reauthorizes after provider IO before appending", { skip: po
     assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 0);
   });
 });
+
+test(
+  "C2 rejected settlement exposes its original code while the normal occurrence settles",
+  { skip: posix },
+  async (t) => {
+    revokeTestPolicyGroup("ci-center-owner", "contributor");
+    grantTestPolicyGroups(["ci-center-owner"], "contributor");
+    await fixture(async ({ cell, release, started, show }) => {
+      const collecting = cell.run(claim, binding);
+      await waitForFile(started);
+      revokeTestPolicyActions("ci-center-owner", "ci-fence", ["schedule-settle", "ci-observe-pull"]);
+      release();
+      const receipt = await collecting;
+      assert.equal(receipt.outcome, "op_rejected");
+      assert.equal(receipt.code, "authorization_denied", JSON.stringify(receipt));
+      t.diagnostic(JSON.stringify({ rejectedSettlement: receipt.code, activeRun: (await show()).status.activeRun }));
+      assert.ok((await show()).status.activeRun);
+    });
+  },
+);

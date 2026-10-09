@@ -12,6 +12,7 @@ import {
 } from "@harness-anything/kernel";
 import { finishLedgerBackup, type BackupVerification, type BackupWorkerMessage } from "./schedule-backup-worker.ts";
 import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
+import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 /** Root (relative to the repository root) holding scheduled backups, per the established convention. */
@@ -71,19 +72,32 @@ export async function executeBuiltinScheduleOccurrence<Receipt extends WriteRece
   // Every terminal branch settles the occurrence — a thrown executor error becomes the settle
   // detail of a failed outcome, never a swallowed failure or an abandoned claim.
   const settleOccurrence = async (result: BuiltinExecutionResult): Promise<Receipt> => {
-    const settled = await input.runInternal(
-      {
-        kind: "schedule-settle",
-        scheduleId: input.schedule.scheduleId,
-        claimFence: active.claimFence,
-        outcome: result.outcome,
-        endedAt: input.cell.now(),
-        detail: result.detail,
-        ...(result.ciObserve ? { ciObserve: result.ciObserve } : {}),
-        idempotencyKey: `${input.idempotencyKey}:builtin-${result.outcome}`,
-      },
-      input.binding,
-    );
+    const settled = await input
+      .runInternal(
+        {
+          kind: "schedule-settle",
+          scheduleId: input.schedule.scheduleId,
+          claimFence: active.claimFence,
+          outcome: result.outcome,
+          endedAt: input.cell.now(),
+          detail: result.detail,
+          ...(result.ciObserve ? { ciObserve: result.ciObserve } : {}),
+          idempotencyKey: `${input.idempotencyKey}:builtin-${result.outcome}`,
+        },
+        input.binding,
+      )
+      .catch((error: unknown) => {
+        console.warn(
+          `[schedule-builtin] ${input.schedule.scheduleId}/${active.claimFence} settlement failed: ${cellErrorCode(error)}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        throw error;
+      });
+    if (settled.outcome !== "applied" && settled.outcome !== "no_changes") {
+      console.warn(
+        `[schedule-builtin] ${input.schedule.scheduleId}/${active.claimFence} settlement rejected: ${settled.code ?? settled.outcome}.`,
+      );
+      return settled;
+    }
     return result.outcome === "succeeded" ? settled : ({ ...settled, code: "schedule_builtin_failed" } as Receipt);
   };
   if (executor === undefined)

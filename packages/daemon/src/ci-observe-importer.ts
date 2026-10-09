@@ -1,6 +1,7 @@
 import type { CiObserveProgress, ScheduleV1, WriteReceiptDraft } from "@harness-anything/kernel";
 import {
   fetchCiObservations,
+  isTransientCiProviderFailure,
   listCiArtifacts,
   runCiProviderCommand,
   privateLedgerCiObservations,
@@ -88,6 +89,9 @@ export async function reconcileCiOccurrence(input: {
         gh,
       );
     } catch (error) {
+      if (isTransientCiProviderFailure(error)) {
+        return { outcome: "pending" as const, failure: error };
+      }
       if (!(error instanceof Error) || !/HTTP 404|Not Found/iu.test(error.message)) throw error;
       pending.delete(key(target));
       unavailable.push({ runId: target.runId, attempt: target.attempt, reason: "provider-run-unavailable" });
@@ -103,7 +107,13 @@ export async function reconcileCiOccurrence(input: {
     if (run.attemptInventory && run.attemptInventory.missingArtifactJobIds.length === 0) pending.delete(key(target));
     else {
       // Provider expiry is authoritative; an absent artifact remains pending for a later occurrence.
-      const artifacts = await listCiArtifacts(gh, cell.rootDir, target.runId);
+      let artifacts;
+      try {
+        artifacts = await listCiArtifacts(gh, cell.rootDir, target.runId);
+      } catch (error) {
+        if (!isTransientCiProviderFailure(error)) throw error;
+        return { outcome: "pending" as const, failure: error };
+      }
       const relevant = artifacts.filter((artifact) =>
         artifact.name.startsWith(`ci-observation-${target.runId}-${target.attempt}-`),
       );
@@ -115,7 +125,7 @@ export async function reconcileCiOccurrence(input: {
   };
   try {
     await accept(privateLedgerCiObservations(cell));
-    for (const target of [...pending.values()]) await observe(target);
+    for (const target of [...pending.values()]) if ((await observe(target))?.outcome === "pending") retain(target);
     // Explicit refresh and completion hints drain into this same occurrence, never a second importer.
     for (const request of input.requests()) await accept(await fetchCiObservations(cell, request, gh));
     if (workflows.length) {
@@ -149,7 +159,7 @@ export async function reconcileCiOccurrence(input: {
           processed += 1;
           const target = { runId: run.id, attempt, workflow };
           if (run.status !== "completed" && attempt === run.run_attempt) retain(target);
-          else await observe(target);
+          else if ((await observe(target))?.outcome === "pending") retain(target);
         }
         if (!complete) break;
       }
