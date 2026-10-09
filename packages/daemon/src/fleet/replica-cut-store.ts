@@ -139,6 +139,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       active?.holderId === lease.holderId && active.claimFence === lease.claimFence && active.viewId === lease.viewId
     );
   };
+  // Buffer deletion evidence until its checkpoint transaction commits, never log rolled-back releases.
+  const pinReleaseLogs: string[] = [];
   const cutFrom = (row: Record<string, unknown> | undefined): SnapshotCut | null =>
     row
       ? {
@@ -344,12 +346,28 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       const acknowledged = cursor?.revision === Number(pin.to_revision);
       const remaining = pin.remaining === null ? 64 : Number(pin.remaining) - 1;
       const from = acknowledged ? cursor.revision : Number(pin.from_revision);
-      if (
-        (acknowledged ? remaining <= 0 : !liveLease(lease, String(pin.lease_root))) ||
-        (acknowledged && retainedBytes(store, from) > Number(pin.quota)) ||
-        (cursor && cursor.revision > Number(pin.to_revision))
-      ) {
+      const observed = acknowledged ? null : leaseStore(String(pin.lease_root)).delivery.inspect(lease, Date.now());
+      const reason = (acknowledged ? remaining <= 0 : observed!.state !== "active")
+        ? acknowledged
+          ? "ack_window_exhausted"
+          : "lease_inactive"
+        : acknowledged && retainedBytes(store, from) > Number(pin.quota)
+          ? "ack_quota_exceeded"
+          : cursor && cursor.revision > Number(pin.to_revision)
+            ? "cursor_advanced"
+            : null;
+      if (reason) {
+        const evidence = observed ?? leaseStore(String(pin.lease_root)).delivery.inspect(lease, Date.now());
         store.prepare("DELETE FROM delivery_pin WHERE id=?").run(String(pin.id));
+        pinReleaseLogs.push(
+          JSON.stringify({
+            event: "replica_pin_released",
+            reason,
+            now: evidence.now,
+            requested: lease,
+            lease: evidence,
+          }),
+        );
         continue;
       }
       if (acknowledged)
@@ -446,11 +464,12 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   };
   const transact = (store: DatabaseSync, body: () => readonly string[]): readonly string[] => {
     store.exec("BEGIN IMMEDIATE");
+    let pruned: readonly string[];
     try {
-      const pruned = body();
+      pruned = body();
       store.exec("COMMIT");
-      return pruned;
     } catch (error) {
+      pinReleaseLogs.length = 0;
       try {
         store.exec("ROLLBACK");
       } catch (rollbackError) {
@@ -458,6 +477,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       }
       throw error;
     }
+    for (const entry of pinReleaseLogs.splice(0)) console.info("[fleet-center] pin-release", entry);
+    return pruned;
   };
   const pruneContent = (store: DatabaseSync, digests: readonly string[]): void => {
     for (const orphan of digests)
@@ -845,7 +866,17 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       return { cut: target, lease: lease! };
     },
     releasePin: (lease) => {
-      db().prepare("DELETE FROM delivery_pin WHERE id=?").run(pinId(lease));
+      const deleted = db().prepare("DELETE FROM delivery_pin WHERE id=?").run(pinId(lease));
+      if (Number(deleted.changes) > 0)
+        console.info(
+          "[fleet-center] pin-release",
+          JSON.stringify({
+            event: "replica_pin_released",
+            reason: "delivery_released",
+            now: Date.now(),
+            requested: lease,
+          }),
+        );
     },
     pinActive: (lease) => !!db().prepare("SELECT 1 FROM delivery_pin WHERE id=?").get(pinId(lease)),
     activate,

@@ -327,7 +327,7 @@ test("delivery leases fence expiry across workers and isolate node/repo/view met
     assert.ok(second.delivery.claim({ ...key, repoId: "repo-b" }, "worker-two", 1050, 100));
     const replacement = second.delivery.claim(key, "worker-two", 1100, 100)!;
     assert.equal(replacement.claimFence, 2);
-    assert.equal(first.delivery.renew(lease, 1101, 100), false);
+    assert.equal(first.delivery.renew(lease, 1101, 100).renewed, false);
     first.delivery.release(lease);
     assert.equal(second.delivery.active(key, 1101)?.holderId, "worker-two");
     const target = cut(8, "a"),
@@ -490,7 +490,7 @@ test("builder retention reads do not block lease renewal or offer release", () =
     reader.exec("BEGIN");
     reader.prepare("SELECT * FROM delivery_lease").all();
     store.delivery.record(key, { bytes: 1 });
-    assert.equal(store.delivery.renew(lease, now + 1, 30_000), true);
+    assert.equal(store.delivery.renew(lease, now + 1, 30_000).renewed, true);
     store.clearOffer(lease);
     store.delivery.release(lease);
     assert.equal(store.offerFor(key), null);

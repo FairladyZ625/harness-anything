@@ -75,14 +75,51 @@ export function replicaDeliveryLeases(database: (repoId: string) => DatabaseSync
       throw error;
     }
   };
-  const renew = (lease: ReplicaDeliveryLease, now: number, ttlMs: number): boolean =>
-    Number(
-      db(lease)
-        .prepare(
-          "UPDATE delivery_lease SET expires_at=? WHERE node_id=? AND view_id=? AND holder_id=? AND claim_fence=? AND expires_at>?",
-        )
-        .run(now + ttlMs, lease.nodeId, lease.viewId, lease.holderId, lease.claimFence, now).changes,
-    ) === 1;
+  const renew = (lease: ReplicaDeliveryLease, now: number, ttlMs: number) => {
+    const store = db(lease);
+    // Keep rejection evidence under the UPDATE's writer lock; ACK already owns an outer transaction.
+    store.exec("SAVEPOINT delivery_renew");
+    try {
+      const renewed =
+        Number(
+          store
+            .prepare(
+              "UPDATE delivery_lease SET expires_at=? WHERE node_id=? AND view_id=? AND holder_id=? AND claim_fence=? AND expires_at>?",
+            )
+            .run(now + ttlMs, lease.nodeId, lease.viewId, lease.holderId, lease.claimFence, now).changes,
+        ) === 1;
+      const result = renewed ? { renewed: true as const } : { renewed: false as const, evidence: inspect(lease, now) };
+      store.exec("RELEASE delivery_renew");
+      return result;
+    } catch (error) {
+      store.exec("ROLLBACK TO delivery_renew; RELEASE delivery_renew");
+      throw error;
+    }
+  };
+  /** Failure evidence includes expired/released rows that active() deliberately filters out. */
+  const inspect = (lease: ReplicaDeliveryLease, now: number) => {
+    const row = db(lease).prepare("SELECT * FROM delivery_lease WHERE node_id=?").get(lease.nodeId);
+    const current = row
+      ? {
+          viewId: String(row.view_id),
+          holderId: row.holder_id === null ? null : String(row.holder_id),
+          claimFence: Number(row.claim_fence),
+          expiresAt: Number(row.expires_at),
+        }
+      : null;
+    const state = !current
+      ? "missing"
+      : current.viewId !== lease.viewId || current.claimFence !== lease.claimFence
+        ? "replaced"
+        : current.holderId === null
+          ? "released"
+          : current.holderId !== lease.holderId
+            ? "replaced"
+            : current.expiresAt <= now
+              ? "expired"
+              : "active";
+    return { now, state, current };
+  };
   const release = (lease: ReplicaDeliveryLease): void => {
     db(lease)
       .prepare(
@@ -128,5 +165,5 @@ export function replicaDeliveryLeases(database: (repoId: string) => DatabaseSync
     store.prepare("DELETE FROM delivery_lease WHERE node_id=? AND view_id<>?").run(key.nodeId, key.viewId);
     store.prepare("DELETE FROM delivery_metrics WHERE node_id=? AND view_id<>?").run(key.nodeId, key.viewId);
   };
-  return { active, claim, renew, release, record, metrics, retire };
+  return { active, claim, renew, inspect, release, record, metrics, retire };
 }

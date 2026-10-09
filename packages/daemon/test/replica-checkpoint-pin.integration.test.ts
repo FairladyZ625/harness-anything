@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
 import { READ_MODEL_SCHEMA_GENERATION, sha256Bytes, type EdgeReadModelRows } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
@@ -22,7 +23,7 @@ const rows: EdgeReadModelRows = {
   presetSnapshots: [],
   repository: [],
 };
-for (const termination of ["ack", "disconnect", "expire", "quota"] as const) {
+for (const termination of ["ack", "disconnect", "expire", "quota", "expire-replaced"] as const) {
   test(`lease pins protect checkpoint dependencies across 64 publications and end on ${termination}`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-checkpoint-pin-"));
     const first = lifecycleFixture().events[0]!;
@@ -44,6 +45,32 @@ for (const termination of ["ack", "disconnect", "expire", "quota"] as const) {
         builds++;
         return read({ sourceRevision: revision, rootThreshold: 0, rows });
       },
+    });
+    const released: Array<{
+      reason: string;
+      now: number;
+      requested: { nodeId: string; holderId: string; claimFence: number };
+      lease: { state: string; current: { holderId: string; claimFence: number } };
+    }> = [];
+    t.mock.method(console, "info", (label: string, payload: string) => {
+      assert.equal(label, "[fleet-center] pin-release");
+      const detail = JSON.parse(payload);
+      const observed = new DatabaseSync(
+        path.join(root, "replica/repos/checkpoint", `g${READ_MODEL_SCHEMA_GENERATION}`, "checkpoints.sqlite"),
+        { readOnly: true },
+      );
+      try {
+        const lease = detail.requested;
+        const id = JSON.stringify([lease.nodeId, lease.viewId, lease.holderId, lease.claimFence]);
+        assert.equal(
+          observed.prepare("SELECT 1 FROM delivery_pin WHERE id=?").get(id),
+          undefined,
+          "an independent connection sees the deletion before its log is emitted",
+        );
+      } finally {
+        observed.close();
+      }
+      released.push(detail);
     });
     const ackStore = openReplicaAckStore(path.join(root, "center"));
     const key = { nodeId: "node-a", viewId: "node-a", repoId: "checkpoint" };
@@ -70,7 +97,7 @@ for (const termination of ["ack", "disconnect", "expire", "quota"] as const) {
       assert.ok(source.cut(1), "other edge still owns its pin");
       {
         assert.equal(
-          ackStore.delivery.renew(lease, Date.now(), 30_000),
+          ackStore.delivery.renew(lease, Date.now(), 30_000).renewed,
           true,
           "lease remains renewable after publications",
         );
@@ -95,7 +122,7 @@ for (const termination of ["ack", "disconnect", "expire", "quota"] as const) {
             "applied",
           );
           ackStore.delivery.release(lease);
-        } else if (termination === "expire") {
+        } else if (termination === "expire" || termination === "expire-replaced") {
           // Advance the authoritative clock only after real delivery; no TTL renewal can resurrect it.
           const expiredAt = ackStore.delivery.active(lease, Date.now())!.expiresAt + 1;
           t.mock.method(Date, "now", () => expiredAt);
@@ -114,6 +141,30 @@ for (const termination of ["ack", "disconnect", "expire", "quota"] as const) {
         } else ackStore.delivery.release(lease);
       }
       ackStore.delivery.release(second);
+      const decisionAt = Date.now();
+      let replaced = false;
+      if (termination === "expire-replaced") {
+        const prepare = DatabaseSync.prototype.prepare;
+        t.mock.method(DatabaseSync.prototype, "prepare", function (this: DatabaseSync, query: string) {
+          const statement = prepare.call(this, query);
+          if (query === "DELETE FROM delivery_pin WHERE id=?") {
+            const run = statement.run.bind(statement);
+            t.mock.method(statement, "run", (...args: Parameters<typeof run>) => {
+              const result = run(...args);
+              if (
+                !replaced &&
+                args[0] === JSON.stringify([lease.nodeId, lease.viewId, lease.holderId, lease.claimFence])
+              ) {
+                replaced = true;
+                assert.ok(ackStore.delivery.claim(key, "successor", decisionAt, 30_000));
+                t.mock.method(Date, "now", () => decisionAt + 1);
+              }
+              return result;
+            });
+          }
+          return statement;
+        });
+      }
       revision = 67;
       await source.waitForCut(67);
       if (termination === "ack") {
@@ -122,6 +173,24 @@ for (const termination of ["ack", "disconnect", "expire", "quota"] as const) {
         for (revision = 68; revision <= 131; revision++) await source.waitForCut(revision);
       }
       assert.equal(source.pinActive(lease), false);
+      const logged = released.find((entry) => entry.requested.nodeId === key.nodeId)!;
+      assert.ok(logged);
+      assert.equal(
+        logged.reason,
+        termination === "ack"
+          ? "ack_window_exhausted"
+          : termination === "quota"
+            ? "ack_quota_exceeded"
+            : "lease_inactive",
+      );
+      assert.equal(logged.lease.state, termination.startsWith("expire") ? "expired" : "released");
+      if (termination === "expire-replaced") {
+        assert.equal(replaced, true);
+        assert.equal(logged.now, decisionAt);
+        assert.equal(logged.lease.current.holderId, lease.holderId);
+        assert.equal(logged.lease.current.claimFence, lease.claimFence);
+        assert.equal(ackStore.delivery.active(key, Date.now())!.holderId, "successor");
+      }
       assert.equal(source.cut(1), null);
       assert.equal(source.changes(1, 67), null);
       assert.equal(offer.toCut.schemaGeneration, READ_MODEL_SCHEMA_GENERATION);
@@ -186,7 +255,7 @@ test("three edges share retained blobs; quota rejects the newcomer without fenci
     assert.equal(source.pinActive(leases[3]!), false);
     for (const lease of leases.slice(0, 3)) {
       assert.equal(source.pinActive(lease), true);
-      assert.equal(ackStore.delivery.renew(lease, Date.now(), 30_000), true);
+      assert.equal(ackStore.delivery.renew(lease, Date.now(), 30_000).renewed, true);
     }
     const unique = new Map(
       [1, 2, 3, 4].flatMap((r) => source.manifest(r)!.map((entry) => [entry.blob.sha256, entry.blob.size] as const)),

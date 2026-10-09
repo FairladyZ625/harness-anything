@@ -243,7 +243,7 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
         key.nodeId === lease.nodeId &&
         key.repoId === lease.repoId &&
         key.viewId === lease.viewId &&
-        delivery.renew(lease, Date.parse(ackedAt), 30_000);
+        delivery.renew(lease, Date.parse(ackedAt), 30_000).renewed;
       const result = valid
         ? ackAtCut(key, transferId, cut, digest, ackedAt, cutEventAt)
         : { outcome: "op_rejected" as const, cursor: null };

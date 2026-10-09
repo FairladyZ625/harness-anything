@@ -13,6 +13,7 @@ import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { openPeer, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { readHeadConfirmation } from "../src/fleet/replica-read-model.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
+import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 
 test(
   "historical snapshot ACK is usable with truthful lag, then delta and watch follow published checkpoints",
@@ -211,12 +212,23 @@ test(
 );
 
 for (const phase of ["Delivery", "ACK"] as const) {
-  for (const cause of ["pin", "lease"] as const) {
+  for (const cause of [
+    "pin",
+    "expired",
+    "replaced",
+    "released",
+    "missing",
+    "expired-replaced",
+    "expired-released",
+  ] as const) {
     test(`${phase} reports ${cause} fencing separately`, { timeout: 15_000 }, async (t) => {
       const f = await fleetFixture(t);
       t.after(() => f.close());
       const source = f.host.replica(f.subject.repoId);
       await source.prepare();
+      const interleaving = cause === "expired-replaced" || cause === "expired-released";
+      const initialCause = interleaving ? "expired" : cause;
+      let changedAfterDecision = false;
       let crossed = false;
       const fence = () => {
         crossed = true;
@@ -225,7 +237,47 @@ for (const phase of ["Delivery", "ACK"] as const) {
         } else {
           const db = new DatabaseSync(path.join(f.stateRoot, "replica/repos", f.subject.repoId, "ack.sqlite"));
           try {
-            db.prepare("UPDATE delivery_lease SET expires_at=0 WHERE node_id=?").run(f.subject.nodeId);
+            const sql = {
+              expired: "UPDATE delivery_lease SET expires_at=0 WHERE node_id=?",
+              replaced: "UPDATE delivery_lease SET holder_id='replacement', claim_fence=claim_fence+1 WHERE node_id=?",
+              released: "UPDATE delivery_lease SET holder_id=NULL, expires_at=0 WHERE node_id=?",
+              missing: "DELETE FROM delivery_lease WHERE node_id=?",
+            };
+            if (interleaving) {
+              const peer = openReplicaAckStore(f.stateRoot);
+              t.after(() => peer.close());
+              const key = { repoId: f.subject.repoId, nodeId: f.subject.nodeId, viewId: f.subject.nodeId };
+              const original = peer.delivery.active(key, Date.now())!;
+              const changeLease = () => {
+                changedAfterDecision = true;
+                if (cause === "expired-replaced") assert.ok(peer.delivery.claim(key, "successor", Date.now(), 30_000));
+                else peer.delivery.release(original);
+              };
+              const prepare = DatabaseSync.prototype.prepare;
+              const exec = DatabaseSync.prototype.exec;
+              const deciding = new WeakSet<DatabaseSync>();
+              t.mock.method(DatabaseSync.prototype, "prepare", function (this: DatabaseSync, query: string) {
+                const statement = prepare.call(this, query);
+                if (query.startsWith("UPDATE delivery_lease SET expires_at=?")) {
+                  const run = statement.run.bind(statement);
+                  t.mock.method(statement, "run", (...args: Parameters<typeof run>) => {
+                    const result = run(...args);
+                    if (Number(result.changes) === 0 && !changedAfterDecision) {
+                      deciding.add(this);
+                      if (!this.isTransaction) changeLease();
+                    }
+                    return result;
+                  });
+                }
+                return statement;
+              });
+              // An independent writer acts at the first unlocked boundary after the failed UPDATE.
+              t.mock.method(DatabaseSync.prototype, "exec", function (this: DatabaseSync, query: string) {
+                exec.call(this, query);
+                if (deciding.has(this) && !this.isTransaction && !changedAfterDecision) changeLease();
+              });
+            }
+            db.prepare(sql[initialCause as keyof typeof sql]).run(f.subject.nodeId);
           } finally {
             db.close();
           }
@@ -250,12 +302,35 @@ for (const phase of ["Delivery", "ACK"] as const) {
           diskQuotaBytes: 64 * 1024 * 1024,
           ...(phase === "ACK" ? { beforeAck: fence } : {}),
         }),
-        {
-          code: "replica_delivery_fenced",
-          message: `replica_delivery_fenced: ${phase} ${cause === "pin" ? "checkpoint pin is no longer active" : "lease renewal failed: expired or replaced"}`,
+        (error: Error & { code?: string }) => {
+          assert.equal(error.code, "replica_delivery_fenced");
+          const detail = JSON.parse(error.message.split(" diagnostics=")[1]!);
+          assert.equal(detail.phase, phase);
+          assert.equal(detail.branch, cause === "pin" ? "pin_inactive" : "lease_renewal_failed");
+          assert.equal(detail.lease.state, cause === "pin" ? "active" : initialCause);
+          assert.equal(detail.requested.nodeId, f.subject.nodeId);
+          assert.equal(detail.requested.viewId, f.subject.nodeId);
+          assert.equal(detail.requested.repoId, f.subject.repoId);
+          assert.ok(detail.requested.holderId);
+          assert.ok(detail.requested.claimFence > 0);
+          assert.equal(detail.pinReleaseReason, cause === "pin" ? "not_retained; correlate pin-release log" : null);
+          assert.ok(Number.isSafeInteger(detail.now));
+          if (initialCause === "expired") {
+            assert.ok(detail.now >= detail.lease.current.expiresAt);
+            assert.equal(detail.lease.current.holderId, detail.requested.holderId);
+            assert.equal(detail.lease.current.claimFence, detail.requested.claimFence);
+          }
+          if (cause === "replaced") assert.equal(detail.lease.current.holderId, "replacement");
+          const logged = f.transportErrors.find(
+            (entry) =>
+              (entry as { error: Error }).error.message === error.message.replace("replica_delivery_fenced: ", ""),
+          );
+          assert.ok(logged, "the same rejection evidence must reach the center log sink");
+          return true;
         },
       );
       assert.equal(crossed, true);
+      assert.equal(changedAfterDecision, interleaving);
     });
   }
 }
