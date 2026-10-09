@@ -37,6 +37,8 @@ export interface FleetCenterOptions {
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;
   readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
+  readonly buildDraining?: () => boolean;
+  readonly onDeliverySettled?: () => void;
   readonly onError?: (entry: {
     readonly nodeId: string | null;
     readonly messageId: string | null;
@@ -67,6 +69,7 @@ export interface FleetTlsCenter {
   readonly port: number;
   readonly close: () => Promise<void>;
   /** Cuts every session the node holds, including a handshake still awaiting its verdict. */
+  readonly pendingDeliveries: () => number;
   readonly disconnectNode: (nodeId: string) => void;
   readonly replicaReceipt: (opId: string, nodeId: string, viewId: string, repoId: string) => WriteReceipt;
   readonly status: () => {
@@ -102,6 +105,7 @@ export type Delivery = {
   readonly frames: AsyncIterable<FleetFrameV1>;
   readonly beforeSend?: () => void;
   readonly onSent?: (bytes: number) => void;
+  readonly onComplete?: () => void;
   readonly onFailure?: (error: unknown) => void;
 };
 

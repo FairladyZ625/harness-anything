@@ -118,6 +118,7 @@ export interface DaemonHostOpenInput {
   readonly runtimeFile?: string;
   readonly shutdownRequested?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
+  readonly buildDraining?: () => boolean;
   readonly onRepoStatusChange?: () => void;
   /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
   readonly oidc?: OidcSessionService;
@@ -841,6 +842,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const started = await startFleetCenterAdmission(
         await prepareFleetCenterAdmission({
           host,
+          buildDraining: input.buildDraining,
+          onDeliverySettled: input.onRepoStatusChange,
           userRoot: input.userRoot,
           writerEpochLease: hostContext.writerEpochLease,
           payload: config,

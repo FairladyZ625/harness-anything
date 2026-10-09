@@ -84,6 +84,8 @@ export async function startDaemon(input: {
     buildSupersessionObserved = false,
     socketBound = false,
     stopping = false;
+  let fleetDrainDeadline: ReturnType<typeof setTimeout> | undefined;
+  let fleetDrainExpired = false;
   const runtimeProcessPids = new Map<string, number>();
   const buildDrainStatus = (): DaemonBuildDrainStatus => {
     const repos = host?.status().repos ?? [];
@@ -104,6 +106,7 @@ export async function startDaemon(input: {
   const stop = (outcome: "stop_requested" | "build_superseded" = "stop_requested"): Promise<void> => {
     if (stopPromise) return stopPromise;
     stopping = true;
+    clearTimeout(fleetDrainDeadline);
     stopPromise = (async () => {
       const deadline = setTimeout(
         input.shutdownDeadlineExceeded ?? (() => process.abort()),
@@ -147,6 +150,7 @@ export async function startDaemon(input: {
       // Live runtime sessions are deliberately absent: workers run detached and the next daemon
       // re-adopts them by pid, so waiting for them would only keep superseded code resident.
       if (drain.pendingWrites > 0 || drain.attachingRepositories > 0) return;
+      if (!fleetDrainExpired && host!.pendingFleetDeliveries() > 0) return;
       void stop("build_superseded").catch((error: unknown) => {
         console.error(
           `daemon build-supersession drain failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -163,7 +167,14 @@ export async function startDaemon(input: {
   };
   try {
     const oidc = new OidcSessionService(input.userRoot);
-    host = await openDaemonHost({ ...input, endpoint, recordLifecycle, oidc, onRepoStatusChange: requestDrainCheck });
+    host = await openDaemonHost({
+      ...input,
+      endpoint,
+      recordLifecycle,
+      oidc,
+      onRepoStatusChange: requestDrainCheck,
+      buildDraining: () => input.buildSupersessionEnabled !== false && buildSupersessionObserved,
+    });
     // One sink for the daemon; the protocol server is created per connection and reports into it.
     requestLog = openDaemonRequestLog({
       resolveRootDir: (repoId) => host!.status().repos.find((repo) => repo.repoId === repoId)?.rootDir,
@@ -216,7 +227,18 @@ export async function startDaemon(input: {
             activeRequests += 1;
           },
           onBuildDriftObserved: () => {
+            if (buildSupersessionObserved || input.buildSupersessionEnabled === false) return;
             buildSupersessionObserved = true;
+            // A cold fleet sync takes tens of minutes; two hours lets it finish while bounding
+            // the time a stalled peer can keep an obsolete build resident. Expiry uses normal teardown.
+            fleetDrainDeadline = setTimeout(
+              () => {
+                fleetDrainExpired = true;
+                requestDrainCheck();
+              },
+              2 * 60 * 60 * 1_000,
+            );
+            fleetDrainDeadline.unref();
           },
           onRequestSettled: () => {
             activeRequests = Math.max(0, activeRequests - 1);

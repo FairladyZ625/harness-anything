@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -61,11 +62,11 @@ export async function serve(
         bytes = Buffer.byteLength(line);
       if (bytes > FLEET_KEY_SEND_WINDOW_BYTES) throw new FleetFault("busy", "Per-key send window is full.", true);
       if (socket.writableLength + bytes > FLEET_SESSION_SEND_WINDOW_BYTES)
-        await new Promise<void>((resolve) => socket.once("drain", resolve));
+        await once(socket, "drain", { signal: disconnected.signal });
       delivery?.beforeSend?.();
       const sent = socket.write(line);
       delivery?.onSent?.(bytes);
-      if (!sent) await new Promise<void>((resolve) => socket.once("drain", resolve));
+      if (!sent) await once(socket, "drain", { signal: disconnected.signal });
     },
     enqueue = (delivery: Delivery) =>
       new Promise<void>((resolve, reject) => {
@@ -85,8 +86,10 @@ export async function serve(
           const job = jobs.shift()!;
           try {
             const next = await job.iterator.next();
-            if (next.done) job.resolve();
-            else {
+            if (next.done) {
+              job.delivery.onComplete?.();
+              job.resolve();
+            } else {
               await send(next.value, job.delivery);
               jobs.push(job);
             }

@@ -207,6 +207,7 @@ export interface DaemonHost {
     readonly repos: readonly RepoCellStatus[];
     readonly summary: string;
   };
+  readonly pendingFleetDeliveries: () => number;
   readonly startAttachments: () => void;
   readonly attachmentsSettled: () => Promise<void>;
   readonly close: () => Promise<void>;

@@ -35,6 +35,8 @@ export function keycloakNodeRegistry(
 }
 export interface FleetCenterAdmissionRequest {
   readonly host: FleetCenterOptions["host"];
+  readonly buildDraining?: FleetCenterOptions["buildDraining"];
+  readonly onDeliverySettled?: FleetCenterOptions["onDeliverySettled"];
   readonly userRoot: string;
   readonly nodes: Pick<FleetCenterOptions, "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman">;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
@@ -77,6 +79,8 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
   await lookup(request.bind ?? "127.0.0.1");
   return {
     host: input.host,
+    buildDraining: input.buildDraining,
+    onDeliverySettled: input.onDeliverySettled,
     stateRoot: request.stateRoot ?? path.join(input.userRoot, "fleet"),
     writerEpochStateRoot: path.join(input.userRoot, "fleet"),
     ...(input.writerEpochLease ? { writerEpochLease: input.writerEpochLease } : {}),

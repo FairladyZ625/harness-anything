@@ -248,6 +248,8 @@ export function createDaemonHostRuntimeApi(
           });
           const prepared = await prepareFleetCenterAdmission({
             host: context.host,
+            buildDraining: context.input.buildDraining,
+            onDeliverySettled: context.input.onRepoStatusChange,
             userRoot: context.input.userRoot,
             writerEpochLease: context.writerEpochLease,
             payload: request,

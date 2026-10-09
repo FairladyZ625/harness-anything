@@ -5,7 +5,7 @@ import { readDaemonRegistry } from "@harness-anything/kernel";
 
 export function createDaemonHostLifecycleApi(
   context: DaemonHostApiContext,
-): Pick<DaemonHost, "status" | "startAttachments" | "attachmentsSettled" | "close"> {
+): Pick<DaemonHost, "status" | "pendingFleetDeliveries" | "startAttachments" | "attachmentsSettled" | "close"> {
   return {
     status: () => {
       const { entry, ...observedBuild } = context.buildObserver.status(),
@@ -92,6 +92,7 @@ export function createDaemonHostLifecycleApi(
         summary,
       };
     },
+    pendingFleetDeliveries: () => context.fleetCenter?.pendingDeliveries() ?? 0,
     startAttachments: () => {
       void context.startInitialAttachments();
     },
