@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
+import { createLoginCertificateTrustScopes } from "./login-certificate-trust.ts";
 import { registerOidcAuthIpc } from "./oidc-auth-ipc.ts";
 import { registerAccessAdminIpc } from "./access-admin-ipc.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
@@ -237,6 +238,11 @@ export async function startGuiApp(): Promise<void> {
   registerOidcAuthIpc(ipcMain, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     openExternal: (url) => shell.openExternal(url),
+    // Only the embedded sign-in browser session relaxes for the daemon-configured listener
+    // certificate, and only while that sign-in runs; the default session is never touched.
+    createCertificateTrustScope: createLoginCertificateTrustScopes((proc) =>
+      session.fromPartition(IN_APP_BROWSER_PARTITION).setCertificateVerifyProc(proc),
+    ),
   });
   registerAccessAdminIpc(ipcMain, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),

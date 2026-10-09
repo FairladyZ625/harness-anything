@@ -1,13 +1,17 @@
 // harness-test-tier: fast
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { X509Certificate } from "node:crypto";
 import {
   normalizeBindingStatusReply,
   requireSuccessfulAuthReply,
   embeddedBrowserLogin,
   registerOidcAuthIpc,
 } from "../src/main/oidc-auth-ipc.ts";
+import type { LoginCertificateTrust } from "../src/main/login-certificate-trust.ts";
 import type { IpcMainInvokeEvent } from "electron";
 import {
   OIDC_LOGIN_CHANNEL,
@@ -417,3 +421,157 @@ for (const termination of ["cancel", "destroyed"] as const) {
     });
   }
 }
+
+const listenerCertificateFile = path.join(import.meta.dirname, "fixtures", "login-listener-leaf.pem"),
+  listenerFingerprint = new X509Certificate(readFileSync(listenerCertificateFile, "utf8")).fingerprint256,
+  listenerAuthorizationUrl = "https://10.211.55.2:18544/realms/harness/protocol/openid-connect/auth";
+
+/** A trusted-sender window signing in while the daemon serves the given listener state. */
+async function signInWithListener(listener: unknown): Promise<{
+  readonly installed: LoginCertificateTrust[];
+  readonly releasedCount: () => number;
+  readonly outcome: Promise<unknown>;
+  readonly cancel: () => Promise<unknown>;
+  readonly opened: string[];
+}> {
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
+  const installed: LoginCertificateTrust[] = [],
+    opened: string[] = [],
+    sender = Object.assign(new EventEmitter(), {
+      id: 7,
+      send: (_channel: string, url: string) => {
+        opened.push(url);
+        // The provider's redirect back to the loopback callback, as the real Keycloak page would.
+        void fetch(`${redirect}?code=code&state=state`).catch(() => undefined);
+      },
+    }),
+    event = { sender, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent;
+  let released = 0,
+    redirect = "";
+  registerOidcAuthIpc(
+    { handle: (channel, handler) => handlers.set(channel, handler) },
+    { isTrustedWebContentsId: (id) => id === 7, rendererUrl: { packagedRendererUrl: "file:///renderer/index.html" } },
+    {
+      daemonRequest: async (params) => {
+        if (params.operation === "login-begin") {
+          redirect = String(params.redirectUri);
+          return { authorizationUrl: listenerAuthorizationUrl };
+        }
+        if (params.operation === "listener")
+          return { ok: true, command: "rbac-listener", listener, version: "fixture" };
+        return { ok: true, authenticated: true, personId: "person-zeyu" };
+      },
+      openExternal: async () => assert.fail("login must remain embedded"),
+      createCertificateTrustScope: () => ({
+        install: (trust) => installed.push(trust),
+        release: () => {
+          released++;
+        },
+      }),
+    },
+  );
+  const outcome = handlers.get(OIDC_LOGIN_CHANNEL)!(event);
+  return {
+    installed,
+    releasedCount: () => released,
+    opened,
+    outcome,
+    cancel: () => handlers.get(OIDC_CANCEL_LOGIN_CHANNEL)!(event),
+  };
+}
+
+test("a listener-backed sign-in pins exactly its certificate and releases it when it settles", async () => {
+  const login = await signInWithListener({
+    address: "10.211.55.2",
+    hostname: "10.211.55.2",
+    port: 18544,
+    certificateFile: listenerCertificateFile,
+    certificateKeyFile: "/fixtures/unused.key",
+  });
+  assert.deepEqual(await login.outcome, { ok: true, authenticated: true, personId: "person-zeyu" });
+  assert.deepEqual(login.installed, [{ hostname: "10.211.55.2", fingerprint256: listenerFingerprint }]);
+  assert.equal(login.releasedCount(), 1, "trust is released once the sign-in settles");
+  assert.equal(login.opened.length, 1);
+});
+
+test("sign-ins without a matching listener never install certificate trust", async () => {
+  const cases: readonly [string, unknown][] = [
+    ["no listener", { ok: true, command: "rbac-listener", listener: null, version: "none" }],
+    ["daemon refusal", { ok: false, code: "local_transport_required", rejectionExplanation: "center socket only" }],
+    [
+      "authorization URL is not the listener origin",
+      {
+        address: "10.211.55.2",
+        hostname: "10.211.55.3",
+        port: 18544,
+        certificateFile: listenerCertificateFile,
+        certificateKeyFile: "/fixtures/unused.key",
+      },
+    ],
+    [
+      "certificate file is gone",
+      {
+        address: "10.211.55.2",
+        hostname: "10.211.55.2",
+        port: 18544,
+        certificateFile: "/nonexistent/login.pem",
+        certificateKeyFile: "/fixtures/unused.key",
+      },
+    ],
+  ];
+  for (const [name, listener] of cases) {
+    const login = await signInWithListener(listener);
+    assert.deepEqual(await login.outcome, { ok: true, authenticated: true, personId: "person-zeyu" }, name);
+    assert.deepEqual(login.installed, [], name);
+    assert.equal(login.releasedCount(), 1, name);
+  }
+});
+
+test("cancelling a listener-backed sign-in releases its certificate trust", async () => {
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
+  const installed: LoginCertificateTrust[] = [],
+    sender = Object.assign(new EventEmitter(), { id: 7, send: () => undefined }),
+    event = { sender, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent;
+  let released = 0;
+  let resolveBegin!: (reply: Record<string, unknown>) => void;
+  registerOidcAuthIpc(
+    { handle: (channel, handler) => handlers.set(channel, handler) },
+    { isTrustedWebContentsId: (id) => id === 7, rendererUrl: { packagedRendererUrl: "file:///renderer/index.html" } },
+    {
+      daemonRequest: async (params) => {
+        if (params.operation === "login-begin") return new Promise((resolve) => (resolveBegin = resolve));
+        if (params.operation === "listener")
+          return {
+            ok: true,
+            command: "rbac-listener",
+            listener: {
+              address: "10.211.55.2",
+              hostname: "10.211.55.2",
+              port: 18544,
+              certificateFile: listenerCertificateFile,
+              certificateKeyFile: "/fixtures/unused.key",
+            },
+            version: "fixture",
+          };
+        return { ok: true };
+      },
+      openExternal: async () => assert.fail("login must remain embedded"),
+      createCertificateTrustScope: () => ({
+        install: (trust) => installed.push(trust),
+        release: () => {
+          released++;
+        },
+      }),
+    },
+  );
+  const outcome = handlers.get(OIDC_LOGIN_CHANNEL)!(event);
+  // One event-loop turn is a scheduling barrier: the login reaches its pending begin.
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  resolveBegin({ authorizationUrl: listenerAuthorizationUrl });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(installed.length, 1, "trust is installed before the page can navigate");
+  await handlers.get(OIDC_CANCEL_LOGIN_CHANNEL)!(event);
+  await assert.rejects(outcome, /cancelled/u);
+  assert.equal(released, 1, "cancelling releases trust");
+  assert.equal(sender.listenerCount("destroyed"), 0);
+});

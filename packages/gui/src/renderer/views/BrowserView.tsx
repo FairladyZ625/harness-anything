@@ -21,7 +21,8 @@ export function BrowserView({
   onLoadError,
 }: {
   readonly initialUrl?: string | null;
-  readonly onLoadError?: (description: string) => void;
+  /** Notified on every load state change: the failing description, or null once a load starts or settles. */
+  readonly onLoadError?: (error: string | null) => void;
 }) {
   const errorHandler = useRef(onLoadError);
   errorHandler.current = onLoadError;
@@ -47,7 +48,7 @@ export function BrowserView({
     host.replaceChildren(webview);
     const shell = createBrowserShell(webview, (next) => {
       setState(next);
-      if (next.error) errorHandler.current?.(next.error.description);
+      errorHandler.current?.(next.error?.description ?? null);
       if (next.url) setAddress(next.url);
     });
     shellRef.current = shell;

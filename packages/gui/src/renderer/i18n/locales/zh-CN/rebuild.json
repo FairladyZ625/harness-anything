@@ -33,6 +33,7 @@
   "identityAccess.unbound": "尚未绑定 Keycloak",
   "identityAccess.unboundNextStep": "请安装托管 Keycloak，或在下方改接外部 Keycloak。",
   "identityAccess.loading": "正在读取绑定状态…",
+  "identityAccess.loginLoadError": "Keycloak 登录页未能加载（{error}）。可在下方页面中重试，或取消登录。",
   "identityAccess.mode": "模式",
   "identityAccess.url": "URL",
   "identityAccess.urlPlaceholder": "https://identity.example.com",
