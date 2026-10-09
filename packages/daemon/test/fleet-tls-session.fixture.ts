@@ -237,32 +237,14 @@ export async function fleetFixture(
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
     runtimeArchiveReceipts,
     transportErrors,
-    center: (diskQuotaBytes = replicaQuota, staleReplica = false, prepareDelayMs = 0, exactCutDelayMs = 0) =>
+    center: (
+      diskQuotaBytes = replicaQuota,
+      timing: { replicaPreparationTimeoutMs?: number; replicaWatchProgressMs?: number } = {},
+    ) =>
       owned.hold(
         listenFleetTls({
           host: {
             ...host,
-            replica: (repoId: string) => {
-              const replica = host.replica(repoId);
-              return staleReplica || prepareDelayMs || exactCutDelayMs
-                ? {
-                    ...replica,
-                    prepare: async () => {
-                      const delayMs = prepareDelayMs;
-                      prepareDelayMs = 0;
-                      await new Promise((resolve) => setTimeout(resolve, delayMs));
-                      return replica.prepare();
-                    },
-                    waitForCut: async (revision: number) => {
-                      const delayMs = exactCutDelayMs;
-                      exactCutDelayMs = 0;
-                      await new Promise((resolve) => setTimeout(resolve, delayMs));
-                      const cut = await replica.waitForCut(revision);
-                      return staleReplica ? { ...cut, headDigest: `sha256:${"f".repeat(64)}` } : cut;
-                    },
-                  }
-                : replica;
-            },
             runtimeIngress: async (...args: Parameters<typeof host.runtimeIngress>) => {
               const receipt = await host.runtimeIngress(...args);
               if (args[1].kind === "archive") runtimeArchiveReceipts.push(receipt);
@@ -283,6 +265,7 @@ export async function fleetFixture(
           key,
           cert,
           replicaDiskQuotaBytes: diskQuotaBytes,
+          ...timing,
           verifyHuman: (auth) => new OidcSessionService(userRoot).bind(auth),
           onError: (entry) => transportErrors.push(entry),
           authenticate: async (nodeId, credential) => {

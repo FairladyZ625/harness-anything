@@ -10,6 +10,7 @@ export interface ReplicaCutWorkerInput {
   readonly authoredBranch?: string;
 }
 export type CutRequest =
+  | { readonly kind: "cancelWait"; readonly requestId: number }
   | { readonly kind: "releasePin"; readonly lease: ReplicaDeliveryLease }
   | { readonly kind: "activate" | "kick" }
   | { readonly kind: "wait"; readonly revision: number }
@@ -40,7 +41,8 @@ export function openReplicaCutWorker(options: ReplicaCutSourceOptions, input: Re
     for (const request of pending.values()) request.reject(error);
     pending.clear();
   };
-  const request = <T>(command: CutRequest): Promise<T> => {
+  const request = <T>(command: CutRequest, signal?: AbortSignal): Promise<T> => {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     if (closed || failure) return Promise.reject(failure ?? new Error("replica cut worker is closed"));
     if (!worker) {
       worker = new Worker(new URL(`./replica-cut-executor${path.extname(import.meta.filename)}`, import.meta.url), {
@@ -63,7 +65,23 @@ export function openReplicaCutWorker(options: ReplicaCutSourceOptions, input: Re
     }
     const id = ++nextId;
     return new Promise<T>((resolve, reject) => {
-      pending.set(id, { resolve: (value) => resolve(value as T), reject });
+      const cleanup = () => signal?.removeEventListener("abort", abort);
+      const abort = () => {
+        pending.delete(id);
+        worker!.postMessage({ id: ++nextId, command: { kind: "cancelWait", requestId: id } satisfies CutRequest });
+        reject(signal!.reason);
+      };
+      pending.set(id, {
+        resolve: (value) => {
+          cleanup();
+          resolve(value as T);
+        },
+        reject: (error) => {
+          cleanup();
+          reject(error);
+        },
+      });
+      signal?.addEventListener("abort", abort, { once: true });
       worker!.postMessage({ id, command });
     });
   };
@@ -81,7 +99,7 @@ export function openReplicaCutWorker(options: ReplicaCutSourceOptions, input: Re
     kick: () => {
       if (worker) void request({ kind: "kick" }).catch(fail);
     },
-    waitForCut: (revision: number) => request<SnapshotCut>({ kind: "wait", revision }),
+    waitForCut: (revision: number, signal?: AbortSignal) => request<SnapshotCut>({ kind: "wait", revision }, signal),
     releasePin: (lease: ReplicaDeliveryLease) => {
       void request({ kind: "releasePin", lease }).catch(fail);
     },

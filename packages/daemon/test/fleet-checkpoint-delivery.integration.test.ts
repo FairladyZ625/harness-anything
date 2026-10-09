@@ -17,8 +17,10 @@ test(
     const source = f.host.replica(f.subject.repoId);
     const first = (await source.prepare())!;
     const originalPrepare = source.prepare,
+      originalActivate = source.activate,
       originalKick = source.kick;
     source.prepare = async () => first;
+    source.activate = () => first;
     source.kick = () => {};
     const center = await f.center();
     const options = {
@@ -43,7 +45,14 @@ test(
     assert.ok(head.revision > first.revision);
     assert.equal(source.latest()!.revision, first.revision);
     const frames: string[] = [];
-    const pulled = await runFleetReplicaPullClient({ ...options, onFrame: (frame) => frames.push(frame.schema) });
+    const frameTimes: number[] = [];
+    const pulled = await runFleetReplicaPullClient({
+      ...options,
+      onFrame: (frame) => {
+        frames.push(frame.schema);
+        frameTimes.push(performance.now());
+      },
+    });
     assert.equal(pulled.replica.schema, "fleet.ack.result/v1");
     assert.equal(pulled.current.cut.revision, first.revision);
     assert.equal(pulled.replica.knownHead.revision, head.revision);
@@ -54,9 +63,18 @@ test(
     assert.equal(readHeadConfirmation(viewDir)!.headRevision, head.revision);
     withEdgeReadModel({ ...options, principalId: "person-owner" }, (queries, frame) => {
       assert.equal(queries.readCut().sourceRevision, first.revision);
+      const listed = queries.list();
+      assert.equal(listed.status, "ready");
+      assert.ok(listed.rows.some((row) => row.taskId === f.subject.taskId));
+      assert.ok(!listed.rows.some((row) => row.taskId === "task-new-0"));
       assert.equal(frame.cut.revision, first.revision);
       assert.equal(frame.freshness.lagRevisions, head.revision - first.revision);
     });
+    const maxFrameGap = Math.max(...frameTimes.slice(1).map((at, index) => at - frameTimes[index]!));
+    assert.ok(maxFrameGap < 30_000);
+    t.diagnostic(
+      `historical TLS max frame gap=${maxFrameGap}ms; task list contains the R task and excludes later tasks`,
+    );
     const unchanged = await runFleetReplicaPullClient(options);
     assert.equal(unchanged.replica.schema, "fleet.replica.checkpoint/v1");
     assert.equal(unchanged.replica.knownHead.revision, head.revision);
@@ -69,6 +87,7 @@ test(
       afterRevision: first.revision,
     });
     source.prepare = originalPrepare;
+    source.activate = originalActivate;
     source.kick = originalKick;
     originalKick();
     const target = await source.waitForCut(head.revision);
@@ -93,3 +112,40 @@ test(
     );
   },
 );
+
+test("a slow content RPC cannot revive its expired delivery lease", { timeout: 15_000 }, async (t) => {
+  const f = await fleetFixture(t);
+  t.after(() => f.close());
+  const source = f.host.replica(f.subject.repoId);
+  await source.prepare();
+  const content = source.delivery.content;
+  const { DatabaseSync } = await import("node:sqlite");
+  let crossed = false;
+  t.mock.method(source.delivery, "content", async (blob) => {
+    const result = await content(blob);
+    if (!crossed) {
+      crossed = true;
+      const db = new DatabaseSync(path.join(f.stateRoot, "replica/repos", f.subject.repoId, "ack.sqlite"));
+      try {
+        db.prepare("UPDATE delivery_lease SET expires_at=0 WHERE node_id=?").run(f.subject.nodeId);
+      } finally {
+        db.close();
+      }
+    }
+    return result;
+  });
+  const center = await f.center();
+  await assert.rejects(
+    runFleetReplicaPullClient({
+      port: center.port,
+      ca: f.cert,
+      nodeId: f.subject.nodeId,
+      credential: "machine-secret",
+      repoId: f.subject.repoId,
+      viewRoot: path.join(f.root, "expired-rpc"),
+      diskQuotaBytes: 64 * 1024 * 1024,
+    }),
+    { code: "replica_delivery_fenced" },
+  );
+  assert.equal(crossed, true);
+});

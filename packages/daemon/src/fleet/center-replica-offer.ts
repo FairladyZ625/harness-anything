@@ -32,8 +32,7 @@ export async function makeOffer(
       (await replica.delivery.changes(cursor.revision, latest.revision)) !== null
     ) {
       fromCut = wireCut(retained);
-      // Intermediate revisions may carry only document changes. Fold the existing
-      // delta log through the exact head whose read model is complete.
+      // Fold the retained chain between complete checkpoints.
       kind = "delta";
     }
   }

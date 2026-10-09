@@ -237,28 +237,27 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   };
   // A watch that sees no new cut still answers on the progress interval with the unchanged head, so a
   // connected edge can keep confirming freshness without pulling (the same role as etcd's progress notify).
-  const headAfterOrProgress = (
+  const headAfterOrProgress = async (
     replica: ReturnType<typeof options.host.replica>,
     afterRevision: number,
     progressMs: number,
-  ) =>
-    new Promise<SnapshotCut>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const current = replica.latest();
-        if (current) resolve(current);
-      }, progressMs);
-      timer.unref();
-      replica.waitForCut(afterRevision + 1).then(
-        (cut) => {
-          clearTimeout(timer);
-          resolve(cut);
-        },
-        (error: unknown) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
-    });
+    signal: AbortSignal,
+  ): Promise<SnapshotCut> => {
+    const waiting = new AbortController();
+    const stop = AbortSignal.any([signal, closing.signal, waiting.signal]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        replica.waitForCut(afterRevision + 1, stop),
+        new Promise<SnapshotCut>((resolve) => {
+          timer = setTimeout(() => resolve(replica.latest()!), progressMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+      waiting.abort();
+    }
+  };
   // The wait starts only once the session is known to be open: a wait started during shutdown would be
   // rejected by the closing cut source with nobody left to observe it.
   const untilAborted = <T>(start: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
@@ -266,7 +265,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (stop.aborted) return Promise.reject(new FleetFault("busy", "The replica session closed.", true));
     const pending = start();
     return new Promise<T>((resolve, reject) => {
-      const abort = () => reject(new FleetFault("busy", "The replica session closed.", true));
+      const abort = () =>
+        reject(
+          stop.reason instanceof FleetFault ? stop.reason : new FleetFault("busy", "The replica session closed.", true),
+        );
       stop.addEventListener("abort", abort, { once: true });
       pending.then(
         (value) => {
@@ -508,7 +510,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           latest && latest.revision > frame.afterRevision
             ? latest
             : await untilAborted(
-                () => headAfterOrProgress(replica, frame.afterRevision, options.replicaWatchProgressMs ?? 20_000),
+                () =>
+                  headAfterOrProgress(
+                    replica,
+                    frame.afterRevision,
+                    options.replicaWatchProgressMs ?? 20_000,
+                    connectionSignal,
+                  ),
                 connectionSignal,
               );
       return immediate({
@@ -551,40 +559,58 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.replica.pull/v1") {
       const { a, replica, owner } = await admitReplica(nodeId, frame.repoId);
-      const ready = untilAborted(async () => {
-        const prepared = await replica.prepare();
-        const latest = prepared ?? (await untilAborted(() => replica.waitForCut(1), connectionSignal));
-        const ledgerCut = replica.ledgerCut();
-        if (!ledgerCut || ledgerCut.revision === 0)
-          throw new FleetFault("replica_pending", "No center head is known.", true);
-        return { latest, ledgerCut };
-      }, connectionSignal).then(
-        (value) => ({ value }),
-        (error: unknown) => ({ error }),
+      const preparation = new AbortController();
+      const signal = AbortSignal.any([connectionSignal, closing.signal, preparation.signal]);
+      const deadline = setTimeout(
+        () => preparation.abort(new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false)),
+        options.replicaPreparationTimeoutMs ?? 60_000,
       );
       let prepared: { latest: SnapshotCut; ledgerCut: NonNullable<ReturnType<typeof replica.ledgerCut>> };
-      for (;;) {
-        await progress({
-          schema: "fleet.replica.preparing/v1",
-          messageId: mid(frame.messageId, "preparing"),
-          inReplyTo: frame.messageId,
-          repoId: frame.repoId,
-        });
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const outcome = await untilAborted(
-          () =>
-            Promise.race([
-              ready,
-              new Promise<null>((resolve) => {
-                timer = setTimeout(() => resolve(null), options.replicaWatchProgressMs ?? 20_000);
+      try {
+        const ready = untilAborted(async () => {
+          const existing = replica.latest();
+          if (existing) replica.activate();
+          const checkpoint = existing ?? (await untilAborted(() => replica.prepare(), signal));
+          const latest = checkpoint ?? (await replica.waitForCut(1, signal));
+          replica.kick();
+          const ledgerCut = replica.ledgerCut();
+          if (!ledgerCut || ledgerCut.revision === 0)
+            throw new FleetFault("replica_pending", "No center head is known.", true);
+          return { latest, ledgerCut };
+        }, signal).then(
+          (value) => ({ value }),
+          (error: unknown) => ({ error }),
+        );
+        for (;;) {
+          await untilAborted(
+            () =>
+              progress({
+                schema: "fleet.replica.preparing/v1",
+                messageId: mid(frame.messageId, "preparing"),
+                inReplyTo: frame.messageId,
+                repoId: frame.repoId,
               }),
-            ]),
-          connectionSignal,
-        ).finally(() => clearTimeout(timer));
-        if (outcome === null) continue;
-        if ("error" in outcome) throw outcome.error;
-        prepared = outcome.value;
-        break;
+            signal,
+          );
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const outcome = await untilAborted(
+            () =>
+              Promise.race([
+                ready,
+                new Promise<null>((resolve) => {
+                  timer = setTimeout(() => resolve(null), options.replicaWatchProgressMs ?? 20_000);
+                }),
+              ]),
+            signal,
+          ).finally(() => clearTimeout(timer));
+          if (outcome === null) continue;
+          if ("error" in outcome) throw outcome.error;
+          prepared = outcome.value;
+          break;
+        }
+      } finally {
+        clearTimeout(deadline);
+        preparation.abort();
       }
       const { latest, ledgerCut } = prepared,
         key = { nodeId, viewId: nodeId, repoId: a.repoId },
@@ -638,20 +664,25 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           true,
         );
       }
-      const release = () => {
+      const release = (acknowledged = false) => {
         ackStore.delivery.release(lease);
-        replica.releasePin(lease);
+        if (!acknowledged) replica.releasePin(lease);
         ackStore.clearOffer(key);
-        connectionSignal?.removeEventListener("abort", release);
+        connectionSignal?.removeEventListener("abort", disconnected);
       };
-      connectionSignal?.addEventListener("abort", release, { once: true });
+      const disconnected = () => release();
+      connectionSignal?.addEventListener("abort", disconnected, { once: true });
       if (connectionSignal?.aborted) {
         release();
         throw new FleetFault("connection_closed", "Delivery connection closed", true);
       }
       const guard = () => {
         if (!replica.pinActive(lease) || !ackStore.delivery.renew(lease, Date.parse(now()), ttlMs))
-          throw new FleetFault("replica_delivery_fenced", "Delivery lease expired or was replaced", true);
+          throw new FleetFault(
+            "replica_delivery_fenced",
+            "Delivery retention ended or lease expired or was replaced",
+            true,
+          );
       };
       let offer;
       try {
@@ -966,7 +997,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       );
       if (result.outcome === "op_rejected" || !result.cursor)
         throw new FleetFault("invalid_ack", "ACK cut or manifest differs from its exact active offer.");
-      delivery.release();
+      delivery.release(true);
       window.offers.delete(frame.transferId);
       window.keys.delete(keyId(key));
       return immediate({

@@ -111,6 +111,11 @@ for (const termination of ["ack", "disconnect", "expire", "quota"] as const) {
       ackStore.delivery.release(second);
       revision = 67;
       await source.waitForCut(67);
+      if (termination === "ack") {
+        assert.equal(source.pinActive(lease), true, "confirmed cursor has a new bounded delta window");
+        assert.ok(source.changes(1, 67));
+        for (revision = 68; revision <= 131; revision++) await source.waitForCut(revision);
+      }
       assert.equal(source.pinActive(lease), false);
       assert.equal(source.cut(1), null);
       assert.equal(source.changes(1, 67), null);

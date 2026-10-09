@@ -64,7 +64,7 @@ export interface ReplicaCutSource {
   readonly ledgerCut: () => LedgerCutIdentity | null;
   readonly exactRevision: () => number | null;
   readonly kick: () => void;
-  readonly waitForCut: (revision: number) => Promise<SnapshotCut>;
+  readonly waitForCut: (revision: number, signal?: AbortSignal) => Promise<SnapshotCut>;
   readonly latest: () => SnapshotCut | null;
   readonly cut: (revision: number) => SnapshotCut | null;
   readonly eventAt: (revision: number) => string | null;
@@ -116,7 +116,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     database = new DatabaseSync(databasePath);
     database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
     database.exec(
-      "CREATE TABLE IF NOT EXISTS cut (repo_id TEXT NOT NULL, revision INTEGER PRIMARY KEY, head_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL, entry_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, event_occurred_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS change (repo_id TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL, blob_sha256 TEXT, size INTEGER, media_type TEXT, PRIMARY KEY(repo_id, from_revision, to_revision, path)); CREATE TABLE IF NOT EXISTS delivery_pin (id TEXT PRIMARY KEY, lease_json TEXT NOT NULL, lease_root TEXT NOT NULL, from_revision INTEGER NOT NULL, quota INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS checkpoint_link (to_revision INTEGER PRIMARY KEY, from_revision INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS read_model_blob (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL); CREATE TABLE IF NOT EXISTS manifest_entry (manifest_digest TEXT NOT NULL, ordinal INTEGER NOT NULL, path TEXT NOT NULL, entry_json TEXT NOT NULL, PRIMARY KEY(manifest_digest, ordinal), UNIQUE(manifest_digest, path));",
+      "CREATE TABLE IF NOT EXISTS cut (repo_id TEXT NOT NULL, revision INTEGER PRIMARY KEY, head_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL, entry_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, event_occurred_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS change (repo_id TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL, blob_sha256 TEXT, size INTEGER, media_type TEXT, PRIMARY KEY(repo_id, from_revision, to_revision, path)); CREATE TABLE IF NOT EXISTS delivery_pin (id TEXT PRIMARY KEY, lease_json TEXT NOT NULL, lease_root TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, quota INTEGER NOT NULL, remaining INTEGER); CREATE TABLE IF NOT EXISTS checkpoint_link (to_revision INTEGER PRIMARY KEY, from_revision INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS read_model_blob (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL); CREATE TABLE IF NOT EXISTS manifest_entry (manifest_digest TEXT NOT NULL, ordinal INTEGER NOT NULL, path TEXT NOT NULL, entry_json TEXT NOT NULL, PRIMARY KEY(manifest_digest, ordinal), UNIQUE(manifest_digest, path));",
     );
     return database;
   };
@@ -124,13 +124,16 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   const leaseStores = new Map<string, ReturnType<typeof openReplicaAckStore>>();
   const pinId = (lease: ReplicaDeliveryLease) =>
     JSON.stringify([lease.nodeId, lease.viewId, lease.holderId, lease.claimFence]);
-  const liveLease = (lease: ReplicaDeliveryLease, leaseRoot: string) => {
+  const leaseStore = (leaseRoot: string) => {
     let authority = leaseStores.get(leaseRoot);
     if (!authority) {
       authority = openReplicaAckStore(leaseRoot);
       leaseStores.set(leaseRoot, authority);
     }
-    const active = authority.delivery.active(lease, Date.now());
+    return authority;
+  };
+  const liveLease = (lease: ReplicaDeliveryLease, leaseRoot: string) => {
+    const active = leaseStore(leaseRoot).delivery.active(lease, Date.now());
     return (
       active?.holderId === lease.holderId && active.claimFence === lease.claimFence && active.viewId === lease.viewId
     );
@@ -252,18 +255,31 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     let oldest = normalOldest;
     for (const pin of store.prepare("SELECT * FROM delivery_pin").all()) {
       const lease = JSON.parse(String(pin.lease_json)) as ReplicaDeliveryLease;
+      const cursor = leaseStore(String(pin.lease_root)).cursor(lease);
+      // ACK ends the offer lease, but its cursor needs a bounded opportunity to request the next delta.
+      const acknowledged = cursor?.revision === Number(pin.to_revision);
+      const remaining = pin.remaining === null ? 64 : Number(pin.remaining) - 1;
+      const from = acknowledged ? cursor.revision : Number(pin.from_revision);
       const bytes = Number(
         store
           .prepare(
             "SELECT SUM(total_bytes) AS bytes FROM (SELECT MAX(total_bytes) AS total_bytes FROM cut WHERE revision >= ? GROUP BY manifest_digest)",
           )
-          .get(Number(pin.from_revision))?.bytes ?? 0,
+          .get(from)?.bytes ?? 0,
       );
-      if (!liveLease(lease, String(pin.lease_root)) || bytes > Number(pin.quota)) {
+      if (
+        (acknowledged ? remaining <= 0 : !liveLease(lease, String(pin.lease_root))) ||
+        bytes > Number(pin.quota) ||
+        (cursor && cursor.revision > Number(pin.to_revision))
+      ) {
         store.prepare("DELETE FROM delivery_pin WHERE id=?").run(String(pin.id));
         continue;
       }
-      oldest = Math.min(oldest, Number(pin.from_revision));
+      if (acknowledged)
+        store
+          .prepare("UPDATE delivery_pin SET remaining=?, from_revision=? WHERE id=?")
+          .run(remaining, from, String(pin.id));
+      oldest = Math.min(oldest, from);
     }
     const digests = (
       store.prepare("SELECT DISTINCT manifest_digest FROM cut WHERE revision < ?").all(oldest) as unknown as readonly {
@@ -608,7 +624,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       }
     });
   };
-  const waitForCut = (revision: number) => {
+  const waitForCut = (revision: number, signal?: AbortSignal) => {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     const row = cutFrom(
       db().prepare("SELECT * FROM cut WHERE revision >= ? ORDER BY revision LIMIT 1").get(revision) as
         | Record<string, unknown>
@@ -617,8 +634,25 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     if (row) return Promise.resolve(row);
     const promise = new Promise<SnapshotCut>((resolve, reject) => {
       const rows = waiters.get(revision) ?? [];
-      rows.push({ resolve, reject });
+      const cleanup = () => signal?.removeEventListener("abort", abort);
+      const waiter = {
+        resolve: (cut: SnapshotCut) => {
+          cleanup();
+          resolve(cut);
+        },
+        reject: (error: unknown) => {
+          cleanup();
+          reject(error);
+        },
+      };
+      const abort = () => {
+        rows.splice(rows.indexOf(waiter), 1);
+        if (!rows.length) waiters.delete(revision);
+        waiter.reject(signal!.reason);
+      };
+      rows.push(waiter);
       waiters.set(revision, rows);
+      signal?.addEventListener("abort", abort, { once: true });
     });
     kick();
     return promise;
@@ -692,12 +726,13 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         if (target.manifest.totalBytes > quota)
           throw new FleetFault("replica_quota_insufficient", "Checkpoint exceeds delivery retention quota.");
         store
-          .prepare("INSERT OR REPLACE INTO delivery_pin VALUES (?, ?, ?, ?, ?)")
+          .prepare("INSERT OR REPLACE INTO delivery_pin VALUES (?, ?, ?, ?, ?, ?, NULL)")
           .run(
             pinId(lease),
             JSON.stringify(lease),
             leaseRoot,
             from !== null && cut(from) ? from : target.revision,
+            target.revision,
             quota,
           );
         return [];

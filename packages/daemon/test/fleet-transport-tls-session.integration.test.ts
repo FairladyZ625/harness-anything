@@ -371,21 +371,7 @@ test(
     });
   },
 );
-test("replica pull rejects a snapshot that has not caught up to the ledger cut", async (t) => {
-  const fixture = await fleetFixture(t);
-  t.after(() => fixture.close());
-  const center = await fixture.center(replicaQuota, true),
-    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
-    preparing = await peer.request({
-      schema: "fleet.replica.pull/v1",
-      messageId: "replica-behind-ledger",
-      repoId: fixture.subject.repoId,
-    });
-  assert.equal(preparing.schema, "fleet.replica.preparing/v1");
-  const response = await peer.receive();
-  assert.equal(response.schema, "fleet.error/v1");
-  if (response.schema === "fleet.error/v1") assert.equal(response.code, "replica_pending");
-});
+// Historical exact checkpoints are covered end-to-end in fleet-checkpoint-delivery.integration.test.ts.
 test("center rejects the retired full-entry/Git-cut durable transfer shape", async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());

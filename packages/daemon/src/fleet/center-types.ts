@@ -27,6 +27,7 @@ export interface FleetCenterOptions {
   readonly replicaDiskQuotaBytes?: number;
   /** How long a replica watch waits for a newer cut before answering with the unchanged head (default 20s). */
   readonly replicaWatchProgressMs?: number;
+  readonly replicaPreparationTimeoutMs?: number;
   readonly port?: number;
   readonly hostname?: string;
   readonly now?: () => string;
@@ -88,7 +89,11 @@ export type SessionWindow = {
   readonly keys: Set<string>;
   readonly offers: Map<
     string,
-    { readonly key: ReplicaDeliveryKey; readonly lease: ReplicaDeliveryLease; readonly release: () => void }
+    {
+      readonly key: ReplicaDeliveryKey;
+      readonly lease: ReplicaDeliveryLease;
+      readonly release: (acknowledged?: boolean) => void;
+    }
   >;
 };
 

@@ -26,6 +26,7 @@ const ledger = makeTaskEventReader(input),
     readContentBlob: ledger.readContentBlob,
     readEdgeReadModel: (read) => centerEdgeReadModel(projection!, read),
   });
+const waits = new Map<number, AbortController>();
 port.on("message", async ({ id, command }: { readonly id: number; readonly command: CutRequest }) => {
   try {
     let value: unknown;
@@ -36,9 +37,19 @@ port.on("message", async ({ id, command }: { readonly id: number; readonly comma
       case "kick":
         source.kick();
         break;
-      case "wait":
-        value = await source.waitForCut(command.revision);
+      case "cancelWait":
+        waits.get(command.requestId)?.abort();
         break;
+      case "wait": {
+        const waiting = new AbortController();
+        waits.set(id, waiting);
+        try {
+          value = await source.waitForCut(command.revision, waiting.signal);
+        } finally {
+          waits.delete(id);
+        }
+        break;
+      }
       case "releasePin":
         source.releasePin(command.lease);
         break;
