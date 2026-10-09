@@ -126,7 +126,6 @@ test("main process registers one IPC handler for each preload allowlist method",
                   name: "Heartbeat probe",
                   everyMs: 300_000,
                   agentId: "probe-agent",
-                  runtimeInstanceId: "codex-schedule",
                   mission: "Run the probe.",
                   idempotencyKey: "once",
                 }

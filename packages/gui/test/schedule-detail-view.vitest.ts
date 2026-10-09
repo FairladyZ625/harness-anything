@@ -33,9 +33,8 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
     trigger: { kind: "interval", everyMs: 7_200_000, timezone: null, summary: "every 2h" },
     target: {
       kind: "agent",
+      runtimes: [{ type: "codex", model: "gpt-5.6-sol" }],
       agentId: "probe-agent",
-      runtimeInstanceId: "codex-schedule",
-      model: "gpt-5.6",
       reasoningEffort: "high",
       cwd: null,
     },
@@ -72,6 +71,7 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
       runtimeSessionId: "runtime-active",
     },
     lastRun: {
+      runtime: { instanceId: "codex-actual", kindId: "codex", model: "gpt-5.6-sol" },
       occurrenceId: "occurrence_prior",
       scheduledFor: "2026-08-27T06:00:00.000Z",
       endedAt: "2026-08-27T06:04:12.000Z",
@@ -223,6 +223,8 @@ describe("schedule detail hub (M2)", () => {
     const container = await renderDetail("schedule/heartbeat-probe", listResult(), onSelectEntity);
     const text = container.textContent ?? "";
     expect(text).toContain("Heartbeat probe");
+    expect(text).toContain("codex-actual");
+    expect(text).toContain("gpt-5.6-sol");
     // 页头第一个状态标签是「已布防」:正常值中性档,绿色只留给完成且结果好。
     const headerStateTag = container.querySelector('[data-testid="schedule-detail"] [data-status-tone]');
     expect(headerStateTag?.getAttribute("data-status-tone")).toBe("neutral");

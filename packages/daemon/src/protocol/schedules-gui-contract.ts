@@ -93,8 +93,7 @@ export interface ScheduleGuiRowDto {
     | {
         readonly kind: "agent";
         readonly agentId: string;
-        readonly runtimeInstanceId: string;
-        readonly model: string | null;
+        readonly runtimes: readonly { readonly type: string; readonly model?: string }[];
         readonly reasoningEffort: string | null;
         readonly fast: boolean;
         readonly cwd: null;
@@ -144,6 +143,7 @@ export interface ScheduleGuiRowDto {
     readonly dispatchId: string | null;
     readonly runtimeSessionId: string | null;
     readonly detail: string | null;
+    readonly runtime: { readonly instanceId: string; readonly kindId: string; readonly model: string } | null;
   } | null;
   readonly missed: {
     readonly count: number;
@@ -225,6 +225,7 @@ const lastRunFields = [
   "dispatchId",
   "runtimeSessionId",
   "detail",
+  "runtime",
 ] as const;
 
 export function utcTimestamp(value: unknown, nullable = false): boolean {
@@ -271,10 +272,9 @@ function validTargetDto(value: unknown): boolean {
     );
   return (
     value.kind === "agent" &&
-    Object.keys(value).length === 7 &&
+    Object.keys(value).length === 6 &&
     scheduleNonEmptyText(value.agentId) &&
-    scheduleNonEmptyText(value.runtimeInstanceId) &&
-    nullableNonEmpty(value.model) &&
+    validRuntimes(value.runtimes) &&
     nullableNonEmpty(value.reasoningEffort) &&
     typeof value.fast === "boolean" &&
     value.cwd === null
@@ -305,6 +305,11 @@ function validAttemptSummary(value: unknown, fields: readonly string[]): boolean
     utcTimestamp(value.scheduledFor) &&
     (value.claimedAt === undefined || utcTimestamp(value.claimedAt)) &&
     (value.endedAt === undefined || utcTimestamp(value.endedAt)) &&
+    (value.runtime === undefined ||
+      value.runtime === null ||
+      (isJsonObject(value.runtime) &&
+        Object.keys(value.runtime).length === 3 &&
+        [value.runtime.instanceId, value.runtime.kindId, value.runtime.model].every(scheduleNonEmptyText))) &&
     // The join always emits these three link fields; before a run links its dispatch
     // or session they are null, so the wire shape is nullable non-empty — never absent
     // and never blank.
@@ -447,18 +452,7 @@ function validAgentOption(agent: unknown): boolean {
       ["invalid", "missing"].includes(String(agent.state)) &&
       validProjectionError(agent.error)
     );
-  return (
-    Object.keys(agent).length === 3 &&
-    scheduleNonEmptyText(agent.name) &&
-    Array.isArray(agent.runtimes) &&
-    agent.runtimes.every(
-      (target: unknown) =>
-        isJsonObject(target) &&
-        Object.keys(target).every((key) => ["type", "model"].includes(key)) &&
-        scheduleNonEmptyText(target.type) &&
-        (target.model === undefined || scheduleNonEmptyText(target.model)),
-    )
-  );
+  return Object.keys(agent).length === 3 && scheduleNonEmptyText(agent.name) && validRuntimes(agent.runtimes);
 }
 
 function validProjectionError(value: unknown): boolean {
@@ -502,3 +496,16 @@ export const serializeSchedulesList = (value: unknown): string => {
   if (errors.length) throw new TypeError(errors.join("; "));
   return `${JSON.stringify(value)}\n`;
 };
+
+function validRuntimes(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (target: unknown) =>
+        isJsonObject(target) &&
+        Object.keys(target).every((key) => ["type", "model"].includes(key)) &&
+        scheduleNonEmptyText(target.type) &&
+        (target.model === undefined || scheduleNonEmptyText(target.model)),
+    )
+  );
+}

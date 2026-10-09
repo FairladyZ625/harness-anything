@@ -46,7 +46,7 @@ const armedSchedule = createScheduleV1({
   mode: "detect",
   spec: {
     trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-27T07:00:00.000Z" },
-    target: { kind: "agent", agentId: "probe-agent", runtimeInstanceId: "codex-schedule", fast: true },
+    target: { kind: "agent", agentId: "probe-agent", fast: true },
     mission: "Scan the previous day of pull requests.",
   },
   actor,
@@ -67,6 +67,8 @@ function guiContext(overrides: Partial<SchedulesGuiReadContext> = {}): Schedules
     now: () => now,
     input: { repoId: "schedule-gui" },
     projection: {
+      readRuntimeSession: () => null,
+      readRuntimeDispatch: () => null,
       listEntities: (kind) =>
         kind === "schedule"
           ? [{ id: armedSchedule.scheduleId, value: armedSchedule, workspaceRevision: 3 }]
@@ -169,6 +171,8 @@ test("a builtin schedule row exposes its effective retention and a protected del
   const result = readSchedulesGui(
     guiContext({
       projection: {
+        readRuntimeSession: () => null,
+        readRuntimeDispatch: () => null,
         ...guiContext().projection,
         listEntities: (kind) =>
           kind === "schedule"
@@ -238,14 +242,14 @@ test("the six schedule GUI actions reuse the canonical action kinds", () => {
     mode: "detect",
     everyMs: 300_000,
     agentId: "probe-agent",
-    runtimeInstanceId: "codex-schedule",
     mission: "Run the probe.",
     fast: true,
     idempotencyKey: "retry-1",
   };
   assert.deepEqual(validate("repo.schedule.create", definition), []);
   assert.match(validate("repo.schedule.update", { ...definition, cwd: null })[0] ?? "", /unknown field "cwd"/u);
-  assert.deepEqual(validate("repo.schedule.update", { ...definition, model: null }), []);
+  assert.notDeepEqual(validate("repo.schedule.update", { ...definition, model: null }), []);
+  assert.notDeepEqual(validate("repo.schedule.create", { ...definition, runtimeInstanceId: "retired" }), []);
   assert.deepEqual(
     validate("repo.schedule.delete", {
       scheduleId: "heartbeat-probe",
@@ -352,6 +356,8 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
   const result = readSchedulesGui(
     guiContext({
       projection: {
+        readRuntimeSession: () => null,
+        readRuntimeDispatch: () => null,
         listEntities: (kind) => (kind === "schedule" ? [{ value: claimed, workspaceRevision: 2 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
         readScheduleEvents: guiContext().projection.readScheduleEvents,
@@ -397,6 +403,8 @@ test("malformed definitions degrade to invalid rows while trigger DTO variants r
   const degraded = readSchedulesGui(
       guiContext({
         projection: {
+          readRuntimeSession: () => null,
+          readRuntimeDispatch: () => null,
           listEntities: (kind) => (kind === "schedule" ? [{ value: malformed, workspaceRevision: 1 }] : []),
           readTaskStatuses: guiContext().projection.readTaskStatuses,
           readScheduleEvents: guiContext().projection.readScheduleEvents,
@@ -446,6 +454,8 @@ test("invalid Agent options and schedules with unavailable Agent targets degrade
     result = readSchedulesGui(
       guiContext({
         projection: {
+          readRuntimeSession: () => null,
+          readRuntimeDispatch: () => null,
           listEntities: (kind) =>
             kind === "schedule"
               ? [armedSchedule, invalidTarget, missingTarget].map((value, index) => ({
@@ -596,6 +606,8 @@ test("paused and single-flight states produce precise run-now blockers", () => {
   const paused = readSchedulesGui(
     guiContext({
       projection: {
+        readRuntimeSession: () => null,
+        readRuntimeDispatch: () => null,
         listEntities: (kind) => (kind === "schedule" ? [{ value: pausedSchedule, workspaceRevision: 1 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
         readScheduleEvents: guiContext().projection.readScheduleEvents,
@@ -609,6 +621,8 @@ test("paused and single-flight states produce precise run-now blockers", () => {
   const claimed = readSchedulesGui(
     guiContext({
       projection: {
+        readRuntimeSession: () => null,
+        readRuntimeDispatch: () => null,
         listEntities: (kind) => (kind === "schedule" ? [{ value: singleFlight, workspaceRevision: 1 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
         readScheduleEvents: guiContext().projection.readScheduleEvents,
@@ -661,6 +675,8 @@ test("the health rollup aggregates recent outcomes daemon-side from canonical ru
     result = readSchedulesGui(
       guiContext({
         projection: {
+          readRuntimeSession: () => null,
+          readRuntimeDispatch: () => null,
           listEntities: (kind) =>
             kind === "schedule"
               ? [healthy, failing].map((value) => ({ id: value.scheduleId, value, workspaceRevision: 1 }))
@@ -748,7 +764,14 @@ test("the use-case projection envelope is registry-closed with a negative fixtur
   );
   // A projection whose inner shape is invalid is rejected through the envelope, not around it.
   assert.notDeepEqual(
-    validateDaemonUseCaseProjection({ ...schedulePlaneEnvelope(result), projection: { ok: true } }),
+    validateDaemonUseCaseProjection({
+      ...schedulePlaneEnvelope(result),
+      projection: {
+        readRuntimeSession: () => null,
+        readRuntimeDispatch: () => null,
+        ok: true,
+      },
+    }),
     [],
   );
 });

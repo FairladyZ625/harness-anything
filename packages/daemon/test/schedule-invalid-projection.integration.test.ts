@@ -35,7 +35,6 @@ test("a canonical Schedule row missing a newly required field stays readable and
               mode: "detect",
               everyMs: 300_000,
               agentId: "probe-agent",
-              runtimeInstanceId: "runtime-local",
               mission: `Run ${scheduleId}.`,
               idempotencyKey: `seed:${scheduleId}`,
             },

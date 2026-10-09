@@ -249,7 +249,6 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
           kind: "schedule-update",
           scheduleId: builtinLedgerBackupScheduleId,
           agentId: "probe-agent",
-          runtimeInstanceId: definition.instanceId,
           idempotencyKey: "builtin-update-2",
         },
         actor,

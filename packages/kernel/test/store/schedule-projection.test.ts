@@ -77,7 +77,7 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
       });
     }
 
-    assert.equal(taskProjectionSchemaVersion, 33);
+    assert.equal(taskProjectionSchemaVersion, 34);
     assert.equal(projection.readCut().status, "ready");
     const definition = projection.readDocument("schedules/schedule-heartbeat.json").document,
       row = projection.getEntity("schedule", "schedule-heartbeat"),
@@ -150,7 +150,7 @@ function baseSchedule(): ScheduleV1 {
     mode: "detect",
     spec: {
       trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-26T10:00:00.000Z" },
-      target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+      target: { kind: "agent", agentId: "codex" },
       mission: "Check repository health.",
     },
     actor,

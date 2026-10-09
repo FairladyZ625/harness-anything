@@ -741,7 +741,7 @@ function scheduleFacetDriftFixture(root: string): void {
       mode: "detect",
       spec: {
         trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-08-26T00:00:00.000Z" },
-        target: { kind: "agent", agentId: "agent-fixture", runtimeInstanceId: "runtime-fixture" },
+        target: { kind: "agent", agentId: "agent-fixture" },
         mission: "Preserve the historical schedule.",
       },
       actor,

@@ -325,13 +325,15 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
     mode: "detect",
     everyMs: 300_000,
     agentId: "probe-agent",
-    runtimeInstanceId: "codex-schedule",
     mission: "Run the probe.",
     idempotencyKey: "retry-1",
   };
+  for (const retired of [{ runtimeInstanceId: "retired" }, { model: "retired" }])
+    for (const method of ["createSchedule", "updateSchedule"])
+      assert.throws(() => assertPreloadPayload(method, { ...definition, ...retired }), /invalid/u);
   const { everyMs: _everyMs, ...cronDefinition } = definition;
   assert.equal(assertPreloadPayload("createSchedule", definition), true);
-  assert.equal(assertPreloadPayload("updateSchedule", { ...definition, model: null }), true);
+  assert.equal(assertPreloadPayload("updateSchedule", { ...definition, reasoningEffort: null }), true);
   // Cron payloads carry cronExpression + a non-empty timezone instead of everyMs.
   assert.equal(
     assertPreloadPayload("createSchedule", { ...cronDefinition, cronExpression: "30 2 * * *", timezone: "UTC" }),
@@ -342,7 +344,7 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
       ...cronDefinition,
       cronExpression: "30 2 * * 1,3",
       timezone: "Asia/Shanghai",
-      model: null,
+      reasoningEffort: null,
     }),
     true,
   );

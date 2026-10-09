@@ -112,3 +112,10 @@ provenance 回答*谁产生了这条记录*。runtime witness 回答*见证的�
 ## 手写治理配置
 
 手写的 `governance/walls/walls.json` 清单使用既有 doc-sync 整文件 JSON 策略。先运行 `ha doc status --path governance/walls/walls.json` 预览，再用 `ha doc sync --submit --path governance/walls/walls.json` 提交该路径。更新保留其它手写文档使用的 canonical cut 与内容校验。此分类不放行任意 JSON，也不替代 task contract、dispatch 记录的专用写入命令。
+
+
+定时执行 Agent 时，认领节点按执行者的有序 `runtimes` 解析本地实例。计划创建和更新不接受
+实例或模型钉选；逐项记录不可用原因，第一个准备成功的候选才启动 worker。occurrence 关联
+实际 runtime session，其 dispatch snapshot 记录实例、运行时类型与模型。既有 provider fault/quota
+continuation 与普通 Agent run 共用实现。旧缓存按投影版本重建，去掉定义里的废弃钉选字段，
+canonical 历史事件原文保留。

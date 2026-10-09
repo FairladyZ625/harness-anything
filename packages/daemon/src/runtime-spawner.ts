@@ -44,13 +44,14 @@ import {
   missionAt,
   dispatchMissionForPermission,
   decisionReviewTarget as parseDecisionReviewTarget,
-  resolveRuntimeInstanceId,
+  prepareRuntimeInstance,
   runtimeMissionName,
   explicitPromptMission,
   taskPrBodyPath,
 } from "./runtime-spawn-mission.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import {
+  assertPreparedRuntimeLaunch,
   launchExitNotification,
   launchNative,
   launchRuntimeProcess,
@@ -385,7 +386,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
       localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
       runtimeInstances = input.runtimeInstances?.() ?? [],
-      fallbackAttempt =
+      initialFallback =
         inheritedFallback ??
         initialFallbackAttempt(
           agent,
@@ -397,115 +398,147 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           runtimeInstances,
           localRuntimeSessions,
         ),
-      fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
-      runtimeInstanceId = await resolveRuntimeInstanceId({
-        requested: fallbackCandidate?.instance ?? explicitRuntimeInstanceId ?? agent?.instance,
-        providerSessionId: providerSessionId ?? undefined,
-        agent,
-        model,
-        instances: runtimeInstances,
-        sessions: localRuntimeSessions,
-      }),
-      runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
-      // Model resolution order: --model override > the runtimes row matching the selected
-      // instance's kind > the instance default (undefined defers to prepareLaunch).
-      selectedModel =
-        fallbackCandidate?.model ??
-        model ??
-        (agent && runtimeInstance
-          ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.model
-          : undefined),
-      configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
-      declaredPermissionMode = permissionMode ?? agent?.permissionMode,
-      effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
-      callbackRelay = dispatchCallbackRelay(
-        input.rootDir,
-        newDispatchId,
-        daemonRoute,
-        runtimeInstance,
-        effectivePermissionMode,
-      ),
-      missionDaemonRoute =
-        callbackRelay && daemonRoute ? { userRoot: "", daemonId: "", endpoint: callbackRelay.path } : daemonRoute,
-      selfContainedMission =
-        taskMission && daemonRoute
-          ? assembleTaskMission({
-              mission,
-              repoId: input.repoId,
-              workerRoot: cwd,
-              worktreeNote: dispatchWorktree ? taskWorktreeCheckoutNote(dispatchWorktree) : null,
-              taskId: taskId!,
-              taskPackageRoot: taskMission.packageRoot,
-              daemonRoute: missionDaemonRoute!,
-              runtimeActor,
-            })
-          : trustedSchedule && daemonRoute
-            ? assembleScheduledMission({
+      selection = await prepareRuntimeInstance(
+        {
+          requested:
+            inheritedFallback?.candidates[inheritedFallback.attemptIndex]?.instance ??
+            explicitRuntimeInstanceId ??
+            agent?.instance,
+          providerSessionId: providerSessionId ?? undefined,
+          agent,
+          model,
+          instances: runtimeInstances,
+          sessions: localRuntimeSessions,
+        },
+        async (runtimeInstanceId) => {
+          const fallbackAttempt =
+              initialFallback &&
+              initialFallback.candidates[initialFallback.attemptIndex]?.instance !== runtimeInstanceId
+                ? initialFallbackAttempt(
+                    agent,
+                    runtimeInstanceId,
+                    model,
+                    providerSessionId,
+                    idempotencyKey,
+                    mission,
+                    runtimeInstances,
+                    localRuntimeSessions,
+                  )
+                : initialFallback,
+            fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
+            runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
+            // Model resolution order: --model override > the runtimes row matching the selected
+            // instance's kind > the instance default (undefined defers to prepareLaunch).
+            selectedModel =
+              fallbackCandidate?.model ??
+              model ??
+              (agent && runtimeInstance
+                ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.model
+                : undefined),
+            configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
+            declaredPermissionMode = permissionMode ?? agent?.permissionMode,
+            effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
+            callbackRelay = dispatchCallbackRelay(
+              input.rootDir,
+              newDispatchId,
+              daemonRoute,
+              runtimeInstance,
+              effectivePermissionMode,
+            ),
+            missionDaemonRoute =
+              callbackRelay && daemonRoute ? { userRoot: "", daemonId: "", endpoint: callbackRelay.path } : daemonRoute,
+            selfContainedMission =
+              taskMission && daemonRoute
+                ? assembleTaskMission({
+                    mission,
+                    repoId: input.repoId,
+                    workerRoot: cwd,
+                    worktreeNote: dispatchWorktree ? taskWorktreeCheckoutNote(dispatchWorktree) : null,
+                    taskId: taskId!,
+                    taskPackageRoot: taskMission.packageRoot,
+                    daemonRoute: missionDaemonRoute!,
+                    runtimeActor,
+                  })
+                : trustedSchedule && daemonRoute
+                  ? assembleScheduledMission({
+                      mission,
+                      repoId: input.repoId,
+                      workerRoot: cwd,
+                      scheduleId: trustedSchedule.scheduleId,
+                      mode: trustedSchedule.mode,
+                      claimFence: trustedSchedule.claimFence,
+                      daemonRoute: missionDaemonRoute!,
+                      runtimeActor,
+                    })
+                  : mission,
+            readOnlyDispatch = effectivePermissionMode === "read-only",
+            dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
+            assembledPrompt = agent
+              ? assembleAgentPrompt(
+                  role === "reviewer" ? { ...agent, role } : agent,
+                  dispatchMission,
+                  preset,
+                  resolvedSkills,
+                )
+              : taskMission || role === "reviewer"
+                ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
+                : dispatchMission,
+            prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt;
+          if (agent) assertAgentDispatchable(agent);
+          // Dry-run preview ends exactly at the launch boundary: the same inputs, same
+          // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
+          const preview = dryRun
+            ? {
+                schema: "agent-dispatch-preview/v1",
+                ok: true,
+                command: "runtime-spawn",
+                dispatchId: newDispatchId,
+                runtimeSessionId,
+                prompt,
                 mission,
-                repoId: input.repoId,
-                workerRoot: cwd,
-                scheduleId: trustedSchedule.scheduleId,
-                mode: trustedSchedule.mode,
-                claimFence: trustedSchedule.claimFence,
-                daemonRoute: missionDaemonRoute!,
-                runtimeActor,
-              })
-            : mission,
-      readOnlyDispatch = effectivePermissionMode === "read-only",
-      dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
-      assembledPrompt = agent
-        ? assembleAgentPrompt(role === "reviewer" ? { ...agent, role } : agent, dispatchMission, preset, resolvedSkills)
-        : taskMission || role === "reviewer"
-          ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
-          : dispatchMission,
-      prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt;
-    if (agent) assertAgentDispatchable(agent);
-    // Dry-run preview ends exactly at the launch boundary: the same inputs, same
-    // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
-    if (dryRun)
-      return {
-        schema: "agent-dispatch-preview/v1",
-        ok: true,
-        command: "runtime-spawn",
-        dispatchId: newDispatchId,
-        runtimeSessionId,
-        prompt,
-        mission,
-      };
-    const prepared = await input.prepareLaunch(runtimeInstanceId, {
-        cwd,
-        prompt,
-        ...(selectedModel ? { model: selectedModel } : {}),
-        ...(effort ? { effort } : {}),
-        ...(fast === undefined ? {} : { fast }),
-        ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
-        ...(providerSessionId ? { providerSessionId } : {}),
-      }),
+              }
+            : null;
+          const prepared = dryRun
+              ? null
+              : await input.prepareLaunch(runtimeInstanceId, {
+                  cwd,
+                  prompt,
+                  ...(selectedModel ? { model: selectedModel } : {}),
+                  ...(effort ? { effort } : {}),
+                  ...(fast === undefined ? {} : { fast }),
+                  ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
+                  ...(providerSessionId ? { providerSessionId } : {}),
+                }),
+            result = {
+              fallbackAttempt,
+              runtimeInstance,
+              effectivePermissionMode,
+              callbackRelay,
+              readOnlyDispatch,
+              prompt,
+              prepared,
+              preview,
+            };
+          return result;
+        },
+      ),
+      runtimeInstanceId = selection.instanceId,
+      { runtimeInstance, effectivePermissionMode, callbackRelay, readOnlyDispatch, prompt, preview } = selection.launch;
+    if (preview) return preview;
+    const prepared = selection.launch.prepared!,
+      fallbackAttempt = selection.launch.fallbackAttempt,
       definition = prepared.definition,
       installation = prepared.installation,
       declaredKindId = runtimeKindForId(definition.kindId).kindId,
       launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, declaredKindId);
-    if (declaredKindId === "zcode" && launchedPermissionMode !== "bypass")
-      throw runtimeSpawnError(
-        "zcode_unattended_permission_mode_unsupported",
-        [
-          "ZCode edit and plan modes require an interactive permission client and cannot run unattended. ",
-          `Set permissionMode to bypass in Agent ${agent?.id ?? "declaration"}.`,
-        ].join(""),
-      );
-    if (
-      definition.instanceId !== runtimeInstanceId ||
-      (runtimeInstance !== undefined && runtimeInstance.kindId !== definition.kindId) ||
-      definition.installationId !== installation.installationId ||
-      definition.kindId !== installation.kindId ||
-      prepared.executablePath !== installation.executablePath ||
-      prepared.cwd !== cwd ||
-      prepared.prompt !== prompt
-    )
-      throw runtimeSpawnError(
-        "invalid_runtime_launch",
-        "Prepared runtime launch does not match the closed spawn request.",
-      );
+    assertPreparedRuntimeLaunch(prepared, {
+      instanceId: runtimeInstanceId,
+      kindId: runtimeInstance?.kindId,
+      cwd,
+      prompt,
+      permissionMode: launchedPermissionMode,
+      agentId: agent?.id,
+    });
     const definitionArtifact = runtimeDefinitionSnapshotArtifact(definition),
       definitionSnapshotRef = definitionArtifact.ref,
       runtimeKind = runtimeKindForId(definition.kindId),
@@ -563,7 +596,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // the instance's mutable current configuration. Null when the environment has no home.
     // The witness uses the module-level host platform; the local `process` is the launched
     // RuntimeProcess and carries no platform.
-    const resolvedProviderDirectory = sharedProviderDirectory(prepared.env, definition.kindId, hostPlatform);
+    const resolvedProviderDirectory = sharedProviderDirectory(prepared.env, declaredKindId, hostPlatform);
     const openStream = (): DispatchStreamWriter =>
       (stream ??= openDispatchStream(input.rootDir, {
         dispatchId: newDispatchId,
@@ -844,7 +877,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       runtimeSessionId,
       dispatchOpId,
       instanceId: definition.instanceId,
-      kindId: definition.kindId,
+      kindId: declaredKindId,
       resolvedProviderDirectory: resolvedProviderDirectory ?? null,
       permissionMode: launchedPermissionMode ?? null,
       agent,
@@ -944,7 +977,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) =>
       spawnAttempt(
         {
-          runtimeInstanceId: scheduled.runtimeInstanceId,
           agentId: scheduled.agentId,
           prompt: scheduled.mission,
           idempotencyKey: `${scheduled.scheduleId}:${scheduled.claimFence}`,
@@ -952,7 +984,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             scheduled.cwd === input.rootDir
               ? { scope: "repo-root" }
               : { scope: "repo-relative", path: path.relative(input.rootDir, scheduled.cwd) },
-          ...(scheduled.model ? { model: scheduled.model } : {}),
           ...(scheduled.effort ? { effort: scheduled.effort } : {}),
           ...(scheduled.fast === undefined ? {} : { fast: scheduled.fast }),
           // Narrower modes refuse every shell call headless; detect states its no-write boundary in the mission.

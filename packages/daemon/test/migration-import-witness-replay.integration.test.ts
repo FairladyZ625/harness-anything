@@ -455,7 +455,6 @@ function entityBackfillSource(root: string) {
         target: {
           kind: "agent",
           agentId: "backfill-agent",
-          runtimeInstanceId: "codex-default",
         },
         mission: "Inspect the migration projection without changing source history.",
       },

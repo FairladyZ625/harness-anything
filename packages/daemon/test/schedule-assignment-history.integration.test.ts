@@ -81,11 +81,17 @@ for (const sample of samples) {
       const id = String(historical.payload.schedule.scheduleId),
         expected = structuredClone(historical.payload.schedule),
         status = expected.status as Record<string, Record<string, unknown> | null>;
+      delete expected.spec.target.runtimeInstanceId;
+      delete expected.spec.target.model;
       for (const key of ["activeRun", "lastRun"]) if (status[key]) delete status[key].assignmentId;
       const assertReadable = () => {
         const row = projection!.getEntity("schedule", id);
         assert.ok(row);
-        assert.deepEqual(row.value, expected, "only retired assignment evidence is omitted from the projection");
+        assert.deepEqual(
+          row.value,
+          expected,
+          "retired assignment evidence and instance/model pins are omitted from the projection",
+        );
         assert.equal(inspectScheduleProjection(row).valid, true);
         const gui = readSchedulesGui({
           rootDir,

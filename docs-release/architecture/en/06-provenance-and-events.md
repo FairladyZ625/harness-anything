@@ -171,3 +171,11 @@ governance/walls/walls.json`, then submit that path with `ha doc sync --submit
 content checks used by other authored documents. This classification does not
 enable arbitrary JSON documents or replace the typed writers for task contracts
 and dispatch records.
+
+
+Scheduled Agent runs resolve the Agent's ordered `runtimes` against the claiming node's local
+instances. Schedule creation and updates accept no instance or model pin. Unavailable candidates
+are reported individually; the first successful launch preparation starts the worker. The occurrence
+links its actual runtime session, whose dispatch snapshot records the instance, runtime kind, and model.
+Existing provider fault/quota continuations share the ordinary Agent run implementation. Historical
+canonical events remain intact; the existing projection rebuild removes retired pins from cached definitions.

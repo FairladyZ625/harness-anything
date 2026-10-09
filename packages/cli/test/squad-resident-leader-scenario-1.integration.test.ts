@@ -477,7 +477,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
     );
   assert.equal(
     rejection,
-    "Agent mixed-missing requires agy, but no enabled instance of those runtime kinds is available on this node.",
+    "Agent mixed-missing requires agy, but no enabled instance of those runtime kinds is available on this node. Candidates: agy: runtime_instance_not_found (no local instance)",
   );
   assert.deepEqual((negativeStatus.leaderTurns as Array<Record<string, unknown>>)[1]?.trigger, {
     kind: "worker_rejected",

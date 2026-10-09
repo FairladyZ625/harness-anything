@@ -428,6 +428,21 @@ export function openFleetEdgeRuntime(input: {
       await squad.reconcile();
       const scheduled = terminal.schedule;
       if (!scheduled) return;
+      const linked = await runFleetScheduleCommandClient({
+        ...peer,
+        repoId: request.repoId,
+        scheduleId: scheduled.scheduleId,
+        opId: `${terminal.runtimeSessionId}-schedule-terminal-link`,
+        action: {
+          kind: "schedule-dispatch-link",
+          scheduleId: scheduled.scheduleId,
+          claimFence: scheduled.claimFence,
+          dispatchId: terminal.dispatchId,
+          runtimeSessionId: terminal.runtimeSessionId,
+        },
+      });
+      if (linked.outcome !== "applied")
+        throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule terminal link was ${linked.outcome}.`);
       const detail = await scheduleSettlementDetail(request.workspaceRoot, scheduled, terminal.reason);
       const response = await runFleetScheduleCommandClient({
         ...peer,

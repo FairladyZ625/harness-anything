@@ -5,6 +5,7 @@ import {
   type CanonicalEventV1,
   type DaemonRepoMode,
   type ScheduleV1,
+  type TaskProjection,
 } from "@harness-anything/kernel";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { storedAgentDeclarationOutcome } from "./agent-entities.ts";
@@ -42,7 +43,7 @@ export interface SchedulesGuiReadContext {
     readonly repoId: string;
     readonly runtimeInstances?: () => readonly AgentRuntimeInstanceDto[];
   };
-  readonly projection: {
+  readonly projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch"> & {
     readonly listEntities: (entityKind: string) => readonly {
       readonly id?: string;
       readonly value: unknown;
@@ -64,14 +65,13 @@ export interface SchedulesGuiReadContext {
 }
 
 /** Builtin rows expose the effective retention policy (defaults applied here, not in the renderer). */
-function targetDtoOf(schedule: ScheduleV1): ScheduleGuiRowDto["target"] {
+function targetDtoOf(schedule: ScheduleV1, agent: ScheduleGuiAgentOptionDto | undefined): ScheduleGuiRowDto["target"] {
   const target = schedule.spec.target;
   if (target.kind === "agent")
     return {
       kind: "agent",
       agentId: target.agentId,
-      runtimeInstanceId: target.runtimeInstanceId,
-      model: target.model ?? null,
+      runtimes: agent && isAvailableScheduleGuiAgentOption(agent) ? agent.runtimes : [],
       reasoningEffort: target.reasoningEffort ?? null,
       fast: target.fast ?? false,
       cwd: null,
@@ -206,10 +206,18 @@ function activeRunDtoOf(schedule: ScheduleV1): ScheduleGuiRowDto["activeRun"] {
   };
 }
 
-function lastRunDtoOf(schedule: ScheduleV1): ScheduleGuiRowDto["lastRun"] {
+function lastRunDtoOf(schedule: ScheduleV1, context: SchedulesGuiReadContext): ScheduleGuiRowDto["lastRun"] {
   const last = schedule.status.lastRun;
   if (!last) return null;
+  const session = last.runtimeSessionId ? context.projection.readRuntimeSession(last.runtimeSessionId) : null,
+    dispatch = session
+      ? context.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef)
+      : null,
+    definition = dispatch?.payload.definitionSnapshot;
   return {
+    runtime: definition
+      ? { instanceId: definition.instanceId, kindId: definition.kindId, model: definition.model }
+      : null,
     occurrenceId: last.occurrenceId,
     scheduledFor: last.scheduledFor,
     endedAt: last.endedAt,
@@ -273,7 +281,10 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
         definitionResidency: "ledger",
         definitionRevision: row.workspaceRevision,
         trigger: triggerDtoOf(schedule),
-        target: targetDtoOf(schedule),
+        target: targetDtoOf(
+          schedule,
+          schedule.spec.target.kind === "agent" ? agentsById.get(schedule.spec.target.agentId) : undefined,
+        ),
         ...(targetProjection ? { targetState: targetProjection.state, targetError: targetProjection.error } : {}),
         mission: schedule.spec.mission,
         executionAvailability: availability,
@@ -295,7 +306,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
               : runNow,
         },
         activeRun: active,
-        lastRun: lastRunDtoOf(schedule),
+        lastRun: lastRunDtoOf(schedule, context),
         missed: {
           count: schedule.status.missedCount,
           lastMissedAt: schedule.status.lastMissedAt,

@@ -61,8 +61,7 @@ import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { taskSurfaceWriteAt } from "./repo-cell-task-command-docs.ts";
-import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
-import { scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
+import { makeScheduleActionRuntime, settleScheduledRuntime } from "./schedule-action-runtime.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
@@ -884,35 +883,16 @@ export async function openRepoWriterCell(
     }
   }
   readSettings = settings.read;
-  settleScheduledOutcome = async (terminal) => {
-    const scheduled = terminal.schedule;
-    if (!scheduled) return;
-    const detail = await scheduleSettlementDetail(rootDir, scheduled, terminal.reason);
-    const settlement = {
-        scheduleId: scheduled.scheduleId,
-        claimFence: scheduled.claimFence,
-        outcome: terminal.outcome,
-        endedAt: terminal.endedAt,
-        ...(detail ? { detail } : {}),
-        idempotencyKey: `${terminal.runtimeSessionId}:attempt-terminal`,
-      },
-      binding = await authorizeRuntimeAction(
-        { kind: "schedule-settle", ...settlement },
-        terminal.binding,
-        `runtime-schedule-settle:${terminal.runtimeSessionId}`,
-      ),
-      receipt = await entityActionExecutor.run(
-        { kind: "schedule-settle", ...settlement },
+  settleScheduledOutcome = (terminal) =>
+    settleScheduledRuntime(runtimeContext, terminal, async (action, actionId) => {
+      const binding = await authorizeRuntimeAction(action, terminal.binding, actionId);
+      return entityActionExecutor.run(
+        action,
         binding,
-        operationId({ kind: "schedule-settle", ...settlement }, binding, input.repoId, 0),
+        operationId(action, binding, input.repoId, 0),
         entityActionRuntimes,
       );
-    if (receipt.outcome !== "applied")
-      throw cellCodedError(
-        "schedule_settlement_pending",
-        `Schedule ${scheduled.scheduleId} settlement was ${receipt.outcome}.`,
-      );
-  };
+    });
   settleRuntimeExecutionLease = async (
     task: NonNullable<RuntimeAttemptTerminal["task"]>,
     runtimeSessionId: string,

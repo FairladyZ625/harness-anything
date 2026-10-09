@@ -406,8 +406,18 @@ function ScheduleCard({
                   ? target.builtinId
                   : "—"}
           </p>
-          {target.kind === "agent" && target.model !== null && (
-            <p className="font-mono text-text-faint ui-meta">{target.model}</p>
+          {target.kind === "agent" && (
+            <p className="font-mono text-text-faint ui-meta">
+              {target.runtimes
+                .map((runtime) => `${runtime.type}${runtime.model ? ` · ${runtime.model}` : ""}`)
+                .join(" → ")}
+            </p>
+          )}
+          {row.lastRun?.runtime && (
+            <p className="font-mono text-text-faint ui-meta">
+              {t("schedules.fields.lastRuntime")}: {row.lastRun.runtime.kindId} · {row.lastRun.runtime.instanceId} ·{" "}
+              {row.lastRun.runtime.model}
+            </p>
           )}
           {target.kind === "builtin" && (
             <p className="text-text-faint ui-meta">

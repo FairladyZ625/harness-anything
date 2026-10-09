@@ -629,7 +629,22 @@ function ScheduleOverviewTab({
               <Field name={t("schedules.fields.timezone")} value={row.trigger.timezone} />
               <Field name={t("schedules.fields.definitionRevision")} value={String(row.definitionRevision)} />
               <Field name={t("schedules.fields.updatedAt")} value={time(row.updatedAt)} />
-              <Field name={t("schedules.fields.model")} value={agentTarget?.model} />
+              <Field
+                name={t("schedules.fields.runtimeOrder")}
+                value={agentTarget?.runtimes
+                  .map((runtime) => `${runtime.type}${runtime.model ? ` · ${runtime.model}` : ""}`)
+                  .join(" → ")}
+                long
+              />
+              <Field
+                name={t("schedules.fields.lastRuntime")}
+                value={
+                  row.lastRun?.runtime
+                    ? `${row.lastRun.runtime.kindId} · ${row.lastRun.runtime.instanceId} · ${row.lastRun.runtime.model}`
+                    : null
+                }
+                long
+              />
               <Field name={t("schedules.fields.cwd")} value={agentTarget?.cwd} long />
               {builtinTarget !== null && (
                 <>
@@ -650,13 +665,6 @@ function ScheduleOverviewTab({
                       name={t("schedules.fields.agent")}
                       value={agentTarget.agentId}
                       onClick={() => onSelectEntity(`agent/${agentTarget.agentId}`)}
-                    />
-                  </div>
-                  <div data-testid={`schedule-instance-link-${agentTarget.runtimeInstanceId}`}>
-                    <Field
-                      name={t("schedules.fields.instance")}
-                      value={agentTarget.runtimeInstanceId}
-                      onClick={() => onSelectEntity(`provider/${agentTarget.runtimeInstanceId}`)}
                     />
                   </div>
                 </>

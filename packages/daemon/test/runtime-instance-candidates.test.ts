@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
+import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
 import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
 
 const instance = (
@@ -101,3 +101,91 @@ test("runtime row ranking retains explicit instance, model, and auth filtering",
     ["devin-ready"],
   );
 });
+
+test("all unavailable reports each declared runtime and local instance reason", () => {
+  const disabled = { ...instance("codex-disabled", "codex", "provider-codex"), enabled: false };
+  const signedOut = instance("devin-signed-out", "devin", "provider-devin", [], {
+    status: "unavailable",
+    code: "runtime_subscription_required",
+    hint: "Sign in.",
+  });
+  assert.throws(
+    () => resolveRuntimeInstanceCandidates({ agent: agent(), instances: [disabled, signedOut], sessions: [] }),
+    (error: unknown) =>
+      error instanceof Error &&
+      /codex-disabled.*runtime_instance_disabled/u.test(error.message) &&
+      /devin-signed-out.*runtime_subscription_required/u.test(error.message),
+  );
+});
+
+for (const firstReady of [true, false]) {
+  test(`prepare selects declared runtime order; first ready=${firstReady}`, async () => {
+    const attempts: string[] = [];
+    const selected = await prepareRuntimeInstance(
+      {
+        agent: agent(),
+        instances: [instance("codex-first", "codex", "openai"), instance("devin-second", "devin", "devin")],
+        sessions: [],
+      },
+      async (id) => {
+        attempts.push(id);
+        if (!firstReady && id === "codex-first")
+          throw Object.assign(new Error("Sign in required"), { code: "runtime_subscription_required" });
+        return { prepared: id };
+      },
+    );
+    assert.equal(selected.instanceId, firstReady ? "codex-first" : "devin-second");
+    assert.deepEqual(attempts, firstReady ? ["codex-first"] : ["codex-first", "devin-second"]);
+  });
+}
+
+test("prepare exhaustion lists every attempted instance, and unknown errors propagate", async () => {
+  const input = {
+    agent: agent(),
+    instances: [instance("codex-first", "codex", "openai"), instance("devin-second", "devin", "devin")],
+    sessions: [],
+  };
+  await assert.rejects(
+    prepareRuntimeInstance(input, async (id) => {
+      throw Object.assign(new Error(`Missing ${id}`), { code: "runtime_installation_not_found" });
+    }),
+    /codex-first: runtime_installation_not_found.*devin-second: runtime_installation_not_found/u,
+  );
+  const error = Object.assign(new Error("Malformed launch"), { code: "invalid_runtime_launch" });
+  let attempts = 0;
+  await assert.rejects(
+    prepareRuntimeInstance(input, async () => {
+      attempts += 1;
+      throw error;
+    }),
+    (observed) => observed === error,
+  );
+  assert.equal(attempts, 1);
+});
+
+for (const code of [
+  "runtime_instance_not_found",
+  "invalid_runtime_model",
+  "runtime_subscription_required",
+  "runtime_credential_unavailable",
+]) {
+  test(`pinned preparation preserves ${code} for explicit requests and resume`, async () => {
+    const original = Object.assign(new Error(code), { code });
+    for (const pin of [{ requested: "missing" }, { providerSessionId: "resume" }]) {
+      await assert.rejects(
+        prepareRuntimeInstance(
+          {
+            ...pin,
+            agent: null,
+            instances: [],
+            sessions: [{ providerSessionId: "resume", instanceId: "missing" } as never],
+          },
+          async () => {
+            throw original;
+          },
+        ),
+        (observed) => observed === original,
+      );
+    }
+  });
+}

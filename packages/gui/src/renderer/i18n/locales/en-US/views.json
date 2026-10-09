@@ -631,6 +631,8 @@
   "schedules.fields.definitionRevision": "Definition rev",
   "schedules.fields.updatedAt": "Updated",
   "schedules.fields.agent": "Agent",
+  "schedules.fields.runtimeOrder": "Runtime order",
+  "schedules.fields.lastRuntime": "Last runtime used",
   "schedules.fields.instance": "Instance",
   "schedules.fields.model": "Model",
   "schedules.fields.cwd": "Working dir",

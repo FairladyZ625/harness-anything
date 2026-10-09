@@ -558,7 +558,7 @@ test("inactive generation conversion repairs schedule definition bytes without r
         spec: {
           mission: "Exercise the historical target shape.",
           trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-09-01T00:00:00.000Z" },
-          target: { kind: "agent", agentId: "worker", runtimeInstanceId: "codex" },
+          target: { kind: "agent", agentId: "worker" },
         },
         actor,
         occurredAt: "2026-09-01T00:00:00.000Z",

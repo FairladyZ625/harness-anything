@@ -36,9 +36,8 @@ function dto(
     trigger: { kind: "interval", everyMs: 1_800_000, timezone: null, summary: "every 30m" },
     target: {
       kind: "agent",
+      runtimes: [{ type: "codex", model: "gpt-5.6-sol" }],
       agentId: "probe-agent",
-      runtimeInstanceId: "codex-schedule",
-      model: "gpt-5.6",
       reasoningEffort: "high",
       cwd: null,
     },
@@ -56,6 +55,7 @@ function dto(
     },
     activeRun: null,
     lastRun: {
+      runtime: { instanceId: "codex-actual", kindId: "codex", model: "gpt-5.6-sol" },
       occurrenceId: "occurrence_prior",
       scheduledFor: "2026-08-27T08:00:00.000Z",
       endedAt: "2026-08-27T08:02:00.000Z",
@@ -130,6 +130,8 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     );
     const text = container.textContent ?? "";
     expect(text).toContain("Heartbeat probe");
+    expect(text).toContain("codex-actual");
+    expect(text).toContain("gpt-5.6-sol");
     expect(text).toContain("every 30m");
     expect(text).toMatch(/08-27 \d{2}:30/u);
     // 正常状态不占标签:「本节点可执行」「已布防」不上卡。
@@ -189,9 +191,8 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         {
           target: {
             kind: "agent",
+            runtimes: [{ type: "codex", model: "gpt-5.6-sol" }],
             agentId: "ghost-agent",
-            runtimeInstanceId: "codex-schedule",
-            model: "gpt-5.6",
             reasoningEffort: "high",
             fast: false,
             cwd: null,
@@ -709,8 +710,8 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     await setValue(list, "schedule-form-name", "Fresh probe");
     await setValue(list, "schedule-form-mission", "Run the fresh probe.");
     expect(list.querySelector('[data-testid="schedule-form-agent"]')?.tagName).toBe("SELECT");
-    expect(list.querySelector('[data-testid="schedule-form-instance"]')?.tagName).toBe("SELECT");
-    expect(list.querySelector('[data-testid="schedule-form-model"]')?.tagName).toBe("SELECT");
+    expect(list.querySelector('[data-testid="schedule-form-instance"]')).toBeNull();
+    expect(list.querySelector('[data-testid="schedule-form-model"]')).toBeNull();
     expect(list.querySelector('[data-testid="schedule-form-effort"]')?.tagName).toBe("SELECT");
     expect(list.querySelector('[data-testid="schedule-form-cwd"]')).toBeNull();
     await click(list, "schedule-form-submit");
@@ -722,11 +723,12 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         name: "Fresh probe",
         everyMs: 1_800_000,
         agentId: "probe-agent",
-        runtimeInstanceId: "codex-schedule",
         mission: "Run the fresh probe.",
       }),
       expect.stringMatching(/^gui:schedule-create:/u),
     );
+    expect(create.mock.calls[0]?.[1]).not.toHaveProperty("runtimeInstanceId");
+    expect(create.mock.calls[0]?.[1]).not.toHaveProperty("model");
     expect(onFocusSchedule).toHaveBeenCalledWith("schedule/fresh-probe");
   });
 

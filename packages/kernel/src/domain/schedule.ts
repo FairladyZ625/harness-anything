@@ -48,8 +48,6 @@ export type ScheduleTriggerV1 =
 export interface ScheduleAgentTargetV1 {
   readonly kind: "agent";
   readonly agentId: string;
-  readonly runtimeInstanceId: string;
-  readonly model?: string;
   readonly reasoningEffort?: string;
   readonly fast?: boolean;
 }
@@ -154,8 +152,6 @@ const targetSchema: EntityJsonObjectSchema = {
   properties: {
     kind: { type: "string", enum: ["agent", "agent-unconfigured", "squad", "builtin"] },
     agentId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
-    runtimeInstanceId: { type: "string", minLength: 1 },
-    model: { type: "string", minLength: 1 },
     reasoningEffort: { type: "string", minLength: 1 },
     fast: { type: "boolean" },
     squadId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
@@ -291,7 +287,7 @@ export function createScheduleV1(input: {
 
 /** Project accepted historical evidence into the current run view; never used for new wire input. */
 export function projectScheduleHistory(value: unknown): unknown {
-  if (!isRecord(value) || !isRecord(value.status)) return value;
+  if (!isRecord(value)) return value;
   const run = (entry: unknown): unknown => {
     if (!isRecord(entry) || !Object.hasOwn(entry, "assignmentId")) return entry;
     const { assignmentId: _retired, ...current } = entry;
@@ -299,7 +295,19 @@ export function projectScheduleHistory(value: unknown): unknown {
   };
   return {
     ...value,
-    status: { ...value.status, activeRun: run(value.status.activeRun), lastRun: run(value.status.lastRun) },
+    ...(isRecord(value.spec) && isRecord(value.spec.target) && value.spec.target.kind === "agent"
+      ? {
+          spec: {
+            ...value.spec,
+            target: Object.fromEntries(
+              Object.entries(value.spec.target).filter(([field]) => field !== "runtimeInstanceId" && field !== "model"),
+            ),
+          },
+        }
+      : {}),
+    ...(isRecord(value.status)
+      ? { status: { ...value.status, activeRun: run(value.status.activeRun), lastRun: run(value.status.lastRun) } }
+      : {}),
   };
 }
 
@@ -469,16 +477,15 @@ function validTarget(value: unknown, allowUnknownFields: boolean): value is Sche
       scheduleIdPattern.test(value.builtinId) &&
       validBuiltinParams(value.params, allowUnknownFields)
     );
-  const optionalText = ["model", "reasoningEffort"],
+  const optionalText = ["reasoningEffort"],
     optional = [...optionalText, "fast"],
-    required = ["kind", "agentId", "runtimeInstanceId"];
+    required = ["kind", "agentId"];
   return (
     required.every((field) => Object.hasOwn(value, field)) &&
     (allowUnknownFields || Object.keys(value).every((field) => required.includes(field) || optional.includes(field))) &&
     value.kind === "agent" &&
     typeof value.agentId === "string" &&
     scheduleIdPattern.test(value.agentId) &&
-    isNonEmptyString(value.runtimeInstanceId) &&
     optionalText.every((field) => value[field] === undefined || isNonEmptyString(value[field])) &&
     (value.fast === undefined || typeof value.fast === "boolean")
   );

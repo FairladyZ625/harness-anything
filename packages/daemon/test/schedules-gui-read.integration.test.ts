@@ -154,7 +154,6 @@ test(
                 mode: "detect",
                 everyMs: 300_000,
                 agentId: "probe-agent",
-                runtimeInstanceId: definition.instanceId,
                 mission: "Inspect the repository and report success.",
               },
               actor,
@@ -259,6 +258,11 @@ test(
         const afterRun = (await list()).schedules[0] as ScheduleGuiRowDto;
         assert.notEqual(afterRun.lastRun!.runtimeSessionId, null);
         assert.equal(afterRun.lastRun!.nodeId, "local");
+        assert.deepEqual(afterRun.lastRun!.runtime, {
+          instanceId: definition.instanceId,
+          kindId: definition.kindId,
+          model: definition.model,
+        });
         assert.equal(afterRun.missed.count, 0);
         assert.equal(afterRun.actions.runNow.available, true);
 
@@ -286,9 +290,7 @@ test(
                 name: "Edited heartbeat",
                 everyMs: 600_000,
                 agentId: "probe-agent",
-                runtimeInstanceId: definition.instanceId,
                 mission: "Inspect the edited schedule.",
-                model: definition.model,
                 reasoningEffort: "high",
                 cwd: null,
                 idempotencyKey: "gui-update-1",
@@ -377,7 +379,6 @@ test(
               mode: "detect",
               everyMs: 300_000,
               agentId: "probe-agent",
-              runtimeInstanceId: definition.instanceId,
               mission: "Inspect the repository and report success.",
             },
             nodeAuth,

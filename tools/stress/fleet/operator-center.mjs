@@ -21,7 +21,6 @@ for (const repo of fixture.repos) {
     mode: "remediate",
     everyMs: 300_000,
     agentId: "campaign-agent",
-    runtimeInstanceId: "stress-runtime",
     mission: "Expose live fleet progress to the operator GUI.",
   });
   if (created.outcome !== "applied") throw new Error(`schedule create failed for ${repo.repoId}`);

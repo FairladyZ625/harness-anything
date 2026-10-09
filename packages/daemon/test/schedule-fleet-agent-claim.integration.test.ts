@@ -165,7 +165,6 @@ test(
         mode: "detect",
         everyMs: 300_000,
         agentId: "missing-agent",
-        runtimeInstanceId: definition.instanceId,
         mission: "This must be rejected before claim publication.",
         idempotencyKey: "missing-agent-create",
       });
@@ -189,7 +188,6 @@ test(
         mode: "detect",
         everyMs: 300_000,
         agentId: retiredAgentId,
-        runtimeInstanceId: definition.instanceId,
         mission: "This must be rejected at claim because the Agent is retired.",
         idempotencyKey: "retired-agent-create",
       });

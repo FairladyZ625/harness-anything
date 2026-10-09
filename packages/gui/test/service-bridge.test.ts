@@ -762,7 +762,7 @@ async function seedSchedule(rootDir: string, repoId: string, writerFence: Writer
       mode: "detect",
       spec: {
         trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: occurredAt },
-        target: { kind: "agent", agentId: "terra", runtimeInstanceId: "codex-gui" },
+        target: { kind: "agent", agentId: "terra" },
         mission: "Exercise the resident daemon Schedule reads.",
       },
       actor,

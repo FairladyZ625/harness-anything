@@ -276,8 +276,7 @@ function scheduleRow(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRow
     target: {
       kind: "agent",
       agentId: "probe-agent",
-      runtimeInstanceId: "codex-schedule",
-      model: null,
+      runtimes: [{ type: "codex" }],
       reasoningEffort: null,
       cwd: null,
     },

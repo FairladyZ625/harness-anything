@@ -4,7 +4,10 @@ import {
   type ScheduleListRow,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol-validate-results";
 import { parseScheduleDuration } from "@harness-anything/daemon/internal/protocol/daemon-protocol-vocabulary";
-import { validateScheduleRuns, type ScheduleRunsResult } from "@harness-anything/daemon/internal/protocol/schedule-runs-contract";
+import {
+  validateScheduleRuns,
+  type ScheduleRunsResult,
+} from "@harness-anything/daemon/internal/protocol/schedule-runs-contract";
 import { consumeKnownError } from "../daemon/client.ts";
 import { accepted, nonEmpty, optionalFlags, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
@@ -68,10 +71,8 @@ export function parseSchedule(
         "--cron",
         "--timezone",
         "--agent",
-        "--instance",
         "--mission",
         "--mission-file",
-        "--model",
         "--effort",
         "--fast",
         "--keep-days",
@@ -99,8 +100,6 @@ export function parseSchedule(
         ["--name", "name"],
         ["--mode", "mode"],
         ["--agent", "agentId"],
-        ["--instance", "runtimeInstanceId"],
-        ["--model", "model"],
         ["--effort", "reasoningEffort"],
       ]),
       ...(everyMs === undefined ? {} : { everyMs }),
@@ -138,12 +137,8 @@ export function parseSchedule(
     mode: flags.one.get("--mode"),
     ...(everyMs === undefined ? { cronExpression, timezone } : { everyMs }),
     agentId: flags.one.get("--agent"),
-    runtimeInstanceId: flags.one.get("--instance"),
     ...(mission ? { mission } : { missionFile }),
-    ...optionalFlags(flags.one, [
-      ["--model", "model"],
-      ["--effort", "reasoningEffort"],
-    ]),
+    ...optionalFlags(flags.one, [["--effort", "reasoningEffort"]]),
     ...(flags.booleans.has("--fast") ? { fast: true } : {}),
     ...(flags.booleans.has("--disabled") ? { disabled: true } : {}),
     ...retry,

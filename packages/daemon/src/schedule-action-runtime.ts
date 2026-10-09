@@ -22,12 +22,13 @@ import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
+import type { RuntimeAttemptTerminal, TrustedScheduleSpawn } from "./runtime-spawn.ts";
 import { readScheduleRuns } from "./schedule-runs-read.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import { readReckoningSignals } from "./reckoning-signals.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import {
+  scheduleSettlementDetail,
   prepareScheduleOccurrenceWorkspace,
   settleScheduleOccurrenceWorkspace,
   type ScheduleOccurrenceWorkspace,
@@ -439,9 +440,7 @@ export async function dispatchClaimedSchedule<
       scheduleId: input.schedule.scheduleId,
       claimFence: active.claimFence,
       mission: input.schedule.spec.mission,
-      runtimeInstanceId: target.runtimeInstanceId,
       agentId: target.agentId,
-      ...(target.model ? { model: target.model } : {}),
       ...(target.reasoningEffort ? { effort: target.reasoningEffort } : {}),
       ...(target.fast === undefined ? {} : { fast: target.fast }),
       cwd: input.workspace.cwd,
@@ -513,4 +512,46 @@ function isScheduleSpawnWriteReceipt(value: JsonObject): value is JsonObject & S
     (value.dispatchId === undefined || typeof value.dispatchId === "string") &&
     (value.runtimeSessionId === undefined || typeof value.runtimeSessionId === "string")
   );
+}
+
+/** Link the final continuation session before settling the claimed occurrence. */
+export async function settleScheduledRuntime(
+  cell: RepoCellRuntimeContext,
+  terminal: RuntimeAttemptTerminal,
+  run: (action: RepoTaskAction, actionId: string) => Promise<WriteReceipt>,
+): Promise<void> {
+  const scheduled = terminal.schedule;
+  if (!scheduled) return;
+  const current = cell.projection.getEntity("schedule", scheduled.scheduleId)?.value as ScheduleV1 | undefined;
+  if (current?.status.activeRun?.runtimeSessionId !== terminal.runtimeSessionId) {
+    await run(
+      {
+        kind: "schedule-dispatch-link",
+        scheduleId: scheduled.scheduleId,
+        claimFence: scheduled.claimFence,
+        dispatchId: terminal.dispatchId,
+        runtimeSessionId: terminal.runtimeSessionId,
+        idempotencyKey: `${terminal.runtimeSessionId}:terminal-link`,
+      },
+      `runtime-schedule-link:${terminal.runtimeSessionId}`,
+    );
+  }
+  const detail = await scheduleSettlementDetail(cell.rootDir, scheduled, terminal.reason);
+  const receipt = await run(
+    {
+      kind: "schedule-settle",
+      scheduleId: scheduled.scheduleId,
+      claimFence: scheduled.claimFence,
+      outcome: terminal.outcome,
+      endedAt: terminal.endedAt,
+      ...(detail ? { detail } : {}),
+      idempotencyKey: `${terminal.runtimeSessionId}:attempt-terminal`,
+    },
+    `runtime-schedule-settle:${terminal.runtimeSessionId}`,
+  );
+  if (receipt.outcome !== "applied")
+    throw cell.cellCodedError(
+      "schedule_settlement_pending",
+      `Schedule ${scheduled.scheduleId} settlement was ${receipt.outcome}.`,
+    );
 }

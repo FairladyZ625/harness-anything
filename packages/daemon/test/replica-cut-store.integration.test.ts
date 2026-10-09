@@ -980,7 +980,7 @@ test("entity deletion, schedule deletion and fact archive retire canonical repli
       mode: "detect",
       spec: {
         trigger: { kind: "interval", everyMs: 1_800_000, anchorAt: "2026-08-26T10:00:00.000Z" },
-        target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+        target: { kind: "agent", agentId: "codex" },
         mission: "Check replica.",
       },
       actor,

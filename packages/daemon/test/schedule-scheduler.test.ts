@@ -661,7 +661,7 @@ function schedule(scheduleId: string): MutableSchedule {
     mode: "detect",
     spec: {
       trigger: { kind: "interval", everyMs: 30 * 60_000, anchorAt: "2026-08-27T10:00:00.000Z" },
-      target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+      target: { kind: "agent", agentId: "codex" },
       mission: `Run ${scheduleId}.`,
     },
     actor,
