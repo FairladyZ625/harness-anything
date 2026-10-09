@@ -649,7 +649,7 @@ export function createDaemonHostRepositoryApi(
             getExecutableEntityAction(action.kind)?.target.kind === "schedule") ||
           action.kind === "task-submit"
         )
-          await context.scheduleScheduler.refresh();
+          void context.scheduleScheduler.refresh();
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
           const checks = health.checks.map((check) =>
