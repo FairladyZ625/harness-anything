@@ -76,11 +76,8 @@ async function runFleetRoundTrip(options: RoundTripOptions) {
   };
   await runFleetReplicaPullClient({ ...peer, viewRoot: options.viewRoot, diskQuotaBytes: replicaQuota });
   const write = await runFleetWriteClient({ ...options, channel: "replica" });
-  // The applied receipt can precede host-side ledger visibility. Anchor the pull to the
-  // same repository metadata read that the edge can observe, or it may legally return the prior current cut.
-  if (write.center.outcome === "applied" && write.center.revision !== null)
-    await waitForCenterLedgerRevision(peer, write.center.revision, options.timeoutMs ?? 5_000);
   const pulled = await runFleetReplicaPullClient({
+    through: write.center.revision ?? "known-head",
     ...peer,
     viewRoot: options.viewRoot,
     diskQuotaBytes: replicaQuota,
@@ -309,7 +306,7 @@ test("an idle center keeps a watching edge confirmed fresh without another pull"
     onConfirmed: sync.pulled,
     onFailure: sync.failed,
     onFrame: (frame) => {
-      if (frame.schema === "fleet.replica.current/v1") pulls += 1;
+      if (frame.schema === "fleet.ack.result/v1" || frame.schema === "fleet.replica.current/v1") pulls += 1;
     },
     schedule: () => assert.fail("no failure is expected, so no reconnect is scheduled"),
   });

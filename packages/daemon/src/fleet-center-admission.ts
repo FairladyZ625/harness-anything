@@ -159,6 +159,8 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
       outcome: blocked ? "op_rejected" : "applied",
       ...(blocked ? { code: "pull_blocked", error: { code: "pull_blocked", hint: blockedHint } } : {}),
       status: pulled.replica.schema,
+      knownHead: pulled.replica.knownHead,
+      lagRevisions: pulled.replica.knownHead.revision - pulled.current.cut.revision,
       ackCut: "ackCut" in pulled.replica ? pulled.replica.ackCut : pulled.current.cut.revision,
       viewId: pulled.replica.viewId,
       cut: pulled.current.cut,

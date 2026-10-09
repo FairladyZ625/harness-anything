@@ -5,6 +5,7 @@ import path from "node:path";
 import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
 import { openPeer, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { DatabaseSync } from "node:sqlite";
+import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 
 for (const fixtureMiB of [64, 256]) {
@@ -60,6 +61,26 @@ for (const fixtureMiB of [64, 256]) {
     assert.ok(cut);
     assert.ok(cut.manifest.totalBytes >= fixtureMiB * 1024 * 1024);
     assert.equal(replica.latest()?.manifest.digest, cut.manifest.digest);
+    const written = await f.host.run(
+      f.subject.repoId,
+      { kind: "task-create", taskId: "task-during-build", title: "During build" },
+      f.auth,
+    );
+    assert.equal(written.outcome, "applied");
+    await waitForFleetPublication(f.host, f.subject.repoId, written.opId, f.auth);
+    let rebuilt = false;
+    const rebuilding = replica.waitForCut(written.revision!).then((value) => {
+      rebuilt = true;
+      return value;
+    });
+    const readStarted = performance.now();
+    const page = await replica.delivery.manifestPage(cut.revision, 0);
+    assert.ok(page?.entries.length);
+    assert.equal(rebuilt, false, "delivery reads are independent of the builder response queue");
+    t.diagnostic(
+      `immutable page delivery gap=${performance.now() - readStarted}ms while checkpoint builder is pending`,
+    );
+    await rebuilding;
     peakRss = Math.max(peakRss, process.memoryUsage().rss);
     clearInterval(sample);
     t.diagnostic(
@@ -197,36 +218,42 @@ test("captured worker OOM error reaches the edge without a closed-schema rejecti
   );
 });
 
-for (const phase of ["prepare", "exact-cut"] as const) {
-  test(`first pull survives ${phase} longer than the 60s frame deadline`, { timeout: 100_000 }, async (t) => {
+for (const phase of ["prepare", "checkpoint"] as const) {
+  test(`preparing frames cannot extend the overall ${phase} deadline`, { timeout: 15_000 }, async (t) => {
     const f = await fleetFixture(t);
     t.after(() => f.close());
-    const center = await f.center(
-      undefined,
-      false,
-      phase === "prepare" ? 61_000 : 0,
-      phase === "exact-cut" ? 61_000 : 0,
+    const replica = f.host.replica(f.subject.repoId);
+    let waitingSignal: AbortSignal | undefined;
+    t.mock.method(replica, "prepare", () => (phase === "prepare" ? new Promise(() => {}) : Promise.resolve(null)));
+    if (phase === "checkpoint") {
+      const wait = replica.waitForCut;
+      t.mock.method(replica, "waitForCut", (revision: number, signal?: AbortSignal) => {
+        waitingSignal = signal;
+        return wait(revision, signal);
+      });
+    }
+    const center = await f.center(undefined, { replicaPreparationTimeoutMs: 100, replicaWatchProgressMs: 10 });
+    let progress = 0;
+    await assert.rejects(
+      runFleetReplicaPullClient({
+        port: center.port,
+        ca: f.cert,
+        nodeId: f.subject.nodeId,
+        credential: "machine-secret",
+        repoId: f.subject.repoId,
+        viewRoot: path.join(f.root, phase),
+        diskQuotaBytes: 64 * 1024 * 1024,
+        timeoutMs: 1000,
+        onFrame: (frame) => {
+          if (frame.schema === "fleet.replica.preparing/v1") progress++;
+        },
+      }),
+      { code: "replica_pending", message: "replica_pending: Checkpoint preparation deadline exceeded." },
     );
-    const frames: Array<{ schema: string; at: number }> = [];
-    const started = performance.now();
-    const result = await runFleetReplicaPullClient({
-      port: center.port,
-      ca: f.cert,
-      nodeId: f.subject.nodeId,
-      credential: "machine-secret",
-      repoId: f.subject.repoId,
-      viewRoot: path.join(f.root, `cold-${phase}`),
-      diskQuotaBytes: 64 * 1024 * 1024,
-      timeoutMs: 60_000,
-      onFrame: (frame) => frames.push({ schema: frame.schema, at: performance.now() }),
-    });
-    assert.equal(result.replica.schema, "fleet.ack.result/v1");
-    const progress = frames.filter((frame) => frame.schema === "fleet.replica.preparing/v1");
-    assert.ok(progress.length >= 4);
-    assert.ok(progress[0]!.at - started < 5_000, "first preparing is immediate");
-    for (let i = 1; i < progress.length; i++) assert.ok(progress[i]!.at - progress[i - 1]!.at < 60_000);
-    assert.ok(performance.now() - started > 60_000);
-    t.diagnostic(JSON.stringify({ phase, elapsedMs: performance.now() - started, progress }));
+    assert.ok(progress >= 2, "preparing continues but is not completion");
+    if (phase === "checkpoint") assert.equal(waitingSignal?.aborted, true);
+    assert.equal(center.status().replicas.length, 0, "no delivery lease or registration before readiness");
+    t.diagnostic(`${phase}: ${progress} preparing frames, overall deadline 100ms, no delivery claimed`);
   });
 }
 

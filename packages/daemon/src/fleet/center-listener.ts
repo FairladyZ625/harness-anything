@@ -237,28 +237,27 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   };
   // A watch that sees no new cut still answers on the progress interval with the unchanged head, so a
   // connected edge can keep confirming freshness without pulling (the same role as etcd's progress notify).
-  const headAfterOrProgress = (
+  const headAfterOrProgress = async (
     replica: ReturnType<typeof options.host.replica>,
     afterRevision: number,
     progressMs: number,
-  ) =>
-    new Promise<SnapshotCut>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const current = replica.latest();
-        if (current) resolve(current);
-      }, progressMs);
-      timer.unref();
-      replica.waitForCut(afterRevision + 1).then(
-        (cut) => {
-          clearTimeout(timer);
-          resolve(cut);
-        },
-        (error: unknown) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
-    });
+    signal: AbortSignal,
+  ): Promise<SnapshotCut> => {
+    const waiting = new AbortController();
+    const stop = AbortSignal.any([signal, closing.signal, waiting.signal]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        replica.waitForCut(afterRevision + 1, stop),
+        new Promise<SnapshotCut>((resolve) => {
+          timer = setTimeout(() => resolve(replica.latest()!), progressMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+      waiting.abort();
+    }
+  };
   // The wait starts only once the session is known to be open: a wait started during shutdown would be
   // rejected by the closing cut source with nobody left to observe it.
   const untilAborted = <T>(start: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
@@ -266,7 +265,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (stop.aborted) return Promise.reject(new FleetFault("busy", "The replica session closed.", true));
     const pending = start();
     return new Promise<T>((resolve, reject) => {
-      const abort = () => reject(new FleetFault("busy", "The replica session closed.", true));
+      const abort = () =>
+        reject(
+          stop.reason instanceof FleetFault ? stop.reason : new FleetFault("busy", "The replica session closed.", true),
+        );
       stop.addEventListener("abort", abort, { once: true });
       pending.then(
         (value) => {
@@ -503,13 +505,18 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const { replica } = await admitReplica(nodeId, frame.repoId);
       if (!replica.latest()) throw new FleetFault("replica_pending", "No center cut is ready.", true);
       const latest = replica.latest(),
-        // Cuts are contiguous per workspace revision and every center write kicks the cut source, so the
-        // next revision's cut is the event a caught-up edge waits on instead of polling.
+        // Wait for the next published checkpoint; its revision may skip ledger integers.
         next =
           latest && latest.revision > frame.afterRevision
             ? latest
             : await untilAborted(
-                () => headAfterOrProgress(replica, frame.afterRevision, options.replicaWatchProgressMs ?? 20_000),
+                () =>
+                  headAfterOrProgress(
+                    replica,
+                    frame.afterRevision,
+                    options.replicaWatchProgressMs ?? 20_000,
+                    connectionSignal,
+                  ),
                 connectionSignal,
               );
       return immediate({
@@ -518,6 +525,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         inReplyTo: frame.messageId,
         repoId: frame.repoId,
         cut: wireCut(next),
+        knownHead: wireCut(replica.ledgerCut()!),
       });
     }
     if (frame.schema === "fleet.ci-detail.get/v1") {
@@ -551,46 +559,62 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.replica.pull/v1") {
       const { a, replica, owner } = await admitReplica(nodeId, frame.repoId);
-      const ready = untilAborted(async () => {
-        await replica.prepare();
-        const ledgerCut = replica.ledgerCut();
-        if (!ledgerCut || ledgerCut.revision === 0)
-          throw new FleetFault("replica_pending", "No exact center cut is ready.", true);
-        const latest = await untilAborted(() => replica.waitForCut(ledgerCut.revision), connectionSignal);
-        return { latest, ledgerCut };
-      }, connectionSignal).then(
-        (value) => ({ value }),
-        (error: unknown) => ({ error }),
+      const preparation = new AbortController();
+      const signal = AbortSignal.any([connectionSignal, closing.signal, preparation.signal]);
+      const deadline = setTimeout(
+        () => preparation.abort(new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false)),
+        options.replicaPreparationTimeoutMs ?? 60_000,
       );
       let prepared: { latest: SnapshotCut; ledgerCut: NonNullable<ReturnType<typeof replica.ledgerCut>> };
-      for (;;) {
-        await progress({
-          schema: "fleet.replica.preparing/v1",
-          messageId: mid(frame.messageId, "preparing"),
-          inReplyTo: frame.messageId,
-          repoId: frame.repoId,
-        });
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const outcome = await untilAborted(
-          () =>
-            Promise.race([
-              ready,
-              new Promise<null>((resolve) => {
-                timer = setTimeout(() => resolve(null), options.replicaWatchProgressMs ?? 20_000);
+      try {
+        const ready = untilAborted(async () => {
+          const existing = replica.latest();
+          if (existing) replica.activate();
+          const checkpoint = existing ?? (await untilAborted(() => replica.prepare(), signal));
+          const latest = checkpoint ?? (await replica.waitForCut(1, signal));
+          replica.kick();
+          const ledgerCut = replica.ledgerCut();
+          if (!ledgerCut || ledgerCut.revision === 0)
+            throw new FleetFault("replica_pending", "No center head is known.", true);
+          return { latest, ledgerCut };
+        }, signal).then(
+          (value) => ({ value }),
+          (error: unknown) => ({ error }),
+        );
+        for (;;) {
+          await untilAborted(
+            () =>
+              progress({
+                schema: "fleet.replica.preparing/v1",
+                messageId: mid(frame.messageId, "preparing"),
+                inReplyTo: frame.messageId,
+                repoId: frame.repoId,
               }),
-            ]),
-          connectionSignal,
-        ).finally(() => clearTimeout(timer));
-        if (outcome === null) continue;
-        if ("error" in outcome) throw outcome.error;
-        prepared = outcome.value;
-        break;
+            signal,
+          );
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const outcome = await untilAborted(
+            () =>
+              Promise.race([
+                ready,
+                new Promise<null>((resolve) => {
+                  timer = setTimeout(() => resolve(null), options.replicaWatchProgressMs ?? 20_000);
+                }),
+              ]),
+            signal,
+          ).finally(() => clearTimeout(timer));
+          if (outcome === null) continue;
+          if ("error" in outcome) throw outcome.error;
+          prepared = outcome.value;
+          break;
+        }
+      } finally {
+        clearTimeout(deadline);
+        preparation.abort();
       }
       const { latest, ledgerCut } = prepared,
         key = { nodeId, viewId: nodeId, repoId: a.repoId },
         id = keyId(key);
-      if (latest.headDigest !== ledgerCut.headDigest)
-        throw new FleetFault("replica_pending", "The exact center cut is not ready.", true);
       if (!window.keys.has(id) && window.keys.size >= 8)
         throw new FleetFault("busy", "Session already has eight active replica keys.", true);
       if (latest.manifest.totalBytes * 2 + FLEET_SESSION_SEND_WINDOW_BYTES > options.replicaDiskQuotaBytes!)
@@ -609,12 +633,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       ) {
         window.keys.delete(id);
         return immediate({
-          schema: "fleet.replica.current/v1",
+          schema:
+            latest.revision === ledgerCut.revision && latest.headDigest === ledgerCut.headDigest
+              ? "fleet.replica.current/v1"
+              : "fleet.replica.checkpoint/v1",
           messageId: mid(frame.messageId, "current"),
           inReplyTo: frame.messageId,
           repoId: key.repoId,
           viewId: key.viewId,
           cut: wireCut(latest),
+          knownHead: wireCut(ledgerCut),
           manifestDigest: latest.manifest.digest,
           authorizationOwner: owner,
           authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
@@ -626,8 +654,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "This session already has a delivery for the node/repository",
           true,
         );
+      // Transport leases share the host wall clock with cut-worker pin/GC, not the business event clock.
       const ttlMs = 30_000;
-      const lease = ackStore.delivery.claim(key, window.holderId, Date.parse(now()), ttlMs);
+      const lease = ackStore.delivery.claim(key, window.holderId, Date.now(), ttlMs);
       if (!lease) {
         ackStore.delivery.record(key, { failureCode: "replica_delivery_busy" });
         throw new FleetFault(
@@ -636,31 +665,42 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           true,
         );
       }
-      const release = () => {
+      const release = (acknowledged = false) => {
+        ackStore.clearOffer(lease);
         ackStore.delivery.release(lease);
-        connectionSignal?.removeEventListener("abort", release);
+        if (!acknowledged) replica.releasePin(lease);
+        connectionSignal?.removeEventListener("abort", disconnected);
       };
-      connectionSignal?.addEventListener("abort", release, { once: true });
+      const disconnected = () => release();
+      connectionSignal?.addEventListener("abort", disconnected, { once: true });
       if (connectionSignal?.aborted) {
         release();
         throw new FleetFault("connection_closed", "Delivery connection closed", true);
       }
       const guard = () => {
-        if (!ackStore.delivery.renew(lease, Date.parse(now()), ttlMs))
-          throw new FleetFault("replica_delivery_fenced", "Delivery lease expired or was replaced", true);
+        if (!replica.pinActive(lease) || !ackStore.delivery.renew(lease, Date.now(), ttlMs))
+          throw new FleetFault(
+            "replica_delivery_fenced",
+            "Delivery retention ended or lease expired or was replaced",
+            true,
+          );
       };
-      let active = ackStore.offerFor(key);
-      if (
-        active &&
-        (!replica.cut(active.toCut.revision) ||
-          replica.cut(active.toCut.revision)?.manifest.digest !== active.manifestDigest ||
-          (active.fromCut && (await replica.delivery.changes(active.fromCut.revision, active.toCut.revision)) === null))
-      ) {
-        ackStore.clearOffer(key);
-        active = null;
+      let offer;
+      try {
+        const pinned = await replica.pin(
+          lease,
+          cursor?.revision ?? null,
+          options.replicaDiskQuotaBytes!,
+          options.stateRoot,
+        );
+        const prepared = await makeOffer(key, cursor, pinned, replica, now());
+        guard();
+        ackStore.clearOffer(lease);
+        offer = ackStore.offer(key, prepared);
+      } catch (error) {
+        release();
+        throw error;
       }
-      const next = active ?? (await makeOffer(key, cursor, latest, replica, now()));
-      const offer = active ?? ackStore.offer(key, next);
       window.offers.set(offer.transferId, { key, lease, release });
       ackStore.delivery.record(key, { started: offer.kind });
       return {
@@ -940,7 +980,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         key = delivery?.key;
       if (!key || !delivery || key.nodeId !== nodeId)
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
-      if (!ackStore.delivery.renew(delivery.lease, Date.parse(now()), 30_000))
+      if (
+        !options.host.replica(key.repoId).pinActive(delivery.lease) ||
+        !ackStore.delivery.renew(delivery.lease, Date.now(), 30_000)
+      )
         throw new FleetFault("replica_delivery_fenced", "ACK belongs to an expired or replaced delivery lease", true);
       const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
       if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
@@ -949,13 +992,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         frame.transferId,
         frame.cut,
         frame.manifestDigest,
-        now(),
+        new Date(Date.now()).toISOString(),
         cutEventAt,
         delivery.lease,
       );
       if (result.outcome === "op_rejected" || !result.cursor)
         throw new FleetFault("invalid_ack", "ACK cut or manifest differs from its exact active offer.");
-      delivery.release();
+      delivery.release(true);
       window.offers.delete(frame.transferId);
       window.keys.delete(keyId(key));
       return immediate({
@@ -965,6 +1008,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         outcome: result.outcome,
         viewId: key.viewId,
         ackCut: result.cursor.revision,
+        knownHead: wireCut(options.host.replica(key.repoId).ledgerCut()!),
         code: null,
       });
     }
@@ -1029,7 +1073,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             ackStore,
             key,
             options.replicaDiskQuotaBytes ?? null,
-            Date.parse(now()),
+            Date.now(),
           ),
         ),
       };

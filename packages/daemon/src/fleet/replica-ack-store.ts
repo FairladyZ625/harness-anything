@@ -33,7 +33,7 @@ export interface ReplicaAckStore {
   readonly registrationRevision: (key: ReplicaDeliveryKey) => number | null;
   readonly offer: (key: ReplicaDeliveryKey, input: Omit<ReplicaOffer, keyof ReplicaDeliveryKey>) => ReplicaOffer;
   readonly offerFor: (key: ReplicaDeliveryKey) => ReplicaOffer | null;
-  readonly clearOffer: (key: ReplicaDeliveryKey) => void;
+  readonly clearOffer: (key: ReplicaDeliveryLease) => void;
   readonly ack: (
     key: ReplicaDeliveryKey,
     transferId: string,
@@ -68,7 +68,7 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
       const store = new DatabaseSync(path.join(root, "ack.sqlite"));
       // Registration and delivery leases are shared; proof/cursor/offer belong to this schema generation.
       store.exec(
-        `PRAGMA journal_mode = DELETE; CREATE TABLE IF NOT EXISTS registration(node_id TEXT NOT NULL, view_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(node_id,view_id)); CREATE TABLE IF NOT EXISTS ${proofTable}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,revision INTEGER NOT NULL,head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,transfer_id TEXT NOT NULL,acked_at TEXT NOT NULL,cut_event_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id,revision)); CREATE UNIQUE INDEX IF NOT EXISTS ${transferIndex} ON ${proofTable}(transfer_id); CREATE TABLE IF NOT EXISTS ${cursorTable}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,revision INTEGER NOT NULL,head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,transfer_id TEXT NOT NULL,acked_at TEXT NOT NULL,cut_event_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id)); CREATE TABLE IF NOT EXISTS ${offerTable}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,transfer_id TEXT NOT NULL UNIQUE,from_revision INTEGER,from_head_digest TEXT,to_revision INTEGER NOT NULL,to_head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,kind TEXT NOT NULL,issued_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id));`,
+        `PRAGMA journal_mode = WAL; CREATE TABLE IF NOT EXISTS registration(node_id TEXT NOT NULL, view_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(node_id,view_id)); CREATE TABLE IF NOT EXISTS ${proofTable}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,revision INTEGER NOT NULL,head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,transfer_id TEXT NOT NULL,acked_at TEXT NOT NULL,cut_event_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id,revision)); CREATE UNIQUE INDEX IF NOT EXISTS ${transferIndex} ON ${proofTable}(transfer_id); CREATE TABLE IF NOT EXISTS ${cursorTable}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,revision INTEGER NOT NULL,head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,transfer_id TEXT NOT NULL,acked_at TEXT NOT NULL,cut_event_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id)); CREATE TABLE IF NOT EXISTS ${offerTable}(node_id TEXT NOT NULL,view_id TEXT NOT NULL,transfer_id TEXT NOT NULL UNIQUE,from_revision INTEGER,from_head_digest TEXT,to_revision INTEGER NOT NULL,to_head_digest TEXT NOT NULL,manifest_digest TEXT NOT NULL,kind TEXT NOT NULL,issued_at TEXT NOT NULL,PRIMARY KEY(node_id,view_id));`,
       );
       databases.set(id, store);
       return store;
@@ -171,8 +171,12 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
         );
       return { ...key, ...input };
     },
-    clearOffer = (key: ReplicaDeliveryKey) => {
-      check(key).prepare(`DELETE FROM ${offerTable} WHERE node_id=? AND view_id=?`).run(key.nodeId, key.viewId);
+    clearOffer = (key: ReplicaDeliveryLease) => {
+      check(key)
+        .prepare(
+          `DELETE FROM ${offerTable} WHERE node_id=? AND view_id=? AND EXISTS (SELECT 1 FROM delivery_lease WHERE node_id=? AND view_id=? AND holder_id=? AND claim_fence=?)`,
+        )
+        .run(key.nodeId, key.viewId, key.nodeId, key.viewId, key.holderId, key.claimFence);
     };
   const delivery = replicaDeliveryLeases(db);
   const ackAtCut = (
@@ -214,7 +218,7 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
         // cut; the recorded proof keeps the first transfer's identity and timestamps.
         if (cut.headDigest !== prior.headDigest || digest !== prior.manifestDigest)
           return { outcome: "op_rejected" as const, cursor: null };
-        clearOffer(key);
+        store.prepare(`DELETE FROM ${offerTable} WHERE node_id=? AND view_id=?`).run(key.nodeId, key.viewId);
         return { outcome: "current" as const, cursor: prior };
       }
     }

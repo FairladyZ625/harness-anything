@@ -4,7 +4,6 @@ import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { setTimeout as delay } from "node:timers/promises";
 import { createServer } from "node:tls";
 import { READ_MODEL_SCHEMA_GENERATION, sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
@@ -96,11 +95,8 @@ async function runFleetRoundTrip(options: RoundTripOptions) {
   };
   await runFleetReplicaPullClient({ ...peer, viewRoot: options.viewRoot, diskQuotaBytes: replicaQuota });
   const write = await runFleetWriteClient({ ...options, channel: "replica" });
-  // The applied receipt can precede host-side ledger visibility. Anchor the pull to the
-  // same repository metadata read that the edge can observe, or it may legally return the prior current cut.
-  if (write.center.outcome === "applied" && write.center.revision !== null)
-    await waitForCenterLedgerRevision(peer, write.center.revision, options.timeoutMs ?? 5_000);
   const pulled = await runFleetReplicaPullClient({
+    through: write.center.revision ?? "known-head",
     ...peer,
     viewRoot: options.viewRoot,
     diskQuotaBytes: replicaQuota,
@@ -371,21 +367,7 @@ test(
     });
   },
 );
-test("replica pull rejects a snapshot that has not caught up to the ledger cut", async (t) => {
-  const fixture = await fleetFixture(t);
-  t.after(() => fixture.close());
-  const center = await fixture.center(replicaQuota, true),
-    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
-    preparing = await peer.request({
-      schema: "fleet.replica.pull/v1",
-      messageId: "replica-behind-ledger",
-      repoId: fixture.subject.repoId,
-    });
-  assert.equal(preparing.schema, "fleet.replica.preparing/v1");
-  const response = await peer.receive();
-  assert.equal(response.schema, "fleet.error/v1");
-  if (response.schema === "fleet.error/v1") assert.equal(response.code, "replica_pending");
-});
+// Historical exact checkpoints are covered end-to-end in fleet-checkpoint-delivery.integration.test.ts.
 test("center rejects the retired full-entry/Git-cut durable transfer shape", async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
@@ -938,23 +920,6 @@ test(
     );
   },
 );
-async function waitForCenterLedgerRevision(
-  peer: Parameters<typeof readFleetRepositoryMetadataClient>[0],
-  expected: number,
-  timeoutMs: number,
-): Promise<void> {
-  const deadline = performance.now() + timeoutMs;
-  let observed: number;
-  do {
-    observed = (await readFleetRepositoryMetadataClient(peer)).baseLedgerSha.revision;
-    if (observed >= expected) return;
-    await delay(10);
-  } while (performance.now() < deadline);
-  assert.ok(
-    observed >= expected,
-    `center repository metadata read did not expose ledger revision ${expected} within the bounded wait`,
-  );
-}
 async function waitForEventCount(fixture: Awaited<ReturnType<typeof fleetFixture>>, expected: number): Promise<void> {
   const deadline = performance.now() + 15_000;
   do {

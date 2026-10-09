@@ -7,6 +7,7 @@ import {
   type FleetPeerOptions,
   type FleetReplicaPullClientOptions,
 } from "./edge.ts";
+import { watchReplicaHead } from "./edge-replica-watch.ts";
 import { recordHeadConfirmation } from "./replica-read-model.ts";
 
 export interface FleetReplicaSessionPoolOptions {
@@ -85,13 +86,13 @@ export interface FleetReplicaSyncOptions extends FleetReplicaPullClientOptions {
   readonly schedule?: (callback: () => void, delayMs: number) => void;
   /** Called for every failed pull or watch; the loop reconnects after the backoff. */
   readonly onFailure?: (error: unknown) => void;
-  /** Called whenever the edge confirms the center head: after each pull and on each unchanged-head progress hint. */
+  /** Called for the usable local checkpoint after each pull and unchanged-checkpoint progress hint. */
   readonly onConfirmed?: (revision: number) => void | Promise<void>;
 }
 
 /**
  * Keep an edge replica fresh without putting network work on the read path. Each cycle pulls to the center's
- * current cut, then parks a `fleet.replica.watch/v1` on the same session until the center answers with a head
+ * published checkpoint, then parks a `fleet.replica.watch/v1` on the same session until the center answers with a head
  * hint for a newer cut. Waiting is on the center's event, not a timer; the timer only spaces out reconnects
  * after a failure (center restart, refused connection, remote fault). Resolves once `signal` aborts.
  */
@@ -103,18 +104,17 @@ export function runFleetReplicaSync(options: FleetReplicaSyncOptions): Promise<v
   let failures = 0;
   const cycle = async (): Promise<void> => {
     const pulled = await runFleetReplicaPullClient({ ...options, sessionPool });
-    const revision =
-      pulled.replica.schema === "fleet.replica.current/v1" ? pulled.replica.cut.revision : pulled.replica.ackCut;
+    const revision = pulled.current.cut.revision;
     failures = 0;
     await options.onConfirmed?.(revision);
     const viewDir = path.join(options.viewRoot, "repos", options.repoId, "views", pulled.replica.viewId);
     // The center answers a watch either with a newer cut or, on its progress interval, with the unchanged
-    // head. An unchanged head is a live confirmation: record it so local reads stay fresh, and keep watching.
+    // checkpoint. Record the separately reported ledger head so lag stays visible while watching.
     for (;;) {
       const head = await watchReplica(options, sessionPool, revision);
-      recordHeadConfirmation(viewDir, head);
-      if (head.revision > revision) return;
-      await options.onConfirmed?.(head.revision);
+      recordHeadConfirmation(viewDir, head.knownHead);
+      if (head.cut.revision > revision) return;
+      await options.onConfirmed?.(revision);
     }
   };
   return new Promise<void>((resolve, reject) => {
@@ -151,13 +151,9 @@ async function watchReplica(options: FleetReplicaSyncOptions, pool: FleetReplica
   if (options.signal?.aborted) abandon();
   let answered = false;
   try {
-    const messageId = session.messageId();
-    session.send({ schema: "fleet.replica.watch/v1", messageId, repoId: options.repoId, afterRevision });
-    const hint = await session.next(null);
-    if (hint.schema !== "fleet.replica.head-hint/v1" || hint.inReplyTo !== messageId)
-      throw new Error("replica head hint expected");
+    const hint = await watchReplicaHead(session, options.repoId, afterRevision, null);
     answered = true;
-    return hint.cut;
+    return hint;
   } finally {
     options.signal?.removeEventListener("abort", abandon);
     if (answered) pool.release(options, session);

@@ -156,6 +156,7 @@ export async function runFleetEdgeRepositoryRead(
     },
     () =>
       runFleetReplicaPullClient({
+        through: minCut?.revision,
         hostname: payload.host,
         port: payload.port,
         ca: readFileSync(payload.caPath, "utf8"),
@@ -275,7 +276,12 @@ export async function runFleetEdgeTask(
         })),
       });
       if (result.center.outcome === "applied") {
-        await runFleetReplicaPullClient({ ...peer, viewRoot: payload.viewRoot, diskQuotaBytes: payload.quotaBytes });
+        await runFleetReplicaPullClient({
+          through: result.center.revision ?? "known-head",
+          ...peer,
+          viewRoot: payload.viewRoot,
+          diskQuotaBytes: payload.quotaBytes,
+        });
         const materialized = applyFleetMirrorCut(payload.viewRoot, payload.repoId, workspaceRoot, "pull", {
           kind: "task-docs",
           taskId,
@@ -307,6 +313,7 @@ export async function runFleetEdgeTask(
         },
         readTask: async () => {
           const pulled = await runFleetReplicaPullClient({
+            through: "known-head",
             ...peer,
             viewRoot: payload.viewRoot,
             diskQuotaBytes: payload.quotaBytes,
@@ -385,6 +392,7 @@ export async function runFleetEdgeTask(
     if (!readOnly && (applied || conflictCode !== null)) {
       try {
         const pulled = await runFleetReplicaPullClient({
+          through: result.revision ?? "known-head",
           ...peer,
           viewRoot: payload.viewRoot,
           diskQuotaBytes: payload.quotaBytes,

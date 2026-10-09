@@ -44,7 +44,9 @@ export interface FleetRuntimeDispatchContext {
   readonly taskId: string | null;
   readonly executionId: string | null;
 }
-type Msg<S extends string, P extends object = object> = Readonly<{ schema: S; messageId: string }> & Readonly<P>;
+type Msg<S extends string, P extends object = object> = S extends string
+  ? Readonly<{ schema: S; messageId: string }> & Readonly<P>
+  : never;
 export type FleetFrameV1 =
   | Msg<"fleet.session.hello/v1", { protocolVersion: ContractVersion; nodeId: string; credential: string }>
   | Msg<
@@ -193,14 +195,15 @@ export type FleetFrameV1 =
   | Msg<"fleet.replica.pull/v1", { repoId: string }>
   | Msg<"fleet.replica.preparing/v1", { inReplyTo: string; repoId: string }>
   | Msg<"fleet.replica.watch/v1", { repoId: string; afterRevision: number }>
-  | Msg<"fleet.replica.head-hint/v1", { inReplyTo: string; repoId: string; cut: FleetCut }>
+  | Msg<"fleet.replica.head-hint/v1", { inReplyTo: string; repoId: string; cut: FleetCut; knownHead: FleetCut }>
   | Msg<
-      "fleet.replica.current/v1",
+      "fleet.replica.current/v1" | "fleet.replica.checkpoint/v1",
       {
         inReplyTo: string;
         repoId: string;
         viewId: string;
         cut: FleetCut;
+        knownHead: FleetCut;
         manifestDigest: string;
         authorizationOwner: string;
         authorizationShapeDigest: string;
@@ -246,6 +249,7 @@ export type FleetFrameV1 =
         outcome: "applied" | "current" | "op_rejected";
         viewId: string;
         ackCut: number;
+        knownHead: FleetCut;
         code: string | null;
       }
     >
@@ -809,12 +813,23 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.replica.pull/v1": shape({ ...common, repoId: id }),
   "fleet.replica.preparing/v1": shape({ ...reply, repoId: id }),
   "fleet.replica.watch/v1": shape({ ...common, repoId: id, afterRevision: uint }),
-  "fleet.replica.head-hint/v1": shape({ ...reply, repoId: id, cut }),
+  "fleet.replica.head-hint/v1": shape({ ...reply, repoId: id, cut, knownHead: cut }),
   "fleet.replica.current/v1": shape({
     ...reply,
     repoId: id,
     viewId: id,
     cut,
+    knownHead: cut,
+    manifestDigest: sha64,
+    authorizationOwner: text,
+    authorizationShapeDigest: sha64,
+  }),
+  "fleet.replica.checkpoint/v1": shape({
+    ...reply,
+    repoId: id,
+    viewId: id,
+    cut,
+    knownHead: cut,
     manifestDigest: sha64,
     authorizationOwner: text,
     authorizationShapeDigest: sha64,
@@ -858,6 +873,7 @@ const schemas: Readonly<Record<string, Check>> = {
     outcome: one("applied", "current", "op_rejected"),
     viewId: id,
     ackCut: uint,
+    knownHead: cut,
     code: nullable(text),
   }),
   "fleet.error/v1": shape({

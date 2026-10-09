@@ -23,6 +23,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
+import { waitForReplicaCheckpoint } from "./edge-replica-watch.ts";
 import type { FleetReplicaSessionPool } from "./edge-replica-sync.ts";
 import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { recordHeadConfirmation, recordNodeReadDenied } from "./replica-read-model.ts";
@@ -89,6 +90,8 @@ export interface FleetWriteClientResult {
 export interface FleetReplicaPullClientOptions extends FleetPeerOptions {
   readonly viewRoot: string;
   readonly diskQuotaBytes: number;
+  /** Wait for a fixed write revision or the first observed center head before returning. */
+  readonly through?: number | "known-head";
   readonly beforeAck?: (frame: Extract<FleetFrameV1, { schema: "fleet.ack/v1" }>) => void;
   readonly edgeKillpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void;
   /** Reuse the authenticated TLS session for this node/repository when supplied. */
@@ -97,7 +100,7 @@ export interface FleetReplicaPullClientOptions extends FleetPeerOptions {
 export interface FleetReplicaPullClientResult {
   readonly replica:
     | Extract<FleetFrameV1, { schema: "fleet.ack.result/v1" }>
-    | Extract<FleetFrameV1, { schema: "fleet.replica.current/v1" }>;
+    | Extract<FleetFrameV1, { schema: "fleet.replica.current/v1" | "fleet.replica.checkpoint/v1" }>;
   readonly current: Current;
 }
 export class FleetRemoteError extends Error {
@@ -274,7 +277,6 @@ function finish(
     JSON.stringify(already?.cut) === JSON.stringify(cut) &&
     already?.manifestDigest === expected
   ) {
-    recordHeadConfirmation(viewRoot, cut);
     rmSync(staging, { recursive: true, force: true });
     return ack(begin.transferId, cut, expected);
   }
@@ -407,7 +409,6 @@ function finish(
     active = readJson<Current>(path.join(viewRoot, "current.json"));
   if (!reopened || !active || reopened.manifestDigest !== digest || JSON.stringify(active.cut) !== JSON.stringify(cut))
     throw new Error("atomic view verification failed");
-  recordHeadConfirmation(viewRoot, cut);
   collect(viewRoot, casRoot, `${cut.revision}-g${schemaGeneration}`);
   rmSync(staging, { recursive: true, force: true });
   return ack(begin.transferId, cut, digest);
@@ -872,10 +873,12 @@ export async function runFleetReplicaPullClient(
 async function pullReplica(options: FleetReplicaPullClientOptions): Promise<FleetReplicaPullClientResult> {
   const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint),
     session = options.sessionPool ? await options.sessionPool.acquire(options) : await openPeer(options);
-  let last: FleetReplicaPullClientResult["replica"] | null = null,
-    failed = true;
+  let failed = true;
+  let target = typeof options.through === "number" ? options.through : null;
+  const deadline = Date.now() + (options.timeoutMs ?? 5_000);
   try {
     for (;;) {
+      let result: FleetReplicaPullClientResult;
       session.send({
         schema: "fleet.replica.pull/v1",
         messageId: session.messageId(),
@@ -884,7 +887,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
       for (;;) {
         const inbound = await session.next();
         if (inbound.schema === "fleet.replica.preparing/v1") continue;
-        if (inbound.schema === "fleet.replica.current/v1") {
+        if (inbound.schema === "fleet.replica.current/v1" || inbound.schema === "fleet.replica.checkpoint/v1") {
           const current = view.current(inbound.repoId, inbound.viewId);
           if (
             !current ||
@@ -904,10 +907,10 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
           );
           recordHeadConfirmation(
             path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId),
-            inbound.cut,
+            inbound.knownHead,
           );
-          failed = false;
-          return { replica: last ?? inbound, current };
+          result = { replica: inbound, current };
+          break;
         }
         const response = view.receive(inbound);
         if (!response) continue;
@@ -915,9 +918,21 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
         options.beforeAck?.(response);
         const acknowledged = await session.request(response);
         if (acknowledged.schema !== "fleet.ack.result/v1") throw new Error("ACK result expected");
-        last = acknowledged;
+        if (acknowledged.outcome === "op_rejected") throw new Error("replica ACK rejected");
+        recordHeadConfirmation(
+          path.join(options.viewRoot, "repos", options.repoId, "views", acknowledged.viewId),
+          acknowledged.knownHead,
+        );
+        const current = view.current(options.repoId, acknowledged.viewId)!;
+        result = { replica: acknowledged, current };
         break;
       }
+      if (options.through === "known-head") target ??= result.replica.knownHead.revision;
+      if (target === null || result.current.cut.revision >= target) {
+        failed = false;
+        return result;
+      }
+      await waitForReplicaCheckpoint(session, options.repoId, target, deadline);
     }
   } finally {
     if (!options.sessionPool) session.close();
