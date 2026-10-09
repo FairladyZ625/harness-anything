@@ -21,10 +21,13 @@ function cachePath(view: FleetMirrorView, digest: string): string {
 export function readEdgeCiDetail(viewRoot: string, view: FleetMirrorView, digest: string): Uint8Array | null {
   const descriptor = edgeCiDetailDescriptors(viewRoot, view).find((row) => row.ref.sha256 === digest);
   if (!descriptor) throw new Error("CI detail is not in the authorized cut");
-  const file = cachePath(view, digest);
+  return readCachedCiDetail(view, descriptor);
+}
+function readCachedCiDetail(view: FleetMirrorView, descriptor: Descriptor): Uint8Array | null {
+  const file = cachePath(view, descriptor.ref.sha256);
   if (!existsSync(file)) return null;
   const bytes = readFileSync(file);
-  if (bytes.byteLength !== descriptor.ref.encodedBytes || sha256Bytes(bytes) !== digest)
+  if (bytes.byteLength !== descriptor.ref.encodedBytes || sha256Bytes(bytes) !== descriptor.ref.sha256)
     throw new Error("CI detail cache is corrupt");
   return bytes;
 }
@@ -42,7 +45,7 @@ export async function fetchEdgeCiDetails(input: {
       if (!row) throw new Error(`CI observation ${id} is not in the authorized cut`);
       return row;
     })
-    .filter((row) => !readEdgeCiDetail(input.viewRoot, input.view, row.ref.sha256));
+    .filter((row) => !readCachedCiDetail(input.view, row));
   if (!needed.length) return;
   const usage = (root: string): number =>
     !existsSync(root)
