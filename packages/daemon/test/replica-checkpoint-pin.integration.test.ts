@@ -53,13 +53,14 @@ for (const termination of ["ack", "disconnect", "expire", "quota"] as const) {
       const lease = ackStore.delivery.claim(key, "session-a", Date.now(), 30_000)!;
       const second = ackStore.delivery.claim(secondKey, "session-b", Date.now(), 30_000)!;
       assert.equal(ackStore.delivery.claim(key, "other-session", Date.now(), 30_000), null);
-      const target = await source.pin(
+      const { cut: target } = await source.pin(
         lease,
+        lease.holderId,
         null,
         termination === "quota" ? 1000 : 1_000_000,
         path.join(root, "center"),
       );
-      const other = await source.pin(second, null, 1_000_000, path.join(root, "center"));
+      const { cut: other } = await source.pin(second, second.holderId, null, 1_000_000, path.join(root, "center"));
       assert.deepEqual(target, other);
       assert.equal(builds, 1, "two edges share one build");
       const offer = ackStore.offer(key, await makeOffer(key, null, target, source, new Date().toISOString()));
@@ -173,13 +174,15 @@ test("three edges share retained blobs; quota rejects the newcomer without fenci
     for (let i = 0; i < 3; i++) {
       revision = i + 1;
       await source.waitForCut(revision);
-      const target = await source.pin(leases[i]!, null, quota, leaseRoot);
+      const { cut: target } = await source.pin(leases[i]!, leases[i]!.holderId, null, quota, leaseRoot);
       assert.equal(target.revision, revision);
       assert.ok(target.manifest.totalBytes > quota, "duplicate document paths do not consume duplicate blob storage");
     }
     revision = 4;
     await source.waitForCut(revision);
-    await assert.rejects(source.pin(leases[3]!, null, quota, leaseRoot), { code: "replica_quota_insufficient" });
+    await assert.rejects(source.pin(leases[3]!, leases[3]!.holderId, null, quota, leaseRoot), {
+      code: "replica_quota_insufficient",
+    });
     assert.equal(source.pinActive(leases[3]!), false);
     for (const lease of leases.slice(0, 3)) {
       assert.equal(source.pinActive(lease), true);
@@ -193,7 +196,7 @@ test("three edges share retained blobs; quota rejects the newcomer without fenci
     );
     source.releasePin(leases[0]!);
     ackStore.delivery.release(leases[0]!);
-    assert.equal((await source.pin(leases[3]!, null, quota, leaseRoot)).revision, 4);
+    assert.equal((await source.pin(leases[3]!, leases[3]!.holderId, null, quota, leaseRoot)).cut.revision, 4);
     assert.equal(source.pinActive(leases[1]!), true);
     assert.equal(source.pinActive(leases[2]!), true);
   } finally {

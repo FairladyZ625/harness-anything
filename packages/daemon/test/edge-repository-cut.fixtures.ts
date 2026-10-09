@@ -108,6 +108,7 @@ export function repositoryCutFixture(t: TestContext) {
         headDigest: cut.headDigest,
         manifestDigest: cut.manifest.digest,
       } as ReturnType<ReplicaAckStore["cursor"]>;
+      receiver.collect(key.repoId, key.viewId, offer.transferId);
       return frames;
     },
   };

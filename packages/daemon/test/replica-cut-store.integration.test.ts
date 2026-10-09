@@ -1388,7 +1388,7 @@ test("retention totals follow shared blobs, disappearance, return, reopen, rollb
     ack = openReplicaAckStore(leaseRoot),
     now = Date.now();
   t.mock.method(Date, "now", () => now);
-  const lease = ack.delivery.claim({ repoId: "accounting", nodeId: "edge", viewId: "edge" }, "holder", now, 30_000)!;
+  const key = { repoId: "accounting", nodeId: "edge", viewId: "edge" };
   const x = Buffer.from("shared-x"),
     y = Buffer.from("other-y-longer"),
     z = Buffer.from("z");
@@ -1422,9 +1422,12 @@ test("retention totals follow shared blobs, disappearance, return, reopen, rollb
     for (let from = revision; source.cut(from); from--) {
       for (const entry of source.manifest(from)!) live.set(entry.blob.sha256, entry.blob.size);
       const bytes = [...live.values()].reduce((a, b) => a + b, 0);
-      assert.equal((await source.pin(lease, from, bytes, leaseRoot)).revision, revision);
+      const { cut, lease } = await source.pin(key, "holder", from, bytes, leaseRoot);
+      assert.equal(cut.revision, revision);
       source.releasePin(lease);
-      await assert.rejects(source.pin(lease, from, bytes - 1, leaseRoot), { code: "replica_quota_insufficient" });
+      await assert.rejects(source.pin(key, "holder", from, bytes - 1, leaseRoot), {
+        code: "replica_quota_insufficient",
+      });
       assert.equal(source.pinActive(lease), false);
     }
   };
@@ -1460,7 +1463,8 @@ test("retention totals follow shared blobs, disappearance, return, reopen, rollb
         await assert.rejects(source.waitForCut(revision), /injected cut publication failure/u);
         mock.mock.restore();
         assert.equal(source.latest()!.revision, 2);
-        assert.equal((await source.pin(lease, 1, x.length, leaseRoot)).revision, 2);
+        const { cut, lease } = await source.pin(key, "holder", 1, x.length, leaseRoot);
+        assert.equal(cut.revision, 2);
         source.releasePin(lease);
       }
       await source.waitForCut(revision);

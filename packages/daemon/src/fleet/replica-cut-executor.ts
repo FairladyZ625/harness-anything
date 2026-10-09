@@ -1,3 +1,4 @@
+import { FleetFault } from "./center-types.ts";
 import { parentPort, workerData } from "node:worker_threads";
 import { makeTaskEventReader, makeTaskProjectionReader, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { openReplicaCutSource } from "./replica-cut-store.ts";
@@ -54,7 +55,7 @@ port.on("message", async ({ id, command }: { readonly id: number; readonly comma
         source.releasePin(command.lease);
         break;
       case "pin":
-        value = await source.pin(command.lease, command.from, command.quota, command.leaseRoot);
+        value = await source.pin(command.key, command.holderId, command.from, command.quota, command.leaseRoot);
         break;
     }
     if (value instanceof Uint8Array) {
@@ -64,12 +65,16 @@ port.on("message", async ({ id, command }: { readonly id: number; readonly comma
   } catch (error) {
     const response = {
       id,
-      error: {
-        message: error instanceof Error ? error.message : String(error),
-        ...(error && typeof error === "object" && "code" in error && typeof error.code === "string"
-          ? { code: error.code }
-          : {}),
-      },
+      error:
+        error instanceof FleetFault
+          ? { kind: "fleet", message: error.message, code: error.code, retryable: error.retryable }
+          : {
+              kind: "unexpected",
+              message: error instanceof Error ? error.message : String(error),
+              ...(error && typeof error === "object" && "code" in error && typeof error.code === "string"
+                ? { code: error.code }
+                : {}),
+            },
     } satisfies CutResponse;
     port.postMessage(response);
     return response;

@@ -1,4 +1,4 @@
-import { openReplicaAckStore } from "./replica-ack-store.ts";
+import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";
 import type { ReplicaDeliveryLease } from "./replica-delivery-lease.ts";
 import { FleetFault } from "./center-types.ts";
 import { READ_MODEL_SCHEMA_GENERATION, runtimeEventContentClaims } from "@harness-anything/kernel";
@@ -45,11 +45,12 @@ export interface ReplicaManifestPage {
 }
 export interface ReplicaCutSource {
   readonly pin: (
-    lease: ReplicaDeliveryLease,
+    key: ReplicaDeliveryKey,
+    holderId: string,
     from: number | null,
     quota: number,
     leaseRoot: string,
-  ) => Promise<SnapshotCut>;
+  ) => Promise<{ readonly cut: SnapshotCut; readonly lease: ReplicaDeliveryLease }>;
   readonly releasePin: (lease: ReplicaDeliveryLease) => void;
   readonly pinActive: (lease: ReplicaDeliveryLease) => boolean;
 
@@ -802,34 +803,46 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     return bytes;
   };
   return {
-    pin: async (lease, from, quota, leaseRoot) => {
+    pin: async (key, holderId, from, quota, leaseRoot) => {
       const store = db();
       initializeRetention(store);
       let target!: SnapshotCut;
-      transact(store, () => {
-        if (!liveLease(lease, leaseRoot))
-          throw new FleetFault("replica_delivery_fenced", "Delivery lease expired before checkpoint selection.");
-        const latestCut = latest();
-        if (!latestCut) throw new FleetFault("replica_pending", "No checkpoint is published.");
-        target = latestCut;
-        const pinFrom = from !== null && cut(from) ? from : target.revision;
-        let oldest = pinFrom;
-        for (const pin of store.prepare("SELECT * FROM delivery_pin").all()) {
-          const held = JSON.parse(String(pin.lease_json)) as ReplicaDeliveryLease;
-          if (liveLease(held, String(pin.lease_root))) oldest = Math.min(oldest, Number(pin.from_revision));
-        }
-        // Admission may reject the newcomer, never revoke an already admitted live delivery.
-        if (retainedBytes(store, oldest) > quota)
-          throw new FleetFault(
-            "replica_quota_insufficient",
-            "Shared checkpoint content exceeds delivery retention quota.",
-          );
-        store
-          .prepare("INSERT OR REPLACE INTO delivery_pin VALUES (?, ?, ?, ?, ?, ?, NULL)")
-          .run(pinId(lease), JSON.stringify(lease), leaseRoot, pinFrom, target.revision, quota);
-        return [];
-      });
-      return target;
+      let lease: ReplicaDeliveryLease | null = null;
+      try {
+        transact(store, () => {
+          // The owner acquires the lease after its queue, in the same operation as target selection and pinning.
+          lease = leaseStore(leaseRoot).delivery.claim(key, holderId, Date.now(), 30_000);
+          if (!lease)
+            throw new FleetFault(
+              "replica_delivery_busy",
+              "This node/repository already has an active delivery lease",
+              true,
+            );
+          const latestCut = latest();
+          if (!latestCut) throw new FleetFault("replica_pending", "No checkpoint is published.");
+          target = latestCut;
+          const pinFrom = from !== null && cut(from) ? from : target.revision;
+          let oldest = pinFrom;
+          for (const pin of store.prepare("SELECT * FROM delivery_pin").all()) {
+            const held = JSON.parse(String(pin.lease_json)) as ReplicaDeliveryLease;
+            if (liveLease(held, String(pin.lease_root))) oldest = Math.min(oldest, Number(pin.from_revision));
+          }
+          // Admission may reject the newcomer, never revoke an already admitted live delivery.
+          if (retainedBytes(store, oldest) > quota)
+            throw new FleetFault(
+              "replica_quota_insufficient",
+              "Shared checkpoint content exceeds delivery retention quota.",
+            );
+          store
+            .prepare("INSERT OR REPLACE INTO delivery_pin VALUES (?, ?, ?, ?, ?, ?, NULL)")
+            .run(pinId(lease), JSON.stringify(lease), leaseRoot, pinFrom, target.revision, quota);
+          return [];
+        });
+      } catch (error) {
+        if (lease) leaseStore(leaseRoot).delivery.release(lease);
+        throw error;
+      }
+      return { cut: target, lease: lease! };
     },
     releasePin: (lease) => {
       db().prepare("DELETE FROM delivery_pin WHERE id=?").run(pinId(lease));

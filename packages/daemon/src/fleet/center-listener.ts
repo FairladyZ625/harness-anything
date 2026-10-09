@@ -1,4 +1,6 @@
+import { headAfterOrProgress, untilAborted } from "./center-replica-wait.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
+import type { ReplicaDeliveryLease } from "./replica-delivery-lease.ts";
 import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
@@ -237,53 +239,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
     return { a, replica, owner };
   };
-  // A watch that sees no new cut still answers on the progress interval with the unchanged head, so a
-  // connected edge can keep confirming freshness without pulling (the same role as etcd's progress notify).
-  const headAfterOrProgress = async (
-    replica: ReturnType<typeof options.host.replica>,
-    afterRevision: number,
-    progressMs: number,
-    signal: AbortSignal,
-  ): Promise<SnapshotCut> => {
-    const waiting = new AbortController();
-    const stop = AbortSignal.any([signal, closing.signal, waiting.signal]);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        replica.waitForCut(afterRevision + 1, stop),
-        new Promise<SnapshotCut>((resolve) => {
-          timer = setTimeout(() => resolve(replica.latest()!), progressMs);
-        }),
-      ]);
-    } finally {
-      clearTimeout(timer);
-      waiting.abort();
-    }
-  };
-  // The wait starts only once the session is known to be open: a wait started during shutdown would be
-  // rejected by the closing cut source with nobody left to observe it.
-  const untilAborted = <T>(start: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
-    const stop = signal ? AbortSignal.any([signal, closing.signal]) : closing.signal;
-    if (stop.aborted) return Promise.reject(new FleetFault("busy", "The replica session closed.", true));
-    const pending = start();
-    return new Promise<T>((resolve, reject) => {
-      const abort = () =>
-        reject(
-          stop.reason instanceof FleetFault ? stop.reason : new FleetFault("busy", "The replica session closed.", true),
-        );
-      stop.addEventListener("abort", abort, { once: true });
-      pending.then(
-        (value) => {
-          stop.removeEventListener("abort", abort);
-          resolve(value);
-        },
-        (error: unknown) => {
-          stop.removeEventListener("abort", abort);
-          reject(error);
-        },
-      );
-    });
-  };
   const handle = async (
     nodeId: string,
     frame: FleetFrameV1,
@@ -506,6 +461,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (frame.schema === "fleet.replica.watch/v1") {
       const { replica } = await admitReplica(nodeId, frame.repoId);
       if (!replica.latest()) throw new FleetFault("replica_pending", "No center cut is ready.", true);
+      const signal = AbortSignal.any([connectionSignal, closing.signal]);
       const latest = replica.latest(),
         // Wait for the next published checkpoint; its revision may skip ledger integers.
         next =
@@ -513,13 +469,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             ? latest
             : await untilAborted(
                 () =>
-                  headAfterOrProgress(
-                    replica,
-                    frame.afterRevision,
-                    options.replicaWatchProgressMs ?? 20_000,
-                    connectionSignal,
-                  ),
-                connectionSignal,
+                  headAfterOrProgress(replica, frame.afterRevision, options.replicaWatchProgressMs ?? 20_000, signal),
+                signal,
               );
       return immediate({
         schema: "fleet.replica.head-hint/v1",
@@ -662,20 +613,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const ttlMs = 30_000;
       if (options.buildDraining?.())
         throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
-      const lease = ackStore.delivery.claim(key, window.holderId, Date.now(), ttlMs);
-      if (!lease) {
-        ackStore.delivery.record(key, { failureCode: "replica_delivery_busy" });
-        throw new FleetFault(
-          "replica_delivery_busy",
-          "This node/repository already has an active delivery lease",
-          true,
-        );
-      }
       const lifecycle = deliveries.admit();
+      let lease: ReplicaDeliveryLease | undefined;
       const release = (acknowledged = false) => {
-        ackStore.clearOffer(lease);
-        ackStore.delivery.release(lease);
-        if (!acknowledged) replica.releasePin(lease);
+        if (lease) {
+          ackStore.clearOffer(lease);
+          ackStore.delivery.release(lease);
+          if (!acknowledged) replica.releasePin(lease);
+        }
         connectionSignal?.removeEventListener("abort", disconnected);
         lifecycle.released();
       };
@@ -688,25 +633,30 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("connection_closed", "Delivery connection closed", true);
       }
       const guard = () => {
-        if (!replica.pinActive(lease))
+        if (!replica.pinActive(lease!))
           throw new FleetFault("replica_delivery_fenced", "Delivery checkpoint pin is no longer active", true);
-        if (!ackStore.delivery.renew(lease, Date.now(), ttlMs))
+        if (!ackStore.delivery.renew(lease!, Date.now(), ttlMs))
           throw new FleetFault("replica_delivery_fenced", "Delivery lease renewal failed: expired or replaced", true);
       };
       let offer;
       try {
         const pinned = await replica.pin(
-          lease,
+          key,
+          window.holderId,
           cursor?.revision ?? null,
           options.replicaDiskQuotaBytes!,
           options.stateRoot,
         );
-        const prepared = await makeOffer(key, cursor, pinned, replica, now());
+        lease = pinned.lease;
+        if (connectionSignal?.aborted) throw new FleetFault("connection_closed", "Delivery connection closed", true);
+        const prepared = await makeOffer(key, cursor, pinned.cut, replica, now());
         guard();
         ackStore.clearOffer(lease);
         offer = ackStore.offer(key, prepared);
       } catch (error) {
         lifecycle.sendingFinished();
+        if (runtimeErrorCode(error) === "replica_delivery_busy")
+          ackStore.delivery.record(key, { failureCode: "replica_delivery_busy" });
         release();
         throw error;
       } finally {
