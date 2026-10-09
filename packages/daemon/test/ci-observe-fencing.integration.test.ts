@@ -288,14 +288,14 @@ test(
   async () => {
     revokeTestPolicyGroup("ci-center-owner", "contributor");
     grantTestPolicyGroups(["ci-center-owner"], "contributor");
-    await fixture(async ({ cell, release, started, show }) => {
+    await fixture(async ({ cell, release, started, show, events }) => {
       const collecting = cell.run(claim, binding);
       await waitForFile(started);
       const active = (await show()).status.activeRun!;
       let deadline: ReturnType<typeof setTimeout> | undefined;
       try {
         const receipt = await Promise.race([
-          cell.run({ kind: "ci-observe-pull", runs: [1] }, binding),
+          cell.run({ kind: "ci-observe-pull", runs: [2] }, binding),
           new Promise<never>((_, reject) => {
             deadline = setTimeout(() => reject(new Error("pull waited for occurrence")), 1000);
           }),
@@ -309,7 +309,16 @@ test(
         await collecting;
       }
       assert.equal((await show()).status.lastRun!.outcome, "succeeded");
-      assert.equal((await cell.run({ kind: "ci-observe-pull", runs: [1] }, binding)).outcome, "applied");
+      assert.equal((await events()).filter((event) => event.schema === "ci-run-observation/v4").length, 2);
+      assert.equal(
+        (await cell.run({ ...claim, idempotencyKey: "ci-occurrence-after-late-pull" }, binding)).outcome,
+        "applied",
+      );
+      assert.equal(
+        (await events()).filter((event) => event.schema === "ci-run-observation/v4").length,
+        4,
+        "the next occurrence consumes the late run without reissuing its request",
+      );
     });
   },
 );
