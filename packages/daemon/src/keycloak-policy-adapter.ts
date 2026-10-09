@@ -611,6 +611,10 @@ export class KeycloakPolicyAdapter {
     const response = await this.#fetch(this.#adminUrl(path), {
       ...init,
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers },
+    }).catch((cause: unknown) => {
+      throw Object.assign(new Error(`Keycloak Admin REST ${path} could not be reached.`, { cause }), {
+        code: "daemon_error",
+      });
     });
     if (!response.ok)
       throw Object.assign(new Error(`Keycloak Admin REST ${path} returned HTTP ${response.status}.`), {

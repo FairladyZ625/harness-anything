@@ -640,3 +640,29 @@ for (const endedBy of ["revoked", "expired", "logout", "new-login", "unreachable
     assert.equal(evaluations, 0);
   });
 }
+
+for (const transportCode of [undefined, "ECONNREFUSED"] as const) {
+  test(`center token transport failure stays daemon_error (${transportCode ?? "fetch failed"})`, async () => {
+    const cause = new TypeError("fetch failed", {
+      cause: transportCode ? Object.assign(new Error("connection refused"), { code: transportCode }) : undefined,
+    });
+    const active = fixture(Date.now(), {
+      fetch: async () => {
+        throw cause;
+      },
+    });
+    writeFileSync(path.join(active.root, "rbac", "center-client-secret"), "fixture-secret");
+    await assert.rejects(active.service.center(), (error: unknown) => {
+      assert.ok(error instanceof Error && "code" in error);
+      assert.equal(error.code, "daemon_error");
+      assert.equal(error.cause, cause);
+      return true;
+    });
+  });
+}
+
+test("center token HTTP rejection retains its service authentication code", async () => {
+  const active = fixture(Date.now(), { fetch: async () => new Response(null, { status: 401 }) });
+  writeFileSync(path.join(active.root, "rbac", "center-client-secret"), "fixture-secret");
+  await assert.rejects(active.service.center(), { code: "rbac_admin_unavailable" });
+});
