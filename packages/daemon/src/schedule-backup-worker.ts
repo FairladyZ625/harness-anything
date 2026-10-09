@@ -23,6 +23,10 @@ export type BackupWorkerMessage =
   | { readonly kind: "captured" }
   | { readonly kind: "result"; readonly result: BackupVerificationResult };
 
+// A builtin owns physical worker resources, not a renewable Schedule lease. Bound its
+// lifetime to 30 minutes (the supplied successful runs took about 8.5 minutes).
+export const backupExecutionLimitMs = 30 * 60_000;
+
 /** Only live-source capture holds the writer queue; all validation reads the frozen payload. */
 export function finishLedgerBackup(
   input: BackupVerification,
@@ -47,7 +51,9 @@ export function finishLedgerBackup(
     // The result settles at once; the worker's own exit must never be the settlement signal.
     else finished.resolve(message.result);
   });
+  let failure: Error | undefined;
   const fail = (error: Error) => {
+    failure = error;
     prepared.reject(error);
     captured.reject(error);
     finished.reject(error);
@@ -55,11 +61,19 @@ export function finishLedgerBackup(
   worker.once("error", fail);
   worker.once("exit", (code) => {
     // terminate() after a settled run lands here too; rejecting settled resolvers is a no-op.
-    fail(new Error(`backup worker exited ${code} without a result`));
+    fail(failure ?? new Error(`backup worker exited ${code} without a result`));
   });
+  const deadline = setTimeout(() => {
+    failure = new Error(`backup worker exceeded ${backupExecutionLimitMs}ms execution limit`);
+    // Reject capture only after exit: releasing the writer while a worker can still
+    // copy live source would let a later capture overlap an abandoned executor.
+    void worker.terminate().catch(fail);
+  }, backupExecutionLimitMs);
+  deadline.unref?.();
   // Observe every phase from the outset, including failures before capture admission.
   const capture = prepared.promise.then(() =>
     runSnapshot(() => {
+      if (failure) throw failure;
       worker.postMessage({ kind: "capture" });
       return captured.promise;
     }),
@@ -67,5 +81,8 @@ export function finishLedgerBackup(
   worker.postMessage(input);
   return Promise.all([capture, captured.promise, finished.promise])
     .then(([, , result]) => result)
-    .finally(() => worker.terminate());
+    .finally(() => {
+      clearTimeout(deadline);
+      return worker.terminate();
+    });
 }

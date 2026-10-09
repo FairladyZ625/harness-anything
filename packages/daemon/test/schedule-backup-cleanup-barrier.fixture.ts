@@ -32,6 +32,7 @@ fs.openSync = (candidate, flags, mode) => {
   return descriptor;
 };
 fs.cpSync = (source, destination, options) => {
+  if (workerData.phase === "capture" && String(destination).includes(`${path.sep}payload${path.sep}`)) hold();
   if (workerData.phase === "drill" && String(destination).includes(`${path.sep}restore-drills${path.sep}`)) hold();
   return copy(source, destination, options);
 };

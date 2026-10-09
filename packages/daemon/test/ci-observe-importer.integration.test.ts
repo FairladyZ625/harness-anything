@@ -32,6 +32,8 @@ function schedule(): ScheduleV1 {
 function provider() {
   const state = {
     runs: 0,
+    scanStart: 0,
+    scanStatus: "completed",
     slowArtifacts: false,
     interruptLastArtifact: false,
     downloaded: [] as string[],
@@ -66,10 +68,10 @@ function provider() {
       const start = (page - 1) * 20;
       return JSON.stringify({
         workflow_runs: Array.from({ length: Math.max(0, Math.min(20, state.runs - start)) }, (_, i) => ({
-          id: start + i + 1,
+          id: state.scanStart + start + i + 1,
           run_attempt: state.latestAttempt,
           head_branch: "main",
-          status: "completed",
+          status: state.scanStatus,
         })),
       });
     }
@@ -672,5 +674,30 @@ test("a progressing download exceeds the provider deadline and resumes completed
     assert.equal(current().status.ciObserve!.pending.length, 0);
     assert.equal(store.readHead()!.revision, 5, "workflow, three job details and complete attempt accepted");
     t.diagnostic(JSON.stringify({ elapsedMs: performance.now() - started, downloads: state.downloaded, pending: 0 }));
+  });
+});
+
+test("full pending capacity succeeds at the first unprocessed target and resumes when space frees", async () => {
+  await fixture(async ({ run, state, seedPending, current }) => {
+    seedPending(100);
+    state.artifacts = false;
+    state.runs = 1;
+    state.scanStart = 100;
+    state.scanStatus = "in_progress";
+    const full = await run();
+    assert.equal(full.outcome, "succeeded", full.detail);
+    assert.equal(full.ciObserve!.error, null);
+    assert.equal(full.ciObserve!.pending.length, 100);
+    assert.equal(full.ciObserve!.nextPage, 1);
+    assert.equal(full.ciObserve!.nextRunId, 101);
+    assert.equal(full.ciObserve!.nextAttempt, 1);
+    assert.equal(full.ciObserve!.scanPass, 0);
+    state.artifacts = true;
+    const resumed = await run();
+    assert.equal(resumed.outcome, "succeeded", resumed.detail);
+    assert.equal(current().status.ciObserve!.pending.length, 96);
+    assert.ok(current().status.ciObserve!.pending.some((target) => target.runId === 101));
+    assert.equal(current().status.ciObserve!.nextRunId, null);
+    assert.equal(current().status.ciObserve!.nextPage, 2);
   });
 });
