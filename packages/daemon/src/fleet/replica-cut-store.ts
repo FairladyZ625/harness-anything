@@ -34,6 +34,11 @@ export interface ReplicaManifestPage {
   readonly entries: readonly FleetEntry[];
   readonly done: boolean;
 }
+export interface ReplicaChanges {
+  readonly count: number;
+  readonly totalBytes: number;
+  readonly page: (offset: number) => { readonly changes: readonly FleetDeltaChange[]; readonly done: boolean };
+}
 export interface ReplicaCutSource {
   readonly pin: (
     key: ReplicaDeliveryKey,
@@ -41,7 +46,7 @@ export interface ReplicaCutSource {
     from: number | null,
     quota: number,
     leaseRoot: string,
-  ) => Promise<{ readonly cut: SnapshotCut; readonly lease: ReplicaDeliveryLease }>; 
+  ) => Promise<{ readonly cut: SnapshotCut; readonly lease: ReplicaDeliveryLease }>;
   readonly releasePin: (lease: ReplicaDeliveryLease) => void;
   readonly pinActive: (lease: ReplicaDeliveryLease) => boolean;
 
@@ -50,7 +55,7 @@ export interface ReplicaCutSource {
   readonly delivery: {
     readonly manifestPage: (revision: number, offset: number) => Promise<ReplicaManifestPage | null>;
     readonly manifestEntry: (revision: number, path: string) => Promise<FleetEntry | null>;
-    readonly changes: (from: number, to: number) => Promise<readonly FleetDeltaChange[] | null>;
+    readonly changes: (from: number, to: number) => Promise<ReplicaChanges | null>;
     readonly content: (blob: FleetBlob) => Promise<Uint8Array>;
   };
   readonly ledgerCut: () => LedgerCutIdentity | null;
@@ -64,7 +69,7 @@ export interface ReplicaCutSource {
   readonly manifest: (revision: number) => readonly FleetEntry[] | null;
   readonly manifestPage: (revision: number, offset: number) => ReplicaManifestPage | null;
   readonly manifestEntry: (revision: number, path: string) => FleetEntry | null;
-  readonly changes: (fromRevision: number, toRevision: number) => readonly FleetDeltaChange[] | null;
+  readonly changes: (fromRevision: number, toRevision: number) => ReplicaChanges | null;
   readonly changeLog: () => readonly ReplicaChangeLogEntry[];
   readonly content: (blob: FleetBlob) => Uint8Array;
   readonly close: () => void;
@@ -72,7 +77,7 @@ export interface ReplicaCutSource {
 export interface ReplicaCutSourceOptions {
   readonly repoId: string;
   readonly localRoot: string;
-  readonly readSequence: (from: number | null) => ReplicaSequenceRead | null;
+  readonly readSequence: <A>(from: number | null, read: (sequence: ReplicaSequenceRead | null) => A) => A;
   readonly readRevision: (revision?: number) => ReplicaRevision | null;
   readonly readLedgerCut?: () => LedgerCutIdentity;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
@@ -103,7 +108,9 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       CREATE TABLE IF NOT EXISTS delivery_pin (id TEXT PRIMARY KEY, lease_json TEXT NOT NULL, lease_root TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, quota INTEGER NOT NULL, remaining INTEGER);
       CREATE TABLE IF NOT EXISTS retention_blob (sha256 TEXT PRIMARY KEY, size INTEGER NOT NULL, refs INTEGER NOT NULL, last_revision INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS retention_retired ON retention_blob(refs,last_revision);
-      CREATE TABLE IF NOT EXISTS retention_total (revision INTEGER PRIMARY KEY, bytes INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS retention_total (revision INTEGER PRIMARY KEY, bytes INTEGER NOT NULL);
+      CREATE TEMP TABLE retention_delta (sha256 TEXT PRIMARY KEY, size INTEGER NOT NULL, refs INTEGER NOT NULL);
+      CREATE TEMP TABLE retired_content (sha256 TEXT PRIMARY KEY);`);
     return database;
   };
   // Buffer deletion evidence until its checkpoint transaction commits, never log rolled-back releases.
@@ -189,37 +196,34 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     const current = authority(leaseRoot).delivery.active(lease, Date.now());
     return current?.holderId === lease.holderId && current.claimFence === lease.claimFence;
   };
-  const countRetention = (deltas: Map<string, { size: number; refs: number }>, blob: FleetBlob, refs: number) => {
-    const delta = deltas.get(blob.sha256);
-    if (delta) delta.refs += refs;
-    else deltas.set(blob.sha256, { size: blob.size, refs });
-  };
   const retainedBytes = (store: DatabaseSync, from: number): number =>
     Number(store.prepare("SELECT bytes FROM retention_total WHERE revision = ?").get(from)!.bytes);
-  const accountRetention = (
-    store: DatabaseSync,
-    revision: number,
-    previousRevision: number | null,
-    deltas: ReadonlyMap<string, { readonly size: number; readonly refs: number }>,
-  ) => {
-    let headBytes = previousRevision === null ? 0 : retainedBytes(store, previousRevision);
-    const read = store.prepare("SELECT refs, last_revision FROM retention_blob WHERE sha256 = ?"),
-      write = store.prepare(
-        "INSERT INTO retention_blob VALUES (?, ?, ?, ?) ON CONFLICT(sha256) DO UPDATE SET refs=excluded.refs, last_revision=excluded.last_revision",
-      ),
-      add = store.prepare("UPDATE retention_total SET bytes = bytes + ? WHERE revision > ?");
-    for (const [sha256, delta] of deltas) {
-      if (delta.refs === 0) continue;
-      const prior = previousRevision === null ? undefined : read.get(sha256),
-        before = Number(prior?.refs ?? 0),
-        after = before + delta.refs;
-      // A returning blob is already charged to suffixes that include its last appearance.
-      if (before === 0) {
-        headBytes += delta.size;
-        if (previousRevision !== null) add.run(delta.size, Number(prior?.last_revision ?? 0));
-      } else if (after === 0) headBytes -= delta.size;
-      write.run(sha256, delta.size, after, after === 0 ? previousRevision! : revision);
-    }
+  const accountRetention = (store: DatabaseSync, revision: number, previousRevision: number | null) => {
+    const delta = Number(
+      store
+        .prepare(
+          `SELECT COALESCE(SUM(CASE
+      WHEN COALESCE(b.refs,0)=0 THEN d.size
+      WHEN b.refs+d.refs=0 THEN -d.size ELSE 0 END),0) AS bytes
+      FROM retention_delta d LEFT JOIN retention_blob b USING(sha256) WHERE d.refs != 0`,
+        )
+        .get()!.bytes,
+    );
+    const headBytes = (previousRevision === null ? 0 : retainedBytes(store, previousRevision)) + delta;
+    // Returning blobs are already charged to suffixes that include their last appearance.
+    store.exec(`UPDATE retention_total SET bytes=bytes+COALESCE((
+      SELECT SUM(d.size) FROM retention_delta d LEFT JOIN retention_blob b USING(sha256)
+      WHERE d.refs != 0 AND COALESCE(b.refs,0)=0
+        AND retention_total.revision>COALESCE(b.last_revision,0)),0)`);
+    store
+      .prepare(
+        `INSERT INTO retention_blob
+      SELECT d.sha256,d.size,COALESCE(b.refs,0)+d.refs,
+        CASE WHEN COALESCE(b.refs,0)+d.refs=0 THEN ? ELSE ? END
+      FROM retention_delta d LEFT JOIN retention_blob b USING(sha256) WHERE d.refs != 0
+      ON CONFLICT(sha256) DO UPDATE SET refs=excluded.refs,last_revision=excluded.last_revision`,
+      )
+      .run(previousRevision, revision);
     store.prepare("INSERT INTO retention_total VALUES (?, ?)").run(revision, headBytes);
   };
   const prune = () => {
@@ -270,75 +274,103 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     store.prepare("DELETE FROM retention_total WHERE revision<?").run(oldest);
     store.prepare("DELETE FROM retention_blob WHERE refs=0 AND last_revision<?").run(oldest);
     store.prepare("DELETE FROM entry WHERE entry_json IS NULL AND revision<?").run(oldest);
-    const retired = store
-      .prepare("SELECT DISTINCT blob_sha256 FROM entry WHERE end_revision<=? AND blob_sha256 IS NOT NULL")
-      .all(oldest);
+    store.exec("DELETE FROM retired_content");
+    store
+      .prepare(
+        "INSERT INTO retired_content SELECT DISTINCT blob_sha256 FROM entry WHERE end_revision<=? AND blob_sha256 IS NOT NULL",
+      )
+      .run(oldest);
     store.prepare("DELETE FROM entry WHERE end_revision<=?").run(oldest);
-    for (const row of retired)
-      store
-        .prepare("DELETE FROM content WHERE sha256=? AND NOT EXISTS (SELECT 1 FROM entry WHERE blob_sha256=?)")
-        .run(row.blob_sha256, row.blob_sha256);
+    store.exec(`DELETE FROM content WHERE sha256 IN (SELECT sha256 FROM retired_content)
+      AND NOT EXISTS (SELECT 1 FROM entry WHERE blob_sha256=content.sha256)`);
   };
   const waiters = new Map<number, Set<{ resolve: (cut: SnapshotCut) => void; reject: (error: unknown) => void }>>();
   const publish = () => {
     const capturedFrom = latest();
-    let sequence = options.readSequence(capturedFrom?.revision ?? null);
-    const full = !capturedFrom || !sequence;
-    if (!sequence && capturedFrom) sequence = options.readSequence(null);
-    if (!sequence) return capturedFrom;
-    const captured = sequence;
-    const result = transact(() => {
-      const current = latest();
-      if (current && current.revision >= captured.to.revision) return current;
-      const prior = full ? null : current;
-      const sequence = captured;
-      const retention = new Map<string, { size: number; refs: number }>();
-      if (!prior && current) for (const entry of manifest(current.revision)!) countRetention(retention, entry.blob, -1);
-      if (!prior) db().prepare("UPDATE entry SET end_revision=? WHERE end_revision IS NULL").run(sequence.to.revision);
-      let digest = prior?.manifest.digest ?? "0".repeat(64),
-        count = prior?.manifest.entryCount ?? 0,
-        total = prior?.manifest.totalBytes ?? 0;
-      for (const change of sequence.changes) {
-        const before = prior && entryAt(prior.revision, change.path);
-        if (before) {
-          countRetention(retention, before.blob, -1);
-          digest = updateReplicaManifestDigest(digest, before);
-          count--;
-          total -= before.blob.size;
-        }
-        let entry: FleetEntry | null = null;
-        if (change.op === "put") {
-          const body = change.text === null ? null : Buffer.from(change.text);
-          const blob = change.blob ?? {
-            sha256: sha256Text(change.text!),
-            size: body!.byteLength,
-            mediaType: "application/json",
-          };
-          if (body) db().prepare("INSERT OR IGNORE INTO content VALUES (?,?)").run(blob.sha256, body);
-          entry = { path: change.path, blob };
-          countRetention(retention, blob, 1);
-          digest = updateReplicaManifestDigest(digest, entry);
-          count++;
-          total += blob.size;
+    const write = (captured: ReplicaSequenceRead | null): SnapshotCut | null => {
+      if (!captured) return capturedFrom;
+      return transact(() => {
+        const current = latest();
+        if (current && current.revision >= captured.to.revision) return current;
+        const prior = captured.from === null ? null : current;
+        const sequence = captured;
+        const store = db();
+        const retention = store.prepare(`INSERT INTO retention_delta VALUES (?,?,?)
+        ON CONFLICT(sha256) DO UPDATE SET refs=refs+excluded.refs`),
+          writeContent = store.prepare("INSERT OR IGNORE INTO content VALUES (?,?)"),
+          retireEntry = store.prepare("UPDATE entry SET end_revision=? WHERE path=? AND end_revision IS NULL"),
+          writeEntry = store.prepare("INSERT INTO entry VALUES (?,?,?,NULL,?)"),
+          readEntry = store.prepare(
+            "SELECT entry_json FROM entry WHERE path=? AND revision<=? AND revision>=? ORDER BY revision DESC LIMIT 1",
+          );
+        const rootRevision = prior
+          ? Number(store.prepare("SELECT root_revision FROM cut WHERE revision=?").get(prior.revision)!.root_revision)
+          : sequence.to.revision;
+        store.exec("DELETE FROM retention_delta");
+        if (!prior && current)
+          for (const row of db()
+            .prepare("SELECT entry_json FROM entry WHERE end_revision IS NULL AND entry_json IS NOT NULL")
+            .iterate()) {
+            const blob = (JSON.parse(String(row.entry_json)) as FleetEntry).blob;
+            retention.run(blob.sha256, blob.size, -1);
+          }
+        if (!prior)
+          db().prepare("UPDATE entry SET end_revision=? WHERE end_revision IS NULL").run(sequence.to.revision);
+        let digest = prior?.manifest.digest ?? "0".repeat(64),
+          count = prior?.manifest.entryCount ?? 0,
+          total = prior?.manifest.totalBytes ?? 0;
+        for (const change of sequence.changes) {
+          const row = prior && readEntry.get(change.path, prior.revision, rootRevision);
+          const before = row?.entry_json ? (JSON.parse(String(row.entry_json)) as FleetEntry) : null;
+          if (before) {
+            retention.run(before.blob.sha256, before.blob.size, -1);
+            digest = updateReplicaManifestDigest(digest, before);
+            count--;
+            total -= before.blob.size;
+          }
+          let entry: FleetEntry | null = null;
+          if (change.op === "put") {
+            const body = change.text === null ? null : Buffer.from(change.text);
+            const blob = change.blob ?? {
+              sha256: sha256Text(change.text!),
+              size: body!.byteLength,
+              mediaType: "application/json",
+            };
+            if (body) writeContent.run(blob.sha256, body);
+            entry = { path: change.path, blob };
+            retention.run(blob.sha256, blob.size, 1);
+            digest = updateReplicaManifestDigest(digest, entry);
+            count++;
+            total += blob.size;
+          }
+          retireEntry.run(sequence.to.revision, change.path);
+          writeEntry.run(
+            sequence.to.revision,
+            change.path,
+            entry ? stableStringify(entry) : null,
+            entry?.blob.sha256 ?? null,
+          );
         }
         db()
-          .prepare("UPDATE entry SET end_revision=? WHERE path=? AND end_revision IS NULL")
-          .run(sequence.to.revision, change.path);
-        db()
-          .prepare("INSERT INTO entry VALUES (?,?,?,NULL,?)")
-          .run(sequence.to.revision, change.path, entry ? stableStringify(entry) : null, entry?.blob.sha256 ?? null);
-      }
-      const rootRevision = prior
-        ? Number(db().prepare("SELECT root_revision FROM cut WHERE revision=?").get(prior.revision)!.root_revision)
-        : sequence.to.revision;
-      db()
-        .prepare("INSERT INTO cut VALUES (?,?,?,?,?,?,?)")
-        .run(sequence.to.revision, sequence.to.headDigest, digest, count, total, sequence.to.occurredAt, rootRevision);
-      if (prior) db().prepare("INSERT INTO link VALUES (?,?)").run(sequence.to.revision, prior.revision);
-      accountRetention(db(), sequence.to.revision, current?.revision ?? null, retention);
-      prune();
-      return latest();
-    });
+          .prepare("INSERT INTO cut VALUES (?,?,?,?,?,?,?)")
+          .run(
+            sequence.to.revision,
+            sequence.to.headDigest,
+            digest,
+            count,
+            total,
+            sequence.to.occurredAt,
+            rootRevision,
+          );
+        if (prior) db().prepare("INSERT INTO link VALUES (?,?)").run(sequence.to.revision, prior.revision);
+        accountRetention(db(), sequence.to.revision, current?.revision ?? null);
+        prune();
+        return latest();
+      });
+    };
+    const result = options.readSequence(capturedFrom?.revision ?? null, (sequence) =>
+      !sequence && capturedFrom ? options.readSequence(null, write) : write(sequence),
+    );
     if (result)
       for (const [revision, rows] of waiters)
         if (revision <= result.revision) {
@@ -377,16 +409,31 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     }
     return reached === to;
   };
-  const changes = (from: number, to: number): FleetDeltaChange[] | null => {
+  const changes = (from: number, to: number): ReplicaChanges | null => {
     if (!continuous(from, to)) return null;
-    const result = new Map<string, FleetDeltaChange>();
-    for (const row of db()
-      .prepare("SELECT path,entry_json FROM entry WHERE revision>? AND revision<=? ORDER BY revision,path")
-      .iterate(from, to)) {
-      const entry = row.entry_json ? (JSON.parse(String(row.entry_json)) as FleetEntry) : null;
-      result.set(String(row.path), entry ? { op: "put", ...entry } : { op: "delete", path: String(row.path) });
-    }
-    return [...result.values()];
+    const where = "revision>? AND revision<=? AND (end_revision IS NULL OR end_revision>?)";
+    const summary = db()
+      .prepare(
+        `SELECT COUNT(*) AS count,
+      COALESCE(SUM(json_extract(entry_json, '$.blob.size')), 0) AS bytes FROM entry WHERE ${where}`,
+      )
+      .get(from, to, to)!;
+    return {
+      count: Number(summary.count),
+      totalBytes: Number(summary.bytes),
+      page: (offset) => {
+        const rows = db()
+          .prepare(`SELECT path,entry_json FROM entry WHERE ${where} ORDER BY path LIMIT 129 OFFSET ?`)
+          .all(from, to, to, offset);
+        return {
+          changes: rows.slice(0, 128).map((row): FleetDeltaChange => {
+            const entry = row.entry_json ? (JSON.parse(String(row.entry_json)) as FleetEntry) : null;
+            return entry ? { op: "put", ...entry } : { op: "delete", path: String(row.path) };
+          }),
+          done: rows.length <= 128,
+        };
+      },
+    };
   };
   const content = (blob: FleetBlob) => {
     const row = db().prepare("SELECT bytes FROM content WHERE sha256=?").get(blob.sha256);
@@ -424,7 +471,13 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       kick();
     });
   };
-  const pin = async (key: ReplicaDeliveryKey, holderId: string, from: number | null, quota: number, leaseRoot: string) => {
+  const pin = async (
+    key: ReplicaDeliveryKey,
+    holderId: string,
+    from: number | null,
+    quota: number,
+    leaseRoot: string,
+  ) => {
     active = true;
     if (from !== null) publish();
     let lease: ReplicaDeliveryLease | null = null;
@@ -432,7 +485,12 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       const target = transact(() => {
         // Publication precedes the lease: only active delivery work consumes its unchanged TTL.
         lease = authority(leaseRoot).delivery.claim(key, holderId, Date.now(), 30_000);
-        if (!lease) throw new FleetFault("replica_delivery_busy", "This node/repository already has an active delivery lease", true);
+        if (!lease)
+          throw new FleetFault(
+            "replica_delivery_busy",
+            "This node/repository already has an active delivery lease",
+            true,
+          );
         const target = latest();
         if (!target) throw new FleetFault("replica_pending", "No checkpoint is published.");
         const pinFrom = from !== null && continuous(from, target.revision) ? from : target.revision;
@@ -442,8 +500,12 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
           if (live(held, String(pin.lease_root))) oldest = Math.min(oldest, Number(pin.from_revision));
         }
         if (retainedBytes(db(), oldest) > quota)
-          throw new FleetFault("replica_quota_insufficient", "Shared checkpoint content exceeds delivery retention quota.");
-        db().prepare("INSERT OR REPLACE INTO delivery_pin VALUES (?,?,?,?,?,?,NULL)")
+          throw new FleetFault(
+            "replica_quota_insufficient",
+            "Shared checkpoint content exceeds delivery retention quota.",
+          );
+        db()
+          .prepare("INSERT OR REPLACE INTO delivery_pin VALUES (?,?,?,?,?,?,NULL)")
           .run(pinId(lease), JSON.stringify(lease), leaseRoot, pinFrom, target.revision, quota);
         return target;
       });
@@ -483,9 +545,18 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     },
     changeLog: () => {
       const result: ReplicaChangeLogEntry[] = [];
-      for (const row of db().prepare("SELECT * FROM link ORDER BY to_revision").iterate())
-        for (const change of changes(Number(row.from_revision), Number(row.to_revision)) ?? [])
-          result.push({ fromRevision: Number(row.from_revision), toRevision: Number(row.to_revision), change });
+      for (const row of db().prepare("SELECT * FROM link ORDER BY to_revision").iterate()) {
+        const sequence = changes(Number(row.from_revision), Number(row.to_revision));
+        if (!sequence) continue;
+        let offset = 0;
+        for (;;) {
+          const page = sequence.page(offset);
+          for (const change of page.changes)
+            result.push({ fromRevision: Number(row.from_revision), toRevision: Number(row.to_revision), change });
+          if (page.done) break;
+          offset += page.changes.length;
+        }
+      }
       return result;
     },
     releasePin: (lease) => {

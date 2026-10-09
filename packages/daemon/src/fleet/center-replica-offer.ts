@@ -8,7 +8,7 @@ import { runtimeErrorCode } from "../runtime-spawn-errors.ts";
 import { FleetFault } from "./center-types.ts";
 import { FLEET_CHUNK_BYTES, type FleetCut, type FleetEntry, type FleetFrameV1 } from "./contract.ts";
 import { type ReplicaAckStore, type ReplicaDeliveryKey, type ReplicaOffer } from "./replica-ack-store.ts";
-import type { ReplicaCutSource, SnapshotCut } from "./replica-cut-store.ts";
+import type { ReplicaChanges, ReplicaCutSource, SnapshotCut } from "./replica-cut-store.ts";
 import { parseEdgeReadModelMeta, READ_MODEL_META_PATH, updateReplicaManifestDigest } from "@harness-anything/kernel";
 
 export async function makeOffer(
@@ -112,33 +112,45 @@ export async function* offerFrames(
     viewId: offer.viewId,
     fromCut: offer.fromCut,
     toCut: offer.toCut,
-    changeCount: changes.length,
+    changeCount: changes.count,
     resultManifestDigest: offer.manifestDigest,
     authorizationOwner: authorization.owner,
     authorizationShapeDigest: authorization.digest,
   };
-  for (let offset = 0; offset < changes.length; offset += 128)
+  for (const page of changePages(changes))
     yield {
       schema: "fleet.delta.page/v1",
-      messageId: mid(offer.transferId, `page${offset / 128}`),
+      messageId: mid(offer.transferId, `page${page.index}`),
       transferId: offer.transferId,
-      pageIndex: offset / 128,
-      changes: changes.slice(offset, offset + 128),
+      pageIndex: page.index,
+      changes: page.changes,
     };
-  for (const change of changes)
-    if (change.op === "put")
-      yield* blobFrames(
-        "delta",
-        offer.transferId,
-        { path: change.path, blob: change.blob },
-        await replica.delivery.content(change.blob),
-      );
+  for (const page of changePages(changes))
+    for (const change of page.changes)
+      if (change.op === "put")
+        yield* blobFrames(
+          "delta",
+          offer.transferId,
+          { path: change.path, blob: change.blob },
+          await replica.delivery.content(change.blob),
+        );
   yield {
     schema: "fleet.delta.finish/v1",
     messageId: mid(offer.transferId, "finish"),
     transferId: offer.transferId,
     resultManifestDigest: offer.manifestDigest,
   };
+}
+
+function* changePages(sequence: ReplicaChanges) {
+  let offset = 0,
+    index = 0;
+  for (;;) {
+    const page = sequence.page(offset);
+    if (page.changes.length) yield { ...page, index: index++ };
+    if (page.done) return;
+    offset += page.changes.length;
+  }
 }
 
 /** Page buffers are bounded; full reconciliation completes before any snapshot blob or finish. */

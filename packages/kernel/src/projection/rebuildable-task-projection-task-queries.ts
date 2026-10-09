@@ -312,8 +312,8 @@ export function taskQueryApi(
     readDocument: (documentPath) => readDocument(projectionPath, readHead, eventStore, documentPath, limit),
     readReplicaRevision: (revision) =>
       withDatabase(projectionPath, readHead, (db) => readReplicaRevision(db, revision)),
-    readReplicaSequence: (from) =>
-      withDatabase(projectionPath, readHead, (db) => queryTransaction(db, () => readReplicaSequence(db, from))),
+    readReplicaSequence: (from, read) =>
+      withDatabase(projectionPath, readHead, (db) => queryTransaction(db, () => read(readReplicaSequence(db, from)))),
     readReplicaBasis: (afterRevision) => {
       if (afterRevision !== null && (!Number.isSafeInteger(afterRevision) || afterRevision < 0))
         throw new Error("replica basis revision must be a non-negative integer or null");

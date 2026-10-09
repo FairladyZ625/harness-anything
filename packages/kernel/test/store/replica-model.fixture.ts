@@ -38,7 +38,13 @@ export function replicaModelFixtureSnapshot(db: DatabaseSync, head: PersistedCan
     capture({ ...event, workspaceRevision: ++revision });
   }
   capture(head);
-  return readReplicaSequence(db, null)!.changes;
+  return [...readReplicaSequence(db, null)!.changes];
 }
 
 export type { EdgeReadModelRows } from "../../src/projection/read-model.ts";
+
+export {
+  createReplicaSequence,
+  readReplicaSequence,
+  readReplicaRevision,
+} from "../../src/projection/replica-sequence.ts";

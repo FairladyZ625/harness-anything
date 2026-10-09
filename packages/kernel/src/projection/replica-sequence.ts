@@ -31,7 +31,7 @@ export interface ReplicaRevision {
 export interface ReplicaSequenceRead {
   readonly from: ReplicaRevision | null;
   readonly to: ReplicaRevision;
-  readonly changes: readonly ReplicaChange[];
+  readonly changes: Iterable<ReplicaChange>;
 }
 
 // The state digest replaces a full sorted-manifest hash. Each leaf binds path and blob;
@@ -122,29 +122,31 @@ export function readReplicaSequence(db: DatabaseSync, from: number | null): Repl
   if (!to) return null;
   const base = from === null ? null : readReplicaRevision(db, from);
   if (from !== null && !base) return null;
-  const changes = new Map<string, ReplicaChange>();
-  const rows =
-    from === null
-      ? prepareQuery(db, "SELECT path, blob_json, text FROM replica_entry ORDER BY path").iterate()
-      : prepareQuery(
-          db,
-          "SELECT path, blob_json, text FROM replica_change WHERE revision > ? AND revision <= ? ORDER BY revision,path",
-        ).iterate(from, to.revision);
-  for (const row of rows) {
-    const itemPath = String(row.path);
-    changes.set(
-      itemPath,
-      row.blob_json === null && row.text === null
+  // Consume inside the projection read transaction: neither rows nor inline bodies escape it.
+  function* changes(): Generator<ReplicaChange> {
+    const rows =
+      from === null
+        ? prepareQuery(db, "SELECT path, blob_json, text FROM replica_entry ORDER BY path").iterate()
+        : prepareQuery(
+            db,
+            `SELECT c.path, c.blob_json, c.text FROM replica_change c
+          JOIN (SELECT path, MAX(revision) AS revision FROM replica_change
+            WHERE revision > ? AND revision <= ? GROUP BY path) last USING(path, revision)
+          ORDER BY c.path`,
+          ).iterate(from, to!.revision);
+    for (const row of rows) {
+      const itemPath = String(row.path);
+      yield row.blob_json === null && row.text === null
         ? { op: "delete", path: itemPath }
         : {
             op: "put",
             path: itemPath,
             blob: row.blob_json === null ? null : (JSON.parse(String(row.blob_json)) as ReplicaBlob),
             text: row.text === null ? null : String(row.text),
-          },
-    );
+          };
+    }
   }
-  return { from: base, to, changes: [...changes.values()] };
+  return { from: base, to, changes: changes() };
 }
 
 /** Called inside the transaction that reduces this canonical event, before its watermark commits. */
