@@ -13,7 +13,7 @@ import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 
-// The gh stub answers `run list`/`run view` from a response file the test rewrites between phases;
+// The gh stub answers task witness API queries and `run list`/`run view` from the phase response file;
 // attempt API returns the same authoritative run; missing artifacts and outages remain explicit.
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-attest-override-gh-"));
 let stubFile = "";
@@ -31,6 +31,16 @@ if (args[0] === "run" && args[1] === "list") {
   process.stdout.write(JSON.stringify(spec.view));
 } else if (args[0] === "api") {
   const endpoint = args.find(arg => arg.startsWith("repos/")) || "";
+  if (endpoint.includes("/commits?")) {
+    process.stdout.write(JSON.stringify(spec.view ? [{sha: spec.view.headSha, parents: []}] : [])); process.exit(0);
+  }
+  if (endpoint.includes("/compare/")) {
+    process.stdout.write(JSON.stringify({status: "identical"})); process.exit(0);
+  }
+  if (endpoint.includes("/actions/runs?head_sha=")) {
+    process.stdout.write(JSON.stringify((spec.list ?? []).map(run => ({...run,
+      path: ".github/workflows/rewrite-ci.yml", event: spec.view.event})))); process.exit(0);
+  }
   if (endpoint.includes("/workflows/")) { process.stdout.write(JSON.stringify({workflow_runs: []})); process.exit(0); }
   if (endpoint.includes("/artifacts")) { process.stdout.write(JSON.stringify([{artifacts: []}])); process.exit(0); }
   if (endpoint.includes("/jobs?")) { process.stdout.write(JSON.stringify([
