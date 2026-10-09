@@ -233,7 +233,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     if (decision.outcome !== "allowed")
       throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
-    await replica.prepare();
     return { a, replica, owner };
   };
   // A watch that sees no new cut still answers on the progress interval with the unchanged head, so a
@@ -286,7 +285,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     frame: FleetFrameV1,
     window: SessionWindow,
     _clientGone: () => boolean = () => false,
-    connectionSignal?: AbortSignal,
+    connectionSignal: AbortSignal,
+    progress: (frame: FleetFrameV1) => Promise<void>,
   ): Promise<Delivery> => {
     if (frame.schema === "fleet.repo.metadata.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId),
@@ -500,8 +500,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.replica.watch/v1") {
-      const { replica } = await admitReplica(nodeId, frame.repoId),
-        latest = replica.latest(),
+      const { replica } = await admitReplica(nodeId, frame.repoId);
+      if (!replica.latest()) throw new FleetFault("replica_pending", "No center cut is ready.", true);
+      const latest = replica.latest(),
         // Cuts are contiguous per workspace revision and every center write kicks the cut source, so the
         // next revision's cut is the event a caught-up edge waits on instead of polling.
         next =
@@ -550,10 +551,42 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.replica.pull/v1") {
       const { a, replica, owner } = await admitReplica(nodeId, frame.repoId);
-      const ledgerCut = replica.ledgerCut();
-      if (!ledgerCut || ledgerCut.revision === 0)
-        throw new FleetFault("replica_pending", "No exact center cut is ready.", true);
-      const latest = await replica.waitForCut(ledgerCut.revision),
+      const ready = untilAborted(async () => {
+        await replica.prepare();
+        const ledgerCut = replica.ledgerCut();
+        if (!ledgerCut || ledgerCut.revision === 0)
+          throw new FleetFault("replica_pending", "No exact center cut is ready.", true);
+        const latest = await untilAborted(() => replica.waitForCut(ledgerCut.revision), connectionSignal);
+        return { latest, ledgerCut };
+      }, connectionSignal).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      let prepared: { latest: SnapshotCut; ledgerCut: NonNullable<ReturnType<typeof replica.ledgerCut>> };
+      for (;;) {
+        await progress({
+          schema: "fleet.replica.preparing/v1",
+          messageId: mid(frame.messageId, "preparing"),
+          inReplyTo: frame.messageId,
+          repoId: frame.repoId,
+        });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const outcome = await untilAborted(
+          () =>
+            Promise.race([
+              ready,
+              new Promise<null>((resolve) => {
+                timer = setTimeout(() => resolve(null), options.replicaWatchProgressMs ?? 20_000);
+              }),
+            ]),
+          connectionSignal,
+        ).finally(() => clearTimeout(timer));
+        if (outcome === null) continue;
+        if ("error" in outcome) throw outcome.error;
+        prepared = outcome.value;
+        break;
+      }
+      const { latest, ledgerCut } = prepared,
         key = { nodeId, viewId: nodeId, repoId: a.repoId },
         id = keyId(key);
       if (latest.headDigest !== ledgerCut.headDigest)
@@ -644,6 +677,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         }),
       };
     }
+
     if (frame.schema === "fleet.task.command/v1") {
       const a = await nodeContext(nodeId, frame.repoId);
       try {

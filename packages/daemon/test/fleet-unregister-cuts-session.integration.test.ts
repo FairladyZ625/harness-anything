@@ -86,7 +86,9 @@ test(
       uploadId: ready.uploadId,
     });
     assert.equal(staged.schema, "fleet.upload.result/v1");
-    const pulled = await peer.request({ schema: "fleet.replica.pull/v1", messageId: "pull", repoId });
+    const preparing = await peer.request({ schema: "fleet.replica.pull/v1", messageId: "pull", repoId });
+    assert.equal(preparing.schema, "fleet.replica.preparing/v1");
+    const pulled = await peer.receive();
     assert.equal(pulled.schema, "fleet.snapshot.begin/v1");
     if (pulled.schema !== "fleet.snapshot.begin/v1") return;
     let frame = await peer.receive();

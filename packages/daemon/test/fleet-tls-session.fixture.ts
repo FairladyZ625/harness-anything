@@ -237,19 +237,28 @@ export async function fleetFixture(
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
     runtimeArchiveReceipts,
     transportErrors,
-    center: (diskQuotaBytes = replicaQuota, staleReplica = false) =>
+    center: (diskQuotaBytes = replicaQuota, staleReplica = false, prepareDelayMs = 0, exactCutDelayMs = 0) =>
       owned.hold(
         listenFleetTls({
           host: {
             ...host,
             replica: (repoId: string) => {
               const replica = host.replica(repoId);
-              return staleReplica
+              return staleReplica || prepareDelayMs || exactCutDelayMs
                 ? {
                     ...replica,
+                    prepare: async () => {
+                      const delayMs = prepareDelayMs;
+                      prepareDelayMs = 0;
+                      await new Promise((resolve) => setTimeout(resolve, delayMs));
+                      return replica.prepare();
+                    },
                     waitForCut: async (revision: number) => {
+                      const delayMs = exactCutDelayMs;
+                      exactCutDelayMs = 0;
+                      await new Promise((resolve) => setTimeout(resolve, delayMs));
                       const cut = await replica.waitForCut(revision);
-                      return { ...cut, headDigest: `sha256:${"f".repeat(64)}` };
+                      return staleReplica ? { ...cut, headDigest: `sha256:${"f".repeat(64)}` } : cut;
                     },
                   }
                 : replica;
