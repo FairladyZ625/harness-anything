@@ -1,16 +1,37 @@
 // harness-test-tier: integration
-import { sha256Bytes, publicRuntimeInstallation, publicRuntimeSession } from "@harness-anything/kernel";
+import {
+  sha256Bytes,
+  sha256Text,
+  edgeReadModelEntries,
+  publicRuntimeInstallation,
+  publicRuntimeSession,
+} from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import test from "node:test";
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
-import { makeOffer } from "../src/fleet/center-replica-offer.ts";
+import { fleetManifestDigest } from "../src/fleet/contract.ts";
+import { makeOffer, offerFrames } from "../src/fleet/center-replica-offer.ts";
 import { readEdgeRuntimeResult } from "../src/runtime-result-read.ts";
 import { repositoryCutFixture, seedRepositoryFamilies } from "./edge-repository-cut.fixtures.ts";
 
 test("repository families survive real snapshot and delta update/delete with center query parity", async (t) => {
   const f = repositoryCutFixture(t);
   seedRepositoryFamilies(f.db);
+  // Golden produced by the eager implementation at 736c7bbe: streaming cannot change cut identity.
+  f.center.readEdgeReadModel(({ rows }) => {
+    const entries = [...edgeReadModelEntries({ sourceRevision: 100, rootThreshold: 10, rows })];
+    assert.equal(entries.length, 20);
+    assert.equal(
+      fleetManifestDigest(
+        entries.map(({ path, text }) => ({
+          path,
+          blob: { sha256: sha256Text(text), size: Buffer.byteLength(text), mediaType: "application/json" },
+        })),
+      ),
+      "dc134b8862c7b4fb8bc61959095a0183be53249a48b31782b1399e9cd949cde7",
+    );
+  });
   await f.transfer("snapshot");
   const parity = () => {
     const read = (q: typeof f.center) => ({
@@ -55,7 +76,10 @@ test("repository families survive real snapshot and delta update/delete with cen
   assert.equal(f.read((q) => q.readLeaseIntervals("task-1"))[0]?.releasedRevision, null);
   assert.equal(f.read((q) => q.listPinnedEntities())[0]?.entityRef, "squad/squad-1");
   assert.ok(!f.source.manifest(100)!.some((e) => /event_source|archived_entity/u.test(e.path)));
-  const model = f.center.readEdgeReadModel();
+  const model = f.center.readEdgeReadModel((model) => ({
+    ...model,
+    rows: { ...model.rows, repository: [...model.rows.repository] },
+  }));
   assert.equal(
     JSON.stringify(model.rows).includes("/private/owner"),
     false,
@@ -391,4 +415,84 @@ test("legacy detail never hides a current outcome's missing or corrupt claim", (
     assert.throws(() => f.source.activate(), /Runtime result.*unavailable/u);
     assert.equal(f.source.latest(), null);
   }
+});
+
+test("read model repository rows are lazy, repeatable and consumed inside the database read", (t) => {
+  const f = repositoryCutFixture(t);
+  const insert = f.db.prepare("INSERT INTO runtime_installation VALUES (?, ?, ?)");
+  insert.run("first", 1, JSON.stringify({ installationId: "first", hostRef: "/private/host" }));
+  // The next row must only be decoded when the consumer advances to it. Eager table materialization
+  // reaches this row before the callback can consume or stop at the first logical unit.
+  insert.run("second", 2, "invalid-json");
+  f.center.readEdgeReadModel(({ rows }) => {
+    for (let pass = 0; pass < 2; pass++) {
+      const iterator = rows.repository[Symbol.iterator]();
+      const first = iterator.next();
+      assert.equal(first.done, false);
+      assert.equal(first.value?.values.installation_id, "first");
+      assert.doesNotMatch(String(first.value?.values.value_json), /private/u);
+      iterator.return?.();
+    }
+    assert.throws(() => [...rows.repository], SyntaxError, "later invalid rows are still validated");
+  });
+  f.db.prepare("DELETE FROM runtime_installation WHERE installation_id = ?").run("second");
+  f.center.readEdgeReadModel(({ rows }) => {
+    const iterator = rows.repository[Symbol.iterator]();
+    assert.equal(iterator.next().done, false);
+    assert.equal(iterator.next().done, true);
+    assert.equal(iterator.next().done, true, "the final SQL row terminates the reader");
+  });
+});
+
+test("snapshot manifest pages terminate at the final page and reconcile before blob delivery", async (t) => {
+  const f = repositoryCutFixture(t);
+  const insert = f.db.prepare("INSERT INTO pinned_entities VALUES (?, ?, ?)");
+  for (let index = 0; index < 257; index++) insert.run(`task/task-${index}`, "now", "owner");
+  const cut = (await f.source.prepare())!;
+  const offsets: number[] = [];
+  let contentReads = 0;
+  const source = {
+    ...f.source,
+    delivery: {
+      ...f.source.delivery,
+      manifestPage: async (revision: number, offset: number) => {
+        offsets.push(offset);
+        return f.source.manifestPage(revision, offset);
+      },
+      content: async (blob: Parameters<typeof f.source.content>[0]) => {
+        contentReads++;
+        return f.source.content(blob);
+      },
+    },
+  };
+  const key = { nodeId: "edge", viewId: "edge", repoId: "families" };
+  const offer = { ...key, ...(await makeOffer(key, null, cut, source, "2026-10-07T00:00:00Z")) };
+  const sizes: number[] = [];
+  for await (const frame of offerFrames(offer, source, { owner: "owner", digest: "a".repeat(64) }))
+    if (frame.schema === "fleet.snapshot.page/v1") sizes.push(frame.entries.length);
+  assert.deepEqual(sizes, [128, 128, 2]);
+  assert.deepEqual(offsets, [0, 128, 256, 0, 128, 256], "done ends both passes without a page beyond the final one");
+  const readsBeforeCorruption = contentReads;
+  const corrupt = {
+    ...source,
+    delivery: {
+      ...source.delivery,
+      manifestPage: async (revision: number, offset: number) => {
+        const page = f.source.manifestPage(revision, offset)!;
+        return {
+          ...page,
+          entries: page.entries.map((entry, index) =>
+            offset === 128 && index === 0 ? { ...entry, blob: { ...entry.blob, sha256: "f".repeat(64) } } : entry,
+          ),
+        };
+      },
+    },
+  };
+  const seen: string[] = [];
+  await assert.rejects(async () => {
+    for await (const frame of offerFrames(offer, corrupt, { owner: "owner", digest: "a".repeat(64) }))
+      seen.push(frame.schema);
+  }, /manifest is unavailable or corrupt/u);
+  assert.equal(contentReads, readsBeforeCorruption, "whole-manifest validation is retained before any blob delivery");
+  assert.ok(!seen.includes("fleet.snapshot.finish/v1"), "a partial manifest can never publish an edge cut");
 });

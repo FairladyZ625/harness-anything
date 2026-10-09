@@ -24,7 +24,7 @@ const ledger = makeTaskEventReader(input),
     readBasis: (after) => projection!.readReplicaBasis(after),
     readLedgerCut: ledger.currentCut,
     readContentBlob: ledger.readContentBlob,
-    readEdgeReadModel: () => centerEdgeReadModel(projection!),
+    readEdgeReadModel: (read) => centerEdgeReadModel(projection!, read),
   });
 port.on("message", async ({ id, command }: { readonly id: number; readonly command: CutRequest }) => {
   try {
@@ -39,8 +39,11 @@ port.on("message", async ({ id, command }: { readonly id: number; readonly comma
       case "wait":
         value = await source.waitForCut(command.revision);
         break;
-      case "manifest":
-        value = source.manifest(command.revision);
+      case "manifestPage":
+        value = source.manifestPage(command.revision, command.offset);
+        break;
+      case "manifestEntry":
+        value = source.manifestEntry(command.revision, command.path);
         break;
       case "changes":
         value = source.changes(command.from, command.to);

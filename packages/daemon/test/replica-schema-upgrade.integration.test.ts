@@ -42,70 +42,71 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
     documents: [],
   };
   const snapshot = reduceTaskEvent(emptyTaskLifecycleSnapshot(), event);
-  const options = {
+  const options: Parameters<typeof openReplicaCutSource>[0] = {
     repoId: "schema-repo",
     localRoot: root,
     readBasis: () => basis,
     readContentBlob: () => null,
-    readEdgeReadModel: () => ({
-      sourceRevision: 1,
-      rootThreshold: 0,
-      rows: {
-        tasks: [
-          {
-            taskId: "task-1",
-            workspaceRevision: 1,
-            snapshotJson: JSON.stringify(snapshot),
-            status: snapshot.task!.status,
-            updatedAt: event.occurredAt,
-            packagePath: null,
-          },
-        ],
-        taskGeneration: [],
-        taskProgress: [],
-        entities: [],
-        leases: [],
-        relations: [],
-        decisions: [],
-        facts: [],
-        presetSnapshots: [],
-        repository: [],
-      },
-    }),
+    readEdgeReadModel: (read) =>
+      read({
+        sourceRevision: 1,
+        rootThreshold: 0,
+        rows: {
+          tasks: [
+            {
+              taskId: "task-1",
+              workspaceRevision: 1,
+              snapshotJson: JSON.stringify(snapshot),
+              status: snapshot.task!.status,
+              updatedAt: event.occurredAt,
+              packagePath: null,
+            },
+          ],
+          taskGeneration: [],
+          taskProgress: [],
+          entities: [],
+          leases: [],
+          relations: [],
+          decisions: [],
+          facts: [],
+          presetSnapshots: [],
+          repository: [],
+        },
+      }),
   };
   const initial = openReplicaCutSource(options);
   const original = initial.activate()!;
   const entries = initial.manifest(1)!;
+  const blobs = new Map(entries.map((entry) => [entry.blob.sha256, Buffer.from(initial.content(entry.blob))]));
   initial.close();
   const repoRoot = path.join(root, "replica/repos/schema-repo");
   const generationRoot = path.join(repoRoot, `g${READ_MODEL_SCHEMA_GENERATION}`);
   const historicalRoot = path.join(repoRoot, `g${READ_MODEL_SCHEMA_GENERATION - 1}`);
-  const blobRoot = path.join(generationRoot, "read-model-blobs");
+  const db = new DatabaseSync(path.join(generationRoot, "cuts-v2.sqlite"));
   const meta = entries.find((entry) => entry.path === READ_MODEL_META_PATH)!;
-  const currentMeta = JSON.parse(readFileSync(path.join(blobRoot, meta.blob.sha256), "utf8"));
+  const currentMeta = JSON.parse(blobs.get(meta.blob.sha256)!.toString("utf8"));
   const oldEntries = entries.map((entry) => {
     const oldBytes = Buffer.from(
       JSON.stringify({
-        ...JSON.parse(readFileSync(path.join(blobRoot, entry.blob.sha256), "utf8")),
+        ...JSON.parse(blobs.get(entry.blob.sha256)!.toString("utf8")),
         schemaGeneration: READ_MODEL_SCHEMA_GENERATION - 1,
       }),
     );
     const oldSha = sha256Bytes(oldBytes);
-    writeFileSync(path.join(blobRoot, oldSha), oldBytes);
+    blobs.set(oldSha, oldBytes);
+    db.prepare("INSERT INTO read_model_blob VALUES (?, ?)").run(oldSha, oldBytes);
     return { ...entry, blob: { ...entry.blob, sha256: oldSha, size: oldBytes.length } };
   });
   const manifestBytes = Buffer.from(stableStringify(oldEntries));
   const oldDigest = sha256Bytes(manifestBytes);
-  const manifestPath = path.join(generationRoot, "manifests/sha256", oldDigest.slice(0, 2), oldDigest);
-  mkdirSync(path.dirname(manifestPath), { recursive: true });
-  writeFileSync(manifestPath, manifestBytes);
-  renameSync(generationRoot, historicalRoot);
-  const db = new DatabaseSync(path.join(historicalRoot, "cuts.sqlite"));
+  const insert = db.prepare("INSERT INTO manifest_entry VALUES (?, ?, ?, ?)");
+  for (const [index, entry] of oldEntries.entries()) insert.run(oldDigest, index, entry.path, stableStringify(entry));
   db.prepare("UPDATE cut SET manifest_digest=?, total_bytes=? WHERE revision=1").run(
     oldDigest,
     oldEntries.reduce((n, entry) => n + entry.blob.size, 0),
   );
   db.close();
+  renameSync(generationRoot, historicalRoot);
   const staleCut = {
     ...original,
     manifest: {
@@ -118,13 +119,18 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
     ...initial,
     delivery: {
       ...initial.delivery,
-      manifest: async () => oldEntries,
-      content: async (blob: { sha256: string }) =>
-        readFileSync(path.join(historicalRoot, "read-model-blobs", blob.sha256)),
+      manifestPage: async (_revision: number, offset: number) => ({
+        entries: oldEntries.slice(offset, offset + 128),
+        done: offset + 128 >= oldEntries.length,
+      }),
+      manifestEntry: async (_revision: number, entryPath: string) =>
+        oldEntries.find((entry) => entry.path === entryPath) ?? null,
+      content: async (blob: { sha256: string }) => blobs.get(blob.sha256)!,
     },
     latest: () => staleCut,
+    cut: () => staleCut,
     manifest: () => oldEntries,
-    content: (blob: { sha256: string }) => readFileSync(path.join(historicalRoot, "read-model-blobs", blob.sha256)),
+    content: (blob: { sha256: string }) => blobs.get(blob.sha256)!,
   };
   const edgeRoot = path.join(root, "edges");
   let edge = openFleetEdgeView(edgeRoot, 64 * 1024 * 1024);
@@ -234,7 +240,7 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
   }
   assert.deepEqual(upgraded.changeLog(), []);
   assert.equal(options.readBasis().watermark, 1);
-  const historical = new DatabaseSync(path.join(historicalRoot, "cuts.sqlite"));
+  const historical = new DatabaseSync(path.join(historicalRoot, "cuts-v2.sqlite"));
   assert.equal(
     (historical.prepare("SELECT manifest_digest FROM cut WHERE revision=1").get() as { manifest_digest: string })
       .manifest_digest,
@@ -292,10 +298,17 @@ function generationDeltaFixture(prefix: string) {
       activate: () => cut2,
       prepare: async () => cut2,
       delivery: {
-        manifest: async (revision) => source.manifest(revision),
+        manifestPage: async (revision, offset) => source.manifestPage(revision, offset),
+        manifestEntry: async (revision, entryPath) => source.manifestEntry(revision, entryPath),
         changes: async (from, to) => source.changes(from, to),
         content: async (blob) => source.content(blob),
       },
+      manifestPage: (revision, offset) => {
+        const entries = source.manifest(revision);
+        return entries ? { entries: entries.slice(offset, offset + 128), done: offset + 128 >= entries.length } : null;
+      },
+      manifestEntry: (revision, entryPath) =>
+        source.manifest(revision)?.find((entry) => entry.path === entryPath) ?? null,
       ledgerCut: () => null,
       exactRevision: () => cut2.revision,
       kick: () => undefined,

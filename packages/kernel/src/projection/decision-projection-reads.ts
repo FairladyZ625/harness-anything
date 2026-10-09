@@ -312,12 +312,13 @@ export function listDecisionRowsPage(
     const [cursorId] = decodePageCursor(filters.cursor, 1);
     ids = ids.filter((decisionId) => compareDecisionIds(decisionId, cursorId!) > 0);
   }
-  if (filters.limit === undefined && filters.cursor === undefined) return { rows: readDecisionRows(db, ids, false) };
+  if (filters.limit === undefined && filters.cursor === undefined)
+    return { rows: readDecisionRows(db, ids, filters.withBody === true) };
   const pageLimit = filters.limit === undefined ? 100 : checkedPageLimit(filters.limit),
     pageIds = ids.slice(0, pageLimit),
     last = pageIds.at(-1);
   return {
-    rows: readDecisionRows(db, pageIds, false),
+    rows: readDecisionRows(db, pageIds, filters.withBody === true),
     page: {
       limit: pageLimit,
       cursor: filters.cursor ?? null,

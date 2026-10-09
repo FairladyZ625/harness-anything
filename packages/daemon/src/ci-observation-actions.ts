@@ -803,10 +803,22 @@ async function downloadCiArtifacts(
     });
     return false;
   } catch (error) {
-    const detail = ghFailureDetail(error),
-      remoteArchiveFailure =
-        /\bHTTP 5\d\d\b/iu.test(detail) && /\bAzure(?:\s+Blob)?\s+Storage\b|blob\.core\.windows\.net/iu.test(detail);
-    if (!/HTTP 404|Not Found/iu.test(detail) && !remoteArchiveFailure) throw error;
+    const detail = ghFailureDetail(error);
+    // Only the archive transfer is optional. Authentication, local IO and programming
+    // failures still invalidate the occurrence, even if their text mentions a transport error.
+    if (
+      error instanceof TypeError ||
+      error instanceof ReferenceError ||
+      error instanceof SyntaxError ||
+      /\bHTTP (?:401|403|429)\b|rate.limit|\b(?:ENOSPC|EACCES|EPERM|ENOENT|EROFS|EIO|EMFILE|ENFILE)\b/iu.test(detail)
+    )
+      throw error;
+    const archiveFailure = /\bHTTP [45]\d\d\b|Not Found/iu.test(detail),
+      networkFailure =
+        /\b(?:EOF|ECONNRESET|ECONNREFUSED|ECONNABORTED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|ENOTFOUND|EAI_AGAIN)\b|connection reset|connection refused|network is unreachable|no such host|TLS handshake|TLS connection|x509:|unexpected EOF/iu.test(
+          detail,
+        );
+    if (!archiveFailure && !networkFailure) throw error;
     consumeKnownError(error);
     return true;
   }

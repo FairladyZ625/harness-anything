@@ -1,5 +1,6 @@
 import { READ_MODEL_SCHEMA_GENERATION, runtimeEventContentClaims } from "@harness-anything/kernel";
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
+import { mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -23,7 +24,6 @@ import {
   type FleetEntry,
   type FleetManifest,
 } from "./contract.ts";
-import { writeFileDurably } from "../durable-file.ts";
 
 export interface SnapshotCut {
   readonly repoId: string;
@@ -36,11 +36,16 @@ export interface ReplicaChangeLogEntry {
   readonly toRevision: number;
   readonly change: FleetDeltaChange;
 }
+export interface ReplicaManifestPage {
+  readonly entries: readonly FleetEntry[];
+  readonly done: boolean;
+}
 export interface ReplicaCutSource {
   readonly activate: () => SnapshotCut | null;
   readonly prepare: () => Promise<SnapshotCut | null>;
   readonly delivery: {
-    readonly manifest: (revision: number) => Promise<readonly FleetEntry[] | null>;
+    readonly manifestPage: (revision: number, offset: number) => Promise<ReplicaManifestPage | null>;
+    readonly manifestEntry: (revision: number, path: string) => Promise<FleetEntry | null>;
     readonly changes: (from: number, to: number) => Promise<readonly FleetDeltaChange[] | null>;
     readonly content: (blob: FleetBlob) => Promise<Uint8Array>;
   };
@@ -53,6 +58,8 @@ export interface ReplicaCutSource {
   readonly eventAt: (revision: number) => string | null;
   readonly receiptBasis: (opId: string) => { readonly event: CanonicalEventV1; readonly applied: boolean } | null;
   readonly manifest: (revision: number) => readonly FleetEntry[] | null;
+  readonly manifestPage: (revision: number, offset: number) => ReplicaManifestPage | null;
+  readonly manifestEntry: (revision: number, path: string) => FleetEntry | null;
   readonly changes: (fromRevision: number, toRevision: number) => readonly FleetDeltaChange[] | null;
   readonly changeLog: () => readonly ReplicaChangeLogEntry[];
   readonly content: (blob: FleetBlob) => Uint8Array;
@@ -70,19 +77,23 @@ export interface ReplicaCutSourceOptions {
   readonly readApplied?: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly monotonicNow?: () => number;
   /** The edge read model at the projection's current revision, or null while it is not ready. */
-  readonly readEdgeReadModel?: () => {
-    readonly sourceRevision: number;
-    readonly rootThreshold: number;
-    readonly rows: EdgeReadModelRows;
-  } | null;
+  readonly readEdgeReadModel?: <T>(
+    read: (
+      model: {
+        readonly sourceRevision: number;
+        readonly rootThreshold: number;
+        readonly rows: EdgeReadModelRows;
+      } | null,
+    ) => T,
+  ) => T;
 }
 
 export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaCutSource {
   if (!/^[A-Za-z0-9_-]{1,96}$/u.test(options.repoId)) throw new Error("replica repo id is invalid");
   const root = path.join(options.localRoot, "replica", "repos", options.repoId, `g${READ_MODEL_SCHEMA_GENERATION}`),
     // A schema upgrade publishes a new derived namespace at the same canonical head.
-    databasePath = path.join(root, "cuts.sqlite"),
-    manifestRoot = path.join(root, "manifests", "sha256"),
+    // Derived cache format v2 stores row blobs atomically with its cuts; old caches are rebuilt.
+    databasePath = path.join(root, "cuts-v2.sqlite"),
     monotonicNow = options.monotonicNow ?? (() => performance.now());
   let database: DatabaseSync | null = null,
     active = false,
@@ -95,7 +106,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     database = new DatabaseSync(databasePath);
     database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;");
     database.exec(
-      "CREATE TABLE IF NOT EXISTS cut (repo_id TEXT NOT NULL, revision INTEGER PRIMARY KEY, head_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL, entry_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, event_occurred_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS change (repo_id TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL, blob_sha256 TEXT, size INTEGER, media_type TEXT, PRIMARY KEY(repo_id, from_revision, to_revision, path));",
+      "CREATE TABLE IF NOT EXISTS cut (repo_id TEXT NOT NULL, revision INTEGER PRIMARY KEY, head_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL, entry_count INTEGER NOT NULL, total_bytes INTEGER NOT NULL, event_occurred_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS change (repo_id TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, path TEXT NOT NULL, op TEXT NOT NULL, blob_sha256 TEXT, size INTEGER, media_type TEXT, PRIMARY KEY(repo_id, from_revision, to_revision, path)); CREATE TABLE IF NOT EXISTS read_model_blob (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL); CREATE TABLE IF NOT EXISTS manifest_entry (manifest_digest TEXT NOT NULL, ordinal INTEGER NOT NULL, path TEXT NOT NULL, entry_json TEXT NOT NULL, PRIMARY KEY(manifest_digest, ordinal), UNIQUE(manifest_digest, path));",
     );
     return database;
   };
@@ -140,25 +151,72 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
           serializePersistedCanonicalEvent(applied.event) === serializePersistedCanonicalEvent(event),
       };
     };
-  const manifestPath = (digest: string) => path.join(manifestRoot, digest.slice(0, 2), digest);
-  const manifest = (revision: number) => {
-    const row = db().prepare("SELECT manifest_digest FROM cut WHERE revision = ?").get(revision) as
-      | { readonly manifest_digest: string }
-      | undefined;
-    if (!row) return null;
-    const bytes = readFileSync(manifestPath(row.manifest_digest), "utf8");
-    if (sha256Text(bytes) !== row.manifest_digest)
-      throw new Error(`replica manifest ${row.manifest_digest} is corrupt`);
-    return JSON.parse(bytes) as FleetEntry[];
+  const manifestPage = (revision: number, offset: number): ReplicaManifestPage | null => {
+    const current = cut(revision);
+    if (!current) return null;
+    const rows = db()
+      .prepare(
+        "SELECT entry_json FROM manifest_entry WHERE manifest_digest = ? AND ordinal >= ? ORDER BY ordinal LIMIT 129",
+      )
+      .all(current.manifest.digest, offset);
+    return {
+      entries: rows.slice(0, 128).map((row) => JSON.parse(String(row.entry_json)) as FleetEntry),
+      done: rows.length <= 128,
+    };
   };
-  const writeManifest = (manifest: { readonly bytes: string; readonly digest: string }) => {
-    const target = manifestPath(manifest.digest);
-    if (existsSync(target)) {
-      if (readFileSync(target, "utf8") !== manifest.bytes)
-        throw new Error(`replica manifest CAS collision ${manifest.digest}`);
-      return;
+  const manifestEntry = (revision: number, entryPath: string): FleetEntry | null => {
+    const current = cut(revision);
+    if (!current) return null;
+    const row = db()
+      .prepare("SELECT entry_json FROM manifest_entry WHERE manifest_digest = ? AND path = ?")
+      .get(current.manifest.digest, entryPath);
+    return row ? (JSON.parse(String(row.entry_json)) as FleetEntry) : null;
+  };
+  const manifest = (revision: number): FleetEntry[] | null => {
+    const current = cut(revision);
+    if (!current) return null;
+    const entries: FleetEntry[] = [],
+      hash = createHash("sha256").update("[");
+    for (const row of db()
+      .prepare("SELECT entry_json FROM manifest_entry WHERE manifest_digest = ? ORDER BY ordinal")
+      .iterate(current.manifest.digest)) {
+      if (entries.length) hash.update(",");
+      hash.update(String(row.entry_json));
+      entries.push(JSON.parse(String(row.entry_json)) as FleetEntry);
     }
-    writeFileDurably(target, manifest.bytes);
+    if (hash.update("]").digest("hex") !== current.manifest.digest)
+      throw new Error(`replica manifest ${current.manifest.digest} is corrupt`);
+    return entries;
+  };
+  const writeManifest = (entries: readonly FleetEntry[]): string => {
+    const hash = createHash("sha256").update("[");
+    for (const [index, entry] of entries.entries()) {
+      if (index) hash.update(",");
+      hash.update(stableStringify(entry));
+    }
+    const digest = hash.update("]").digest("hex"),
+      store = db();
+    const prior = store
+      .prepare("SELECT entry_json FROM manifest_entry WHERE manifest_digest = ? ORDER BY ordinal")
+      .iterate(digest);
+    const first = prior.next();
+    if (!first.done) {
+      try {
+        let row: ReturnType<typeof prior.next> = first;
+        for (const entry of entries) {
+          if (row.done || String(row.value.entry_json) !== stableStringify(entry))
+            throw new Error(`replica manifest CAS collision ${digest}`);
+          row = prior.next();
+        }
+        if (!row.done) throw new Error(`replica manifest CAS collision ${digest}`);
+        return digest;
+      } finally {
+        prior.return?.();
+      }
+    }
+    const insert = store.prepare("INSERT INTO manifest_entry VALUES (?, ?, ?, ?)");
+    for (const [index, entry] of entries.entries()) insert.run(digest, index, entry.path, stableStringify(entry));
+    return digest;
   };
   const prune = (store: DatabaseSync) => {
     const retained = store
@@ -175,9 +233,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     store.prepare("DELETE FROM change WHERE from_revision < ?").run(oldest);
     return digests;
   };
-  // Cut rows are inserted inside the caller's round transaction; manifest files
-  // for pruned digests are unlinked only after that transaction commits, so a
-  // rollback restores rows whose files are still on disk.
+  // Cut and manifest rows share the round transaction; unreferenced content is reclaimed afterwards.
   const persistCut = (
     store: DatabaseSync,
     event: CanonicalEventV1,
@@ -255,14 +311,11 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       throw error;
     }
   };
-  const unlinkOrphanManifests = (store: DatabaseSync, digests: readonly string[]): void => {
+  const pruneContent = (store: DatabaseSync, digests: readonly string[]): void => {
     for (const orphan of digests)
-      if (
-        !store.prepare("SELECT 1 FROM cut WHERE manifest_digest = ? LIMIT 1").get(orphan) &&
-        existsSync(manifestPath(orphan))
-      )
-        unlinkSync(manifestPath(orphan));
-    if (digests.length === 0 || !existsSync(readModelBlobRoot)) return;
+      if (!store.prepare("SELECT 1 FROM cut WHERE manifest_digest = ? LIMIT 1").get(orphan))
+        store.prepare("DELETE FROM manifest_entry WHERE manifest_digest = ?").run(orphan);
+    if (digests.length === 0) return;
     // Every retained snapshot and delta must keep its content, including results removed from the head.
     const live = new Set(
       (
@@ -276,20 +329,24 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     for (const retained of store.prepare("SELECT revision FROM cut").all())
       for (const entry of manifest(Number(retained.revision)) ?? [])
         if (isReadModelPath(entry.path)) live.add(entry.blob.sha256);
-    for (const name of readdirSync(readModelBlobRoot)) if (!live.has(name)) unlinkSync(readModelBlobPath(name));
+    transact(store, () => {
+      const remove = store.prepare("DELETE FROM read_model_blob WHERE sha256 = ?");
+      for (const row of store.prepare("SELECT sha256 FROM read_model_blob").all())
+        if (!live.has(String(row.sha256))) remove.run(row.sha256);
+      return [];
+    });
   };
-  const persistInitial = (event: CanonicalEventV1, entries: readonly FleetEntry[]): SnapshotCut => {
-    const bytes = stableStringify(entries),
-      digest = sha256Text(bytes),
-      store = db();
+  const persistInitial = (event: CanonicalEventV1, entries: FleetEntry[]): SnapshotCut => {
+    const store = db();
     let cut!: SnapshotCut;
     const pruned = transact(store, () => {
-      const persisted = persistCut(store, event, entries, null, digest);
+      const published = withReadModel(entries, event.workspaceRevision),
+        digest = writeManifest(published),
+        persisted = persistCut(store, event, published, null, digest);
       cut = persisted.cut;
-      writeManifest({ bytes, digest });
       return persisted.pruned;
     });
-    unlinkOrphanManifests(store, pruned);
+    pruneContent(store, pruned);
     return cut;
   };
   const entriesFrom = (basis: ReplicaProjectionBasis) =>
@@ -299,117 +356,124 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         blob: { sha256: blobSha256, size, mediaType },
       }))
       .sort((left, right) => left.path.localeCompare(right.path));
-  // The edge task read model rides the cut as derived entries under .read-model/: one file per task
-  // row, so the existing delta protocol moves only changed rows. Its bytes are not canonical content
-  // blobs; they live beside the cut store and are reclaimed with the cuts that reference them.
-  const readModelBlobRoot = path.join(root, "read-model-blobs"),
-    readModelBlobPath = (sha256: string) => path.join(readModelBlobRoot, sha256);
-  const readModelEntry = (entryPath: string, text: string, mediaType: string): FleetEntry => {
-    const body = Buffer.from(text),
-      sha256 = sha256Bytes(body);
-    if (!existsSync(readModelBlobPath(sha256))) writeFileDurably(readModelBlobPath(sha256), body);
-    return { path: entryPath, blob: { sha256, size: body.byteLength, mediaType } };
-  };
+  // Derived row bytes share the cut's SQLite transaction, so publication pays one durable commit
+  // instead of one file and directory flush per row. The wire still addresses each row by its hash.
   const withReadModel = (entries: FleetEntry[], revision: number): FleetEntry[] => {
-    const model = options.readEdgeReadModel?.();
     if (!options.readEdgeReadModel) return entries;
-    if (!model || model.sourceRevision !== revision)
-      throw new Error(`Read model is unavailable at revision ${revision}`);
-    const ciDetails: FleetEntry[] = [];
-    const results = new Map<string, FleetEntry>(),
-      requiredResults = new Set<string>(),
-      unavailable = new Set<string>(),
-      unavailableEntries: FleetEntry[] = [];
-    const requireResult = (ref: string | null | undefined) => {
-      if (ref) requiredResults.add(ref);
-    };
-    for (const row of model.rows.repository) {
-      if (row.table === "runtime_session")
-        requireResult((JSON.parse(String(row.values.value_json)) as { resultRef?: string | null }).resultRef);
-      if (row.table !== "event_index") continue;
-      const event = JSON.parse(String(row.values.event_json)) as CanonicalEventV1;
-      if (event.schema === "ci-run-observation/v4" && event.payload.detailRef)
-        ciDetails.push(
-          readModelEntry(
-            `.read-model/ci-details/${event.eventId}.json`,
-            JSON.stringify({ eventId: event.eventId, ref: event.payload.detailRef }),
-            "application/json",
-          ),
-        );
-      if (event.schema === "schedule-event/v1") {
-        const detail = event.payload.schedule.status.lastRun?.detail;
-        // Retired schedule settlement stored a result ref plus cleanup prose in detail.
-        // Current outcomes carry claims; their missing/corrupt content still fails below.
-        if (detail?.startsWith("artifact:runtime-result/")) {
-          requireResult(detail);
-          unavailable.add(detail);
+    return options.readEdgeReadModel((model) => {
+      if (!model || model.sourceRevision !== revision)
+        throw new Error(`Read model is unavailable at revision ${revision}`);
+      const insertBlob = db().prepare("INSERT OR IGNORE INTO read_model_blob(sha256, bytes) VALUES (?, ?)"),
+        readModelEntry = (entryPath: string, text: string, mediaType: string): FleetEntry => {
+          const body = Buffer.from(text),
+            sha256 = sha256Bytes(body);
+          insertBlob.run(sha256, body);
+          return { path: entryPath, blob: { sha256, size: body.byteLength, mediaType } };
+        };
+      const ciDetails: FleetEntry[] = [];
+      const results = new Map<string, FleetEntry>(),
+        requiredResults = new Set<string>(),
+        unavailable = new Set<string>(),
+        unavailableEntries: FleetEntry[] = [];
+      const requireResult = (ref: string | null | undefined) => {
+        if (ref) requiredResults.add(ref);
+      };
+      for (const row of model.rows.repository) {
+        if (row.table === "runtime_session")
+          requireResult((JSON.parse(String(row.values.value_json)) as { resultRef?: string | null }).resultRef);
+        if (row.table !== "event_index") continue;
+        const event = JSON.parse(String(row.values.event_json)) as CanonicalEventV1;
+        if (event.schema === "ci-run-observation/v4" && event.payload.detailRef)
+          ciDetails.push(
+            readModelEntry(
+              `.read-model/ci-details/${event.eventId}.json`,
+              JSON.stringify({ eventId: event.eventId, ref: event.payload.detailRef }),
+              "application/json",
+            ),
+          );
+        if (event.schema === "schedule-event/v1") {
+          const detail = event.payload.schedule.status.lastRun?.detail;
+          // Retired schedule settlement stored a result ref plus cleanup prose in detail.
+          // Current outcomes carry claims; their missing/corrupt content still fails below.
+          if (detail?.startsWith("artifact:runtime-result/")) {
+            requireResult(detail);
+            unavailable.add(detail);
+          }
+        }
+        if (event.schema !== "agent-runtime-event/v1" || event.type !== "runtime_session_outcome_observed") continue;
+        requireResult(event.payload.resultRef);
+        if (event.payload.result === null) unavailable.add(event.payload.resultRef);
+        for (const claim of runtimeEventContentClaims(event)) {
+          const bytes = options.readContentBlob(claim.sha256);
+          if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
+            throw new Error(`Runtime result ${claim.sha256} is unavailable at revision ${revision}`);
+          insertBlob.run(claim.sha256, bytes);
+          results.set(claim.sha256, {
+            path: `.read-model/runtime-results/${claim.sha256}`,
+            blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
+          });
         }
       }
-      if (event.schema !== "agent-runtime-event/v1" || event.type !== "runtime_session_outcome_observed") continue;
-      requireResult(event.payload.resultRef);
-      if (event.payload.result === null) unavailable.add(event.payload.resultRef);
-      for (const claim of runtimeEventContentClaims(event)) {
-        const bytes = options.readContentBlob(claim.sha256);
-        if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
-          throw new Error(`Runtime result ${claim.sha256} is unavailable at revision ${revision}`);
-        if (!existsSync(readModelBlobPath(claim.sha256))) writeFileDurably(readModelBlobPath(claim.sha256), bytes);
-        results.set(claim.sha256, {
-          path: `.read-model/runtime-results/${claim.sha256}`,
-          blob: { sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
-        });
+      for (const ref of requiredResults) {
+        const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref)?.[1];
+        if (
+          (!digest || !results.has(digest)) &&
+          unavailable.has(ref) &&
+          (!digest || options.readContentBlob(digest) === null)
+        ) {
+          unavailable.add(ref);
+          unavailableEntries.push(
+            readModelEntry(
+              `.read-model/runtime-results-unavailable/${digest ?? `ref-${sha256Text(ref)}`}`,
+              stableStringify({ resultRef: ref, availability: "unavailable", downloadable: false }),
+              "application/json",
+            ),
+          );
+          continue;
+        }
+        if (!digest || !results.has(digest))
+          throw new Error(`Runtime result ${ref} has no content claim at revision ${revision}`);
       }
-    }
-    for (const ref of requiredResults) {
-      const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref)?.[1];
-      if (
-        (!digest || !results.has(digest)) &&
-        unavailable.has(ref) &&
-        (!digest || options.readContentBlob(digest) === null)
-      ) {
-        unavailable.add(ref);
-        unavailableEntries.push(
-          readModelEntry(
-            `.read-model/runtime-results-unavailable/${digest ?? `ref-${sha256Text(ref)}`}`,
-            stableStringify({ resultRef: ref, availability: "unavailable", downloadable: false }),
-            "application/json",
-          ),
-        );
-        continue;
-      }
-      if (!digest || !results.has(digest))
-        throw new Error(`Runtime result ${ref} has no content claim at revision ${revision}`);
-    }
-    return [
-      ...ciDetails,
-      ...unavailableEntries,
-      ...results.values(),
-      ...entries.filter((entry) => !isReadModelPath(entry.path)),
-      ...edgeReadModelEntries({
+      const published = [
+        ...ciDetails,
+        ...unavailableEntries,
+        ...results.values(),
+        ...entries.filter((entry) => !isReadModelPath(entry.path)),
+      ];
+      for (const entry of edgeReadModelEntries({
         sourceRevision: revision,
         rootThreshold: model.rootThreshold,
         rows: {
           ...model.rows,
-          repository: model.rows.repository.map((row) => {
-            if (row.table !== "runtime_session") return row;
-            const session = JSON.parse(String(row.values.value_json)) as { resultRef?: string };
-            if (!session.resultRef || !unavailable.has(session.resultRef)) return row;
-            const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(session.resultRef)?.[1];
-            if (digest && results.has(digest)) return row;
-            return {
-              ...row,
-              values: {
-                ...row.values,
-                value_json: stableStringify({
-                  ...session,
-                  resultAvailability: "unavailable",
-                  resultDownloadable: false,
-                }),
-              },
-            };
-          }),
+          repository: (function* () {
+            for (const row of model.rows.repository) {
+              yield publicSession(row);
+            }
+          })(),
         },
-      }).map((entry) => readModelEntry(entry.path, entry.text, "application/json")),
-    ].sort((left, right) => left.path.localeCompare(right.path));
+      }))
+        published.push(readModelEntry(entry.path, entry.text, "application/json"));
+      return published.sort((left, right) => left.path.localeCompare(right.path));
+
+      function publicSession(row: EdgeReadModelRows["repository"] extends Iterable<infer R> ? R : never) {
+        if (row.table !== "runtime_session") return row;
+        const session = JSON.parse(String(row.values.value_json)) as { resultRef?: string };
+        if (!session.resultRef || !unavailable.has(session.resultRef)) return row;
+        const digest = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(session.resultRef)?.[1];
+        if (digest && results.has(digest)) return row;
+        return {
+          ...row,
+          values: {
+            ...row.values,
+            value_json: stableStringify({
+              ...session,
+              resultAvailability: "unavailable",
+              resultDownloadable: false,
+            }),
+          },
+        };
+      }
+    });
   };
   const documentDigest = (entries: readonly FleetEntry[]) =>
     fleetManifestDigest(entries.filter((entry) => !isReadModelPath(entry.path)));
@@ -435,7 +499,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     if (!initial) {
       const basis = options.readBasis(null);
       if (basis.watermark === 0 || basis.watermark !== basis.sourceRevision || !basis.headEvent) return false;
-      const first = persistInitial(basis.headEvent, withReadModel(entriesFrom(basis), basis.watermark));
+      const first = persistInitial(basis.headEvent, entriesFrom(basis));
       settle(first);
       return false;
     }
@@ -451,8 +515,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     // One transaction drains the whole round: each commit under the old
     // rollback journal paid its own journal fsync chain per event. Waiters are
     // settled only after the commit, so a rolled-back round resolves nobody.
-    // Manifest files stay per-revision because delta offers address any
-    // retained revision, not only round-final ones.
+    // Retained cuts address immutable manifests by digest, including intermediate revisions.
     transact(store, () => {
       for (const event of basis.events) {
         if (processed > 0 && monotonicNow() - started >= 100) break;
@@ -466,10 +529,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
           documentDigest(entries) !== documentDigest(entriesFrom(basis))
         )
           throw new Error(`replica manifest drift at revision ${event.workspaceRevision}`);
-        const bytes = stableStringify(entries),
-          digest = sha256Text(bytes),
-          manifest = { bytes, digest };
-        writeManifest(manifest);
+        const digest = writeManifest(entries);
         const persisted = persistCut(store, event, entries, { revision: current.revision, entries: before }, digest);
         current = persisted.cut;
         settled.push(persisted.cut);
@@ -478,7 +538,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       }
       return pruned;
     });
-    unlinkOrphanManifests(store, pruned);
+    pruneContent(store, pruned);
     for (const cut of settled) settle(cut);
     return current.revision < basis.watermark;
   };
@@ -497,7 +557,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     const basis = options.readBasis(null),
       cut =
         basis.watermark > 0 && basis.watermark === basis.sourceRevision && basis.headEvent
-          ? persistInitial(basis.headEvent, withReadModel(entriesFrom(basis), basis.watermark))
+          ? persistInitial(basis.headEvent, entriesFrom(basis))
           : null;
     if (cut) settle(cut);
     else kick();
@@ -574,8 +634,11 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     return [...folded.values()].sort((left, right) => left.path.localeCompare(right.path));
   };
   const content = (blob: FleetBlob) => {
-    const bytes = existsSync(readModelBlobPath(blob.sha256))
-      ? readFileSync(readModelBlobPath(blob.sha256))
+    const row = db().prepare("SELECT bytes FROM read_model_blob WHERE sha256 = ?").get(blob.sha256) as
+      | { readonly bytes: Uint8Array }
+      | undefined;
+    const bytes = row
+      ? Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength)
       : options.readContentBlob(blob.sha256);
     if (!bytes || bytes.byteLength !== blob.size || sha256Bytes(bytes) !== blob.sha256)
       throw new Error(`canonical content blob ${blob.sha256} is unavailable or corrupt`);
@@ -585,7 +648,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     activate,
     prepare: async () => activate(),
     delivery: {
-      manifest: async (revision) => manifest(revision),
+      manifestPage: async (revision, offset) => manifestPage(revision, offset),
+      manifestEntry: async (revision, entryPath) => manifestEntry(revision, entryPath),
       changes: async (from, to) => changes(from, to),
       content: async (blob) => content(blob),
     },
@@ -598,6 +662,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     eventAt,
     receiptBasis,
     manifest,
+    manifestPage,
+    manifestEntry,
     changes,
     changeLog,
     content,
