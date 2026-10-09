@@ -69,7 +69,7 @@ export interface HeadConfirmation {
   readonly confirmedAt: number;
 }
 
-/** Every successful pull, with or without new bytes, is the center confirming its head now. */
+/** Record the actual known ledger head, independently of the delivered checkpoint revision. */
 export function recordHeadConfirmation(viewDir: string, cut: FleetCut, confirmedAt = Date.now()): void {
   writeFileDurably(
     path.join(viewDir, HEAD_CONFIRMATION_FILE),

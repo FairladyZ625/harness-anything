@@ -97,7 +97,7 @@ export interface FleetReplicaPullClientOptions extends FleetPeerOptions {
 export interface FleetReplicaPullClientResult {
   readonly replica:
     | Extract<FleetFrameV1, { schema: "fleet.ack.result/v1" }>
-    | Extract<FleetFrameV1, { schema: "fleet.replica.current/v1" }>;
+    | Extract<FleetFrameV1, { schema: "fleet.replica.current/v1" | "fleet.replica.checkpoint/v1" }>;
   readonly current: Current;
 }
 export class FleetRemoteError extends Error {
@@ -274,7 +274,6 @@ function finish(
     JSON.stringify(already?.cut) === JSON.stringify(cut) &&
     already?.manifestDigest === expected
   ) {
-    recordHeadConfirmation(viewRoot, cut);
     rmSync(staging, { recursive: true, force: true });
     return ack(begin.transferId, cut, expected);
   }
@@ -407,7 +406,6 @@ function finish(
     active = readJson<Current>(path.join(viewRoot, "current.json"));
   if (!reopened || !active || reopened.manifestDigest !== digest || JSON.stringify(active.cut) !== JSON.stringify(cut))
     throw new Error("atomic view verification failed");
-  recordHeadConfirmation(viewRoot, cut);
   collect(viewRoot, casRoot, `${cut.revision}-g${schemaGeneration}`);
   rmSync(staging, { recursive: true, force: true });
   return ack(begin.transferId, cut, digest);
@@ -872,8 +870,7 @@ export async function runFleetReplicaPullClient(
 async function pullReplica(options: FleetReplicaPullClientOptions): Promise<FleetReplicaPullClientResult> {
   const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint),
     session = options.sessionPool ? await options.sessionPool.acquire(options) : await openPeer(options);
-  let last: FleetReplicaPullClientResult["replica"] | null = null,
-    failed = true;
+  let failed = true;
   try {
     for (;;) {
       session.send({
@@ -884,7 +881,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
       for (;;) {
         const inbound = await session.next();
         if (inbound.schema === "fleet.replica.preparing/v1") continue;
-        if (inbound.schema === "fleet.replica.current/v1") {
+        if (inbound.schema === "fleet.replica.current/v1" || inbound.schema === "fleet.replica.checkpoint/v1") {
           const current = view.current(inbound.repoId, inbound.viewId);
           if (
             !current ||
@@ -904,10 +901,10 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
           );
           recordHeadConfirmation(
             path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId),
-            inbound.cut,
+            inbound.knownHead,
           );
           failed = false;
-          return { replica: last ?? inbound, current };
+          return { replica: inbound, current };
         }
         const response = view.receive(inbound);
         if (!response) continue;
@@ -915,8 +912,14 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
         options.beforeAck?.(response);
         const acknowledged = await session.request(response);
         if (acknowledged.schema !== "fleet.ack.result/v1") throw new Error("ACK result expected");
-        last = acknowledged;
-        break;
+        if (acknowledged.outcome === "op_rejected") throw new Error("replica ACK rejected");
+        recordHeadConfirmation(
+          path.join(options.viewRoot, "repos", options.repoId, "views", acknowledged.viewId),
+          acknowledged.knownHead,
+        );
+        const current = view.current(options.repoId, acknowledged.viewId)!;
+        failed = false;
+        return { replica: acknowledged, current };
       }
     }
   } finally {

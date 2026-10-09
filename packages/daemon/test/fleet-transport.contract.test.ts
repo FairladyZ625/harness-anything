@@ -168,7 +168,14 @@ const frames = [
   { schema: "fleet.replica.pull/v1", messageId: "m11-pull", repoId: "a1" },
   { schema: "fleet.replica.preparing/v1", messageId: "m11-preparing", inReplyTo: "m11-pull", repoId: "a1" },
   { schema: "fleet.replica.watch/v1", messageId: "m11-watch", repoId: "a1", afterRevision: 7 },
-  { schema: "fleet.replica.head-hint/v1", messageId: "m11-hint", inReplyTo: "m11-watch", repoId: "a1", cut },
+  {
+    schema: "fleet.replica.head-hint/v1",
+    messageId: "m11-hint",
+    inReplyTo: "m11-watch",
+    repoId: "a1",
+    cut,
+    knownHead: cut,
+  },
   {
     schema: "fleet.replica.current/v1",
     messageId: "m11-current",
@@ -176,6 +183,19 @@ const frames = [
     repoId: "repo",
     viewId: "v1",
     cut,
+    knownHead: cut,
+    manifestDigest: "d".repeat(64),
+    authorizationOwner: "person-owner",
+    authorizationShapeDigest: "d".repeat(64),
+  },
+  {
+    schema: "fleet.replica.checkpoint/v1",
+    messageId: "m11-current",
+    inReplyTo: "m11-pull",
+    repoId: "repo",
+    viewId: "v1",
+    cut,
+    knownHead: { ...cut, revision: 72 },
     manifestDigest: "d".repeat(64),
     authorizationOwner: "person-owner",
     authorizationShapeDigest: "d".repeat(64),
@@ -247,6 +267,7 @@ const frames = [
     outcome: "applied",
     viewId: "v1",
     ackCut: 7,
+    knownHead: cut,
     code: null,
   },
   {
@@ -566,4 +587,13 @@ test("Fleet error requires and preserves the center's diagnostic message", () =>
   const { message: omitted, ...withoutMessage } = error;
   assert.equal(typeof omitted, "string");
   assert.throws(() => parseFleetFrame(withoutMessage), FleetContractError);
+});
+
+test("checkpoint receipts require a known ledger head independently of their delivered revision", () => {
+  for (const schema of ["fleet.ack.result/v1", "fleet.replica.checkpoint/v1", "fleet.replica.head-hint/v1"]) {
+    const frame = frames.find((candidate) => candidate.schema === schema)!;
+    const { knownHead: _head, ...missing } = frame;
+    assert.throws(() => parseFleetFrame(missing), FleetContractError);
+    assert.deepEqual(parseFleetFrame(frame), frame);
+  }
 });

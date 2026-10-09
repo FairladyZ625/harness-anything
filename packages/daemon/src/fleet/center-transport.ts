@@ -229,7 +229,7 @@ export function ownedUpload(state: State, nodeId: string, uploadId: string): Upl
   return upload;
 }
 
-export function wireCut(cut: SnapshotCut): FleetCut {
+export function wireCut(cut: Pick<SnapshotCut, "revision" | "headDigest">): FleetCut {
   return { revision: cut.revision, headDigest: cut.headDigest, schemaGeneration: READ_MODEL_SCHEMA_GENERATION };
 }
 

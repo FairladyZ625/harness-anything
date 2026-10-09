@@ -309,7 +309,7 @@ test("an idle center keeps a watching edge confirmed fresh without another pull"
     onConfirmed: sync.pulled,
     onFailure: sync.failed,
     onFrame: (frame) => {
-      if (frame.schema === "fleet.replica.current/v1") pulls += 1;
+      if (frame.schema === "fleet.ack.result/v1" || frame.schema === "fleet.replica.current/v1") pulls += 1;
     },
     schedule: () => assert.fail("no failure is expected, so no reconnect is scheduled"),
   });
