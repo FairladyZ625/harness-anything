@@ -6,6 +6,7 @@ export type { ReplicaChange } from "../../src/projection/replica-sequence.ts";
 import type { DatabaseSync } from "node:sqlite";
 import {
   createReplicaSequence,
+  initializeReplicaSequenceConnection,
   recordReplicaRevision,
   readReplicaSequence,
 } from "../../src/projection/replica-sequence.ts";
@@ -18,6 +19,7 @@ export function replicaModelFixtureSnapshot(db: DatabaseSync, head: PersistedCan
     .all()
     .map((row) => JSON.parse(String(row.event_json)) as PersistedCanonicalEventV1);
   createReplicaSequence(db);
+  initializeReplicaSequenceConnection(db);
   db.exec(
     "DELETE FROM replica_revision; DELETE FROM replica_entry; DELETE FROM replica_change; DELETE FROM replica_dirty;",
   );

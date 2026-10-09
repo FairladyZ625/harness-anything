@@ -599,6 +599,50 @@ test("F3: a staged conflict keeps its base/ bytes after the base cut leaves the 
     centerBody,
   );
 });
+test("dirty scanning a newer replica does not invent a materialization base for another node's documents", (t) => {
+  const logical = "tasks/task-1/reviews/review-other.md",
+    report = "tasks/task-1/artifacts/reports/other.md";
+  const fixture = mirrorCutFixture(
+    "unmaterialized-review",
+    [
+      { revision: 1, entries: [{ path: "context/notes.md", body: "base\n" }] },
+      {
+        revision: 2,
+        entries: [
+          { path: "context/notes.md", body: "base\n" },
+          { path: logical, body: "review\n" },
+          { path: report, body: "report\n" },
+        ],
+      },
+      {
+        revision: 3,
+        entries: [
+          { path: "context/notes.md", body: "base\n" },
+          { path: logical, body: "consented review\n" },
+          { path: report, body: "report\n" },
+        ],
+      },
+    ],
+    1,
+  );
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  assert.equal(applyFleetMirrorCut(fixture.viewRoot, "repo", fixture.workspace, "pull").outcome, "applied");
+  const viewDir = path.join(fixture.viewRoot, "repos/repo/views/edge-view");
+  const advance = (revision: number) =>
+    writeJson(path.join(viewDir, "current.json"), {
+      schemaGeneration: 0,
+      cut: { revision, headDigest: `sha256:${sha(`head-${revision}`)}` },
+      manifestDigest: `sha256:${sha(`manifest-${revision}`)}`,
+    });
+  advance(2);
+  cacheFleetMirrorDirtyBases(fixture.viewRoot, "repo", fixture.workspace, "tasks/task-1");
+  advance(3);
+  const applied = applyFleetMirrorCut(fixture.viewRoot, "repo", fixture.workspace, "pull");
+  assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+  assert.deepEqual(applied.dirtyPaths, []);
+  assert.equal(readFileSync(path.join(fixture.worktree, logical), "utf8"), "consented review\n");
+  assert.equal(readFileSync(path.join(fixture.worktree, report), "utf8"), "report\n");
+});
 test("F4: an unresolved conflict persists — the same divergence re-detects under the same record and never self-heals", async (t) => {
   const logical = "context/shared.md",
     baseBody = "base\n",

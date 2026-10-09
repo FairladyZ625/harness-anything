@@ -82,6 +82,9 @@ export function createReplicaSequence(db: DatabaseSync): void {
     db,
     `CREATE TABLE IF NOT EXISTS replica_change (revision INTEGER NOT NULL, path TEXT NOT NULL, blob_json TEXT, text TEXT, PRIMARY KEY(revision,path))`,
   );
+}
+
+export function initializeReplicaSequenceConnection(db: DatabaseSync): void {
   runSql(db, `CREATE TEMP TABLE IF NOT EXISTS replica_dirty (group_name TEXT NOT NULL, group_key TEXT NOT NULL)`);
   for (const group of groups)
     for (const table of "sources" in group ? group.sources : [group.name])

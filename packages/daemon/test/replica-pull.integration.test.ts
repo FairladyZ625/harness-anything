@@ -180,9 +180,10 @@ test(
       assert.match(status.ackCutEventAt!, /^2026|^20/u);
       assert.equal(status.sendWindowBytes, 256 * 1024);
       assert.equal(status.sendQuotaBytes, 512 * 1024);
-      assert.ok(
-        readdirSync(path.join(edgeRoot, "repos", fixture.subject.repoId, "views", fixture.subject.viewId, "cuts"))
-          .length <= 2,
+      // dec_6BD784D4 retains sparse sequence cuts for incremental consumers, not two complete snapshots.
+      assert.deepEqual(
+        readdirSync(path.join(viewPath, "cuts")).sort(),
+        [bootstrap, pulled, replay].map(({ current }) => `${current.cut.revision}-g${current.schemaGeneration}`).sort(),
       );
       await center.close();
       center = await fixture.center(undefined);

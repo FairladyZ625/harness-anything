@@ -315,7 +315,7 @@ export function cacheFleetMirrorDirtyBases(
       db.prepare(
         `INSERT INTO materialized_base VALUES (?,?,?,1)
         ON CONFLICT(view_id,path) DO UPDATE SET dirty=1`,
-      ).run(viewId, logical, view.entries.get(logical)?.sha256 ?? null);
+      ).run(viewId, logical, null);
   });
   if (scan.changes.length > 0)
     fleetMirrorRefreshBaseCache(

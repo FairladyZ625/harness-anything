@@ -81,6 +81,13 @@ test("replica sequence matches the independent full model after every lifecycle 
           expected.sort((a, b) => a.path.localeCompare(b.path)),
         );
         from = event.workspaceRevision;
+        assert.throws(
+          () =>
+            projection.readEdgeReadModel(() => {
+              throw new Error("close this projection connection");
+            }),
+          /close this projection connection/u,
+        );
       }
       const before = projection.readReplicaSequence(null);
       projection.apply(lifecycleFixture().events.at(-1)!);
