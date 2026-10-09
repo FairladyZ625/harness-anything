@@ -152,7 +152,6 @@ function EgoNeighborhoodInner({
   // 会话恢复的视口只取一次(挂载时的初值);之后视口归用户的 pan/zoom。
   const [session] = useState(() => (rememberSession ? readEgoSessionFor(repoId, focusRef) : null));
   const initialViewport = session?.viewport ?? DEFAULT_VIEWPORT;
-  const positionsRef = useRef({ version: 0, cardHeightCap, centers: new Map(session?.centers ?? []) });
 
   const statusFilter = filters.statusFilter ?? DEFAULT_STATUS_FILTER;
   const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
@@ -215,24 +214,16 @@ function EgoNeighborhoodInner({
             shown: canvas.shown,
             expanded: canvas.expanded,
             cardHeightCap,
-            centers:
-              positionsRef.current.version === canvas.layoutVersion &&
-              (positionsRef.current.cardHeightCap === cardHeightCap ||
-                (canvas.restored && positionsRef.current.cardHeightCap === undefined))
-                ? positionsRef.current.centers
-                : undefined,
           })
         : null,
     [
       canvas.focusId,
-      canvas.restored,
       cardHeightCap,
       motion.enabled,
       motion.reduced,
       canvas.graph,
       canvas.shown,
       canvas.expanded,
-      canvas.layoutVersion,
       relations,
       filters.axes,
       filters.kinds,
@@ -240,21 +231,6 @@ function EgoNeighborhoodInner({
       filters.flowMode,
     ],
   );
-
-  useEffect(() => {
-    if (!spotlight?.focusId) return;
-    const centers =
-      positionsRef.current.version === canvas.layoutVersion
-        ? new Map(positionsRef.current.centers)
-        : new Map<string, { x: number; y: number }>();
-    for (const node of spotlight.nodes)
-      centers.set(node.id, {
-        x: node.position.x + Number(node.width) / 2,
-        y: node.position.y + Number(node.height) / 2,
-      });
-    positionsRef.current = { version: canvas.layoutVersion, cardHeightCap, centers };
-    if (rememberSession) mergeEgoSession(repoId, { focusRef: spotlight.focusId, centers: [...centers] });
-  }, [spotlight, canvas.layoutVersion, cardHeightCap, rememberSession, repoId]);
 
   const statusVisibleIds = useMemo(() => {
     if (!spotlight) return null;

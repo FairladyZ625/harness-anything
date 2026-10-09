@@ -191,20 +191,95 @@ describe("分层分列", () => {
 });
 
 describe("原位展开(图场景 2026-10-02:展开节点成卡片,尺寸随内容)", () => {
-  it("相同 shown/focus 下展开不改变任何中心,卡片层级高于收起节点", () => {
+  it("展开卡片原位长大,被挡节点让开,任意两盒不相交(2026-10-10 业主反馈)", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
     const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
     const input = { focusId: "decision/dec_1", graph, relations, filters, shown };
     const chips = layoutEgoCanvas({ ...input, expanded: new Set() });
     const cards = layoutEgoCanvas({ ...input, expanded: new Set(shown.keys()) });
+    const centerOf = (node: { position: { x: number; y: number }; width?: number; height?: number }) => ({
+      x: node.position.x + Number(node.width) / 2,
+      y: node.position.y + Number(node.height) / 2,
+    });
+    // 焦点保持原中心;展开不给不相交的节点制造漂移(dec_up 是左列唯一节点,
+    // 右列展开卡片时它必须原地不动)。dec_up 自己展开时会与更宽的焦点卡真实
+    // 相交被推走 —— 那是让位,不是漂移。
+    expect(centerOf(cards.nodes.find((n) => n.data.focus)!)).toEqual(centerOf(chips.nodes.find((n) => n.data.focus)!));
+    const rightOnly = layoutEgoCanvas({ ...input, expanded: new Set(["task_a", "fact/F-1"]) });
+    expect(centerOf(rightOnly.nodes.find((n) => n.id === "decision/dec_up")!)).toEqual(
+      centerOf(chips.nodes.find((n) => n.id === "decision/dec_up")!),
+    );
     for (const node of cards.nodes) {
-      const before = chips.nodes.find((other) => other.id === node.id)!;
-      expect([node.position.x + Number(node.width) / 2, node.position.y + Number(node.height) / 2]).toEqual([
-        before.position.x + Number(before.width) / 2,
-        before.position.y + Number(before.height) / 2,
-      ]);
-      if (!node.data.focus) expect(node.zIndex).toBeGreaterThan(before.zIndex!);
+      if (!node.data.focus) expect(node.zIndex).toBeGreaterThan(chips.nodes.find((o) => o.id === node.id)!.zIndex!);
+    }
+    // 全部展开后任意两个节点的包围盒(含 72/36 间距)两两不相交。
+    for (let i = 0; i < cards.nodes.length; i += 1)
+      for (let j = i + 1; j < cards.nodes.length; j += 1) {
+        const a = cards.nodes[i]!;
+        const b = cards.nodes[j]!;
+        const ca = centerOf(a);
+        const cb = centerOf(b);
+        const disjoint =
+          Math.abs(ca.x - cb.x) >= (Number(a.width) + Number(b.width)) / 2 + 72 ||
+          Math.abs(ca.y - cb.y) >= (Number(a.height) + Number(b.height)) / 2 + 36;
+        expect(disjoint, `${a.id} overlaps ${b.id}`).toBe(true);
+      }
+  });
+
+  it("连续展开三张卡片(两 FACT + 一 DECISION)后两两包围盒不相交,收起后布局回收", () => {
+    // 业主截图场景:任务焦点周围两张 FACT、一张 DECISION 依次展开。
+    const tasks = [task({ taskId: "t0", title: "焦点任务" })];
+    const decisions = [dec({ decisionId: "d1", title: "裁决" })];
+    const facts = [
+      fact({ anchor: "fact/F1", taskId: "t0", text: "第一条观察 ".repeat(30) }),
+      fact({ anchor: "fact/F2", taskId: "t0", text: "第二条观察 ".repeat(30) }),
+    ];
+    const relations: RelationEdge[] = [
+      { from: "task/t0", to: "fact/F1", kind: "produces", provenance: "local-document" },
+      { from: "task/t0", to: "fact/F2", kind: "produces", provenance: "local-document" },
+      { from: "decision/d1/C1", to: "fact/F1", kind: "evidenced-by", provenance: "local-document" },
+      { from: "decision/d1/C1", to: "fact/F2", kind: "evidenced-by", provenance: "local-document" },
+    ];
+    const graph = buildEgoGraph(tasks, decisions, facts, relations);
+    const shown = bfsShownFromFocus(graph, "t0", HOPS_2, filters.axes);
+    const base = { focusId: "t0", graph, relations, filters, shown };
+
+    const boxOf = (node: { position: { x: number; y: number }; width?: number; height?: number }) => ({
+      left: node.position.x,
+      right: node.position.x + Number(node.width),
+      top: node.position.y,
+      bottom: node.position.y + Number(node.height),
+    });
+    const pairwiseDisjoint = (layout: ReturnType<typeof layoutEgoCanvas>) => {
+      for (let i = 0; i < layout.nodes.length; i += 1)
+        for (let j = i + 1; j < layout.nodes.length; j += 1) {
+          const a = boxOf(layout.nodes[i]!);
+          const b = boxOf(layout.nodes[j]!);
+          expect(
+            a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top,
+            `${layout.nodes[i]!.id} overlaps ${layout.nodes[j]!.id}`,
+          ).toBe(true);
+        }
+    };
+
+    // 每一步展开后都两两不相交(任何时刻不重叠,不只是终态)。
+    const expanded = new Set<string>();
+    for (const id of ["fact/F1", "fact/F2", "decision/d1"]) {
+      expanded.add(id);
+      pairwiseDisjoint(layoutEgoCanvas({ ...base, expanded: new Set(expanded) }));
+    }
+    // 收起全部:邻居回到从未展开时的 chip 位置(布局回收,无残留位移)。
+    const collapsed = layoutEgoCanvas({ ...base, expanded: new Set(["t0"]) });
+    pairwiseDisjoint(collapsed);
+    const virgin = layoutEgoCanvas({ ...base, expanded: new Set() });
+    const centerOf2 = (n: { position: { x: number; y: number }; width?: number; height?: number }) => [
+      n.position.x + Number(n.width) / 2,
+      n.position.y + Number(n.height) / 2,
+    ];
+    for (const node of collapsed.nodes) {
+      if (node.data.focus) continue;
+      expect(centerOf2(node), node.id).toEqual(centerOf2(virgin.nodes.find((n) => n.id === node.id)!));
     }
   });
   it("未展开的节点一律 chip 尺寸;展开的节点只改变阅读尺寸", () => {

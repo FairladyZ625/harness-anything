@@ -54,15 +54,35 @@ describe("reading footprints preserve a usable spotlight", () => {
     expect(downstream.position.x - (focus.position.x + Number(focus.width))).toBe(72);
     expect(focus.position.x - (upstream.position.x + Number(upstream.width))).toBe(72);
     const collapsed = layoutEgoCanvas({ ...scoped, expanded: new Set() });
+    for (const node of collapsed.nodes) {
+      const initial = layout.nodes.find((other) => other.id === node.id)!;
+      expect([node.position.x + Number(node.width) / 2, node.position.y + Number(node.height) / 2]).toEqual([
+        initial.position.x + Number(initial.width) / 2,
+        initial.position.y + Number(initial.height) / 2,
+      ]);
+    }
+    // 展开下游"1"成卡:任意两盒不相交;横向不相交的节点(上游列)保持原中心
+    // —— 让位只发生在真实相交处,不等于全员漂移。
     const expanded = layoutEgoCanvas({ ...scoped, expanded: new Set(["0", "1"]) });
-    for (const state of [collapsed, expanded]) {
-      for (const node of state.nodes) {
-        const initial = layout.nodes.find((other) => other.id === node.id)!;
-        expect([node.position.x + Number(node.width) / 2, node.position.y + Number(node.height) / 2]).toEqual([
-          initial.position.x + Number(initial.width) / 2,
-          initial.position.y + Number(initial.height) / 2,
-        ]);
+    for (let i = 0; i < expanded.nodes.length; i += 1)
+      for (let j = i + 1; j < expanded.nodes.length; j += 1) {
+        const a = expanded.nodes[i]!;
+        const b = expanded.nodes[j]!;
+        const ca = { x: a.position.x + Number(a.width) / 2, y: a.position.y + Number(a.height) / 2 };
+        const cb = { x: b.position.x + Number(b.width) / 2, y: b.position.y + Number(b.height) / 2 };
+        expect(
+          Math.abs(ca.x - cb.x) >= (Number(a.width) + Number(b.width)) / 2 + 72 ||
+            Math.abs(ca.y - cb.y) >= (Number(a.height) + Number(b.height)) / 2 + 36,
+          `${a.id} overlaps ${b.id}`,
+        ).toBe(true);
       }
+    for (const id of ["0", "upstream"]) {
+      const node = expanded.nodes.find((other) => other.id === id)!;
+      const initial = layout.nodes.find((other) => other.id === id)!;
+      expect([node.position.x + Number(node.width) / 2, node.position.y + Number(node.height) / 2]).toEqual([
+        initial.position.x + Number(initial.width) / 2,
+        initial.position.y + Number(initial.height) / 2,
+      ]);
     }
   });
   it("short tasks do not occupy a blank 300px focus card or 480px tracks", () => {
@@ -70,17 +90,22 @@ describe("reading footprints preserve a usable spotlight", () => {
     expect(layout.nodes.find((node) => node.id === "0")!.height).toBeLessThan(250);
     const neighbors = layout.nodes.filter((node) => node.id !== "0").sort((a, b) => a.position.y - b.position.y);
     expect(neighbors.at(-1)!.position.y - neighbors[0]!.position.y).toBe(7 * 82);
-    const centers = new Map(
-      layout.nodes.map((node) => [
-        node.id,
-        { x: node.position.x + Number(node.width) / 2, y: node.position.y + Number(node.height) / 2 },
-      ]),
-    );
-    const expanded = layoutEgoCanvas({ ...input, centers, expanded: new Set(tasks.map((task) => task.taskId)) });
-    for (const node of expanded.nodes)
-      expect({ x: node.position.x + Number(node.width) / 2, y: node.position.y + Number(node.height) / 2 }).toEqual(
-        centers.get(node.id),
-      );
+    // 全部展开后卡片按真实尺寸互相让开(不再锁中心叠印);焦点卡原位不动。
+    const expanded = layoutEgoCanvas({ ...input, expanded: new Set(tasks.map((task) => task.taskId)) });
+    for (let i = 0; i < expanded.nodes.length; i += 1)
+      for (let j = i + 1; j < expanded.nodes.length; j += 1) {
+        const a = expanded.nodes[i]!;
+        const b = expanded.nodes[j]!;
+        const ca = { x: a.position.x + Number(a.width) / 2, y: a.position.y + Number(a.height) / 2 };
+        const cb = { x: b.position.x + Number(b.width) / 2, y: b.position.y + Number(b.height) / 2 };
+        expect(
+          Math.abs(ca.x - cb.x) >= (Number(a.width) + Number(b.width)) / 2 + 72 ||
+            Math.abs(ca.y - cb.y) >= (Number(a.height) + Number(b.height)) / 2 + 36,
+          `${a.id} overlaps ${b.id}`,
+        ).toBe(true);
+      }
+    const focus = expanded.nodes.find((node) => node.id === "0")!;
+    expect(focus.position).toEqual(layout.nodes.find((node) => node.id === "0")!.position);
     expect(expanded.nodes.find((node) => node.id === "1")!.zIndex).toBeGreaterThan(neighbors[0]!.zIndex!);
   });
   it("36 collapsed nodes keep the historical 82px neighbor pitch regardless of their reading content", () => {
@@ -99,13 +124,18 @@ describe("reading footprints preserve a usable spotlight", () => {
       expect(neighbors[index]!.position.y - neighbors[index - 1]!.position.y).toBe(82);
     expect(neighbors.at(-1)!.position.y - neighbors[0]!.position.y).toBe(34 * 82);
     const expanded = layoutEgoCanvas({ ...largeInput, expanded: new Set(["0", "1"]) });
-    for (const node of expanded.nodes) {
-      const before = layout.nodes.find((other) => other.id === node.id)!;
-      expect([node.position.x + Number(node.width) / 2, node.position.y + Number(node.height) / 2]).toEqual([
-        before.position.x + Number(before.width) / 2,
-        before.position.y + Number(before.height) / 2,
-      ]);
-    }
+    for (let i = 0; i < expanded.nodes.length; i += 1)
+      for (let j = i + 1; j < expanded.nodes.length; j += 1) {
+        const a = expanded.nodes[i]!;
+        const b = expanded.nodes[j]!;
+        const ca = { x: a.position.x + Number(a.width) / 2, y: a.position.y + Number(a.height) / 2 };
+        const cb = { x: b.position.x + Number(b.width) / 2, y: b.position.y + Number(b.height) / 2 };
+        expect(
+          Math.abs(ca.x - cb.x) >= (Number(a.width) + Number(b.width)) / 2 + 72 ||
+            Math.abs(ca.y - cb.y) >= (Number(a.height) + Number(b.height)) / 2 + 36,
+          `${a.id} overlaps ${b.id}`,
+        ).toBe(true);
+      }
     expect(expanded.nodes.find((node) => node.id === "1")!.zIndex).toBeGreaterThan(
       expanded.nodes.find((node) => node.id === "2")!.zIndex!,
     );
