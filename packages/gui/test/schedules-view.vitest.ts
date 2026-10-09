@@ -721,11 +721,12 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         name: "Fresh probe",
         everyMs: 1_800_000,
         agentId: "probe-agent",
-        runtimeInstanceId: "codex-schedule",
         mission: "Run the fresh probe.",
       }),
       expect.stringMatching(/^gui:schedule-create:/u),
     );
+    expect(create.mock.calls[0]?.[1]).not.toHaveProperty("runtimeInstanceId");
+    expect(create.mock.calls[0]?.[1]).not.toHaveProperty("model");
     expect(onFocusSchedule).toHaveBeenCalledWith("schedule/fresh-probe");
   });
 
