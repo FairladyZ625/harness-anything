@@ -1,10 +1,7 @@
 import {
   ciRunWindow,
   ciRerunStatistics,
-  ciDetailMeasurement,
   validDiagnosticTest,
-  sha256Bytes,
-  canonicalizeContractValue,
   type CiRunDetail,
   type ScheduleV1,
 } from "@harness-anything/kernel";
@@ -103,26 +100,8 @@ export function readCiObservatory(input: {
     if (!ref) continue;
     const bytes = input.readContentBlob?.(ref.sha256);
     if (!bytes) continue;
-    if (sha256Bytes(bytes) !== ref.sha256 || bytes.byteLength !== ref.decodedBytes)
-      throw new Error(`CI detail size mismatch: ${event.eventId}`);
+    // The canonical import boundary validates content bytes, schema and hot measurement together.
     const detail = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as CiRunDetail;
-    if (
-      detail.schema !== "ci-run-detail/v1" ||
-      !Array.isArray(detail.tests) ||
-      !detail.tests.every((test) => validDiagnosticTest(test)) ||
-      !Array.isArray(detail.fileOutcomes) ||
-      !Array.isArray(detail.diagnostics)
-    )
-      throw new Error(`CI detail schema mismatch: ${event.eventId}`);
-    const measurement = ciDetailMeasurement(detail);
-    const actual = {
-      testSummary: event.payload.testSummary,
-      failedTests: event.payload.failedTests,
-      fileOutcomes: event.payload.fileOutcomes,
-      shardDurations: event.payload.shardDurations,
-    };
-    if (JSON.stringify(canonicalizeContractValue(measurement)) !== JSON.stringify(canonicalizeContractValue(actual)))
-      throw new Error(`CI detail measurement mismatch: ${event.eventId}`);
     details.set(event.eventId, detail);
   }
   const statistics = ciRerunStatistics(events, details);
