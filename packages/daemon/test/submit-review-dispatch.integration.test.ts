@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
+import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
 
 type ChildFixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -163,12 +163,6 @@ test(
       assert.equal(f.launches.length, 0, "amend must not dispatch before owner triage");
       assert.equal((await f.forward()).outcome, "applied");
       assert.equal(f.launches.length, 1, "only the owner-forwarded cut dispatches");
-      assert.match(
-        f.launches[0]!.prompt,
-        /Corrected job=41; SQL range 0–336h/u,
-        "the independent reviewer receives automatically frozen accepted contents",
-      );
-      assert.match(f.launches[0]!.prompt, /blobSha256/u);
       const dispatches = f
         .events()
         .filter(
@@ -176,6 +170,17 @@ test(
             event.type === "runtime_dispatch_requested" && !event.payload.idempotencyKey.includes(":fallback:"),
         );
       assert.equal(dispatches.length, 1);
+      const dispatch = dispatches[0]!;
+      assert.ok(dispatch.type === "runtime_dispatch_requested");
+      const read = await f
+        .cell()
+        .run(
+          { kind: "doc-show", path: `${f.packagePath}/artifacts/independent.md`, raw: true },
+          reviewerExecutionBinding(dispatch.payload.runtimeSessionId, dispatch.payload.dispatchId),
+        );
+      assert.equal(read.outcome, "applied", JSON.stringify(read));
+      assert.equal(read.evidence, "Corrected job=41; SQL range 0–336h.\n");
+      assert.match(f.launches[0]!.prompt, /ha task show.*--json/u);
     } finally {
       await f.close();
     }
@@ -502,7 +507,19 @@ test(
       assert.equal(reviewDispatches().length, 2);
       const step = (amended.steps as readonly Record<string, unknown>[]).at(-1)!;
       assert.equal(typeof step.dispatchId, "string", JSON.stringify(amended));
-      assert.match(f.launches.at(-1)!.prompt, /Amended reviewed delivery/u);
+      const dispatch = reviewDispatches().at(-1)!;
+      assert.ok(dispatch.type === "runtime_dispatch_requested");
+      const shown = await f
+        .cell()
+        .run(
+          { kind: "task-show", taskId },
+          reviewerExecutionBinding(dispatch.payload.runtimeSessionId, dispatch.payload.dispatchId),
+        );
+      assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+      const execution = JSON.parse(String(shown.evidence)).executions.find(
+        (candidate: { executionId: string }) => candidate.executionId === executionId,
+      );
+      assert.match(execution.submission.completionClaim, /Amended reviewed delivery/u);
       await amend();
       assert.equal(f.launches.length, 2, "re-amending the same cut never opens a second concurrent review");
       assert.equal(reviewDispatches().length, 2);
