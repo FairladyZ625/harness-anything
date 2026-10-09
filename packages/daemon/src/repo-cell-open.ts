@@ -466,15 +466,7 @@ export async function openRepoWriterCell(
         declaration = readAgentDeclaration({
           rootDir,
           agentId,
-          entityStore: {
-            ...entityStore,
-            get: <T>(kind: string, id: string) => {
-              const record = entityStore.get<T>(kind, id);
-              if (record === null || kind !== "agent") return record;
-              const { lifecycleState: _lifecycleState, ...value } = record.value as Record<string, unknown>;
-              return { ...record, value } as typeof record;
-            },
-          },
+          entityStore,
         });
       return resolveAgentRuntimeDeclaration(declaration, projected);
     },

@@ -1,3 +1,4 @@
+import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -30,7 +31,6 @@ export {
 } from "./agent-declaration-resolution.ts";
 import {
   entitySlug,
-  parseAgentDeclarationV1,
   parseSquadDeclarationV1,
   validateScheduleV1,
   validateAgentDeclarationV1,
@@ -188,7 +188,7 @@ export function readAgentEntityGuiProjection<
   if (input.kind === "agent-inspect") {
     let agent: AgentDeclarationV1;
     try {
-      agent = parseAgentDeclarationV1(readyEntityValue(input.projection, "agent", entityId));
+      agent = readProjectedAgentDeclaration(readyEntityValue(input.projection, "agent", entityId));
     } catch (error) {
       // An installed declaration whose stored shape the current schema rejects is a reinstall
       // need for that agent, phrased as one; the raw contract message never reaches the read.
@@ -216,7 +216,7 @@ export function readAgentEntityGuiProjection<
   const squad = parseSquadDeclarationV1(readyEntityValue(input.projection, "squad", entityId)),
     missing = [squad.leader, ...squad.workers].filter((agentId) => {
       try {
-        parseAgentDeclarationV1(readyEntityValue(input.projection, "agent", agentId));
+        readProjectedAgentDeclaration(readyEntityValue(input.projection, "agent", agentId));
         return false;
       } catch (error) {
         if ((error as { code?: string }).code === "projection_pending") throw error;
@@ -280,7 +280,7 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
   if (row.freshness !== "current") return degradedAgentCatalogRow(row);
   const outcome = storedAgentDeclarationOutcome({
     agentId: row.id,
-    read: () => parseAgentDeclarationV1(row.value),
+    read: () => readProjectedAgentDeclaration(row.value),
   });
   if (outcome.kind !== "ok")
     return {
@@ -320,7 +320,7 @@ function degradedAgentCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiD
   let hint = `Agent projection ${row.id} is not current.`;
   const outcome = storedAgentDeclarationOutcome({
     agentId: row.id,
-    read: () => parseAgentDeclarationV1(row.value),
+    read: () => readProjectedAgentDeclaration(row.value),
   });
   if (outcome.kind === "invalid") hint = outcome.error.message;
   return { id: row.id, layer: "user", state: "invalid", error: { code: "invalid_entity_projection", hint } };
@@ -555,14 +555,19 @@ export function prepareAgentEntityInstall(input: {
 
 /** The center claim gate. Missing lifecycle data is the legacy active state. */
 type AgentState = "configured" | "active" | "retired";
-type ProjectedAgentLifecycle = AgentDeclarationV1 & { readonly lifecycleState?: AgentState };
+type ProjectedAgentLifecycle = import("./agent-declaration-resolution.ts").ProjectedAgentDeclaration;
 
 export function assertAgentDispatchable(agent: ProjectedAgentLifecycle): AgentState {
   const state = agent.lifecycleState ?? "active";
   if (state === "active") return state;
-  throw Object.assign(new Error(`Agent ${agent.id} is ${state} and cannot accept a new dispatch claim.`), {
-    code: state === "retired" ? "agent_retired" : "agent_not_active",
-  });
+  throw Object.assign(
+    new Error(
+      `Agent ${agent.id} is ${state} and cannot accept a new dispatch claim.${agent.retirement?.successor ? ` Use agent/${agent.retirement.successor} instead.` : ""}`,
+    ),
+    {
+      code: state === "retired" ? "agent_retired" : "agent_not_active",
+    },
+  );
 }
 
 export function prepareAgentEntityDelete(input: {

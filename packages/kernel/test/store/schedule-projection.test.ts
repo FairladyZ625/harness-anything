@@ -77,7 +77,7 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
       });
     }
 
-    assert.equal(taskProjectionSchemaVersion, 32);
+    assert.equal(taskProjectionSchemaVersion, 33);
     assert.equal(projection.readCut().status, "ready");
     const definition = projection.readDocument("schedules/schedule-heartbeat.json").document,
       row = projection.getEntity("schedule", "schedule-heartbeat"),

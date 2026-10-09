@@ -1,15 +1,24 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { compileEntityUpsert, makeTaskEventReader, openSqliteEventStore, sha256Bytes } from "@harness-anything/kernel";
+import {
+  compileEntityUpsert,
+  makeTaskEventReader,
+  openSqliteEventStore,
+  sha256Bytes,
+  openEntityStore,
+} from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
-import { assertAgentDispatchable, prepareAgentEntityDelete } from "../src/agent-entities.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { renderEvidencePayload } from "../src/repo-cell-evidence.ts";
+import { assertAgentDispatchable, prepareAgentEntityDelete, readAgentDeclaration } from "../src/agent-entities.ts";
 
 const binding = withPolicyGroup(
   {
@@ -376,7 +385,7 @@ test("Agent install accepts a single declaration file as the package source", as
 test("Agent retire publishes lifecycle state, is idempotent by operation, and blocks reinstallation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-retire-"));
   initRepo(rootDir);
-  const cell = await openRepoCell({
+  let cell = await openRepoCell({
     repoId: workspaceId("agent-retire"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "agent-retire-test",
@@ -387,6 +396,16 @@ test("Agent retire publishes lifecycle state, is idempotent by operation, and bl
       binding,
     );
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const squad = {
+      schema: "squad-declaration/v1",
+      id: "retired-member-squad",
+      name: "Retired member",
+      leader: declaration.id,
+      workers: [declaration.id],
+      leaderTurnBudget: 1,
+      roster: "This squad retains its retired member identity.",
+    };
+    assert.equal((await cell.run({ kind: "squad-install", declaration: squad }, binding)).outcome, "applied");
     const retired = await cell.run(
       {
         kind: "agent-retire",
@@ -408,9 +427,79 @@ test("Agent retire publishes lifecycle state, is idempotent by operation, and bl
       const event = eventStore.event(retired.opId);
       assert.equal(event?.type, "agent_retired");
       if (event?.type === "agent_retired") assert.equal(event.payload.successor, "replacement-agent");
+      const stored = openEntityStore(rootDir).get("agent", declaration.id);
+      assert.equal((stored?.value as { lifecycleState: string }).lifecycleState, "retired");
     } finally {
       eventStore.close();
     }
+    const listed = await cell.run({ kind: "agent-list" }, binding);
+    const row = JSON.parse(String(listed.evidence)).agents[0];
+    assert.equal(row.lifecycleState, "retired", JSON.stringify(row));
+    assert.equal(row.retirement.reason, "No longer accepting new claims.");
+    assert.equal(row.retirement.successor, "replacement-agent");
+    assert.match(
+      renderEvidencePayload(JSON.parse(String(listed.evidence))),
+      /retired\t.*successor=replacement-agent\treason=No longer accepting new claims/u,
+    );
+    const inspected = await cell.run({ kind: "agent-inspect", agentId: declaration.id }, binding);
+    assert.equal(inspected.outcome, "applied", JSON.stringify(inspected));
+    const agent = JSON.parse(String(inspected.evidence)).agent;
+    assert.deepEqual(agent, { ...declaration, lifecycleState: "retired", retirement: row.retirement });
+    assert.throws(
+      () => assertAgentDispatchable(readAgentDeclaration({ rootDir, agentId: declaration.id })),
+      (error: unknown) => {
+        assert.equal((error as { code?: string }).code, "agent_retired");
+        assert.match((error as Error).message, /replacement-agent/u);
+        return true;
+      },
+    );
+    await assert.rejects(
+      () =>
+        cell.spawnRuntime(
+          {
+            agentId: declaration.id,
+            runtimeInstanceId: "unused-instance",
+            prompt: "Preview retired agent dispatch",
+            cwd: { scope: "repo-root" },
+            dryRun: true,
+            idempotencyKey: "retired-preview",
+          },
+          binding,
+        ),
+      (error: unknown) =>
+        (error as { code?: string }).code === "agent_retired" && /replacement-agent/u.test((error as Error).message),
+    );
+    await waitForFixturePublication(cell, retired.opId, binding);
+    assert.deepEqual(
+      JSON.parse(readFileSync(path.join(rootDir, "harness/agents/unified-agent.json"), "utf8")),
+      declaration,
+    );
+    assert.equal((await cell.run({ kind: "squad-inspect", squadId: squad.id }, binding)).outcome, "applied");
+    const task = await cell.run(
+      { kind: "task-create", taskId: "retire-task", title: "Retired squad dispatch" },
+      binding,
+    );
+    assert.equal(task.outcome, "applied", JSON.stringify(task));
+    await waitForFixturePublication(cell, task.opId, binding);
+    await realizeTaskPlanFixture(rootDir, String((task as Record<string, unknown>).packagePath), (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId: "retire-task", executionId: "execution-retire" }, binding)).outcome,
+      "applied",
+    );
+    const squadRun = await cell.run(
+      {
+        kind: "squad-run",
+        squadId: squad.id,
+        taskId: "retire-task",
+        runtimeInstanceId: "not-launched",
+        cwd: { scope: "repo-root" },
+      },
+      binding,
+    );
+    assert.equal(squadRun.code, "squad_agent_not_found", JSON.stringify(squadRun));
+    assert.match(JSON.stringify(squadRun), /replacement-agent/u);
     const repeated = await cell.run(
       {
         kind: "agent-retire",
@@ -426,6 +515,21 @@ test("Agent retire publishes lifecycle state, is idempotent by operation, and bl
     const revived = await cell.run({ kind: "agent-install", declaration, idempotencyKey: "retire-reinstall" }, binding);
     assert.equal(revived.outcome, "op_rejected", JSON.stringify(revived));
     assert.equal(revived.code, "agent_retired");
+    await cell.close();
+    const stale = new DatabaseSync(path.join(rootDir, ".harness/cache/task.sqlite"));
+    stale.exec("UPDATE projection_meta SET schema_version = 32 WHERE singleton = 1");
+    stale.exec(
+      "UPDATE entity_projection SET value_json = json_remove(value_json, '$.retirement') WHERE entity_kind = 'agent'",
+    );
+    stale.close();
+    cell = await openRepoCell({
+      repoId: workspaceId("agent-retire"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "agent-retire-reopened",
+    });
+    const replayed = await cell.run({ kind: "agent-inspect", agentId: declaration.id }, binding);
+    assert.equal(replayed.outcome, "applied", JSON.stringify(replayed));
+    assert.deepEqual(JSON.parse(String(replayed.evidence)).agent, agent);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

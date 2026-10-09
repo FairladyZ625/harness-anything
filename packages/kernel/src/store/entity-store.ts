@@ -37,7 +37,10 @@ const entityEventCaches = new WeakMap<
     records: Map<string, { event: StoredEntityEventV1; contract: EntityStoreKindContract; record: StoredEntity }>;
   }
 >();
-const retiredAgentIds = new WeakMap<EntityEventSource, Set<string>>();
+const retiredAgents = new WeakMap<
+  EntityEventSource,
+  Map<string, { readonly retiredAt: string; readonly reason: string; readonly successor?: string }>
+>();
 
 function entityEventCache(source: EntityEventSource): Map<string, Map<string, StoredEntityEventV1>> {
   const cache = entityEventCaches.get(source) ?? {
@@ -45,15 +48,19 @@ function entityEventCache(source: EntityEventSource): Map<string, Map<string, St
     latestByKind: new Map<string, Map<string, StoredEntityEventV1>>(),
     records: new Map(),
   };
-  const retired = retiredAgentIds.get(source) ?? new Set<string>();
-  retiredAgentIds.set(source, retired);
+  const retired = retiredAgents.get(source) ?? new Map();
+  retiredAgents.set(source, retired);
   entityEventCaches.set(source, cache);
   for (;;) {
     const batch = source.readBatch(cache.cursor, 1024);
     for (const event of batch.events) {
       if (!isEntityEvent(event)) continue;
       if (event.type === "agent_retired") {
-        retired.add(event.payload.entityId);
+        retired.set(event.payload.entityId, {
+          retiredAt: event.payload.retiredAt,
+          reason: event.payload.reason,
+          ...(event.payload.successor === undefined ? {} : { successor: event.payload.successor }),
+        });
         const latest = cache.latestByKind.get("agent") ?? new Map<string, StoredEntityEventV1>();
         cache.latestByKind.set("agent", latest);
         continue;
@@ -102,10 +109,14 @@ export function createEntityStore(
     return [...latestEvents(kind).values()]
       .map((event) => {
         const record = entityEventRecord(event, source, contract);
-        return kind === "agent" && retiredAgentIds.get(source)?.has(record.id)
+        return kind === "agent" && retiredAgents.get(source)?.has(record.id)
           ? ({
               ...record,
-              value: { ...(record.value as Record<string, unknown>), lifecycleState: "retired" },
+              value: {
+                ...(record.value as Record<string, unknown>),
+                lifecycleState: "retired",
+                retirement: retiredAgents.get(source)!.get(record.id),
+              },
             } as StoredEntity)
           : record;
       })
@@ -119,8 +130,15 @@ export function createEntityStore(
       if (event === undefined) return null;
       const record = entityEventRecord(event, source, contract);
       return (
-        kind === "agent" && retiredAgentIds.get(source)?.has(id)
-          ? { ...record, value: { ...(record.value as Record<string, unknown>), lifecycleState: "retired" } }
+        kind === "agent" && retiredAgents.get(source)?.has(id)
+          ? {
+              ...record,
+              value: {
+                ...(record.value as Record<string, unknown>),
+                lifecycleState: "retired",
+                retirement: retiredAgents.get(source)!.get(id),
+              },
+            }
           : record
       ) as StoredEntity<T>;
     },

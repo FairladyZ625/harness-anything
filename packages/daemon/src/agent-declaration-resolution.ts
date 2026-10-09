@@ -7,8 +7,23 @@ import {
   type AgentDeclarationV1,
 } from "@harness-anything/kernel";
 
+export type ProjectedAgentDeclaration = AgentDeclarationV1 & {
+  readonly lifecycleState?: "configured" | "active" | "retired";
+  readonly retirement?: { readonly retiredAt: string; readonly reason: string; readonly successor?: string };
+};
+
+/** Projection metadata is not part of the authored declaration schema. */
+export function readProjectedAgentDeclaration(value: unknown): ProjectedAgentDeclaration {
+  const { lifecycleState, retirement, ...declaration } = value as ProjectedAgentDeclaration;
+  return {
+    ...parseAgentDeclarationV1(declaration),
+    ...(lifecycleState === undefined ? {} : { lifecycleState }),
+    ...(retirement === undefined ? {} : { retirement }),
+  };
+}
+
 export interface AgentDeclarationResolution {
-  readonly declaration: AgentDeclarationV1;
+  readonly declaration: ProjectedAgentDeclaration;
   readonly layer: "installed" | "bundled";
 }
 
@@ -97,7 +112,7 @@ export function readAgentDeclarationResolution(input: {
     if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
     throw agentDeclarationInvalidError(input.agentId, error);
   }
-  if (stored) return { declaration: parseAgentDeclarationV1(stored.value), layer: "installed" };
+  if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
   const bundled = readBundledAgentDeclaration(input.agentId);
   return bundled ? { declaration: bundled, layer: "bundled" } : null;
 }
@@ -106,7 +121,7 @@ export function readAgentDeclaration(input: {
   readonly rootDir: string;
   readonly agentId: string;
   readonly entityStore?: AgentDeclarationReader;
-}): AgentDeclarationV1 {
+}): ProjectedAgentDeclaration {
   const resolved = readAgentDeclarationResolution(input);
   if (!resolved)
     throw Object.assign(new Error(`${input.agentId} is not an installed or bundled agent.`), {
