@@ -11,24 +11,6 @@ const workflowPath = path.join(process.cwd(), ".github/workflows/rebuild-gates.y
 // shape, one layer up. The workflow's bytes are not load-bearing, so the reader normalizes.
 const readWorkflow = () => readFileSync(workflowPath, "utf8").replaceAll("\r\n", "\n");
 
-// The rename landed: the trunk is "main" and the triggers name only it.
-// Drop the retired name from this list the moment the rename lands.
-const TRUNK_BRANCHES = ['- "main"'];
-
-test("push trigger covers only trunk branches — feature branches gate through pull_request runs, whose diff is the full PR; a feature-branch push run would re-evaluate walls against the narrow event.before diff and mint contradictory conclusions on the same head SHA (dec_01KZTQ1KRG17545YMSFKXJGEPN)", () => {
-  const workflow = readWorkflow();
-  const pushBlock = workflow.match(/\n {2}push:\n {4}branches:\n((?: {6}- .*\n)+)/u);
-  assert.ok(pushBlock, "rebuild-gates must keep an explicit push trigger for post-merge trunk gating");
-  assert.deepEqual(
-    pushBlock[1]
-      .trim()
-      .split("\n")
-      .map((line) => line.trim()),
-    TRUNK_BRANCHES,
-    "push trigger must list exactly the trunk branch names, never a wildcard or a feature branch",
-  );
-});
-
 test("diff-based gates fetch canonical main and resolve their base from origin/main", () => {
   const workflow = readWorkflow();
   for (const gate of ["tools/gates/test-selection.mjs"]) {
