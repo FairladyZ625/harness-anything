@@ -43,7 +43,7 @@ describe("reading footprints preserve a usable spotlight", () => {
     const layout = layoutEgoCanvas(input);
     expect(layout.nodes.find((node) => node.id === "0")!.height).toBeLessThan(250);
     const neighbors = layout.nodes.filter((node) => node.id !== "0").sort((a, b) => a.position.y - b.position.y);
-    expect(neighbors.at(-1)!.position.y - neighbors[0]!.position.y).toBeLessThan(2000);
+    expect(neighbors.at(-1)!.position.y - neighbors[0]!.position.y).toBe(7 * 82);
     const centers = new Map(
       layout.nodes.map((node) => [
         node.id,
@@ -55,16 +55,37 @@ describe("reading footprints preserve a usable spotlight", () => {
       expect({ x: node.position.x + Number(node.width) / 2, y: node.position.y + Number(node.height) / 2 }).toEqual(
         centers.get(node.id),
       );
-    for (const node of expanded.nodes)
-      for (const other of expanded.nodes) {
-        if (node.id === other.id) continue;
-        expect(
-          node.position.x + Number(node.width) <= other.position.x ||
-            other.position.x + Number(other.width) <= node.position.x ||
-            node.position.y + Number(node.height) <= other.position.y ||
-            other.position.y + Number(other.height) <= node.position.y,
-        ).toBe(true);
-      }
+    expect(expanded.nodes.find((node) => node.id === "1")!.zIndex).toBeGreaterThan(neighbors[0]!.zIndex!);
+  });
+  it("36 collapsed nodes keep the historical 82px neighbor pitch regardless of their reading content", () => {
+    const largeTasks = Array.from({ length: 36 }, (_, index) => ({
+      ...tasks[index % tasks.length]!,
+      taskId: String(index),
+      title: "长标题".repeat(80),
+      ...(index ? { parentTaskId: "0" } : {}),
+    }));
+    const graph = buildEgoGraph(largeTasks, [], [], []);
+    const largeInput = { ...input, graph, shown: bfsShownFromFocus(graph, "0", { up: 1, down: 1 }, axes) };
+    const layout = layoutEgoCanvas(largeInput);
+    const neighbors = layout.nodes.filter((node) => node.id !== "0").sort((a, b) => a.position.y - b.position.y);
+    expect(neighbors).toHaveLength(35);
+    for (let index = 1; index < neighbors.length; index++)
+      expect(neighbors[index]!.position.y - neighbors[index - 1]!.position.y).toBe(82);
+    expect(neighbors.at(-1)!.position.y - neighbors[0]!.position.y).toBe(34 * 82);
+    const expanded = layoutEgoCanvas({ ...largeInput, expanded: new Set(["0", "1"]) });
+    for (const node of expanded.nodes) {
+      const before = layout.nodes.find((other) => other.id === node.id)!;
+      expect([node.position.x + Number(node.width) / 2, node.position.y + Number(node.height) / 2]).toEqual([
+        before.position.x + Number(before.width) / 2,
+        before.position.y + Number(before.height) / 2,
+      ]);
+    }
+    expect(expanded.nodes.find((node) => node.id === "1")!.zIndex).toBeGreaterThan(
+      expanded.nodes.find((node) => node.id === "2")!.zIndex!,
+    );
+    expect(expanded.nodes.find((node) => node.id === "1")!.zIndex).toBeGreaterThanOrEqual(
+      expanded.nodes.find((node) => node.id === "0")!.zIndex!,
+    );
   });
 });
 

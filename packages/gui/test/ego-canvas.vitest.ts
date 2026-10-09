@@ -191,7 +191,7 @@ describe("分层分列", () => {
 });
 
 describe("原位展开(图场景 2026-10-02:展开节点成卡片,尺寸随内容)", () => {
-  it("相同 shown/focus 下展开不改变任何中心,全部成卡后仍无重叠", () => {
+  it("相同 shown/focus 下展开不改变任何中心,卡片层级高于收起节点", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
     const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
@@ -204,18 +204,10 @@ describe("原位展开(图场景 2026-10-02:展开节点成卡片,尺寸随内�
         before.position.x + Number(before.width) / 2,
         before.position.y + Number(before.height) / 2,
       ]);
-      for (const other of cards.nodes) {
-        if (node.id === other.id) continue;
-        const separated =
-          node.position.x + Number(node.width) <= other.position.x ||
-          other.position.x + Number(other.width) <= node.position.x ||
-          node.position.y + Number(node.height) <= other.position.y ||
-          other.position.y + Number(other.height) <= node.position.y;
-        expect(separated).toBe(true);
-      }
+      if (!node.data.focus) expect(node.zIndex).toBeGreaterThan(before.zIndex!);
     }
   });
-  it("未展开的节点一律 chip 尺寸;展开的节点按卡片尺寸参与分列", () => {
+  it("未展开的节点一律 chip 尺寸;展开的节点只改变阅读尺寸", () => {
     const { tasks, decisions, facts, relations } = claimAnchoredFixture();
     const graph = buildEgoGraph(tasks, decisions, facts, relations);
     const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);

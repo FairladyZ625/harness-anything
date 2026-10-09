@@ -14,7 +14,7 @@ import { STATUS_META } from "../components/badges";
  *
  * 取代固定三泳道 ego(该决策 RJ1 明确否决「固定 1 跳上 / 1 跳下三列」):三类实体统一,
  * 以焦点为 0 级,按跳级(BFS hop)分层成列 —— 上游系谱→左,下游落地→右,同级竖排、
- * barycenter 排序减少交叉。确定性布局、零重叠、不引第三方布局器。
+ * barycenter 排序减少交叉。确定性 chip 布局、不引第三方布局器。
  *
  * 图场景 2026-10-02 恢复节点原位展开(业主批准,task_baca8e2b3e32c288fbd14b71f0;
  * 旧 §5.2「节点一律 chip」被本指令覆盖,抽屉不再承载节点正文,只保留边):
@@ -23,7 +23,7 @@ import { STATUS_META } from "../components/badges";
  *   egoNeighborsOf   — 某节点经轴过滤的一跳邻居(expandNode 长出下一环用)。
  *   layoutEgoCanvas  — 给定 (focusId, shown, expanded, filters) → 节点位置 + 边。
  *
- * 不变量:布局接续宿主保存的中心。初次摆放预留卡片范围;展开只往 shown 里加、
+ * 不变量:布局接续宿主保存的中心。初次摆放只用 chip 尺寸;展开卡片覆盖邻居、
  * 收起只从 expanded 里减 —— 已铺开的邻居永不撤回,画布永不因节点交互重排
  * (换焦点/跳数步进/分层开关这些显式视图切换才重铺)。
  */
@@ -337,11 +337,6 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
 
   const axisOn = (axis: SemanticAxis): boolean => filters.axes[axis];
   const typeOn = (entity: EgoEntity): boolean => filters.types === null || filters.types.has(entity);
-  const dimOf = (id: string) => {
-    const meta = byId.get(id);
-    // Reserve the actual reading footprint; short cards do not reserve the maximum body cap.
-    return egoNodeDims(meta?.entity ?? "task", true, meta?.row, id === focusId, input.cardHeightCap);
-  };
 
   // ── 可见集:shown ∩ 类型开关;焦点恒可见(不被自身类型开关抹掉) ──
   const vis = new Set<string>([focusId]);
@@ -400,7 +395,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     ["down", 1],
     ["up", -1],
   ] as const) {
-    let cx = dimOf(focusId).w / 2;
+    let cx = CHIP_W / 2;
     const depths = [...cols.keys()]
       .filter((key) => key.startsWith(`${sideKey}:`))
       .map((key) => Number(key.split(":")[1]))
@@ -408,19 +403,18 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     for (const depth of depths) {
       const ids = cols.get(`${sideKey}:${depth}`)!;
       ids.sort((a, b) => barycenter(a, depth - 1) - barycenter(b, depth - 1) || a.localeCompare(b));
-      const colW = Math.max(...ids.map((id) => dimOf(id).w));
-      cx += GAP_X + colW / 2;
-      const totalH = ids.reduce((acc, id) => acc + dimOf(id).h + GAP_Y, -GAP_Y);
+      cx += GAP_X + CHIP_W / 2;
+      const totalH = ids.length * (CHIP_H + GAP_Y) - GAP_Y;
       let y = -totalH / 2;
       for (const id of ids) {
-        const h = dimOf(id).h;
-        pos.set(id, { x: sign * cx, y: y + h / 2 });
-        y += h + GAP_Y;
+        pos.set(id, { x: sign * cx, y: y + CHIP_H / 2 });
+        y += CHIP_H + GAP_Y;
       }
-      cx += colW / 2;
+      cx += CHIP_W / 2;
     }
   }
 
+  // 只按 chip 尺寸摆放;展开卡片以更高层级覆盖邻居,不预留阅读态空间。
   // 已有节点锁定中心;新邻居只寻找空位,不会推走旧列。每次碰撞把候选 y
   // 推到冲突节点的下边界之后,单调向下且已占用集合有限。
   const placed = new Map<string, { x: number; y: number }>();
@@ -431,19 +425,13 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
   for (const id of vis) {
     if (placed.has(id)) continue;
     const center = { ...pos.get(id)! };
-    const dims = dimOf(id);
     let conflicts: string[];
     do {
       conflicts = [...placed.keys()].filter((other) => {
         const at = placed.get(other)!;
-        const size = dimOf(other);
-        return (
-          Math.abs(center.x - at.x) < (dims.w + size.w) / 2 + GAP_X &&
-          Math.abs(center.y - at.y) < (dims.h + size.h) / 2 + GAP_Y
-        );
+        return Math.abs(center.x - at.x) < CHIP_W + GAP_X && Math.abs(center.y - at.y) < CHIP_H + GAP_Y;
       });
-      if (conflicts.length)
-        center.y = Math.max(...conflicts.map((other) => placed.get(other)!.y + (dimOf(other).h + dims.h) / 2 + GAP_Y));
+      if (conflicts.length) center.y = Math.max(...conflicts.map((other) => placed.get(other)!.y + CHIP_H + GAP_Y));
     } while (conflicts.length > 0);
     placed.set(id, center);
   }
@@ -485,7 +473,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
         navRef: meta.entity === "task" ? `task/${id}` : id,
       },
       draggable: false,
-      zIndex: id === focusId ? 6 : isExpanded ? 5 : 1,
+      zIndex: isExpanded ? 7 : id === focusId ? 6 : 1,
     });
   }
 
