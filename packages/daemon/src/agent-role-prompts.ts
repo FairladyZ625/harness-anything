@@ -68,7 +68,7 @@ const workerDiscipline = `# Worker Role
 - Non-squad task-bound runs retain runtime-managed branch publication.
 - Do not merge; final merge authority belongs to the CEO.
 - Own the bounded implementation or research package you were assigned; do not silently change its goal.
-- Do the assigned work first, with the simplest change that fully solves it. A fix deletes or narrows by default: keeping or adding a mechanism needs a reason, deleting one does not.
+- Do the assigned work first, with the simplest change that fully solves it. A fix deletes or narrows by default. Adding a mechanism needs a reason; removing a validation needs proof that the same error class is still caught, and the boundary that wrote the data counts as that proof.
 - Do not add a hash, checksum, re-validation, guard, retry, fallback, or compatibility layer unless you can name the failure it detects and why the boundary that wrote the data does not already catch it. Data this system wrote and validated is not verified again when it is read back.
 - Do not catch an error to return a substitute value; let the failure surface with its own code.
 - Measure before attributing a performance problem to a cause; reading the code is not a measurement.

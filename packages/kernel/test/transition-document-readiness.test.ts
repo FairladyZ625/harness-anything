@@ -313,12 +313,12 @@ test("the lightweight three-section scaffold passes once filled and rejects reta
         "Kernel readiness judged a hardcoded 14-section list.",
       )
       .replace(
-        "List acceptance: the targeted tests and checks that must go green, required negative controls, and the stop point.",
+        "List acceptance: the targeted tests and checks that must go green, and the stop point; add a negative control when the task repairs a defect.",
         "Dispatch and settle both accept the three-section plan.",
       ),
     retained = filled.replace(
       "Dispatch and settle both accept the three-section plan.",
-      "List acceptance: the targeted tests and checks that must go green, required negative controls, and the stop point.",
+      "List acceptance: the targeted tests and checks that must go green, and the stop point; add a negative control when the task repairs a defect.",
     );
   assert.equal(assessTransitionDocument("task.plan", filled, lightweightPlanContract).ready, true);
   assert.deepEqual(
