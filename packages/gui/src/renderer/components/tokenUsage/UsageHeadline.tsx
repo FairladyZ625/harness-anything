@@ -89,7 +89,7 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
               ) : null,
             )}
           </div>
-          <dl className="mt-2.5 grid grid-cols-3 gap-x-4">
+          <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-2 @[560px]:grid-cols-4">
             {tokenKinds.map((kind) => (
               <div key={kind} className="min-w-0">
                 <dt className="flex items-center gap-1.5 ui-meta text-text-muted">
@@ -111,6 +111,9 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
               </div>
             ))}
           </dl>
+          <p data-testid="token-usage-cache-write-note" className="mt-2 ui-meta text-text-faint">
+            {t("agentRuntime.tokenUsageCacheWriteNote")}
+          </p>
         </div>
       </div>
       {totals.usageUnavailableDispatches > 0 ? (

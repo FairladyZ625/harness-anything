@@ -156,6 +156,7 @@ export function UsageRankingTable({
             <th className={head}>{t("agentRuntime.tokenUsageColSessions")}</th>
             <th className={head}>{t("agentRuntime.tokenUsageColInput")}</th>
             <th className={head}>{t("agentRuntime.tokenUsageColCacheRead")}</th>
+            <th className={head}>{t("agentRuntime.tokenUsageKindCacheWrite")}</th>
             <th className={head}>{t("agentRuntime.tokenUsageColOutput")}</th>
             <th className={head}>{t("agentRuntime.tokenUsageColTotal")}</th>
             <th className={head}>{t("agentRuntime.tokenUsageColCost")}</th>
@@ -188,6 +189,9 @@ export function UsageRankingTable({
                 </td>
                 <td className={cell} title={exactTokens(row.cacheReadTokens)}>
                   {preciseTokens(row.cacheReadTokens)}
+                </td>
+                <td className={cell} title={exactTokens(row.cacheWriteTokens)}>
+                  {preciseTokens(row.cacheWriteTokens)}
                 </td>
                 <td className={cell} title={exactTokens(row.outputTokens)}>
                   {preciseTokens(row.outputTokens)}

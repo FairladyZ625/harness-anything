@@ -180,12 +180,21 @@ test("Claude stream normalizes message usage including cache creation and preser
     {
       inputTokens: runtime.inputTokens,
       cacheReadTokens: runtime.cacheReadTokens,
+      cacheWriteTokens: runtime.cacheWriteTokens,
       outputTokens: runtime.outputTokens,
       totalTokens: runtime.inputTokens + runtime.outputTokens,
       toolCallCount: runtime.toolCallCount,
       compacted: runtime.compacted,
     },
-    { inputTokens: 110, cacheReadTokens: 20, outputTokens: 25, totalTokens: 135, toolCallCount: 1, compacted: true },
+    {
+      inputTokens: 110,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 10,
+      outputTokens: 25,
+      totalTokens: 135,
+      toolCallCount: 1,
+      compacted: true,
+    },
   );
   assert.ok(runtime.cacheReadTokens <= runtime.inputTokens);
   assert.deepEqual(runtime.rawUsage, {
@@ -598,6 +607,7 @@ test("runtime usage extracts protocol cache fields and normalizes inclusive inpu
       usage: { input_tokens: 10, cache_read_input_tokens: 20, cache_creation_input_tokens: 3 },
       input: 33,
       cache: 20,
+      write: 3,
     },
     {
       kind: "codex",
@@ -608,20 +618,29 @@ test("runtime usage extracts protocol cache fields and normalizes inclusive inpu
       },
       input: 100,
       cache: 70,
+      write: 5,
     },
     {
       kind: "opencode",
       usage: { promptTokens: 50, input_tokens_details: { cached_tokens: 30 }, outputTokens: 2 },
       input: 50,
       cache: 30,
+      write: 0,
     },
     {
       kind: "deepseek",
       usage: { prompt_tokens: 60, prompt_cache_hit_tokens: 40, completion_tokens: 3 },
       input: 100,
       cache: 40,
+      write: 0,
     },
-    { kind: "gemini", usage: { inputTokens: 80, cachedContentTokenCount: 70, output: 1 }, input: 80, cache: 70 },
+    {
+      kind: "gemini",
+      usage: { inputTokens: 80, cachedContentTokenCount: 70, output: 1 },
+      input: 80,
+      cache: 70,
+      write: 0,
+    },
     {
       kind: "zcode",
       usage: {
@@ -633,6 +652,7 @@ test("runtime usage extracts protocol cache fields and normalizes inclusive inpu
       },
       input: 2_806_008,
       cache: 2_712_960,
+      write: 0,
     },
   ];
   for (const item of cases) {
@@ -640,6 +660,7 @@ test("runtime usage extracts protocol cache fields and normalizes inclusive inpu
     await consumeProviderLine(context(), runtime, JSON.stringify({ type: "usage", usage: item.usage }));
     assert.equal(runtime.inputTokens, item.input, item.kind);
     assert.equal(runtime.cacheReadTokens, item.cache, item.kind);
+    assert.equal(runtime.cacheWriteTokens, item.write, item.kind);
   }
 });
 

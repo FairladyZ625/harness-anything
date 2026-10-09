@@ -42,6 +42,7 @@ export interface AgentRuntimeTokenUsageCounters {
   readonly sessionCount: number;
   readonly inputTokens: number;
   readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly toolCallCount: number;
@@ -91,6 +92,7 @@ export interface AgentRuntimeTokenUsageBucket extends AgentRuntimeTokenUsageRepo
   readonly dispatchCount: number;
   readonly inputTokens: number;
   readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly toolCallCount: number;
@@ -151,6 +153,7 @@ export interface AgentRuntimeTokenUsageSessionRow {
   readonly outcome: AgentRuntimeTokenUsageOutcome;
   readonly inputTokens: number;
   readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly toolCallCount: number;
@@ -180,6 +183,7 @@ type UsageAccumulator = {
   counters: {
     inputTokens: number;
     cacheReadTokens: number;
+    cacheWriteTokens: number;
     outputTokens: number;
     totalTokens: number;
     toolCallCount: number;
@@ -193,12 +197,23 @@ type UsageAccumulator = {
  * Unpriced models report their token total for the unpriced share instead of a zero amount. */
 function dispatchCost(
   model: string | null,
-  metrics: { inputTokens: number; cacheReadTokens: number; outputTokens: number; totalTokens: number } | null,
+  metrics: {
+    readonly inputTokens: number;
+    readonly cacheReadTokens: number;
+    readonly cacheWriteTokens?: number;
+    readonly outputTokens: number;
+    readonly totalTokens: number;
+  } | null,
 ): { costUsd: number; unpricedTokens: number } {
   if (metrics === null) return { costUsd: 0, unpricedTokens: 0 };
   const price = modelPriceOf(model);
   if (price === null) return { costUsd: 0, unpricedTokens: metrics.totalTokens };
-  return { costUsd: usageCostUsd(price, metrics), unpricedTokens: 0 };
+  // Pre-2026-10-10 records carry no cache-write field: their writes stay inside the
+  // input remainder and price at the input rate, never as an estimate.
+  return {
+    costUsd: usageCostUsd(price, { ...metrics, cacheWriteTokens: metrics.cacheWriteTokens ?? 0 }),
+    unpricedTokens: 0,
+  };
 }
 
 /** Local calendar days in the window (inclusive of today): today keeps hour buckets, the
@@ -568,6 +583,7 @@ type MutableBucket = {
   dispatchCount: number;
   inputTokens: number;
   cacheReadTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   totalTokens: number;
   toolCallCount: number;
@@ -583,6 +599,7 @@ function bucketLadder(sinceMs: number, nowMs: number, bucketMs: number): Mutable
       dispatchCount: 0,
       inputTokens: 0,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
       toolCallCount: 0,
@@ -613,6 +630,7 @@ function accumulateBucket(
   if (metrics) {
     bucket.inputTokens += metrics.inputTokens;
     bucket.cacheReadTokens += metrics.cacheReadTokens;
+    bucket.cacheWriteTokens += metrics.cacheWriteTokens ?? 0;
     bucket.outputTokens += metrics.outputTokens;
     bucket.totalTokens += metrics.totalTokens;
     bucket.toolCallCount += metrics.toolCallCount;
@@ -636,6 +654,7 @@ function accumulate(
   if (metrics) {
     accumulator.counters.inputTokens += metrics.inputTokens;
     accumulator.counters.cacheReadTokens += metrics.cacheReadTokens;
+    accumulator.counters.cacheWriteTokens += metrics.cacheWriteTokens ?? 0;
     accumulator.counters.outputTokens += metrics.outputTokens;
     accumulator.counters.totalTokens += metrics.totalTokens;
     accumulator.counters.toolCallCount += metrics.toolCallCount;
@@ -677,6 +696,7 @@ function sessionRowOf(
     outcome: dispatchOutcomeWord(summary),
     inputTokens: metrics?.inputTokens ?? 0,
     cacheReadTokens: metrics?.cacheReadTokens ?? 0,
+    cacheWriteTokens: metrics?.cacheWriteTokens ?? 0,
     outputTokens: metrics?.outputTokens ?? 0,
     totalTokens: metrics?.totalTokens ?? 0,
     toolCallCount: metrics?.toolCallCount ?? 0,
@@ -706,6 +726,7 @@ function detailTotals(sessions: readonly AgentRuntimeTokenUsageSessionRow[]): Ag
     sessionCount: unique.size,
     inputTokens: sum(sessions, ({ inputTokens }) => inputTokens),
     cacheReadTokens: sum(sessions, ({ cacheReadTokens }) => cacheReadTokens),
+    cacheWriteTokens: sum(sessions, ({ cacheWriteTokens }) => cacheWriteTokens),
     outputTokens: sum(sessions, ({ outputTokens }) => outputTokens),
     totalTokens: sum(sessions, ({ totalTokens }) => totalTokens),
     toolCallCount: sum(sessions, ({ toolCallCount }) => toolCallCount),
@@ -737,6 +758,7 @@ function emptyAccumulator(): UsageAccumulator {
     counters: {
       inputTokens: 0,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
       toolCallCount: 0,
@@ -782,6 +804,7 @@ const totalsFields = [
   "sessionCount",
   "inputTokens",
   "cacheReadTokens",
+  "cacheWriteTokens",
   "outputTokens",
   "totalTokens",
   "toolCallCount",
@@ -794,16 +817,16 @@ function hasTotalsFields(value: Record<string, unknown>): boolean {
   return totalsFields.every((field) => nonNegativeInteger(value[field])) && nonNegativeNumber(value.costUsd);
 }
 function validTotals(value: unknown): boolean {
-  return isRecord(value) && Object.keys(value).length === 10 && hasTotalsFields(value);
+  return isRecord(value) && Object.keys(value).length === 11 && hasTotalsFields(value);
 }
 function validBucket(value: unknown): boolean {
   return (
     isRecord(value) &&
-    Object.keys(value).length === 10 &&
+    Object.keys(value).length === 11 &&
     isoTimestamp(value.bucketStart) &&
     nonNegativeInteger(value.dispatchCount) &&
-    ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"].every((field) =>
-      nonNegativeInteger(value[field]),
+    ["inputTokens", "cacheReadTokens", "cacheWriteTokens", "outputTokens", "totalTokens", "toolCallCount"].every(
+      (field) => nonNegativeInteger(value[field]),
     ) &&
     ["usageReportedDispatches", "usageUnavailableDispatches"].every((field) => nonNegativeInteger(value[field])) &&
     nonNegativeNumber(value.costUsd)
@@ -825,7 +848,7 @@ function validMember(value: unknown): boolean {
 function validSessionRow(value: unknown): boolean {
   return (
     isRecord(value) &&
-    Object.keys(value).length === 14 &&
+    Object.keys(value).length === 15 &&
     nonEmptyString(value.dispatchId) &&
     nonEmptyString(value.runtimeSessionId) &&
     nullableNonEmptyString(value.taskId) &&
@@ -834,8 +857,8 @@ function validSessionRow(value: unknown): boolean {
     nullableNonEmptyString(value.endedAt) &&
     (value.durationMs === null || nonNegativeInteger(value.durationMs)) &&
     tokenUsageOutcomeWords.includes(value.outcome as AgentRuntimeTokenUsageOutcome) &&
-    ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"].every((field) =>
-      nonNegativeInteger(value[field]),
+    ["inputTokens", "cacheReadTokens", "cacheWriteTokens", "outputTokens", "totalTokens", "toolCallCount"].every(
+      (field) => nonNegativeInteger(value[field]),
     ) &&
     ["reported", "unavailable", "pending"].includes(String(value.usage))
   );
@@ -874,12 +897,12 @@ export function validateAgentRuntimeTokenUsage(value: unknown): readonly string[
     isoTimestamp(value.previous.until) &&
     validTotals(value.previous.totals) &&
     Array.isArray(value.agents) &&
-    value.agents.every((row) => validRow(row, 15, "agentId", "agentName")) &&
+    value.agents.every((row) => validRow(row, 16, "agentId", "agentName")) &&
     Array.isArray(value.squads) &&
-    value.squads.every((row) => validRow(row, 15, "squadId", "squadName")) &&
+    value.squads.every((row) => validRow(row, 16, "squadId", "squadName")) &&
     Array.isArray(value.models) &&
     value.models.length <= tokenUsageInsightLimits.models &&
-    value.models.every((row) => validRow(row, 14, "model")) &&
+    value.models.every((row) => validRow(row, 15, "model")) &&
     validTokenUsageInsights(value, (value.buckets as readonly unknown[]).length)
     ? []
     : ["agent runtime token usage is invalid"];

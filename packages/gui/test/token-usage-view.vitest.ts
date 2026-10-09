@@ -45,35 +45,39 @@ const usage: AgentRuntimeTokenUsageResult = {
     sessionCount: 3,
     inputTokens: 13_500,
     cacheReadTokens: 340,
+    cacheWriteTokens: 4,
     outputTokens: 1_160,
     totalTokens: 15_000,
     toolCallCount: 57,
     usageReportedDispatches: 2,
     usageUnavailableDispatches: 3,
-    // 新输入 13,160×$4 + 缓存读 340×$0.4 + 输出 1,160×$20(每 1M,gpt-5.6-sol 价)。
-    costUsd: 0.075_976,
+    // 新输入 13,156×$4 + 缓存读 340×$0.4 + 缓存写 4×$5 + 输出 1,160×$20(每 1M,gpt-5.6-sol 价,
+    // 写价 = 输入价 1.25 倍)。
+    costUsd: 0.075_98,
     // swe2 那 120 个 token 无公开价,不计入金额。
     unpricedTokens: 120,
   },
-  pricing: { version: "2026-10-09" },
+  pricing: { version: "2026-10-10" },
   buckets: [
     {
       bucketStart: "2026-09-18T12:00:00.000Z",
       dispatchCount: 1,
       inputTokens: 1_500,
       cacheReadTokens: 340,
+      cacheWriteTokens: 4,
       outputTokens: 260,
       totalTokens: 2_100,
       toolCallCount: 17,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
-      costUsd: 0.009_976,
+      costUsd: 0.009_98,
     },
     {
       bucketStart: "2026-09-18T13:00:00.000Z",
       dispatchCount: 1,
       inputTokens: 12_000,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 900,
       totalTokens: 12_900,
       toolCallCount: 40,
@@ -89,6 +93,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       sessionCount: 2,
       inputTokens: 1_500,
       cacheReadTokens: 340,
+      cacheWriteTokens: 4,
       outputTokens: 260,
       totalTokens: 2_100,
       toolCallCount: 17,
@@ -97,7 +102,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       succeededSessions: 1,
       failedSessions: 1,
       abortedSessions: 0,
-      costUsd: 0.009_976,
+      costUsd: 0.009_98,
       unpricedTokens: 0,
     },
     {
@@ -106,6 +111,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       sessionCount: 1,
       inputTokens: 0,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
       toolCallCount: 3,
@@ -123,6 +129,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       sessionCount: 3,
       inputTokens: 12_000,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 900,
       totalTokens: 12_900,
       toolCallCount: 40,
@@ -139,6 +146,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       sessionCount: 1,
       inputTokens: 12_000,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 900,
       totalTokens: 12_900,
       toolCallCount: 40,
@@ -155,6 +163,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       sessionCount: 2,
       inputTokens: 100,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 20,
       totalTokens: 120,
       toolCallCount: 17,
@@ -174,6 +183,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       sessionCount: 2,
       inputTokens: 9_000,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 1_000,
       totalTokens: 10_000,
       toolCallCount: 20,
@@ -200,7 +210,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       workTitle: "Fix a typo",
       sessionCount: 2,
       totalTokens: 2_100,
-      costUsd: 0.009_976,
+      costUsd: 0.009_98,
     },
   ],
   works: [
@@ -285,15 +295,16 @@ const detail: AgentRuntimeTokenUsageDetailResult = {
     sessionCount: 2,
     inputTokens: 1_500,
     cacheReadTokens: 340,
+    cacheWriteTokens: 4,
     outputTokens: 260,
     totalTokens: 2_100,
     toolCallCount: 17,
     usageReportedDispatches: 2,
     usageUnavailableDispatches: 0,
-    costUsd: 0.009_976,
+    costUsd: 0.009_98,
     unpricedTokens: 0,
   },
-  pricing: { version: "2026-10-09" },
+  pricing: { version: "2026-10-10" },
   buckets: usage.buckets,
   sessions: [
     {
@@ -307,6 +318,7 @@ const detail: AgentRuntimeTokenUsageDetailResult = {
       outcome: "succeeded",
       inputTokens: 1_500,
       cacheReadTokens: 340,
+      cacheWriteTokens: 4,
       outputTokens: 260,
       totalTokens: 2_100,
       toolCallCount: 17,
@@ -323,6 +335,7 @@ const detail: AgentRuntimeTokenUsageDetailResult = {
       outcome: "running",
       inputTokens: 0,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
       toolCallCount: 0,
@@ -408,18 +421,23 @@ describe("TokenUsageView", () => {
     const change = byTestId(container, "token-usage-change");
     expect(change.textContent).toContain("50%");
     expect(change.textContent).toContain("more than the same hours yesterday (10K then)");
-    // 构成三段互不重叠,加起来等于总量:缓存 340 + 新输入 13,160 + 输出 1,160(旧版把输入与缓存叠加,柱超出刻度)。
+    // 构成四段互不重叠,加起来等于总量:缓存读 340 + 缓存写 4 + 新输入 13,156 + 输出 1,160。
     const composition = byTestId(container, "token-usage-composition");
     expect(composition.textContent).toContain("Cache read340");
+    expect(composition.textContent).toContain("Cache write4");
     expect(composition.textContent).toContain("Fresh input13.2K");
     expect(composition.textContent).toContain("Output tokens1.16K");
+    // 缓存写的口径说明:独立计数起点、历史并入新输入、未上报按 0。
+    expect(byTestId(container, "token-usage-cache-write-note").textContent).toContain(
+      "counted separately and priced at the cache-write rate since 2026-10-10",
+    );
     // 有派工未上报时明说总量是下界。
     expect(byTestId(container, "token-usage-conclusion").textContent).toContain("3 dispatches");
     // 折算金额:口径(公开价、非实际花费)、价格表版本与未计价占比都在大数字旁边。
     const cost = byTestId(container, "token-usage-cost").textContent ?? "";
     expect(cost).toContain("$0.08");
     expect(cost).toContain("converted at public API list prices, not actual spend");
-    expect(cost).toContain("price table 2026-10-09");
+    expect(cost).toContain("price table 2026-10-10");
     expect(cost).toContain("0.8% of usage (120 tokens) has no public price and is excluded");
     // 四个关键数字:会话、缓存命中率(340/13,500)、白花(2,100/15,000)、未上报。
     const view = byTestId(container, "token-usage-view").textContent ?? "";
@@ -685,11 +703,31 @@ describe("TokenUsageView", () => {
 });
 
 describe("token usage display model", () => {
-  it("splits consumption into three non-overlapping parts that add up to the total", () => {
-    // daemon 的 inputTokens 含缓存读取,totalTokens = 输入 + 输出。
-    const parts = tokenComposition({ inputTokens: 1_000, cacheReadTokens: 700, outputTokens: 50 });
-    expect(parts).toEqual({ cacheRead: 700, freshInput: 300, output: 50 });
-    expect(parts.cacheRead + parts.freshInput + parts.output).toBe(1_050);
+  it("splits consumption into four non-overlapping parts that add up to the total", () => {
+    // daemon 的 inputTokens 含缓存读取与缓存写入,totalTokens = 输入 + 输出。
+    const parts = tokenComposition({
+      inputTokens: 1_000,
+      cacheReadTokens: 700,
+      cacheWriteTokens: 100,
+      outputTokens: 50,
+    });
+    expect(parts).toEqual({ cacheRead: 700, cacheWrite: 100, freshInput: 200, output: 50 });
+    expect(parts.cacheRead + parts.cacheWrite + parts.freshInput + parts.output).toBe(1_050);
+    // 读+写超过输入时逐段截断:新输入不为负(历史记录缺写计数时按 0,同一条路径)。
+    const clamped = tokenComposition({
+      inputTokens: 1_000,
+      cacheReadTokens: 700,
+      cacheWriteTokens: 500,
+      outputTokens: 0,
+    });
+    expect(clamped).toEqual({ cacheRead: 700, cacheWrite: 300, freshInput: 0, output: 0 });
+    const legacy = tokenComposition({
+      inputTokens: 1_000,
+      cacheReadTokens: 700,
+      cacheWriteTokens: 0,
+      outputTokens: 50,
+    });
+    expect(legacy).toEqual({ cacheRead: 700, cacheWrite: 0, freshInput: 300, output: 50 });
     expect(cacheHitRate({ inputTokens: 1_000, cacheReadTokens: 700 })).toBe(0.7);
     expect(cacheHitRate({ inputTokens: 1_000, cacheReadTokens: -10 })).toBe(0);
     expect(cacheHitRate({ inputTokens: 1_000, cacheReadTokens: 1_100 })).toBe(1);

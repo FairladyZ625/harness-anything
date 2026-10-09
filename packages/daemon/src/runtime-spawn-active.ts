@@ -28,6 +28,7 @@ type ActiveRuntimeBase = Omit<
   | "providerFault"
   | "inputTokens"
   | "cacheReadTokens"
+  | "cacheWriteTokens"
   | "outputTokens"
   | "toolCallCount"
   | "usageReported"
@@ -66,6 +67,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     providerFault: null,
     inputTokens: 0,
     cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     outputTokens: 0,
     toolCallCount: 0,
     usageReported: false,

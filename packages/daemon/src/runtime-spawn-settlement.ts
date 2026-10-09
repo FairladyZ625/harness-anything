@@ -81,6 +81,7 @@ export async function publishExit(
     const runtimeMetrics = {
       inputTokens: active.inputTokens,
       cacheReadTokens: active.cacheReadTokens,
+      cacheWriteTokens: active.cacheWriteTokens,
       outputTokens: active.outputTokens,
       totalTokens: active.inputTokens + active.outputTokens,
       toolCallCount: active.toolCallCount,

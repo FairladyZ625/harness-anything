@@ -484,6 +484,8 @@
   "agentRuntime.tokenUsageChangeDown": "比{previous}少(当时 {tokens})",
   "agentRuntime.tokenUsageChangeNoBase": "{previous}没有消耗记录,无从比较",
   "agentRuntime.tokenUsageKindFreshInput": "新输入",
+  "agentRuntime.tokenUsageKindCacheWrite": "缓存写入",
+  "agentRuntime.tokenUsageCacheWriteNote": "缓存写入自 2026-10-10 起独立计数并按缓存写单价折算;更早的记录无法拆分,其缓存写入并入新输入按输入价折算;未上报缓存写入的 provider 按写入 0 计,不估算。",
   "agentRuntime.tokenUsageFloorSome": "{count} 个派工的 provider 没有上报用量,这里的总量是下界。",
   "agentRuntime.tokenUsageFloorAll": "{count} 个派工全都没有上报用量:这里的 0 是缺数,不是真的没花。",
   "agentRuntime.tokenUsageFigureSessionsNote": "平均每个 {average} tokens、{tools} 次工具调用",

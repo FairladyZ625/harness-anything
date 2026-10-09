@@ -194,6 +194,7 @@ export type ActiveRuntime = {
   providerFault: RuntimeProviderFault | null;
   inputTokens: number;
   cacheReadTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   toolCallCount: number;
   usageReported: boolean;

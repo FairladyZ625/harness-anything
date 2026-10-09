@@ -12,8 +12,10 @@ import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/loca
  * daemon 的 tokenUsage 读从这些流现算金额,页面不 mock 任何读面。
  *
  * 种子覆盖验收要的每种状态:今天全有价(页首无未计价提示)/ 7 天含 swe2 无价用量(页首
- * 占比提示 + 模型行「无价格」)/ 一次 <$0.01 的小额派工 / 跨小时的趋势桶。断言用实算金额
- * (价格表 agent-runtime-model-pricing.ts 的单价 × 种子计数),改价或改显示格式都会红。
+ * 占比提示 + 模型行「无价格」)/ 一次 <$0.01 的小额派工 / 跨小时的趋势桶 / 缓存写独立计价
+ * (d1 gpt 与 d4 opus 带 cacheWriteTokens,写价 = 输入价 1.25 倍;p2 是缺字段的历史记录形状,
+ * 读侧按写入 0 计)。断言用实算金额(价格表 agent-runtime-model-pricing.ts 的单价 × 种子
+ * 计数),改价或改显示格式都会红。
  */
 const REPO_ATTACHMENT_TIMEOUT_MS = 20_000,
   HOUR = 3_600_000,
@@ -33,24 +35,35 @@ const WORK_READ = { taskId: "task-cost-work-read", title: "统一资产读路径
     { taskId: "task-cost-triage", title: "排查一次小额派工", parent: WORK_DOCS.taskId },
   ];
 
-/** 派工种子。inputTokens 含缓存读(与 runtime_metrics 的写入形状一致);cost 是按价格表
- * 手算的期望值,页面断言直接对它。hoursAgo 均取「现在往回」,今天的数据分散在多个小时
- * 桶里;前一段窗口放一笔 swe2(无价)与一笔有价派工。 */
+/** 派工种子。inputTokens 含缓存读与缓存写(与 runtime_metrics 的写入形状一致);cost 是按
+ * 价格表手算的期望值(四段:新输入/缓存读/缓存写/输出),页面断言直接对它。今天的种子
+ * hoursAgo 相对本地午夜自适应:白天按原始间隔铺开,凌晨窗口不足时整体压进今天(顺序与
+ * 落桶由 expectedBucketCost 按「实际落桶」计算,任何时段都精确)。前一段窗口放一笔 swe2
+ * (无价)与一笔缺 cacheWriteTokens 字段的历史形状有价派工。 */
 const now = Date.now(),
+  localSince = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate()).getTime(),
+  todayHours = (now - localSince) / HOUR,
+  clampToday = (hoursAgo, floor = 0.01) => Math.min(hoursAgo, Math.max(floor, todayHours - 0.01)),
   dispatches = [
     {
       key: "d1-astra-sol-impl",
-      hoursAgo: 0.7,
+      hoursAgo: Math.min(0.7, todayHours * 0.55),
       agentId: "astra",
       agentName: "Astra",
       model: "gpt-5.6-sol",
       taskId: "task-cost-impl",
-      metrics: { inputTokens: 180_000_000, cacheReadTokens: 172_000_000, outputTokens: 4_000_000, toolCallCount: 210 },
-      cost: 180.8,
+      metrics: {
+        inputTokens: 180_000_000,
+        cacheReadTokens: 172_000_000,
+        cacheWriteTokens: 6_000_000,
+        outputTokens: 4_000_000,
+        toolCallCount: 210,
+      },
+      cost: 186.8,
     },
     {
       key: "d2-glm-impl",
-      hoursAgo: 2.3,
+      hoursAgo: clampToday(2.3, 0.009),
       agentId: "glm",
       agentName: "GLM-5.3",
       model: "GLM-5.3",
@@ -60,7 +73,7 @@ const now = Date.now(),
     },
     {
       key: "d3-astra-doc",
-      hoursAgo: 4.1,
+      hoursAgo: clampToday(4.1, 0.008),
       agentId: "astra",
       agentName: "Astra",
       model: "gpt-5.6-sol",
@@ -70,17 +83,23 @@ const now = Date.now(),
     },
     {
       key: "d4-glm-review",
-      hoursAgo: 5.8,
+      hoursAgo: clampToday(5.8, 0.007),
       agentId: "glm",
       agentName: "GLM-5.3",
       model: "opus",
       taskId: "task-cost-review",
-      metrics: { inputTokens: 6_000_000, cacheReadTokens: 5_000_000, outputTokens: 150_000, toolCallCount: 24 },
-      cost: 8,
+      metrics: {
+        inputTokens: 6_000_000,
+        cacheReadTokens: 5_000_000,
+        cacheWriteTokens: 500_000,
+        outputTokens: 150_000,
+        toolCallCount: 24,
+      },
+      cost: 8.5,
     },
     {
       key: "d5-astra-triage",
-      hoursAgo: 6.9,
+      hoursAgo: clampToday(6.9, 0.006),
       agentId: "astra",
       agentName: "Astra",
       model: "gemini-3.8-flash-high",
@@ -90,7 +109,7 @@ const now = Date.now(),
     },
     {
       key: "d6-glm-review",
-      hoursAgo: 8.2,
+      hoursAgo: clampToday(8.2, 0.005),
       agentId: "glm",
       agentName: "GLM-5.3",
       model: "GLM-5.3",
@@ -224,12 +243,12 @@ export default {
     await costLine.waitFor();
 
     // ①a 今天全有价:金额 + 折算口径 + 版本日期,没有未计价提示。
-    await assertCostLine(costLine, { cost: "$254.46", unpriced: false });
+    await assertCostLine(costLine, { cost: "$260.96", unpriced: false });
     await shot("headline-today-all-priced");
 
     // ①b 7 天含无价用量(swe2):页首出现未计价占比提示。
     await clickOption(page, "时间范围", "7 天");
-    await assertCostLine(costLine, { cost: "$297.66", unpriced: true });
+    await assertCostLine(costLine, { cost: "$304.16", unpriced: true });
     await shot("headline-7d-unpriced");
 
     // ② 模型排行:swe2 行「无价格」+ 有价模型的金额列。
@@ -239,8 +258,8 @@ export default {
     assert.match(await sweRow.innerText(), /无价格|no price/u, "the swe2 model row must say it has no price");
     assert.match(
       await page.getByTestId("token-usage-rank-gpt-5.6-sol").innerText(),
-      /\$242\.00/u,
-      "the priced model row must carry its converted amount",
+      /\$248\.00/u,
+      "the priced model row must carry its converted amount (d1+d3 today plus the legacy p2 seed)",
     );
     await sweRow.scrollIntoViewIfNeeded();
     await shot("model-ranking-no-price");
@@ -255,19 +274,38 @@ export default {
     await shot("model-table-small-cost");
     await clickOption(page, "呈现方式", "图表", page.getByTestId("token-usage-ranking-card"));
 
-    // ④a 趋势悬停明细:选中桶的折算金额。d1 与其他派工相隔 ≥1.6h,必然独占自己的小时桶,
-    // 桶序号按读侧同一算法算(本地午夜起每小时一桶),悬停该桶 → 明细 = $180.80。
+    // ④a 趋势悬停明细:选中桶的折算金额。桶序号按读侧同一算法算(本地午夜起每小时一桶),
+    // 期望值按种子实际落桶求和:窗口宽时 d1 独占自己的小时桶($186.80);凌晨窗口不足、
+    // 其他派工与 d1 同桶时,期望是同桶各笔的精确和 —— 任何时段都是实算,不是固定数。
     const d1 = dispatches[0],
-      localNow = new Date(now),
-      since = new Date(localNow.getFullYear(), localNow.getMonth(), localNow.getDate()).getTime(),
-      d1Bucket = Math.floor((now - d1.hoursAgo * HOUR - since) / HOUR);
+      since = localSince,
+      bucketOf = (spec) => Math.floor((now - spec.hoursAgo * HOUR - since) / HOUR),
+      d1Bucket = bucketOf(d1),
+      d1BucketCost = dispatches
+        .filter((spec) => spec.cost !== null && spec.hoursAgo * HOUR < now - since && bucketOf(spec) === d1Bucket)
+        .reduce((total, spec) => total + spec.cost, 0),
+      expectedReadout = d1BucketCost.toFixed(2);
     const bar = view.locator('[data-testid^="token-usage-trend-bar-"]').nth(d1Bucket);
     const box = await bar.boundingBox();
     assert.ok(box, "the trend chart must expose a hoverable bucket");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     const readout = page.getByTestId("token-usage-trend-readout");
     await readout.waitFor();
-    assert.match(await readout.innerText(), /折算 \$180\.80|converted \$180\.80/u, "the readout must price the bucket");
+    const readoutText = await readout.innerText();
+    assert.ok(
+      readoutText.includes(`折算 $${expectedReadout}`) || readoutText.includes(`converted $${expectedReadout}`),
+      `the readout must price the bucket at $${expectedReadout}: ${readoutText}`,
+    );
+    // ①c 四段构成:缓存写有自己的色段与计数;口径说明写明独立计数起点与未上报按 0。
+    const note = view.getByTestId("token-usage-cache-write-note");
+    await note.waitFor();
+    assert.match(
+      await note.innerText(),
+      /缓存写入自 2026-10-10 起独立计数|counted separately and priced at the cache-write rate since 2026-10-10/u,
+      "the cache-write note must date the independent counting",
+    );
+    const compositionText = await page.getByTestId("token-usage-composition").innerText();
+    assert.match(compositionText, /缓存写入|Cache write/u, "the composition must carry the cache-write segment");
     await shot("trend-hover-readout");
     // ④b 趋势表格视图:金额列逐桶。
     await clickOption(page, "呈现方式", "表格", page.getByTestId("token-usage-trend-card"));
@@ -275,13 +313,13 @@ export default {
     await shot("trend-table");
     await clickOption(page, "呈现方式", "图表", page.getByTestId("token-usage-trend-card"));
 
-    // ⑤ 成员详情:单 Worker 视角点 Astra,详情总量卡带金额行($198.80 = d1+d3+d5)。
+    // ⑤ 成员详情:单 Worker 视角点 Astra,详情总量卡带金额行($204.80 = d1+d3+d5)。
     await clickOption(page, "消耗视角", "单 Worker");
     await page.getByTestId("token-usage-rank-astra").waitFor();
     await page.getByTestId("token-usage-rank-astra").click();
     const detailTotals = page.getByTestId("token-usage-detail-totals");
     await detailTotals.waitFor();
-    assert.match(await detailTotals.innerText(), /\$198\.80/u, "the member detail must convert its own dispatches");
+    assert.match(await detailTotals.innerText(), /\$204\.80/u, "the member detail must convert its own dispatches");
     await shot("member-detail");
     await page.getByTestId("token-usage-detail-back").click();
     await view.waitFor();
@@ -310,7 +348,7 @@ export default {
     await page.getByRole("button", { name: /语言|Language/u }).click();
     await page.getByRole("combobox", { name: /^(?:语言|Language)$/u }).selectOption("en-US");
     await page.getByRole("button", { name: /^Token Usage$/u }).click();
-    await assertCostLine(costLine, { cost: "$254.46", unpriced: false, english: true });
+    await assertCostLine(costLine, { cost: "$260.96", unpriced: false, english: true });
     await shot("headline-en");
   },
 };
@@ -321,10 +359,10 @@ async function assertCostLine(costLine, { cost, unpriced, english = false }) {
   const text = await costLine.innerText();
   assert.match(text, new RegExp(`\\${cost}\\b`, "u"), `the headline must carry ${cost}: ${text}`);
   if (english) {
-    assert.match(text, /price table 2026-10-09/u, "the English headline must date the price table");
+    assert.match(text, /price table 2026-10-10/u, "the English headline must date the price table");
     assert.match(text, /not actual spend/u, "the English headline must disclaim actual spend");
   } else {
-    assert.match(text, /价格表 2026-10-09/u, "the headline must date the price table");
+    assert.match(text, /价格表 2026-10-10/u, "the headline must date the price table");
     assert.match(text, /按 API 公开价折算/u, "the headline must say the amount is converted");
     assert.match(text, /非实际花费/u, "the headline must disclaim actual spend");
   }

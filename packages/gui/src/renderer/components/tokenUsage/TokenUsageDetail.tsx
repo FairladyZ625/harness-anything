@@ -117,6 +117,9 @@ export function TokenUsageDetail({
                   <KVRow name={t("agentRuntime.tokenUsageColCacheRead")}>
                     {exactTokens(data.totals.cacheReadTokens ?? 0)}
                   </KVRow>
+                  <KVRow name={t("agentRuntime.tokenUsageKindCacheWrite")}>
+                    {exactTokens(data.totals.cacheWriteTokens ?? 0)}
+                  </KVRow>
                   <KVRow name={t("agentRuntime.tokenUsageColOutput")}>
                     {exactTokens(data.totals.outputTokens ?? 0)}
                   </KVRow>

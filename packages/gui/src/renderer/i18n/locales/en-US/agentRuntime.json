@@ -484,6 +484,8 @@
   "agentRuntime.tokenUsageChangeDown": "less than {previous} ({tokens} then)",
   "agentRuntime.tokenUsageChangeNoBase": "No consumption in {previous} to compare against",
   "agentRuntime.tokenUsageKindFreshInput": "Fresh input",
+  "agentRuntime.tokenUsageKindCacheWrite": "Cache write",
+  "agentRuntime.tokenUsageCacheWriteNote": "Cache writes are counted separately and priced at the cache-write rate since 2026-10-10; earlier records cannot be split (their writes sit in fresh input at the input rate); providers that report no cache-write field count as zero, never an estimate.",
   "agentRuntime.tokenUsageFloorSome": "{count} dispatches came from providers that report no usage, so this total is a lower bound.",
   "agentRuntime.tokenUsageFloorAll": "None of the {count} dispatches reported usage: the 0 here is missing data, not zero spend.",
   "agentRuntime.tokenUsageFigureSessionsNote": "{average} tokens and {tools} tool calls each on average",
