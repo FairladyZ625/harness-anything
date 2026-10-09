@@ -251,6 +251,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       writerRepoId,
       replicaRead = false,
     ) => {
+      // Session authorization also consults Keycloak, without using the center supplier.
+      await rbacResumed;
       const execution = auth.executionCredential
         ? await authenticateRuntimeExecutionCredential(await keycloakCenter(), auth.executionCredential)
         : auth.executionPrincipal;
