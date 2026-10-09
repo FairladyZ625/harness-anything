@@ -83,6 +83,30 @@ export function replicaDeliveryLeases(database: (repoId: string) => DatabaseSync
         )
         .run(now + ttlMs, lease.nodeId, lease.viewId, lease.holderId, lease.claimFence, now).changes,
     ) === 1;
+  /** Failure evidence includes expired/released rows that active() deliberately filters out. */
+  const inspect = (lease: ReplicaDeliveryLease, now: number) => {
+    const row = db(lease).prepare("SELECT * FROM delivery_lease WHERE node_id=?").get(lease.nodeId);
+    const current = row
+      ? {
+          viewId: String(row.view_id),
+          holderId: row.holder_id === null ? null : String(row.holder_id),
+          claimFence: Number(row.claim_fence),
+          expiresAt: Number(row.expires_at),
+        }
+      : null;
+    const state = !current
+      ? "missing"
+      : current.viewId !== lease.viewId || current.claimFence !== lease.claimFence
+        ? "replaced"
+        : current.holderId === null
+          ? "released"
+          : current.holderId !== lease.holderId
+            ? "replaced"
+            : current.expiresAt <= now
+              ? "expired"
+              : "active";
+    return { state, current };
+  };
   const release = (lease: ReplicaDeliveryLease): void => {
     db(lease)
       .prepare(
@@ -128,5 +152,5 @@ export function replicaDeliveryLeases(database: (repoId: string) => DatabaseSync
     store.prepare("DELETE FROM delivery_lease WHERE node_id=? AND view_id<>?").run(key.nodeId, key.viewId);
     store.prepare("DELETE FROM delivery_metrics WHERE node_id=? AND view_id<>?").run(key.nodeId, key.viewId);
   };
-  return { active, claim, renew, release, record, metrics, retire };
+  return { active, claim, renew, inspect, release, record, metrics, retire };
 }

@@ -211,7 +211,7 @@ test(
 );
 
 for (const phase of ["Delivery", "ACK"] as const) {
-  for (const cause of ["pin", "lease"] as const) {
+  for (const cause of ["pin", "expired", "replaced", "released", "missing"] as const) {
     test(`${phase} reports ${cause} fencing separately`, { timeout: 15_000 }, async (t) => {
       const f = await fleetFixture(t);
       t.after(() => f.close());
@@ -225,7 +225,13 @@ for (const phase of ["Delivery", "ACK"] as const) {
         } else {
           const db = new DatabaseSync(path.join(f.stateRoot, "replica/repos", f.subject.repoId, "ack.sqlite"));
           try {
-            db.prepare("UPDATE delivery_lease SET expires_at=0 WHERE node_id=?").run(f.subject.nodeId);
+            const sql = {
+              expired: "UPDATE delivery_lease SET expires_at=0 WHERE node_id=?",
+              replaced: "UPDATE delivery_lease SET holder_id='replacement', claim_fence=claim_fence+1 WHERE node_id=?",
+              released: "UPDATE delivery_lease SET holder_id=NULL, expires_at=0 WHERE node_id=?",
+              missing: "DELETE FROM delivery_lease WHERE node_id=?",
+            };
+            db.prepare(sql[cause]).run(f.subject.nodeId);
           } finally {
             db.close();
           }
@@ -250,9 +256,27 @@ for (const phase of ["Delivery", "ACK"] as const) {
           diskQuotaBytes: 64 * 1024 * 1024,
           ...(phase === "ACK" ? { beforeAck: fence } : {}),
         }),
-        {
-          code: "replica_delivery_fenced",
-          message: `replica_delivery_fenced: ${phase} ${cause === "pin" ? "checkpoint pin is no longer active" : "lease renewal failed: expired or replaced"}`,
+        (error: Error & { code?: string }) => {
+          assert.equal(error.code, "replica_delivery_fenced");
+          const detail = JSON.parse(error.message.split(" diagnostics=")[1]!);
+          assert.equal(detail.phase, phase);
+          assert.equal(detail.branch, cause === "pin" ? "pin_inactive" : "lease_renewal_failed");
+          assert.equal(detail.lease.state, cause === "pin" ? "active" : cause);
+          assert.equal(detail.requested.nodeId, f.subject.nodeId);
+          assert.equal(detail.requested.viewId, f.subject.nodeId);
+          assert.equal(detail.requested.repoId, f.subject.repoId);
+          assert.ok(detail.requested.holderId);
+          assert.ok(detail.requested.claimFence > 0);
+          assert.equal(detail.pinReleaseReason, cause === "pin" ? "not_retained; correlate pin-release log" : null);
+          assert.ok(Number.isSafeInteger(detail.now));
+          if (cause === "expired") assert.ok(detail.now >= detail.lease.current.expiresAt);
+          if (cause === "replaced") assert.equal(detail.lease.current.holderId, "replacement");
+          const logged = f.transportErrors.find(
+            (entry) =>
+              (entry as { error: Error }).error.message === error.message.replace("replica_delivery_fenced: ", ""),
+          );
+          assert.ok(logged, "the same rejection evidence must reach the center log sink");
+          return true;
         },
       );
       assert.equal(crossed, true);

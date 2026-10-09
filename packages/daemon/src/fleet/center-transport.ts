@@ -181,7 +181,7 @@ export async function serve(
               contractError ? "invalid_frame" : "handler_failed",
               error instanceof Error ? error.message : String(error),
             );
-      if (!contractError && !(error instanceof FleetFault))
+      if (fault.code === "replica_delivery_fenced" || (!contractError && !(error instanceof FleetFault)))
         (options.onError ?? ((entry) => console.error("[fleet-center] transport handler failed", entry)))({
           nodeId,
           messageId: frame?.messageId ?? null,

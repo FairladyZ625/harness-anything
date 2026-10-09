@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
 import { READ_MODEL_SCHEMA_GENERATION, sha256Bytes, type EdgeReadModelRows } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
@@ -44,6 +45,27 @@ for (const termination of ["ack", "disconnect", "expire", "quota"] as const) {
         builds++;
         return read({ sourceRevision: revision, rootThreshold: 0, rows });
       },
+    });
+    const released: Array<{ reason: string; requested: { nodeId: string }; lease: { state: string } }> = [];
+    t.mock.method(console, "info", (label: string, payload: string) => {
+      assert.equal(label, "[fleet-center] pin-release");
+      const detail = JSON.parse(payload);
+      const observed = new DatabaseSync(
+        path.join(root, "replica/repos/checkpoint", `g${READ_MODEL_SCHEMA_GENERATION}`, "checkpoints.sqlite"),
+        { readOnly: true },
+      );
+      try {
+        const lease = detail.requested;
+        const id = JSON.stringify([lease.nodeId, lease.viewId, lease.holderId, lease.claimFence]);
+        assert.equal(
+          observed.prepare("SELECT 1 FROM delivery_pin WHERE id=?").get(id),
+          undefined,
+          "an independent connection sees the deletion before its log is emitted",
+        );
+      } finally {
+        observed.close();
+      }
+      released.push(detail);
     });
     const ackStore = openReplicaAckStore(path.join(root, "center"));
     const key = { nodeId: "node-a", viewId: "node-a", repoId: "checkpoint" };
@@ -122,6 +144,17 @@ for (const termination of ["ack", "disconnect", "expire", "quota"] as const) {
         for (revision = 68; revision <= 131; revision++) await source.waitForCut(revision);
       }
       assert.equal(source.pinActive(lease), false);
+      const logged = released.find((entry) => entry.requested.nodeId === key.nodeId)!;
+      assert.ok(logged);
+      assert.equal(
+        logged.reason,
+        termination === "ack"
+          ? "ack_window_exhausted"
+          : termination === "quota"
+            ? "ack_quota_exceeded"
+            : "lease_inactive",
+      );
+      assert.equal(logged.lease.state, termination === "expire" ? "expired" : "released");
       assert.equal(source.cut(1), null);
       assert.equal(source.changes(1, 67), null);
       assert.equal(offer.toCut.schemaGeneration, READ_MODEL_SCHEMA_GENERATION);

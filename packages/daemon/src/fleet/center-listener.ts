@@ -73,6 +73,23 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
   for (const repo of options.host.status().repos)
     if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
+  const fenced = (lease: ReplicaDeliveryLease, phase: "Delivery" | "ACK", pinActive: boolean, at: number) =>
+    new FleetFault(
+      "replica_delivery_fenced",
+      `${phase} ${pinActive ? "lease renewal failed: expired or replaced" : "checkpoint pin is no longer active"} diagnostics=${JSON.stringify(
+        {
+          phase,
+          branch: pinActive ? "lease_renewal_failed" : "pin_inactive",
+          now: at,
+          requested: lease,
+          lease: ackStore.delivery.inspect(lease, at),
+          pinActive,
+          // Removal is logged by the cut owner; no tombstone survives a pin DELETE.
+          pinReleaseReason: pinActive ? null : "not_retained; correlate pin-release log",
+        },
+      )}`,
+      true,
+    );
   // A center must keep using the epoch it acquired, even after another center
   // advances the shared state. Reading the latest row here would let a stale
   // process silently adopt its successor's epoch and defeat fencing.
@@ -633,10 +650,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("connection_closed", "Delivery connection closed", true);
       }
       const guard = () => {
-        if (!replica.pinActive(lease!))
-          throw new FleetFault("replica_delivery_fenced", "Delivery checkpoint pin is no longer active", true);
-        if (!ackStore.delivery.renew(lease!, Date.now(), ttlMs))
-          throw new FleetFault("replica_delivery_fenced", "Delivery lease renewal failed: expired or replaced", true);
+        const at = Date.now();
+        if (!replica.pinActive(lease!)) throw fenced(lease!, "Delivery", false, at);
+        if (!ackStore.delivery.renew(lease!, at, ttlMs)) throw fenced(lease!, "Delivery", true, at);
       };
       let offer;
       try {
@@ -964,10 +980,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         key = delivery?.key;
       if (!key || !delivery || key.nodeId !== nodeId)
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
-      if (!options.host.replica(key.repoId).pinActive(delivery.lease))
-        throw new FleetFault("replica_delivery_fenced", "ACK checkpoint pin is no longer active", true);
-      if (!ackStore.delivery.renew(delivery.lease, Date.now(), 30_000))
-        throw new FleetFault("replica_delivery_fenced", "ACK lease renewal failed: expired or replaced", true);
+      const at = Date.now();
+      if (!options.host.replica(key.repoId).pinActive(delivery.lease)) throw fenced(delivery.lease, "ACK", false, at);
+      if (!ackStore.delivery.renew(delivery.lease, at, 30_000)) throw fenced(delivery.lease, "ACK", true, at);
       const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
       if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
       const result = ackStore.ack(
