@@ -4,7 +4,7 @@ import type {
   AgentRuntimeTokenUsageResult,
   AgentRuntimeTokenUsageSessionBin,
 } from "@harness-anything/daemon/protocol";
-import { preciseTokens, exactTokens, percentText } from "../../token-format.ts";
+import { preciseTokens, exactTokens, percentText, usdText } from "../../token-format.ts";
 import { formatDuration } from "../../model/time.ts";
 import {
   sessionBinLabel,
@@ -70,6 +70,7 @@ export function UsageSpend({
                   })
                 : t("agentRuntime.tokenUsageSpendSessions", { sessions: String(row.sessionCount) }),
             totalTokens: row.totalTokens,
+            costUsd: row.costUsd,
           }))
         : data.works.map((row) => ({
             id: row.workId,
@@ -79,6 +80,7 @@ export function UsageSpend({
               sessions: String(row.sessionCount),
             }),
             totalTokens: row.totalTokens,
+            costUsd: row.costUsd,
           }));
   if (rows.length === 0) return <Empty>{t("agentRuntime.tokenUsageSpendEmpty")}</Empty>;
   return (
@@ -94,6 +96,12 @@ export function UsageSpend({
           >
             <span className="flex items-baseline gap-2">
               <span className="min-w-0 flex-1 truncate ui-body text-text">{row.title}</span>
+              <span
+                className="font-mono tabular-nums ui-meta text-text-faint"
+                title={t("agentRuntime.tokenUsageColCost")}
+              >
+                {usdText(row.costUsd)}
+              </span>
               <span className="font-mono tabular-nums ui-body text-text" title={exactTokens(row.totalTokens)}>
                 {preciseTokens(row.totalTokens)}
               </span>

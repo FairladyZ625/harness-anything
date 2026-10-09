@@ -3,7 +3,7 @@ import type {
   AgentRuntimeTokenUsageBucket,
   AgentRuntimeTokenUsageTrendSeries,
 } from "@harness-anything/daemon/protocol";
-import { preciseTokens, exactTokens, percentText } from "../../token-format.ts";
+import { preciseTokens, exactTokens, percentText, usdText } from "../../token-format.ts";
 import {
   axisScale,
   bucketAxisLabel,
@@ -282,6 +282,7 @@ function TrendReadout({
         {bucket.usageUnavailableDispatches > 0
           ? ` · ${t("agentRuntime.tokenUsageReadoutUnreported", { count: String(bucket.usageUnavailableDispatches) })}`
           : ""}
+        {` · ${t("agentRuntime.tokenUsageReadoutCost", { cost: usdText(bucket.costUsd) })}`}
       </p>
     </div>
   );
@@ -333,8 +334,11 @@ export function UsageTrendTable({
                 {layer.name}
               </th>
             ))}
-            <th className="border-b border-border pb-1.5 text-right font-normal">
+            <th className="border-b border-border pb-1.5 pr-3 text-right font-normal">
               {t("agentRuntime.tokenUsageColTotal")}
+            </th>
+            <th className="border-b border-border pb-1.5 text-right font-normal">
+              {t("agentRuntime.tokenUsageColCost")}
             </th>
           </tr>
         </thead>
@@ -351,11 +355,12 @@ export function UsageTrendTable({
                 </td>
               ))}
               <td
-                className="border-b border-border py-1.5 text-right font-mono font-semibold tabular-nums ui-meta"
+                className="border-b border-border py-1.5 pr-3 text-right font-mono font-semibold tabular-nums ui-meta"
                 title={exactTokens(bucket.totalTokens)}
               >
                 {preciseTokens(bucket.totalTokens)}
               </td>
+              <td className={cell}>{usdText(bucket.costUsd)}</td>
             </tr>
           ))}
         </tbody>

@@ -52,6 +52,19 @@ export function usageIsUnreported(row: {
   return row.usageReportedDispatches === 0 && row.usageUnavailableDispatches > 0;
 }
 
+/** 行级「无价格」判定:有用量但一行也没有公开价可折算 → 显示「无价格」,金额不是 0 的意思。 */
+export function usageIsUnpriced(row: { readonly totalTokens: number; readonly unpricedTokens: number }): boolean {
+  return row.totalTokens > 0 && row.unpricedTokens >= row.totalTokens;
+}
+
+/** 未计价用量占总量的比例;总量为 0 时没有这个数。 */
+export function unpricedShare(totals: {
+  readonly totalTokens: number;
+  readonly unpricedTokens: number;
+}): number | null {
+  return totals.totalTokens > 0 ? Math.min(1, totals.unpricedTokens / totals.totalTokens) : null;
+}
+
 /** 会话行的 usage 词 → 展示词键(与 SessionsPanel 的 sessionMetricsUnavailable 同一语义)。 */
 export function usageStateKey(usage: "reported" | "unavailable" | "pending"): MessageKey {
   return usage === "unavailable"

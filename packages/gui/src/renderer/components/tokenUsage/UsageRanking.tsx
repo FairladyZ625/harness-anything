@@ -3,7 +3,7 @@ import type {
   AgentRuntimeTokenUsageModelRow,
   AgentRuntimeTokenUsageSquadRow,
 } from "@harness-anything/daemon/protocol";
-import { preciseTokens, exactTokens, percentText } from "../../token-format.ts";
+import { preciseTokens, exactTokens, percentText, usdText } from "../../token-format.ts";
 import {
   rankBarShare,
   rankLogFloor,
@@ -13,6 +13,7 @@ import {
   tokenKinds,
   tokensPerSuccess,
   usageIsUnreported,
+  usageIsUnpriced,
   type RankScale,
 } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
@@ -100,6 +101,11 @@ export function UsageRanking({
                   sessions: String(row.sessionCount),
                   tools: String(row.toolCallCount),
                 })}
+                {usageIsUnpriced(row) ? (
+                  <span className="ml-1.5 text-status-submitted">{t("agentRuntime.tokenUsageCostNoPrice")}</span>
+                ) : (
+                  <span className="ml-1.5 font-mono tabular-nums">{usdText(row.costUsd)}</span>
+                )}
               </span>
             </>
           ),
@@ -152,6 +158,7 @@ export function UsageRankingTable({
             <th className={head}>{t("agentRuntime.tokenUsageColCacheRead")}</th>
             <th className={head}>{t("agentRuntime.tokenUsageColOutput")}</th>
             <th className={head}>{t("agentRuntime.tokenUsageColTotal")}</th>
+            <th className={head}>{t("agentRuntime.tokenUsageColCost")}</th>
             <th className={head}>{t("agentRuntime.tokenUsageColTools")}</th>
             <th className={head}>{t("agentRuntime.tokenUsageColSuccessRate")}</th>
             <th className={head}>{t("agentRuntime.tokenUsageColPerSuccess")}</th>
@@ -187,6 +194,13 @@ export function UsageRankingTable({
                 </td>
                 <td className={`${cell} font-semibold text-text`} title={exactTokens(row.totalTokens)}>
                   {preciseTokens(row.totalTokens)}
+                </td>
+                <td className={cell}>
+                  {usageIsUnpriced(row) ? (
+                    <span className="text-status-submitted">{t("agentRuntime.tokenUsageCostNoPrice")}</span>
+                  ) : (
+                    usdText(row.costUsd)
+                  )}
                 </td>
                 <td className={cell}>{row.toolCallCount}</td>
                 <td className={cell}>{rate === null ? "—" : percentText(rate)}</td>

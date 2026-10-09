@@ -50,7 +50,12 @@ const usage: AgentRuntimeTokenUsageResult = {
     toolCallCount: 57,
     usageReportedDispatches: 2,
     usageUnavailableDispatches: 3,
+    // 新输入 13,160×$4 + 缓存读 340×$0.4 + 输出 1,160×$20(每 1M,gpt-5.6-sol 价)。
+    costUsd: 0.075_976,
+    // swe2 那 120 个 token 无公开价,不计入金额。
+    unpricedTokens: 120,
   },
+  pricing: { version: "2026-10-09" },
   buckets: [
     {
       bucketStart: "2026-09-18T12:00:00.000Z",
@@ -62,6 +67,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 17,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
+      costUsd: 0.009_976,
     },
     {
       bucketStart: "2026-09-18T13:00:00.000Z",
@@ -73,6 +79,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 40,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
+      costUsd: 0.066,
     },
   ],
   agents: [
@@ -90,6 +97,8 @@ const usage: AgentRuntimeTokenUsageResult = {
       succeededSessions: 1,
       failedSessions: 1,
       abortedSessions: 0,
+      costUsd: 0.009_976,
+      unpricedTokens: 0,
     },
     {
       agentId: "sol",
@@ -103,6 +112,8 @@ const usage: AgentRuntimeTokenUsageResult = {
       usageReportedDispatches: 0,
       usageUnavailableDispatches: 2,
       ...noOutcomes,
+      costUsd: 0,
+      unpricedTokens: 0,
     },
   ],
   squads: [
@@ -118,11 +129,13 @@ const usage: AgentRuntimeTokenUsageResult = {
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 1,
       ...noOutcomes,
+      costUsd: 0.066,
+      unpricedTokens: 0,
     },
   ],
   models: [
     {
-      model: "opus-test",
+      model: "gpt-5.6-sol",
       sessionCount: 1,
       inputTokens: 12_000,
       cacheReadTokens: 0,
@@ -134,9 +147,11 @@ const usage: AgentRuntimeTokenUsageResult = {
       succeededSessions: 1,
       failedSessions: 0,
       abortedSessions: 0,
+      costUsd: 0.066,
+      unpricedTokens: 0,
     },
     {
-      model: "gpt-test",
+      model: "swe2",
       sessionCount: 2,
       inputTokens: 100,
       cacheReadTokens: 0,
@@ -148,6 +163,8 @@ const usage: AgentRuntimeTokenUsageResult = {
       succeededSessions: 1,
       failedSessions: 1,
       abortedSessions: 0,
+      costUsd: 0,
+      unpricedTokens: 120,
     },
   ],
   previous: {
@@ -162,6 +179,8 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 20,
       usageReportedDispatches: 2,
       usageUnavailableDispatches: 0,
+      costUsd: 0.056,
+      unpricedTokens: 0,
     },
   },
   tasks: [
@@ -172,6 +191,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       workTitle: "Release line",
       sessionCount: 1,
       totalTokens: 12_900,
+      costUsd: 0.066,
     },
     {
       taskId: "task-small",
@@ -180,9 +200,12 @@ const usage: AgentRuntimeTokenUsageResult = {
       workTitle: "Fix a typo",
       sessionCount: 2,
       totalTokens: 2_100,
+      costUsd: 0.009_976,
     },
   ],
-  works: [{ workId: "work-root", title: "Release line", taskCount: 1, sessionCount: 1, totalTokens: 12_900 }],
+  works: [
+    { workId: "work-root", title: "Release line", taskCount: 1, sessionCount: 1, totalTokens: 12_900, costUsd: 0.066 },
+  ],
   sessions: {
     reportedSessions: 2,
     averageTokens: 7_500,
@@ -207,7 +230,7 @@ const usage: AgentRuntimeTokenUsageResult = {
         agentName: "Terra",
         taskId: "task-big",
         taskTitle: "Rework the read surface",
-        model: "opus-test",
+        model: "gpt-5.6-sol",
         startedAt: "2026-09-18T13:00:00.000Z",
         durationMs: 540_000,
         outcome: "succeeded",
@@ -241,7 +264,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       { key: "terra", name: "Terra", totalTokens: [2_100, 12_000] },
       { key: null, name: "", totalTokens: [0, 900] },
     ],
-    models: [{ key: "opus-test", name: "opus-test", totalTokens: [2_100, 12_900] }],
+    models: [{ key: "gpt-5.6-sol", name: "gpt-5.6-sol", totalTokens: [2_100, 12_900] }],
   },
   unreported: [
     { kindId: "zcode", instanceId: "zcode-main", dispatchCount: 2 },
@@ -267,14 +290,17 @@ const detail: AgentRuntimeTokenUsageDetailResult = {
     toolCallCount: 17,
     usageReportedDispatches: 2,
     usageUnavailableDispatches: 0,
+    costUsd: 0.009_976,
+    unpricedTokens: 0,
   },
+  pricing: { version: "2026-10-09" },
   buckets: usage.buckets,
   sessions: [
     {
       dispatchId: "dispatch_00000000000000000000aa01",
       runtimeSessionId: "runtime-terra",
       taskId: "task-tokens",
-      model: "gpt-test",
+      model: "swe2",
       startedAt: "2026-09-18T12:00:00.000Z",
       endedAt: "2026-09-18T12:05:00.000Z",
       durationMs: 300_000,
@@ -389,6 +415,12 @@ describe("TokenUsageView", () => {
     expect(composition.textContent).toContain("Output tokens1.16K");
     // 有派工未上报时明说总量是下界。
     expect(byTestId(container, "token-usage-conclusion").textContent).toContain("3 dispatches");
+    // 折算金额:口径(公开价、非实际花费)、价格表版本与未计价占比都在大数字旁边。
+    const cost = byTestId(container, "token-usage-cost").textContent ?? "";
+    expect(cost).toContain("$0.08");
+    expect(cost).toContain("converted at public API list prices, not actual spend");
+    expect(cost).toContain("price table 2026-10-09");
+    expect(cost).toContain("0.8% of usage (120 tokens) has no public price and is excluded");
     // 四个关键数字:会话、缓存命中率(340/13,500)、白花(2,100/15,000)、未上报。
     const view = byTestId(container, "token-usage-view").textContent ?? "";
     expect(view).toContain("Cache hit rate2.5%");
@@ -440,6 +472,8 @@ describe("TokenUsageView", () => {
     expect(readout).toContain("Cache read340");
     expect(readout).toContain("1 dispatches");
     expect(readout).toContain("cache hit 23%");
+    // 悬停明细带该桶的折算金额。
+    expect(readout).toContain("converted <$0.01");
     // 键盘右键移到下一桶(峰值桶)。
     act(() => {
       svg.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
@@ -456,15 +490,16 @@ describe("TokenUsageView", () => {
     expect(legend()).toContain("Terra14.1K");
     expect(legend()).toContain("Everything else900");
     act(() => findButton(container, "By model").click());
-    expect(legend()).toContain("opus-test15K");
+    expect(legend()).toContain("gpt-5.6-sol15K");
     // 表格等价视图跟着同一组层:每个系列一列。
     act(() => findButton(byTestId(container, "token-usage-trend-card"), "Table").click());
     const table = byTestId(container, "token-usage-trend-table");
     expect([...table.querySelectorAll("th")].map((th) => th.textContent)).toEqual([
       "Bucket",
       "Dispatches",
-      "opus-test",
+      "gpt-5.6-sol",
       "Total tokens",
+      "Converted cost",
     ]);
   });
 
@@ -476,20 +511,25 @@ describe("TokenUsageView", () => {
     expect(rankRow.textContent).toContain("2.1K");
     expect(rankRow.textContent).toContain("14%");
     expect(rankRow.textContent).toContain("2 sessions · 17 tool calls");
+    // 行 meta 带按 API 公开价折算的金额(不足一分钱写 <$0.01)。
+    expect(rankRow.textContent).toContain("<$0.01");
     // 未上报成员显示徽标而不是 0。
     expect(byTestId(container, "token-usage-rank-sol").textContent).toContain("Not reported");
     // 模型排行:量级差 100 倍以上默认对数刻度,小的那条仍然看得出长度;模型行不可点。
     act(() => findButton(container, "Model").click());
-    const small = byTestId(container, "token-usage-rank-gpt-test");
+    const small = byTestId(container, "token-usage-rank-swe2");
     expect(small.tagName).toBe("DIV");
+    // 无公开价的模型显示「无价格」而不是 $0.00。
+    expect(small.textContent).toContain("no price");
+    expect(small.textContent).not.toContain("$0.00");
     expect(findButton(container, "Log").getAttribute("aria-pressed")).toBe("true");
     const barWidth = (row: HTMLElement): number =>
       Number.parseFloat(row.querySelector<HTMLElement>("[style*='width']")!.style.width);
     const logWidth = barWidth(small);
     expect(logWidth).toBeGreaterThan(20);
     act(() => findButton(container, "Linear").click());
-    expect(barWidth(byTestId(container, "token-usage-rank-gpt-test"))).toBeCloseTo((120 / 12_900) * 100, 3);
-    expect(byTestId(container, "token-usage-rank-gpt-test").textContent).toContain("0.8%");
+    expect(barWidth(byTestId(container, "token-usage-rank-swe2"))).toBeCloseTo((120 / 12_900) * 100, 3);
+    expect(byTestId(container, "token-usage-rank-swe2").textContent).toContain("0.8%");
   });
 
   it("opens the member detail by ref, with session/task jumps and back", async () => {
@@ -503,6 +543,8 @@ describe("TokenUsageView", () => {
     expect(detailRead).toHaveBeenCalledWith("canonical", { kind: "agent", agentId: "terra" }, "today");
     const sessionRow = byTestId(rerendered, "token-usage-session-dispatch_00000000000000000000aa01");
     expect(rerendered.textContent).not.toMatch(/\{[a-zA-Z]+\}/u);
+    // 详情总量卡带折算金额。
+    expect(byTestId(rerendered, "token-usage-detail-totals").textContent).toContain("<$0.01");
     expect(sessionRow.textContent).toContain("runtime-terra");
     expect(sessionRow.textContent).toContain("task-tokens");
     // 未上报会话行的阴性对照:与 SessionsPanel 同一「provider 未上报」措辞,不是裸 0。
@@ -523,6 +565,8 @@ describe("TokenUsageView", () => {
     const terra = byTestId(container, "token-usage-row-terra").textContent ?? "";
     expect(terra).toContain("50%");
     expect(terra).toContain("2.1K");
+    // 表格视图带折算金额列。
+    expect(terra).toContain("<$0.01");
     // 还没有会话结束的成员没有成功率,不写成 0%。
     expect(byTestId(container, "token-usage-row-sol").textContent).toContain("—");
   });
@@ -534,6 +578,8 @@ describe("TokenUsageView", () => {
     expect(task.textContent).toContain("Rework the read surface");
     expect(task.textContent).toContain("12.9K");
     expect(task.textContent).toContain("86%");
+    // 任务/工作行带折算金额。
+    expect(task.textContent).toContain("$0.07");
     expect(task.textContent).toContain("Release line · 1 sessions");
     // 自成一个工作的任务不重复写工作名。
     expect(byTestId(container, "token-usage-spend-task-small").textContent).not.toContain("Fix a typo ·");
@@ -563,7 +609,7 @@ describe("TokenUsageView", () => {
     const top = byTestId(container, "token-usage-top-session-runtime-big");
     expect(top.textContent).toContain("Rework the read surface");
     expect(top.textContent).toContain("13× the median");
-    expect(top.textContent).toContain("Terra · opus-test · 9m · 40 tool calls");
+    expect(top.textContent).toContain("Terra · gpt-5.6-sol · 9m · 40 tool calls");
     const small = byTestId(container, "token-usage-top-session-runtime-small");
     expect(small.textContent).toContain("runtime-small");
     expect(small.textContent).not.toContain("the median");

@@ -383,7 +383,10 @@ export const TOKEN_USAGE_READ: AgentRuntimeTokenUsageResult = {
     toolCallCount: 2,
     usageReportedDispatches: 1,
     usageUnavailableDispatches: 0,
+    costUsd: 0.000_6,
+    unpricedTokens: 0,
   },
+  pricing: { version: "2026-10-09" },
   buckets: [
     {
       bucketStart: AT,
@@ -395,6 +398,7 @@ export const TOKEN_USAGE_READ: AgentRuntimeTokenUsageResult = {
       toolCallCount: 2,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
+      costUsd: 0.000_6,
     },
   ],
   agents: [
@@ -412,6 +416,8 @@ export const TOKEN_USAGE_READ: AgentRuntimeTokenUsageResult = {
       succeededSessions: 1,
       failedSessions: 0,
       abortedSessions: 0,
+      costUsd: 0.000_6,
+      unpricedTokens: 0,
     },
   ],
   squads: [],
@@ -428,6 +434,8 @@ export const TOKEN_USAGE_READ: AgentRuntimeTokenUsageResult = {
       toolCallCount: 0,
       usageReportedDispatches: 0,
       usageUnavailableDispatches: 0,
+      costUsd: 0,
+      unpricedTokens: 0,
     },
   },
   // 任务行与最大会话行带真实的 needle id:标题与 id 都在可激活的行里(点进任务 / 会话)。
@@ -439,9 +447,12 @@ export const TOKEN_USAGE_READ: AgentRuntimeTokenUsageResult = {
       workTitle: "Usage task",
       sessionCount: 1,
       totalTokens: 120,
+      costUsd: 0.000_6,
     },
   ],
-  works: [{ workId: TASK_A_ID, title: "Usage task", taskCount: 1, sessionCount: 1, totalTokens: 120 }],
+  works: [
+    { workId: TASK_A_ID, title: "Usage task", taskCount: 1, sessionCount: 1, totalTokens: 120, costUsd: 0.000_6 },
+  ],
   sessions: {
     reportedSessions: 1,
     averageTokens: 120,

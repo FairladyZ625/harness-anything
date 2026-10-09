@@ -17,3 +17,15 @@ export function percentText(ratio: number): string {
   const percent = ratio * 100;
   return `${percent >= 10 || Number.isInteger(percent) ? Math.round(percent) : percent.toFixed(1)}%`;
 }
+
+/** 按 API 公开价折算的金额:两位小数;不足一分钱的非零值写 <$0.01(小不等于没有)。固定
+ * en-US 保证两种界面语言下金额形态稳定。 */
+export function usdText(value: number): string {
+  if (value > 0 && value < 0.01) return "<$0.01";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}

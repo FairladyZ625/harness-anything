@@ -10,7 +10,7 @@ import type {
 } from "@harness-anything/daemon/protocol";
 import type { SnapshotStatus } from "../../model/types";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
-import { compactTokens, exactTokens } from "../../token-format.ts";
+import { compactTokens, exactTokens, preciseTokens, usdText } from "../../token-format.ts";
 import { formatDuration, formatTime } from "../../model/time.ts";
 import { usageIsUnreported, usageOutcomeKey, usageStateKey } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
@@ -121,6 +121,17 @@ export function TokenUsageDetail({
                     {exactTokens(data.totals.outputTokens ?? 0)}
                   </KVRow>
                   <KVRow name={t("agentRuntime.tokenUsageColTotal")}>{exactTokens(data.totals.totalTokens ?? 0)}</KVRow>
+                  <KVRow name={t("agentRuntime.tokenUsageColCost")}>
+                    {usdText(data.totals.costUsd ?? 0)}
+                    {data.totals.totalTokens !== undefined &&
+                    data.totals.totalTokens > 0 &&
+                    data.totals.unpricedTokens !== undefined &&
+                    data.totals.unpricedTokens > 0
+                      ? ` · ${t("agentRuntime.tokenUsageCostUnpricedCount", {
+                          tokens: preciseTokens(data.totals.unpricedTokens),
+                        })}`
+                      : ""}
+                  </KVRow>
                   <KVRow name={t("agentRuntime.tokenUsageColTools")}>{String(data.totals.toolCallCount ?? 0)}</KVRow>
                   <KVRow name={t("agentRuntime.tokenUsageColUsage")}>
                     {t("agentRuntime.tokenUsageReportedCount", {
