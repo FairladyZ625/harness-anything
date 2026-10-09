@@ -27,8 +27,18 @@ export interface BootstrapAdminInput {
   readonly personId: string;
 }
 
+/**
+ * The page an embedded sign-in shows: the provider's authorization URL, plus the main process's
+ * one-shot webview grant token when the sign-in has its own isolated login partition (a
+ * daemon-configured self-signed HTTPS listener). The token is opaque and names no session.
+ */
+export interface EmbeddedLoginPage {
+  readonly url: string;
+  readonly partitionToken?: string;
+}
+
 export interface OidcAuthApi {
-  readonly login: (repoId: string | undefined, openBrowser: (url: string) => void) => Promise<unknown>;
+  readonly login: (repoId: string | undefined, openBrowser: (page: EmbeddedLoginPage) => void) => Promise<unknown>;
   readonly cancelLogin: () => Promise<unknown>;
   readonly logout: (repoId?: string) => Promise<unknown>;
   readonly status: (repoId?: string) => Promise<unknown>;

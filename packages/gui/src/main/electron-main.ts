@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
+import { createLoginWebviewSecurity } from "./login-webview-security.ts";
 import { registerOidcAuthIpc } from "./oidc-auth-ipc.ts";
 import { registerAccessAdminIpc } from "./access-admin-ipc.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
@@ -53,6 +54,9 @@ const backgroundTest = app.commandLine.hasSwitch("headless");
 if (backgroundTest && process.platform === "darwin") app.setActivationPolicy("accessory");
 
 let _globalMainWindow: BrowserWindow | null = null;
+
+/** Per-sign-in login webview boundary; created once so its certificate-error handler is, too. */
+const loginWebviewSecurity = createLoginWebviewSecurity();
 
 export function createMainWindow(): BrowserWindow {
   const preloadPath = path.join(resolveGuiPackageRoot(), "dist-electron/electron-preload.cjs");
@@ -138,6 +142,28 @@ export function installContentSecurityPolicy(): void {
 
 function installHtmlArtifactWebviewPolicy(mainWindow: BrowserWindow): void {
   mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    // A sign-in over the daemon's self-signed listener holds an opaque one-shot token naming a
+    // main-generated partition; the token itself is never a partition and authorizes only the
+    // exact authorization URL this sign-in began with.
+    const loginAttachment = loginWebviewSecurity.consumeWebviewAttachment(params);
+    if (loginAttachment) {
+      delete webPreferences.preload;
+      webPreferences.nodeIntegration = false;
+      webPreferences.nodeIntegrationInWorker = false;
+      webPreferences.nodeIntegrationInSubFrames = false;
+      webPreferences.contextIsolation = true;
+      webPreferences.sandbox = true;
+      webPreferences.webSecurity = true;
+      webPreferences.javascript = true;
+      webPreferences.plugins = false;
+      webPreferences.devTools = false;
+      webPreferences.navigateOnDragDrop = false;
+      webPreferences.webviewTag = false;
+      webPreferences.partition = loginAttachment.partition;
+      params.partition = loginAttachment.partition;
+      delete params.preload;
+      return;
+    }
     if (params.partition === IN_APP_BROWSER_PARTITION) {
       if (evaluateInAppBrowserAttachment(params).action === "deny") {
         event.preventDefault();
@@ -179,6 +205,9 @@ function installHtmlArtifactWebviewPolicy(mainWindow: BrowserWindow): void {
     delete params.preload;
   });
   mainWindow.webContents.on("did-attach-webview", (_event, guest) => {
+    // Binds the guest into its sign-in's grant (certificate decisions, origin guards); guests of
+    // any other session fall through unchanged.
+    if (loginWebviewSecurity.attachGuest(guest)) return;
     if (guest.session === session.fromPartition(IN_APP_BROWSER_PARTITION)) {
       guest.setWindowOpenHandler(() => ({ action: "deny" }));
       guest.on("will-navigate", (event, url) => {
@@ -208,6 +237,7 @@ export async function startGuiApp(): Promise<void> {
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   }
   installContentSecurityPolicy();
+  loginWebviewSecurity.installCertificateErrorHandler(app);
   const trustedWebContentsIds = new Set<number>();
   const rootDir = resolveGuiProjectRoot(),
     bridge = createLocalGuiServiceBridge(rootDir),
@@ -237,6 +267,10 @@ export async function startGuiApp(): Promise<void> {
   registerOidcAuthIpc(ipcMain, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     openExternal: (url) => shell.openExternal(url),
+    // A listener-backed sign-in loads in its own non-persistent partition whose certificate trust
+    // is decided per request (full origin, guest identity, fingerprint) and dies with the sign-in;
+    // the default session and the in-app browser partition are never relaxed.
+    openLoginWebview: loginWebviewSecurity.openLoginWebview,
   });
   registerAccessAdminIpc(ipcMain, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),

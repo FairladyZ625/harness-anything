@@ -42,7 +42,11 @@ export function AccessServiceTab({
     [bootstrapRequired, setBootstrapRequired] = useState(false),
     [busy, setBusy] = useState(false),
     [feedback, setFeedback] = useState("");
-  const [login, setLogin] = useState<{ url?: string } | null>(null);
+  const [login, setLogin] = useState<{
+    readonly url?: string;
+    readonly partitionToken?: string;
+    readonly loadError?: string;
+  } | null>(null);
   const loggingIn = useRef(false);
   useEffect(
     () => () => {
@@ -91,7 +95,7 @@ export function AccessServiceTab({
       loggingIn.current = true;
       setLogin({});
       try {
-        await auth.login(repoId, (url) => setLogin({ url }));
+        await auth.login(repoId, (page) => setLogin({ url: page.url, partitionToken: page.partitionToken }));
       } finally {
         loggingIn.current = false;
         setLogin(null);
@@ -107,8 +111,27 @@ export function AccessServiceTab({
             {t("identityAccess.cancelLogin")}
           </Button>
         </header>
+        {/* A failed page load keeps the panel: the reason stays visible and the sign-in itself runs
+            until the person retries (the embedded browser offers it) or cancels. */}
+        {login.loadError ? (
+          <p
+            role="alert"
+            data-testid="account-login-error"
+            className="border-l-2 border-status-blocked px-3 py-2 text-status-blocked ui-meta"
+          >
+            {t("identityAccess.loginLoadError", { error: login.loadError })}
+          </p>
+        ) : null}
         {login.url ? (
-          <BrowserView initialUrl={login.url} onLoadError={() => void auth.cancelLogin()} />
+          <BrowserView
+            initialUrl={login.url}
+            partition={login.partitionToken}
+            onLoadError={(error) =>
+              setLogin((current) =>
+                current && current.loadError !== error ? { ...current, loadError: error ?? undefined } : current,
+              )
+            }
+          />
         ) : (
           <p className="p-2 text-text-muted">{t("identityAccess.loading")}</p>
         )}

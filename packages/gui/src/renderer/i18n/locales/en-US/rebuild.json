@@ -33,6 +33,7 @@
   "identityAccess.unbound": "Keycloak is not bound",
   "identityAccess.unboundNextStep": "Install managed Keycloak or connect an external Keycloak below.",
   "identityAccess.loading": "Loading binding status…",
+  "identityAccess.loginLoadError": "The Keycloak sign-in page could not be loaded ({error}). Retry in the page below, or cancel.",
   "identityAccess.mode": "Mode",
   "identityAccess.url": "URL",
   "identityAccess.urlPlaceholder": "https://identity.example.com",

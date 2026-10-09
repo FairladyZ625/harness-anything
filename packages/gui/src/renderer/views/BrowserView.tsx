@@ -18,10 +18,18 @@ const initialState: BrowserShellState = {
 
 export function BrowserView({
   initialUrl,
+  partition,
   onLoadError,
 }: {
   readonly initialUrl?: string | null;
-  readonly onLoadError?: (description: string) => void;
+  /**
+   * Webview partition the main process authorized for this surface; absent is the ordinary
+   * in-app browser session. A login token names no session — the main process swaps it for the
+   * sign-in's isolated partition when the webview attaches.
+   */
+  readonly partition?: string;
+  /** Notified on every load state change: the failing description, or null once a load starts or settles. */
+  readonly onLoadError?: (error: string | null) => void;
 }) {
   const errorHandler = useRef(onLoadError);
   errorHandler.current = onLoadError;
@@ -37,7 +45,7 @@ export function BrowserView({
     const url = ensureUrlScheme(initialUrl ?? DEFAULT_URL);
     webview.dataset.testid = "in-app-browser-webview";
     webview.setAttribute("aria-label", "In-app browser content");
-    webview.setAttribute("partition", IN_APP_BROWSER_PARTITION);
+    webview.setAttribute("partition", partition ?? IN_APP_BROWSER_PARTITION);
     webview.setAttribute(
       "webpreferences",
       "contextIsolation=yes,nodeIntegration=no,sandbox=yes,webSecurity=yes,plugins=no,webviewTag=no",
@@ -47,7 +55,7 @@ export function BrowserView({
     host.replaceChildren(webview);
     const shell = createBrowserShell(webview, (next) => {
       setState(next);
-      if (next.error) errorHandler.current?.(next.error.description);
+      errorHandler.current?.(next.error?.description ?? null);
       if (next.url) setAddress(next.url);
     });
     shellRef.current = shell;
@@ -56,7 +64,7 @@ export function BrowserView({
       shellRef.current = null;
       webview.remove();
     };
-  }, [initialUrl]);
+  }, [initialUrl, partition]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

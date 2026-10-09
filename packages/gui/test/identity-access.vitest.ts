@@ -152,7 +152,7 @@ it("embeds the authorization URL, cancels cleanly and refreshes identity after a
   const api = auth({
     status: vi.fn(async () => ({ authenticated: signedIn, personId: signedIn ? "person-fixture" : undefined })),
     login: vi.fn((_repoId, openBrowser) => {
-      openBrowser("https://identity.example.test/auth");
+      openBrowser({ url: "https://identity.example.test/auth" });
       return new Promise<void>((resolve, rejectLogin) => {
         finish = () => {
           signedIn = true;
@@ -170,6 +170,7 @@ it("embeds the authorization URL, cancels cleanly and refreshes identity after a
     act(async () => container.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)!.click());
   await click("account-session-action");
   expect(container.querySelector("webview")?.getAttribute("src")).toBe("https://identity.example.test/auth");
+  expect(container.querySelector("webview")?.getAttribute("partition")).toBe("in-app-browser");
   await click("account-login-cancel");
   expect(container.querySelector("webview")).toBeNull();
   expect(container.textContent).toContain("Sign-in cancelled.");
@@ -179,11 +180,58 @@ it("embeds the authorization URL, cancels cleanly and refreshes identity after a
   expect(container.textContent).toContain("person-fixture");
 });
 
+it("keeps the login panel with a readable alert when the authorization page fails to load", async () => {
+  let finish!: () => void;
+  const api = auth({
+    status: vi.fn(async () => ({ authenticated: false })),
+    login: vi.fn((_repoId, openBrowser) => {
+      openBrowser({
+        url: "https://10.211.55.2:18544/realms/harness/protocol/openid-connect/auth",
+        partitionToken: "grant-token-fixture",
+      });
+      return new Promise<void>((resolve) => {
+        finish = () => resolve();
+      });
+    }),
+    cancelLogin: vi.fn(async () => {
+      finish();
+    }),
+  });
+  await render(api);
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="account-session-action"]')!.click());
+  const webview = () => container.querySelector("webview");
+  expect(webview()).not.toBeNull();
+  // The listener-backed sign-in carries only the opaque grant token; the main process swaps it
+  // for the isolated partition when the webview attaches.
+  expect(webview()?.getAttribute("partition")).toBe("grant-token-fixture");
+  // What Electron reports for an untrusted self-signed certificate, minus the port-bearing origin.
+  await act(async () =>
+    webview()!.dispatchEvent(
+      Object.assign(new Event("did-fail-load"), {
+        errorCode: -202,
+        errorDescription: "net::ERR_CERT_AUTHORITY_INVALID",
+        validatedURL: "https://10.211.55.2:18544/realms/harness/",
+      }),
+    ),
+  );
+  expect(webview()).not.toBeNull();
+  const alert = container.querySelector('[data-testid="account-login-error"]');
+  expect(alert?.getAttribute("role")).toBe("alert");
+  expect(alert?.textContent).toContain("net::ERR_CERT_AUTHORITY_INVALID");
+  expect(api.cancelLogin).not.toHaveBeenCalled();
+  await act(async () => webview()!.dispatchEvent(new Event("did-start-loading")));
+  expect(container.querySelector('[data-testid="account-login-error"]')).toBeNull();
+  expect(webview()).not.toBeNull();
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="account-login-cancel"]')!.click());
+  await act(async () => finish());
+  expect(api.cancelLogin).toHaveBeenCalledOnce();
+});
+
 it("leaving the account surface cancels its active login", async () => {
   let reject!: (error: Error) => void;
   const api = auth({
     login: vi.fn((_repoId, openBrowser) => {
-      openBrowser("https://identity.example.test/auth");
+      openBrowser({ url: "https://identity.example.test/auth" });
       return new Promise((_resolve, rejectLogin) => {
         reject = rejectLogin;
       });
