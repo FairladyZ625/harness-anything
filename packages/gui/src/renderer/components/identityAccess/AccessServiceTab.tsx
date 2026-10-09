@@ -42,7 +42,11 @@ export function AccessServiceTab({
     [bootstrapRequired, setBootstrapRequired] = useState(false),
     [busy, setBusy] = useState(false),
     [feedback, setFeedback] = useState("");
-  const [login, setLogin] = useState<{ readonly url?: string; readonly loadError?: string } | null>(null);
+  const [login, setLogin] = useState<{
+    readonly url?: string;
+    readonly partitionToken?: string;
+    readonly loadError?: string;
+  } | null>(null);
   const loggingIn = useRef(false);
   useEffect(
     () => () => {
@@ -91,7 +95,7 @@ export function AccessServiceTab({
       loggingIn.current = true;
       setLogin({});
       try {
-        await auth.login(repoId, (url) => setLogin({ url }));
+        await auth.login(repoId, (page) => setLogin({ url: page.url, partitionToken: page.partitionToken }));
       } finally {
         loggingIn.current = false;
         setLogin(null);
@@ -121,6 +125,7 @@ export function AccessServiceTab({
         {login.url ? (
           <BrowserView
             initialUrl={login.url}
+            partition={login.partitionToken}
             onLoadError={(error) =>
               setLogin((current) =>
                 current && current.loadError !== error ? { ...current, loadError: error ?? undefined } : current,

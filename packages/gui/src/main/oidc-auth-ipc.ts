@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { IpcMainInvokeEvent } from "electron";
@@ -14,10 +13,10 @@ import {
   OIDC_OPEN_CONSOLE_CHANNEL,
   OIDC_STATUS_CHANNEL,
   type BootstrapAdminInput,
+  type EmbeddedLoginPage,
   type RbacBindingInput,
 } from "../api/oidc-auth-contract.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
-import { resolveLoginCertificateTrust, type LoginCertificateTrust } from "./login-certificate-trust.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 import type { JsonObject } from "@harness-anything/daemon";
 
@@ -34,11 +33,16 @@ export function registerOidcAuthIpc(
   ports: {
     readonly daemonRequest: (params: JsonObject) => Promise<JsonObject>;
     readonly openExternal: (url: string) => Promise<void>;
-    /** Supplied by the Electron shell; without it a sign-in never relaxes certificate checking. */
-    readonly createCertificateTrustScope?: () => {
-      readonly install: (trust: LoginCertificateTrust) => void;
-      readonly release: () => void;
-    };
+    /**
+     * Supplied by the Electron shell. Mints the isolated, non-persistent login webview partition
+     * for a sign-in whose authorization URL is the daemon-configured listener origin; every other
+     * sign-in renders in the ordinary in-app browser session with untouched certificate checking.
+     */
+    readonly openLoginWebview?: (input: {
+      readonly authorizationUrl: string;
+      readonly callbackOrigin: string;
+      readonly listenerReply: unknown;
+    }) => { readonly partitionToken: string; readonly release: () => void } | null;
   },
 ): void {
   const logins = new Map<number, AbortController>();
@@ -62,9 +66,9 @@ export function registerOidcAuthIpc(
     try {
       return await embeddedBrowserLogin({
         daemonRequest: (params) => daemonRequest({ ...params, ...target }),
-        openBrowser: (url) => event.sender.send(OIDC_LOGIN_URL_CHANNEL, url),
+        openBrowser: (page) => event.sender.send(OIDC_LOGIN_URL_CHANNEL, page),
         signal: controller.signal,
-        certificateTrust: ports.createCertificateTrustScope?.(),
+        openLoginWebview: ports.openLoginWebview,
       });
     } finally {
       event.sender.removeListener("destroyed", cancel);
@@ -159,12 +163,13 @@ export function normalizeBindingStatusReply(reply: JsonObject): JsonObject {
 
 export async function embeddedBrowserLogin(ports: {
   readonly daemonRequest: (params: JsonObject) => Promise<JsonObject>;
-  readonly openBrowser: (url: string) => void;
+  readonly openBrowser: (page: EmbeddedLoginPage) => void;
   readonly signal: AbortSignal;
-  readonly certificateTrust?: {
-    readonly install: (trust: LoginCertificateTrust) => void;
-    readonly release: () => void;
-  };
+  readonly openLoginWebview?: (input: {
+    readonly authorizationUrl: string;
+    readonly callbackOrigin: string;
+    readonly listenerReply: unknown;
+  }) => { readonly partitionToken: string; readonly release: () => void } | null;
 }): Promise<unknown> {
   type CallbackResult = { readonly code: string; readonly state: string } | Error;
   let settle!: (value: CallbackResult) => void;
@@ -205,6 +210,7 @@ export async function embeddedBrowserLogin(ports: {
   const cancelled = () => interrupt("Sign-in cancelled.");
   ports.signal.addEventListener("abort", cancelled, { once: true });
   const timeout = setTimeout(() => interrupt("OIDC callback timed out."), 300_000);
+  let loginWebview: { readonly partitionToken: string; readonly release: () => void } | null = null;
   try {
     ports.signal.throwIfAborted();
     const address = server.address() as AddressInfo,
@@ -214,23 +220,25 @@ export async function embeddedBrowserLogin(ports: {
       );
     if (typeof begun.authorizationUrl !== "string") throw new Error("Daemon did not return an OIDC authorization URL.");
     ports.signal.throwIfAborted();
-    if (ports.certificateTrust) {
+    if (ports.openLoginWebview) {
       // The listener query races interruption like every other await in this login; a refusal or
-      // an unreachable daemon resolves to no trust, and the sign-in page then loads (or fails)
-      // under Chromium's own certificate checking with the failure shown in the login panel.
+      // an unreachable daemon resolves to no isolated webview, and the sign-in page then loads
+      // (or fails) under Chromium's own certificate checking with the failure shown in the panel.
       const listenerReply = await Promise.race([
         ports.daemonRequest({ operation: "listener" }),
         interrupted.promise,
       ]).catch(() => null);
-      const trust = resolveLoginCertificateTrust({
+      loginWebview = ports.openLoginWebview({
         authorizationUrl: begun.authorizationUrl,
+        callbackOrigin: `http://127.0.0.1:${address.port}`,
         listenerReply,
-        readCertificateFile: (file) => readFileSync(file, "utf8"),
       });
-      if (trust) ports.certificateTrust.install(trust);
       ports.signal.throwIfAborted();
     }
-    ports.openBrowser(begun.authorizationUrl);
+    ports.openBrowser({
+      url: begun.authorizationUrl,
+      ...(loginWebview ? { partitionToken: loginWebview.partitionToken } : {}),
+    });
     const result = await Promise.race([callback, interrupted.promise]);
     if (result instanceof Error) throw result;
     ports.signal.throwIfAborted();
@@ -239,7 +247,7 @@ export async function embeddedBrowserLogin(ports: {
       await Promise.race([ports.daemonRequest({ operation: "login-complete", ...result }), interrupted.promise]),
     );
   } finally {
-    ports.certificateTrust?.release();
+    loginWebview?.release();
     clearTimeout(timeout);
     ports.signal.removeEventListener("abort", cancelled);
     await new Promise<void>((resolve) => server.close(() => resolve()));

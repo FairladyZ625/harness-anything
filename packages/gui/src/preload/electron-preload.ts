@@ -30,6 +30,7 @@ import {
   OIDC_CONFIGURE_CHANNEL,
   OIDC_BOOTSTRAP_STATUS_CHANNEL,
   OIDC_BOOTSTRAP_ADMIN_CHANNEL,
+  type EmbeddedLoginPage,
   type OidcAuthApi,
 } from "../api/oidc-auth-contract.ts";
 import {
@@ -110,7 +111,7 @@ const exposedHarnessApi = {
   } satisfies RepoAdminApi,
   auth: {
     login: async (repoId, openBrowser) => {
-      const listener = (_event: Electron.IpcRendererEvent, url: string) => openBrowser(url);
+      const listener = (_event: Electron.IpcRendererEvent, page: EmbeddedLoginPage) => openBrowser(page);
       ipcRenderer.on(OIDC_LOGIN_URL_CHANNEL, listener);
       try {
         return await invoke(OIDC_LOGIN_CHANNEL, repoId ? { repoId } : null);
