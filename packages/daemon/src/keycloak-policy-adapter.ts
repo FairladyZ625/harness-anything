@@ -612,7 +612,10 @@ export class KeycloakPolicyAdapter {
       ...init,
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers },
     });
-    if (!response.ok) throw new Error(`Keycloak Admin REST ${path} returned HTTP ${response.status}.`);
+    if (!response.ok)
+      throw Object.assign(new Error(`Keycloak Admin REST ${path} returned HTTP ${response.status}.`), {
+        code: "keycloak_admin_rejected",
+      });
     return response;
   }
 

@@ -429,7 +429,7 @@ export async function openRepoWriterCell(
   };
   const onlineBinding = async (binding: RepoCellBinding): Promise<RepoCellBinding> => ({
     ...binding,
-    ...(input.keycloakCenter ? { keycloakAuthorization: { center: await input.keycloakCenter() } } : {}),
+    ...(input.keycloakCenter ? { keycloakAuthorization: { center: input.keycloakCenter } } : {}),
   });
   const authorizeRuntimeAction = async (
     action: RepoTaskAction,

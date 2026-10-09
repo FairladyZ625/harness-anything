@@ -9,10 +9,11 @@ import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
-function directory(binding: RepoCellBinding) {
-  const center = binding.keycloakAuthorization?.center;
-  if (!center)
+async function directory(binding: RepoCellBinding) {
+  const centerAuthority = binding.keycloakAuthorization?.center;
+  if (!centerAuthority)
     throw cellCodedError("authorization_denied", "Keycloak center credentials are required for task assignments.");
+  const center = await centerAuthority();
   return {
     adapter: new KeycloakPolicyAdapter({
       url: center.url,
@@ -28,7 +29,7 @@ export async function resolveTaskAssignment(
   settings: SettingsV1,
   now: string,
 ): Promise<TaskAssignment> {
-  const { adapter, token } = directory(binding);
+  const { adapter, token } = await directory(binding);
   let assignee: TaskAssignment["assignee"];
   if (typeof action.nodeId === "string") {
     const node = await adapter.readNode(token, action.nodeId);
@@ -59,7 +60,7 @@ export async function assertTaskAssignment(
     nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
   let teamIds: readonly string[] = [];
   if (assignment?.assignee.kind === "team" && Date.parse(assignment.expiresAt) > Date.parse(now)) {
-    const { adapter, token } = directory(binding);
+    const { adapter, token } = await directory(binding);
     teamIds = await adapter.readPersonTeams(token, personId);
   }
   const claimant = { personId, nodeId, teamIds };

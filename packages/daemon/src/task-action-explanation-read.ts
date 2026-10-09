@@ -303,14 +303,15 @@ export async function preparePersonActionExplanationBinding(
     const contract = getEntityKindContract(entity.kind);
     if (!contract?.actionCatalog) throw new Error(`The ${entity.kind} Entity Action catalog is unavailable.`);
     if (entity.kind === "person") {
+      const center = credential.center ? await credential.center() : undefined;
       const exists =
         credential.session?.personId === entity.id ||
-        (credential.center !== undefined &&
+        (center !== undefined &&
           (await new KeycloakPolicyAdapter({
-            url: credential.center.url,
-            realm: credential.center.realm,
-            resourceServerClientId: credential.center.clientId,
-          }).findUserId(credential.center.accessToken, entity.id)) !== undefined);
+            url: center.url,
+            realm: center.realm,
+            resourceServerClientId: center.clientId,
+          }).findUserId(center.accessToken, entity.id)) !== undefined);
       if (exists) personExistsIds.add(entity.id);
       if (!exists) continue;
     }

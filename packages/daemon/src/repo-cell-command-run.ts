@@ -376,7 +376,7 @@ async function bindCurrentPersonIdentityWitnesses(
   const credential = binding.keycloakAuthorization;
   if (!credential)
     throw Object.assign(new Error("Person identity references require Keycloak."), { code: "authentication_required" });
-  const center = credential.center,
+  const center = credential.center ? await credential.center() : undefined,
     adapter = center
       ? new KeycloakPolicyAdapter({ url: center.url, realm: center.realm, resourceServerClientId: center.clientId })
       : null,

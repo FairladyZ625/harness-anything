@@ -799,9 +799,10 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
             action.type !== "runtime_session_started" &&
             action.type !== "runtime_session_cancelled"))
       ) {
-        const center = authorizedBinding.keycloakAuthorization?.center;
-        if (!center)
+        const centerAuthority = authorizedBinding.keycloakAuthorization?.center;
+        if (!centerAuthority)
           throw context.cellCodedError("execution_credential_rejected", "Execution authority is unavailable.");
+        const center = await centerAuthority();
         const principal = await readRuntimeExecutionPrincipal(center, dispatch.payload.dispatchId);
         if (principal.repoId !== context.input.repoId)
           throw context.cellCodedError("execution_credential_rejected", "Execution belongs to another repository.");
@@ -845,7 +846,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
             now: context.now(),
           });
         const executionCredential = execution
-          ? await issueRuntimeExecutionCredential(authorizedBinding.keycloakAuthorization!.center!, execution)
+          ? await issueRuntimeExecutionCredential(await authorizedBinding.keycloakAuthorization!.center!(), execution)
           : undefined;
         return {
           schema: "command-receipt/v2",

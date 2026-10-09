@@ -6,6 +6,7 @@ import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import { fatalCellError } from "../src/repo-cell-errors.ts";
 import { causeClassOf } from "../src/repo-cell-lock.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
+import { serializableRepoCellBinding } from "../src/repo-writer-protocol.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
 test("a retained node-owner binding uses current center authority after token rotation", async (t) => {
@@ -58,6 +59,9 @@ test("a retained node-owner binding uses current center authority after token ro
       }),
     retained = await bindDaemonPrincipal("/unused", auth);
 
+  assert.equal(typeof retained.keycloakAuthorization?.center, "function");
+  assert.deepEqual(serializableRepoCellBinding(retained).keycloakAuthorization, { center: true });
+
   await t.test("the same action allows A before rotation and a fresh binding allows B after rotation", async () => {
     assert.equal((await evaluate(retained)).outcome, "allowed");
     currentToken = "token-B";
@@ -79,7 +83,7 @@ test("a retained node-owner binding uses current center authority after token ro
         t.diagnostic(
           JSON.stringify({
             action: "task-create",
-            captured: retained.keycloakAuthorization?.center?.accessToken,
+            centerBinding: typeof retained.keycloakAuthorization?.center,
             current: currentToken,
             centerCalls,
             requests,
@@ -90,5 +94,26 @@ test("a retained node-owner binding uses current center authority after token ro
         throw error;
       }
     }, "a long-lived binding must consult current center authority at authorization time");
+  });
+
+  await t.test("an Admin 401 is coded, non-fatal, and not a data-shape failure", async () => {
+    let rejection: unknown;
+    try {
+      await evaluateRepoCellAction({
+        action: { kind: "task-create", title: "Rejected authorization" },
+        binding: retained,
+        actionId: "op-rejected",
+        repoId: "repo-rotation",
+        revision: 2,
+        now: "2026-10-09T00:00:01.000Z",
+        fetchPort: async () => new Response(null, { status: 401 }),
+      });
+    } catch (error) {
+      rejection = error;
+    }
+    assert.ok(rejection instanceof Error);
+    assert.equal((rejection as Error & { readonly code?: string }).code, "keycloak_admin_rejected");
+    assert.equal(fatalCellError(rejection), false);
+    assert.equal(causeClassOf(rejection), "infrastructure");
   });
 });

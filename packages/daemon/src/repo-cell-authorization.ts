@@ -55,7 +55,7 @@ export async function evaluateRepoCellAction(input: {
     });
   if (input.binding.executionPrincipal) {
     if (!credential.center) throw executionCredentialRejected();
-    await verifyRuntimeExecutionPrincipal(credential.center, input.binding.executionPrincipal, input.fetchPort);
+    await verifyRuntimeExecutionPrincipal(await credential.center(), input.binding.executionPrincipal, input.fetchPort);
   }
   const result = await evaluateKeycloakPerson({
     credential,
@@ -108,11 +108,12 @@ export async function evaluateKeycloakPerson(input: {
       resource: input.resource,
     });
   if (!center) return { outcome: "denied", reasonCode: "keycloak_denied" };
+  const currentCenter = await center();
   return new KeycloakPolicyAdapter(
-    { url: center.url, realm: center.realm, resourceServerClientId: center.clientId },
+    { url: currentCenter.url, realm: currentCenter.realm, resourceServerClientId: currentCenter.clientId },
     input.fetchPort,
   ).authorizePerson({
-    adminAccessToken: center.accessToken,
+    adminAccessToken: currentCenter.accessToken,
     personId: input.personId,
     action: input.action,
     resource: input.resource,

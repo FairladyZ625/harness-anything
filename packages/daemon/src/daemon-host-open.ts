@@ -277,9 +277,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           writerEpoch: auth.writerEpoch,
           withWriterEpochFence: auth.withWriterEpochFence,
           writerEpochFence: auth.writerEpochFence,
-          ...(cell.status().mode === "remote-edge"
-            ? {}
-            : { keycloakAuthorization: { center: await keycloakCenter() } }),
+          ...(cell.status().mode === "remote-edge" ? {} : { keycloakAuthorization: { center: keycloakCenter } }),
         };
         return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
       }
@@ -294,7 +292,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           ? principal
           : {
               ...principal,
-              keycloakAuthorization: { ...principal.keycloakAuthorization, center: await keycloakCenter() },
+              keycloakAuthorization: { ...principal.keycloakAuthorization, center: keycloakCenter },
             };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     },
@@ -335,7 +333,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         return daemonWriterBinding(repoId, {
           actor: { principal: schedule.createdBy.principal, executor: null },
           source: "local",
-          keycloakAuthorization: { center: await keycloakCenter() },
+          keycloakAuthorization: { center: keycloakCenter },
         });
       },
       remoteEdgeAction: async (repoId, rootDir, action) => {

@@ -97,6 +97,10 @@ async function startRepoWriterWorker(): Promise<void> {
                 ? reviveKeycloakAuthorization(
                     config.bootstrap.keycloakAuthorization,
                     () => asyncCapability("currentAccessToken", null) as Promise<string>,
+                    () =>
+                      asyncCapability("keycloakCenter", null) as ReturnType<
+                        NonNullable<RepoCellOpenInput["keycloakCenter"]>
+                      >,
                   )
                 : undefined,
             }
@@ -200,6 +204,7 @@ async function startRepoWriterWorker(): Promise<void> {
         request.binding,
         request.writerEpoch,
         () => asyncCapability("currentAccessToken", request.requestId) as Promise<string>,
+        () => asyncCapability("keycloakCenter", null) as ReturnType<NonNullable<RepoCellOpenInput["keycloakCenter"]>>,
       );
       // Reject a stale descriptor before any effect: runtime cancel terminates a process and a
       // resumed spawn launches one before their first ledger append reaches the append fence.
@@ -365,6 +370,7 @@ function reviveBinding(
   binding: SerializableRepoCellBindingV1 | undefined,
   descriptor: SerializableRepoCellBindingV1["writerEpochFence"] | null,
   currentAccessToken: () => Promise<string>,
+  currentCenter: NonNullable<RepoCellOpenInput["keycloakCenter"]>,
 ): RepoCellBinding | undefined {
   if (!binding) return undefined;
   // Structured clone hands the worker two distinct objects for the same fence, so equality is decided
@@ -374,7 +380,7 @@ function reviveBinding(
   return {
     ...binding,
     keycloakAuthorization: binding.keycloakAuthorization
-      ? reviveKeycloakAuthorization(binding.keycloakAuthorization, currentAccessToken)
+      ? reviveKeycloakAuthorization(binding.keycloakAuthorization, currentAccessToken, currentCenter)
       : undefined,
     ...(descriptor
       ? { withWriterEpochFence: <T>(operation: () => T) => withWriterEpochFenceDescriptor(descriptor, operation) }
@@ -385,11 +391,13 @@ function reviveBinding(
 function reviveKeycloakAuthorization(
   credential: SerializableKeycloakAuthorization,
   currentAccessToken: () => Promise<string>,
+  currentCenter: NonNullable<RepoCellOpenInput["keycloakCenter"]>,
 ): NonNullable<RepoCellBinding["keycloakAuthorization"]> {
-  const { session, ...rest } = credential;
-  if (!session) return rest;
+  const { session, center } = credential;
+  const revivedCenter = center ? { center: currentCenter } : {};
+  if (!session) return revivedCenter;
   const { currentAccessToken: required, ...data } = session;
-  return { ...rest, session: { ...data, ...(required ? { currentAccessToken } : {}) } };
+  return { ...revivedCenter, session: { ...data, ...(required ? { currentAccessToken } : {}) } };
 }
 
 function assertWriterEpoch(descriptor: SerializableRepoCellBindingV1["writerEpochFence"] | null): void {

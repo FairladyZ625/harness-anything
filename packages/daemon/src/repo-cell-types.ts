@@ -29,7 +29,7 @@ import {
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type TerminalHost, type TrustedTerminalLaunch } from "./terminal-host.ts";
-import type { KeycloakCenterCredential } from "./transport/auth-context.ts";
+import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import type { WriterEpochFenceDescriptor } from "./writer-epoch.ts";
 import { createLedgerBackup, type DaemonRegistryRepo } from "@harness-anything/kernel";
 
@@ -60,7 +60,7 @@ export interface RepoCellBinding {
       readonly realm: string;
       readonly clientId: string;
     };
-    readonly center?: KeycloakCenterCredential;
+    readonly center?: KeycloakCenterAuthority;
   };
   /**
    * Center-verified DelegatedExecutionToken covering the one Action currently executing; resolved from the

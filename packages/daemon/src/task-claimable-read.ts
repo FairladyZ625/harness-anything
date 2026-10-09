@@ -23,10 +23,11 @@ export async function readClaimableTasks(input: {
 }): Promise<TaskClaimableResult> {
   const { binding, repoId, now } = input,
     source = binding.source,
-    center = binding.keycloakAuthorization?.center;
-  if (typeof source !== "object" || source.kind !== "node" || !center)
+    centerAuthority = binding.keycloakAuthorization?.center;
+  if (typeof source !== "object" || source.kind !== "node" || !centerAuthority)
     throw cellCodedError("authentication_required", "Claimable tasks require an authenticated execution node.");
-  const adapter = new KeycloakPolicyAdapter({
+  const center = await centerAuthority(),
+    adapter = new KeycloakPolicyAdapter({
       url: center.url,
       realm: center.realm,
       resourceServerClientId: center.clientId,

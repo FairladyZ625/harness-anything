@@ -126,7 +126,7 @@ async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<Repo
               ...auth.oidcPrincipal.authority,
             },
           }
-        : { center: await auth.keycloakCenter() },
+        : { center: auth.keycloakCenter },
     ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
     ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
     ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),
