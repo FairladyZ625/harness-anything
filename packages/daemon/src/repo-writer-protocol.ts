@@ -98,10 +98,11 @@ export type RepoWriterMessageV1 =
   | RepoWriterControlV1;
 
 type KeycloakAuthorization = NonNullable<RepoCellBinding["keycloakAuthorization"]>;
-export type SerializableKeycloakAuthorization = Omit<KeycloakAuthorization, "session"> & {
+export type SerializableKeycloakAuthorization = Omit<KeycloakAuthorization, "session" | "center"> & {
   readonly session?: Omit<NonNullable<KeycloakAuthorization["session"]>, "currentAccessToken"> & {
     readonly currentAccessToken?: true;
   };
+  readonly center?: true;
 };
 export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "withWriterEpochFence" | "keycloakAuthorization"> & {
   readonly keycloakAuthorization?: SerializableKeycloakAuthorization;
@@ -110,10 +111,11 @@ export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "withWriterEpo
 export function serializableKeycloakAuthorization(
   credential: KeycloakAuthorization,
 ): SerializableKeycloakAuthorization {
-  const { session, ...rest } = credential;
-  if (!session) return rest;
+  const { session, center } = credential;
+  const marker = center ? { center: true as const } : {};
+  if (!session) return marker;
   const { currentAccessToken, ...data } = session;
-  return { ...rest, session: { ...data, ...(currentAccessToken ? { currentAccessToken: true as const } : {}) } };
+  return { ...marker, session: { ...data, ...(currentAccessToken ? { currentAccessToken: true as const } : {}) } };
 }
 
 export function serializableRepoCellBinding(binding: RepoCellBinding): SerializableRepoCellBindingV1 {

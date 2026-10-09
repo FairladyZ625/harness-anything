@@ -142,10 +142,10 @@ export function taskQueryApi(
         };
       });
     },
-    readEdgeReadModel: () =>
+    readEdgeReadModel: (read) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);
-        return { status: cut.status, sourceRevision: cut.sourceRevision, rows: readEdgeReadModelRows(db) };
+        return read({ status: cut.status, sourceRevision: cut.sourceRevision, rows: readEdgeReadModelRows(db) });
       }),
     readTaskChildCounts: (parentTaskIds) =>
       withDatabase(projectionPath, readHead, (db) => readTaskChildCounts(db, parentTaskIds)),

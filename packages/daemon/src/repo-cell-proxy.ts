@@ -179,7 +179,7 @@ export async function openRepoCellProxy(
         readContentBlob: (sha256) => readCurrentLedger((store) => store.readContentBlob(sha256)),
         readEvent: (opId) => readCurrentLedger((store) => store.readEvent(opId)),
         readApplied: (opId) => reader.withSession((projection) => projection.readOperation(opId)),
-        readEdgeReadModel: () => reader.withSession((projection) => centerEdgeReadModel(projection)),
+        readEdgeReadModel: (read) => reader.withSession((projection) => centerEdgeReadModel(projection, read)),
       },
       { ...ledgerOptions, localRoot: path.dirname(path.dirname(reader.path)) },
     ),

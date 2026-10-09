@@ -41,10 +41,7 @@ export function decisionReviewSummaryRow(row: DecisionProjectionRow) {
   return { decisionId, title, state, riskTier, urgency, proposedAt };
 }
 
-/**
- * Full list rows. List reads leave the document body out, so the review state is computed from the
- * same Decisions read with their bodies; the body itself stays on the server.
- */
+/** Full list rows use one body-bearing projection read; authored bodies stay on the server. */
 export function decisionFullListRows(input: {
   readonly rootDir: string;
   readonly projection: TaskProjection;
@@ -52,14 +49,10 @@ export function decisionFullListRows(input: {
   readonly readiness: readonly NonNullable<DecisionProjectionRow["readiness"]>[];
   readonly requirement: DecisionReviewRequirement;
 }): readonly DaemonDecisionFullRow[] {
-  const withBodies = new Map(
-    input.projection
-      .readDecisions(input.decisions.map(({ decisionId }) => decisionId))
-      .decisions.map((decision) => [decision.decisionId, decision]),
-  );
   return input.decisions.map((decision, index) => ({
     ...decision,
-    ...decisionReviewState(withBodies.get(decision.decisionId) ?? decision, input.requirement),
+    body: null,
+    ...decisionReviewState(decision, input.requirement),
     readiness: input.readiness[index]!,
     reviewDispatches: readDecisionReviewDispatches({ rootDir: input.rootDir, projection: input.projection, decision }),
   }));

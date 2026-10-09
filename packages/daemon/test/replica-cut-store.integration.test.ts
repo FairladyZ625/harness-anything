@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import {
   decideDocWrite,
   READ_MODEL_SCHEMA_GENERATION,
+  stableStringify,
   makeTaskProjection,
   DOC_POLICY_ID,
   parseDocWriteIntent,
@@ -132,7 +133,7 @@ test("a cut requires its complete read model and a published cut is immutable on
         localRoot: root,
         readBasis: () => basis,
         readContentBlob: () => null,
-        readEdgeReadModel: () => model,
+        readEdgeReadModel: (read) => read(model),
       });
     const source = open(null);
     assert.throws(() => source.activate(), /Read model is unavailable/u);
@@ -154,6 +155,38 @@ test("a cut requires its complete read model and a published cut is immutable on
         repository: [],
       },
     };
+    let passes = 0;
+    const broken = open({
+      ...model,
+      rows: {
+        ...model.rows,
+        repository: {
+          *[Symbol.iterator]() {
+            if (++passes === 1) return;
+            yield {
+              table: "pinned_entities" as const,
+              values: { entity_ref: "task/one", pinned_at: "now", pinned_by: "owner" },
+            };
+            throw new Error("row serialization failed");
+          },
+        },
+      },
+    });
+    assert.throws(() => broken.activate(), /row serialization failed/u);
+    assert.equal(broken.latest(), null);
+    broken.close();
+    const store = new DatabaseSync(
+      path.join(root, "replica/repos/repo-existing-read-model", `g${READ_MODEL_SCHEMA_GENERATION}`, "cuts-v2.sqlite"),
+    );
+    try {
+      assert.equal(
+        store.prepare("SELECT count(*) AS n FROM read_model_blob").get()?.n,
+        0,
+        "failed cut rolls back already serialized row blobs along with its metadata",
+      );
+    } finally {
+      store.close();
+    }
     const reopened = open(model);
     assert.deepEqual(reopened.activate()?.manifest.entryCount, 1);
     assert.deepEqual(
@@ -164,6 +197,8 @@ test("a cut requires its complete read model and a published cut is immutable on
     reopened.close();
     const again = open({ ...model, rootThreshold: 99 });
     assert.deepEqual(again.activate(), published, "local model changes never replace an accepted revision's manifest");
+    const meta = again.manifest(1)![0]!;
+    assert.equal(JSON.parse(Buffer.from(again.content(meta.blob)).toString("utf8")).rootThreshold, 0);
     again.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -292,13 +327,14 @@ test("an activated source persists zero-change revisions as exact cuts with an e
     assert.equal(two.manifest.digest, one.manifest.digest);
     assert.notEqual(two.headDigest, one.headDigest);
     assert.deepEqual(source.changeLog(), []);
-    assert.equal(
-      readdirSync(path.join(root, "replica/repos/repo-zero", `g${READ_MODEL_SCHEMA_GENERATION}`, "manifests/sha256"), {
-        recursive: true,
-        withFileTypes: true,
-      }).filter((entry) => entry.isFile() && /^[0-9a-f]{64}$/u.test(entry.name)).length,
-      1,
+    const stored = new DatabaseSync(
+      path.join(root, "replica/repos/repo-zero", `g${READ_MODEL_SCHEMA_GENERATION}`, "cuts-v2.sqlite"),
     );
+    try {
+      assert.equal(stored.prepare("SELECT count(DISTINCT manifest_digest) AS n FROM manifest_entry").get()?.n, 1);
+    } finally {
+      stored.close();
+    }
     source.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -445,6 +481,7 @@ test("document revisions persist only adjacent path/blob changes", async () => {
 
 test("retention keeps exactly 64 cuts and 63 adjacent changelogs per repo", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-retention-"));
+  let derived: DatabaseSync | undefined;
   try {
     const first = lifecycleFixture().events[0]!,
       itemPath = "context/retained.txt",
@@ -488,9 +525,7 @@ test("retention keeps exactly 64 cuts and 63 adjacent changelogs per repo", asyn
       firstCut.manifest.digest,
     );
     mkdirSync(path.dirname(historicalManifest), { recursive: true });
-    const manifestBytes = readFileSync(
-      path.join(currentRoot, "manifests/sha256", firstCut.manifest.digest.slice(0, 2), firstCut.manifest.digest),
-    );
+    const manifestBytes = Buffer.from(stableStringify(source.manifest(firstCut.revision)));
     writeFileSync(historicalManifest, manifestBytes);
     const historicalBlob = path.join(
       historicalRoot,
@@ -499,13 +534,11 @@ test("retention keeps exactly 64 cuts and 63 adjacent changelogs per repo", asyn
     );
     mkdirSync(path.dirname(historicalBlob), { recursive: true });
     writeFileSync(historicalBlob, "historical derived bytes");
-    const currentOrphan = path.join(
-      currentRoot,
-      "read-model-blobs",
-      sha256Bytes(Buffer.from("historical derived bytes")),
-    );
-    mkdirSync(path.dirname(currentOrphan), { recursive: true });
-    writeFileSync(currentOrphan, "historical derived bytes");
+    const currentOrphan = sha256Bytes(Buffer.from("historical derived bytes"));
+    derived = new DatabaseSync(path.join(currentRoot, "cuts-v2.sqlite"));
+    derived
+      .prepare("INSERT INTO read_model_blob VALUES (?, ?)")
+      .run(currentOrphan, Buffer.from("historical derived bytes"));
     let previous = initial;
     for (let revision = 2; revision <= 66; revision += 1) {
       const body = Buffer.from(`revision-${revision}`),
@@ -542,9 +575,14 @@ test("retention keeps exactly 64 cuts and 63 adjacent changelogs per repo", asyn
       "current pruning cannot unlink another generation's manifest",
     );
     assert.equal(readFileSync(historicalBlob, "utf8"), "historical derived bytes");
-    assert.equal(existsSync(currentOrphan), false, "current-generation orphan collection still runs");
+    assert.equal(
+      derived.prepare("SELECT 1 FROM read_model_blob WHERE sha256 = ?").get(currentOrphan),
+      undefined,
+      "current-generation orphan collection still runs",
+    );
     source.close();
   } finally {
+    derived?.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -691,17 +729,14 @@ test("RepoCell wakes a pending replica cut when its projection catches up", { ti
       replica.manifest(cut.revision)?.some((entry) => entry.path.includes("task-two")),
       true,
     );
-    writeFileSync(
-      path.join(
-        repo,
-        ".harness/replica/repos/replica-repo",
-        `g${READ_MODEL_SCHEMA_GENERATION}`,
-        "manifests/sha256",
-        cut.manifest.digest.slice(0, 2),
-        cut.manifest.digest,
-      ),
-      "corrupt",
+    const corrupt = new DatabaseSync(
+      path.join(repo, ".harness/replica/repos/replica-repo", `g${READ_MODEL_SCHEMA_GENERATION}`, "cuts-v2.sqlite"),
     );
+    try {
+      corrupt.prepare("UPDATE manifest_entry SET entry_json = '{}' WHERE manifest_digest = ?").run(cut.manifest.digest);
+    } finally {
+      corrupt.close();
+    }
     const third = await host.run("replica-repo", { kind: "task-create", taskId: "task-three", title: "Three" }, auth);
     assert.equal(third.outcome, "applied");
     t.diagnostic("stage: waiting for corrupt-manifest rejection");

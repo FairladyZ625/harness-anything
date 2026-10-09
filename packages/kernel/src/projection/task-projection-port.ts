@@ -112,11 +112,13 @@ export interface TaskProjection {
   ) => import("./projection-reads.ts").TaskIndexProjectionRead & { readonly page: ProjectionPage | null };
   readonly readTaskChildCounts: (parentTaskIds: readonly string[]) => Readonly<Record<string, number>>;
   /** The raw rows an edge read model replicates, with the projection revision they describe. */
-  readonly readEdgeReadModel: () => {
-    readonly status: "ready" | "pending";
-    readonly sourceRevision: number;
-    readonly rows: import("./read-model.ts").EdgeReadModelRows;
-  };
+  readonly readEdgeReadModel: <T>(
+    read: (model: {
+      readonly status: "ready" | "pending";
+      readonly sourceRevision: number;
+      readonly rows: import("./read-model.ts").EdgeReadModelRows;
+    }) => T,
+  ) => T;
   readonly readWorkspaceSummary: () => WorkspaceSummaryProjectionRead;
   readonly readTaskRelations: () => TaskRelationProjectionRead;
   readonly readTaskRelationNeighborhood: (

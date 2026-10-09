@@ -36,7 +36,12 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       actor: { principal: { personId: "person-edge" }, executor: null },
       source,
       keycloakAuthorization: {
-        center: { url: served.url, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" },
+        center: async () => ({
+          url: served.url,
+          realm: keycloakRealm,
+          clientId: "harness-center",
+          accessToken: "center-token",
+        }),
       },
       writerEpoch: 7,
     },
@@ -69,6 +74,7 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
     ownerId: "runtime-session-action-test",
     mode: "remote-center",
     now: monotonicClock(),
+    keycloakCenter: binding.keycloakAuthorization!.center,
   });
   try {
     const dispatched = await cell.runtimeIngress(

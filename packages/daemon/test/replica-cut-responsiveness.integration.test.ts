@@ -168,3 +168,31 @@ test("worker cut failure reaches edge admission with its original cause", async 
   );
   assert.match(String((f.transportErrors[0] as { error: unknown }).error), /has no content claim/u);
 });
+
+test("captured worker OOM error reaches the edge without a closed-schema rejection", async (t) => {
+  const f = await fleetFixture(t);
+  t.after(() => f.close());
+  const center = await f.center();
+  const message = "Worker terminated due to reaching memory limit: JS heap out of memory";
+  f.failOwnerLookup(Object.assign(new Error(message), { code: "ERR_WORKER_OUT_OF_MEMORY" }));
+  await assert.rejects(
+    syncFleetEdgeMirror({
+      payload: {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: f.certFile,
+        nodeId: f.subject.nodeId,
+        credential: "machine-secret",
+        repoId: f.subject.repoId,
+        viewRoot: path.join(f.root, "oom-edge"),
+        quotaBytes: 64 * 1024 * 1024,
+        workspaceRoot: f.repo,
+      },
+    }),
+    (error: unknown) => {
+      assert.equal((error as { code: string }).code, "handler_failed");
+      assert.equal((error as Error).message, `Center replica admission failed: handler_failed: ${message}`);
+      return true;
+    },
+  );
+});

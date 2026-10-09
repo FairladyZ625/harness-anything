@@ -803,11 +803,31 @@ async function downloadCiArtifacts(
     });
     return false;
   } catch (error) {
-    const detail = ghFailureDetail(error),
-      remoteArchiveFailure =
-        /\bHTTP 5\d\d\b/iu.test(detail) && /\bAzure(?:\s+Blob)?\s+Storage\b|blob\.core\.windows\.net/iu.test(detail);
-    if (!/HTTP 404|Not Found/iu.test(detail) && !remoteArchiveFailure) throw error;
+    if (isTransientCiProviderFailure(error)) throw error;
+    if (isFatalCiProviderFailure(error)) throw error;
+    if (!/\bHTTP [45]\d\d\b|Not Found/iu.test(ghFailureDetail(error))) throw error;
     consumeKnownError(error);
     return true;
   }
+}
+
+function isFatalCiProviderFailure(error: unknown): boolean {
+  return (
+    error instanceof TypeError ||
+    error instanceof ReferenceError ||
+    error instanceof SyntaxError ||
+    /\bHTTP (?:401|403|429)\b|rate.limit|\b(?:ENOSPC|EACCES|EPERM|ENOENT|EROFS|EIO|EMFILE|ENFILE)\b/iu.test(
+      ghFailureDetail(error),
+    )
+  );
+}
+
+/** Only provider transport failures are resumable; authority and local IO fail closed. */
+export function isTransientCiProviderFailure(error: unknown): boolean {
+  return (
+    !isFatalCiProviderFailure(error) &&
+    /\b(?:EOF|ECONNRESET|ECONNREFUSED|ECONNABORTED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|ENOTFOUND|EAI_AGAIN)\b|connection reset|connection refused|network is unreachable|no such host|TLS handshake|TLS connection|x509:|unexpected EOF/iu.test(
+      ghFailureDetail(error),
+    )
+  );
 }

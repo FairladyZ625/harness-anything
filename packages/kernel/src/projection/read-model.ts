@@ -237,7 +237,7 @@ export interface PresetSnapshotReadModelRow {
 }
 /** The center's own rows, published table by table; every table describes the same revision. */
 export interface EdgeReadModelRows {
-  readonly repository: readonly RepositoryReadModelRow[];
+  readonly repository: Iterable<RepositoryReadModelRow>;
   readonly tasks: readonly TaskReadModelRow[];
   readonly taskGeneration: readonly TaskGenerationRow[];
   readonly taskProgress: readonly TaskProgressRow[];
@@ -506,49 +506,42 @@ export interface EdgeReadModelEntry {
 }
 
 /** Every file the center publishes for one read-model revision, meta first. */
-export function edgeReadModelEntries(model: {
+export function* edgeReadModelEntries(model: {
   readonly sourceRevision: number;
   readonly rootThreshold: number;
   readonly rows: EdgeReadModelRows;
-}): readonly EdgeReadModelEntry[] {
+}): Generator<EdgeReadModelEntry> {
   const entry = <Row>(path: string, row: Row): EdgeReadModelEntry => ({
     path,
     text: JSON.stringify({ schemaGeneration: READ_MODEL_SCHEMA_GENERATION, ...row }),
   });
-  return [
-    entry(READ_MODEL_META_PATH, {
-      sourceRevision: model.sourceRevision,
-      rootThreshold: model.rootThreshold,
-    }),
-    ...model.rows.repository.map((row) => entry(repositoryReadModelPath(row), row)),
-    ...model.rows.tasks.map((row) => entry(taskReadModelPath(pathSegment(row.taskId, "task id")), row)),
-    ...model.rows.taskGeneration.map((row) =>
-      entry(`${TASK_GENERATION_PREFIX}${pathSegment(row.taskId, "task id")}.json`, row),
-    ),
-    ...model.rows.taskProgress.map((row) =>
-      entry(`${TASK_PROGRESS_PREFIX}${pathSegment(row.taskId, "task id")}.json`, row),
-    ),
-    ...model.rows.entities.map((row) =>
-      entry(
-        `${ENTITY_READ_MODEL_PREFIX}${[row.entityKind, row.ownerId, row.entityId].map(entityKeySegment).join("/")}.json`,
-        row,
-      ),
-    ),
-    ...model.rows.leases.map((row) =>
-      entry(`${LEASE_READ_MODEL_PREFIX}${pathSegment(row.taskId, "task id")}.json`, row),
-    ),
-    ...model.rows.relations.map((row) =>
-      entry(`${RELATION_READ_MODEL_PREFIX}${pathSegment(row.relationId, "relation id")}.json`, row),
-    ),
-    ...model.rows.decisions.map((row) =>
-      entry(`${DECISION_READ_MODEL_PREFIX}${pathSegment(row.decisionId, "decision id")}.json`, row),
-    ),
-    ...model.rows.facts.map((row) => entry(`${FACT_READ_MODEL_PREFIX}${pathSegment(row.factId, "fact id")}.json`, row)),
-    ...model.rows.presetSnapshots.map((row) => {
-      const digest = pathSegment(row.digest.replace(/^sha256:/u, ""), "preset digest");
-      return entry(`${PRESET_SNAPSHOT_PREFIX}${digest}.json`, row);
-    }),
-  ];
+  yield entry(READ_MODEL_META_PATH, {
+    sourceRevision: model.sourceRevision,
+    rootThreshold: model.rootThreshold,
+  });
+  for (const row of model.rows.repository) yield entry(repositoryReadModelPath(row), row);
+  for (const row of model.rows.tasks) yield entry(taskReadModelPath(pathSegment(row.taskId, "task id")), row);
+  for (const row of model.rows.taskGeneration)
+    yield entry(`${TASK_GENERATION_PREFIX}${pathSegment(row.taskId, "task id")}.json`, row);
+  for (const row of model.rows.taskProgress)
+    yield entry(`${TASK_PROGRESS_PREFIX}${pathSegment(row.taskId, "task id")}.json`, row);
+  for (const row of model.rows.entities)
+    yield entry(
+      `${ENTITY_READ_MODEL_PREFIX}${[row.entityKind, row.ownerId, row.entityId].map(entityKeySegment).join("/")}.json`,
+      row,
+    );
+  for (const row of model.rows.leases)
+    yield entry(`${LEASE_READ_MODEL_PREFIX}${pathSegment(row.taskId, "task id")}.json`, row);
+  for (const row of model.rows.relations)
+    yield entry(`${RELATION_READ_MODEL_PREFIX}${pathSegment(row.relationId, "relation id")}.json`, row);
+  for (const row of model.rows.decisions)
+    yield entry(`${DECISION_READ_MODEL_PREFIX}${pathSegment(row.decisionId, "decision id")}.json`, row);
+  for (const row of model.rows.facts)
+    yield entry(`${FACT_READ_MODEL_PREFIX}${pathSegment(row.factId, "fact id")}.json`, row);
+  for (const row of model.rows.presetSnapshots) {
+    const digest = pathSegment(row.digest.replace(/^sha256:/u, ""), "preset digest");
+    yield entry(`${PRESET_SNAPSHOT_PREFIX}${digest}.json`, row);
+  }
 }
 
 export function parseEdgeReadModelMeta(text: string): EdgeReadModelMeta {

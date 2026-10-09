@@ -85,22 +85,24 @@ test("namespaced entity keys survive publication and deletion without path trave
         valueJson: "{}",
       },
     ];
-    const entries = edgeReadModelEntries({
-      sourceRevision: 3,
-      rootThreshold: 10,
-      rows: {
-        repository: [],
-        tasks: [],
-        taskGeneration: [],
-        taskProgress: [],
-        entities,
-        leases: [],
-        relations: [],
-        decisions: [],
-        facts: [],
-        presetSnapshots: [],
-      },
-    }).filter((entry) => entry.path.startsWith(".read-model/entities/"));
+    const entries = [
+      ...edgeReadModelEntries({
+        sourceRevision: 3,
+        rootThreshold: 10,
+        rows: {
+          repository: [],
+          tasks: [],
+          taskGeneration: [],
+          taskProgress: [],
+          entities,
+          leases: [],
+          relations: [],
+          decisions: [],
+          facts: [],
+          presetSnapshots: [],
+        },
+      }),
+    ].filter((entry) => entry.path.startsWith(".read-model/entities/"));
     assert.equal(entries.length, 2);
     for (const entry of entries) {
       assert.equal(entry.path.split("/").includes(".."), false);

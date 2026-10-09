@@ -158,7 +158,7 @@ test("a Keycloak authorization that never answers times out and releases the rep
       ...authorized,
       keycloakAuthorization: {
         session: { ...authorized.keycloakAuthorization.session, url: hangUrl },
-        center: { ...authorized.keycloakAuthorization.center, url: hangUrl },
+        center: async () => ({ ...(await authorized.keycloakAuthorization.center()), url: hangUrl }),
       },
     };
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -193,6 +193,57 @@ test("a Keycloak authorization that never answers times out and releases the rep
   } finally {
     hanging.closeAllConnections();
     hanging.close();
+    await cell?.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a Keycloak Admin 401 rejects one action without latching the repository", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-keycloak-admin-rejected-")),
+    rootDir = path.join(parent, "repo"),
+    rejected = createServer((_request, response) => {
+      response.writeHead(401).end();
+    });
+  await new Promise<void>((resolve) => rejected.listen(0, "127.0.0.1", resolve));
+  const centerUrl = `http://127.0.0.1:${(rejected.address() as AddressInfo).port}`,
+    rejectedBinding = {
+      actor: { principal: { personId: "person-keycloak-rejected" }, executor: null },
+      source: "local" as const,
+      keycloakAuthorization: {
+        center: async () => ({
+          url: centerUrl,
+          realm: "harness",
+          clientId: "harness-center",
+          accessToken: "expired-center-token",
+        }),
+      },
+    };
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    mkdirSync(rootDir);
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("keycloak-admin-rejected"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "keycloak-admin-rejected-center",
+      keycloakCenter: rejectedBinding.keycloakAuthorization.center,
+    });
+    const receipt = await cell.run(
+      { kind: "task-create", taskId: "keycloak-rejected", title: "Rejected authorization" },
+      rejectedBinding,
+    );
+    assert.deepEqual(
+      {
+        outcome: receipt.outcome,
+        code: receipt.code,
+        state: cell.status().state,
+        causeClass: cell.status().causeClass,
+      },
+      { outcome: "op_rejected", code: "keycloak_admin_rejected", state: "attached", causeClass: null },
+    );
+  } finally {
+    rejected.closeAllConnections();
+    rejected.close();
     await cell?.close();
     rmSync(parent, { recursive: true, force: true });
   }

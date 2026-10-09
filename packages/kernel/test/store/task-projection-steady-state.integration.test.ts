@@ -390,7 +390,10 @@ test("canonical Squad and live session rows are byte-stable on reopen and cold r
         run: projection.readSquadRuns(),
         session: projection.readRuntimeSessions(),
         entity: projection.getEntity("runtime-session", "runtime-1"),
-        model: projection.readEdgeReadModel(),
+        model: projection.readEdgeReadModel((model) => ({
+          ...model,
+          rows: { ...model.rows, repository: [...model.rows.repository] },
+        })),
       });
     const before = bytes();
     assert.equal(projection.readRuntimeSession("runtime-1")?.liveness, "live");

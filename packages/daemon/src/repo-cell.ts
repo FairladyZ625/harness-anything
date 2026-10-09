@@ -194,7 +194,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
           readContentBlob: store.readContentBlob,
           readEvent: store.readEvent,
           readApplied: projection.readOperation,
-          readEdgeReadModel: () => centerEdgeReadModel(projection!),
+          readEdgeReadModel: (read) => centerEdgeReadModel(projection!, read),
         },
         {
           repoId: context.input.repoId,

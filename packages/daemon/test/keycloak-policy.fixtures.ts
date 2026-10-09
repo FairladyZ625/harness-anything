@@ -53,7 +53,7 @@ export function withPolicyGroup<T extends { readonly actor: ActorIdentity }>(bin
         realm: "harness",
         clientId: "harness-center",
       },
-      center: { url: realm.url, realm: "harness", clientId: "harness-center", accessToken: "center-token" },
+      center: policyTestCenter,
     },
   };
 }

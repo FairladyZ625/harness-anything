@@ -1,15 +1,10 @@
+import { createHash } from "node:crypto";
 import { digestId, mid, wireCut } from "./center-transport.ts";
 import { FleetFault } from "./center-types.ts";
-import {
-  FLEET_CHUNK_BYTES,
-  fleetManifestDigest,
-  type FleetCut,
-  type FleetEntry,
-  type FleetFrameV1,
-} from "./contract.ts";
+import { FLEET_CHUNK_BYTES, type FleetCut, type FleetEntry, type FleetFrameV1 } from "./contract.ts";
 import { type ReplicaAckStore, type ReplicaDeliveryKey, type ReplicaOffer } from "./replica-ack-store.ts";
 import type { ReplicaCutSource, SnapshotCut } from "./replica-cut-store.ts";
-import { parseEdgeReadModelMeta, READ_MODEL_META_PATH } from "@harness-anything/kernel";
+import { parseEdgeReadModelMeta, READ_MODEL_META_PATH, stableStringify } from "@harness-anything/kernel";
 
 export async function makeOffer(
   key: ReplicaDeliveryKey,
@@ -18,9 +13,7 @@ export async function makeOffer(
   replica: ReplicaCutSource,
   issuedAt: string,
 ): Promise<Omit<ReplicaOffer, keyof ReplicaDeliveryKey>> {
-  const model = (await replica.delivery.manifest(latest.revision))?.find(
-    (entry) => entry.path === READ_MODEL_META_PATH,
-  );
+  const model = await replica.delivery.manifestEntry(latest.revision, READ_MODEL_META_PATH);
   if (
     model &&
     parseEdgeReadModelMeta(Buffer.from(await replica.delivery.content(model.blob)).toString("utf8")).sourceRevision !==
@@ -70,8 +63,8 @@ export async function* offerFrames(
   replica: ReplicaCutSource,
   authorization: { readonly owner: string; readonly digest: string },
 ): AsyncGenerator<FleetFrameV1> {
-  const entries = await replica.delivery.manifest(offer.toCut.revision);
-  if (!entries || fleetManifestDigest(entries) !== offer.manifestDigest)
+  const target = replica.cut(offer.toCut.revision);
+  if (!target || target.manifest.digest !== offer.manifestDigest)
     throw new FleetFault("snapshot_required", "Replica cut manifest is unavailable or corrupt.", true);
   if (offer.kind === "snapshot") {
     yield {
@@ -83,22 +76,19 @@ export async function* offerFrames(
       cut: offer.toCut,
       authorizationOwner: authorization.owner,
       authorizationShapeDigest: authorization.digest,
-      manifest: {
-        digest: offer.manifestDigest,
-        entryCount: entries.length,
-        totalBytes: entries.reduce((sum, entry) => sum + entry.blob.size, 0),
-      },
+      manifest: target.manifest,
     };
-    for (let offset = 0; offset < entries.length; offset += 128)
+    for await (const page of manifestPages(replica, target))
       yield {
         schema: "fleet.snapshot.page/v1",
-        messageId: mid(offer.transferId, `page${offset / 128}`),
+        messageId: mid(offer.transferId, `page${page.index}`),
         transferId: offer.transferId,
-        pageIndex: offset / 128,
-        entries: entries.slice(offset, offset + 128),
+        pageIndex: page.index,
+        entries: page.entries,
       };
-    for (const entry of entries)
-      yield* blobFrames("snapshot", offer.transferId, entry, await replica.delivery.content(entry.blob));
+    for await (const page of manifestPages(replica, target))
+      for (const entry of page.entries)
+        yield* blobFrames("snapshot", offer.transferId, entry, await replica.delivery.content(entry.blob));
     yield {
       schema: "fleet.snapshot.finish/v1",
       messageId: mid(offer.transferId, "finish"),
@@ -107,6 +97,8 @@ export async function* offerFrames(
     };
     return;
   }
+  // Deltas also reconcile against the whole target, without materializing it in the listener.
+  for await (const page of manifestPages(replica, target)) void page;
   const changes = offer.fromCut && (await replica.delivery.changes(offer.fromCut.revision, offer.toCut.revision));
   if (!offer.fromCut || !changes)
     throw new FleetFault("snapshot_required", "Adjacent replica changelog is outside retention.", true);
@@ -145,6 +137,35 @@ export async function* offerFrames(
     transferId: offer.transferId,
     resultManifestDigest: offer.manifestDigest,
   };
+}
+
+/** Page buffers are bounded; full reconciliation completes before any snapshot blob or finish. */
+async function* manifestPages(replica: ReplicaCutSource, cut: SnapshotCut) {
+  const hash = createHash("sha256").update("[");
+  let offset = 0,
+    index = 0,
+    totalBytes = 0;
+  for (;;) {
+    const page = await replica.delivery.manifestPage(cut.revision, offset);
+    if (!page || (!page.done && page.entries.length === 0))
+      throw new FleetFault("snapshot_required", "Replica cut manifest is unavailable or corrupt.", true);
+    for (const entry of page.entries) {
+      if (offset) hash.update(",");
+      hash.update(stableStringify(entry));
+      totalBytes += entry.blob.size;
+      offset += 1;
+    }
+    if (page.entries.length) yield { index: index++, entries: page.entries };
+    if (page.done) {
+      if (
+        hash.update("]").digest("hex") !== cut.manifest.digest ||
+        offset !== cut.manifest.entryCount ||
+        totalBytes !== cut.manifest.totalBytes
+      )
+        throw new FleetFault("snapshot_required", "Replica cut manifest is unavailable or corrupt.", true);
+      return;
+    }
+  }
 }
 
 export function* blobFrames(
