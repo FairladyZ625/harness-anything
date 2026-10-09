@@ -286,3 +286,30 @@ for (const history of [legacyV2, legacyV3]) {
     assert.deepEqual(cached.tests, []);
   });
 }
+
+test("family evidence is read once rather than rescanned for every test", () => {
+  const a = observation(1, "failed"),
+    b = observation(2, "passed");
+  const rows = [a, b];
+  for (const row of rows)
+    row.detail = {
+      ...row.detail,
+      tests: Array.from({ length: 200 }, (_, i) => ({ ...row.detail.tests[0]!, testKey: `test-${i}` })),
+    };
+  const events = [...rows.map((row) => row.event), ...inventory(rows)];
+  let payloadReads = 0;
+  const counted = events.map(
+    (event) =>
+      new Proxy(event, {
+        get(target, key, receiver) {
+          if (key === "payload") payloadReads++;
+          return Reflect.get(target, key, receiver);
+        },
+      }),
+  );
+  const result = ciRerunStatistics(counted, new Map(rows.map((row) => [row.event.eventId, row.detail])));
+  assert.equal(result.tests.length, 200);
+  assert.equal(result.recoveries.length, 200);
+  // Row-specific recovery evidence is allowed; rescanning family-wide evidence is not.
+  assert.ok(payloadReads < 7000, `family payload reads: ${payloadReads}`);
+});

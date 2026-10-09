@@ -1,3 +1,4 @@
+import { CI_OBSERVATION_WINDOW_INDEX_SQL } from "./ci-observation-window-query.ts";
 import {
   privateRuntimeEventTypes,
   publicRuntimeDispatch,
@@ -128,7 +129,7 @@ export interface RepositoryReadModelRow {
 export function createRepositoryReadModelTables(db: DatabaseSync): void {
   db.exec(REPOSITORY_READ_TABLES_SQL);
   db.exec(
-    `CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL);`,
+    `CREATE TABLE IF NOT EXISTS event_index (op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL); ${CI_OBSERVATION_WINDOW_INDEX_SQL}`,
   );
 }
 

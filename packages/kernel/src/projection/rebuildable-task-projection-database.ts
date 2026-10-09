@@ -1,3 +1,4 @@
+import { CI_OBSERVATION_WINDOW_INDEX_SQL } from "./ci-observation-window-query.ts";
 // @write-boundary-exemption rebuildable-projection
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -460,6 +461,7 @@ function createTables(db: DatabaseSync): void {
     );
 ${TASK_INDEX_TABLES_SQL}
 ${REPOSITORY_READ_TABLES_SQL}
+${CI_OBSERVATION_WINDOW_INDEX_SQL}
     CREATE TABLE IF NOT EXISTS task_generation (
       task_id TEXT PRIMARY KEY,
       generation TEXT NOT NULL CHECK(generation IN ('v0','v1'))

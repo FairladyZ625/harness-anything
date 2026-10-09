@@ -42,17 +42,18 @@ export function ciRunWindow(events: readonly CiObservationRead[], window: number
       .sort(([, a], [, b]) => {
         const ai = a.payload.identity,
           bi = b.payload.identity;
-        if (
-          ai.provider === "github-actions" &&
-          bi.provider === "github-actions" &&
-          /^\d+$/u.test(ai.databaseRunId) &&
-          /^\d+$/u.test(bi.databaseRunId)
-        ) {
+        const an = ai.provider === "github-actions" && /^\d+$/u.test(ai.databaseRunId);
+        const bn = bi.provider === "github-actions" && /^\d+$/u.test(bi.databaseRunId);
+        if (an !== bn) return an ? -1 : 1;
+        if (an && bn) {
           const left = BigInt(ai.databaseRunId),
             right = BigInt(bi.databaseRunId);
           if (left !== right) return left > right ? -1 : 1;
+        } else {
+          const time = b.occurredAt.localeCompare(a.occurredAt);
+          if (time) return time;
         }
-        return b.occurredAt.localeCompare(a.occurredAt) || ciRunFamily(a).localeCompare(ciRunFamily(b));
+        return ciRunFamily(a) < ciRunFamily(b) ? -1 : ciRunFamily(a) > ciRunFamily(b) ? 1 : 0;
       })
       .slice(0, window)
       .map(([key]) => key),
@@ -76,7 +77,9 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
   const families = new Map<string, CiObservationRead[]>();
   for (const event of events) {
     const key = ciRunFamily(event);
-    families.set(key, [...(families.get(key) ?? []), event]);
+    const family = families.get(key) ?? [];
+    family.push(event);
+    families.set(key, family);
   }
   const recoveries: CiRecovery[] = [];
   const groups = new Map<
@@ -92,38 +95,67 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
     }
   >();
   for (const [familyKey, family] of families) {
-    const attempts = new Set(family.map((event) => event.payload.identity.runAttempt));
+    const attempts = new Set<number>();
+    const nonLegacyAttempts = new Set<number>();
+    const inventories = new Map<number, CiObservationRead[]>();
+    const jobExecutions = new Map<number, Set<string | null>>();
+    const jobAttempts = new Map<string | null, Set<number>>();
+    const provenance = new Set<string>();
+    let hasMissingDetail = false,
+      hasIncompleteJob = false;
+    for (const event of family) {
+      const { identity, scope, run, measurementCoverage } = event.payload;
+      const attempt = identity.runAttempt;
+      attempts.add(attempt);
+      if (scope !== "legacy") nonLegacyAttempts.add(attempt);
+      if (scope === "attempt") {
+        const snapshots = inventories.get(attempt) ?? [];
+        snapshots.push(event);
+        inventories.set(attempt, snapshots);
+      }
+      if (scope === "job") {
+        const executions = jobExecutions.get(attempt) ?? new Set();
+        executions.add(identity.jobExecutionId);
+        jobExecutions.set(attempt, executions);
+        const present = jobAttempts.get(identity.jobKey) ?? new Set();
+        present.add(attempt);
+        jobAttempts.set(identity.jobKey, present);
+        if (measurementCoverage.status !== "complete") hasIncompleteJob = true;
+      }
+      if (missing.includes(event.eventId)) hasMissingDetail = true;
+      provenance.add(JSON.stringify([run.sha, identity.workflowId, identity.workflowPath]));
+    }
     const max = Math.max(...attempts);
-    const inventories = family.filter((event) => event.payload.scope === "attempt");
-    for (const attempt of attempts) {
-      if (!family.some((event) => event.payload.identity.runAttempt === attempt && event.payload.scope !== "legacy"))
-        continue;
-      const snapshots = inventories.filter((event) => event.payload.identity.runAttempt === attempt);
-      if (!snapshots.length) {
+    const missingArtifactAttempts = new Set<number>();
+    for (const attempt of nonLegacyAttempts) {
+      const snapshots = inventories.get(attempt);
+      if (!snapshots?.length) {
         missing.push(`inventory:${familyKey}:${attempt}`);
         continue;
       }
       const inventory = snapshots[0]!.payload.attemptInventory!;
-      if (
-        snapshots.some(
-          (snapshot) => JSON.stringify(snapshot.payload.attemptInventory!.jobs) !== JSON.stringify(inventory.jobs),
-        )
-      )
+      const jobs = JSON.stringify(inventory.jobs);
+      if (snapshots.some((snapshot) => JSON.stringify(snapshot.payload.attemptInventory!.jobs) !== jobs))
         throw new Error("Conflicting authoritative CI attempt jobs");
       for (const job of inventory.jobs) {
         if (job.conclusion === "skipped") continue;
-        if (
-          !family.some(
-            (event) =>
-              event.payload.scope === "job" &&
-              event.payload.identity.runAttempt === attempt &&
-              event.payload.identity.jobExecutionId === job.jobExecutionId,
-          )
-        )
+        if (!jobExecutions.get(attempt)?.has(job.jobExecutionId)) {
           missing.push(`artifact:${familyKey}:${attempt}:${job.jobExecutionId}`);
+          missingArtifactAttempts.add(attempt);
+        }
       }
     }
-    const chainComplete = attempts.size === max && attempts.has(1) && !missing.some((ref) => ref.includes(familyKey));
+    const familyComplete =
+      attempts.size === max &&
+      attempts.has(1) &&
+      !missing.some((ref) => ref.includes(familyKey)) &&
+      provenance.size === 1 &&
+      !hasMissingDetail &&
+      !hasIncompleteJob;
+    const inventoriedAttempts = [...attempts].filter(
+      (attempt) => inventories.has(attempt) && !missingArtifactAttempts.has(attempt),
+    );
+    const notRerunByJob = new Map<string | null, readonly number[]>();
     const observations = new Map<string, { event: CiObservationRead; test: CiDiagnosticTest }[]>();
     for (const event of family) {
       if (!["job", "legacy"].includes(event.payload.scope) || !details.has(event.eventId)) continue;
@@ -141,7 +173,9 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
       }
       for (const test of final.values()) {
         const key = JSON.stringify([i.provider, i.repositoryId, i.workflowId, i.workflowPath, i.jobKey, test.testKey]);
-        observations.set(key, [...(observations.get(key) ?? []), { event, test }]);
+        const rows = observations.get(key) ?? [];
+        rows.push({ event, test });
+        observations.set(key, rows);
         const group = groups.get(key) ?? {
           file: test.file,
           name: test.name,
@@ -162,19 +196,13 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
           a.event.eventId.localeCompare(b.event.eventId),
       );
       const group = groups.get(identity)!;
-      for (const attempt of attempts) {
-        if (
-          inventories.some((event) => event.payload.identity.runAttempt === attempt) &&
-          !missing.some((ref) => ref.startsWith(`artifact:${familyKey}:${attempt}:`)) &&
-          !family.some(
-            (event) =>
-              event.payload.scope === "job" &&
-              event.payload.identity.runAttempt === attempt &&
-              event.payload.identity.jobKey === rows[0]!.event.payload.identity.jobKey,
-          )
-        )
-          group.notRerunAttempts.push({ familyKey, attempt });
+      const jobKey = rows[0]!.event.payload.identity.jobKey;
+      let notRerun = notRerunByJob.get(jobKey);
+      if (!notRerun) {
+        notRerun = inventoriedAttempts.filter((attempt) => !jobAttempts.get(jobKey)?.has(attempt));
+        notRerunByJob.set(jobKey, notRerun);
       }
+      for (const attempt of notRerun) group.notRerunAttempts.push({ familyKey, attempt });
       const actual = rows.filter((row) => row.test.status !== "skipped");
       const ambiguous =
         rows.some(
@@ -186,22 +214,7 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
         ) ||
         new Set(rows.map((row) => row.event.payload.identity.runAttempt)).size !== rows.length ||
         new Set(rows.map((row) => row.event.payload.run.sha)).size !== 1;
-      const complete =
-        chainComplete &&
-        !ambiguous &&
-        new Set(
-          family.map((event) =>
-            JSON.stringify([
-              event.payload.run.sha,
-              event.payload.identity.workflowId,
-              event.payload.identity.workflowPath,
-            ]),
-          ),
-        ).size === 1 &&
-        family.every((event) => !missing.includes(event.eventId)) &&
-        family
-          .filter((event) => event.payload.scope === "job")
-          .every((event) => event.payload.measurementCoverage.status === "complete");
+      const complete = familyComplete && !ambiguous;
       if (actual.length) {
         if (complete) group.eligible.add(familyKey);
         else group.excluded.add(familyKey);

@@ -234,6 +234,7 @@ export interface TaskProjection {
   readonly readCiRunObservations: (
     limit: number,
     beforeRevision?: number,
+    selection?: { readonly familyWindow: number },
   ) => {
     readonly status: "ready" | "pending";
     readonly events: readonly import("../domain/ci-run-observation-v4.ts").CiObservationRead[];
