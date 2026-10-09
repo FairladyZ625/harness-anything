@@ -104,9 +104,10 @@
   --color-axis-execution: oklch(0.72 0.13 250);
   --color-axis-assoc: oklch(0.62 0.01 285);
 
-  /* 统计图配色(Token 消耗页):三类 token 与分系列各一组定序分类色,相邻两色在色觉缺陷
+  /* 统计图配色(Token 消耗页):四类 token 与分系列各一组定序分类色,相邻两色在色觉缺陷
      模拟下可辨、对图面对比 ≥3:1;不与状态色共用。「其余」固定为中性灰。 */
   --color-viz-cache: #3987e5;
+  --color-viz-cache-write: #7d64d8;
   --color-viz-input: #199e70;
   --color-viz-output: #d95926;
   --color-viz-series-1: #c98500;
@@ -193,6 +194,7 @@ html[data-theme="light"] {
   --color-axis-assoc: oklch(0.55 0.01 285);
 
   --color-viz-cache: #2a78d6;
+  --color-viz-cache-write: #a08df0;
   --color-viz-input: #1baf7a;
   --color-viz-output: #eb6834;
   --color-viz-series-1: #eda100;

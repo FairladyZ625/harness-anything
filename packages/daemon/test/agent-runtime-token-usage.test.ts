@@ -269,6 +269,7 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         sessionCount: 1,
         inputTokens: 150,
         cacheReadTokens: 20,
+        cacheWriteTokens: 0,
         outputTokens: 40,
         totalTokens: 210,
         toolCallCount: 5,
@@ -277,6 +278,8 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         succeededSessions: 0,
         failedSessions: 0,
         abortedSessions: 0,
+        costUsd: 0,
+        unpricedTokens: 210,
       },
       {
         agentId: "luna",
@@ -284,6 +287,7 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         sessionCount: 1,
         inputTokens: 0,
         cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
         toolCallCount: 0,
@@ -292,6 +296,8 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         succeededSessions: 0,
         failedSessions: 0,
         abortedSessions: 0,
+        costUsd: 0,
+        unpricedTokens: 0,
       },
       {
         agentId: "sol",
@@ -299,6 +305,7 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         sessionCount: 1,
         inputTokens: 0,
         cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
         toolCallCount: 2,
@@ -307,6 +314,8 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         succeededSessions: 0,
         failedSessions: 0,
         abortedSessions: 0,
+        costUsd: 0,
+        unpricedTokens: 0,
       },
     ]);
     assert.deepEqual(result.squads, [
@@ -316,6 +325,7 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         sessionCount: 2,
         inputTokens: 110,
         cacheReadTokens: 20,
+        cacheWriteTokens: 0,
         outputTokens: 35,
         totalTokens: 165,
         toolCallCount: 5,
@@ -324,6 +334,8 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         succeededSessions: 0,
         failedSessions: 0,
         abortedSessions: 0,
+        costUsd: 0,
+        unpricedTokens: 165,
       },
     ]);
     assert.equal(result.status, "ready");
@@ -333,11 +345,14 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
       sessionCount: 4,
       inputTokens: 160,
       cacheReadTokens: 20,
+      cacheWriteTokens: 0,
       outputTokens: 45,
       totalTokens: 225,
       toolCallCount: 8,
       usageReportedDispatches: 3,
       usageUnavailableDispatches: 1,
+      costUsd: 0,
+      unpricedTokens: 225,
     });
     const since = new Date(result.since);
     assert.ok(
@@ -820,6 +835,7 @@ test("the aggregate answers who spent, on what, how sessions ended and what the 
         workTitle: "独立小改",
         sessionCount: 2,
         totalTokens: 25_000_000,
+        costUsd: 0,
       },
       {
         taskId: "task-b",
@@ -828,6 +844,7 @@ test("the aggregate answers who spent, on what, how sessions ended and what the 
         workTitle: "发布线",
         sessionCount: 2,
         totalTokens: 550_000,
+        costUsd: 0,
       },
       {
         taskId: "task-a",
@@ -836,11 +853,12 @@ test("the aggregate answers who spent, on what, how sessions ended and what the 
         workTitle: "发布线",
         sessionCount: 1,
         totalTokens: 10_000,
+        costUsd: 0,
       },
     ]);
     assert.deepEqual(result.works, [
-      { workId: "task-solo", title: "独立小改", taskCount: 1, sessionCount: 2, totalTokens: 25_000_000 },
-      { workId: "work-root", title: "发布线", taskCount: 2, sessionCount: 3, totalTokens: 560_000 },
+      { workId: "task-solo", title: "独立小改", taskCount: 1, sessionCount: 2, totalTokens: 25_000_000, costUsd: 0 },
+      { workId: "work-root", title: "发布线", taskCount: 2, sessionCount: 3, totalTokens: 560_000, costUsd: 0 },
     ]);
     // 按结果分的用量:失败与中止的会话花掉的就是「白花」的部分。
     assert.deepEqual(result.outcomes, [

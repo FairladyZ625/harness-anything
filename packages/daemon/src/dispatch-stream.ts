@@ -802,6 +802,9 @@ function isRuntimeMetrics(value: Record<string, unknown>): value is RuntimeMetri
     Number.isInteger(value.outputTokens) &&
     Number.isInteger(value.totalTokens) &&
     Number.isInteger(value.toolCallCount) &&
+    // Optional like usageUnavailable: absent on records written before the field existed.
+    (value.cacheWriteTokens === undefined ||
+      (Number.isInteger(value.cacheWriteTokens) && Number(value.cacheWriteTokens) >= 0)) &&
     typeof value.compacted === "boolean" &&
     typeof value.raw === "object" &&
     value.raw !== null &&

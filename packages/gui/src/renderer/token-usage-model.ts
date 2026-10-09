@@ -52,6 +52,19 @@ export function usageIsUnreported(row: {
   return row.usageReportedDispatches === 0 && row.usageUnavailableDispatches > 0;
 }
 
+/** 行级「无价格」判定:有用量但一行也没有公开价可折算 → 显示「无价格」,金额不是 0 的意思。 */
+export function usageIsUnpriced(row: { readonly totalTokens: number; readonly unpricedTokens: number }): boolean {
+  return row.totalTokens > 0 && row.unpricedTokens >= row.totalTokens;
+}
+
+/** 未计价用量占总量的比例;总量为 0 时没有这个数。 */
+export function unpricedShare(totals: {
+  readonly totalTokens: number;
+  readonly unpricedTokens: number;
+}): number | null {
+  return totals.totalTokens > 0 ? Math.min(1, totals.unpricedTokens / totals.totalTokens) : null;
+}
+
 /** 会话行的 usage 词 → 展示词键(与 SessionsPanel 的 sessionMetricsUnavailable 同一语义)。 */
 export function usageStateKey(usage: "reported" | "unavailable" | "pending"): MessageKey {
   return usage === "unavailable"
@@ -93,28 +106,39 @@ export function wastedSpend(
 }
 
 /**
- * 三类 token 的全页唯一配色与顺序。daemon 的 inputTokens 含缓存读取(totalTokens = 输入 + 输出),
- * 所以构成拆成互不重叠的三段:缓存读取、未命中缓存的新输入、输出 —— 三段之和等于总量。
+ * 四类 token 的全页唯一配色与顺序。daemon 的 inputTokens 含缓存读取与缓存写入
+ * (totalTokens = 输入 + 输出),所以构成拆成互不重叠的四段:缓存读取、缓存写入、未命中
+ * 缓存的新输入、输出 —— 四段之和等于总量。缓存写入自价格表 2026-10-10 起独立计数;
+ * 更早记录与未上报缓存写入的 provider 里,该部分留在新输入段(按 0 计),不估算。
  */
-export const tokenKinds = ["cacheRead", "freshInput", "output"] as const;
+export const tokenKinds = ["cacheRead", "cacheWrite", "freshInput", "output"] as const;
 export type TokenKind = (typeof tokenKinds)[number];
 export const tokenKindColor: Readonly<Record<TokenKind, string>> = {
   cacheRead: "var(--color-viz-cache)",
+  cacheWrite: "var(--color-viz-cache-write)",
   freshInput: "var(--color-viz-input)",
   output: "var(--color-viz-output)",
 };
 export const tokenKindKey: Readonly<Record<TokenKind, MessageKey>> = {
   cacheRead: "agentRuntime.tokenUsageColCacheRead",
+  cacheWrite: "agentRuntime.tokenUsageKindCacheWrite",
   freshInput: "agentRuntime.tokenUsageKindFreshInput",
   output: "agentRuntime.tokenUsageColOutput",
 };
 export function tokenComposition(counters: {
   readonly inputTokens: number;
   readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
   readonly outputTokens: number;
 }): Readonly<Record<TokenKind, number>> {
-  const cacheRead = Math.max(0, Math.min(counters.cacheReadTokens, counters.inputTokens));
-  return { cacheRead, freshInput: counters.inputTokens - cacheRead, output: counters.outputTokens };
+  const cacheRead = Math.max(0, Math.min(counters.cacheReadTokens, counters.inputTokens)),
+    cacheWrite = Math.max(0, Math.min(counters.cacheWriteTokens, counters.inputTokens - cacheRead));
+  return {
+    cacheRead,
+    cacheWrite,
+    freshInput: counters.inputTokens - cacheRead - cacheWrite,
+    output: counters.outputTokens,
+  };
 }
 /** 缓存命中率:缓存读取占输入的比例;没有输入时没有这个数。 */
 export function cacheHitRate(counters: {

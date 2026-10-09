@@ -242,6 +242,10 @@ function observeRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknow
   if (input !== null || cacheRead !== null || cacheCreation !== null)
     active.inputTokens += (input ?? 0) + (isInclusive ? 0 : (cacheRead ?? 0) + (cacheCreation ?? 0));
   active.cacheReadTokens += cacheRead ?? 0;
+  // Cache writes stay their own counter (priced at the cache-write rate) even
+  // though inputTokens keeps including them: providers that report no
+  // cache-write field accumulate zero here, never an estimate.
+  active.cacheWriteTokens += cacheCreation ?? 0;
   active.outputTokens += output ?? 0;
 }
 

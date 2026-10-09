@@ -81,6 +81,7 @@ export async function publishExit(
     const runtimeMetrics = {
       inputTokens: active.inputTokens,
       cacheReadTokens: active.cacheReadTokens,
+      cacheWriteTokens: active.cacheWriteTokens,
       outputTokens: active.outputTokens,
       totalTokens: active.inputTokens + active.outputTokens,
       toolCallCount: active.toolCallCount,
@@ -90,6 +91,11 @@ export async function publishExit(
       { ...runtimeMetrics, compacted: active.compacted, raw: active.rawUsage },
       endedAt,
     );
+    // The kernel event's runtimeMetrics copy stays the three-count shape its domain
+    // whitelist pins (validRuntimeDispatchMetrics): kernel consumers do not price, so the
+    // separate cache-write counter travels only in the stream records, where the token
+    // usage read side picks it up.
+    const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
     let body = context.runtimeResultText(active, code, outcome);
     let hasDelivery =
       active.task && outcome === "succeeded" && active.publicationOwner === "commander" && !squadLeaderControl
@@ -309,7 +315,7 @@ export async function publishExit(
         ...(reasonCode ? { reasonCode } : {}),
         dispatchId: active.dispatchId,
         endedAt,
-        runtimeMetrics,
+        runtimeMetrics: kernelMetrics,
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,

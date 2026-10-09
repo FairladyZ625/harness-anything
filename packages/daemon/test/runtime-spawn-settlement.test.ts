@@ -90,6 +90,75 @@ test("taskless settlement requires the provider's completed turn and final resul
   }
 });
 
+test("settlement keeps the cache-write counter out of the kernel event metrics copy", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-settlement-metrics-copy-"));
+  try {
+    const outcomes: Record<string, unknown>[] = [],
+      metricsRecords: Record<string, unknown>[] = [],
+      runtime = {
+        ...tasklessSettlementRuntime(rootDir, "counters settle"),
+        inputTokens: 110,
+        cacheReadTokens: 20,
+        cacheWriteTokens: 10,
+        outputTokens: 25,
+        toolCallCount: 1,
+        usageReported: true,
+        compacted: false,
+        rawUsage: {},
+        stream: {
+          ref: "runtime-stream:dispatch-settlement-metrics-copy",
+          appendAttemptOutcome: () => undefined,
+          appendTerminalOutcome: () => undefined,
+          appendRuntimeMetrics: (record: Record<string, unknown>) => metricsRecords.push(record),
+        } as never,
+      } as ActiveRuntime,
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-10T00:01:00.000Z",
+          stream: { publish: () => ({}) },
+          remote: { archive: async () => ({ outcome: "applied" }) },
+        },
+        resultMediaType: "text/markdown",
+        runtimeResultText: () => "counters settle",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
+          if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+          return {};
+        },
+        settleFallback: async () => undefined,
+      } as unknown as RuntimeSpawnerContext;
+    await publishExit(context, runtime, 0);
+    // The kernel event whitelist (validRuntimeDispatchMetrics) pins the payload copy to the
+    // three-count shape; the separate cache-write counter travels only in the stream records
+    // that the token usage read side prices.
+    assert.deepEqual(Object.keys(outcomes[0]?.runtimeMetrics ?? {}).sort(), [
+      "cacheReadTokens",
+      "inputTokens",
+      "outputTokens",
+      "toolCallCount",
+      "totalTokens",
+      "usageUnavailable",
+    ]);
+    assert.deepEqual(metricsRecords[0], {
+      inputTokens: 110,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 10,
+      outputTokens: 25,
+      totalTokens: 135,
+      toolCallCount: 1,
+      usageUnavailable: false,
+      compacted: false,
+      raw: {},
+    });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("a read-only task attach requires its dispatch report, while a reviewer still requires registration", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-read-only-report-witness-"));
   try {

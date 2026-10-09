@@ -1,5 +1,6 @@
 import type { AgentRuntimeTokenUsageSessionRow } from "./agent-runtime-token-usage.ts";
 import type { WorkRuleTask } from "./workspace-scope-read.ts";
+import { modelPriceOf, usageCostUsd } from "./agent-runtime-model-pricing.ts";
 
 /**
  * The analysis groups of `repo.agentRuntime.tokenUsage`, computed in the same pass as the
@@ -48,6 +49,9 @@ export interface AgentRuntimeTokenUsageTaskRow {
   readonly workTitle: string | null;
   readonly sessionCount: number;
   readonly totalTokens: number;
+  /** List-price amount of the row; tokens of unpriced models are in it at zero (the window
+   * totals carry the unpriced share). */
+  readonly costUsd: number;
 }
 export interface AgentRuntimeTokenUsageWorkRow {
   readonly workId: string;
@@ -56,6 +60,9 @@ export interface AgentRuntimeTokenUsageWorkRow {
   readonly taskCount: number;
   readonly sessionCount: number;
   readonly totalTokens: number;
+  /** List-price amount of the row; tokens of unpriced models are in it at zero (the window
+   * totals carry the unpriced share). */
+  readonly costUsd: number;
 }
 export interface AgentRuntimeTokenUsageOutcomeRow {
   readonly outcome: AgentRuntimeTokenUsageOutcome;
@@ -259,15 +266,18 @@ function taskRows(
   taskOf: (taskId: string) => WorkRuleTask | undefined,
   workOf: (taskId: string) => WorkRuleTask | null,
 ): Pick<AgentRuntimeTokenUsageInsights, "tasks" | "works"> {
-  type Spend = { sessions: Set<string>; totalTokens: number };
+  type Spend = { sessions: Set<string>; totalTokens: number; costUsd: number };
   const tasks = new Map<string, Spend>(),
     works = new Map<string, Spend & { title: string; tasks: Set<string> }>(),
     workOfTask = new Map<string, WorkRuleTask | null>();
   for (const fact of facts) {
     if (fact.taskId === null) continue;
-    const task = tasks.get(fact.taskId) ?? { sessions: new Set<string>(), totalTokens: 0 };
+    const price = modelPriceOf(fact.model),
+      cost = price === null ? 0 : usageCostUsd(price, fact);
+    const task = tasks.get(fact.taskId) ?? { sessions: new Set<string>(), totalTokens: 0, costUsd: 0 };
     task.sessions.add(fact.runtimeSessionId);
     task.totalTokens += fact.totalTokens;
+    task.costUsd += cost;
     tasks.set(fact.taskId, task);
     if (!workOfTask.has(fact.taskId)) workOfTask.set(fact.taskId, workOf(fact.taskId));
     const root = workOfTask.get(fact.taskId) ?? null;
@@ -277,10 +287,12 @@ function taskRows(
       tasks: new Set<string>(),
       sessions: new Set<string>(),
       totalTokens: 0,
+      costUsd: 0,
     };
     work.tasks.add(fact.taskId);
     work.sessions.add(fact.runtimeSessionId);
     work.totalTokens += fact.totalTokens;
+    work.costUsd += cost;
     works.set(root.taskId, work);
   }
   const bySpend = (left: readonly [string, Spend], right: readonly [string, Spend]): number =>
@@ -298,6 +310,7 @@ function taskRows(
           workTitle: work === null ? null : work.title || work.taskId,
           sessionCount: spend.sessions.size,
           totalTokens: spend.totalTokens,
+          costUsd: spend.costUsd,
         };
       }),
     works: [...works]
@@ -309,6 +322,7 @@ function taskRows(
         taskCount: work.tasks.size,
         sessionCount: work.sessions.size,
         totalTokens: work.totalTokens,
+        costUsd: work.costUsd,
       })),
   };
 }
@@ -378,6 +392,8 @@ function mean(values: readonly number[]): number {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const count = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+const nonNegative = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
 const text = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 const nullableText = (value: unknown): boolean => value === null || text(value);
 const shaped = (value: unknown, keys: number): value is Record<string, unknown> =>
@@ -440,24 +456,26 @@ export function validTokenUsageInsights(value: Record<string, unknown>, bucketCo
       value.tasks,
       tokenUsageInsightLimits.tasks,
       (row) =>
-        shaped(row, 6) &&
+        shaped(row, 7) &&
         text(row.taskId) &&
         text(row.title) &&
         nullableText(row.workId) &&
         nullableText(row.workTitle) &&
         count(row.sessionCount) &&
-        count(row.totalTokens),
+        count(row.totalTokens) &&
+        nonNegative(row.costUsd),
     ) &&
     rows(
       value.works,
       tokenUsageInsightLimits.works,
       (row) =>
-        shaped(row, 5) &&
+        shaped(row, 6) &&
         text(row.workId) &&
         text(row.title) &&
         count(row.taskCount) &&
         count(row.sessionCount) &&
-        count(row.totalTokens),
+        count(row.totalTokens) &&
+        nonNegative(row.costUsd),
     ) &&
     validSessionStats(value.sessions) &&
     Array.isArray(value.outcomes) &&
