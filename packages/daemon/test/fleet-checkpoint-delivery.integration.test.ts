@@ -117,6 +117,59 @@ test(
   },
 );
 
+for (const through of ["known-head", "write-revision"] as const) {
+  test(`command pull waits beyond a historical ACK through ${through}`, async (t) => {
+    const f = await fleetFixture(t);
+    t.after(() => f.close());
+    const source = f.host.replica(f.subject.repoId);
+    const first = (await source.prepare())!;
+    const activate = source.activate,
+      kick = source.kick;
+    source.activate = () => first;
+    source.kick = () => {};
+    const write = await f.host.run(
+      f.subject.repoId,
+      { kind: "task-create", taskId: "task-after-checkpoint", title: "After checkpoint" },
+      f.auth,
+    );
+    assert.equal(write.outcome, "applied");
+    await waitForFleetPublication(f.host, f.subject.repoId, write.opId, f.auth);
+    const target = source.ledgerCut()!.revision;
+    assert.ok(target > first.revision);
+    const center = await f.center();
+    const acked: number[] = [];
+    const result = await runFleetReplicaPullClient({
+      port: center.port,
+      ca: f.cert,
+      nodeId: f.subject.nodeId,
+      credential: "machine-secret",
+      repoId: f.subject.repoId,
+      viewRoot: path.join(f.root, "command-pull"),
+      diskQuotaBytes: 64 * 1024 * 1024,
+      through: through === "known-head" ? "known-head" : target,
+      beforeAck: (ack) => {
+        acked.push(ack.cut.revision);
+        source.activate = activate;
+        source.kick = kick;
+        kick();
+      },
+    });
+    assert.equal(acked[0], first.revision, "the first ACK is only the usable historical checkpoint");
+    assert.ok(result.current.cut.revision >= target, "command settlement includes its fixed target revision");
+    withEdgeReadModel(
+      {
+        viewRoot: path.join(f.root, "command-pull"),
+        repoId: f.subject.repoId,
+        nodeId: f.subject.nodeId,
+        principalId: "person-owner",
+      },
+      (queries) => {
+        assert.ok(queries.list().rows.some((row) => row.taskId === "task-after-checkpoint"));
+      },
+    );
+  });
+}
+
 test("a slow content RPC cannot revive its expired delivery lease", { timeout: 15_000 }, async (t) => {
   const f = await fleetFixture(t);
   t.after(() => f.close());

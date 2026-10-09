@@ -7,6 +7,7 @@ import {
   type FleetPeerOptions,
   type FleetReplicaPullClientOptions,
 } from "./edge.ts";
+import { watchReplicaHead } from "./edge-replica-watch.ts";
 import { recordHeadConfirmation } from "./replica-read-model.ts";
 
 export interface FleetReplicaSessionPoolOptions {
@@ -150,11 +151,7 @@ async function watchReplica(options: FleetReplicaSyncOptions, pool: FleetReplica
   if (options.signal?.aborted) abandon();
   let answered = false;
   try {
-    const messageId = session.messageId();
-    session.send({ schema: "fleet.replica.watch/v1", messageId, repoId: options.repoId, afterRevision });
-    const hint = await session.next(null);
-    if (hint.schema !== "fleet.replica.head-hint/v1" || hint.inReplyTo !== messageId)
-      throw new Error("replica head hint expected");
+    const hint = await watchReplicaHead(session, options.repoId, afterRevision, null);
     answered = true;
     return hint;
   } finally {

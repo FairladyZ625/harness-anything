@@ -266,17 +266,7 @@ test("a batched canonical advance offers only a complete head model, folding int
   await f.transfer("snapshot");
   f.db.exec("UPDATE runtime_session SET value_json = json_set(value_json, '$.liveness', 'exited')");
   await f.next(2);
-  await assert.rejects(
-    () =>
-      makeOffer(
-        { nodeId: "edge", viewId: "edge", repoId: "families" },
-        null,
-        f.source.cut(101)!,
-        f.source,
-        "2026-10-07T00:00:00Z",
-      ),
-    /no read model at its canonical revision/u,
-  );
+  assert.equal(f.source.cut(101), null, "unpublished intermediate revisions have no cut");
   const frames = await f.transfer("delta");
   const begin = frames.find((frame) => frame.schema === "fleet.delta.begin/v1");
   assert.equal(

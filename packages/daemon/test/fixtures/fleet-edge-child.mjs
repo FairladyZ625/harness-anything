@@ -72,6 +72,7 @@ for (;;) {
     if (write.center.outcome !== "applied")
       throw new Error(`center write ${write.center.outcome}:${write.center.code ?? "retry"}`);
     const pulled = await runFleetReplicaPullClient({
+      through: write.center.revision,
       ...peer,
       diskQuotaBytes,
       onFrame,

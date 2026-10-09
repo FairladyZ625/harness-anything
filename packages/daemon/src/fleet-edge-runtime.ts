@@ -667,6 +667,7 @@ export function openFleetEdgeRuntime(input: {
 
   async function pullRuntimeReplica() {
     const pulled = await runFleetReplicaPullClient({
+      through: "known-head",
       ...peer,
       viewRoot: request.viewRoot,
       diskQuotaBytes: request.quotaBytes,

@@ -104,6 +104,7 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
     if (preView !== null) cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, payload.workspaceRoot);
     // COMPARING_WITH_CENTER
     const pulled = await runFleetReplicaPullClient({
+      through: "known-head",
       ...peer,
       viewRoot: payload.viewRoot,
       diskQuotaBytes: payload.quotaBytes,
@@ -197,6 +198,7 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
       // another divergence reports pull_blocked and ok:false; canonical
       // success is never presented as locally synced (§8).
       const landed = await runFleetReplicaPullClient({
+        through: pushed.center.revision ?? "known-head",
         ...peer,
         viewRoot: payload.viewRoot,
         diskQuotaBytes: payload.quotaBytes,
@@ -265,6 +267,7 @@ export async function settlePushRejection(
   let fresh: Awaited<ReturnType<typeof runFleetReplicaPullClient>> | null = null;
   try {
     fresh = await runFleetReplicaPullClient({
+      through: "known-head",
       ...peer,
       viewRoot: payload.viewRoot,
       diskQuotaBytes: payload.quotaBytes,
@@ -376,6 +379,7 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
         },
       };
     const already = await runFleetReplicaPullClient({
+      through: "known-head",
       ...peer,
       viewRoot: payload.viewRoot,
       diskQuotaBytes: payload.quotaBytes,
@@ -446,6 +450,7 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
         },
       };
     const landed = await runFleetReplicaPullClient({
+      through: pushed.center.revision ?? "known-head",
       ...peer,
       viewRoot: payload.viewRoot,
       diskQuotaBytes: payload.quotaBytes,

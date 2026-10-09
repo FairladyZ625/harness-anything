@@ -337,7 +337,7 @@ test("an immutable snapshot identity rejects changed bytes at the same revision 
   }
 });
 
-test("two retained revision 415 cuts without wire generation converge from stale to fresh", () => {
+test("retained revision 415 replay remains stale until the center confirms its head", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-retained-cut-"));
   try {
     const cut = { ...wireCut(415), schemaGeneration: READ_MODEL_SCHEMA_GENERATION },
@@ -400,7 +400,9 @@ test("two retained revision 415 cuts without wire generation converge from stale
       const local = read(nodeId);
       assert.equal(local.list.status, "ready");
       assert.equal(local.list.sourceRevision, 415);
-      assert.equal(local.freshness.state, "fresh");
+      assert.equal(local.freshness.state, "stale", "snapshot ACK does not confirm the center head");
+      recordHeadConfirmation(path.join(root, "repos/repo/views", nodeId), cut);
+      assert.equal(read(nodeId).freshness.state, "fresh");
       assert.deepEqual(openFleetEdgeView(root, replicaQuota).current("repo", nodeId)?.cut, cut);
       assert.deepEqual(readFileSync(manifestPath), before, "the retained snapshot stays immutable");
       assert.equal(deliver(nodeId, `replay-${nodeId}`)?.schema, "fleet.ack/v1");

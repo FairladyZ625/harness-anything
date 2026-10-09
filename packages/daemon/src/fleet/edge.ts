@@ -23,6 +23,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
+import { waitForReplicaCheckpoint } from "./edge-replica-watch.ts";
 import type { FleetReplicaSessionPool } from "./edge-replica-sync.ts";
 import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { recordHeadConfirmation, recordNodeReadDenied } from "./replica-read-model.ts";
@@ -89,6 +90,8 @@ export interface FleetWriteClientResult {
 export interface FleetReplicaPullClientOptions extends FleetPeerOptions {
   readonly viewRoot: string;
   readonly diskQuotaBytes: number;
+  /** Wait for a fixed write revision or the first observed center head before returning. */
+  readonly through?: number | "known-head";
   readonly beforeAck?: (frame: Extract<FleetFrameV1, { schema: "fleet.ack/v1" }>) => void;
   readonly edgeKillpoint?: (point: "after_page" | "after_chunk" | "before_current_rename") => void;
   /** Reuse the authenticated TLS session for this node/repository when supplied. */
@@ -871,8 +874,11 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
   const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint),
     session = options.sessionPool ? await options.sessionPool.acquire(options) : await openPeer(options);
   let failed = true;
+  let target = typeof options.through === "number" ? options.through : null;
+  const deadline = Date.now() + (options.timeoutMs ?? 5_000);
   try {
     for (;;) {
+      let result: FleetReplicaPullClientResult;
       session.send({
         schema: "fleet.replica.pull/v1",
         messageId: session.messageId(),
@@ -903,8 +909,8 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
             path.join(options.viewRoot, "repos", inbound.repoId, "views", inbound.viewId),
             inbound.knownHead,
           );
-          failed = false;
-          return { replica: inbound, current };
+          result = { replica: inbound, current };
+          break;
         }
         const response = view.receive(inbound);
         if (!response) continue;
@@ -918,9 +924,15 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
           acknowledged.knownHead,
         );
         const current = view.current(options.repoId, acknowledged.viewId)!;
-        failed = false;
-        return { replica: acknowledged, current };
+        result = { replica: acknowledged, current };
+        break;
       }
+      if (options.through === "known-head") target ??= result.replica.knownHead.revision;
+      if (target === null || result.current.cut.revision >= target) {
+        failed = false;
+        return result;
+      }
+      await waitForReplicaCheckpoint(session, options.repoId, target, deadline);
     }
   } finally {
     if (!options.sessionPool) session.close();
