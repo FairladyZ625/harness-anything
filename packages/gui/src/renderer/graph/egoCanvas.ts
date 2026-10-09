@@ -23,7 +23,7 @@ import { STATUS_META } from "../components/badges";
  *   egoNeighborsOf   — 某节点经轴过滤的一跳邻居(expandNode 长出下一环用)。
  *   layoutEgoCanvas  — 给定 (focusId, shown, expanded, filters) → 节点位置 + 边。
  *
- * 不变量:布局接续宿主保存的中心。初次摆放只用 chip 尺寸;展开卡片覆盖邻居、
+ * 不变量:布局接续宿主保存的中心。初次摆放保留焦点两侧走线通道,邻居按 chip 排布;展开卡片覆盖邻居、
  * 收起只从 expanded 里减 —— 已铺开的邻居永不撤回,画布永不因节点交互重排
  * (换焦点/跳数步进/分层开关这些显式视图切换才重铺)。
  */
@@ -395,7 +395,8 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     ["down", 1],
     ["up", -1],
   ] as const) {
-    let cx = CHIP_W / 2;
+    // 焦点卡两侧保留走线通道;基准不随展开态变化,邻居列仍只按 chip 排布。
+    let cx = entityKindVisual(focusMeta.entity).cardWFocus / 2;
     const depths = [...cols.keys()]
       .filter((key) => key.startsWith(`${sideKey}:`))
       .map((key) => Number(key.split(":")[1]))
@@ -414,7 +415,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     }
   }
 
-  // 只按 chip 尺寸摆放;展开卡片以更高层级覆盖邻居,不预留阅读态空间。
+  // 邻居只按 chip 尺寸摆放;展开卡片以更高层级覆盖邻居,不预留邻居阅读态空间。
   // 已有节点锁定中心;新邻居只寻找空位,不会推走旧列。每次碰撞把候选 y
   // 推到冲突节点的下边界之后,单调向下且已占用集合有限。
   const placed = new Map<string, { x: number; y: number }>();

@@ -39,6 +39,32 @@ const input = {
 };
 
 describe("reading footprints preserve a usable spotlight", () => {
+  it.each([9, 36])("%i nodes keep 72px routing channels beside the focus card", (count) => {
+    const rows = Array.from({ length: count - 1 }, (_, index) => ({
+      ...tasks[index % tasks.length]!,
+      taskId: String(index),
+      parentTaskId: index ? "0" : "upstream",
+    }));
+    const graph = buildEgoGraph([...rows, { ...tasks[0]!, taskId: "upstream" }], [], [], []);
+    const scoped = { ...input, graph, shown: bfsShownFromFocus(graph, "0", { up: 1, down: 1 }, axes) };
+    const layout = layoutEgoCanvas(scoped);
+    const focus = layout.nodes.find((node) => node.id === "0")!;
+    const upstream = layout.nodes.find((node) => node.id === "upstream")!;
+    const downstream = layout.nodes.find((node) => node.id === "1")!;
+    expect(downstream.position.x - (focus.position.x + Number(focus.width))).toBe(72);
+    expect(focus.position.x - (upstream.position.x + Number(upstream.width))).toBe(72);
+    const collapsed = layoutEgoCanvas({ ...scoped, expanded: new Set() });
+    const expanded = layoutEgoCanvas({ ...scoped, expanded: new Set(["0", "1"]) });
+    for (const state of [collapsed, expanded]) {
+      for (const node of state.nodes) {
+        const initial = layout.nodes.find((other) => other.id === node.id)!;
+        expect([node.position.x + Number(node.width) / 2, node.position.y + Number(node.height) / 2]).toEqual([
+          initial.position.x + Number(initial.width) / 2,
+          initial.position.y + Number(initial.height) / 2,
+        ]);
+      }
+    }
+  });
   it("short tasks do not occupy a blank 300px focus card or 480px tracks", () => {
     const layout = layoutEgoCanvas(input);
     expect(layout.nodes.find((node) => node.id === "0")!.height).toBeLessThan(250);
