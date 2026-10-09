@@ -888,7 +888,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       active = schedule?.status.activeRun;
     if (schedule?.spec.target.kind !== "builtin" || !active) return Promise.resolve(receipt);
     const running = builtinRuns.get(active.claimFence);
-    if (running) return running;
+    if (running) return action.scheduledFor === undefined ? running : Promise.resolve(receipt);
     const writerFence = binding.withWriterEpochFence ?? context.activeWriterEpochFence,
       writerDescriptor = binding.writerEpochFence ?? context.activeWriterEpochFenceDescriptor;
     const executorCell: BuiltinExecutorCell = {
@@ -975,6 +975,14 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         () => undefined,
         () => undefined,
       );
+    // Automatic admission finishes at the claim; executor completion must not hold
+    // the scheduler tail. Explicit run-now / CI pull still await their result.
+    if (action.scheduledFor !== undefined) {
+      // The executor reports original settlement failures before rejection. Observe
+      // completion here without creating a second error or substitute receipt.
+      void Promise.allSettled([pending]);
+      return Promise.resolve(receipt);
+    }
     return pending;
   };
   const runCommand: RepoCell["run"] = async (action, binding, signal) => {

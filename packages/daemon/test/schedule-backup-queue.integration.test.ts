@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import workerThreads, { Worker } from "node:worker_threads";
+import { backupExecutionLimitMs } from "../src/schedule-backup-worker.ts";
 import { syncBuiltinESMExports } from "node:module";
 import { readOfflineLedgerEvents, readVerifiedLedgerBackup, type ScheduleV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -68,7 +69,7 @@ async function openFixture(root: string) {
   );
 }
 
-for (const mode of ["manifest", "drill", "failure", "cleanup"]) {
+for (const mode of ["manifest", "drill", "failure", "cleanup", "deadline", "capture-deadline"]) {
   const corrupt = mode === "failure";
   test(
     `normal writes and duplicate claims complete while backup verification is held (${mode})`,
@@ -79,6 +80,17 @@ for (const mode of ["manifest", "drill", "failure", "cleanup"]) {
         entered = Promise.withResolvers<void>();
       let release: (() => void) | undefined,
         launches = 0;
+      const spawned: Worker[] = [],
+        deadlines: Array<() => void> = [],
+        nativeSetTimeout = globalThis.setTimeout;
+      const timerMock = t.mock.method(
+        globalThis,
+        "setTimeout",
+        (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+          if (delay === backupExecutionLimitMs) deadlines.push(() => callback(...args));
+          return nativeSetTimeout(callback, delay, ...args);
+        },
+      );
       const control = new Int32Array(new SharedArrayBuffer(4)),
         NativeWorker = Worker;
       const workerMock = t.mock.method(
@@ -88,17 +100,21 @@ for (const mode of ["manifest", "drill", "failure", "cleanup"]) {
           if ((options?.workerData as { kind?: string } | undefined)?.kind !== "ledger-backup-verification") {
             return new NativeWorker(url, options);
           }
-          const worker = new NativeWorker(new URL("./schedule-backup-cleanup-barrier.fixture.ts", import.meta.url), {
-            ...options,
-            workerData: {
-              ...options.workerData,
-              moduleUrl: url.href,
-              control,
-              phase: mode === "failure" ? "drill" : mode,
-              root,
-              holdAt: path.join(root, scheduledLedgerBackupRoot, "ledger-backup-manual_000000000000000000000001"),
+          const worker = new NativeWorker(
+            launches === 0 ? new URL("./schedule-backup-cleanup-barrier.fixture.ts", import.meta.url) : url,
+            {
+              ...options,
+              workerData: {
+                ...options.workerData,
+                moduleUrl: url.href,
+                control,
+                phase:
+                  mode === "capture-deadline" ? "capture" : mode === "failure" || mode === "deadline" ? "drill" : mode,
+                root,
+                holdAt: path.join(root, scheduledLedgerBackupRoot, "ledger-backup-manual_000000000000000000000001"),
+              },
             },
-          });
+          );
           const emit = worker.emit;
           worker.emit = (event: string | symbol, ...args: unknown[]): boolean => {
             if (event === "message" && args[0] && typeof args[0] === "object" && "backupHeld" in args[0]) {
@@ -108,6 +124,7 @@ for (const mode of ["manifest", "drill", "failure", "cleanup"]) {
             return emit.call(worker, event, ...args);
           };
           launches++;
+          spawned.push(worker);
           release = () => {
             Atomics.store(control, 0, 2);
             Atomics.notify(control, 0);
@@ -153,6 +170,42 @@ for (const mode of ["manifest", "drill", "failure", "cleanup"]) {
             throw new Error(`Backup ended before barrier: ${JSON.stringify(receipt)}`);
           }),
         ]);
+        if (mode === "deadline" || mode === "capture-deadline") {
+          assert.equal(deadlines.length, 1);
+          assert.notEqual(spawned[0]!.threadId, -1);
+          deadlines[0]!();
+          const result = await backup;
+          release = undefined;
+          assert.equal(result.outcome, "applied");
+          assert.equal(result.code, "schedule_builtin_failed");
+          assert.equal(spawned[0]!.threadId, -1, "physical worker exited before settlement returns");
+          const shown = (await cell.run(
+            { kind: "schedule-show", scheduleId: builtinLedgerBackupScheduleId },
+            binding,
+          )) as unknown as { schedule: ScheduleV1 };
+          assert.equal(shown.schedule.status.activeRun, null);
+          assert.equal(shown.schedule.status.lastRun!.outcome, "failed");
+          assert.match(shown.schedule.status.lastRun!.detail!, /backup worker exceeded 1800000ms/);
+          const successor = await cell.run({ ...action, idempotencyKey: "after-expired-worker" }, binding);
+          assert.equal(successor.outcome, "applied");
+          assert.equal(successor.code, undefined);
+          assert.equal(launches, 2);
+          const next = (await cell.run(
+            { kind: "schedule-show", scheduleId: builtinLedgerBackupScheduleId },
+            binding,
+          )) as unknown as { schedule: ScheduleV1 };
+          assert.equal(next.schedule.status.activeRun, null);
+          assert.equal(next.schedule.status.lastRun!.outcome, "succeeded");
+          t.diagnostic(
+            JSON.stringify({
+              phase: mode,
+              terminatedThread: spawned[0]!.threadId,
+              outcome: shown.schedule.status.lastRun!.outcome,
+              nextOutcome: next.schedule.status.lastRun!.outcome,
+            }),
+          );
+          return;
+        }
         const name = readdirSync(path.join(root, scheduledLedgerBackupRoot)).find(
             (entry) => entry !== path.basename(older),
           ),
@@ -219,6 +272,7 @@ for (const mode of ["manifest", "drill", "failure", "cleanup"]) {
         const result = await backup;
         assert.equal(result.outcome, "applied");
         assert.equal(result.code, corrupt ? "schedule_builtin_failed" : undefined);
+        assert.equal(spawned[0]!.threadId, -1, "physical worker exited before settlement returns");
         assert.equal((await replay).opId, result.opId);
         assert.equal(existsSync(older), corrupt);
         if (!corrupt) {
@@ -238,6 +292,7 @@ for (const mode of ["manifest", "drill", "failure", "cleanup"]) {
         release?.();
         await backup;
         await cell.close();
+        timerMock.mock.restore();
         workerMock.mock.restore();
         syncBuiltinESMExports();
         rmSync(root, { recursive: true, force: true });

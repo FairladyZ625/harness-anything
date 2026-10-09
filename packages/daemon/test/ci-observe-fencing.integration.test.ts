@@ -39,6 +39,7 @@ async function fixture(
     show: () => Promise<ScheduleV1>;
     events: () => Promise<readonly { readonly schema: string; readonly type: string }[]>;
     stateRoot: string;
+    advance: (time: string) => void;
   }) => Promise<void>,
 ) {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-ci-fence-")),
@@ -77,6 +78,7 @@ else throw new Error('unexpected provider call ' + args.join(' '));
   const authority = openPersistentWriterEpoch({ stateRoot, holderId: "ci-fence-owner" }),
     lease = authority.acquire("ci-fence");
   authority.close();
+  let currentTime = "2026-10-08T10:00:00.000Z";
   const cell = await openRepoCell({
     repoId: workspaceId("ci-fence"),
     rootDir: canonicalRoot(rootDir),
@@ -88,7 +90,7 @@ else throw new Error('unexpected provider call ' + args.join(' '));
       holderId: lease.holderId,
       epoch: lease.epoch,
     },
-    now: () => "2026-10-08T10:00:00.000Z",
+    now: () => currentTime,
   });
   const release = () => writeFileSync(released, "released");
   try {
@@ -99,6 +101,9 @@ else throw new Error('unexpected provider call ' + args.join(' '));
       release,
       started,
       stateRoot,
+      advance: (time) => {
+        currentTime = time;
+      },
       show: async () =>
         (
           (await cell.run({ kind: "schedule-show", scheduleId: builtinCiObserveScheduleId }, binding)) as unknown as {
@@ -128,7 +133,7 @@ test(
   "eight forwarded edge refreshes share the center occurrence; provider IO leaves other writes runnable",
   { skip: posix },
   async () => {
-    await fixture(async ({ cell, rootDir, release, started, show, events }) => {
+    await fixture(async ({ cell, rootDir, release, started, show, events, stateRoot }) => {
       const collecting = cell.run(claim, binding);
       await waitForFile(started);
       const active = (await show()).status.activeRun!;
@@ -176,10 +181,20 @@ test(
       const fence = (await show()).status.activeRun!.claimFence;
       assert.equal(await cell.hasBuiltinExecutor(fence), false);
       await cell.close();
+      const successor = openPersistentWriterEpoch({ stateRoot, holderId: "ci-fence-reopened" }),
+        successorLease = successor.acquire("ci-fence");
+      successor.close();
       const reopened = await openRepoCell({
         repoId: workspaceId("ci-fence"),
         rootDir: canonicalRoot(rootDir),
         ownerId: "ci-fence-reopened",
+        defaultWriterEpochFence: {
+          schema: "harness-writer-epoch-fence/v1",
+          stateRoot,
+          repoId: "ci-fence",
+          holderId: successorLease.holderId,
+          epoch: successorLease.epoch,
+        },
         now: () => "2026-10-08T10:00:00.000Z",
       });
       const scheduler = makeScheduleScheduler({
@@ -322,3 +337,126 @@ test(
     });
   },
 );
+
+test(
+  "a held automatic builtin leaves the timer armed, other plans runnable and live skips single_flight",
+  { skip: posix },
+  async () => {
+    await fixture(async ({ cell, release, started, show, advance }) => {
+      const scheduledFor = "2026-10-08T10:01:00.000Z";
+      let now = "2026-10-08T10:00:00.000Z";
+      const timers: Array<{ callback: () => void; cleared: boolean }> = [];
+      const scheduler = makeScheduleScheduler({
+        cells: new Map([["ci-fence", cell]]),
+        localBinding: () => binding,
+        now: () => now,
+        setTimer: (callback) => {
+          const timer = { callback, cleared: false, unref: () => {} };
+          timers.push(timer);
+          return timer as unknown as ReturnType<typeof setTimeout>;
+        },
+        clearTimer: (timer) => {
+          (timer as unknown as { cleared: boolean }).cleared = true;
+        },
+      });
+      const fire = () => {
+        const timer = timers.findLast((timer) => !timer.cleared);
+        assert.ok(timer, "the next schedule timer must remain armed during collection");
+        timer.cleared = true;
+        timer.callback();
+      };
+      try {
+        assert.equal(
+          (
+            await cell.run(
+              {
+                kind: "schedule-update",
+                scheduleId: "builtin-ledger-backup",
+                everyMs: 120000,
+                idempotencyKey: "backup-every-two-minutes",
+              },
+              binding,
+            )
+          ).outcome,
+          "applied",
+        );
+        await scheduler.start();
+        now = scheduledFor;
+        advance(now);
+        fire();
+        await waitForFile(started);
+        const active = (await show()).status.activeRun!;
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            scheduler.refresh(),
+            new Promise<never>((_, reject) => {
+              deadline = setTimeout(() => reject(new Error("scheduler refresh waited for held builtin")), 1000);
+            }),
+          ]);
+        } finally {
+          clearTimeout(deadline);
+        }
+        assert.equal(timers.filter((timer) => !timer.cleared).length, 1);
+        now = "2026-10-08T10:02:00.000Z";
+        advance(now);
+        fire();
+        await scheduler.refresh();
+        // Settling the live CI skip reconciles and arms the still-due backup at zero
+        // delay. Deliver that timer as the event loop would, without advancing time.
+        fire();
+        await scheduler.refresh();
+        const ci = await show();
+        assert.equal(ci.status.activeRun!.claimFence, active.claimFence);
+        assert.equal(ci.status.lastMissedReason, "single_flight");
+        assert.equal(ci.status.missedCount, 1);
+        const backup = (await cell.run(
+          { kind: "schedule-show", scheduleId: "builtin-ledger-backup" },
+          binding,
+        )) as unknown as { schedule: ScheduleV1 };
+        assert.equal(backup.schedule.status.automaticEvaluatedThrough, now);
+        assert.equal(backup.schedule.status.missedCount, 0);
+        assert.ok(backup.schedule.status.activeRun || backup.schedule.status.lastRun);
+      } finally {
+        scheduler.close();
+        release();
+        // Join the registered execution through the existing idempotent manual command.
+        const deadline = Date.now() + 15000;
+        while ((await show()).status.activeRun) {
+          assert.ok(Date.now() < deadline, "released builtin did not settle");
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      }
+    });
+  },
+);
+
+test("an idle hourly CI schedule handles an explicit local pull immediately", { skip: posix }, async () => {
+  await fixture(async ({ cell, release, started, show }) => {
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "schedule-update",
+            scheduleId: builtinCiObserveScheduleId,
+            everyMs: 3600000,
+            idempotencyKey: "hourly-cadence",
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal((await show()).status.activeRun, null);
+    const pull = cell.run({ kind: "ci-observe-pull", runs: [2] }, binding);
+    try {
+      await waitForFile(started);
+      assert.ok((await show()).status.activeRun);
+    } finally {
+      release();
+    }
+    assert.equal((await pull).outcome, "applied");
+    assert.equal((await show()).status.activeRun, null);
+    assert.equal((await show()).status.lastRun!.outcome, "succeeded");
+  });
+});

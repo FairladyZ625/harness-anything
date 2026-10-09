@@ -78,11 +78,6 @@ export async function reconcileCiOccurrence(input: {
     }
   };
   const retain = (target: Target) => {
-    if (!pending.has(key(target)) && pending.size === 100)
-      throw cell.cellCodedError(
-        "invalid_transition",
-        "CI diagnostic pending capacity reached; scan page retained until targets settle.",
-      );
     pending.set(key(target), target);
   };
   let failedTargets = 0;
@@ -214,12 +209,14 @@ export async function reconcileCiOccurrence(input: {
         // run with many reruns; it must not restart at attempt 1 after each rate-limit window.
         for (let attempt = firstAttempt; attempt <= run.run_attempt; attempt += 1) {
           progress = { ...progress, nextRunId: run.id, nextAttempt: attempt };
-          if (processed === 20) {
+          const target = { runId: run.id, attempt, workflow };
+          // Reserve diagnostic capacity before observing a new target: an incomplete
+          // observation must have room to retain this exact run/attempt.
+          if (processed === 20 || (pending.size === 100 && !pending.has(key(target)))) {
             complete = false;
             break;
           }
           processed += 1;
-          const target = { runId: run.id, attempt, workflow };
           if (run.status !== "completed" && attempt === run.run_attempt) retain(target);
           else if ((await observe(target))?.outcome === "pending") retain(target);
         }
