@@ -117,9 +117,10 @@ describe("execution evidence model", () => {
   });
 
   it("classifies receipt states: no-checker (null) stays distinct from missing projection fields", () => {
-    // receiptRef=null 是「没有检查器」(文档类产出的常态,daemon 投影一律如此);
-    // 字段缺失才是「数据没到」。两种状态共用警示文案是本次修正的对象,模型层
-    // 必须能区分它们。回执有值而 result 未知是领域允许的第三种(结论未给)。
+    // 投影契约两个回执字段恒显式写出(daemon 对 native 产出一律 null/"unknown",
+    // 协议校验 exactRecord 五字段):null+显式 unknown 才是「没有检查器」(文档类
+    // 产出的常态);任一字段缺失=数据没到=missing;回执有值而 result 未知是
+    // 领域允许的第三种(结论未给)。
     expect(outputReceiptState({ checkerReceiptRef: null, checkerResult: "unknown" })).toEqual({ kind: "no-checker" });
     expect(outputReceiptState({ checkerReceiptRef: undefined, checkerResult: undefined })).toEqual({ kind: "missing" });
     expect(outputReceiptState({ checkerReceiptRef: "receipt-a", checkerResult: "pass" })).toEqual({
@@ -134,6 +135,50 @@ describe("execution evidence model", () => {
       kind: "no-result",
       receiptRef: "receipt-c",
     });
+  });
+
+  it("classifies single-field-missing receipts as missing, not no-checker or no-result", () => {
+    // 评审返工(iteration 0):{checkerReceiptRef:null} 而无 checkerResult 不是
+    // 常态形状——daemon 写 null 时必写显式 "unknown"。单字段缺失一律 missing。
+    expect(outputReceiptState({ checkerReceiptRef: null })).toEqual({ kind: "missing" });
+    expect(outputReceiptState({ checkerReceiptRef: "receipt-d" })).toEqual({ kind: "missing" });
+    expect(outputReceiptState({ checkerResult: "pass" })).toEqual({ kind: "missing" });
+  });
+
+  it("adapts single-field-missing projections into missing receipt states", () => {
+    const source = row();
+    const malformed = {
+      ...source,
+      executionEvidence: [
+        {
+          executionId: "execution-1",
+          origin: "native",
+          outputs: [
+            {
+              evidenceId: "evidence_null_no_result",
+              locator: "artifacts/a.md",
+              substrate: "repository-path",
+              checkerReceiptRef: null,
+            },
+            {
+              evidenceId: "evidence_receipt_no_result",
+              locator: "artifacts/b.md",
+              substrate: "repository-path",
+              checkerReceiptRef: "receipt/b",
+            },
+            {
+              evidenceId: "evidence_result_no_receipt",
+              locator: "artifacts/c.md",
+              substrate: "repository-path",
+              checkerResult: "pass",
+            },
+          ],
+        },
+      ],
+    } as unknown as TaskSnapshotProjectionRow;
+
+    const states = adaptTaskExecutions(malformed)[0]!.outputs.map(outputReceiptState);
+    expect(states).toEqual([{ kind: "missing" }, { kind: "missing" }, { kind: "missing" }]);
   });
 
   it("adapts the fixture's pass and no-checker outputs into distinct receipt states", () => {

@@ -130,6 +130,28 @@ const MIXED_OUTPUTS = [
   { evidenceId: "evidence_missing", locator: "artifacts/unprojected.txt", substrate: "repository-path" },
 ];
 
+/** 回执字段单缺形态(评审返工):null 无 checkerResult、有回执无 checkerResult、有结论无回执。 */
+const SINGLE_FIELD_MISSING_OUTPUTS = [
+  {
+    evidenceId: "evidence_null_no_result",
+    locator: "artifacts/a.md",
+    substrate: "repository-path",
+    checkerReceiptRef: null,
+  },
+  {
+    evidenceId: "evidence_receipt_no_result",
+    locator: "artifacts/b.md",
+    substrate: "repository-path",
+    checkerReceiptRef: "receipt/b",
+  },
+  {
+    evidenceId: "evidence_result_no_receipt",
+    locator: "artifacts/c.md",
+    substrate: "repository-path",
+    checkerResult: "pass",
+  },
+];
+
 function outputStateSpans(container: HTMLElement, executionId: string): readonly HTMLElement[] {
   const article = container.querySelector(`[data-testid="task-execution-${executionId}"]`);
   expect(article).not.toBeNull();
@@ -231,6 +253,51 @@ describe("收口页 Execution 输出回执:三种状态互不混淆(zh-CN)", () 
       expect(span.className).toContain("text-text-faint");
       expect(span.className).not.toContain("text-stale");
     }
+  });
+
+  it("行级:回执字段单缺(评审返工)一律警示「未投影」,不算「无检查器回执」", async () => {
+    const container = await mountCloseout(
+      fixtureTask(
+        [
+          execution("execution-field-missing", {
+            submission: submission(
+              SINGLE_FIELD_MISSING_OUTPUTS.map(({ locator }) => locator),
+              SHA,
+            ),
+          }),
+        ],
+        [{ executionId: "execution-field-missing", origin: "native", outputs: SINGLE_FIELD_MISSING_OUTPUTS }],
+      ),
+    );
+    const spans = outputStateSpans(container, "execution-field-missing");
+    expect(spans.map((span) => span.textContent)).toEqual(["未投影", "未投影", "未投影"]);
+    for (const span of spans) {
+      expect(span.className).toContain("text-stale");
+      expect(span.className).not.toContain("text-text-faint");
+    }
+  });
+
+  it("计数行:全部 null 且缺 checkerResult 是数据缺失,不显示「均无检查器」", async () => {
+    const outputs = ["artifacts/broken-0.md", "artifacts/broken-1.md"].map((locator, index) => ({
+      evidenceId: `evidence_broken_${index}`,
+      locator,
+      substrate: "repository-path",
+      checkerReceiptRef: null,
+    }));
+    const container = await mountCloseout(
+      fixtureTask(
+        [
+          execution("execution-broken", {
+            submission: submission(
+              outputs.map(({ locator }) => locator),
+              null,
+            ),
+          }),
+        ],
+        [{ executionId: "execution-broken", origin: "native", outputs }],
+      ),
+    );
+    expect(headerMeta(container, "execution-broken").textContent).toBe("2 个产出 · 2 未投影");
   });
 
   it("未提交 execution:commit 显示「未提交」,不是「未投影」", async () => {
