@@ -1,4 +1,6 @@
 // harness-test-tier: fast
+import { commitEdgeManifest, withEdgeManifest } from "../src/fleet/replica-read-model.ts";
+import { fleetManifestDigest } from "../src/fleet/contract.ts";
 // W3-C adversarial hardening regressions (terra round): each test lands one
 // finding from tmp/orch/w3c-adversarial as a permanent failure path — the
 // fleet doc-submit channel cannot bypass the class-A holder entry (F1), a
@@ -465,7 +467,18 @@ function mirrorCutFixture(
       path: entry.path,
       blob: { sha256: sha(entry.body), size: Buffer.byteLength(entry.body), mediaType: "text/markdown" },
     }));
-    writeJson(path.join(viewDir, "cuts", `${cut.revision}-g0`, "manifest.json"), { entries });
+    const header = {
+      cut: { revision: cut.revision, headDigest: `sha256:${sha(`head-${cut.revision}`)}`, schemaGeneration: 0 },
+      schemaGeneration: 0,
+      manifestDigest: fleetManifestDigest(entries),
+    };
+    commitEdgeManifest(
+      viewDir,
+      header,
+      null,
+      entries.map((entry) => ({ op: "put", ...entry })),
+    );
+    writeJson(path.join(viewDir, "cuts", `${cut.revision}-g0`, "manifest.json"), header);
     for (const entry of cut.entries) {
       writeBytes(path.join(viewDir, "../../cas/sha256", sha(entry.body).slice(0, 2), sha(entry.body)), entry.body);
       writeBytes(path.join(viewDir, "cuts", `${cut.revision}-g0`, "files", ...entry.path.split("/")), entry.body);
@@ -483,13 +496,14 @@ test("mirror rejects unsafe manifest paths and corrupt CAS fallback bytes", (t) 
   const unsafe = mirrorCutFixture("unsafe-path", [{ revision: 1, entries: [] }], 1),
     unsafeView = path.join(unsafe.viewRoot, "repos", "repo", "views", "edge-view");
   t.after(() => rmSync(unsafe.root, { recursive: true, force: true }));
-  writeJson(path.join(unsafeView, "cuts", "1-g0", "manifest.json"), {
-    entries: [
-      {
-        path: "../outside.md",
-        blob: { sha256: sha("outside"), size: 7, mediaType: "text/markdown" },
-      },
-    ],
+  withEdgeManifest(unsafeView, (db, viewId) => {
+    const blob = { sha256: sha("outside"), size: 7, mediaType: "text/markdown" };
+    db.prepare("INSERT INTO edge_entry VALUES (?,?,1,0,NULL,?,?)").run(
+      viewId,
+      "../outside.md",
+      JSON.stringify(blob),
+      blob.sha256,
+    );
   });
   assert.throws(
     () => applyFleetMirrorCut(unsafe.viewRoot, "repo", unsafe.workspace, "pull"),
@@ -602,10 +616,9 @@ test("F4: an unresolved conflict persists — the same divergence re-detects und
   const worktree = fixture.worktree;
   mkdirSync(path.dirname(path.join(worktree, ...logical.split("/"))), { recursive: true });
   writeFileSync(path.join(worktree, ...logical.split("/")), localBody);
-  writeJson(path.join(fixture.root, "view", "repos", "repo", "views", "edge-view", ".materialized-cut.json"), {
-    revision: 1,
-    manifestDigest: "old",
-    blobs: { [logical]: sha(baseBody) },
+  withEdgeManifest(path.join(fixture.viewRoot, "repos/repo/views/edge-view"), (db, viewId) => {
+    db.prepare("INSERT INTO materialized_cut VALUES (?,1,0,'old')").run(viewId);
+    db.prepare("INSERT INTO materialized_base VALUES (?,?,?,0)").run(viewId, logical, sha(baseBody));
   });
   const first = applyFleetMirrorCut(fixture.viewRoot, "repo", fixture.workspace, "pull", {
     kind: "shared-docs",
@@ -648,10 +661,9 @@ test("F7: a center deletion under a local modification stages a three-way confli
   const worktree = fixture.worktree;
   mkdirSync(path.dirname(path.join(worktree, ...logical.split("/"))), { recursive: true });
   writeFileSync(path.join(worktree, ...logical.split("/")), localBody);
-  writeJson(path.join(fixture.root, "view", "repos", "repo", "views", "edge-view", ".materialized-cut.json"), {
-    revision: 1,
-    manifestDigest: "old",
-    blobs: { [logical]: sha(oldBody) },
+  withEdgeManifest(path.join(fixture.viewRoot, "repos/repo/views/edge-view"), (db, viewId) => {
+    db.prepare("INSERT INTO materialized_cut VALUES (?,1,0,'old')").run(viewId);
+    db.prepare("INSERT INTO materialized_base VALUES (?,?,?,0)").run(viewId, logical, sha(oldBody));
   });
   const result = applyFleetMirrorCut(fixture.viewRoot, "repo", fixture.workspace, "pull", { kind: "shared-docs" });
   assert.equal(result.outcome, "pull_blocked", "center-delete × local-edit must block, not masquerade as applied");

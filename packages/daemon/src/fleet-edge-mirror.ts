@@ -1,4 +1,9 @@
-import { readEdgeManifestEntries } from "./fleet/edge-manifest.ts";
+import {
+  edgeManifestEntries,
+  edgeManifestPaths,
+  edgeChangedPaths,
+  withEdgeManifest,
+} from "./fleet/replica-read-model.ts";
 import { closeSync, fsyncSync, openSync, unlinkSync } from "node:fs";
 // Edge-side local mirror controller (design-v2 §3/§4): the replica view store
 // under viewRoot is the transport truth; this module projects it into the
@@ -96,7 +101,6 @@ export interface FleetMirrorApplyResult {
   readonly dirtyPaths: readonly string[];
   readonly conflicts: readonly FleetStagedConflict[];
 }
-const materializationMarker = ".materialized-cut.json";
 const materializationBaseCache = ".materialized-base-cache";
 const conflictPrefix = "cflt-";
 
@@ -231,7 +235,7 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
         authorizationShapeDigest: string;
       }>(path.join(viewDir, "current.json"));
     if (current === null) continue;
-    const manifest = fleetMirrorCutEntries(viewDir, current.cut.revision, current.schemaGeneration);
+    const manifest = edgeManifestEntries(viewDir, { ...current.cut, schemaGeneration: current.schemaGeneration });
     if (manifest === null) continue;
     const view: FleetMirrorView = {
       repoId,
@@ -255,6 +259,17 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
   return best;
 }
 
+export function fleetMirrorTaskPaths(view: FleetMirrorView, taskId: string): string[] {
+  return edgeManifestPaths(
+    view.viewDir,
+    { revision: view.revision, schemaGeneration: view.schemaGeneration, headDigest: view.headDigest },
+    `tasks/${taskId}`,
+  ).filter((logical) => {
+    const folder = logical.split("/")[1];
+    return folder === taskId || folder?.startsWith(`${taskId}-`);
+  });
+}
+
 // Dirty detection against the mirrored cut: a file counts as changed only when
 // its bytes diverge from the cut the mirror currently holds. Machine-owned
 // task routes (INDEX.md, progress.md, executions/, ...) are never candidates —
@@ -275,6 +290,13 @@ export function cacheFleetMirrorDirtyBases(
   const materializedRoot = fleetMirrorMaterializedRoot(workspaceRoot);
   if (view === null || !existsSync(materializedRoot)) return null;
   const scan = scanFleetMirrorWorktree(view, workspaceRoot);
+  withEdgeManifest(view.viewDir, (db, viewId) => {
+    for (const logical of [...scan.changes.map((change) => change.path), ...scan.deletedPaths])
+      db.prepare(
+        `INSERT INTO materialized_base VALUES (?,?,?,1)
+        ON CONFLICT(view_id,path) DO UPDATE SET dirty=1`,
+      ).run(viewId, logical, view.entries.get(logical)?.sha256 ?? null);
+  });
   if (scan.changes.length > 0)
     fleetMirrorRefreshBaseCache(
       view,
@@ -294,7 +316,9 @@ export function scanFleetMirrorWorktree(
     blocked: FleetMirrorScan["blocked"][number][] = [];
   const cleanPaths: string[] = [],
     deletedPaths: string[] = [];
-  for (const logical of fleetMirrorMaterializedPaths(materializedRoot)) {
+  for (const logical of selection?.filter((logical) =>
+    existsSync(path.join(materializedRoot, ...logical.split("/"))),
+  ) ?? fleetMirrorMaterializedPaths(materializedRoot)) {
     if (wanted !== null && !wanted.has(logical)) continue;
     if (!fleetMirrorProsePath(logical)) {
       // Doc sync carries prose, and most non-prose paths in the harness tree are generated
@@ -362,7 +386,8 @@ export function scanFleetMirrorWorktree(
       mediaType: logical.endsWith(".md") ? "text/markdown" : "text/plain",
     });
   }
-  for (const logical of view.entries.keys()) {
+  for (const logical of selection ?? view.entries.keys()) {
+    if (!view.entries.has(logical)) continue;
     if (!fleetMirrorProsePath(logical) || (wanted !== null && !wanted.has(logical))) continue;
     if (!existsSync(path.join(materializedRoot, ...logical.split("/")))) {
       deletedPaths.push(logical);
@@ -402,130 +427,182 @@ export function applyFleetMirrorCut(
   const view = locateFleetMirrorView(viewRoot, repoId, context.viewId);
   if (view === null) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
   const materializedRoot = fleetMirrorMaterializedRoot(workspaceRoot);
-  const marker = fleetMirrorReadJson<{
-    revision: number;
-    schemaGeneration: number;
-    manifestDigest: string;
-    blobs: Record<string, string>;
-  }>(path.join(view.viewDir, materializationMarker));
-  const baseOf = marker?.blobs ?? {};
-  // Only ledger documents land in the workspace; the derived read model stays in the view, and any
-  // read-model file an earlier materialization wrote leaves as a center deletion.
-  const documents = new Map([...view.entries].filter(([logical]) => !isReadModelPath(logical)));
-  mkdirSync(materializedRoot, { recursive: true });
-  const rows: FleetConflictPathRow[] = [],
-    stage: {
-      readonly path: string;
-      readonly base: Uint8Array | null;
-      readonly local: Uint8Array | null;
-      readonly center: Uint8Array | null;
-    }[] = [],
-    dirtyPaths: string[] = [],
-    nextBlobs: Record<string, string> = {};
-  const localBytesOf = (logical: string): Buffer | null => {
-    const file = path.join(materializedRoot, ...logical.split("/"));
-    return existsSync(file) ? readFileSync(file) : null;
-  };
-  for (const [logical, blob] of documents) {
-    fleetMirrorAssertLogical(logical);
-    const oldSha = baseOf[logical] ?? null;
-    if (oldSha === blob.sha256) {
-      nextBlobs[logical] = oldSha;
-      continue;
-    }
-    const localBytes = localBytesOf(logical),
-      localSha = localBytes === null ? null : sha256Bytes(localBytes);
-    if (localSha === blob.sha256) {
-      nextBlobs[logical] = blob.sha256;
-      continue;
-    } // converged: new common base
-    const localDirty = localSha !== null && localSha !== oldSha,
-      localDeleted = localSha === null && oldSha !== null,
-      centerChanged = blob.sha256 !== oldSha;
-    if (localDirty || localDeleted) {
-      dirtyPaths.push(logical);
-      if (oldSha !== null) nextBlobs[logical] = oldSha; // keep the last common base
-      if (centerChanged) {
-        rows.push({ path: logical, baseBlobSha256: oldSha, localBlobSha256: localSha, centerBlobSha256: blob.sha256 });
-        stage.push({
-          path: logical,
-          base: fleetMirrorBaseBytes(view, oldSha, logical),
-          local: localBytes,
-          center: fleetMirrorCutFile(view, logical),
-        });
+  return withEdgeManifest(view.viewDir, (db, viewId) => {
+    const marker = db
+      .prepare("SELECT revision,generation,manifest_digest FROM materialized_cut WHERE view_id=?")
+      .get(viewId);
+    const getBase = db.prepare("SELECT sha256 FROM materialized_base WHERE view_id=? AND path=?");
+    const baseOf = (logical: string): string | null => {
+      const row = getBase.get(viewId, logical);
+      return row?.sha256 == null ? null : String(row.sha256);
+    };
+    const cut = { revision: view.revision, schemaGeneration: view.schemaGeneration, headDigest: view.headDigest };
+    const changed = marker
+      ? edgeChangedPaths(
+          view.viewDir,
+          { revision: Number(marker.revision), schemaGeneration: Number(marker.generation) },
+          cut,
+        )
+      : null;
+    const pending = db
+      .prepare("SELECT path FROM materialized_base WHERE view_id=? AND dirty=1")
+      .all(viewId)
+      .map((row) => String(row.path));
+    const full = changed === null ? new Map(view.entries) : null;
+    const pendingSet = new Set(pending);
+    const paths = new Set(
+      changed ?? [
+        ...full!.keys(),
+        ...db
+          .prepare("SELECT path FROM materialized_base WHERE view_id=?")
+          .all(viewId)
+          .map((row) => String(row.path)),
+      ],
+    );
+    for (const logical of pending) paths.add(logical);
+    const documents = new Map(
+      [...paths]
+        .filter((logical) => !isReadModelPath(logical))
+        .flatMap((logical) => {
+          const blob = (full ?? view.entries).get(logical);
+          return blob ? [[logical, blob] as const] : [];
+        }),
+    );
+    mkdirSync(materializedRoot, { recursive: true });
+    const rows: FleetConflictPathRow[] = [],
+      stage: {
+        readonly path: string;
+        readonly base: Uint8Array | null;
+        readonly local: Uint8Array | null;
+        readonly center: Uint8Array | null;
+      }[] = [],
+      dirtyPaths: string[] = [],
+      nextBlobs: Record<string, string> = {};
+    const localBytesOf = (logical: string): Buffer | null => {
+      const file = path.join(materializedRoot, ...logical.split("/"));
+      return existsSync(file) ? readFileSync(file) : null;
+    };
+    for (const [logical, blob] of documents) {
+      fleetMirrorAssertLogical(logical);
+      const oldSha = baseOf(logical);
+      if (oldSha === blob.sha256 && !pendingSet.has(logical)) {
+        nextBlobs[logical] = oldSha;
+        continue;
       }
-      continue;
+      const localBytes = localBytesOf(logical),
+        localSha = localBytes === null ? null : sha256Bytes(localBytes);
+      if (localSha === blob.sha256) {
+        nextBlobs[logical] = blob.sha256;
+        continue;
+      } // converged: new common base
+      const localDirty = localSha !== null && localSha !== oldSha,
+        localDeleted = localSha === null && oldSha !== null,
+        centerChanged = blob.sha256 !== oldSha;
+      if (localDirty || localDeleted) {
+        dirtyPaths.push(logical);
+        if (oldSha !== null) nextBlobs[logical] = oldSha; // keep the last common base
+        if (centerChanged) {
+          rows.push({
+            path: logical,
+            baseBlobSha256: oldSha,
+            localBlobSha256: localSha,
+            centerBlobSha256: blob.sha256,
+          });
+          stage.push({
+            path: logical,
+            base: fleetMirrorBaseBytes(view, oldSha, logical),
+            local: localBytes,
+            center: fleetMirrorCutFile(view, logical),
+          });
+        }
+        continue;
+      }
+      const centerBytes = fleetMirrorCutFile(view, logical),
+        target = path.join(materializedRoot, ...logical.split("/"));
+      if (centerBytes !== null) writeFileDurably(target, centerBytes);
+      nextBlobs[logical] = blob.sha256;
     }
-    const centerBytes = fleetMirrorCutFile(view, logical),
-      target = path.join(materializedRoot, ...logical.split("/"));
-    if (centerBytes !== null) writeFileDurably(target, centerBytes);
-    nextBlobs[logical] = blob.sha256;
-  }
-  // Center deletions: a locally untouched path follows the deletion; a locally
-  // modified path is a three-way divergence (center side absent by design).
-  for (const logical of Object.keys(baseOf)) {
-    fleetMirrorAssertLogical(logical);
-    if (documents.has(logical)) continue;
-    const localBytes = localBytesOf(logical),
-      localSha = localBytes === null ? null : sha256Bytes(localBytes),
-      oldSha = baseOf[logical]!;
-    if (localSha === null || localSha === oldSha) {
-      rmSync(path.join(materializedRoot, ...logical.split("/")), { force: true });
-      continue;
-    }
-    dirtyPaths.push(logical);
-    nextBlobs[logical] = oldSha;
-    rows.push({ path: logical, baseBlobSha256: oldSha, localBlobSha256: localSha, centerBlobSha256: null });
-    stage.push({
-      path: logical,
-      base: fleetMirrorBaseBytes(view, oldSha, logical),
-      local: localBytes,
-      center: null,
-    });
-  }
-  for (const logical of fleetMirrorMaterializedPaths(materializedRoot)) {
-    if (!view.entries.has(logical) && baseOf[logical] === undefined && fleetMirrorProsePath(logical))
+    // Center deletions: a locally untouched path follows the deletion; a locally
+    // modified path is a three-way divergence (center side absent by design).
+    for (const logical of paths) {
+      if (isReadModelPath(logical)) continue;
+      fleetMirrorAssertLogical(logical);
+      if (documents.has(logical) || baseOf(logical) === null) continue;
+      const localBytes = localBytesOf(logical),
+        localSha = localBytes === null ? null : sha256Bytes(localBytes),
+        oldSha = baseOf(logical)!;
+      if (localSha === null || localSha === oldSha) {
+        rmSync(path.join(materializedRoot, ...logical.split("/")), { force: true });
+        continue;
+      }
       dirtyPaths.push(logical);
-  }
-  // Cache base bytes for every dirty/diverged path while they are still
-  // obtainable: the replica view retains only two cuts, so a later pull that
-  // jumps several revisions can collect the base cut before the divergence is
-  // detected (F3).
-  fleetMirrorRefreshBaseCache(view, dirtyPaths);
-  const conflicts = fleetStageOrReuseDivergence(
-    workspaceRoot,
-    repoId,
-    view,
-    marker?.revision ?? null,
-    trigger,
-    context,
-    rows,
-    stage,
-  );
-  // An unchanged marker (same revision, digest, and per-path base map) skips
-  // the durable rewrite — the same equality guard the base cache uses below.
-  const markerUnchanged =
-    marker !== null &&
-    marker.revision === view.revision &&
-    marker.schemaGeneration === view.schemaGeneration &&
-    marker.manifestDigest === view.manifestDigest &&
-    Object.keys(marker.blobs).length === Object.keys(nextBlobs).length &&
-    Object.entries(nextBlobs).every(([logical, sha]) => marker.blobs[logical] === sha);
-  if (!markerUnchanged)
-    fleetMirrorWriteJson(path.join(view.viewDir, materializationMarker), {
-      revision: view.revision,
-      schemaGeneration: view.schemaGeneration,
-      manifestDigest: view.manifestDigest,
-      blobs: nextBlobs,
-    });
-  rmSync(path.join(view.viewDir, "worktree"), { recursive: true, force: true });
-  return {
-    outcome: conflicts.length > 0 ? "pull_blocked" : "applied",
-    fromRevision: marker?.revision ?? null,
-    toRevision: view.revision,
-    dirtyPaths: [...new Set(dirtyPaths)].sort(),
-    conflicts,
-  };
+      nextBlobs[logical] = oldSha;
+      rows.push({ path: logical, baseBlobSha256: oldSha, localBlobSha256: localSha, centerBlobSha256: null });
+      stage.push({
+        path: logical,
+        base: fleetMirrorBaseBytes(view, oldSha, logical),
+        local: localBytes,
+        center: null,
+      });
+    }
+    for (const logical of marker ? pending : fleetMirrorMaterializedPaths(materializedRoot)) {
+      if (
+        !view.entries.has(logical) &&
+        baseOf(logical) === null &&
+        fleetMirrorProsePath(logical) &&
+        existsSync(path.join(materializedRoot, ...logical.split("/")))
+      )
+        dirtyPaths.push(logical);
+    }
+    // Cache base bytes for every dirty/diverged path while they are still
+    // obtainable: the replica view retains only two cuts, so a later pull that
+    // jumps several revisions can collect the base cut before the divergence is
+    // detected (F3).
+    fleetMirrorRefreshBaseCache(view, dirtyPaths);
+    const conflicts = fleetStageOrReuseDivergence(
+      workspaceRoot,
+      repoId,
+      view,
+      marker ? Number(marker.revision) : null,
+      trigger,
+      context,
+      rows,
+      stage,
+    );
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const dirty = new Set(dirtyPaths);
+      for (const logical of new Set([...paths, ...dirty])) {
+        if (nextBlobs[logical] === undefined && !dirty.has(logical))
+          db.prepare("DELETE FROM materialized_base WHERE view_id=? AND path=?").run(viewId, logical);
+        else
+          db.prepare("INSERT OR REPLACE INTO materialized_base VALUES (?,?,?,?)").run(
+            viewId,
+            logical,
+            nextBlobs[logical] ?? null,
+            dirty.has(logical) ? 1 : 0,
+          );
+      }
+      db.prepare("INSERT OR REPLACE INTO materialized_cut VALUES (?,?,?,?)").run(
+        viewId,
+        view.revision,
+        view.schemaGeneration,
+        view.manifestDigest,
+      );
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    rmSync(path.join(view.viewDir, "worktree"), { recursive: true, force: true });
+    return {
+      outcome: conflicts.length > 0 ? "pull_blocked" : "applied",
+      fromRevision: marker ? Number(marker.revision) : null,
+      toRevision: view.revision,
+      dirtyPaths: [...new Set(dirtyPaths)].sort(),
+      conflicts,
+    };
+  });
 }
 
 export function stageFleetConflict(
@@ -707,9 +784,13 @@ function fleetMirrorBaseBytes(view: FleetMirrorView, blobSha256: string | null, 
 function fleetMirrorRefreshBaseCache(view: FleetMirrorView, dirtyPaths: readonly string[]): void {
   const cacheRoot = path.join(view.viewDir, materializationBaseCache);
   const keep = new Set(dirtyPaths);
-  const marker = fleetMirrorReadJson<{ blobs: Record<string, string> }>(path.join(view.viewDir, materializationMarker));
   for (const logical of keep) {
-    const bytes = fleetMirrorBaseBytes(view, marker?.blobs[logical] ?? null, logical);
+    const base = withEdgeManifest(
+      view.viewDir,
+      (db, viewId) =>
+        db.prepare("SELECT sha256 FROM materialized_base WHERE view_id=? AND path=?").get(viewId, logical)?.sha256,
+    );
+    const bytes = fleetMirrorBaseBytes(view, base == null ? null : String(base), logical);
     if (bytes === null) continue;
     const target = path.join(cacheRoot, ...logical.split("/"));
     if (!existsSync(target) || !readFileSync(target).equals(bytes)) {
@@ -728,22 +809,9 @@ function fleetMirrorConflictRoot(workspaceRoot: string): string {
 function fleetMirrorMaterializedRoot(workspaceRoot: string): string {
   return resolveHarnessLayout(workspaceRoot).authoredRoot;
 }
-function fleetMirrorCutEntries(
-  viewDir: string,
-  revision: number,
-  schemaGeneration: number,
-): ReadonlyMap<string, FleetMirrorBlob> | null {
-  const file = path.join(viewDir, "cuts", `${revision}-g${schemaGeneration}`, "manifest.json");
-  if (!existsSync(file)) return null;
-  const entries = new Map<string, FleetMirrorBlob>();
-  for (const entry of readEdgeManifestEntries(file)) entries.set(entry.path, entry.blob);
-  return entries;
-}
 /** One path's bytes as the center cut them: what the center said, whatever the registered harness holds now. */
 export function fleetMirrorCutFile(view: FleetMirrorView, logical: string): Buffer | null {
-  const { viewDir, revision, schemaGeneration } = view;
-  const file = path.join(viewDir, "cuts", `${revision}-g${schemaGeneration}`, "files", ...logical.split("/"));
-  if (existsSync(file) && statSync(file).isFile()) return readFileSync(file);
+  const { viewDir } = view;
   const blob = view.entries.get(logical);
   if (blob === undefined) return null;
   const repoRoot = path.dirname(path.dirname(viewDir)),

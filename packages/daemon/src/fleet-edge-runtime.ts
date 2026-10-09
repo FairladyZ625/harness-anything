@@ -1,3 +1,4 @@
+import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import { operationId } from "./repo-cell-proof.ts";
@@ -248,7 +249,7 @@ export function openFleetEdgeRuntime(input: {
         const candidates =
           view === null
             ? []
-            : [...view.entries.keys()]
+            : fleetMirrorTaskPaths(view, taskId)
                 .filter((logical) => logical.startsWith("tasks/") && logical.endsWith("/INDEX.md"))
                 .flatMap(packagePathsFor);
         if (view === null || candidates.length !== 1)

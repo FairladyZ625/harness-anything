@@ -276,7 +276,6 @@ export {
   applyEdgeReadModelEntry,
   createEdgeReadModelTables,
   deleteEdgeReadModelEntry,
-  edgeReadModelEntries,
   edgeReadAuthorizationShapeDigest,
   isReadModelPath,
   parseEdgeReadModelMeta,
@@ -297,8 +296,6 @@ export {
   validateVerticalDeclarationRead,
 } from "./schemas/vertical-definition.ts";
 export {
-  canonicalDocumentClaims,
-  canonicalDocumentRetirements,
   canonicalEventCut,
   canonicalEventWritePlan,
   createLedgerBackup,
@@ -342,7 +339,6 @@ export type {
   MaterializationHealth,
   MaterializationState,
   ProjectionPage,
-  ReplicaProjectionBasis,
   TaskIndexProjectionRow,
   TaskProjection,
   TaskProjectionQueries,
@@ -407,6 +403,4 @@ export {
   updateReplicaManifestDigest,
   type ReplicaSequenceRead,
   type ReplicaRevision,
-  type ReplicaEntry,
-  type ReplicaChange,
 } from "./projection/replica-sequence.ts";

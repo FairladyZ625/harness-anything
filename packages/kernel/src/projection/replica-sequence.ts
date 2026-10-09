@@ -1,5 +1,6 @@
 import { canonicalDocumentClaims, canonicalDocumentRetirements } from "../composition/index.ts";
 import { DEFAULT_TASK_ROOT_THRESHOLD } from "../domain/task-wip-policy.ts";
+import { repositorySettings, type RepositorySettingsV1 } from "../domain/settings.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { prepareQuery, runSql } from "./rebuildable-task-projection-sql.ts";
 import { edgeReadModelEntries, readEdgeReadModelRows, READ_MODEL_META_PATH } from "./read-model.ts";
@@ -174,7 +175,7 @@ export function recordReplicaRevision(
   const meta = prepareQuery(db, "SELECT blob_json, text FROM replica_entry WHERE path=?").get(READ_MODEL_META_PATH);
   const settings = rows.entities.find((row) => row.entityKind === "settings" && row.entityId === "repository");
   const rootThreshold = settings
-    ? (JSON.parse(settings.valueJson) as { tasks: { rootThreshold: number } }).tasks.rootThreshold
+    ? repositorySettings(JSON.parse(settings.valueJson) as RepositorySettingsV1).tasks.rootThreshold
     : meta
       ? (JSON.parse(String(meta.text)) as { rootThreshold: number }).rootThreshold
       : DEFAULT_TASK_ROOT_THRESHOLD;

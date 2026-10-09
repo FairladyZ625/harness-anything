@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { type ReplicaProjectionBasis } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -21,7 +22,6 @@ import {
   sha256Text,
   type DocEventV1,
   type CanonicalEventV1,
-  type ReplicaProjectionBasis,
   type EdgeReadModelRows,
   artifactEntityContractSnapshot,
   canonicalSourceIdentity,
@@ -542,16 +542,14 @@ test("retention keeps exactly 64 cuts and 63 adjacent changelogs per repo", asyn
     const currentOrphan = sha256Bytes(Buffer.from("historical derived bytes"));
     derived = new DatabaseSync(path.join(currentRoot, "checkpoints.sqlite"));
     derived.prepare("INSERT INTO content VALUES (?, ?)").run(currentOrphan, Buffer.from("historical derived bytes"));
-    derived
-      .prepare("INSERT INTO entry VALUES (0,?, ?,1,?)")
-      .run(
-        ".read-model/retired",
-        JSON.stringify({
-          path: ".read-model/retired",
-          blob: { sha256: currentOrphan, size: 24, mediaType: "application/json" },
-        }),
-        currentOrphan,
-      );
+    derived.prepare("INSERT INTO entry VALUES (0,?, ?,1,?)").run(
+      ".read-model/retired",
+      JSON.stringify({
+        path: ".read-model/retired",
+        blob: { sha256: currentOrphan, size: 24, mediaType: "application/json" },
+      }),
+      currentOrphan,
+    );
     let previous = initial;
     for (let revision = 2; revision <= 66; revision += 1) {
       const body = Buffer.from(`revision-${revision}`),

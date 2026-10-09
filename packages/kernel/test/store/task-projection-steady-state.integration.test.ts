@@ -1,5 +1,6 @@
 // harness-test-tier: integration
-import { canonicalEventWritePlan, edgeReadModelEntries, type AgentRuntimeEventV1 } from "../../src/index.ts";
+import { edgeReadModelEntries } from "../../src/projection/read-model.ts";
+import { canonicalEventWritePlan, type AgentRuntimeEventV1 } from "../../src/index.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";

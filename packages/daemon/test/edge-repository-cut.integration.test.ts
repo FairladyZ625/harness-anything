@@ -1,8 +1,11 @@
 // harness-test-tier: integration
+import { edgeReadModelEntries } from "../../kernel/test/store/replica-model.fixture.ts";
 import {
+  parseCanonicalEvent,
+  serializePersistedCanonicalEvent,
   sha256Bytes,
+  type PersistedCanonicalEventV1,
   sha256Text,
-  edgeReadModelEntries,
   publicRuntimeInstallation,
   publicRuntimeSession,
 } from "@harness-anything/kernel";
@@ -18,7 +21,7 @@ import { repositoryCutFixture, seedRepositoryFamilies } from "./edge-repository-
 test("repository families survive real snapshot and delta update/delete with center query parity", async (t) => {
   const f = repositoryCutFixture(t);
   seedRepositoryFamilies(f.db);
-  // Golden produced by the eager implementation at 736c7bbe: streaming cannot change cut identity.
+  // Schema generation 8 binds the canonical serializer and sparse manifest identity.
   f.center.readEdgeReadModel(({ rows }) => {
     const entries = [...edgeReadModelEntries({ sourceRevision: 100, rootThreshold: 10, rows })];
     assert.equal(entries.length, 20);
@@ -29,7 +32,7 @@ test("repository families survive real snapshot and delta update/delete with cen
           blob: { sha256: sha256Text(text), size: Buffer.byteLength(text), mediaType: "application/json" },
         })),
       ),
-      "dc134b8862c7b4fb8bc61959095a0183be53249a48b31782b1399e9cd949cde7",
+      "5338c4a717353217e5717f248ab0b28f23e4413545393d7fcaaedabac5654f2e",
     );
   });
   await f.transfer("snapshot");
@@ -191,25 +194,31 @@ test("runtime result CAS shares the snapshot and delta cut, rejects missing bloc
       result: { sha256: digest, size: body.byteLength, mediaType: "text/plain; charset=utf-8" },
     },
   });
+  assert.equal(
+    parseCanonicalEvent(serializePersistedCanonicalEvent(event(sha, first) as PersistedCanonicalEventV1)).schema,
+    "agent-runtime-event/v1",
+  );
+  assert.throws(
+    () =>
+      serializePersistedCanonicalEvent({
+        ...event(sha, first),
+        payload: { ...event(sha, first).payload, resultRef: ref(sha2) },
+      } as PersistedCanonicalEventV1),
+    /runtime outcome observation is invalid/u,
+    "the canonical event boundary rejects a session result ref that disagrees with its claim",
+  );
   f.db.prepare("INSERT INTO event_index VALUES ('result-event', 50, NULL, ?)").run(JSON.stringify(event(sha, first)));
-  assert.throws(() => f.source.activate(), /Runtime result.*unavailable/u, "an incomplete center cut is never offered");
-  assert.equal(f.source.latest(), null);
+  // Byte integrity is enforced when the immutable claim is consumed for delivery.
+  // The canonical writer already binds a session's result reference to its claim.
+  await assert.rejects(f.transfer("snapshot"), /canonical content blob.*unavailable or corrupt/u);
+  assert.equal(f.current(), null);
   f.contents.set(sha, first);
   f.db
     .prepare(
-      "UPDATE runtime_session SET value_json = json_set(value_json, '$.resultRef', ?) WHERE runtime_session_id = 'runtime-1'",
-    )
-    .run(ref(sha2));
-  assert.throws(
-    () => f.source.activate(),
-    /has no content claim/u,
-    "a session reference cannot advertise a cut without its result claim",
-  );
-  f.db
-    .prepare(
-      "UPDATE runtime_session SET value_json = json_set(value_json, '$.resultRef', ?) WHERE runtime_session_id = 'runtime-1'",
+      "UPDATE runtime_session SET value_json=json_set(value_json, '$.resultRef', ?) WHERE runtime_session_id='runtime-1'",
     )
     .run(ref(sha));
+  await f.next();
   await f.transfer("snapshot");
   assert.equal(readEdgeRuntimeResult(f.viewRoot, "families", "edge", ref(sha)), first.toString());
   const frozen = f.source.latest()!;
@@ -249,8 +258,11 @@ test("runtime result CAS shares the snapshot and delta cut, rejects missing bloc
   await f.next();
   await f.transfer("delta");
   assert.throws(() => readEdgeRuntimeResult(f.viewRoot, "families", "edge", ref(sha2)), /not present/u);
-  assert.equal(existsSync(oldCas), false, "edge GC can delete bytes after the last referencing cut is retired");
-  for (let i = 0; i < 61; i++) await f.next();
+  assert.equal(existsSync(oldCas), true, "the local retention window still owns historical result bytes");
+  for (let i = 0; i < 60; i++) {
+    await f.next();
+    await f.transfer("delta");
+  }
   assert.equal(f.source.cut(100), null);
   assert.ok(f.source.cut(101), "the oldest retained cut still references the initial result");
   assert.deepEqual(
@@ -378,7 +390,7 @@ test("legacy schedule result details preserve malformed and missing refs as unav
   }
 });
 
-test("legacy detail never hides a current outcome's missing or corrupt claim", (t) => {
+test("legacy detail never hides a current outcome's missing or corrupt claim", async (t) => {
   for (const bytes of [null, Buffer.from("corrupt")]) {
     const f = repositoryCutFixture(t);
     seedRepositoryFamilies(f.db);
@@ -402,8 +414,8 @@ test("legacy detail never hides a current outcome's missing or corrupt claim", (
       }),
     );
     if (bytes) f.contents.set(digest, bytes);
-    assert.throws(() => f.source.activate(), /Runtime result.*unavailable/u);
-    assert.equal(f.source.latest(), null);
+    await assert.rejects(f.transfer("snapshot"), /canonical content blob.*unavailable or corrupt/u);
+    assert.equal(f.current(), null);
   }
 });
 

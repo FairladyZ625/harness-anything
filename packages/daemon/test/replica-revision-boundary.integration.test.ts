@@ -1,9 +1,9 @@
 // harness-test-tier: integration
+import { edgeReadModelEntries } from "../../kernel/test/store/replica-model.fixture.ts";
 import {
   makeTaskProjection,
   makeTaskEventStore,
   taskLifecycleWritePlan,
-  edgeReadModelEntries,
   sha256Text,
   stableStringify,
 } from "@harness-anything/kernel";

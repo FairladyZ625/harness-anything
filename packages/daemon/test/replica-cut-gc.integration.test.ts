@@ -131,10 +131,10 @@ for (const corruptRetained of [false, true]) {
         await source.waitForCut(65);
         const target = source.cut(2)!;
         const key = { nodeId: "edge", viewId: "edge", repoId: "gc" };
-        const offer = { ...key, ...(await makeOffer(key, null, target, source, new Date().toISOString())) };
         await assert.rejects(async () => {
+          const offer = { ...key, ...(await makeOffer(key, null, target, source, new Date().toISOString())) };
           for await (const frame of offerFrames(offer, source, { owner: "owner", digest: "a".repeat(64) })) void frame;
-        }, /manifest/u);
+        }, /manifest|canonical revision/u);
       } else {
         for (head = 65; head <= 96; head++) await source.waitForCut(head);
         assert.equal(source.cut(32), null);

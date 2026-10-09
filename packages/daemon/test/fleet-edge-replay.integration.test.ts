@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, mkdtempSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,11 +11,10 @@ import {
   sha256Bytes,
 } from "@harness-anything/kernel";
 import {
-  orderedEdgeManifestDigest,
+  commitEdgeManifest,
   readEdgeManifestEntries,
   readEdgeManifestHeader,
-  serializeEdgeManifest,
-} from "../src/fleet/edge-manifest.ts";
+} from "../src/fleet/replica-read-model.ts";
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 import { fleetManifestDigest, type FleetCut, type FleetEntry, type FleetFrameV1 } from "../src/fleet/contract.ts";
 
@@ -140,7 +139,7 @@ test("edge staging replays snapshot/delta pages and chunks and switches only com
     view = openFleetEdgeView(root, replicaQuota);
     for (const frame of deltaTwo) view.receive(frame);
     assert.equal(view.current("repo", "view")?.cut.revision, 2);
-    assert.equal(readFileSync(path.join(root, "repos/repo/views/view/cuts/2-g0/files", pathA), "utf8"), "one-a-two");
+    assert.equal(fleetMirrorCutFile(locateFleetMirrorView(root, "repo", "view")!, pathA)!.toString(), "one-a-two");
     assert.equal(existsSync(otherCas), true);
     const threeA = Buffer.from("one-a-two-three"),
       entriesThree = [wireEntry(pathA, threeA)],
@@ -366,14 +365,11 @@ test("retained revision 415 replay remains stale until the center confirms its h
     for (const nodeId of ["edge-one", "edge-two"]) {
       deliver(nodeId, `seed-${nodeId}`);
       const viewDir = path.join(root, "repos/repo/views", nodeId);
-      // Match the deployed pre-B4 format: generation already exists at the
-      // manifest top level and in the directory, but not inside its wire cut.
-      for (const file of ["current.json", `cuts/415-g${READ_MODEL_SCHEMA_GENERATION}/manifest.json`]) {
-        const target = path.join(viewDir, file),
-          persisted = JSON.parse(readFileSync(target, "utf8"));
-        delete persisted.cut.schemaGeneration;
-        writeFileSync(target, JSON.stringify(persisted));
-      }
+      // Force retained-cut recovery instead of the already-published replay shortcut.
+      const currentFile = path.join(viewDir, "current.json"),
+        current = JSON.parse(readFileSync(currentFile, "utf8"));
+      delete current.cut.schemaGeneration;
+      writeFileSync(currentFile, JSON.stringify(current));
       recordHeadConfirmation(viewDir, cut, Date.now() - 60 * 60 * 1000);
       assert.equal(read(nodeId).freshness.state, "stale");
     }
@@ -450,41 +446,69 @@ test("received complete blobs are verified before finish and pinned across anoth
     view.receive(corrupt[1]!);
     assert.throws(() => view.receive(corrupt[2]!), /transfer blob mismatch/u);
     assert.equal(view.current("repo", "bad"), null);
+    const abandoned = Buffer.from("verified but never published"),
+      abandonedEntry = wireEntry("context/abandoned.md", abandoned);
+    const abandonedFrames = snapshotFrames("z-abandoned", "receiving", wireCut(2), [abandonedEntry], [abandoned]);
+    for (const frame of abandonedFrames.slice(0, -1)) view.receive(frame);
+    const abandonedCas = path.join(
+      root,
+      "repos/repo/cas/sha256",
+      abandonedEntry.blob.sha256.slice(0, 2),
+      abandonedEntry.blob.sha256,
+    );
+    assert.equal(existsSync(abandonedCas), true);
+    for (let index = 0; index < 65; index++)
+      view.receive({ ...abandonedFrames[0]!, transferId: `q-${String(index).padStart(3, "0")}` } as FleetFrameV1);
+    for (const frame of snapshotFrames(
+      "other-next",
+      "other",
+      wireCut(2),
+      [wireEntry("context/other.md", other)],
+      [other],
+    ))
+      view.receive(frame);
+    assert.equal(
+      existsSync(abandonedCas),
+      false,
+      "evicting an unfinished transfer releases its verified orphan content",
+    );
+    assert.equal(existsSync(cas), true, "a published view retains its adopted content");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("manifest batches preserve JSON, Unicode boundaries, digest and reject truncated input", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-manifest-batch-"));
+test("sparse manifests preserve Unicode paths and reject duplicate or incomplete state before publication", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-manifest-index-"));
   try {
-    const file = path.join(root, "manifest.json"),
+    const viewDir = path.join(root, "repos/repo/views/view"),
+      file = path.join(viewDir, "cuts/1-g0/manifest.json"),
       entries = Array.from({ length: 1025 }, (_, index) =>
-        wireEntry(`context/${String(index).padStart(4, "0")}-中文\\".md`, Buffer.from(String(index))),
+        wireEntry(`context/${String(index).padStart(4, "0")}-中文".md`, Buffer.from(String(index))),
       ),
-      header = { cut: wireCut(1), schemaGeneration: 0, manifestDigest: fleetManifestDigest(entries) };
-    writeFileSync(file, [...serializeEdgeManifest(header, entries)].join(""));
-    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { ...header, entries });
-    assert.deepEqual([...readEdgeManifestEntries(file)], entries);
+      header = { cut: wireCut(1), schemaGeneration: 0, manifestDigest: fleetManifestDigest(entries) },
+      changes = entries.map((entry) => ({ op: "put" as const, ...entry }));
+    assert.throws(
+      () => commitEdgeManifest(viewDir, header, null, [...changes, changes[0]!]),
+      /duplicate manifest path/u,
+    );
+    assert.throws(() => commitEdgeManifest(viewDir, header, null, changes.slice(1)), /result manifest mismatch/u);
+    assert.throws(
+      () =>
+        commitEdgeManifest(
+          viewDir,
+          header,
+          null,
+          changes.map((change, index) => (index ? change : { ...change, path: "substituted" })),
+        ),
+      /result manifest mismatch/u,
+    );
+    commitEdgeManifest(viewDir, header, null, changes);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(header));
     assert.deepEqual(readEdgeManifestHeader(file), header);
-    assert.equal(orderedEdgeManifestDigest(readEdgeManifestEntries(file)), fleetManifestDigest(entries));
-    // Arbitrary field order and whitespace use the same parser, not a format fallback.
-    writeFileSync(file, JSON.stringify({ entries, ...header }, null, 2));
-    assert.deepEqual([...readEdgeManifestEntries(file)], entries);
-    assert.deepEqual(readEdgeManifestHeader(file), header);
-    for (const invalid of [
-      "{}",
-      '{"entries":[],"entries":[]}',
-      '{\u00a0"entries":[]}',
-      '{"entries":[',
-      '{"entries":[],}',
-      '{"entries":[{},]}',
-      '{"entries":[]}x',
-      '{"entries":[]',
-    ]) {
-      writeFileSync(file, invalid);
-      assert.throws(() => [...readEdgeManifestEntries(file)]);
-    }
+    assert.deepEqual(readEdgeManifestEntries(file), entries);
+    assert.equal(fleetManifestDigest(readEdgeManifestEntries(file)), header.manifestDigest);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

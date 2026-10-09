@@ -1,3 +1,4 @@
+import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 // Edge-side product write path: routes one `ha task ...` write command through
 // the fleet TLS channel, attaches to the center's wait queue for as long as the
@@ -120,7 +121,7 @@ export function fleetDocPathInTaskPackage(value: string, taskId: string): boolea
 function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string, taskId: string): string | null {
   const materializedRoot = resolveHarnessLayout(workspaceRoot).authoredRoot;
   const paths = new Set<string>();
-  for (const logical of view.entries.keys()) {
+  for (const logical of fleetMirrorTaskPaths(view, taskId)) {
     const match = /^(tasks\/[^/]+)\/INDEX\.md$/u.exec(logical);
     if (!match) continue;
     try {

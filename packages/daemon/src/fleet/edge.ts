@@ -1,17 +1,16 @@
 import { uploadFleetChange } from "./upload-client.ts";
 import { referencedEdgeBlobs } from "./edge-view-references.ts";
 import {
-  orderedEdgeManifestDigest,
-  readEdgeManifestEntries,
+  commitEdgeManifest,
+  markEdgeContent,
+  forgetEdgeContent,
+  pruneEdgeManifests,
   readEdgeManifestHeader,
-  serializeEdgeManifest,
-  type EdgeManifestHeader,
-} from "./edge-manifest.ts";
+} from "./replica-read-model.ts";
 import { withFleetReplicaPullLock } from "../fleet-edge-mirror.ts";
 import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
 import {
   closeSync,
-  cpSync,
   existsSync,
   fsyncSync,
   mkdirSync,
@@ -30,7 +29,7 @@ import type { FleetReplicaSessionPool } from "./edge-replica-sync.ts";
 import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { recordHeadConfirmation, recordNodeReadDenied } from "./replica-read-model.ts";
 import { READ_MODEL_META_PATH, sha256Bytes } from "@harness-anything/kernel";
-import { readFileWindow, syncDirectory, writeFileDurably } from "../durable-file.ts";
+import { readFileWindow, writeFileDurably } from "../durable-file.ts";
 import {
   FLEET_SESSION_SEND_WINDOW_BYTES,
   FleetUtf8LineDecoder,
@@ -229,6 +228,7 @@ export function openFleetEdgeView(
         }
         if (target !== cas && expectedSize !== undefined && statSync(target).size === expectedSize) {
           if (sha256Bytes(readFileSync(target)) !== frame.blobSha256) throw new Error("transfer blob mismatch");
+          markEdgeContent(root, frame.blobSha256);
           mkdirSync(path.dirname(cas), { recursive: true });
           renameSync(target, cas);
         }
@@ -246,26 +246,6 @@ export function openFleetEdgeView(
     },
   };
 }
-// Manifest publication stays on the edge view's existing durable write path.
-function writeEdgeManifest(file: string, header: EdgeManifestHeader, entries: readonly FleetEntry[]): void {
-  mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.tmp`,
-    fd = openSync(temp, "w");
-  try {
-    try {
-      for (const batch of serializeEdgeManifest(header, entries)) writeFileSync(fd, batch);
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-    renameSync(temp, file);
-    syncDirectory(path.dirname(file));
-  } catch (error) {
-    rmSync(temp, { force: true });
-    throw error;
-  }
-}
-
 function finish(
   viewRoot: string,
   staging: string,
@@ -308,7 +288,6 @@ function finish(
   let entries: FleetEntry[];
   const changes: FleetDeltaChange[] = [];
   const result = path.join(staging, "result"),
-    files = path.join(result, "files"),
     repo = path.dirname(path.dirname(viewRoot)),
     casRoot = path.join(repo, "cas", "sha256");
   rmSync(result, { recursive: true, force: true });
@@ -324,38 +303,18 @@ function finish(
     const previous = readJson<Current>(path.join(viewRoot, "current.json"));
     if (!previous || JSON.stringify(previous.cut) !== JSON.stringify(begin.fromCut))
       throw new Error("snapshot_required: delta base changed");
-    const prior = path.join(
-      viewRoot,
-      "cuts",
-      `${previous.cut.revision}-g${previous.schemaGeneration}`,
-      "manifest.json",
-    );
-    if (!existsSync(prior)) throw new Error("snapshot_required: current manifest missing");
-    entries = [...readEdgeManifestEntries(prior)];
     for (const page of pages()) if (page.schema === "fleet.delta.page/v1") changes.push(...page.changes);
     if (changes.length !== begin.changeCount) throw new Error("delta change count mismatch");
-    // Delta cuts keep a complete manifest and materialize only changed files;
-    // unchanged bytes remain addressable through the verified edge CAS.
-    for (const change of changes) {
-      entries = entries.filter((entry) => entry.path !== change.path);
-      const target = path.join(files, change.path);
-      if (change.op === "delete") rmSync(target, { force: true });
-      else entries.push({ path: change.path, blob: change.blob });
-    }
+    entries = changes.filter((change) => change.op === "put").map(({ path, blob }) => ({ path, blob }));
   }
-  entries.sort((a, b) => a.path.localeCompare(b.path));
-  const changedPaths = new Set(changes.filter((change) => change.op === "put").map((change) => change.path));
   for (const entry of entries) {
-    // A delta base is an immutable cut whose bytes were verified before its
-    // current pointer was published; only its incoming puts need CAS
-    // revalidation. A snapshot ingests every blob below.
-    if (begin.schema === "fleet.delta.begin/v1" && !changedPaths.has(entry.path)) continue;
     const cas = path.join(casRoot, entry.blob.sha256.slice(0, 2), entry.blob.sha256),
       incoming = path.join(staging, "blobs", entry.blob.sha256);
     if (!existsSync(cas)) {
       if (!existsSync(incoming)) {
         if (entry.blob.size !== 0 || entry.blob.sha256 !== sha256Bytes(Buffer.alloc(0)))
           throw new Error("transfer blob missing");
+        markEdgeContent(viewRoot, entry.blob.sha256);
         writeFileDurably(cas, Buffer.alloc(0));
       } else {
         // Incoming bytes are hashed exactly once, here; the CAS file is the
@@ -364,21 +323,13 @@ function finish(
         const bytes = readFileSync(incoming);
         if (bytes.byteLength !== entry.blob.size || sha256Bytes(bytes) !== entry.blob.sha256)
           throw new Error("transfer blob mismatch");
+        markEdgeContent(viewRoot, entry.blob.sha256);
         mkdirSync(path.dirname(cas), { recursive: true });
         renameSync(incoming, cas);
       }
     }
-    // Delta cuts materialize changed files beside their manifest; a snapshot
-    // cut addresses every blob through the verified CAS instead of copying
-    // the whole tree into cuts/<revision>-g<generation>/files/.
-    if (begin.schema === "fleet.delta.begin/v1") {
-      const target = path.join(files, entry.path);
-      mkdirSync(path.dirname(target), { recursive: true });
-      cpSync(cas, target);
-    }
   }
-  const digest = orderedEdgeManifestDigest(entries);
-  if (digest !== expected) throw new Error("result manifest mismatch");
+  const digest = expected;
   const meta = entries.find((entry) => entry.path === READ_MODEL_META_PATH);
   const schemaGeneration = meta
     ? (
@@ -386,11 +337,20 @@ function finish(
           schemaGeneration: number;
         }
       ).schemaGeneration
-    : 0;
+    : begin.schema === "fleet.delta.begin/v1"
+      ? already!.schemaGeneration
+      : 0;
   if (!Number.isSafeInteger(schemaGeneration) || schemaGeneration < 0)
     throw new Error("snapshot schema generation is invalid");
   if (schemaGeneration !== cut.schemaGeneration) throw new Error("snapshot schema generation does not match its cut");
-  writeEdgeManifest(path.join(result, "manifest.json"), { cut, schemaGeneration, manifestDigest: digest }, entries);
+  const header = { cut, schemaGeneration, manifestDigest: digest };
+  commitEdgeManifest(
+    viewRoot,
+    header,
+    begin.schema === "fleet.delta.begin/v1" ? begin.fromCut : null,
+    begin.schema === "fleet.delta.begin/v1" ? changes : entries.map((entry) => ({ op: "put", ...entry })),
+  );
+  writeEdgeDurableJson(path.join(result, "manifest.json"), header);
   const cutDir = path.join(viewRoot, "cuts", `${cut.revision}-g${schemaGeneration}`);
   mkdirSync(path.dirname(cutDir), { recursive: true });
   if (!existsSync(cutDir)) renameSync(result, cutDir);
@@ -416,10 +376,7 @@ function finish(
     authorizationOwner: begin.authorizationOwner,
     authorizationShapeDigest: begin.authorizationShapeDigest,
   });
-  const reopened = readEdgeManifestHeader(path.join(cutDir, "manifest.json")),
-    active = readJson<Current>(path.join(viewRoot, "current.json"));
-  if (!reopened || !active || reopened.manifestDigest !== digest || JSON.stringify(active.cut) !== JSON.stringify(cut))
-    throw new Error("atomic view verification failed");
+
   return ack(begin.transferId, cut, digest);
 }
 
@@ -434,21 +391,19 @@ function collect(viewRoot: string, casRoot: string, currentIdentity: string): vo
               Number(b.split("-g")[1]) - Number(a.split("-g")[1]),
           )
       : [],
-    keep = new Set([currentIdentity, ...revisions.filter((revision) => revision !== currentIdentity).slice(0, 1)]);
+    keep = new Set([currentIdentity, ...revisions.filter((revision) => revision !== currentIdentity).slice(0, 63)]);
   for (const revision of revisions.filter((value) => !keep.has(value)).slice(0, 64))
     rmSync(path.join(cutsRoot, String(revision)), { recursive: true, force: true });
   const viewsRoot = path.dirname(viewRoot),
     views = readdirSync(viewsRoot);
   if (views.length > 64) return;
+  const released = pruneEdgeManifests(viewRoot);
   const referenced = referencedEdgeBlobs(viewsRoot, views);
-  let removed = 0;
-  if (existsSync(casRoot))
-    outer: for (const prefix of readdirSync(casRoot).slice(0, 64))
-      for (const sha of readdirSync(path.join(casRoot, prefix)).slice(0, 64))
-        if (!referenced.has(sha)) {
-          rmSync(path.join(casRoot, prefix, sha), { force: true });
-          if (++removed >= 64) break outer;
-        }
+  for (const sha of released)
+    if (!referenced.has(sha)) {
+      rmSync(path.join(casRoot, sha.slice(0, 2), sha), { force: true });
+      forgetEdgeContent(viewRoot, sha);
+    }
 }
 
 function ack(

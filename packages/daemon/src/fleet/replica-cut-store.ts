@@ -366,16 +366,19 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     active = true;
     return publish();
   };
-  const changes = (from: number, to: number): FleetDeltaChange[] | null => {
-    if (!cut(from) || !cut(to) || from > to) return null;
+  const continuous = (from: number, to: number): boolean => {
+    if (!cut(from) || !cut(to) || from > to) return false;
     let reached = from;
     for (const row of db()
       .prepare("SELECT * FROM link WHERE to_revision>? AND to_revision<=? ORDER BY to_revision")
       .iterate(from, to)) {
-      if (Number(row.from_revision) !== reached) return null;
+      if (Number(row.from_revision) !== reached) return false;
       reached = Number(row.to_revision);
     }
-    if (reached !== to) return null;
+    return reached === to;
+  };
+  const changes = (from: number, to: number): FleetDeltaChange[] | null => {
+    if (!continuous(from, to)) return null;
     const result = new Map<string, FleetDeltaChange>();
     for (const row of db()
       .prepare("SELECT path,entry_json FROM entry WHERE revision>? AND revision<=? ORDER BY revision,path")
@@ -392,7 +395,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       throw new Error(`canonical content blob ${blob.sha256} is unavailable or corrupt`);
     return bytes;
   };
-  const waitForCut = (revision: number, signal?: AbortSignal): Promise<SnapshotCut> => {
+  const waitForCut = async (revision: number, signal?: AbortSignal): Promise<SnapshotCut> => {
     if (signal?.aborted) return Promise.reject(signal.reason);
     active = true;
     const current = publish();
@@ -432,7 +435,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         if (!lease) throw new FleetFault("replica_delivery_busy", "This node/repository already has an active delivery lease", true);
         const target = latest();
         if (!target) throw new FleetFault("replica_pending", "No checkpoint is published.");
-        const pinFrom = from !== null && changes(from, target.revision) !== null ? from : target.revision;
+        const pinFrom = from !== null && continuous(from, target.revision) ? from : target.revision;
         let oldest = pinFrom;
         for (const pin of db().prepare("SELECT * FROM delivery_pin").all()) {
           const held = JSON.parse(String(pin.lease_json)) as ReplicaDeliveryLease;

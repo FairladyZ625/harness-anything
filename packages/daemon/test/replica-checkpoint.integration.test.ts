@@ -1,10 +1,11 @@
 // harness-test-tier: integration
+import { type ReplicaProjectionBasis } from "../../kernel/test/store/replica-model.fixture.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { READ_MODEL_META_PATH, type EdgeReadModelRows, type ReplicaProjectionBasis } from "@harness-anything/kernel";
+import { READ_MODEL_META_PATH, type EdgeReadModelRows } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openReplicaCutSource } from "./replica-sequence.fixture.ts";
 

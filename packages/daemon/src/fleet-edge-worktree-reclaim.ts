@@ -1,3 +1,4 @@
+import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import path from "node:path";
 import { isDomainStatus } from "@harness-anything/kernel";
 import {
@@ -66,7 +67,7 @@ async function reclaimEdgeTaskWorktree(workspaceRoot: string, taskId: string): P
  * and is left alone: task packages are tombstoned, never removed from the ledger.
  */
 function mirroredTaskClosed(view: FleetMirrorView, taskId: string): boolean {
-  const declared = [...view.entries.keys()]
+  const declared = fleetMirrorTaskPaths(view, taskId)
     .filter((logical) => {
       const folder = /^tasks\/([^/]+)\/INDEX\.md$/u.exec(logical)?.[1];
       return folder === taskId || folder?.startsWith(`${taskId}-`);

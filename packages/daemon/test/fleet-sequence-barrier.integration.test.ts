@@ -7,7 +7,9 @@ import { syncBuiltinESMExports } from "node:module";
 import { fleetFixture } from "./fleet-tls-session.fixture.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { runFleetReplicaPullClient, runFleetTaskCommandClient } from "../src/fleet/edge.ts";
-import { readEdgeManifestEntries } from "../src/fleet/edge-manifest.ts";
+import { readEdgeManifestEntries } from "../src/fleet/replica-read-model.ts";
+import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
+import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 
 test(
@@ -75,11 +77,16 @@ test(
           opId: `sequence-write-${index}`,
           taskId: `task-interleaved-${index}`,
           waitMs: 0,
-          action: { kind: "task-create", taskId: `task-interleaved-${index}`, title: `Interleaved ${index}` } as const,
+          action: {
+            kind: "task-create",
+            taskId: `task-interleaved-${index}`,
+            title: `Interleaved ${index}`,
+            idempotencyKey: `sequence-${index}`,
+          } as const,
         };
         const write = await runFleetTaskCommandClient(command);
         assert.equal(write.outcome, "applied");
-        await waitForFleetPublication(f.host, f.subject.repoId, write.opId, f.auth);
+        await waitForFleetPublication(f.host, f.subject.repoId, String(write.receipt!.opId), f.auth);
         const duplicate = await runFleetTaskCommandClient(command);
         assert.equal(duplicate.revision, write.revision, "duplicate operation does not append a second revision");
         revisions.push(write.revision!);
@@ -98,6 +105,29 @@ test(
             assert.ok(queries.list().rows.some((row) => row.taskId === `task-interleaved-${seen}`));
         });
       }
+      const workspace = path.join(f.root, "command-workspace");
+      applyFleetMirrorCut(options("node-two").viewRoot, f.subject.repoId, workspace, "pull");
+      const commandResult = await runFleetEdgeTask({
+        payload: {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: f.certFile,
+          servername: "localhost",
+          nodeId: "node-two",
+          credential: "machine-secret",
+          repoId: f.subject.repoId,
+          viewRoot: options("node-two").viewRoot,
+          quotaBytes: 64 * 1024 * 1024,
+          workspaceRoot: workspace,
+          action: { kind: "task-create", taskId: "task-command-return", title: "Command return" },
+        },
+      });
+      assert.equal(commandResult.outcome, "applied", JSON.stringify(commandResult));
+      assert.equal(commandResult.mirrorOutcome, "applied", JSON.stringify(commandResult));
+      assert.equal(Atomics.load(control, 0), 1, "real edge command returns while full checkpoint is blocked");
+      withEdgeReadModel({ ...options("node-two"), principalId: "person-owner" }, (queries) => {
+        assert.ok(queries.list().rows.some((row) => row.taskId === "task-command-return"));
+      });
       const target = source.latest()!;
       for (const nodeId of ["node-one", "node-two"]) {
         const pulled = await runFleetReplicaPullClient({ ...options(nodeId), through: target.revision });
