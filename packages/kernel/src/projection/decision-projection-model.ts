@@ -86,6 +86,7 @@ export interface DecisionPageQuery {
 }
 
 export interface DecisionListFilters {
+  readonly withBody?: boolean;
   readonly search?: string;
   readonly legacyId?: string;
   readonly legacyRange?: { readonly start: number; readonly end: number };

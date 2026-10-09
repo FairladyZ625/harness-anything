@@ -485,7 +485,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       (payload.projection !== undefined && payload.projection !== "summary" && payload.projection !== "full")
     )
       throw context.cellCodedError("invalid_command", "Decision list projection must be summary or full.");
-    const read = context.projection.listDecisions({});
+    const read = context.projection.listDecisions({ withBody: payload.projection !== "summary" });
     if (payload.projection === "summary")
       return {
         ok: true,
@@ -497,7 +497,10 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       const source = makeGitReadinessSource(),
         projectHead = source.run(context.rootDir, ["rev-parse", "HEAD"]),
         commitSha = projectHead.ok ? projectHead.stdout : "",
-        cacheKey = `${commitSha}\n${context.projection.readCut().sourceRevision}`;
+        cacheKey = JSON.stringify([
+          commitSha,
+          read.decisions.map(({ decisionId, proposedAt, appliesTo }) => [decisionId, proposedAt, appliesTo]),
+        ]);
       if (readinessCache?.key !== cacheKey)
         readinessCache = {
           key: cacheKey,
