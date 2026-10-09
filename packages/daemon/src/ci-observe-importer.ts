@@ -158,9 +158,10 @@ export async function reconcileCiOccurrence(input: {
           continue;
         const result = await fetchSubmissionWitness(cell, taskId, gh);
         if ("failure" in result) {
-          // No covering verdict yet is a pending submission, not a provider success.
-          // Authentication, rate limits and all other failures still fail the occurrence.
-          if (cellErrorCode(result.failure) !== "ci_witness_not_found") throw result.failure;
+          // Durable submissions are re-derived next occurrence after a transient provider failure.
+          // Authentication, rate limits and local IO still fail the occurrence.
+          if (cellErrorCode(result.failure) !== "ci_witness_not_found" && !isTransientCiProviderFailure(result.failure))
+            throw result.failure;
           continue;
         }
         await accept(result.fetched);

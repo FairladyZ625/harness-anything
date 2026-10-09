@@ -183,17 +183,91 @@ test("a submitted CI cut survives center reopen and is accepted before 60 pendin
       });
       assert.equal(noRun.outcome, "succeeded", "a cut with no completed covering run permits diagnostics");
       assert.equal(evidence(), null, "absence must not fabricate a witness");
-      const unauthorized = await reconcileCiOccurrence({
+      for (const detail of [
+        "HTTP 401 authentication required",
+        "HTTP 403 forbidden",
+        "HTTP 429 rate limit",
+        "EIO local IO ECONNRESET",
+      ]) {
+        const fatal = await reconcileCiOccurrence({
+          cell: cell as never,
+          schedule,
+          requests: () => [],
+          gh: async () => {
+            throw new Error(detail);
+          },
+          accept: async (fetched) => ingestCiObservations(cell as never, binding, fetched),
+        });
+        assert.equal(fatal.outcome, "failed");
+        if (detail.includes("429")) assert.match(fatal.detail, /GitHub rate-limited/u);
+        else assert.equal(fatal.detail, detail);
+      }
+      // A transient priority fetch leaves its durable submission for the next occurrence,
+      // while the other targets and the workflow page still make progress.
+      const continued: string[] = [];
+      const transient = await reconcileCiOccurrence({
         cell: cell as never,
-        schedule,
+        schedule: {
+          ...schedule,
+          status: {
+            ...schedule.status,
+            ciObserve: {
+              ...progress,
+              pending: [{ runId: 901, attempt: 1, workflow: "rewrite-ci" }],
+            },
+          },
+        },
         requests: () => [],
-        gh: async () => {
-          throw new Error("HTTP 401 authentication required");
+        gh: async (command, args, options) => {
+          const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
+          if (endpoint.includes("actions/runs?head_sha=")) {
+            continued.push("submission");
+            throw new Error("read ECONNRESET");
+          }
+          if (endpoint.includes("actions/workflows/")) {
+            continued.push("page");
+            return JSON.stringify({
+              workflow_runs: [
+                {
+                  id: 902,
+                  run_attempt: 1,
+                  head_branch: "main",
+                  status: "in_progress",
+                },
+              ],
+            });
+          }
+          if (endpoint.includes("/runs/901/attempts/")) {
+            continued.push("pending");
+            return JSON.stringify({
+              name: "rewrite-ci",
+              head_sha: delivery,
+              head_branch: "main",
+              event: "push",
+              status: "in_progress",
+              conclusion: null,
+              run_attempt: 1,
+              path: ".github/workflows/rewrite-ci.yml",
+              workflow_id: 1,
+              repository: { full_name: "fixture/repository" },
+            });
+          }
+          return gh(command, args, options);
         },
         accept: async (fetched) => ingestCiObservations(cell as never, binding, fetched),
       });
-      assert.equal(unauthorized.outcome, "failed");
-      assert.match(unauthorized.detail, /401/u);
+      assert.equal(transient.outcome, "succeeded", transient.detail);
+      assert.deepEqual(continued, ["submission", "pending", "page"]);
+      assert.equal(transient.ciObserve?.nextPage, 2);
+      assert.deepEqual(
+        transient.ciObserve?.pending.map((entry) => entry.runId),
+        [901, 902],
+      );
+      assert.equal(evidence(), null, "transient failure must not publish a witness");
+      t.diagnostic(
+        JSON.stringify({ transient: transient.outcome, continued, nextPage: transient.ciObserve?.nextPage }),
+      );
+      seen.length = 0;
       const result = await reconcileCiOccurrence({
         cell: cell as never,
         schedule: { ...schedule, status: { ...schedule.status, ciObserve: progress } },
