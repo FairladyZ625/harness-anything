@@ -114,8 +114,8 @@ afterEach(async () => {
 });
 
 async function mount(node: React.ReactNode): Promise<HTMLElement> {
-  // 默认落点(工作说明)要看根任务文档清单:未打桩的清单会在 happy-dom 里走真实传输而
-  // 挂起/报错,让落点定不了案。这里给一个「无 explainer」的默认清单,个案自行覆盖。
+  // 概况内嵌的工作说明文档要读根任务清单:未打桩的清单会在 happy-dom 里走真实传输而
+  // 挂起/报错。这里给一个「无 explainer」的默认清单,个案自行覆盖。
   if (!vi.isMockFunction(harnessClient.getTaskDocuments)) {
     vi.spyOn(harnessClient, "getTaskDocuments").mockResolvedValue({
       ok: true,
@@ -952,64 +952,40 @@ describe("work explainer tab and overview preview", () => {
       }),
     });
 
-  it("lands on the permanent explainer tab when the root task package has one", async () => {
+  it("lands on the overview with the explainer embedded when the root task package has one", async () => {
     installDocuments();
     const host = await mount(
       <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
     );
-    // 常驻页签可访问、语义可辨;根任务带 explainer 且无显式落点 → 首次进入默认选中它。
-    const explainerTab = tab(host, "explainer");
-    expect(explainerTab.getAttribute("aria-selected")).toBe("true");
-    expect(explainerTab.textContent).toContain("工作说明");
-    expect(explainerState(host)).toBeNull();
+    // 首次进入默认选中概况(不再异步跳去工作说明),有 explainer 也不例外。
+    expect(tab(host, "overview").getAttribute("aria-selected")).toBe("true");
+    expect(host.querySelector('[data-testid="work-overview-board"]')).not.toBeNull();
+    // 概况直接内嵌该根工作的 explainer 正文,不是只有入口按钮。
     const webview = host.querySelector<HTMLElement>('[data-testid="html-artifact-webview"]');
     expect(webview?.getAttribute("data-artifact-path")).toBe(EXPLAINER_PATH);
     expect(webviewSrc(host)).toContain("<h1>living task_root</h1>");
-    // 隔离策略原样搬运:独立 partition、禁脚本,工作页不放宽安全边界。
+    // 隔离策略原样搬运:独立 partition、禁脚本,概况内嵌不放宽安全边界。
     expect(webview?.getAttribute("partition")).toBe("html-artifact-preview");
     expect(webview?.getAttribute("webpreferences")).toContain("javascript=no");
   });
 
-  it("previews the same explainer on the overview and opens the full tab from it", async () => {
+  it("opens the full explainer tab from the overview preview and shows the same content", async () => {
     installDocuments();
     const host = await mount(
       <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
     );
-    await act(async () => tab(host, "overview").click());
-    const region = host.querySelector('[data-testid="work-explainer"]');
-    expect(region).not.toBeNull();
-    // 预览默认可见且同源:同一查询键的同一份正文进同一个隔离 renderer,不是只有按钮。
-    expect(region!.querySelector('[data-testid="html-artifact-webview"]')?.getAttribute("data-artifact-path")).toBe(
-      EXPLAINER_PATH,
-    );
-    expect(webviewSrc(host)).toContain("<h1>living task_root</h1>");
     const openFull = host.querySelector<HTMLButtonElement>('[data-testid="work-explainer-open-full"]');
     expect(openFull?.textContent).toContain("打开完整工作说明");
     await act(async () => openFull!.click());
-    expect(tab(host, "explainer").getAttribute("aria-selected")).toBe("true");
-  });
-
-  it("holds a landing placeholder until the manifest decides, without flashing the overview", async () => {
-    installDocuments();
-    const list = vi.spyOn(harnessClient, "getTaskDocuments");
-    let release: ((value: unknown) => void) | undefined;
-    list.mockImplementation(() => new Promise((resolve) => (release = resolve)));
-    const host = await mount(
-      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
-    );
-    // 清单未定案:正文停在占位,概况不先渲染再被抢页。
-    expect(host.querySelector('[data-testid="workspace-landing-pending"]')).not.toBeNull();
-    expect(host.querySelector('[data-testid="work-overview-board"]')).toBeNull();
-    await act(async () => {
-      release?.(listWith(true));
-    });
-    await settle();
-    expect(host.querySelector('[data-testid="workspace-landing-pending"]')).toBeNull();
-    expect(tab(host, "explainer").getAttribute("aria-selected")).toBe("true");
+    const explainerTab = tab(host, "explainer");
+    expect(explainerTab.getAttribute("aria-selected")).toBe("true");
+    expect(explainerTab.textContent).toContain("工作说明");
+    // 独立页签与概况预览是同一查询键的同一份正文、同一个隔离 renderer。
+    expect(explainerState(host)).toBeNull();
     expect(webviewSrc(host)).toContain("<h1>living task_root</h1>");
   });
 
-  it("keeps the user's manual tab when the manifest arrives late", async () => {
+  it("shows the overview immediately while the manifest is still pending", async () => {
     installDocuments();
     const list = vi.spyOn(harnessClient, "getTaskDocuments");
     let release: ((value: unknown) => void) | undefined;
@@ -1017,18 +993,19 @@ describe("work explainer tab and overview preview", () => {
     const host = await mount(
       <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
     );
-    await act(async () => tab(host, "tasks").click());
-    expect(host.querySelector('[data-testid="workspace-landing-pending"]')).toBeNull();
+    // 清单未定案不再整页占位:概况首屏即渲染,内嵌工作说明区域自己处在读态。
+    expect(host.querySelector('[data-testid="work-overview-board"]')).not.toBeNull();
+    expect(explainerState(host)).toBe("list-pending");
+    expect(host.querySelector('[data-testid="html-artifact-webview"]')).toBeNull();
     await act(async () => {
       release?.(listWith(true));
     });
     await settle();
-    // 迟到的清单不抢回用户所在页签,explainer 不偷渲染。
-    expect(tab(host, "tasks").getAttribute("aria-selected")).toBe("true");
-    expect(host.querySelector('[data-testid="html-artifact-webview"]')).toBeNull();
+    expect(tab(host, "overview").getAttribute("aria-selected")).toBe("true");
+    expect(webviewSrc(host)).toContain("<h1>living task_root</h1>");
   });
 
-  it("settles on the overview and marks the explainer missing when the package has none", async () => {
+  it("lands on the overview and marks the explainer missing when the package has none", async () => {
     installDocuments({ explainer: false });
     const host = await mount(
       <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
