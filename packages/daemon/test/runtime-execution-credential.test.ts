@@ -7,7 +7,11 @@ import {
   runtimeExecutionLifetimeMs,
   verifyRuntimeExecutionPrincipal,
 } from "../src/runtime-execution-credential.ts";
-import { requireCurrentExecutionScope, requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
+import {
+  requireCurrentExecutionScope,
+  requireExecutionRequestScope,
+  requireExecutionActionScope,
+} from "../src/runtime-execution-scope.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const center = {
@@ -39,7 +43,7 @@ test("independent Keycloak client authenticates only its secret, expiry, and cur
       credential.slice(0, -1) + (credential.endsWith("A") ? "B" : "A"),
       realm.fetch,
     ),
-    { code: "execution_credential_rejected" },
+    { code: "execution_credential_rejected", message: "Execution credential authentication was rejected." },
   );
   const response = await realm.fetch(
       `${center.url}/admin/realms/harness/clients?clientId=harness-execution-${p.dispatchId}`,
@@ -55,13 +59,16 @@ test("independent Keycloak client authenticates only its secret, expiry, and cur
   });
   await assert.rejects(authenticateRuntimeExecutionCredential(center, credential, realm.fetch), {
     code: "execution_credential_rejected",
+    message: "Execution credential is expired.",
   });
   await edit({ enabled: false, attributes: { harness_execution: JSON.stringify(p) } });
   await assert.rejects(verifyRuntimeExecutionPrincipal(center, p, realm.fetch), {
     code: "execution_credential_rejected",
+    message: "Execution credential is revoked.",
   });
   await assert.rejects(authenticateRuntimeExecutionCredential(center, credential, realm.fetch), {
     code: "execution_credential_rejected",
+    message: "Execution credential is revoked.",
   });
   await assert.rejects(
     authenticateRuntimeExecutionCredential(center, credential, async () => {
@@ -273,4 +280,37 @@ test("stale reviewer can retire only its own failed or cancelled dispatch withou
     () => requireCurrentExecutionScope({ ...input, action: event("runtime_session_outcome_observed", "succeeded") }),
     { code: "execution_credential_rejected" },
   );
+});
+
+test("execution event list permits repository reads without widening task or write scope", () => {
+  for (const role of ["implementation", "reviewer"] as const) {
+    for (const source of ["local", { kind: "node", nodeId: "edge-one" }] as const) {
+      const p = { ...principal(), role, source };
+      const request = (repoId: string, action: object) =>
+        requireExecutionRequestScope(p, "repo.task.read", { repo: { repoId }, payload: { action } });
+      assert.doesNotThrow(() =>
+        request(p.repoId, {
+          kind: "event-list",
+          type: "runtime_session_outcome_observed",
+          before: "2026-10-09T06:06:00Z",
+          limit: 100,
+        }),
+      );
+      assert.throws(() => request("other-repo", { kind: "event-list" }), {
+        code: "execution_credential_rejected",
+        message: "Execution request is outside its dispatch scope.",
+      });
+      for (const action of [
+        { kind: "event-show", opId: "other-event" },
+        { kind: "task-show", taskId: "other-task" },
+        { kind: "task-progress-append", taskId: "other-task" },
+        { kind: "task-adjudicate", taskId: p.taskId },
+        { kind: "relation-relate", taskId: p.taskId },
+      ])
+        assert.throws(() => requireExecutionActionScope(p, action), {
+          code: "execution_credential_rejected",
+          message: "Execution request is outside its dispatch scope.",
+        });
+    }
+  }
 });

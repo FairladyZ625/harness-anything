@@ -26,7 +26,7 @@ export function requireExecutionRequestScope(
 }
 
 export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action: RepoTaskAction): void {
-  const reads = ["task-show", "task-read-set", "task-dispatches", "doc-status", "doc-dry-run"],
+  const reads = ["event-list", "task-show", "task-read-set", "task-dispatches", "doc-status", "doc-dry-run"],
     writes =
       p.role === "reviewer"
         ? ["task-review-execution"]
@@ -35,7 +35,7 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     (action.kind.startsWith("doc-") &&
       (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))) ||
     ![...reads, ...writes].includes(action.kind) ||
-    action.taskId !== p.taskId ||
+    (action.kind !== "event-list" && action.taskId !== p.taskId) ||
     (action.executionId !== undefined && action.executionId !== p.executionId) ||
     (action.executor != null &&
       (!isJsonObject(action.executor) ||
@@ -87,8 +87,8 @@ export function requireCurrentExecutionScope(input: {
   const session = input.projection.readRuntimeSession(p.runtimeSessionId),
     dispatch = input.projection.readRuntimeDispatch(p.runtimeSessionId),
     actor = runtimeExecutionActor(p);
+  if (Date.parse(p.expiresAt) <= Date.parse(input.now)) throw executionCredentialRejected("expired");
   if (
-    Date.parse(p.expiresAt) <= Date.parse(input.now) ||
     (!isSameExecution(actor, input.binding.actor) &&
       !(
         ingress &&
