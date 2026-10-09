@@ -653,3 +653,37 @@ export function nativeCommand(input: PreparedRuntimeLaunch): {
 export function quoteWindowsArgument(value: string): string {
   return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
 }
+
+/** Admission of an externally prepared launch belongs to the process boundary. */
+export function assertPreparedRuntimeLaunch(
+  prepared: PreparedRuntimeLaunch,
+  expected: {
+    readonly instanceId: string;
+    readonly kindId?: string;
+    readonly cwd: string;
+    readonly prompt: string;
+    readonly permissionMode?: string;
+    readonly agentId?: string;
+  },
+): void {
+  const { definition, installation } = prepared;
+  if (definition.kindId === "zcode" && expected.permissionMode !== "bypass")
+    throw runtimeSpawnError(
+      "zcode_unattended_permission_mode_unsupported",
+      "ZCode edit and plan modes require an interactive permission client and cannot run unattended. " +
+        `Set permissionMode to bypass in Agent ${expected.agentId ?? "declaration"}.`,
+    );
+  if (
+    definition.instanceId !== expected.instanceId ||
+    (expected.kindId !== undefined && expected.kindId !== definition.kindId) ||
+    definition.installationId !== installation.installationId ||
+    definition.kindId !== installation.kindId ||
+    prepared.executablePath !== installation.executablePath ||
+    prepared.cwd !== expected.cwd ||
+    prepared.prompt !== expected.prompt
+  )
+    throw runtimeSpawnError(
+      "invalid_runtime_launch",
+      "Prepared runtime launch does not match the closed spawn request.",
+    );
+}

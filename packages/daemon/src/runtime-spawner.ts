@@ -51,6 +51,7 @@ import {
 } from "./runtime-spawn-mission.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import {
+  assertPreparedRuntimeLaunch,
   launchExitNotification,
   launchNative,
   launchRuntimeProcess,
@@ -530,27 +531,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       installation = prepared.installation,
       declaredKindId = runtimeKindForId(definition.kindId).kindId,
       launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, declaredKindId);
-    if (declaredKindId === "zcode" && launchedPermissionMode !== "bypass")
-      throw runtimeSpawnError(
-        "zcode_unattended_permission_mode_unsupported",
-        [
-          "ZCode edit and plan modes require an interactive permission client and cannot run unattended. ",
-          `Set permissionMode to bypass in Agent ${agent?.id ?? "declaration"}.`,
-        ].join(""),
-      );
-    if (
-      definition.instanceId !== runtimeInstanceId ||
-      (runtimeInstance !== undefined && runtimeInstance.kindId !== definition.kindId) ||
-      definition.installationId !== installation.installationId ||
-      definition.kindId !== installation.kindId ||
-      prepared.executablePath !== installation.executablePath ||
-      prepared.cwd !== cwd ||
-      prepared.prompt !== prompt
-    )
-      throw runtimeSpawnError(
-        "invalid_runtime_launch",
-        "Prepared runtime launch does not match the closed spawn request.",
-      );
+    assertPreparedRuntimeLaunch(prepared, {
+      instanceId: runtimeInstanceId,
+      kindId: runtimeInstance?.kindId,
+      cwd,
+      prompt,
+      permissionMode: launchedPermissionMode,
+      agentId: agent?.id,
+    });
     const definitionArtifact = runtimeDefinitionSnapshotArtifact(definition),
       definitionSnapshotRef = definitionArtifact.ref,
       runtimeKind = runtimeKindForId(definition.kindId),
