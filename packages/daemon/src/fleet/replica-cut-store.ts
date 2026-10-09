@@ -246,6 +246,89 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     for (const [index, entry] of entries.entries()) insert.run(digest, index, entry.path, stableStringify(entry));
     return digest;
   };
+  // Connection-local derived accounting: rebuild once on owner activation, then update in the
+  // publication transaction. TEMP tables roll back with the cut and require no persistent migration.
+  let retentionInitialized = false;
+  const countRetention = (deltas: Map<string, { size: number; refs: number }>, blob: FleetBlob, refs: number) => {
+    const delta = deltas.get(blob.sha256);
+    if (delta) delta.refs += refs;
+    else deltas.set(blob.sha256, { size: blob.size, refs });
+  };
+  const initializeRetention = (store: DatabaseSync) => {
+    if (retentionInitialized) return;
+    transact(store, () => {
+      store.exec(
+        "CREATE TEMP TABLE retention_blob (sha256 TEXT PRIMARY KEY, size INTEGER NOT NULL, refs INTEGER NOT NULL, last_revision INTEGER NOT NULL); " +
+          "CREATE INDEX retention_retired ON retention_blob(refs, last_revision); " +
+          "CREATE TEMP TABLE retention_total (revision INTEGER PRIMARY KEY, bytes INTEGER NOT NULL);",
+      );
+      // The retained chain already records every path change. Seed one manifest, then replay
+      // its sparse suffix; activation must not scan all retained full manifests either.
+      const entries = new Map<string, FleetBlob>(),
+        changes = store.prepare("SELECT * FROM change WHERE repo_id = ? AND from_revision = ? AND to_revision = ?");
+      let previous: number | null = null;
+      for (const cut of store.prepare("SELECT revision, manifest_digest FROM cut ORDER BY revision").all()) {
+        const revision = Number(cut.revision),
+          deltas = new Map<string, { size: number; refs: number }>();
+        if (previous === null) {
+          for (const row of store
+            .prepare("SELECT entry_json FROM manifest_entry WHERE manifest_digest = ?")
+            .iterate(cut.manifest_digest)) {
+            const entry = JSON.parse(String(row.entry_json)) as FleetEntry;
+            entries.set(entry.path, entry.blob);
+            countRetention(deltas, entry.blob, 1);
+          }
+        } else {
+          for (const row of changes.iterate(options.repoId, previous, revision)) {
+            const itemPath = String(row.path),
+              before = entries.get(itemPath);
+            if (before) countRetention(deltas, before, -1);
+            if (row.op === "put") {
+              const blob = {
+                sha256: String(row.blob_sha256),
+                size: Number(row.size),
+                mediaType: String(row.media_type),
+              };
+              entries.set(itemPath, blob);
+              countRetention(deltas, blob, 1);
+            } else entries.delete(itemPath);
+          }
+        }
+        accountRetention(store, revision, previous, deltas);
+        previous = revision;
+      }
+      return [];
+    });
+    retentionInitialized = true;
+  };
+  const retainedBytes = (store: DatabaseSync, from: number): number =>
+    Number(store.prepare("SELECT bytes FROM retention_total WHERE revision = ?").get(from)!.bytes);
+  const accountRetention = (
+    store: DatabaseSync,
+    revision: number,
+    previousRevision: number | null,
+    deltas: ReadonlyMap<string, { readonly size: number; readonly refs: number }>,
+  ) => {
+    let headBytes = previousRevision === null ? 0 : retainedBytes(store, previousRevision);
+    const read = store.prepare("SELECT refs, last_revision FROM retention_blob WHERE sha256 = ?"),
+      write = store.prepare(
+        "INSERT INTO retention_blob VALUES (?, ?, ?, ?) ON CONFLICT(sha256) DO UPDATE SET refs=excluded.refs, last_revision=excluded.last_revision",
+      ),
+      add = store.prepare("UPDATE retention_total SET bytes = bytes + ? WHERE revision > ?");
+    for (const [sha256, delta] of deltas) {
+      if (delta.refs === 0) continue;
+      const prior = previousRevision === null ? undefined : read.get(sha256),
+        before = Number(prior?.refs ?? 0),
+        after = before + delta.refs;
+      // A returning blob is already charged to suffixes that include its last appearance.
+      if (before === 0) {
+        headBytes += delta.size;
+        if (previousRevision !== null) add.run(delta.size, Number(prior?.last_revision ?? 0));
+      } else if (after === 0) headBytes -= delta.size;
+      write.run(sha256, delta.size, after, after === 0 ? previousRevision! : revision);
+    }
+    store.prepare("INSERT INTO retention_total VALUES (?, ?)").run(revision, headBytes);
+  };
   const prune = (store: DatabaseSync) => {
     const retained = store
         .prepare("SELECT revision FROM cut ORDER BY revision DESC LIMIT 64")
@@ -260,16 +343,9 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       const acknowledged = cursor?.revision === Number(pin.to_revision);
       const remaining = pin.remaining === null ? 64 : Number(pin.remaining) - 1;
       const from = acknowledged ? cursor.revision : Number(pin.from_revision);
-      const bytes = Number(
-        store
-          .prepare(
-            "SELECT SUM(total_bytes) AS bytes FROM (SELECT MAX(total_bytes) AS total_bytes FROM cut WHERE revision >= ? GROUP BY manifest_digest)",
-          )
-          .get(from)?.bytes ?? 0,
-      );
       if (
         (acknowledged ? remaining <= 0 : !liveLease(lease, String(pin.lease_root))) ||
-        bytes > Number(pin.quota) ||
+        (acknowledged && retainedBytes(store, from) > Number(pin.quota)) ||
         (cursor && cursor.revision > Number(pin.to_revision))
       ) {
         store.prepare("DELETE FROM delivery_pin WHERE id=?").run(String(pin.id));
@@ -288,6 +364,8 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     ).map((row) => row.manifest_digest);
     store.prepare("DELETE FROM cut WHERE revision < ?").run(oldest);
     store.prepare("DELETE FROM change WHERE from_revision < ?").run(oldest);
+    store.prepare("DELETE FROM retention_total WHERE revision < ?").run(oldest);
+    store.prepare("DELETE FROM retention_blob WHERE refs = 0 AND last_revision < ?").run(oldest);
     store.prepare("DELETE FROM checkpoint_link WHERE from_revision < ?").run(oldest);
     return digests;
   };
@@ -332,6 +410,15 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       insertChange = store.prepare(
         "INSERT OR IGNORE INTO change(repo_id, from_revision, to_revision, path, op, blob_sha256, size, media_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       );
+    const deltas = new Map<string, { size: number; refs: number }>();
+    if (previous) {
+      for (const change of changes) {
+        const before = prior.get(change.path);
+        if (before) countRetention(deltas, before.blob, -1);
+        if (change.op === "put") countRetention(deltas, change.blob, 1);
+      }
+    } else for (const entry of entries) countRetention(deltas, entry.blob, 1);
+    accountRetention(store, event.workspaceRevision, previous?.revision ?? null, deltas);
     insertCut.run(
       options.repoId,
       event.workspaceRevision,
@@ -594,6 +681,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   >();
   const activateSnapshot = () => {
     active = true;
+    initializeRetention(db());
     const current = latest();
     if (current) {
       kick();
@@ -716,6 +804,7 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
   return {
     pin: async (lease, from, quota, leaseRoot) => {
       const store = db();
+      initializeRetention(store);
       let target!: SnapshotCut;
       transact(store, () => {
         if (!liveLease(lease, leaseRoot))
@@ -723,18 +812,21 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         const latestCut = latest();
         if (!latestCut) throw new FleetFault("replica_pending", "No checkpoint is published.");
         target = latestCut;
-        if (target.manifest.totalBytes > quota)
-          throw new FleetFault("replica_quota_insufficient", "Checkpoint exceeds delivery retention quota.");
+        const pinFrom = from !== null && cut(from) ? from : target.revision;
+        let oldest = pinFrom;
+        for (const pin of store.prepare("SELECT * FROM delivery_pin").all()) {
+          const held = JSON.parse(String(pin.lease_json)) as ReplicaDeliveryLease;
+          if (liveLease(held, String(pin.lease_root))) oldest = Math.min(oldest, Number(pin.from_revision));
+        }
+        // Admission may reject the newcomer, never revoke an already admitted live delivery.
+        if (retainedBytes(store, oldest) > quota)
+          throw new FleetFault(
+            "replica_quota_insufficient",
+            "Shared checkpoint content exceeds delivery retention quota.",
+          );
         store
           .prepare("INSERT OR REPLACE INTO delivery_pin VALUES (?, ?, ?, ?, ?, ?, NULL)")
-          .run(
-            pinId(lease),
-            JSON.stringify(lease),
-            leaseRoot,
-            from !== null && cut(from) ? from : target.revision,
-            target.revision,
-            quota,
-          );
+          .run(pinId(lease), JSON.stringify(lease), leaseRoot, pinFrom, target.revision, quota);
         return [];
       });
       return target;

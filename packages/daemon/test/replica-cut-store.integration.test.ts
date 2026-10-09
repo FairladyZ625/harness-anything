@@ -20,6 +20,7 @@ import {
   sha256Bytes,
   sha256Text,
   type DocEventV1,
+  type CanonicalEventV1,
   type ReplicaProjectionBasis,
   type EdgeReadModelRows,
   artifactEntityContractSnapshot,
@@ -46,6 +47,7 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
 import { openRepoCell } from "../src/repo-cell.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
+import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 import { compileScheduleDeletedEvent } from "@harness-anything/kernel/internal/domain/schedule-event";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
@@ -1379,6 +1381,114 @@ async function verifyCanonicalRetirement(
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+test("retention totals follow shared blobs, disappearance, return, reopen, rollback and eviction", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-retention-accounting-"));
+  const leaseRoot = path.join(root, "center"),
+    ack = openReplicaAckStore(leaseRoot),
+    now = Date.now();
+  t.mock.method(Date, "now", () => now);
+  const lease = ack.delivery.claim({ repoId: "accounting", nodeId: "edge", viewId: "edge" }, "holder", now, 30_000)!;
+  const x = Buffer.from("shared-x"),
+    y = Buffer.from("other-y-longer"),
+    z = Buffer.from("z");
+  const documents = new Map([
+    ["context/a.txt", x],
+    ["context/b.txt", x],
+  ]);
+  let revision = 1;
+  let event: CanonicalEventV1 = lifecycleFixture().events[0]!;
+  const open = () =>
+    openReplicaCutSource({
+      repoId: "accounting",
+      localRoot: root,
+      readBasis: (after) => ({
+        watermark: revision,
+        sourceRevision: revision,
+        headEvent: event,
+        events: after === null ? [] : [event],
+        documents: [...documents].map(([path, body]) => ({
+          path,
+          blobSha256: sha256Bytes(body),
+          size: body.length,
+          mediaType: "text/plain",
+        })),
+      }),
+      readContentBlob: () => null,
+    });
+  let source = open();
+  const check = async () => {
+    const live = new Map<string, number>();
+    for (let from = revision; source.cut(from); from--) {
+      for (const entry of source.manifest(from)!) live.set(entry.blob.sha256, entry.blob.size);
+      const bytes = [...live.values()].reduce((a, b) => a + b, 0);
+      assert.equal((await source.pin(lease, from, bytes, leaseRoot)).revision, revision);
+      source.releasePin(lease);
+      await assert.rejects(source.pin(lease, from, bytes - 1, leaseRoot), { code: "replica_quota_insufficient" });
+      assert.equal(source.pinActive(lease), false);
+    }
+  };
+  try {
+    source.activate();
+    await check();
+    const edits: readonly (readonly [string, Buffer | null])[] = [
+      ["context/a.txt", null],
+      ["context/b.txt", y],
+      ["context/a.txt", x],
+      ["context/b.txt", null],
+      ["context/a.txt", z],
+      ["context/a.txt", null],
+      ["context/a.txt", x],
+      ["context/b.txt", x],
+      ["context/b.txt", x],
+    ];
+    for (const [itemPath, body] of edits) {
+      revision++;
+      event = docEvent(revision, itemPath, documents.get(itemPath) ?? null, body);
+      if (body === null) documents.delete(itemPath);
+      else documents.set(itemPath, body);
+      if (revision === 3) {
+        const prepare = DatabaseSync.prototype.prepare;
+        const mock = t.mock.method(DatabaseSync.prototype, "prepare", function (this: DatabaseSync, sql: string) {
+          const statement = prepare.call(this, sql);
+          if (sql.startsWith("INSERT OR IGNORE INTO cut("))
+            statement.run = () => {
+              throw new Error("injected cut publication failure");
+            };
+          return statement;
+        });
+        await assert.rejects(source.waitForCut(revision), /injected cut publication failure/u);
+        mock.mock.restore();
+        assert.equal(source.latest()!.revision, 2);
+        assert.equal((await source.pin(lease, 1, x.length, leaseRoot)).revision, 2);
+        source.releasePin(lease);
+      }
+      await source.waitForCut(revision);
+      await check();
+      if (revision === 4 || revision === 10) {
+        source.close();
+        source = open();
+        source.activate();
+        await check();
+      }
+    }
+    for (revision = 11; revision <= 75; revision++) {
+      event = { ...lifecycleFixture().events[0]!, workspaceRevision: revision };
+      await source.waitForCut(revision);
+    }
+    revision = 75;
+    assert.equal(source.cut(11), null);
+    await check();
+    source.close();
+    source = open();
+    source.activate();
+    await check();
+  } finally {
+    source.close();
+    ack.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function docEvent(workspaceRevision: number, itemPath: string, prior: Buffer | null, body: Buffer | null): DocEventV1 {
   const actor = { principal: { personId: "person-one" }, executor: null },
