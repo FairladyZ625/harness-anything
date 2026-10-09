@@ -1,4 +1,10 @@
-import type { CiObserveProgress, ScheduleV1, WriteReceiptDraft } from "@harness-anything/kernel";
+import {
+  inferLegacyGateRequirements,
+  localGitObjectRefStore,
+  type CiObserveProgress,
+  type ScheduleV1,
+  type WriteReceiptDraft,
+} from "@harness-anything/kernel";
 import {
   fetchCiObservations,
   isTransientCiProviderFailure,
@@ -9,6 +15,8 @@ import {
   type RunGh,
 } from "./ci-observation-actions.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { githubActionsWitnessEvidence } from "./repo-cell-ci-evidence.ts";
+import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { BuiltinExecutionResult } from "./schedule-builtin-executor.ts";
 
@@ -17,7 +25,10 @@ type Run = { readonly id: number; readonly run_attempt: number; readonly head_br
 
 /** Network and preparation stay outside the writer; only accept re-enters under the occurrence fence. */
 export async function reconcileCiOccurrence(input: {
-  readonly cell: Pick<RepoCellOperationalContext, "rootDir" | "settings" | "cellCodedError" | "projection" | "now">;
+  readonly cell: Pick<
+    RepoCellOperationalContext,
+    "rootDir" | "settings" | "cellCodedError" | "projection" | "projectionReady" | "now"
+  >;
   readonly schedule: ScheduleV1;
   readonly accept: (fetched: CiObservationFetch) => Promise<WriteReceiptDraft>;
   readonly requests: () => readonly RepoTaskAction[];
@@ -124,9 +135,40 @@ export async function reconcileCiOccurrence(input: {
     }
   };
   try {
+    // The canonical submission is the durable demand. Re-derive it on every center occurrence;
+    // accept publishes the witness before any diagnostic backlog or scan settlement.
+    for (const status of ["submitted", "in_review"] as const) {
+      for (const { taskId, snapshot } of cell.projection.list({ status }).rows) {
+        const execution = snapshot.executions.find(
+          (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
+        );
+        const submission = execution?.submission;
+        const requirement = (
+          submission?.completionContract?.gates ??
+          inferLegacyGateRequirements(snapshot.task?.completionGateIds ?? [], workflows)
+        ).find((gate) => gate.witness.adapterId === "github-actions");
+        if (
+          !submission ||
+          !requirement ||
+          !submission.commitSha ||
+          !localGitObjectRefStore.hasCommit(cell.rootDir, submission.commitSha)
+        )
+          continue;
+        if (githubActionsWitnessEvidence(cell as RepoCellOperationalContext, requirement, execution)?.result === "pass")
+          continue;
+        const result = await fetchSubmissionWitness(cell, taskId, gh);
+        if ("failure" in result) {
+          // No covering verdict yet is a pending submission, not a provider success.
+          // Authentication, rate limits and all other failures still fail the occurrence.
+          if (cellErrorCode(result.failure) !== "ci_witness_not_found") throw result.failure;
+          continue;
+        }
+        await accept(result.fetched);
+      }
+    }
     await accept(privateLedgerCiObservations(cell));
     for (const target of [...pending.values()]) if ((await observe(target))?.outcome === "pending") retain(target);
-    // Explicit refresh and completion hints drain into this same occurrence, never a second importer.
+    // Explicit refresh hints drain into this same occurrence, never a second importer.
     for (const request of input.requests()) await accept(await fetchCiObservations(cell, request, gh));
     if (workflows.length) {
       const workflowIndex = Math.min(progress.workflowIndex, workflows.length - 1),
@@ -210,6 +252,18 @@ export async function reconcileCiOccurrence(input: {
         retryAt: rateLimitReset(detail, cell.now()),
       },
     };
+  }
+}
+
+async function fetchSubmissionWitness(
+  cell: Parameters<typeof fetchCiObservations>[0],
+  taskId: string,
+  gh: RunGh,
+): Promise<{ readonly fetched: CiObservationFetch } | { readonly failure: unknown }> {
+  try {
+    return { fetched: await fetchCiObservations(cell, { kind: "ci-observe-pull", taskId }, gh) };
+  } catch (failure) {
+    return { failure };
   }
 }
 
