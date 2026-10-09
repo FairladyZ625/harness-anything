@@ -281,6 +281,7 @@ export async function deliverReplicaOffer(input: {
     release();
     throw error;
   } finally {
+    preparing = false;
     lifecycle.preparationFinished();
   }
   window.offers.set(offer.transferId, { key, lease, renewalFailure: renewalFailure.signal, release });
