@@ -1312,7 +1312,6 @@
   "views.workspace.tab.explainer": "工作说明",
   "views.workspace.explainer.regionTitle": "工作说明",
   "views.workspace.explainer.openFull": "打开完整工作说明",
-  "views.workspace.explainer.landingPending": "正在定位工作说明…",
   "views.workspace.explainer.repoMissing": "未选择仓库，无法读取工作说明。",
   "views.workspace.explainer.listPending": "正在读取工作说明清单…",
   "views.workspace.explainer.listNotReady": "工作说明清单投影尚未追平。",

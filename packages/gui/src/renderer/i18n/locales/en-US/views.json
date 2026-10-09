@@ -1312,7 +1312,6 @@
   "views.workspace.tab.explainer": "Explainer",
   "views.workspace.explainer.regionTitle": "Work explainer",
   "views.workspace.explainer.openFull": "Open the full explainer",
-  "views.workspace.explainer.landingPending": "Locating the work explainer…",
   "views.workspace.explainer.repoMissing": "No repository selected; the work explainer cannot be read.",
   "views.workspace.explainer.listPending": "Reading the work explainer manifest…",
   "views.workspace.explainer.listNotReady": "The work explainer manifest projection has not caught up yet.",
