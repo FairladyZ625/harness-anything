@@ -246,6 +246,18 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
     for (const [index, entry] of entries.entries()) insert.run(digest, index, entry.path, stableStringify(entry));
     return digest;
   };
+  // Content is shared across paths and checkpoints; charge each retained blob once.
+  const retainedBytes = (store: DatabaseSync, from: number): number =>
+    Number(
+      store
+        .prepare(
+          "SELECT SUM(size) AS bytes FROM (" +
+            "SELECT json_extract(entry_json, '$.blob.sha256') AS sha256, " +
+            "MAX(json_extract(entry_json, '$.blob.size')) AS size FROM manifest_entry " +
+            "WHERE manifest_digest IN (SELECT manifest_digest FROM cut WHERE revision >= ?) GROUP BY sha256)",
+        )
+        .get(from)?.bytes ?? 0,
+    );
   const prune = (store: DatabaseSync) => {
     const retained = store
         .prepare("SELECT revision FROM cut ORDER BY revision DESC LIMIT 64")
@@ -260,16 +272,9 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       const acknowledged = cursor?.revision === Number(pin.to_revision);
       const remaining = pin.remaining === null ? 64 : Number(pin.remaining) - 1;
       const from = acknowledged ? cursor.revision : Number(pin.from_revision);
-      const bytes = Number(
-        store
-          .prepare(
-            "SELECT SUM(total_bytes) AS bytes FROM (SELECT MAX(total_bytes) AS total_bytes FROM cut WHERE revision >= ? GROUP BY manifest_digest)",
-          )
-          .get(from)?.bytes ?? 0,
-      );
       if (
         (acknowledged ? remaining <= 0 : !liveLease(lease, String(pin.lease_root))) ||
-        bytes > Number(pin.quota) ||
+        (acknowledged && retainedBytes(store, from) > Number(pin.quota)) ||
         (cursor && cursor.revision > Number(pin.to_revision))
       ) {
         store.prepare("DELETE FROM delivery_pin WHERE id=?").run(String(pin.id));
@@ -723,18 +728,21 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
         const latestCut = latest();
         if (!latestCut) throw new FleetFault("replica_pending", "No checkpoint is published.");
         target = latestCut;
-        if (target.manifest.totalBytes > quota)
-          throw new FleetFault("replica_quota_insufficient", "Checkpoint exceeds delivery retention quota.");
+        const pinFrom = from !== null && cut(from) ? from : target.revision;
+        let oldest = pinFrom;
+        for (const pin of store.prepare("SELECT * FROM delivery_pin").all()) {
+          const held = JSON.parse(String(pin.lease_json)) as ReplicaDeliveryLease;
+          if (liveLease(held, String(pin.lease_root))) oldest = Math.min(oldest, Number(pin.from_revision));
+        }
+        // Admission may reject the newcomer, never revoke an already admitted live delivery.
+        if (retainedBytes(store, oldest) > quota)
+          throw new FleetFault(
+            "replica_quota_insufficient",
+            "Shared checkpoint content exceeds delivery retention quota.",
+          );
         store
           .prepare("INSERT OR REPLACE INTO delivery_pin VALUES (?, ?, ?, ?, ?, ?, NULL)")
-          .run(
-            pinId(lease),
-            JSON.stringify(lease),
-            leaseRoot,
-            from !== null && cut(from) ? from : target.revision,
-            target.revision,
-            quota,
-          );
+          .run(pinId(lease), JSON.stringify(lease), leaseRoot, pinFrom, target.revision, quota);
         return [];
       });
       return target;

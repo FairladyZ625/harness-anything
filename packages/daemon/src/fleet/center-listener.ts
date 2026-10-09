@@ -678,12 +678,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("connection_closed", "Delivery connection closed", true);
       }
       const guard = () => {
-        if (!replica.pinActive(lease) || !ackStore.delivery.renew(lease, Date.now(), ttlMs))
-          throw new FleetFault(
-            "replica_delivery_fenced",
-            "Delivery retention ended or lease expired or was replaced",
-            true,
-          );
+        if (!replica.pinActive(lease))
+          throw new FleetFault("replica_delivery_fenced", "Delivery checkpoint pin is no longer active", true);
+        if (!ackStore.delivery.renew(lease, Date.now(), ttlMs))
+          throw new FleetFault("replica_delivery_fenced", "Delivery lease renewal failed: expired or replaced", true);
       };
       let offer;
       try {
@@ -980,11 +978,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         key = delivery?.key;
       if (!key || !delivery || key.nodeId !== nodeId)
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
-      if (
-        !options.host.replica(key.repoId).pinActive(delivery.lease) ||
-        !ackStore.delivery.renew(delivery.lease, Date.now(), 30_000)
-      )
-        throw new FleetFault("replica_delivery_fenced", "ACK belongs to an expired or replaced delivery lease", true);
+      if (!options.host.replica(key.repoId).pinActive(delivery.lease))
+        throw new FleetFault("replica_delivery_fenced", "ACK checkpoint pin is no longer active", true);
+      if (!ackStore.delivery.renew(delivery.lease, Date.now(), 30_000))
+        throw new FleetFault("replica_delivery_fenced", "ACK lease renewal failed: expired or replaced", true);
       const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
       if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
       const result = ackStore.ack(

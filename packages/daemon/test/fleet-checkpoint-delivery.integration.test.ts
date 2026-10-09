@@ -208,42 +208,55 @@ test(
   },
 );
 
-test("a slow content RPC cannot revive its expired delivery lease", { timeout: 15_000 }, async (t) => {
-  const f = await fleetFixture(t);
-  t.after(() => f.close());
-  const source = f.host.replica(f.subject.repoId);
-  await source.prepare();
-  const content = source.delivery.content;
-  const { DatabaseSync } = await import("node:sqlite");
-  let crossed = false;
-  t.mock.method(source.delivery, "content", async (blob) => {
-    const result = await content(blob);
-    if (!crossed) {
-      crossed = true;
-      const db = new DatabaseSync(path.join(f.stateRoot, "replica/repos", f.subject.repoId, "ack.sqlite"));
-      try {
-        db.prepare("UPDATE delivery_lease SET expires_at=0 WHERE node_id=?").run(f.subject.nodeId);
-      } finally {
-        db.close();
-      }
-    }
-    return result;
-  });
-  const center = await f.center();
-  await assert.rejects(
-    runFleetReplicaPullClient({
-      port: center.port,
-      ca: f.cert,
-      nodeId: f.subject.nodeId,
-      credential: "machine-secret",
-      repoId: f.subject.repoId,
-      viewRoot: path.join(f.root, "expired-rpc"),
-      diskQuotaBytes: 64 * 1024 * 1024,
-    }),
-    { code: "replica_delivery_fenced" },
-  );
-  assert.equal(crossed, true);
-});
+for (const phase of ["Delivery", "ACK"] as const) {
+  for (const cause of ["pin", "lease"] as const) {
+    test(`${phase} reports ${cause} fencing separately`, { timeout: 15_000 }, async (t) => {
+      const f = await fleetFixture(t);
+      t.after(() => f.close());
+      const source = f.host.replica(f.subject.repoId);
+      await source.prepare();
+      let crossed = false;
+      const fence = () => {
+        crossed = true;
+        if (cause === "pin") {
+          t.mock.method(source, "pinActive", () => false);
+        } else {
+          const db = new DatabaseSync(path.join(f.stateRoot, "replica/repos", f.subject.repoId, "ack.sqlite"));
+          try {
+            db.prepare("UPDATE delivery_lease SET expires_at=0 WHERE node_id=?").run(f.subject.nodeId);
+          } finally {
+            db.close();
+          }
+        }
+      };
+      const content = source.delivery.content;
+      if (phase === "Delivery")
+        t.mock.method(source.delivery, "content", async (blob) => {
+          const result = await content(blob);
+          if (!crossed) fence();
+          return result;
+        });
+      const center = await f.center();
+      await assert.rejects(
+        runFleetReplicaPullClient({
+          port: center.port,
+          ca: f.cert,
+          nodeId: f.subject.nodeId,
+          credential: "machine-secret",
+          repoId: f.subject.repoId,
+          viewRoot: path.join(f.root, "fenced-rpc"),
+          diskQuotaBytes: 64 * 1024 * 1024,
+          ...(phase === "ACK" ? { beforeAck: fence } : {}),
+        }),
+        {
+          code: "replica_delivery_fenced",
+          message: `replica_delivery_fenced: ${phase} ${cause === "pin" ? "checkpoint pin is no longer active" : "lease renewal failed: expired or replaced"}`,
+        },
+      );
+      assert.equal(crossed, true);
+    });
+  }
+}
 
 test(
   "continuous canonical writes outpace construction while TLS snapshot reaches ACK",
@@ -283,8 +296,8 @@ test(
     } finally {
       db.close();
     }
-    // Reserve the bounded writer's logical manifest retention, not just one snapshot.
-    const quota = 16 * 1024 * 1024 * 1024;
+    // About five snapshot sizes, matching the center-to-snapshot ratio in a large repository.
+    const quota = 320 * 1024 * 1024;
     const center = await f.center(quota);
     const started = performance.now();
     const progress: { phase: string; ms: number; writes: number; head: number; built: number }[] = [];
