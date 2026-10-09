@@ -95,6 +95,7 @@ export type SessionWindow = {
     {
       readonly key: ReplicaDeliveryKey;
       readonly lease: ReplicaDeliveryLease;
+      readonly renewalFailure: AbortSignal;
       readonly release: (acknowledged?: boolean) => void;
     }
   >;

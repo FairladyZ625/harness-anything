@@ -675,7 +675,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       } finally {
         lifecycle.preparationFinished();
       }
-      window.offers.set(offer.transferId, { key, lease, release });
+      window.offers.set(offer.transferId, { key, lease, renewalFailure: renewalFailure.signal, release });
       ackStore.delivery.record(key, { started: offer.kind });
       return {
         key: id,
@@ -979,6 +979,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
       let acknowledged = false;
       try {
+        delivery.renewalFailure.throwIfAborted();
         if (!options.host.replica(key.repoId).pinActive(delivery.lease))
           throw fenced(delivery.lease, "ACK", false, ackStore.delivery.inspect(delivery.lease, Date.now()));
         const at = Date.now();

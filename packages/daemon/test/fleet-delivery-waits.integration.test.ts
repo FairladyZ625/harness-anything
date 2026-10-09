@@ -103,7 +103,7 @@ test(
   },
 );
 
-for (const ending of ["ack", "rejected-ack", "disconnect"] as const) {
+for (const ending of ["ack", "rejected-ack", "disconnect", "renewal-failure"] as const) {
   test(`${ending} ends renewal even if the session would otherwise remain open`, { timeout: 15_000 }, async (t) => {
     const f = await fleetFixture(t);
     t.after(() => f.close());
@@ -128,6 +128,15 @@ for (const ending of ["ack", "rejected-ack", "disconnect"] as const) {
       frame = await peer.receive();
     }
     assert.ok(snapshot);
+    if (ending === "renewal-failure") {
+      const failedRead = t.mock.method(source, "pinActive", () => {
+        throw new Error("controlled renewal read failure");
+      });
+      t.mock.timers.tick(10_000);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(failedRead.mock.callCount(), 1);
+      failedRead.mock.restore();
+    }
     if (ending === "disconnect") {
       peer.close();
       await released;
@@ -137,10 +146,13 @@ for (const ending of ["ack", "rejected-ack", "disconnect"] as const) {
         messageId: "ack",
         transferId: snapshot.transferId,
         cut: snapshot.cut,
-        manifestDigest: ending === "ack" ? snapshot.manifest.digest : "f".repeat(64),
+        manifestDigest: ending === "rejected-ack" ? "f".repeat(64) : snapshot.manifest.digest,
       });
       assert.equal(result.schema, ending === "ack" ? "fleet.ack.result/v1" : "fleet.error/v1", JSON.stringify(result));
-      if (result.schema === "fleet.error/v1") assert.equal(result.code, "invalid_ack");
+      if (result.schema === "fleet.error/v1") {
+        assert.equal(result.code, ending === "renewal-failure" ? "handler_failed" : "invalid_ack");
+        if (ending === "renewal-failure") assert.equal(result.message, "controlled renewal read failure");
+      }
     }
     assert.equal(center.pendingDeliveries(), 0);
     assert.equal(center.status().replicas[0]!.deliveryLease, null);
