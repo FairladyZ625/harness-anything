@@ -1,4 +1,6 @@
+import { FleetFault } from "./center-types.ts";
 import type { ReplicaDeliveryLease } from "./replica-delivery-lease.ts";
+import type { ReplicaDeliveryKey } from "./replica-ack-store.ts";
 import { Worker } from "node:worker_threads";
 import path from "node:path";
 import { openReplicaCutSource, type ReplicaCutSourceOptions, type SnapshotCut } from "./replica-cut-store.ts";
@@ -16,7 +18,8 @@ export type CutRequest =
   | { readonly kind: "wait"; readonly revision: number }
   | {
       readonly kind: "pin";
-      readonly lease: ReplicaDeliveryLease;
+      readonly key: ReplicaDeliveryKey;
+      readonly holderId: string;
       readonly from: number | null;
       readonly quota: number;
       readonly leaseRoot: string;
@@ -24,7 +27,9 @@ export type CutRequest =
 export interface CutResponse {
   readonly id: number;
   readonly value?: unknown;
-  readonly error?: { readonly message: string; readonly code?: string };
+  readonly error?:
+    | { readonly kind: "fleet"; readonly message: string; readonly code: string; readonly retryable: boolean }
+    | { readonly kind: "unexpected"; readonly message: string; readonly code?: string };
 }
 
 /** One owner per repository cell, shared by every admitted edge; no connection owns a build. */
@@ -55,7 +60,12 @@ export function openReplicaCutWorker(options: ReplicaCutSourceOptions, input: Re
         const row = pending.get(message.id);
         if (!row) return;
         pending.delete(message.id);
-        if (message.error) row.reject(Object.assign(new Error(message.error.message), { code: message.error.code }));
+        if (message.error)
+          row.reject(
+            message.error.kind === "fleet"
+              ? new FleetFault(message.error.code, message.error.message, message.error.retryable)
+              : Object.assign(new Error(message.error.message), { code: message.error.code }),
+          );
         else row.resolve(message.value);
       });
       worker.once("error", fail);
@@ -103,8 +113,15 @@ export function openReplicaCutWorker(options: ReplicaCutSourceOptions, input: Re
     releasePin: (lease: ReplicaDeliveryLease) => {
       void request({ kind: "releasePin", lease }).catch(fail);
     },
-    pin: (lease: ReplicaDeliveryLease, from: number | null, quota: number, leaseRoot: string) =>
-      request<SnapshotCut>({ kind: "pin", lease, from, quota, leaseRoot }),
+    pin: (key: ReplicaDeliveryKey, holderId: string, from: number | null, quota: number, leaseRoot: string) =>
+      request<{ readonly cut: SnapshotCut; readonly lease: ReplicaDeliveryLease }>({
+        kind: "pin",
+        key,
+        holderId,
+        from,
+        quota,
+        leaseRoot,
+      }),
     // Immutable delivery reads use the metadata connection, never the synchronous builder queue.
     delivery: metadata.delivery,
     close: () => {

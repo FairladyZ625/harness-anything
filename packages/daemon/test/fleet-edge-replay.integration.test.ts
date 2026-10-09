@@ -426,6 +426,7 @@ test("received complete blobs are verified before finish and pinned across anoth
     const other = Buffer.from("other");
     for (const frame of snapshotFrames("other", "other", wireCut(1), [wireEntry("context/other.md", other)], [other]))
       view.receive(frame);
+    view.collect("repo", "other", "other");
     assert.equal(readFileSync(cas, "utf8"), body.toString(), "GC must retain in-flight verified blobs");
     assert.equal(view.receive(frames.at(-1)!)?.schema, "fleet.ack/v1");
     const indexed = locateFleetMirrorView(root, "repo", "receiving")!,

@@ -86,7 +86,7 @@ test("pin admission and ACK-window pruning do not scan retained manifest entries
   try {
     source.activate();
     const lease = ack.delivery.claim(key, "ack", now, 30_000)!;
-    const target = await source.pin(lease, null, 16 * 1024 ** 3, leaseRoot);
+    const { cut: target } = await source.pin(lease, lease.holderId, null, 16 * 1024 ** 3, leaseRoot);
     assert.equal(target.manifest.entryCount, count);
     const offer = ack.offer(key, await makeOffer(key, null, target, source, new Date(now).toISOString()));
     assert.equal(
@@ -116,7 +116,10 @@ test("pin admission and ACK-window pruning do not scan retained manifest entries
       for (let repeat = 0; repeat < 3; repeat++) {
         admitting = true;
         const started = performance.now();
-        assert.equal((await source.pin(newcomer, 1, 16 * 1024 ** 3, leaseRoot)).revision, revision);
+        assert.equal(
+          (await source.pin(newcomer, newcomer.holderId, 1, 16 * 1024 ** 3, leaseRoot)).cut.revision,
+          revision,
+        );
         admissions.push(performance.now() - started);
         admitting = false;
         source.releasePin(newcomer);
@@ -142,7 +145,7 @@ test("pin admission and ACK-window pruning do not scan retained manifest entries
     coldOpening = false;
     admitting = true;
     const reopenedPinStarted = performance.now();
-    assert.equal((await source.pin(newcomer, 1, 16 * 1024 ** 3, leaseRoot)).revision, 5);
+    assert.equal((await source.pin(newcomer, newcomer.holderId, 1, 16 * 1024 ** 3, leaseRoot)).cut.revision, 5);
     const reopenedPinMs = performance.now() - reopenedPinStarted;
     admitting = false;
     t.diagnostic(

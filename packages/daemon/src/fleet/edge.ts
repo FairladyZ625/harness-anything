@@ -1,4 +1,5 @@
 import { uploadFleetChange } from "./upload-client.ts";
+import { referencedEdgeBlobs } from "./edge-view-references.ts";
 import {
   orderedEdgeManifestDigest,
   readEdgeManifestEntries,
@@ -56,6 +57,7 @@ type Current = {
 export interface FleetEdgeView {
   readonly receive: (frame: FleetFrameV1) => FleetFrameV1 | null;
   readonly current: (repoId: string, viewId: string) => Current | null;
+  readonly collect: (repoId: string, viewId: string, transferId: string) => void;
 }
 export interface FleetEdgeChange {
   readonly path: string;
@@ -135,6 +137,16 @@ export function openFleetEdgeView(
       readJson(path.join(viewRoot(repoId, viewId), "current.json"));
   return {
     current,
+    collect: (repoId, viewId, transferId) => {
+      const root = viewRoot(repoId, viewId),
+        published = current(repoId, viewId)!;
+      collect(
+        root,
+        path.join(repoRoot(repoId), "cas", "sha256"),
+        `${published.cut.revision}-g${published.schemaGeneration}`,
+      );
+      rmSync(path.join(root, ".staging", transferId), { recursive: true, force: true });
+    },
     receive: (frame) => {
       if (frame.schema === "fleet.snapshot.begin/v1" || frame.schema === "fleet.delta.begin/v1") {
         const root = viewRoot(frame.repoId, frame.viewId),
@@ -277,7 +289,6 @@ function finish(
     JSON.stringify(already?.cut) === JSON.stringify(cut) &&
     already?.manifestDigest === expected
   ) {
-    rmSync(staging, { recursive: true, force: true });
     return ack(begin.transferId, cut, expected);
   }
   if (already?.cut.revision === cut.revision && already.cut.headDigest !== cut.headDigest)
@@ -409,10 +420,9 @@ function finish(
     active = readJson<Current>(path.join(viewRoot, "current.json"));
   if (!reopened || !active || reopened.manifestDigest !== digest || JSON.stringify(active.cut) !== JSON.stringify(cut))
     throw new Error("atomic view verification failed");
-  collect(viewRoot, casRoot, `${cut.revision}-g${schemaGeneration}`);
-  rmSync(staging, { recursive: true, force: true });
   return ack(begin.transferId, cut, digest);
 }
+
 function collect(viewRoot: string, casRoot: string, currentIdentity: string): void {
   const cutsRoot = path.join(viewRoot, "cuts"),
     revisions = existsSync(cutsRoot)
@@ -430,31 +440,7 @@ function collect(viewRoot: string, casRoot: string, currentIdentity: string): vo
   const viewsRoot = path.dirname(viewRoot),
     views = readdirSync(viewsRoot);
   if (views.length > 64) return;
-  const referenced = new Set<string>();
-  for (const view of views) {
-    // Receiving views have already verified some blobs into the shared CAS.
-    // Their durable pages pin those blobs until publication or staging eviction.
-    const stagingRoot = path.join(viewsRoot, view, ".staging");
-    if (existsSync(stagingRoot))
-      for (const transfer of readdirSync(stagingRoot)) {
-        const transferRoot = path.join(stagingRoot, transfer);
-        for (const name of readdirSync(transferRoot).filter((name) => /^page-\d+\.json$/u.test(name))) {
-          const page = readJson<Extract<FleetFrameV1, { schema: "fleet.snapshot.page/v1" | "fleet.delta.page/v1" }>>(
-            path.join(transferRoot, name),
-          )!;
-          for (const entry of page.schema === "fleet.snapshot.page/v1" ? page.entries : page.changes)
-            if ("blob" in entry) referenced.add(entry.blob.sha256);
-        }
-      }
-    const root = path.join(viewsRoot, view, "cuts");
-    if (!existsSync(root)) continue;
-    for (const revision of readdirSync(root)
-      .filter((name) => /^\d+-g\d+$/u.test(name))
-      .slice(0, 2)) {
-      const file = path.join(root, revision, "manifest.json");
-      if (existsSync(file)) for (const entry of readEdgeManifestEntries(file)) referenced.add(entry.blob.sha256);
-    }
-  }
+  const referenced = referencedEdgeBlobs(viewsRoot, views);
   let removed = 0;
   if (existsSync(casRoot))
     outer: for (const prefix of readdirSync(casRoot).slice(0, 64))
@@ -464,6 +450,7 @@ function collect(viewRoot: string, casRoot: string, currentIdentity: string): vo
           if (++removed >= 64) break outer;
         }
 }
+
 function ack(
   transferId: string,
   cut: FleetCut,
@@ -885,6 +872,8 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
         const acknowledged = await session.request(response);
         if (acknowledged.schema !== "fleet.ack.result/v1") throw new Error("ACK result expected");
         if (acknowledged.outcome === "op_rejected") throw new Error("replica ACK rejected");
+        // Publication is durable before ACK; reclamation must not consume its delivery lease.
+        view.collect(options.repoId, acknowledged.viewId, response.transferId);
         recordHeadConfirmation(
           path.join(options.viewRoot, "repos", options.repoId, "views", acknowledged.viewId),
           acknowledged.knownHead,
