@@ -211,7 +211,7 @@ for (const cause of ["replacement", "read-error"] as const)
         (error: Error & { code?: string }) => {
           if (cause === "read-error") {
             assert.equal(error.code, "handler_failed");
-            assert.equal(error.message, "controlled held-read renewal failure");
+            assert.equal(error.message, "handler_failed: controlled held-read renewal failure");
             return true;
           }
           assert.equal(error.code, "replica_delivery_fenced");
