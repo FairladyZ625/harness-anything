@@ -1,3 +1,4 @@
+import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
 import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
@@ -50,6 +51,7 @@ import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-stor
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   mkdirSync(options.stateRoot, { recursive: true });
   const closing = new AbortController();
+  const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
     ackStore = openReplicaAckStore(options.stateRoot),
@@ -558,6 +560,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.replica.pull/v1") {
+      if (options.buildDraining?.())
+        throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
       const { a, replica, owner } = await admitReplica(nodeId, frame.repoId);
       const preparation = new AbortController();
       const signal = AbortSignal.any([connectionSignal, closing.signal, preparation.signal]);
@@ -656,6 +660,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         );
       // Transport leases share the host wall clock with cut-worker pin/GC, not the business event clock.
       const ttlMs = 30_000;
+      if (options.buildDraining?.())
+        throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
       const lease = ackStore.delivery.claim(key, window.holderId, Date.now(), ttlMs);
       if (!lease) {
         ackStore.delivery.record(key, { failureCode: "replica_delivery_busy" });
@@ -665,15 +671,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           true,
         );
       }
+      const lifecycle = deliveries.admit();
       const release = (acknowledged = false) => {
         ackStore.clearOffer(lease);
         ackStore.delivery.release(lease);
         if (!acknowledged) replica.releasePin(lease);
         connectionSignal?.removeEventListener("abort", disconnected);
+        lifecycle.released();
       };
       const disconnected = () => release();
       connectionSignal?.addEventListener("abort", disconnected, { once: true });
       if (connectionSignal?.aborted) {
+        lifecycle.preparationFinished();
+        lifecycle.sendingFinished();
         release();
         throw new FleetFault("connection_closed", "Delivery connection closed", true);
       }
@@ -696,8 +706,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         ackStore.clearOffer(lease);
         offer = ackStore.offer(key, prepared);
       } catch (error) {
+        lifecycle.sendingFinished();
         release();
         throw error;
+      } finally {
+        lifecycle.preparationFinished();
       }
       window.offers.set(offer.transferId, { key, lease, release });
       ackStore.delivery.record(key, { started: offer.kind });
@@ -705,7 +718,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         key: id,
         beforeSend: guard,
         onSent: (bytes) => ackStore.delivery.record(key, { bytes }),
+        onComplete: () => {
+          lifecycle.sendingFinished();
+        },
         onFailure: (error) => {
+          lifecycle.sendingFinished();
           ackStore.delivery.record(key, { failureCode: runtimeErrorCode(error) ?? "replica_delivery_failed" });
           release();
         },
@@ -1029,6 +1046,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   let closed = false;
   return {
     port: address.port,
+    pendingDeliveries: deliveries.pending,
     disconnectNode: (nodeId: string) => {
       const live = sessions.get(nodeId);
       if (!live) return;
