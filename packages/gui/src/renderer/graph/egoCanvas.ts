@@ -14,7 +14,7 @@ import { STATUS_META } from "../components/badges";
  *
  * 取代固定三泳道 ego(该决策 RJ1 明确否决「固定 1 跳上 / 1 跳下三列」):三类实体统一,
  * 以焦点为 0 级,按跳级(BFS hop)分层成列 —— 上游系谱→左,下游落地→右,同级竖排、
- * barycenter 排序减少交叉。确定性布局、零重叠、不引第三方布局器。
+ * barycenter 排序减少交叉。确定性 chip 布局、不引第三方布局器。
  *
  * 图场景 2026-10-02 恢复节点原位展开(业主批准,task_baca8e2b3e32c288fbd14b71f0;
  * 旧 §5.2「节点一律 chip」被本指令覆盖,抽屉不再承载节点正文,只保留边):
@@ -23,7 +23,7 @@ import { STATUS_META } from "../components/badges";
  *   egoNeighborsOf   — 某节点经轴过滤的一跳邻居(expandNode 长出下一环用)。
  *   layoutEgoCanvas  — 给定 (focusId, shown, expanded, filters) → 节点位置 + 边。
  *
- * 不变量:布局接续宿主保存的中心。初次摆放预留卡片范围;展开只往 shown 里加、
+ * 不变量:布局接续宿主保存的中心。初次摆放保留焦点两侧走线通道,邻居按 chip 排布;展开卡片覆盖邻居、
  * 收起只从 expanded 里减 —— 已铺开的邻居永不撤回,画布永不因节点交互重排
  * (换焦点/跳数步进/分层开关这些显式视图切换才重铺)。
  */
@@ -250,7 +250,7 @@ const GAP_Y = 36;
 const H_CAP_FOCUS = 640;
 const H_CAP_PERIPH = 480;
 
-/** 卡片高度的内容感知估算(地板与 cap 由 egoNodeDims 叠加)。 */
+/** Content-aware reading footprint; egoNodeDims caps long bodies. */
 export function estimateEgoCardHeight(entity: EgoEntity, row: EgoNodeMeta["row"], width: number): number {
   const cpl = Math.max(20, Math.floor((width - 24) / 8.5));
   const LINE = 22;
@@ -280,19 +280,19 @@ export function estimateEgoCardHeight(entity: EgoEntity, row: EgoNodeMeta["row"]
   return height;
 }
 
-/** 节点尺寸:chip 定值;卡片按内容估高 + 可读地板 + 硬 cap(超出由内部滚动兜底)。 */
+/** Chips stay compact; cards follow content up to the viewport reading cap, then scroll. */
 export function egoNodeDims(
   entity: EgoEntity,
   expanded: boolean,
   row: EgoNodeMeta["row"] | undefined,
   isFocus: boolean,
+  cardHeightCap?: number,
 ): { w: number; h: number } {
   if (!expanded || !row) return { w: CHIP_W, h: CHIP_H };
   const visual = entityKindVisual(entity);
   const w = isFocus ? visual.cardWFocus : visual.cardW;
-  const minH = isFocus ? visual.minHFocus : visual.minHPeriph;
-  const cap = isFocus ? H_CAP_FOCUS : H_CAP_PERIPH;
-  return { w, h: Math.min(Math.max(estimateEgoCardHeight(entity, row, w), minH), cap) };
+  const cap = Math.min(isFocus ? H_CAP_FOCUS : H_CAP_PERIPH, cardHeightCap ?? Infinity);
+  return { w, h: Math.min(estimateEgoCardHeight(entity, row, w), cap) };
 }
 
 export interface EgoCanvasInput {
@@ -306,6 +306,8 @@ export interface EgoCanvasInput {
   expanded: ReadonlySet<string>;
   /** 已摆放的中心,显式重铺时由宿主清空。 */
   centers?: ReadonlyMap<string, { x: number; y: number }>;
+  /** Shared long-content cap resolved against the actual graph viewport. */
+  cardHeightCap?: number;
 }
 
 export interface EgoCanvasLayout {
@@ -335,12 +337,6 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
 
   const axisOn = (axis: SemanticAxis): boolean => filters.axes[axis];
   const typeOn = (entity: EgoEntity): boolean => filters.types === null || filters.types.has(entity);
-  const dimOf = (id: string) => {
-    const meta = byId.get(id);
-    const dims = egoNodeDims(meta?.entity ?? "task", true, meta?.row, id === focusId);
-    // 初次摆放预留卡片的最大阅读范围,展开时无须挪动邻居让位。
-    return { w: dims.w, h: id === focusId ? H_CAP_FOCUS : H_CAP_PERIPH };
-  };
 
   // ── 可见集:shown ∩ 类型开关;焦点恒可见(不被自身类型开关抹掉) ──
   const vis = new Set<string>([focusId]);
@@ -399,7 +395,8 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     ["down", 1],
     ["up", -1],
   ] as const) {
-    let cx = dimOf(focusId).w / 2;
+    // 焦点卡两侧保留走线通道;基准不随展开态变化,邻居列仍只按 chip 排布。
+    let cx = entityKindVisual(focusMeta.entity).cardWFocus / 2;
     const depths = [...cols.keys()]
       .filter((key) => key.startsWith(`${sideKey}:`))
       .map((key) => Number(key.split(":")[1]))
@@ -407,19 +404,18 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     for (const depth of depths) {
       const ids = cols.get(`${sideKey}:${depth}`)!;
       ids.sort((a, b) => barycenter(a, depth - 1) - barycenter(b, depth - 1) || a.localeCompare(b));
-      const colW = Math.max(...ids.map((id) => dimOf(id).w));
-      cx += GAP_X + colW / 2;
-      const totalH = ids.reduce((acc, id) => acc + dimOf(id).h + GAP_Y, -GAP_Y);
+      cx += GAP_X + CHIP_W / 2;
+      const totalH = ids.length * (CHIP_H + GAP_Y) - GAP_Y;
       let y = -totalH / 2;
       for (const id of ids) {
-        const h = dimOf(id).h;
-        pos.set(id, { x: sign * cx, y: y + h / 2 });
-        y += h + GAP_Y;
+        pos.set(id, { x: sign * cx, y: y + CHIP_H / 2 });
+        y += CHIP_H + GAP_Y;
       }
-      cx += colW / 2;
+      cx += CHIP_W / 2;
     }
   }
 
+  // 邻居只按 chip 尺寸摆放;展开卡片以更高层级覆盖邻居,不预留邻居阅读态空间。
   // 已有节点锁定中心;新邻居只寻找空位,不会推走旧列。每次碰撞把候选 y
   // 推到冲突节点的下边界之后,单调向下且已占用集合有限。
   const placed = new Map<string, { x: number; y: number }>();
@@ -430,19 +426,13 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
   for (const id of vis) {
     if (placed.has(id)) continue;
     const center = { ...pos.get(id)! };
-    const dims = dimOf(id);
     let conflicts: string[];
     do {
       conflicts = [...placed.keys()].filter((other) => {
         const at = placed.get(other)!;
-        const size = dimOf(other);
-        return (
-          Math.abs(center.x - at.x) < (dims.w + size.w) / 2 + GAP_X &&
-          Math.abs(center.y - at.y) < (dims.h + size.h) / 2 + GAP_Y
-        );
+        return Math.abs(center.x - at.x) < CHIP_W + GAP_X && Math.abs(center.y - at.y) < CHIP_H + GAP_Y;
       });
-      if (conflicts.length)
-        center.y = Math.max(...conflicts.map((other) => placed.get(other)!.y + (dimOf(other).h + dims.h) / 2 + GAP_Y));
+      if (conflicts.length) center.y = Math.max(...conflicts.map((other) => placed.get(other)!.y + CHIP_H + GAP_Y));
     } while (conflicts.length > 0);
     placed.set(id, center);
   }
@@ -454,7 +444,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     if (!meta) continue;
     const center = placed.get(id)!;
     const isExpanded = expanded.has(id);
-    const { w, h } = egoNodeDims(meta.entity, isExpanded, meta.row, id === focusId);
+    const { w, h } = egoNodeDims(meta.entity, isExpanded, meta.row, id === focusId, input.cardHeightCap);
     // 「还有多少邻居没铺开」—— chip 上的 +N 徽章,点开这张卡片会长出它们。
     let hiddenCount = 0;
     for (const entry of adj.get(id) ?? []) {
@@ -484,7 +474,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
         navRef: meta.entity === "task" ? `task/${id}` : id,
       },
       draggable: false,
-      zIndex: id === focusId ? 6 : 1,
+      zIndex: isExpanded ? 7 : id === focusId ? 6 : 1,
     });
   }
 

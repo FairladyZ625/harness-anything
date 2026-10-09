@@ -136,6 +136,7 @@
   "components.graphFilterPanel.densityAll": "全部",
   "components.graphFilterPanel.densityHint": "重点模式默认开:pinned task ∪ 非终态 task ∪ 最近 14 天有变更,加它们一跳的 decision/fact/agent/schedule;其余折叠成计数徽章,pinned 永不折叠。",
   "components.graphFilterPanel.entityStatus": "实体状态",
+  "components.graphFilterPanel.moreEntityTypes": "更多实体类型（{count}）",
   "components.graphFilterPanel.entityTypes": "实体类型",
   "components.graphFilterPanel.expandFilterPanel": "展开筛选面板",
   "components.graphFilterPanel.filters": "筛选",

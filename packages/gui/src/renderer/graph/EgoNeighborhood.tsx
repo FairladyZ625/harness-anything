@@ -3,6 +3,7 @@ import {
   ReactFlow,
   MiniMap,
   Controls,
+  Panel,
   Background,
   BackgroundVariant,
   ReactFlowProvider,
@@ -20,6 +21,7 @@ import {
   type EgoHopBudget,
 } from "./egoCanvas";
 import { mergeEgoSession, readEgoSessionFor } from "./egoSession";
+import { useEntryMotion } from "../motion-config.tsx";
 import { GraphDrawer } from "./GraphDrawer";
 import { EgoNode } from "./nodes/EgoNode";
 import { InteractiveEdge } from "./edges/InteractiveEdge";
@@ -78,6 +80,8 @@ export type EgoNeighborhoodProps = {
   repoId: string;
   /** 主图导航上下文持有会话;嵌入邻域默认不读写它。 */
   rememberSession?: boolean;
+  /** The host resolves the shared reading cap from its actual container height. */
+  cardHeightCap?: number;
   focusRef: string | null;
   tasks: readonly TaskRow[];
   decisions: DecisionRow[];
@@ -118,6 +122,7 @@ const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 } as const;
 function EgoNeighborhoodInner({
   repoId,
   rememberSession = false,
+  cardHeightCap,
   focusRef,
   tasks,
   decisions,
@@ -140,11 +145,14 @@ function EgoNeighborhoodInner({
   active = true,
 }: EgoNeighborhoodProps & { filters: EgoNeighborhoodFilters; hops: EgoHopBudget }) {
   const colorMode = useColorMode();
+  const motion = useEntryMotion();
+  const motionDuration = useRef(200);
+  motionDuration.current = motion.enabled ? (motion.reduced ? 100 : 200) : 0;
   const { setCenter, getZoom } = useReactFlow();
   // 会话恢复的视口只取一次(挂载时的初值);之后视口归用户的 pan/zoom。
   const [session] = useState(() => (rememberSession ? readEgoSessionFor(repoId, focusRef) : null));
   const initialViewport = session?.viewport ?? DEFAULT_VIEWPORT;
-  const positionsRef = useRef({ version: 0, centers: new Map(session?.centers ?? []) });
+  const positionsRef = useRef({ version: 0, cardHeightCap, centers: new Map(session?.centers ?? []) });
 
   const statusFilter = filters.statusFilter ?? DEFAULT_STATUS_FILTER;
   const [focusEdgeId, setFocusEdgeId] = useState<string | null>(null);
@@ -202,15 +210,25 @@ function EgoNeighborhoodInner({
               axes: filters.axes,
               kinds: filters.kinds,
               types: filters.types,
-              flowMode: filters.flowMode,
+              flowMode: motion.enabled && !motion.reduced ? filters.flowMode : "off",
             },
             shown: canvas.shown,
             expanded: canvas.expanded,
-            centers: positionsRef.current.version === canvas.layoutVersion ? positionsRef.current.centers : undefined,
+            cardHeightCap,
+            centers:
+              positionsRef.current.version === canvas.layoutVersion &&
+              (positionsRef.current.cardHeightCap === cardHeightCap ||
+                (canvas.restored && positionsRef.current.cardHeightCap === undefined))
+                ? positionsRef.current.centers
+                : undefined,
           })
         : null,
     [
       canvas.focusId,
+      canvas.restored,
+      cardHeightCap,
+      motion.enabled,
+      motion.reduced,
       canvas.graph,
       canvas.shown,
       canvas.expanded,
@@ -234,9 +252,9 @@ function EgoNeighborhoodInner({
         x: node.position.x + Number(node.width) / 2,
         y: node.position.y + Number(node.height) / 2,
       });
-    positionsRef.current = { version: canvas.layoutVersion, centers };
+    positionsRef.current = { version: canvas.layoutVersion, cardHeightCap, centers };
     if (rememberSession) mergeEgoSession(repoId, { focusRef: spotlight.focusId, centers: [...centers] });
-  }, [spotlight, canvas.layoutVersion, rememberSession, repoId]);
+  }, [spotlight, canvas.layoutVersion, cardHeightCap, rememberSession, repoId]);
 
   const statusVisibleIds = useMemo(() => {
     if (!spotlight) return null;
@@ -301,7 +319,9 @@ function EgoNeighborhoodInner({
     if (!canvas.focusId) return;
     if (hydratedFocusRef.current === canvas.focusId) return;
     hydratedFocusRef.current = null;
-    const frame = requestAnimationFrame(() => void setCenter(0, 0, { zoom: getZoom(), duration: 200 }));
+    const frame = requestAnimationFrame(
+      () => void setCenter(0, 0, { zoom: getZoom(), duration: motionDuration.current }),
+    );
     return () => cancelAnimationFrame(frame);
   }, [active, canvas.focusId, setCenter, getZoom]);
 
@@ -362,47 +382,49 @@ function EgoNeighborhoodInner({
 
   return (
     // 画布铺满内容区(§2.6);GraphDrawer 是 fixed 定位的右侧覆盖抽屉,只承载边。
-    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
-      {panelSlot && <div className="shrink-0 border-b border-border bg-surface px-2 py-2">{panelSlot}</div>}
-      <div className="min-h-0 flex-1">
-        <ReactFlow<EgoFlowNode, EgoFlowEdge>
-          nodes={displayNodes}
-          edges={displayEdges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodeClick={onNodeClick}
-          onEdgeClick={onEdgeClick}
-          onPaneClick={onPaneClick}
-          onMoveEnd={onMoveEnd}
-          defaultViewport={initialViewport}
-          colorMode={colorMode}
-          minZoom={0.05}
-          maxZoom={2}
-          zoomOnDoubleClick={false}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          attributionPosition="bottom-right"
-        >
-          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--color-border)" />
-          <Controls className="bg-surface-raised border-border" />
-          <MiniMap<EgoFlowNode>
-            data-testid="graph-minimap"
-            bgColor="var(--color-surface)"
-            nodeColor={(n) => {
-              const entity = n.data.entity;
-              if (entity === "decision") return "var(--color-axis-authority)";
-              if (entity === "fact") return "var(--color-axis-evidence)";
-              if (entity === "agent" || entity === "schedule") return "var(--color-axis-assoc)";
-              return "var(--color-axis-execution)";
-            }}
-            nodeStrokeColor="var(--color-border-strong)"
-            maskColor={minimapMaskColor(colorMode)}
-            className="border border-border rounded overflow-hidden"
-            pannable
-            zoomable
-          />
-        </ReactFlow>
-      </div>
+    <div className="content-viewport graph-ego-canvas relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      <ReactFlow<EgoFlowNode, EgoFlowEdge>
+        nodes={displayNodes}
+        edges={displayEdges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
+        onPaneClick={onPaneClick}
+        onMoveEnd={onMoveEnd}
+        defaultViewport={initialViewport}
+        colorMode={colorMode}
+        minZoom={0.05}
+        maxZoom={2}
+        zoomOnDoubleClick={false}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        attributionPosition="bottom-right"
+      >
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--color-border)" />
+        <Controls className="bg-surface-raised border-border" />
+        <MiniMap<EgoFlowNode>
+          data-testid="graph-minimap"
+          bgColor="var(--color-surface)"
+          nodeColor={(n) => {
+            const entity = n.data.entity;
+            if (entity === "decision") return "var(--color-axis-authority)";
+            if (entity === "fact") return "var(--color-axis-evidence)";
+            if (entity === "agent" || entity === "schedule") return "var(--color-axis-assoc)";
+            return "var(--color-axis-execution)";
+          }}
+          nodeStrokeColor="var(--color-border-strong)"
+          maskColor={minimapMaskColor(colorMode)}
+          className="border border-border rounded overflow-hidden"
+          pannable
+          zoomable
+        />
+        {panelSlot && (
+          <Panel position="top-left" data-testid="ego-panel">
+            {panelSlot}
+          </Panel>
+        )}
+      </ReactFlow>
 
       {focusEdge && (
         <GraphDrawer

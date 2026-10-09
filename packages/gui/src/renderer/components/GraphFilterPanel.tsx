@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   Funnel,
   Graph,
@@ -33,6 +33,7 @@ import {
 } from "../graph/entityStatusFilter";
 import type { DecisionState, RelationKind, SnapshotStatus } from "../model/types";
 import { STATUS_META } from "./badges";
+import { SegCtl } from "./primitives/SegCtl.tsx";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -187,6 +188,10 @@ export function GraphFilterPanel({
     });
 
   const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  // Presentation priority only; selectable kinds still come exclusively from the catalog.
+  const commonTypes = entityTypeOptions.filter(({ kind }) => ["task", "decision", "fact"].includes(kind));
+  const moreTypes = entityTypeOptions.filter((option) => !commonTypes.includes(option));
   const entityStatus = filters.entityStatus ?? defaultEntityStatusFilter();
   const kindOff = RELATION_KIND_ORDER.length - filters.kinds.size;
   const statusOff = Math.max(0, taskStatusOffCount(entityStatus)) + Math.max(0, decisionStateOffCount(entityStatus));
@@ -210,17 +215,19 @@ export function GraphFilterPanel({
         : t("components.graphFilterPanel.flowFocus");
 
   return (
-    <div className={`glass pointer-events-auto flex flex-col rounded-sm ${open ? "gap-3 w-[300px]" : ""}`}>
-      <div className={`flex items-center ${open ? "border-b border-border" : ""}`}>
+    <div data-testid="graph-filter-panel" className="relative pointer-events-auto inline-flex flex-col">
+      <div className="glass flex items-center rounded-sm">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-controls={bodyId}
           title={
             open
               ? t("components.graphFilterPanel.collapseFilterPanel")
               : t("components.graphFilterPanel.expandFilterPanel")
           }
-          className={`flex flex-1 items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised ${
+          className={`ui-control flex flex-1 items-center gap-2 px-2 py-1 text-left hover:bg-surface-raised ${
             open ? "rounded-t-sm" : "rounded-l-sm"
           }`}
         >
@@ -231,7 +238,7 @@ export function GraphFilterPanel({
           )}
           <Funnel weight="duotone" className="text-text-muted" />
           <span className="font-mono text-xs font-semibold text-text">{t("components.graphFilterPanel.filters")}</span>
-          {!open && narrowed > 0 && (
+          {narrowed > 0 && (
             <span className="rounded-full bg-accent px-1.5 py-0.5 font-mono ui-micro text-accent-fg">{narrowed}</span>
           )}
         </button>
@@ -239,7 +246,7 @@ export function GraphFilterPanel({
           type="button"
           onClick={cycleFlow}
           title={t("components.graphFilterPanel.flowToggleHint")}
-          className={`flex items-center gap-1 border-l border-border px-2.5 py-2 ui-micro font-mono text-text-muted hover:bg-surface-raised hover:text-text ${
+          className={`ui-control flex items-center gap-1 border-l border-border px-2 py-1 ui-micro font-mono text-text-muted hover:bg-surface-raised hover:text-text ${
             open ? "rounded-tr-sm" : "rounded-r-sm"
           }`}
         >
@@ -248,14 +255,18 @@ export function GraphFilterPanel({
         </button>
       </div>
 
-      <div className={`nowheel px-3 pb-3 flex-col gap-4 ${open ? "flex bounded-content overflow-y-auto" : "hidden"}`}>
+      <div
+        id={bodyId}
+        data-testid={bodyId}
+        className={`glass nowheel absolute left-0 top-[calc(100%+6px)] z-30 w-[min(22rem,85vw)] rounded-sm p-3 flex-col gap-3 ${open ? "flex bounded-content overflow-y-auto" : "hidden"}`}
+      >
         {/* 语义轴 */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 ui-micro font-mono uppercase tracking-wide text-text-muted">
             <Bandaids weight="bold" />
             <span>{t("components.graphFilterPanel.semanticAxis")}</span>
           </div>
-          <div className="flex flex-col gap-1.5">
+          <div className="grid grid-cols-2 gap-1.5">
             {AXIS_ORDER.map((axis) => {
               const active = filters.axes[axis];
               const color = AXIS_COLOR_VAR[axis];
@@ -263,6 +274,7 @@ export function GraphFilterPanel({
                 <button
                   key={axis}
                   onClick={() => toggleAxis(axis)}
+                  aria-pressed={active}
                   title={AXIS_SUBLABEL[axis]}
                   className={`flex items-center gap-2 rounded-xs px-2 py-1.5 text-left ui-micro transition-colors ${
                     active
@@ -275,7 +287,6 @@ export function GraphFilterPanel({
                     style={{ backgroundColor: color, opacity: active ? 1 : 0.4 }}
                   />
                   <span className="font-medium">{axisLabel(axis)}</span>
-                  <span className="ml-auto truncate font-mono ui-micro text-text-faint">{AXIS_SUBLABEL[axis]}</span>
                 </button>
               );
             })}
@@ -283,25 +294,25 @@ export function GraphFilterPanel({
         </div>
 
         {/* 关系类型 */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-1.5 font-mono ui-micro uppercase tracking-wide text-text-muted">
-            <GitBranch weight="bold" />
+        <details data-testid="graph-filter-kinds" className="flex flex-col gap-2">
+          <summary className="cursor-pointer font-mono ui-micro text-text-muted">
+            <GitBranch weight="bold" className="mr-1 inline" />
             <span>{t("components.graphFilterPanel.relationTypes")}</span>
-            <span className="ml-auto flex gap-1 normal-case tracking-normal">
-              <button
-                onClick={() => setAllKinds(true)}
-                className="rounded-xs px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
-              >
-                {t("components.graphFilterPanel.kindsAll")}
-              </button>
-              <button
-                onClick={() => setAllKinds(false)}
-                className="rounded-xs px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
-              >
-                {t("components.graphFilterPanel.kindsNone")}
-              </button>
-            </span>
-          </div>
+          </summary>
+          <span className="ml-auto flex gap-1 normal-case tracking-normal">
+            <button
+              onClick={() => setAllKinds(true)}
+              className="rounded-xs px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
+            >
+              {t("components.graphFilterPanel.kindsAll")}
+            </button>
+            <button
+              onClick={() => setAllKinds(false)}
+              className="rounded-xs px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
+            >
+              {t("components.graphFilterPanel.kindsNone")}
+            </button>
+          </span>
           <div className="flex flex-col gap-2">
             {AXIS_ORDER.map((axis) => {
               const kinds = byAxis[axis];
@@ -322,6 +333,7 @@ export function GraphFilterPanel({
                         <button
                           key={kind}
                           onClick={() => toggleKind(kind)}
+                          aria-pressed={active}
                           title={kind}
                           className={`rounded px-1.5 py-0.5 ui-micro font-medium transition-colors ${
                             active
@@ -338,34 +350,43 @@ export function GraphFilterPanel({
               );
             })}
           </div>
-        </div>
+        </details>
 
-        {/* 实体类型:单种类领地下隐藏(skel 独占类型)。 */}
+        {/* Common types are first; every other registered kind remains selectable. */}
         {showEntityTypes && (
           <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-1.5 font-mono ui-micro uppercase tracking-wide text-text-muted">
+            <div className="flex items-center gap-1.5 font-mono ui-micro text-text-muted">
               <Graph weight="bold" />
               <span>{t("components.graphFilterPanel.entityTypes")}</span>
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {entityTypeOptions.map(({ kind, label }) => {
-                const active = filters.types.has(kind);
-                return (
-                  <button
-                    key={kind}
-                    data-testid={`graph-filter-entity-type-${kind}`}
-                    onClick={() => toggleType(kind)}
-                    className={`rounded-xs px-2 py-1 ui-micro font-medium transition-colors ${
-                      active
-                        ? "border border-stale/30 bg-stale/10 text-stale"
-                        : "border border-border bg-surface-raised text-text-muted hover:bg-border/50"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
+            {[commonTypes, moreTypes].map((options, index) => {
+              const buttons = (
+                <div className="flex flex-wrap gap-1.5">
+                  {options.map(({ kind, label }) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      data-testid={`graph-filter-entity-type-${kind}`}
+                      aria-pressed={filters.types.has(kind)}
+                      onClick={() => toggleType(kind)}
+                      className={`ui-control rounded-xs border px-2 ui-micro ${filters.types.has(kind) ? "border-accent/40 bg-accent/10 text-accent" : "border-border text-text-muted"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              );
+              return index === 0 ? (
+                <div key="common">{buttons}</div>
+              ) : options.length > 0 ? (
+                <details key="more" data-testid="graph-filter-more-types">
+                  <summary className="cursor-pointer ui-micro text-text-muted">
+                    {t("components.graphFilterPanel.moreEntityTypes", { count: options.length })}
+                  </summary>
+                  <div className="mt-2">{buttons}</div>
+                </details>
+              ) : null;
+            })}
           </div>
         )}
 
@@ -376,49 +397,38 @@ export function GraphFilterPanel({
               <Crosshair weight="bold" />
               <span>{t("components.graphFilterPanel.density")}</span>
             </div>
-            <div className="flex gap-1.5">
-              {(["focus", "all"] as const).map((mode) => {
-                const active = filters.density === mode;
-                return (
-                  <button
-                    key={mode}
-                    data-testid={`graph-density-${mode}`}
-                    aria-pressed={active}
-                    onClick={() => setDensity(mode)}
-                    title={t("components.graphFilterPanel.densityHint")}
-                    className={`flex-1 rounded-xs px-2 py-1 ui-micro font-medium transition-colors ${
-                      active
-                        ? "border border-accent/30 bg-accent/10 text-accent"
-                        : "border border-border bg-surface-raised text-text-muted hover:bg-border/50"
-                    }`}
-                  >
-                    {t(
-                      mode === "focus"
-                        ? "components.graphFilterPanel.densityFocus"
-                        : "components.graphFilterPanel.densityAll",
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="ui-micro leading-snug text-text-faint">{t("components.graphFilterPanel.densityHint")}</div>
+            <SegCtl
+              value={filters.density}
+              label={t("components.graphFilterPanel.density")}
+              options={(["focus", "all"] as const).map((value) => ({
+                value,
+                testId: `graph-density-${value}`,
+                label: t(
+                  value === "focus"
+                    ? "components.graphFilterPanel.densityFocus"
+                    : "components.graphFilterPanel.densityAll",
+                ),
+                tip: t("components.graphFilterPanel.densityHint"),
+              }))}
+              onChange={setDensity}
+            />
           </div>
         )}
 
         {/* 实体状态 */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-1.5 font-mono ui-micro uppercase tracking-wide text-text-muted">
-            <CircleHalf weight="bold" />
+        <details data-testid="graph-filter-status">
+          <summary className="cursor-pointer font-mono ui-micro text-text-muted">
+            <CircleHalf weight="bold" className="mr-1 inline" />
             <span>{t("components.graphFilterPanel.entityStatus")}</span>
-            {isEntityStatusFilterNarrowed(entityStatus) && (
-              <button
-                onClick={() => setFilters((prev) => ({ ...prev, entityStatus: defaultEntityStatusFilter() }))}
-                className="ml-auto rounded px-1 py-0.5 ui-micro normal-case tracking-normal text-text-faint hover:bg-surface-raised hover:text-text"
-              >
-                {t("components.graphFilterPanel.statusReset")}
-              </button>
-            )}
-          </div>
+          </summary>
+          {isEntityStatusFilterNarrowed(entityStatus) && (
+            <button
+              onClick={() => setFilters((prev) => ({ ...prev, entityStatus: defaultEntityStatusFilter() }))}
+              className="ml-auto rounded px-1 py-0.5 ui-micro normal-case tracking-normal text-text-faint hover:bg-surface-raised hover:text-text"
+            >
+              {t("components.graphFilterPanel.statusReset")}
+            </button>
+          )}
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
               <span className="font-mono ui-micro uppercase text-text-faint">
@@ -446,6 +456,7 @@ export function GraphFilterPanel({
                   <button
                     key={status}
                     onClick={() => toggleTaskStatus(status)}
+                    aria-pressed={active}
                     title={status}
                     className={`rounded px-1.5 py-0.5 ui-micro font-medium transition-colors ${
                       active
@@ -498,6 +509,7 @@ export function GraphFilterPanel({
                   <button
                     key={state}
                     onClick={() => toggleDecisionState(state)}
+                    aria-pressed={active}
                     title={state}
                     className={`rounded px-1.5 py-0.5 ui-micro font-medium transition-colors ${
                       active
@@ -522,7 +534,7 @@ export function GraphFilterPanel({
               </button>
             </div>
           </div>
-        </div>
+        </details>
       </div>
     </div>
   );

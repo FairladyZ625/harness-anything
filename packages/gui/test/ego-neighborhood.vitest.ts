@@ -104,7 +104,12 @@ beforeEach(() => {
 
 describe("EgoNeighborhood standalone reuse (W4)", () => {
   it("focus mounts as the reading card; neighbors stay compact chips", async () => {
-    const { div, root } = await mount();
+    const { div, root } = await mount({ panelSlot: createElement("button", { type: "button" }, "筛选") });
+    const panel = div.querySelector("[data-testid='ego-panel']")!;
+    expect(panel.closest(".react-flow")).toBe(div.querySelector(".react-flow"));
+    await act(async () => {
+      panel.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
     // 焦点是阅读主体,自动成卡;其余(含未铺开徽章)保持紧凑 chip。
     expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
     expect(cardOf(div, "决策 d1")).not.toBeNull();

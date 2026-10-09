@@ -152,16 +152,7 @@ describe("主图探索的所有权与节点中心", () => {
       await click(nodeElement(id, "ego-chip"));
       expect(centers()).toEqual(expanded);
     }
-    for (const node of flow.nodes!)
-      for (const other of flow.nodes!) {
-        if (node.id === other.id) continue;
-        expect(
-          node.position.x + Number(node.width) <= other.position.x ||
-            other.position.x + Number(other.width) <= node.position.x ||
-            node.position.y + Number(node.height) <= other.position.y ||
-            other.position.y + Number(other.height) <= node.position.y,
-        ).toBe(true);
-      }
+    for (const node of flow.nodes!.filter((node) => node.data.expanded)) expect(node.zIndex).toBeGreaterThan(1);
     await click(nodeElement("fact/F-B", "ego-card-collapse"));
     expect(centers()).toEqual(expanded);
     await click(nodeElement("fact/F-B", "ego-chip"));

@@ -15,9 +15,6 @@ export interface EntityKindVisual {
   /** 展开卡片的宽度(焦点卡 / 周边卡)。 */
   readonly cardW: number;
   readonly cardWFocus: number;
-  /** 展开卡片的高度地板(超出按内容估高,封顶在 egoCanvas 的 H_CAP)。 */
-  readonly minHFocus: number;
-  readonly minHPeriph: number;
 }
 
 const BUILTIN: Readonly<Record<string, EntityKindVisual>> = {
@@ -26,40 +23,30 @@ const BUILTIN: Readonly<Record<string, EntityKindVisual>> = {
     letter: "T",
     cardW: 320,
     cardWFocus: 360,
-    minHFocus: 300,
-    minHPeriph: 220,
   },
   decision: {
     axisVar: "var(--color-axis-authority)",
     letter: "D",
     cardW: 340,
     cardWFocus: 380,
-    minHFocus: 340,
-    minHPeriph: 260,
   },
   fact: {
     axisVar: "var(--color-axis-evidence)",
     letter: "F",
     cardW: 300,
     cardWFocus: 340,
-    minHFocus: 320,
-    minHPeriph: 240,
   },
   agent: {
     axisVar: "var(--color-axis-assoc)",
     letter: "A",
     cardW: 300,
     cardWFocus: 340,
-    minHFocus: 300,
-    minHPeriph: 230,
   },
   schedule: {
     axisVar: "var(--color-axis-assoc)",
     letter: "S",
     cardW: 320,
     cardWFocus: 360,
-    minHFocus: 300,
-    minHPeriph: 230,
   },
 };
 
@@ -76,8 +63,6 @@ export function entityKindVisual(kind: string): EntityKindVisual {
       letter: declaredLetter(kind),
       cardW: 320,
       cardWFocus: 360,
-      minHFocus: 280,
-      minHPeriph: 220,
     }
   );
 }

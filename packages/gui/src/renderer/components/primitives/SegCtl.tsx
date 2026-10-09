@@ -6,7 +6,12 @@ export function SegCtl<T extends string>({
   disabled = false,
 }: {
   readonly value: T;
-  readonly options: readonly { readonly value: T; readonly label: string; readonly tip?: string }[];
+  readonly options: readonly {
+    readonly value: T;
+    readonly label: string;
+    readonly tip?: string;
+    readonly testId?: string;
+  }[];
   readonly onChange: (value: T) => void;
   readonly label?: string;
   readonly disabled?: boolean;
@@ -23,6 +28,7 @@ export function SegCtl<T extends string>({
         <button
           key={option.value}
           type="button"
+          data-testid={option.testId}
           disabled={disabled}
           data-tip={option.tip}
           aria-pressed={option.value === value}

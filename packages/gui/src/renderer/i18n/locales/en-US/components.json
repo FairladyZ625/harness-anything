@@ -136,6 +136,7 @@
   "components.graphFilterPanel.densityAll": "Everything",
   "components.graphFilterPanel.densityHint": "Focus mode is on by default: pinned tasks ∪ non-terminal tasks ∪ tasks changed in the last 14 days, plus their one-hop decisions/facts/agents/schedules; everything else folds into count badges and pinned tasks never fold.",
   "components.graphFilterPanel.entityStatus": "entity status",
+  "components.graphFilterPanel.moreEntityTypes": "More entity types ({count})",
   "components.graphFilterPanel.entityTypes": "Entity Types",
   "components.graphFilterPanel.expandFilterPanel": "Expand filter panel",
   "components.graphFilterPanel.filters": "Filters",

@@ -206,7 +206,9 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
       </div>
 
       <div className="shrink-0 px-2.5 pt-2">
-        <p className="ui-body font-semibold leading-snug text-text">{data.label}</p>
+        <p className="ui-body line-clamp-2 font-semibold leading-snug text-text" title={data.label}>
+          {data.label}
+        </p>
         {entity === "task" && (data.raw as TaskRow).pinned === true && (
           <p className="ui-micro mt-0.5 flex items-center gap-1 font-mono text-text-faint">
             <PushPin weight="fill" className="ui-micro text-accent" />
