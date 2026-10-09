@@ -1,3 +1,4 @@
+import { untilAborted } from "./center-replica-wait.ts";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
@@ -42,6 +43,8 @@ export async function serve(
   const reader = new FleetUtf8LineDecoder(),
     window: SessionWindow = {
       holderId: randomUUID(),
+      // bytesWritten includes queued writes; subtract the bytes still held by the writable.
+      drainedBytes: () => socket.bytesWritten - socket.writableLength,
       uploads: new Set(),
       keys: new Set(),
       offers: new Map(),
@@ -61,12 +64,14 @@ export async function serve(
       const line = serializeFleetFrame(frame),
         bytes = Buffer.byteLength(line);
       if (bytes > FLEET_KEY_SEND_WINDOW_BYTES) throw new FleetFault("busy", "Per-key send window is full.", true);
+      const signal = delivery?.signal ?? disconnected.signal;
+      signal.throwIfAborted();
       if (socket.writableLength + bytes > FLEET_SESSION_SEND_WINDOW_BYTES)
-        await once(socket, "drain", { signal: disconnected.signal });
+        await untilAborted(() => once(socket, "drain", { signal }), signal);
       delivery?.beforeSend?.();
       const sent = socket.write(line);
       delivery?.onSent?.(bytes);
-      if (!sent) await once(socket, "drain", { signal: disconnected.signal });
+      if (!sent) await untilAborted(() => once(socket, "drain", { signal }), signal);
     },
     enqueue = (delivery: Delivery) =>
       new Promise<void>((resolve, reject) => {

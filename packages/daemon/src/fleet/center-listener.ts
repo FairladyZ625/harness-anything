@@ -1,6 +1,5 @@
 import { headAfterOrProgress, untilAborted } from "./center-replica-wait.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
-import type { ReplicaDeliveryLease } from "./replica-delivery-lease.ts";
 import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
@@ -33,7 +32,7 @@ import {
   findOwnedClaim as findOwnedClaimImpl,
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
-import { makeOffer, offerFrames } from "./center-replica-offer.ts";
+import { deliverReplicaOffer } from "./center-replica-offer.ts";
 import { deriveReplicaReceipt, replicaDeliveryFenced as fenced, replicaStatus } from "./center-replica-receipt.ts";
 import {
   digestId,
@@ -561,139 +560,70 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           prepared = outcome.value;
           break;
         }
+        const { latest, ledgerCut } = prepared,
+          key = { nodeId, viewId: nodeId, repoId: a.repoId },
+          id = keyId(key);
+        if (!window.keys.has(id) && window.keys.size >= 8)
+          throw new FleetFault("busy", "Session already has eight active replica keys.", true);
+        if (latest.manifest.totalBytes * 2 + FLEET_SESSION_SEND_WINDOW_BYTES > options.replicaDiskQuotaBytes!)
+          throw new FleetFault(
+            "replica_quota_insufficient",
+            "Replica quota cannot hold current, incoming, and staging reserve.",
+          );
+        window.keys.add(id);
+        knownKeys.set(id, key);
+        ackStore.register(key, latest.revision);
+        const cursor = ackStore.cursor(key);
+        if (
+          cursor?.revision === latest.revision &&
+          cursor.headDigest === latest.headDigest &&
+          cursor.manifestDigest === latest.manifest.digest
+        ) {
+          window.keys.delete(id);
+          return immediate({
+            schema:
+              latest.revision === ledgerCut.revision && latest.headDigest === ledgerCut.headDigest
+                ? "fleet.replica.current/v1"
+                : "fleet.replica.checkpoint/v1",
+            messageId: mid(frame.messageId, "current"),
+            inReplyTo: frame.messageId,
+            repoId: key.repoId,
+            viewId: key.viewId,
+            cut: wireCut(latest),
+            knownHead: wireCut(ledgerCut),
+            manifestDigest: latest.manifest.digest,
+            authorizationOwner: owner,
+            authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
+          });
+        }
+        if (
+          [...window.offers.values()].some((delivery) => keyId(delivery.key) === id && !delivery.renewalFailure.aborted)
+        )
+          throw new FleetFault(
+            "replica_delivery_busy",
+            "This session already has a delivery for the node/repository",
+            true,
+          );
+        if (options.buildDraining?.())
+          throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
+        return await deliverReplicaOffer({
+          key,
+          replica,
+          ackStore,
+          window,
+          lifecycle: deliveries.admit(),
+          signal,
+          connectionSignal,
+          preparationTimeoutMs: options.replicaPreparationTimeoutMs ?? 60_000,
+          quotaBytes: options.replicaDiskQuotaBytes!,
+          stateRoot: options.stateRoot,
+          issuedAt: now(),
+          authorization: { owner, digest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }) },
+        });
       } finally {
         clearTimeout(deadline);
         preparation.abort();
       }
-      const { latest, ledgerCut } = prepared,
-        key = { nodeId, viewId: nodeId, repoId: a.repoId },
-        id = keyId(key);
-      if (!window.keys.has(id) && window.keys.size >= 8)
-        throw new FleetFault("busy", "Session already has eight active replica keys.", true);
-      if (latest.manifest.totalBytes * 2 + FLEET_SESSION_SEND_WINDOW_BYTES > options.replicaDiskQuotaBytes!)
-        throw new FleetFault(
-          "replica_quota_insufficient",
-          "Replica quota cannot hold current, incoming, and staging reserve.",
-        );
-      window.keys.add(id);
-      knownKeys.set(id, key);
-      ackStore.register(key, latest.revision);
-      const cursor = ackStore.cursor(key);
-      if (
-        cursor?.revision === latest.revision &&
-        cursor.headDigest === latest.headDigest &&
-        cursor.manifestDigest === latest.manifest.digest
-      ) {
-        window.keys.delete(id);
-        return immediate({
-          schema:
-            latest.revision === ledgerCut.revision && latest.headDigest === ledgerCut.headDigest
-              ? "fleet.replica.current/v1"
-              : "fleet.replica.checkpoint/v1",
-          messageId: mid(frame.messageId, "current"),
-          inReplyTo: frame.messageId,
-          repoId: key.repoId,
-          viewId: key.viewId,
-          cut: wireCut(latest),
-          knownHead: wireCut(ledgerCut),
-          manifestDigest: latest.manifest.digest,
-          authorizationOwner: owner,
-          authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
-        });
-      }
-      if ([...window.offers.values()].some((delivery) => keyId(delivery.key) === id))
-        throw new FleetFault(
-          "replica_delivery_busy",
-          "This session already has a delivery for the node/repository",
-          true,
-        );
-      // Transport leases share the host wall clock with cut-worker pin/GC, not the business event clock.
-      const ttlMs = 30_000;
-      if (options.buildDraining?.())
-        throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
-      const lifecycle = deliveries.admit();
-      let lease: ReplicaDeliveryLease | undefined;
-      let renewalTimer: ReturnType<typeof setInterval> | undefined;
-      const renewalFailure = new AbortController();
-      const release = (acknowledged = false) => {
-        clearInterval(renewalTimer);
-        if (lease) {
-          ackStore.clearOffer(lease);
-          ackStore.delivery.release(lease);
-          if (!acknowledged) replica.releasePin(lease);
-        }
-        connectionSignal?.removeEventListener("abort", disconnected);
-        lifecycle.released();
-      };
-      const disconnected = () => release();
-      connectionSignal?.addEventListener("abort", disconnected, { once: true });
-      if (connectionSignal?.aborted) {
-        lifecycle.preparationFinished();
-        lifecycle.sendingFinished();
-        release();
-        throw new FleetFault("connection_closed", "Delivery connection closed", true);
-      }
-      const guard = () => {
-        renewalFailure.signal.throwIfAborted();
-        if (!replica.pinActive(lease!))
-          throw fenced(lease!, "Delivery", false, ackStore.delivery.inspect(lease!, Date.now()));
-        const at = Date.now();
-        const renewal = ackStore.delivery.renew(lease!, at, ttlMs);
-        if (!renewal.renewed) throw fenced(lease!, "Delivery", true, renewal.evidence);
-      };
-      let offer;
-      try {
-        const pinned = await replica.pin(
-          key,
-          window.holderId,
-          cursor?.revision ?? null,
-          options.replicaDiskQuotaBytes!,
-          options.stateRoot,
-        );
-        lease = pinned.lease;
-        if (connectionSignal?.aborted) throw new FleetFault("connection_closed", "Delivery connection closed", true);
-        // The connected delivery owns preparation, reads, drain waits and the wait for ACK.
-        // Frame progress alone cannot renew while any of those legitimate waits is pending.
-        renewalTimer = setInterval(() => {
-          void Promise.resolve()
-            .then(guard)
-            .then(undefined, (error: unknown) => {
-              renewalFailure.abort(error);
-              clearInterval(renewalTimer);
-            });
-        }, ttlMs / 3);
-        const prepared = await makeOffer(key, cursor, pinned.cut, replica, now());
-        guard();
-        ackStore.clearOffer(lease);
-        offer = ackStore.offer(key, prepared);
-      } catch (error) {
-        lifecycle.sendingFinished();
-        if (runtimeErrorCode(error) === "replica_delivery_busy")
-          ackStore.delivery.record(key, { failureCode: "replica_delivery_busy" });
-        release();
-        throw error;
-      } finally {
-        lifecycle.preparationFinished();
-      }
-      window.offers.set(offer.transferId, { key, lease, renewalFailure: renewalFailure.signal, release });
-      ackStore.delivery.record(key, { started: offer.kind });
-      return {
-        key: id,
-        beforeSend: guard,
-        onSent: (bytes) => ackStore.delivery.record(key, { bytes }),
-        onComplete: () => {
-          lifecycle.sendingFinished();
-        },
-        onFailure: (error) => {
-          lifecycle.sendingFinished();
-          ackStore.delivery.record(key, { failureCode: runtimeErrorCode(error) ?? "replica_delivery_failed" });
-          release();
-        },
-        frames: offerFrames(offer, replica, {
-          owner,
-          digest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
-        }),
-      };
     }
 
     if (frame.schema === "fleet.task.command/v1") {
