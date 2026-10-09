@@ -224,10 +224,18 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         evidence: `Center CI Schedule ${schedule.scheduleId} will reconcile the requested witness.`,
       }) as WriteReceipt;
     ciRequests.push(action);
-    if (ciRefresh) return ciRefresh;
+    const queued = () =>
+      context.withHumanSummary({
+        outcome: "pending",
+        opId: `ci-refresh:${schedule.scheduleId}`,
+        revision: context.store.readHead()?.revision ?? 0,
+        evidence:
+          "CI request queued for center reconciliation; arrivals after the active drain wait for the next occurrence.",
+      }) as WriteReceipt;
+    if (ciRefresh) return queued();
     if (schedule.status.activeRun) {
       const running = builtinRuns.get(schedule.status.activeRun.claimFence);
-      if (running) return running;
+      if (running) return queued();
       // In-process executors cannot survive reopening this RepoCell. Settle only its current fence.
       const recovered = await run(
         {

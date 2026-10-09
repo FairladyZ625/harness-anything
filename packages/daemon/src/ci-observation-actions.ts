@@ -85,7 +85,7 @@ type GithubActionsOptions = Extract<
 >["adapterOptions"];
 
 // Every gh call finishes before the pull enters the repository write queue: GitHub can stall
-// without bound, and the queue waits only on the event appends in ingestCiObservations.
+// until the provider deadline, and the queue waits only on the event appends in ingestCiObservations.
 export async function fetchCiObservations(
   cell: Pick<RepoCellOperationalContext, "rootDir" | "cellCodedError" | "settings"> & {
     readonly projection?: Pick<TaskProjection, "read">;
@@ -770,7 +770,8 @@ export interface CiArtifactMetadata {
   readonly expired: boolean;
 }
 
-export const runCiProviderCommand: RunGh = (command, args, options) => runProcessTextAsync(command, args, options.cwd);
+export const runCiProviderCommand: RunGh = (command, args, options) =>
+  runProcessTextAsync(command, args, options.cwd, undefined, undefined, undefined, { timeoutMs: 30_000 });
 
 export async function listCiArtifacts(gh: RunGh, cwd: string, runId: number): Promise<readonly CiArtifactMetadata[]> {
   const pages = JSON.parse(
@@ -826,8 +827,15 @@ function isFatalCiProviderFailure(error: unknown): boolean {
 export function isTransientCiProviderFailure(error: unknown): boolean {
   return (
     !isFatalCiProviderFailure(error) &&
-    /\b(?:EOF|ECONNRESET|ECONNREFUSED|ECONNABORTED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|ENOTFOUND|EAI_AGAIN)\b|connection reset|connection refused|network is unreachable|no such host|TLS handshake|TLS connection|x509:|unexpected EOF/iu.test(
-      ghFailureDetail(error),
-    )
+    ((error instanceof Error &&
+      "killed" in error &&
+      error.killed === true &&
+      "signal" in error &&
+      error.signal === "SIGTERM" &&
+      "code" in error &&
+      error.code === null) ||
+      /\b(?:EOF|ECONNRESET|ECONNREFUSED|ECONNABORTED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|ENOTFOUND|EAI_AGAIN)\b|connection reset|connection refused|network is unreachable|no such host|TLS handshake|TLS connection|x509:|unexpected EOF/iu.test(
+        ghFailureDetail(error),
+      ))
   );
 }

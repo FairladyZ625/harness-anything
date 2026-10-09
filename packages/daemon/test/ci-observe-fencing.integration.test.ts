@@ -281,3 +281,35 @@ test(
     });
   },
 );
+
+test(
+  "a local pull arriving after drain returns pending without waiting for the active occurrence",
+  { skip: posix },
+  async () => {
+    revokeTestPolicyGroup("ci-center-owner", "contributor");
+    grantTestPolicyGroups(["ci-center-owner"], "contributor");
+    await fixture(async ({ cell, release, started, show }) => {
+      const collecting = cell.run(claim, binding);
+      await waitForFile(started);
+      const active = (await show()).status.activeRun!;
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const receipt = await Promise.race([
+          cell.run({ kind: "ci-observe-pull", runs: [1] }, binding),
+          new Promise<never>((_, reject) => {
+            deadline = setTimeout(() => reject(new Error("pull waited for occurrence")), 1000);
+          }),
+        ]);
+        assert.equal(receipt.outcome, "pending");
+        assert.match(receipt.evidence ?? "", /queued/u);
+        assert.equal((await show()).status.activeRun!.claimFence, active.claimFence);
+      } finally {
+        clearTimeout(deadline);
+        release();
+        await collecting;
+      }
+      assert.equal((await show()).status.lastRun!.outcome, "succeeded");
+      assert.equal((await cell.run({ kind: "ci-observe-pull", runs: [1] }, binding)).outcome, "applied");
+    });
+  },
+);

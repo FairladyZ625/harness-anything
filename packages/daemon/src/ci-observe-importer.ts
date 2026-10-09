@@ -85,6 +85,7 @@ export async function reconcileCiOccurrence(input: {
       );
     pending.set(key(target), target);
   };
+  let failedTargets = 0;
   const observe = async (target: Target) => {
     let fetched: CiObservationFetch;
     try {
@@ -101,6 +102,7 @@ export async function reconcileCiOccurrence(input: {
       );
     } catch (error) {
       if (isTransientCiProviderFailure(error)) {
+        failedTargets += 1;
         return { outcome: "pending" as const, failure: error };
       }
       if (!(error instanceof Error) || !/HTTP 404|Not Found/iu.test(error.message)) throw error;
@@ -123,6 +125,7 @@ export async function reconcileCiOccurrence(input: {
         artifacts = await listCiArtifacts(gh, cell.rootDir, target.runId);
       } catch (error) {
         if (!isTransientCiProviderFailure(error)) throw error;
+        failedTargets += 1;
         return { outcome: "pending" as const, failure: error };
       }
       const relevant = artifacts.filter((artifact) =>
@@ -135,6 +138,16 @@ export async function reconcileCiOccurrence(input: {
     }
   };
   try {
+    // Drain once: arrivals after this cut remain queued for the next center occurrence.
+    for (const request of input.requests()) {
+      const result = await fetchCiRequest(cell, request, gh);
+      if ("failure" in result) {
+        if (!isTransientCiProviderFailure(result.failure)) throw result.failure;
+        failedTargets += 1;
+        continue;
+      }
+      await accept(result.fetched);
+    }
     // The canonical submission is the durable demand. Re-derive it on every center occurrence;
     // accept publishes the witness before any diagnostic backlog or scan settlement.
     for (const status of ["submitted", "in_review"] as const) {
@@ -156,21 +169,27 @@ export async function reconcileCiOccurrence(input: {
           continue;
         if (githubActionsWitnessEvidence(cell as RepoCellOperationalContext, requirement, execution)?.result === "pass")
           continue;
-        const result = await fetchSubmissionWitness(cell, taskId, gh);
+        const result = await fetchCiRequest(cell, { kind: "ci-observe-pull", taskId }, gh);
         if ("failure" in result) {
           // Durable submissions are re-derived next occurrence after a transient provider failure.
           // Authentication, rate limits and local IO still fail the occurrence.
           if (cellErrorCode(result.failure) !== "ci_witness_not_found" && !isTransientCiProviderFailure(result.failure))
             throw result.failure;
+          failedTargets += 1;
           continue;
         }
         await accept(result.fetched);
       }
     }
     await accept(privateLedgerCiObservations(cell));
-    for (const target of [...pending.values()]) if ((await observe(target))?.outcome === "pending") retain(target);
-    // Explicit refresh hints drain into this same occurrence, never a second importer.
-    for (const request of input.requests()) await accept(await fetchCiObservations(cell, request, gh));
+    for (const target of [...pending.values()].slice(0, 5)) {
+      if ((await observe(target))?.outcome === "pending") retain(target);
+      // Rotate unfinished targets so later pending diagnostics cannot starve.
+      if (pending.has(key(target))) {
+        pending.delete(key(target));
+        pending.set(key(target), target);
+      }
+    }
     if (workflows.length) {
       const workflowIndex = Math.min(progress.workflowIndex, workflows.length - 1),
         workflow = workflows[workflowIndex]!;
@@ -195,7 +214,7 @@ export async function reconcileCiOccurrence(input: {
         // run with many reruns; it must not restart at attempt 1 after each rate-limit window.
         for (let attempt = firstAttempt; attempt <= run.run_attempt; attempt += 1) {
           progress = { ...progress, nextRunId: run.id, nextAttempt: attempt };
-          if (processed === 100) {
+          if (processed === 20) {
             complete = false;
             break;
           }
@@ -231,7 +250,7 @@ export async function reconcileCiOccurrence(input: {
     }
     return {
       outcome: "succeeded",
-      detail: "CI reconciliation checkpoint accepted.",
+      detail: `CI reconciliation checkpoint accepted; ${failedTargets} target(s) failed.`,
       ciObserve: {
         ...progress,
         pending: [...pending.values()],
@@ -256,13 +275,13 @@ export async function reconcileCiOccurrence(input: {
   }
 }
 
-async function fetchSubmissionWitness(
+async function fetchCiRequest(
   cell: Parameters<typeof fetchCiObservations>[0],
-  taskId: string,
+  request: RepoTaskAction,
   gh: RunGh,
 ): Promise<{ readonly fetched: CiObservationFetch } | { readonly failure: unknown }> {
   try {
-    return { fetched: await fetchCiObservations(cell, { kind: "ci-observe-pull", taskId }, gh) };
+    return { fetched: await fetchCiObservations(cell, request, gh) };
   } catch (failure) {
     return { failure };
   }
