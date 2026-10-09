@@ -200,7 +200,7 @@ export async function deliverReplicaOffer(input: {
   lifecycle: ReturnType<ReturnType<typeof createFleetDeliveryDrain>["admit"]>;
   signal: AbortSignal;
   connectionSignal: AbortSignal;
-  preparationTimeoutMs: number;
+  preparationDeadlineAt: number;
   quotaBytes: number;
   stateRoot: string;
   issuedAt: string;
@@ -286,6 +286,7 @@ export async function deliverReplicaOffer(input: {
   }
   window.offers.set(offer.transferId, { key, lease, renewalFailure: renewalFailure.signal, release });
   ackStore.delivery.record(key, { started: offer.kind });
+  let preparationRemainingMs = input.preparationDeadlineAt - Date.now();
   return {
     key: `${key.nodeId}\0${key.viewId}\0${key.repoId}`,
     signal,
@@ -303,16 +304,21 @@ export async function deliverReplicaOffer(input: {
     frames: (async function* () {
       const iterator = offerFrames(offer, replica, input.authorization);
       for (;;) {
+        if (preparationRemainingMs <= 0)
+          throw new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false);
+        const readStartedAt = Date.now();
         preparing = true;
         const timeout = setTimeout(
           () => fail(new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false)),
-          input.preparationTimeoutMs,
+          preparationRemainingMs,
         );
         let next;
         try {
           next = await untilAborted(() => iterator.next(), signal);
         } finally {
           clearTimeout(timeout);
+          // Only center work consumes the original preparation budget; socket waits pause it.
+          preparationRemainingMs -= Date.now() - readStartedAt;
           preparing = false;
         }
         if (next.done) return;

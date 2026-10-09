@@ -9,7 +9,7 @@ import { FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "../src/fleet
 
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-for (const phase of ["makeOffer", "iterator", "before-drain", "after-drain", "ACK"] as const) {
+for (const phase of ["makeOffer", "iterator", "preparation-budget", "before-drain", "after-drain", "ACK"] as const) {
   test(`${phase} has a deadline even when the TLS session stays connected`, { timeout: 20_000 }, async (t) => {
     const f = await fleetFixture(t);
     t.after(() => f.close());
@@ -30,6 +30,17 @@ for (const phase of ["makeOffer", "iterator", "before-drain", "after-drain", "AC
       }
     };
     t.after(unblockSocket);
+    const { promise: offerHeld, resolve: markOfferHeld } = Promise.withResolvers<void>();
+    const { promise: offerResume, resolve: resumeOffer } = Promise.withResolvers<void>();
+    t.after(resumeOffer);
+    if (phase === "preparation-budget") {
+      const content = source.delivery.content;
+      t.mock.method(source.delivery, "content", async (blob) => {
+        markOfferHeld();
+        await offerResume;
+        return content(blob);
+      });
+    }
     if (phase === "makeOffer") {
       const content = source.delivery.content;
       t.mock.method(source.delivery, "content", async (blob) => {
@@ -37,7 +48,7 @@ for (const phase of ["makeOffer", "iterator", "before-drain", "after-drain", "AC
         await resume;
         return content(blob);
       });
-    } else if (phase === "iterator") {
+    } else if (phase === "iterator" || phase === "preparation-budget") {
       const page = source.delivery.manifestPage;
       t.mock.method(source.delivery, "manifestPage", async (...args: Parameters<typeof page>) => {
         markHeld();
@@ -62,6 +73,14 @@ for (const phase of ["makeOffer", "iterator", "before-drain", "after-drain", "AC
       });
     }
     let frame = await peer.request({ schema: "fleet.replica.pull/v1", messageId: "pull", repoId: f.subject.repoId });
+    if (phase === "preparation-budget") {
+      await offerHeld;
+      for (let elapsed = 0; elapsed < 20_000; elapsed += 10_000) {
+        t.mock.timers.tick(10_000);
+        await turn();
+      }
+      resumeOffer();
+    }
     if (phase === "ACK") {
       while (frame.schema !== "fleet.snapshot.finish/v1") {
         assert.notEqual(frame.schema, "fleet.error/v1", JSON.stringify(frame));
@@ -72,7 +91,8 @@ for (const phase of ["makeOffer", "iterator", "before-drain", "after-drain", "AC
     const lease = center.status().replicas[0]!.deliveryLease!;
     assert.ok(lease);
     assert.equal(source.pinActive(lease), true);
-    const duration = phase === "ACK" ? 30 * 60_000 : phase.includes("drain") ? 40_000 : 60_000;
+    const duration =
+      phase === "ACK" ? 30 * 60_000 : phase.includes("drain") || phase === "preparation-budget" ? 40_000 : 60_000;
     // Advance only after the real transport enters the targeted wait. Each renewal gets an event-loop turn.
     for (let elapsed = 0; elapsed < duration; elapsed += 10_000) {
       t.mock.timers.tick(10_000);

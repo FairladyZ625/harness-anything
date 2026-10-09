@@ -513,9 +513,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const { a, replica, owner } = await admitReplica(nodeId, frame.repoId);
       const preparation = new AbortController();
       const signal = AbortSignal.any([connectionSignal, closing.signal, preparation.signal]);
+      const preparationDeadlineAt = Date.now() + (options.replicaPreparationTimeoutMs ?? 60_000);
       const deadline = setTimeout(
         () => preparation.abort(new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false)),
-        options.replicaPreparationTimeoutMs ?? 60_000,
+        preparationDeadlineAt - Date.now(),
       );
       let prepared: { latest: SnapshotCut; ledgerCut: NonNullable<ReturnType<typeof replica.ledgerCut>> };
       try {
@@ -614,7 +615,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           lifecycle: deliveries.admit(),
           signal,
           connectionSignal,
-          preparationTimeoutMs: options.replicaPreparationTimeoutMs ?? 60_000,
+          preparationDeadlineAt,
           quotaBytes: options.replicaDiskQuotaBytes!,
           stateRoot: options.stateRoot,
           issuedAt: now(),
