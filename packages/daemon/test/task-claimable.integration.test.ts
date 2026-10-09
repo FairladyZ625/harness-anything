@@ -73,7 +73,12 @@ test("fresh claimable query applies three scopes, live membership, task permissi
       actor: { principal: { personId: "owner" }, executor: null },
       source: { kind: "node", nodeId: "node-a" } as const,
       keycloakAuthorization: {
-        center: { url: realm.url, realm: "harness", clientId: "harness-center", accessToken: "center-token" },
+        center: async () => ({
+          url: realm.url,
+          realm: "harness",
+          clientId: "harness-center",
+          accessToken: "center-token",
+        }),
       },
     },
     page = async () => ({ status: "ready" as const, rows, watermark: 1, sourceRevision: 1, warnings: [] }),

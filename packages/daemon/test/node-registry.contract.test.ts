@@ -17,7 +17,8 @@ import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoCellBinding, RepoTaskAction } from "../src/repo-cell-types.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
 
-const center = { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" };
+const center = { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" },
+  centerAuthority = async () => center;
 
 async function fixture() {
   const keycloak = fakeKeycloak(),
@@ -74,12 +75,12 @@ const entries = (personId: string): Readonly<Record<string, RepoCellBinding>> =>
     "edge-a": {
       actor,
       source: { kind: "node", nodeId: "edge-a" },
-      keycloakAuthorization: { center },
+      keycloakAuthorization: { center: centerAuthority },
     },
     "edge-b": {
       actor,
       source: { kind: "node", nodeId: "edge-b" },
-      keycloakAuthorization: { center },
+      keycloakAuthorization: { center: centerAuthority },
     },
   };
 };
@@ -607,7 +608,7 @@ test("an actor reported by the frame never reaches the decision", async () => {
       deriveBinding(root, {
         transportKind: "fleet-tls",
         nodePrincipal: { nodeId: "edge-a", personId: "alice" },
-        keycloakCenter: async () => center,
+        keycloakCenter: centerAuthority,
         ...extra,
       } as Parameters<typeof deriveBinding>[1]),
     plain = await derive({}),

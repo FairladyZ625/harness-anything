@@ -234,7 +234,7 @@ function checkPrincipalBindings(graph, violations) {
     "actor:{principal:{personId:owner.personId},executor:null}",
   );
   requireSyntax("node assignment provenance", "nodeOwnerBinding", property, 'source:{kind:"node",nodeId:owner.nodeId}');
-  requireSyntax("node Keycloak authority", "nodeOwnerBinding", call, "auth.keycloakCenter()");
+  requireSyntax("node Keycloak authority", "nodeOwnerBinding", property, "center:auth.keycloakCenter");
   requireSyntax("center node registry connection", null, call, "keycloakNodeRegistry(context.keycloakCenter)");
   requireSyntax(
     "center node credential validation",

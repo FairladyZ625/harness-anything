@@ -477,9 +477,8 @@ export class OidcSessionService {
       secretFile = path.join(this.#rbacRoot, "center-client-secret");
     if (!existsSync(secretFile))
       throw coded("rbac_admin_unavailable", "Keycloak center credentials are not configured.");
-    const response = await this.#ports.fetch(
-      `${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/token`,
-      {
+    const response = await this.#ports
+      .fetch(`${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/token`, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -487,8 +486,12 @@ export class OidcSessionService {
           client_id: "harness-center",
           client_secret: readFileSync(secretFile, "utf8").trim(),
         }),
-      },
-    );
+      })
+      .catch((cause: unknown) => {
+        throw Object.assign(coded("daemon_error", "Keycloak could not be reached to acquire a center token."), {
+          cause,
+        });
+      });
     if (!response.ok)
       throw coded("rbac_admin_unavailable", `Keycloak service authentication returned HTTP ${response.status}.`);
     return requiredString(((await response.json()) as Record<string, unknown>).access_token, "access_token");

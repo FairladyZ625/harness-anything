@@ -20,7 +20,7 @@ export async function readTaskAssignmentDirectory(
   });
   if (decision.outcome !== "allowed")
     throw cellCodedError("authorization_denied", `Task assignment directory denied: ${decision.reasonCode}.`);
-  const center = credential.center,
+  const center = await credential.center(),
     adapter = new KeycloakPolicyAdapter({
       url: center.url,
       realm: center.realm,

@@ -289,3 +289,34 @@ test("group validation rejects unknown scopes and inheritance cycles before any 
     /cycle/u,
   );
 });
+
+test("Admin REST rejection exposes a stable code", async () => {
+  const adapter = new KeycloakPolicyAdapter(config, async () => new Response(null, { status: 401 }));
+  await assert.rejects(
+    adapter.authorizePerson({
+      adminAccessToken: "expired-center-token",
+      personId: "person-a",
+      action: "task-create",
+      resource: { kind: "repository", repoId: "repo-a" },
+    }),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { readonly code?: string }).code === "keycloak_admin_rejected" &&
+      /HTTP 401/u.test(error.message),
+  );
+});
+
+test("Admin REST transport failure is infrastructure unavailability, not a policy rejection", async () => {
+  const cause = new TypeError("fetch failed", {
+    cause: Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" }),
+  });
+  const adapter = new KeycloakPolicyAdapter(config, async () => {
+    throw cause;
+  });
+  await assert.rejects(adapter.findUserId("admin-token", "person-one"), (error: unknown) => {
+    assert.ok(error instanceof Error && "code" in error);
+    assert.equal(error.code, "daemon_error");
+    assert.equal(error.cause, cause);
+    return true;
+  });
+});

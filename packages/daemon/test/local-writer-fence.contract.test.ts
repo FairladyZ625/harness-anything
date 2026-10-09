@@ -48,7 +48,7 @@ test("every production local binding is covered by a request or cell-default wri
   assert.match(host, /if \(!schedule \|\| validateScheduleV1\(schedule\)\.length\)\s*throw hostCodedError/u);
   assert.match(
     host,
-    /return daemonWriterBinding\(repoId, \{\s*actor: \{ principal: schedule\.createdBy\.principal, executor: null \},\s*source: "local",\s*keycloakAuthorization: \{ center: await keycloakCenter\(\) \},\s*\}\)/u,
+    /return daemonWriterBinding\(repoId, \{\s*actor: \{ principal: schedule\.createdBy\.principal, executor: null \},\s*source: "local",\s*keycloakAuthorization: \{ center: keycloakCenter \},\s*\}\)/u,
   );
   assert.match(
     source("daemon-host-binding.ts"),
