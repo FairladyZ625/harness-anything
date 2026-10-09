@@ -637,7 +637,7 @@ for (const explicit of [false, true])
       assert.ok(reportClaim?.candidate);
       assert.equal(new TextDecoder().decode(reader.readContentBlob(reportClaim.candidate.sha256)!), correctedReport);
       assert.equal(submission.commitSha, null);
-      assert.equal(submission.artifacts?.length, explicit ? 1 : 2);
+      assert.equal(submission.artifacts?.length, 2, "Summary prose never narrows the accepted delivery cut");
       const anchor = submission.artifacts!.find((anchor) => anchor.path === reportPath)!,
         reviewCell = {
           store: reader,

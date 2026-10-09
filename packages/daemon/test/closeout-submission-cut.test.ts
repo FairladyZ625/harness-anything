@@ -66,7 +66,12 @@ function artifactStore() {
               schema: "doc-event/v1",
               workspaceRevision: 7,
               opId: "accepted-7",
-              payload: { changes: [{ path: artifactPath, candidate: { sha256: blobSha256 } }] },
+              payload: {
+                changes: [artifactPath, `${packagePath}/artifacts/reports/authored.md`].map((path) => ({
+                  path,
+                  candidate: { sha256: blobSha256 },
+                })),
+              },
             }
           : null,
       readContentBlob: () => bytes,
@@ -134,7 +139,7 @@ function derive(
     } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
     body = closeout(summary),
     projection = {
-      readReplicaBasis: () => ({ documents: accepted }),
+      readDocuments: () => ({ documents: accepted }),
       readPresetSnapshot: () => ({ snapshot: { profile: { outputShape } } }),
       readRuntimeDispatchesByTaskExecution: () =>
         reviewerDispatches.map((dispatchId) => ({ event: { payload: { role: "reviewer", dispatchId } } })),
@@ -218,68 +223,27 @@ test("explicit structured commit derives mixed deletion evidence without a dispa
   assert.deepEqual(packet.knownGaps, ["已知缺口：publication pending.", "Sibling delivery remains unverified."]);
 });
 
-test("structured commit plus artifact anchor derives one cut carrying both", (t) => {
+test("repository delivery automatically freezes accepted report without a Summary anchor", (t) => {
   const { root } = fixture(t),
-    { store, blobSha256 } = artifactStore(),
-    anchor = `artifact:${packagePath}/artifacts/report.md@7`;
+    { store, blobSha256 } = artifactStore();
   put(root, "src/live.ts", "export const liveValue = 6;\n");
   const sha = commit(root),
     packet = derive(
       root,
-      `Delivered ${sha} with ${anchor} attached.`,
+      "Delivered the implementation and report.",
       undefined,
       ["ci", "code-doc-reconciliation"],
       store,
       undefined,
       sha,
+      "repository-diff",
+      undefined,
+      undefined,
+      [{ path: `${packagePath}/artifacts/report.md`, revision: 7 }],
     );
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.artifacts, [{ path: `${packagePath}/artifacts/report.md`, revision: 7, blobSha256 }]);
-  // Deliverables stay paths of the delivery commit; the anchored report rides in outputs.
   assert.deepEqual(packet.deliverables, ["src/live.ts"]);
-  assert.deepEqual(packet.outputs, [`Artifact-Anchor: ${packagePath}/artifacts/report.md@7`]);
-});
-
-test("artifact anchors alone still deliver without a commit and reject duplicate paths", () => {
-  const { store, blobSha256 } = artifactStore();
-  const guided = derive(
-    "/nonexistent",
-    "artifact:artifacts/report.md@7",
-    undefined,
-    [],
-    store,
-    undefined,
-    undefined,
-    "task-package-artifact",
-  );
-  assert.deepEqual(guided.artifacts, [{ path: `${packagePath}/artifacts/report.md`, revision: 7, blobSha256 }]);
-  assert.deepEqual(guided.deliverables, [`${packagePath}/artifacts/report.md`]);
-  const packet = derive(
-    "/nonexistent",
-    `artifact:${packagePath}/artifacts/report.md@7`,
-    undefined,
-    [],
-    store,
-    undefined,
-    undefined,
-    "task-package-artifact",
-  );
-  assert.equal(packet.commitSha, null);
-  assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
-  assert.throws(
-    () =>
-      derive(
-        "/nonexistent",
-        `artifact:${packagePath}/artifacts/report.md@7 artifact:${packagePath}/artifacts/report.md@7`,
-        undefined,
-        [],
-        store,
-        undefined,
-        undefined,
-        "task-package-artifact",
-      ),
-    /name each artifact path once/u,
-  );
 });
 
 test("pure deletion cut has no surviving anchor paths and keeps the deletion list", (t) => {
@@ -787,6 +751,11 @@ test("a task without its own commit delivers accepted artifacts, not the baselin
     ["ci"],
     artifactStore().store as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
     { kind: "commit", commitSha: merged },
+    undefined,
+    "repository-diff",
+    undefined,
+    undefined,
+    [{ path: `${packagePath}/artifacts/report.md`, revision: 7 }],
   );
   assert.deepEqual(packet.deliverables, []);
   assert.deepEqual(packet.outputs, [`Artifact-Anchor: ${packagePath}/artifacts/report.md@7`]);
@@ -799,6 +768,11 @@ test("a task without its own commit delivers accepted artifacts, not the baselin
       ["ci"],
       artifactStore().store as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
       null,
+      undefined,
+      "repository-diff",
+      undefined,
+      undefined,
+      [{ path: `${packagePath}/artifacts/report.md`, revision: 7 }],
     ).deliverables,
     [],
   );
@@ -1013,6 +987,7 @@ test("implicit delivery excludes another task and independent reviewer credentia
     undefined,
     [
       { path: report, revision: 7 },
+      { path: `${packagePath}/artifacts/reports/authored.md`, revision: 7 },
       { path: `${packagePath}/artifacts/.gitkeep`, revision: 1 },
       { path: "tasks/other/artifacts/report.md", revision: 7 },
       { path: reviewerReport, revision: 7 },
@@ -1022,7 +997,7 @@ test("implicit delivery excludes another task and independent reviewer credentia
     [{ reviewId: "review-old" }],
     ["dispatch_pending"],
   );
-  assert.deepEqual(packet.deliverables, [report]);
+  assert.deepEqual(packet.deliverables, [report, `${packagePath}/artifacts/reports/authored.md`]);
 });
 
 test("stacked delivery uses its approved baseline for merged files and deletions, excluding upstream files", (t) => {

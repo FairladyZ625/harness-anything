@@ -68,30 +68,10 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     writeFileSync(path.join(artifacts, "report.md"), "# Evidence\n\nHolder-bound receipt under test.\n");
     const artifactReceipt = await cell.run({ kind: "doc-submit", taskId }, holder);
     assert.equal(artifactReceipt.outcome, "applied", JSON.stringify(artifactReceipt));
-    const completeBody = completeBodyTemplate.replace(
-      "Delivered the private report.",
-      `Delivered the private report. artifact:${packagePath}/artifacts/report.md`,
-    );
-    writeFileSync(
-      closeoutPath,
-      completeBody.replace(
-        `artifact:${packagePath}/artifacts/report.md`,
-        `artifact:${packagePath}/artifacts/report.md@${String(started.revision)}`,
-      ),
-    );
-    const invalidAnchor = await cell.run({ kind: "doc-submit", taskId }, holder);
-    assert.equal(invalidAnchor.outcome, "op_rejected", JSON.stringify(invalidAnchor));
-    assert.equal(invalidAnchor.code, "preview_blocked", JSON.stringify(invalidAnchor));
-    assert.match(JSON.stringify(invalidAnchor), /revision did not accept this path.*artifact:artifacts\/report\.md/u);
-    writeFileSync(
-      closeoutPath,
-      completeBody.replace(
-        `artifact:${packagePath}/artifacts/report.md`,
-        `artifact:${packagePath}/artifacts/report.md@${String(artifactReceipt.revision)}`,
-      ),
-    );
-    const acceptedAnchor = await cell.run({ kind: "doc-submit", taskId }, holder);
-    assert.equal(acceptedAnchor.outcome, "applied", JSON.stringify(acceptedAnchor));
+    const completeBody = completeBodyTemplate;
+    writeFileSync(closeoutPath, completeBody);
+    const acceptedCloseout = await cell.run({ kind: "doc-submit", taskId }, holder);
+    assert.equal(acceptedCloseout.outcome, "applied", JSON.stringify(acceptedCloseout));
     writeFileSync(closeoutPath, completeBody.replace(/## Verification\n[\s\S]*?(?=## Residual Risk)/u, ""));
     const submit = async () => {
       let receipt = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
@@ -132,7 +112,10 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     ]);
     assert.deepEqual(packet.verificationNotes, ["- Targeted test passed.\n- Real publication observed."]);
     assert.ok(packet.deliverables.some((item) => item.endsWith("/artifacts/report.md")));
-    assert.equal(packet.artifacts?.[0]?.revision, artifactReceipt.revision);
+    assert.equal(
+      packet.artifacts?.find((artifact) => artifact.path === `${packagePath}/artifacts/report.md`)?.revision,
+      artifactReceipt.revision,
+    );
     const originalCut = packet.commitSha;
     git(rootDir, "commit", "--allow-empty", "-qm", "test: move public head after delivery");
     // Moving the ledger head after delivery is the out-of-band state this test

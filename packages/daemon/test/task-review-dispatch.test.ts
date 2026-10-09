@@ -6,10 +6,10 @@ import type { ExecutionV1 } from "@harness-anything/kernel";
 import { reviewPacket } from "../src/repo-cell-packets.ts";
 import { reviewDispatchPrompt } from "../src/task-review-dispatch.ts";
 
-const sha256 = (body: string) => createHash("sha256").update(body, "utf8").digest("hex");
+const sha256 = (body: string | Uint8Array) => createHash("sha256").update(body).digest("hex");
 
 /** A store stub serving every artifact of one accepted revision, as readSubmissionArtifact resolves it. */
-function cellFor(artifacts: Readonly<Record<string, string>>) {
+function cellFor(artifacts: Readonly<Record<string, string | Uint8Array>>) {
   return {
     store: {
       readEventAtRevision: (revision: number) => ({
@@ -21,7 +21,7 @@ function cellFor(artifacts: Readonly<Record<string, string>>) {
         },
       }),
       readContentBlob: (blob: string) =>
-        Buffer.from(Object.values(artifacts).find((body) => sha256(body) === blob) ?? "", "utf8"),
+        Buffer.from(Object.values(artifacts).find((body) => sha256(body) === blob) ?? ""),
     },
     cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
   };
@@ -65,6 +65,25 @@ test("review prompts truncate oversized artifact bodies and keep the frozen anch
   assert.match(prompt, /bodyTruncatedFromChars/u);
   assert.match(prompt, /REVIEW-SMALL-ARTIFACT-FULL-BODY/u);
   assert.match(prompt, new RegExp(sha256(bigBody), "u"));
+});
+
+test("review prompts carry accepted binary delivery with an explicit encoding", () => {
+  const packagePath = "tasks/task-binary",
+    artifactPath = `${packagePath}/artifacts/screenshot.png`,
+    bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff]),
+    prompt = reviewDispatchPrompt({
+      cell: cellFor({ [artifactPath]: bytes }) as never,
+      taskId: "task-binary",
+      packagePath,
+      dispatchId: "dispatch-binary",
+      execution: {
+        submission: { artifacts: [{ path: artifactPath, revision: 1, blobSha256: sha256(bytes) }] },
+      } as unknown as ExecutionV1,
+      gates: [],
+    });
+  assert.ok(prompt.includes(JSON.stringify({ body: bytes.toString("base64") }).slice(1, -1)));
+  assert.ok(prompt.includes('"encoding":"base64"'));
+  assert.ok(prompt.includes(sha256(bytes)));
 });
 
 test("review input accepts the dispatched field contract and rejects persisted-record metadata", () => {

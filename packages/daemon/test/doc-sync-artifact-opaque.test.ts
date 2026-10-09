@@ -24,6 +24,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { truncateSync } from "node:fs";
+import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import {
   documentPath,
   DOC_SYNC_INLINE_MAX_BYTES,
@@ -692,6 +693,10 @@ test("raw task artifacts publish their original bytes, filename, and owner throu
         { source: "dispatch.log", destination: "logs/dispatch.log", bytes: log, policyId: RAW_ARTIFACT_POLICY_ID },
         { source: "empty.bin", destination: "reports/empty.bin", bytes: empty, policyId: OPAQUE_TEXTUAL_POLICY_ID },
       ];
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId: "task-raw" }, binding)).outcome, "applied");
     for (const { source, destination, bytes, policyId } of cases) {
       const raw = policyId === RAW_ARTIFACT_POLICY_ID;
       writeFileSync(path.join(rootDir, source), bytes);
@@ -758,6 +763,33 @@ test("raw task artifacts publish their original bytes, filename, and owner throu
         bytes,
         `${destination}: restore reproduces the original bytes`,
       );
+    writeFileSync(
+      path.join(rootDir, "harness", packagePath, "closeout.md"),
+      "## Summary\nDelivered the accepted raw artifacts.\n## Verification\nOriginal bytes survived restore.\n" +
+        "## Residual Risk\nProvider unverified.\n## Same Mechanism Elsewhere\nAccepted claims define the cut.\n",
+    );
+    const submitted = await cell.run({ kind: "task-submit", taskId: "task-raw" }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForFixturePublication(cell, submitted.opId, binding);
+    const event = reader.read().events.findLast((event) => event.type === "execution_submitted");
+    assert.ok(event && event.type === "execution_submitted");
+    for (const { destination, bytes } of cases) {
+      const anchor = event.payload.execution.submission!.artifacts!.find(
+        (anchor) => anchor.path === `${packagePath}/artifacts/${destination}`,
+      );
+      assert.ok(anchor, `${destination}: accepted delivery must freeze even without a Summary anchor`);
+      const frozen = readSubmissionArtifact(
+        {
+          store: reader,
+          cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
+        },
+        packagePath,
+        anchor.path,
+        anchor.revision,
+        anchor.blobSha256,
+      );
+      assert.deepEqual(Buffer.from(frozen.body, frozen.encoding), bytes);
+    }
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

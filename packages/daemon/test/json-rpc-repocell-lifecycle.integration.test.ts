@@ -160,24 +160,33 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
     roots.forEach(initDeterministicRepo);
     for (const [index, rootDir] of roots.entries()) cells.push(await openRepoCell({ repoId: workspaceId("submit-ab"), rootDir: canonicalRoot(rootDir), ownerId: `submit-ab-${index}`, now }));
     for (const [index, cell] of cells.entries()) { const created = await cell.run({ kind: "task-create", taskId, title: "Submit A B" }, binding); assert.equal(created.outcome, "applied"); const visible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); await realizeTaskPlanFixture(roots[index]!, String((created as Record<string, unknown>).packagePath), (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding)); assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied"); }
-    for (const [index, rootDir] of roots.entries())
-      await writeCloseout(
+    for (const [index, rootDir] of roots.entries()) {
+      const commitSha = await writeCloseout(
         () => cells[index]!.settlePendingMaterialization("closeout git commit"),
         rootDir,
         path.join(rootDir, ".worktrees", taskId),
         "tasks/task-submit-ab-submit-a-b",
         "Typed GUI submit is equivalent.",
       );
+      const closeoutPath = path.join(rootDir, "harness", "tasks/task-submit-ab-submit-a-b", "closeout.md");
+      // A/B inputs must be identical even when the fixture repositories have different Git cuts.
+      writeFileSync(closeoutPath, readFileSync(closeoutPath, "utf8").replace(commitSha, "<repo-cut>"));
+    }
     assert.equal((await cells[0]!.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
     const server = createJsonRpcProtocolServer({ host: { remoteProxy: { route: () => false }, run: async (_repoId: string, action: Record<string, unknown>) => cells[1]!.run(action as { readonly kind: string }, binding) } as never, build: { commit: null }, authContext: {} as never, emit: async () => undefined }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.submit", params: { repo: { repoId: "submit-ab" }, payload: { taskId, executionId } } }); assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response)); assert.equal((response as { result: { outcome: string } }).result.outcome, "applied", JSON.stringify(response)); server.close();
     const events = roots.map((rootDir) => makeTaskEventReader({ repoId: "submit-ab", rootDir }).read().events.find((event) => event.type === "execution_submitted"));
-    assert.equal(events[0]?.schema, "task-event/v1"); assert.equal(events[1]?.schema, "task-event/v1"); assert.equal(events[0]?.type, "execution_submitted"); assert.equal(events[1]?.type, "execution_submitted"); if (events[0]?.schema === "task-event/v1" && events[1]?.schema === "task-event/v1" && events[0].type === "execution_submitted" && events[1].type === "execution_submitted") { assert.deepEqual({ taskId: events[1].taskId, actor: events[1].actor, source: events[1].source, submission: { ...events[1].payload.submission, commitSha: "<repo-cut>" } }, { taskId: events[0].taskId, actor: events[0].actor, source: events[0].source, submission: { ...events[0].payload.submission, commitSha: "<repo-cut>" } }); }
+    assert.ok(events[0]?.schema === "task-event/v1" && events[0].type === "execution_submitted");
+    assert.ok(events[1]?.schema === "task-event/v1" && events[1].type === "execution_submitted");
+    const cliSubmission = events[0].payload.execution.submission, guiSubmission = events[1].payload.execution.submission;
+    assert.ok(cliSubmission && guiSubmission);
+    assert.deepEqual({ taskId: events[1].taskId, actor: events[1].actor, source: events[1].source, submission: { ...guiSubmission, commitSha: "<repo-cut>" } }, { taskId: events[0].taskId, actor: events[0].actor, source: events[0].source, submission: { ...cliSubmission, commitSha: "<repo-cut>" } });
     const projected = await cells[1]!.read("repo.tasks.list"), row = projected.rows[0]!;
     assert.deepEqual(row.snapshotAvailability, { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" });
     assert.deepEqual({ parentTaskId: row.placement.parentTaskId, origin: row.placement.origin, packageDisposition: row.placement.packageDisposition }, { parentTaskId: null, origin: "native", packageDisposition: "active" });
     assert.equal(row.placement.provenance.length > 0, true);
     assert.equal(row.executionEvidence[0]!.executionId, executionId);
-    assert.deepEqual(row.executionEvidence[0]!.outputs, []);
+    assert.deepEqual(guiSubmission.artifacts?.map((artifact) => artifact.path), ["tasks/task-submit-ab-submit-a-b/artifacts/explainer.html"]);
+    assert.deepEqual(row.executionEvidence[0]!.outputs.map((output) => output.locator), guiSubmission.outputs);
     assert.deepEqual(validateDaemonTaskSnapshotList(projected), []);
   } finally { await Promise.all(cells.map((cell) => cell.close())); roots.forEach((root) => rmSync(root, { recursive: true, force: true })); }
 });
