@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  ubuntuQueueCommand,
   parseDispatchArgs,
   posixTestScript,
   powerShellTestScript,
@@ -302,3 +303,98 @@ function encodeFileList(files) {
 function toolVersion(command) {
   return execFileSync(command, ["--version"], { encoding: "utf8" }).split(/\r?\n/u)[0];
 }
+
+const queueSkip =
+  process.platform === "win32"
+    ? "requires POSIX fork, process-group signals and kernel flock semantics"
+    : spawnSync("python3", ["--version"]).error?.code === "ENOENT"
+      ? "requires Python 3 for the Ubuntu target admission owner"
+      : false;
+
+test(
+  "target admission bounds independent producers, queues FIFO, and reaps cancellation/crash",
+  { skip: queueSkip, timeout: 20000 },
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-queue-"));
+    const jobs = [];
+    function start(index) {
+      const workspace = path.join(root, `harness-test-isolation-${index}`);
+      // exec exposes the actual target supervisor PID for the SIGKILL case.
+      const child = spawn("sh", ["-c", `exec ${ubuntuQueueCommand(workspace)}`], {
+        env: { ...process.env, HOME: root },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let output = "",
+        errors = "";
+      const waiters = [];
+      const events = [];
+      child.stderr.on("data", (chunk) => {
+        errors += chunk;
+      });
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+        let newline;
+        while ((newline = output.indexOf("\n")) !== -1) {
+          const line = output.slice(0, newline);
+          output = output.slice(newline + 1);
+          if (!line.startsWith("[test-isolation-queue] ")) continue;
+          const event = JSON.parse(line.slice("[test-isolation-queue] ".length));
+          events.push(event);
+          for (const waiter of waiters) if (waiter.event === event.event) waiter.resolve(event);
+        }
+      });
+      const closed = new Promise((resolve) =>
+        child.on("close", (code, signal) => {
+          resolve({ code, signal, errors });
+          for (const waiter of waiters)
+            waiter.reject(new Error(`target closed: code=${code} signal=${signal} ${errors}`));
+        }),
+      );
+      function observe(event) {
+        const found = events.find((entry) => entry.event === event);
+        return found
+          ? Promise.resolve(found)
+          : new Promise((resolve, reject) => waiters.push({ event, resolve, reject }));
+      }
+      const job = { child, workspace, observe, closed, events };
+      jobs.push(job);
+      return job;
+    }
+    try {
+      for (let index = 0; index < 4; index++) {
+        const job = start(index);
+        assert.equal((await job.observe("admitted")).capacity, 4);
+        job.child.stdin.write(`${JSON.stringify("sleep 1000")}\n`);
+        await job.observe("running");
+      }
+      const queued = start(4);
+      assert.equal((await queued.observe("waiting")).position, 1);
+      const cancelled = start(5);
+      assert.equal((await cancelled.observe("waiting")).position, 2);
+      cancelled.child.stdin.end();
+      assert.equal((await cancelled.closed).code, 130);
+      assert.equal(existsSync(cancelled.workspace), false);
+      jobs[0].child.kill("SIGKILL");
+      assert.equal((await jobs[0].closed).signal, "SIGKILL");
+      await queued.observe("admitted");
+      assert.equal(existsSync(jobs[0].workspace), false);
+      const childPid = jobs[0].events.find((entry) => entry.event === "running").child_pid;
+      assert.throws(() => process.kill(childPid, 0), { code: "ESRCH" });
+      queued.child.stdin.write(`${JSON.stringify("exit 7")}\n`);
+      assert.equal((await queued.observe("finished")).code, 7);
+      queued.child.stdin.end();
+      assert.equal((await queued.closed).code, 7);
+      for (const job of jobs.slice(1, 4)) {
+        job.child.stdin.end();
+        assert.equal((await job.closed).code, 130);
+        assert.equal(existsSync(job.workspace), false);
+      }
+      assert.equal(existsSync(queued.workspace), false);
+      assert.deepEqual(readdirSync(path.join(root, ".cache/harness-test-isolation-queue")), ["admission.lock"]);
+    } finally {
+      for (const job of jobs) job.child.stdin.end();
+      await Promise.all(jobs.map((job) => job.closed));
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
