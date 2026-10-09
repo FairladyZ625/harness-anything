@@ -591,7 +591,6 @@ async function createSchedule(fixture, subject, opId) {
     mode: "remediate",
     everyMs: 300_000,
     agentId: "campaign-agent",
-    runtimeInstanceId: "stress-runtime",
     mission: "Exercise the fleet schedule claim.",
   });
   assert.equal(created.outcome, "applied", JSON.stringify(created));

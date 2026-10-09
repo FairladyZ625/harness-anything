@@ -334,7 +334,7 @@ export const commandTable = [
     "schedule-create",
     (c, s) => [
       ...["schedule", "create", `bench-sched-${s}`, "--name", `Sched ${s}`, "--mode", "detect", "--every", "24h"],
-      ...["--agent", `bench-agent-${s}`, "--instance", `bench-rt-${s}`, "--mission", "bench", "--disabled"],
+      ...["--agent", `bench-agent-${s}`, "--mission", "bench", "--disabled"],
     ],
   ],
   ["schedule-list", () => ["schedule", "list"]],
