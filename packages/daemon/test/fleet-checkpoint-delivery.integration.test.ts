@@ -170,6 +170,44 @@ for (const through of ["known-head", "write-revision"] as const) {
   });
 }
 
+test(
+  "delivery leases use the host wall clock across worker pins and business clock jumps",
+  { timeout: 30_000 },
+  async (t) => {
+    const f = await fleetFixture(t);
+    t.after(() => f.close());
+    let businessTime = "2000-01-01T00:00:00.000Z";
+    const center = await f.center(undefined, { now: () => businessTime });
+    const source = f.host.replica(f.subject.repoId);
+    const content = source.delivery.content;
+    let observed = false;
+    t.mock.method(source.delivery, "content", async (blob) => {
+      businessTime = "2100-01-01T00:00:00.000Z";
+      const status = center.status().replicas.find((row) => row.nodeId === f.subject.nodeId)!;
+      assert.equal(status.activeTransfers, 1);
+      assert.ok(status.deliveryLease!.expiresAt > Date.now());
+      assert.ok(status.deliveryLease!.expiresAt <= Date.now() + 30_000);
+      observed = true;
+      return content(blob);
+    });
+    const result = await runFleetReplicaPullClient({
+      port: center.port,
+      ca: f.cert,
+      nodeId: f.subject.nodeId,
+      credential: "machine-secret",
+      repoId: f.subject.repoId,
+      viewRoot: path.join(f.root, "lease-clock"),
+      diskQuotaBytes: 64 * 1024 * 1024,
+    });
+    assert.equal(observed, true);
+    assert.equal(result.replica.schema, "fleet.ack.result/v1");
+    const status = center.status().replicas.find((row) => row.nodeId === f.subject.nodeId)!;
+    assert.equal(status.activeTransfers, 0);
+    assert.equal(status.ackRevision, result.current.cut.revision);
+    assert.ok(Math.abs(Date.parse(status.ackedAt!) - Date.now()) < 30_000);
+  },
+);
+
 test("a slow content RPC cannot revive its expired delivery lease", { timeout: 15_000 }, async (t) => {
   const f = await fleetFixture(t);
   t.after(() => f.close());

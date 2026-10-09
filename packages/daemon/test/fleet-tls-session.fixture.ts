@@ -239,7 +239,7 @@ export async function fleetFixture(
     transportErrors,
     center: (
       diskQuotaBytes = replicaQuota,
-      timing: { replicaPreparationTimeoutMs?: number; replicaWatchProgressMs?: number } = {},
+      timing: { replicaPreparationTimeoutMs?: number; replicaWatchProgressMs?: number; now?: () => string } = {},
     ) =>
       owned.hold(
         listenFleetTls({

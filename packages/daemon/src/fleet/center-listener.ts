@@ -654,8 +654,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "This session already has a delivery for the node/repository",
           true,
         );
+      // Transport leases share the host wall clock with cut-worker pin/GC, not the business event clock.
       const ttlMs = 30_000;
-      const lease = ackStore.delivery.claim(key, window.holderId, Date.parse(now()), ttlMs);
+      const lease = ackStore.delivery.claim(key, window.holderId, Date.now(), ttlMs);
       if (!lease) {
         ackStore.delivery.record(key, { failureCode: "replica_delivery_busy" });
         throw new FleetFault(
@@ -677,7 +678,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("connection_closed", "Delivery connection closed", true);
       }
       const guard = () => {
-        if (!replica.pinActive(lease) || !ackStore.delivery.renew(lease, Date.parse(now()), ttlMs))
+        if (!replica.pinActive(lease) || !ackStore.delivery.renew(lease, Date.now(), ttlMs))
           throw new FleetFault(
             "replica_delivery_fenced",
             "Delivery retention ended or lease expired or was replaced",
@@ -981,7 +982,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
       if (
         !options.host.replica(key.repoId).pinActive(delivery.lease) ||
-        !ackStore.delivery.renew(delivery.lease, Date.parse(now()), 30_000)
+        !ackStore.delivery.renew(delivery.lease, Date.now(), 30_000)
       )
         throw new FleetFault("replica_delivery_fenced", "ACK belongs to an expired or replaced delivery lease", true);
       const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
@@ -991,7 +992,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         frame.transferId,
         frame.cut,
         frame.manifestDigest,
-        now(),
+        new Date(Date.now()).toISOString(),
         cutEventAt,
         delivery.lease,
       );
@@ -1072,7 +1073,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             ackStore,
             key,
             options.replicaDiskQuotaBytes ?? null,
-            Date.parse(now()),
+            Date.now(),
           ),
         ),
       };
