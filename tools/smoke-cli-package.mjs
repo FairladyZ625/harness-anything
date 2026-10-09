@@ -20,8 +20,7 @@ export async function runCliPackageSmoke(root = process.cwd()) {
   const workspaces = workspaceDependencyClosure(root, "@harness-anything/cli");
   buildCliPackageArtifact(root);
   execNpmFileSync(["run", "build", "--workspace", "@harness-anything/daemon"], { cwd: root, stdio: "inherit" });
-  for (const workspace of ["@harness-anything/kernel", "@harness-anything/application", "@harness-anything/preset"])
-    execNpmFileSync(["run", "build:publish", "--workspace", workspace], { cwd: root, stdio: "inherit" });
+  // Dependency publish builds run in npm pack prepack below, with lifecycle scripts enabled.
   const tempRoot = mkdtempSync(path.join(tmpdir(), "ha-cli-pack-")),
     packDir = path.join(tempRoot, "pack"),
     consumerDir = path.join(tempRoot, "consumer");

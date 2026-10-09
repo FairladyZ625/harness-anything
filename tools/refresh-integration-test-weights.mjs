@@ -19,7 +19,7 @@ export function integrationWeightsFromObservations(observations, integrationFile
   const samples = new Map();
   for (const observation of observations) {
     const perFile = new Map();
-    for (const test of observation.tests ?? []) {
+    for (const test of observation.detail.tests) {
       if (test.tier !== "integration" || !known.has(test.file)) continue;
       perFile.set(test.file, (perFile.get(test.file) ?? 0) + test.durationMs);
     }
