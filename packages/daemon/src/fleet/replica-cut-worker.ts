@@ -59,11 +59,9 @@ export function openReplicaCutWorker(options: ReplicaCutSourceOptions, input: Re
     });
   };
   const prepare = () =>
-    (preparing ??= request<SnapshotCut | null>({ kind: "activate" })
-      .then((cut) => (cut ? metadata.waitForCut(metadata.exactRevision() ?? cut.revision) : null))
-      .finally(() => {
-        preparing = null;
-      }));
+    (preparing ??= request<SnapshotCut | null>({ kind: "activate" }).finally(() => {
+      preparing = null;
+    }));
   return {
     ...metadata,
     activate: () => {

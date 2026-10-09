@@ -10,6 +10,7 @@ import { sha256Bytes } from "@harness-anything/kernel";
 import { fetchEdgeCiDetails, readEdgeCiDetail } from "../src/ci-detail-cache.ts";
 import type { FleetMirrorView, FleetMirrorBlob } from "../src/fleet-edge-mirror.ts";
 import type { FleetPeerOptions } from "../src/fleet/edge.ts";
+import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 
 function fixture(t: import("node:test").TestContext, count: number) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-ci-detail-cache-")),
@@ -106,4 +107,60 @@ test("CI detail reads still reject unauthorized and altered cached bytes", async
     }),
     /not in the authorized cut/u,
   );
+});
+
+test("center CI detail reads authorize one indexed descriptor without enumerating the cut", async (t) => {
+  const f = await fleetFixture(t);
+  t.after(() => f.close());
+  const replica = f.host.replica(f.subject.repoId),
+    cut = (await replica.prepare())!,
+    body = Buffer.from('{"diagnostic":"indexed"}'),
+    bodySha = sha256Bytes(body),
+    descriptor = Buffer.from(
+      JSON.stringify({
+        ref: { sha256: bodySha, encodedBytes: body.length, mediaType: "application/json" },
+      }),
+    ),
+    descriptorSha = sha256Bytes(descriptor),
+    entry = {
+      path: ".read-model/ci-details/event-indexed.json",
+      blob: {
+        sha256: descriptorSha,
+        size: descriptor.length,
+        mediaType: "application/json",
+      },
+    };
+  t.mock.method(replica, "manifest", () => {
+    throw new Error("CI detail must not enumerate a complete manifest");
+  });
+  const lookup = t.mock.method(replica, "manifestEntry", (revision: number, itemPath: string) =>
+    revision === cut.revision && itemPath === entry.path ? entry : null,
+  );
+  t.mock.method(replica, "content", (blob: { sha256: string }) => {
+    assert.ok(blob.sha256 === bodySha || blob.sha256 === descriptorSha);
+    return blob.sha256 === bodySha ? body : descriptor;
+  });
+  const center = await f.center(),
+    peer = await rawPeer(f.track, center.port, f.cert, f.subject.nodeId, "machine-secret"),
+    request = {
+      schema: "fleet.ci-detail.get/v1",
+      messageId: "ci-indexed",
+      repoId: f.subject.repoId,
+      revision: cut.revision,
+      headDigest: cut.headDigest,
+      eventId: "event-indexed",
+      offset: 0,
+    } as const;
+  const received = await peer.request(request);
+  assert.equal(received.schema, "fleet.ci-detail.chunk/v1");
+  if (received.schema !== "fleet.ci-detail.chunk/v1") assert.fail(JSON.stringify(received));
+  assert.deepEqual(Buffer.from(received.dataBase64, "base64"), body);
+  assert.equal(received.done, true);
+  assert.equal(lookup.mock.callCount(), 1);
+  for (const probe of [{ eventId: "absent" }, { headDigest: `sha256:${"f".repeat(64)}` }]) {
+    const denied = await peer.request({ ...request, ...probe });
+    assert.equal(denied.schema, "fleet.error/v1");
+    if (denied.schema !== "fleet.error/v1") assert.fail(JSON.stringify(denied));
+    assert.equal(denied.code, "not_in_cut");
+  }
 });

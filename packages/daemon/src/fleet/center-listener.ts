@@ -507,9 +507,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const { replica } = await admitReplica(nodeId, frame.repoId);
       if (replica.cut(frame.revision)?.headDigest !== frame.headDigest)
         throw new FleetFault("not_in_cut", "CI detail cut identity is unavailable.");
-      const entry = replica
-        .manifest(frame.revision)
-        ?.find((row) => row.path === `.read-model/ci-details/${frame.eventId}.json`);
+      const entry = replica.manifestEntry(frame.revision, `.read-model/ci-details/${frame.eventId}.json`);
       if (!entry) throw new FleetFault("not_in_cut", "CI observation is not in the authorized cut.");
       const descriptor = JSON.parse(Buffer.from(replica.content(entry.blob)).toString("utf8")) as {
         ref: { sha256: string; encodedBytes: number; mediaType: string };
