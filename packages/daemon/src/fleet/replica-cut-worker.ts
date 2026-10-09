@@ -59,9 +59,11 @@ export function openReplicaCutWorker(options: ReplicaCutSourceOptions, input: Re
     });
   };
   const prepare = () =>
-    (preparing ??= request<SnapshotCut | null>({ kind: "activate" }).finally(() => {
-      preparing = null;
-    }));
+    (preparing ??= request<SnapshotCut | null>({ kind: "activate" })
+      .then((cut) => (cut ? metadata.waitForCut(metadata.exactRevision() ?? cut.revision) : null))
+      .finally(() => {
+        preparing = null;
+      }));
   return {
     ...metadata,
     activate: () => {
@@ -73,7 +75,10 @@ export function openReplicaCutWorker(options: ReplicaCutSourceOptions, input: Re
     kick: () => {
       metadata.kick();
     },
-    waitForCut: metadata.waitForCut,
+    waitForCut: async (revision: number, signal?: AbortSignal) => {
+      if (!metadata.latest()) await prepare();
+      return metadata.waitForCut(revision, signal);
+    },
     releasePin: (lease: ReplicaDeliveryLease) => {
       metadata.releasePin(lease);
     },

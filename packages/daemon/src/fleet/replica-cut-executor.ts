@@ -17,7 +17,7 @@ const ledger = makeTaskEventReader(input),
   });
 port.on("message", ({ id }: { readonly id: number; readonly command: CutRequest }) => {
   try {
-    port.postMessage({ id, value: source.activate() } satisfies CutResponse);
+    port.postMessage({ id, value: source.latest() ?? source.activate() } satisfies CutResponse);
   } catch (error) {
     const response = {
       id,

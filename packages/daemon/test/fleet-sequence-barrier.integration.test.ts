@@ -30,7 +30,7 @@ test(
           super(checkpoint ? new URL("./fleet-checkpoint-build-barrier.fixture.ts", import.meta.url) : url, {
             ...options,
             ...(checkpoint
-              ? { workerData: { ...options.workerData, control, pauseAfter: 2, moduleUrl: String(url) } }
+              ? { workerData: { ...options.workerData, control, pauseBeforeRequest: 2, moduleUrl: String(url) } }
               : {}),
           });
           if (checkpoint)
