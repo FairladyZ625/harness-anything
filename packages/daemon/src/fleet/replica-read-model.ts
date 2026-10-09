@@ -349,7 +349,7 @@ function cutRoot(db: DatabaseSync, viewId: string, cut: FleetCut): number | null
 function entryAt(db: DatabaseSync, viewId: string, cut: FleetCut, root: number, entryPath: string): FleetEntry | null {
   const row = db
     .prepare(
-      `SELECT blob_json FROM edge_entry WHERE view_id=? AND path=? AND generation=?
+      `SELECT blob_json FROM edge_entry INDEXED BY sqlite_autoindex_edge_entry_1 WHERE view_id=? AND path=? AND generation=?
     AND revision>=? AND revision<=? ORDER BY revision DESC LIMIT 1`,
     )
     .get(viewId, entryPath, cut.schemaGeneration, root, cut.revision);
@@ -396,9 +396,13 @@ export function commitEdgeManifest(
         const before = from ? entryAt(db, viewId, from, root, change.path) : null;
         if (before) digest = updateReplicaManifestDigest(digest, before);
         if (change.op === "put") digest = updateReplicaManifestDigest(digest, { path: change.path, blob: change.blob });
-        db.prepare(
-          `UPDATE edge_entry SET end_revision=? WHERE view_id=? AND path=? AND generation=? AND end_revision IS NULL`,
-        ).run(header.cut.revision, viewId, change.path, header.schemaGeneration);
+        // A snapshot already retired the previous state above. Only a delta
+        // replaces one path; the revision/end indexes would scan the whole cut.
+        if (from)
+          db.prepare(
+            `UPDATE edge_entry INDEXED BY sqlite_autoindex_edge_entry_1 SET end_revision=?
+            WHERE view_id=? AND path=? AND generation=? AND end_revision IS NULL`,
+          ).run(header.cut.revision, viewId, change.path, header.schemaGeneration);
         db.prepare("INSERT INTO edge_entry VALUES (?,?,?,?,NULL,?,?)").run(
           viewId,
           change.path,
@@ -563,7 +567,7 @@ export function edgeManifestBlob(viewDir: string, cut: FleetCut, sha256: string)
     if (root === null) return null;
     const row = db
       .prepare(
-        `SELECT blob_json FROM edge_entry WHERE sha256=? AND view_id=? AND generation=?
+        `SELECT blob_json FROM edge_entry INDEXED BY edge_entry_blob WHERE sha256=? AND view_id=? AND generation=?
       AND revision>=? AND revision<=? AND (end_revision IS NULL OR end_revision>?) LIMIT 1`,
       )
       .get(sha256, viewId, cut.schemaGeneration, root, cut.revision, cut.revision);
