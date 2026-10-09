@@ -363,19 +363,30 @@ test("a selected archive's authoritative 404 ends diagnostics visibly while reta
   });
 });
 
-for (const mode of ["normal", "404", "azure-blob-failure"] as const) {
+for (const [mode, failure] of [
+  ["normal", null],
+  ["404", new Error("HTTP 404 Not Found: selected artifact archive")],
+  [
+    "azure-blob-failure",
+    Object.assign(new Error("Command failed: gh run download 1"), {
+      stderr: "error downloading artifact from Azure Blob Storage: HTTP 503 Service Unavailable",
+    }),
+  ],
+  ["EOF", new Error('Get "https://productionresultssa9.blob.core.windows.net/archive": EOF')],
+  [
+    "connection reset",
+    Object.assign(new Error("Command failed: gh run download 1"), {
+      stderr: "read tcp 127.0.0.1:1234->127.0.0.2:443: read: connection reset by peer",
+    }),
+  ],
+  ["TLS interruption", new Error("net/http: TLS handshake timeout")],
+  ["unexpected EOF", new Error("error downloading artifact: unexpected EOF")],
+  ["offline", new Error("connect ENETUNREACH")],
+] as const) {
   test(`a first archive ${mode} permits truthful recording, the later run and the empty scan tail`, async (t) => {
     await fixture(async ({ run, state, current, store }) => {
       state.runs = 2;
-      // Synthetic non-404 storage error: the historical packet does not contain the raw Azure response.
-      state.firstArchiveError =
-        mode === "normal"
-          ? null
-          : mode === "404"
-            ? new Error("HTTP 404 Not Found: selected artifact archive")
-            : Object.assign(new Error("Command failed: gh run download 1"), {
-                stderr: "error downloading artifact from Azure Blob Storage: HTTP 503 Service Unavailable",
-              });
+      state.firstArchiveError = failure;
       const checkpoints = [];
       for (let occurrence = 0; occurrence < 2; occurrence++) {
         const result = await run(),
@@ -432,7 +443,8 @@ for (const [name, failure, errorPattern, retryAt] of [
   ],
   ["rate-limit 429", new Error("HTTP 429 rate limit; try again in 2m"), /rate-limited/u, "2026-10-08T10:02:00.000Z"],
   ["authentication", new Error("HTTP 401 authentication required"), /401/u, null],
-  ["offline", new Error("connect ENETUNREACH"), /ENETUNREACH/u, null],
+  ["permission", new Error("HTTP 403 Forbidden"), /403/u, null],
+  ["mixed disk and EOF", new Error("ENOSPC: no space left on device; unexpected EOF"), /ENOSPC/u, null],
   ["local filesystem", new Error("ENOSPC: no space left on device, open '/tmp/artifact.zip'"), /ENOSPC/u, null],
   ["programmer", new TypeError("unexpected fixture invariant"), /fixture invariant/u, null],
 ] as const) {
