@@ -10,7 +10,15 @@ import {
 import { daemonStdioLogPath, readDaemonLifecycleRecords } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
 import { canonicalPath } from "../runtime-worker-push.ts";
-import { installedDaemonServiceUnit, startDaemonServiceUnit, type DaemonServiceUnit } from "./daemon-service.ts";
+import {
+  daemonServiceCommands,
+  daemonServiceUnit,
+  daemonServiceUnitContent,
+  installedDaemonServiceUnit,
+  runDaemonServiceCommand,
+  startDaemonServiceUnit,
+  type DaemonServiceUnit,
+} from "./daemon-service.ts";
 import { readRegisteredRepos } from "./local-daemon-target.ts";
 export interface DaemonLaunchSpec {
   readonly command: string;
@@ -138,10 +146,34 @@ export async function ensureLocalDaemonRunning(input: {
   const probe = input.probe ?? daemonSocketProbe,
     spawnDetached =
       input.spawnDetached ??
-      ((launch: DaemonLaunchSpec) => {
+      (async (launch: DaemonLaunchSpec) => {
         // An installed service unit owns this daemon: starting it any other way would leave a
         // daemon the service manager neither restarts nor knows about.
-        const unit = installedDaemonServiceUnit(daemonLaunchTarget(launch)!);
+        const target = daemonLaunchTarget(launch)!,
+          unit = installedDaemonServiceUnit(target);
+        // Windows SSH-launched detached children disappear when the session ends. The task manager is
+        // the sole Windows launcher, even before an explicit login-autostart install.
+        if (!unit && process.platform === "win32") {
+          // Copying process.env loses its Windows case-insensitive property access.
+          const scheduled = daemonServiceUnit(target)!,
+            environment = Object.fromEntries(
+              Object.entries(launch.env).map(([key, value]) => [key.toUpperCase(), value]),
+            );
+          writeDaemonServiceUnit(
+            scheduled,
+            daemonServiceUnitContent(scheduled, {
+              ...target,
+              execPath: launch.command,
+              entry: launch.args[0]!,
+              searchPath: environment.PATH ?? "",
+              extraCaCerts: environment.NODE_EXTRA_CA_CERTS,
+              runAtLogin: false,
+            }),
+            daemonStdioLogPath(target.userRoot, target.daemonId),
+          );
+          for (const step of daemonServiceCommands(scheduled).load) await runDaemonServiceCommand(step);
+          return;
+        }
         return unit
           ? startDaemonServiceUnit(unit)
           : startDetachedProcessChecked(

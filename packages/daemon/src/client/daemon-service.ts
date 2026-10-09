@@ -5,10 +5,10 @@ import { daemonStdioLogPath } from "../lifecycle-log.ts";
 import { runProcessExitAsync } from "../process-port.ts";
 import { localDaemonTargetKey } from "./local-daemon-target.ts";
 
-export type DaemonServiceManager = "launchd" | "systemd";
+export type DaemonServiceManager = "launchd" | "systemd" | "task-scheduler";
 export interface DaemonServiceUnit {
   readonly manager: DaemonServiceManager;
-  /** The systemd unit name without its suffix, and the launchd label. */
+  /** The systemd unit name without its suffix, launchd label, or scheduled task name. */
   readonly name: string;
   readonly unitPath: string;
 }
@@ -34,6 +34,8 @@ export function daemonServiceUnit(
     return { manager: "launchd", name, unitPath: path.join(home, "Library", "LaunchAgents", `${name}.plist`) };
   if (platform === "linux")
     return { manager: "systemd", name, unitPath: path.join(home, ".config", "systemd", "user", `${name}.service`) };
+  if (platform === "win32")
+    return { manager: "task-scheduler", name, unitPath: path.join(target.userRoot, "services", `${name}.xml`) };
   return null;
 }
 export function installedDaemonServiceUnit(target: {
@@ -63,6 +65,8 @@ export function daemonServiceUnitContent(
     readonly searchPath: string;
     /** Explicit NODE_EXTRA_CA_CERTS from the installer; relative paths use its current directory. */
     readonly extraCaCerts?: string | undefined;
+    /** Windows on-demand starts do not opt the user into login autostart. */
+    readonly runAtLogin?: boolean;
   },
 ): string {
   const program = [
@@ -80,6 +84,26 @@ export function daemonServiceUnitContent(
       PATH: input.searchPath,
       ...(input.extraCaCerts ? { NODE_EXTRA_CA_CERTS: path.resolve(input.extraCaCerts) } : {}),
     };
+  if (unit.manager === "task-scheduler") {
+    // Task Scheduler owns a hidden launcher so PATH/CA and output match the other managers.
+    // Its native child is awaited: zero (operator stop) stays stopped; nonzero is supervised.
+    const script = [
+      ...Object.entries(environment).map(([key, value]) => `$env:${key} = ${powerShellText(value)}`),
+      `& ${program.map(powerShellText).join(" ")} >> ${powerShellText(output)} 2>&1`,
+      "exit $LASTEXITCODE",
+    ].join("\n");
+    return [
+      '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">',
+      input.runAtLogin === false
+        ? "<Triggers/>"
+        : "<Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>",
+      '<Principals><Principal id="User"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>',
+      "<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure></Settings>",
+      `<Actions Context="User"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ${Buffer.from(script, "utf16le").toString("base64")}</Arguments></Exec></Actions>`,
+      "</Task>",
+      "",
+    ].join("\n");
+  }
   if (unit.manager === "systemd")
     return [
       "[Unit]",
@@ -130,6 +154,34 @@ export function daemonServiceCommands(
   readonly start: DaemonServiceCommand;
   readonly state: DaemonServiceCommand;
 } {
+  if (unit.manager === "task-scheduler") {
+    const connect =
+        "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; $s = New-Object -ComObject 'Schedule.Service'; $s.Connect(); $f = $s.GetFolder('\\'); ",
+      task = `$f.GetTask(${powerShellText(unit.name)})`,
+      registered = `$f.GetTasks(1) | Where-Object { $_.Name -eq ${powerShellText(unit.name)} }`,
+      command = (script: string): DaemonServiceCommand => [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-OutputFormat",
+        "Text",
+        "-EncodedCommand",
+        Buffer.from(connect + script, "utf16le").toString("base64"),
+      ];
+    return {
+      // A user owns only their own login trigger; an all-users trigger requires elevation.
+      load: [
+        command(
+          `$d = $s.NewTask(0); $d.XmlText = [IO.File]::ReadAllText(${powerShellText(unit.unitPath)}); $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name; $d.Principal.UserId = $user; foreach ($trigger in $d.Triggers) { $trigger.UserId = $user }; $t = $f.RegisterTaskDefinition(${powerShellText(unit.name)}, $d, 6, $null, $null, 3); $null = $t.Run($null)`,
+        ),
+      ],
+      unload: command(`$t = ${task}; $t.Stop(0); $f.DeleteTask(${powerShellText(unit.name)}, 0)`),
+      start: command(`$null = ${task}.Run($null)`),
+      state: command(
+        `$t = ${registered}; if ($null -eq $t) { 'loaded=false' } else { 'loaded=true'; foreach ($r in $t.GetInstances(0)) { Get-CimInstance Win32_Process -Filter ('ParentProcessId = ' + $r.EnginePID) | Where-Object { $_.Name -eq 'node.exe' } | ForEach-Object { 'pid=' + $_.ProcessId } } }`,
+      ),
+    };
+  }
   if (unit.manager === "systemd") {
     const service = `${unit.name}.service`;
     return {
@@ -161,6 +213,11 @@ export function parseDaemonServiceState(
     const pid = Number(pattern.exec(result.stdout)?.[1] ?? 0);
     return pid > 0 ? pid : null;
   };
+  if (manager === "task-scheduler") {
+    if (result.exitCode !== 0)
+      throw new Error(`Task Scheduler state query exited ${result.exitCode}: ${result.stdout.trim()}`);
+    return { loaded: /^loaded=true$/mu.test(result.stdout), pid: pidIn(/^pid=([0-9]+)$/mu) };
+  }
   if (manager === "systemd")
     return { loaded: /^LoadState=loaded$/mu.test(result.stdout), pid: pidIn(/^MainPID=([0-9]+)$/mu) };
   // launchctl print answers only for a job that is bootstrapped into the domain.
@@ -192,4 +249,8 @@ function systemdQuote(value: string, expandDollar = true): string {
 }
 function xmlText(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\r", "&#13;");
+}
+
+function powerShellText(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }

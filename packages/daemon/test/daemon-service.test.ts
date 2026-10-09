@@ -108,7 +108,7 @@ test("a unit is keyed by user root and daemon id, and no unit exists for an unsu
     otherId = daemonServiceUnit({ ...target, daemonId: "second" }, "linux", "/home/edge");
   assert.deepEqual(again, daemonServiceUnit(target, "linux", "/home/edge"));
   assert.equal(new Set([again!.unitPath, otherRoot!.unitPath, otherId!.unitPath]).size, 3);
-  assert.equal(daemonServiceUnit(target, "win32", "C:\\Users\\edge"), null);
+  assert.equal(daemonServiceUnit(target, "freebsd", "/home/edge"), null);
 });
 
 test("paths that carry unit-file metacharacters are written as literal arguments", () => {
