@@ -86,9 +86,11 @@ export function openReplicaCutSource(options: FixtureOptions) {
 export function collectReplicaChanges(sequence: import("../src/fleet/replica-cut-store.ts").ReplicaChanges | null) {
   if (!sequence) return null;
   const result: import("../src/fleet/contract.ts").FleetDeltaChange[] = [];
+  let cursor: readonly [number, number] | null = null;
   for (;;) {
-    const page = sequence.page(result.length);
+    const page = sequence.page(cursor);
     result.push(...page.changes);
-    if (page.done) return result;
+    if (page.done) return result.sort((a, b) => a.path.localeCompare(b.path));
+    cursor = page.cursor;
   }
 }

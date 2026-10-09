@@ -143,38 +143,36 @@ export async function* offerFrames(
 }
 
 function* changePages(sequence: ReplicaChanges) {
-  let offset = 0,
-    index = 0;
+  let index = 0;
+  let cursor: readonly [number, number] | null = null;
   for (;;) {
-    const page = sequence.page(offset);
+    const page = sequence.page(cursor);
     if (page.changes.length) yield { ...page, index: index++ };
     if (page.done) return;
-    offset += page.changes.length;
+    cursor = page.cursor;
   }
 }
 
 /** Page buffers are bounded; full reconciliation completes before any snapshot blob or finish. */
 async function* manifestPages(replica: ReplicaCutSource, cut: SnapshotCut) {
   let digest = "0".repeat(64);
-  let offset = 0,
+  let afterPath = "",
+    count = 0,
     index = 0,
     totalBytes = 0;
   for (;;) {
-    const page = await replica.delivery.manifestPage(cut.revision, offset);
+    const page = await replica.delivery.manifestPage(cut.revision, afterPath);
     if (!page || (!page.done && page.entries.length === 0))
       throw new FleetFault("snapshot_required", "Replica cut manifest is unavailable or corrupt.", true);
     for (const entry of page.entries) {
       digest = updateReplicaManifestDigest(digest, entry);
       totalBytes += entry.blob.size;
-      offset += 1;
+      count += 1;
+      afterPath = entry.path;
     }
     if (page.entries.length) yield { index: index++, entries: page.entries };
     if (page.done) {
-      if (
-        digest !== cut.manifest.digest ||
-        offset !== cut.manifest.entryCount ||
-        totalBytes !== cut.manifest.totalBytes
-      )
+      if (digest !== cut.manifest.digest || count !== cut.manifest.entryCount || totalBytes !== cut.manifest.totalBytes)
         throw new FleetFault("snapshot_required", "Replica cut manifest is unavailable or corrupt.", true);
       return;
     }
@@ -212,7 +210,6 @@ export async function deliverReplicaOffer(input: {
   lifecycle: ReturnType<ReturnType<typeof createFleetDeliveryDrain>["admit"]>;
   signal: AbortSignal;
   connectionSignal: AbortSignal;
-  preparationDeadlineAt: number;
   quotaBytes: number;
   stateRoot: string;
   issuedAt: string;
@@ -298,7 +295,6 @@ export async function deliverReplicaOffer(input: {
   }
   window.offers.set(offer.transferId, { key, lease, renewalFailure: renewalFailure.signal, release });
   ackStore.delivery.record(key, { started: offer.kind });
-  let preparationRemainingMs = input.preparationDeadlineAt - Date.now();
   return {
     key: `${key.nodeId}\0${key.viewId}\0${key.repoId}`,
     signal,
@@ -314,23 +310,15 @@ export async function deliverReplicaOffer(input: {
       fail(error);
     },
     frames: (async function* () {
+      // Preparation bounds admission only. Once pinned, center reads and transport share the
+      // delivery deadline; a slow page must not spend the next request's budget rebuilding it.
       const iterator = offerFrames(offer, replica, input.authorization);
       for (;;) {
-        if (preparationRemainingMs <= 0)
-          throw new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false);
-        const readStartedAt = Date.now();
         preparing = true;
-        const timeout = setTimeout(
-          () => fail(new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false)),
-          preparationRemainingMs,
-        );
         let next;
         try {
           next = await untilAborted(() => iterator.next(), signal);
         } finally {
-          clearTimeout(timeout);
-          // Only center work consumes the original preparation budget; socket waits pause it.
-          preparationRemainingMs -= Date.now() - readStartedAt;
           preparing = false;
         }
         if (next.done) return;

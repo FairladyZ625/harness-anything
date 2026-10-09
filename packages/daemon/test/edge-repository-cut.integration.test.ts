@@ -451,15 +451,15 @@ test("snapshot manifest pages terminate at the final page and reconcile before b
   const insert = f.db.prepare("INSERT INTO pinned_entities VALUES (?, ?, ?)");
   for (let index = 0; index < 257; index++) insert.run(`task/task-${index}`, "now", "owner");
   const cut = (await f.source.prepare())!;
-  const offsets: number[] = [];
+  const cursors: string[] = [];
   let contentReads = 0;
   const source = {
     ...f.source,
     delivery: {
       ...f.source.delivery,
-      manifestPage: async (revision: number, offset: number) => {
-        offsets.push(offset);
-        return f.source.manifestPage(revision, offset);
+      manifestPage: async (revision: number, afterPath: string) => {
+        cursors.push(afterPath);
+        return f.source.manifestPage(revision, afterPath);
       },
       content: async (blob: Parameters<typeof f.source.content>[0]) => {
         contentReads++;
@@ -473,18 +473,25 @@ test("snapshot manifest pages terminate at the final page and reconcile before b
   for await (const frame of offerFrames(offer, source, { owner: "owner", digest: "a".repeat(64) }))
     if (frame.schema === "fleet.snapshot.page/v1") sizes.push(frame.entries.length);
   assert.deepEqual(sizes, [128, 128, 2]);
-  assert.deepEqual(offsets, [0, 128, 256, 0, 128, 256], "done ends both passes without a page beyond the final one");
+  const paths = f.source.manifest(cut.revision)!;
+  assert.deepEqual(
+    cursors,
+    ["", paths[127]!.path, paths[255]!.path, "", paths[127]!.path, paths[255]!.path],
+    "done ends both passes without a page beyond the final one",
+  );
   const readsBeforeCorruption = contentReads;
   const corrupt = {
     ...source,
     delivery: {
       ...source.delivery,
-      manifestPage: async (revision: number, offset: number) => {
-        const page = f.source.manifestPage(revision, offset)!;
+      manifestPage: async (revision: number, afterPath: string) => {
+        const page = f.source.manifestPage(revision, afterPath)!;
         return {
           ...page,
           entries: page.entries.map((entry, index) =>
-            offset === 128 && index === 0 ? { ...entry, blob: { ...entry.blob, sha256: "f".repeat(64) } } : entry,
+            afterPath === paths[127]!.path && index === 0
+              ? { ...entry, blob: { ...entry.blob, sha256: "f".repeat(64) } }
+              : entry,
           ),
         };
       },
