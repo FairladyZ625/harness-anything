@@ -6,7 +6,8 @@ import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection, createScheduleV1, type ScheduleV1 } from "@harness-anything/kernel";
 import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
 import { reconcileCiOccurrence } from "../src/ci-observe-importer.ts";
-import { ingestCiObservations, type RunGh } from "../src/ci-observation-actions.ts";
+import type { RepoTaskAction } from "../src/repo-cell-types.ts";
+import { ingestCiObservations, runCiProviderCommand, type RunGh } from "../src/ci-observation-actions.ts";
 
 const actor = { principal: { personId: "ci-import-test" }, executor: null } as const;
 const binding = { actor, source: "local" as const };
@@ -31,6 +32,9 @@ function schedule(): ScheduleV1 {
 function provider() {
   const state = {
     runs: 0,
+    slowArtifacts: false,
+    interruptLastArtifact: false,
+    downloaded: [] as string[],
     latestAttempt: 1,
     artifacts: true,
     extraJob: false,
@@ -73,8 +77,13 @@ function provider() {
       throw new Error("Get https://api.github.com/artifacts: EOF");
     if (api.includes("/artifacts?")) {
       const runId = Number(api.split("/")[5]);
-      const artifacts =
-        state.artifacts || state.expired
+      const artifacts = state.slowArtifacts
+        ? ["fast", "second", "third"].map((name, i) => ({
+            id: runId * 1000 + i,
+            name: `ci-observation-${runId}-${requestedAttempt}-${name}`,
+            expired: false,
+          }))
+        : state.artifacts || state.expired
           ? [
               {
                 id: runId * 1000 + requestedAttempt,
@@ -110,6 +119,9 @@ function provider() {
           jobs: [
             { id: Number(api.split("/")[5]) * 10, name: "fast" },
             ...(state.extraJob ? [{ id: Number(api.split("/")[5]) * 10 + 1, name: "missing-job" }] : []),
+            ...(state.slowArtifacts
+              ? ["second", "third"].map((name, i) => ({ id: Number(api.split("/")[5]) * 10 + i + 1, name }))
+              : []),
           ],
         },
         { jobs: [] },
@@ -138,7 +150,13 @@ function provider() {
       if (state.archiveMissing) throw new Error("HTTP 404 Not Found: selected artifact archive");
       const runId = args[2]!,
         dir = args[args.indexOf("--dir") + 1]!;
-      assert.deepEqual(args.slice(3, -2), ["-n", `ci-observation-${runId}-${requestedAttempt}-fast`]);
+      const name = args[args.indexOf("-n") + 1]!.split("-").at(-1)!;
+      if (state.slowArtifacts) {
+        state.downloaded.push(name);
+        if (name === "third" && state.interruptLastArtifact) throw new Error("unexpected EOF");
+        const units = args.filter((arg) => arg === "-n").length;
+        await runCiProviderCommand(process.execPath, ["-e", `setTimeout(() => {}, ${units * 16000})`], options);
+      } else assert.deepEqual(args.slice(3, -2), ["-n", `ci-observation-${runId}-${requestedAttempt}-fast`]);
       assert.equal(options.cwd.length > 0, true);
       mkdirSync(dir, { recursive: true });
       for (let attempt = requestedAttempt; attempt <= requestedAttempt; attempt++)
@@ -151,14 +169,14 @@ function provider() {
               workflow: ".github/workflows/rewrite-ci.yml",
               databaseRunId: runId,
               runAttempt: attempt,
-              jobKey: '["fast",{}]',
-              jobName: "fast",
+              jobKey: JSON.stringify([name, {}]),
+              jobName: name,
             },
             run: {
               runId: `${runId}.${attempt}`,
               sha,
               branch: "main",
-              job: "fast",
+              job: name,
               prNumber: null,
               wallclockMs: 1,
               runner: "github-actions",
@@ -186,6 +204,8 @@ async function fixture(
     state: ReturnType<typeof provider>["state"];
     store: ReturnType<typeof makeTaskEventStore>;
     current: () => ScheduleV1;
+    seedPending: (count: number) => void;
+    request: (runId: number) => void;
     crash: (point: "before-accept" | "after-accept" | null) => void;
   }) => Promise<void>,
 ) {
@@ -203,12 +223,13 @@ async function fixture(
       settings: { read: () => ({ ci: { workflows: ["rewrite-ci"] } }) },
       cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
     };
+    const requests: RepoTaskAction[] = [];
     const run = async () => {
       const result = await reconcileCiOccurrence({
         cell: cell as never,
         schedule: current,
         gh,
-        requests: () => [],
+        requests: () => requests.splice(0),
         accept: async (fetched) => {
           if (fetched.runs.length && crash === "before-accept") throw new Error("crash before acceptance");
           const receipt = ingestCiObservations(cell as never, binding, fetched);
@@ -226,6 +247,32 @@ async function fixture(
         state,
         store,
         current: () => current,
+        seedPending: (count) => {
+          current = {
+            ...current,
+            status: {
+              ...current.status,
+              ciObserve: {
+                workflow: "rewrite-ci",
+                workflowIndex: 0,
+                scanPass: 0,
+                nextPage: 1,
+                nextRunId: null,
+                nextAttempt: 1,
+                pending: Array.from({ length: count }, (_, i) => ({
+                  runId: i + 1,
+                  attempt: 1,
+                  workflow: "rewrite-ci",
+                })),
+                unavailable: [],
+                lastCompletedScanAt: null,
+                error: null,
+                retryAt: null,
+              },
+            },
+          };
+        },
+        request: (runId) => requests.push({ kind: "ci-observe-pull", runs: [runId], attempts: { [runId]: 1 } }),
         crash: (point) => {
           crash = point;
         },
@@ -247,6 +294,8 @@ test("reconciliation crosses 100 runs and the empty API tail; an old run's new a
     state.latestAttempt = 2;
     assert.equal((await run()).outcome, "succeeded");
     assert.ok(state.seen.includes("1.2"));
+    assert.equal(store.readHead()!.revision, revision + 30);
+    assert.equal((await run()).outcome, "succeeded");
     assert.equal(store.readHead()!.revision, revision + 60);
     assert.equal(current().status.ciObserve!.pending.length, 0);
   });
@@ -317,14 +366,13 @@ test("a run with hundreds of attempts resumes a bounded subpage instead of resta
   await fixture(async ({ run, state, current, store }) => {
     state.runs = 1;
     state.latestAttempt = 201;
-    assert.equal((await run()).outcome, "succeeded");
-    assert.equal(current().status.ciObserve!.nextRunId, 1);
-    assert.equal(current().status.ciObserve!.nextAttempt, 101);
-    assert.equal(current().status.ciObserve!.nextPage, 1);
-    assert.equal(store.readHead()!.revision, 300);
-    assert.equal((await run()).outcome, "succeeded");
-    assert.equal(current().status.ciObserve!.nextAttempt, 201);
-    assert.equal(store.readHead()!.revision, 600);
+    for (let occurrence = 1; occurrence <= 10; occurrence++) {
+      assert.equal((await run()).outcome, "succeeded");
+      assert.equal(current().status.ciObserve!.nextRunId, 1);
+      assert.equal(current().status.ciObserve!.nextAttempt, occurrence * 20 + 1);
+      assert.equal(current().status.ciObserve!.nextPage, 1);
+      assert.equal(store.readHead()!.revision, occurrence * 60);
+    }
     assert.equal((await run()).outcome, "succeeded");
     assert.equal(current().status.ciObserve!.nextRunId, null);
     assert.equal(current().status.ciObserve!.nextPage, 2);
@@ -550,3 +598,79 @@ for (const detail of ["HTTP 401; EOF", "HTTP 403; EOF", "HTTP 429; EOF", "ENOSPC
     });
   });
 }
+
+test("explicit demand precedes a bounded pending batch and remaining diagnostics resume next occurrence", async () => {
+  await fixture(async ({ run, state, current, seedPending, request }) => {
+    seedPending(12);
+    request(77);
+    assert.equal((await run()).outcome, "succeeded");
+    assert.equal(state.seen[0], "77.1", "explicit demand must precede old artifact downloads");
+    assert.equal(current().status.ciObserve!.pending.length, 7);
+    assert.equal((await run()).outcome, "succeeded");
+    assert.equal(current().status.ciObserve!.pending.length, 2);
+    assert.equal((await run()).outcome, "succeeded");
+    assert.equal(current().status.ciObserve!.pending.length, 0);
+  });
+});
+
+test("one occurrence scans at most twenty attempts and resumes the first unprocessed attempt", async () => {
+  await fixture(async ({ run, state, current }) => {
+    state.runs = 1;
+    state.latestAttempt = 21;
+    assert.equal((await run()).outcome, "succeeded");
+    assert.equal(current().status.ciObserve!.nextAttempt, 21);
+    assert.equal(current().status.ciObserve!.nextRunId, 1);
+    assert.equal(state.seen.includes("1.21"), false);
+    assert.equal((await run()).outcome, "succeeded");
+    assert.equal(current().status.ciObserve!.nextRunId, null);
+    assert.equal(state.seen.includes("1.21"), true);
+  });
+});
+
+test("a gh deadline failure counts the target as failed and permits later targets and settlement", async () => {
+  await fixture(async ({ run, state, current }) => {
+    state.runs = 2;
+    state.firstArchiveError = Object.assign(new Error("Command failed: gh run download 1"), {
+      killed: true,
+      signal: "SIGTERM",
+      code: null,
+    });
+    const result = await run();
+    assert.equal(result.outcome, "succeeded");
+    assert.match(result.detail!, /1 target/u);
+    assert.deepEqual(current().status.ciObserve!.pending, [{ runId: 1, attempt: 1, workflow: "rewrite-ci" }]);
+    assert.ok(state.seen.includes("2.1"));
+  });
+});
+
+test("an unfinished pending target rotates behind later diagnostics instead of starving them", async () => {
+  await fixture(async ({ run, state, current, seedPending }) => {
+    seedPending(12);
+    state.firstArchiveError = new Error("unexpected EOF");
+    for (let occurrence = 0; occurrence < 3; occurrence++) assert.equal((await run()).outcome, "succeeded");
+    assert.deepEqual(current().status.ciObserve!.pending, [{ runId: 1, attempt: 1, workflow: "rewrite-ci" }]);
+    assert.ok(state.seen.includes("12.1"));
+  });
+});
+
+test("a progressing download exceeds the provider deadline and resumes completed artifacts across occurrences", async (t) => {
+  await fixture(async ({ run, state, current, store }) => {
+    state.runs = 1;
+    state.slowArtifacts = true;
+    state.interruptLastArtifact = true;
+    const started = performance.now();
+    assert.equal((await run()).outcome, "succeeded");
+    assert.ok(performance.now() - started > 30000, "two completed units exceed the whole-batch deadline");
+    assert.deepEqual(state.downloaded, ["fast", "second", "third"]);
+    assert.deepEqual(
+      current().status.ciObserve!.pending.map((target) => target.runId),
+      [1],
+    );
+    state.interruptLastArtifact = false;
+    assert.equal((await run()).outcome, "succeeded");
+    assert.deepEqual(state.downloaded, ["fast", "second", "third", "third"], "completed units must not download again");
+    assert.equal(current().status.ciObserve!.pending.length, 0);
+    assert.equal(store.readHead()!.revision, 5, "workflow, three job details and complete attempt accepted");
+    t.diagnostic(JSON.stringify({ elapsedMs: performance.now() - started, downloads: state.downloaded, pending: 0 }));
+  });
+});

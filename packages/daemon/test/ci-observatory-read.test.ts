@@ -864,7 +864,8 @@ test("CI observation pull --task imports the run the frozen contract judges: the
       { actor, source: "local" },
       runGh,
     );
-    assert.equal(events.length, 2);
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.payload.scope, "workflow");
     assert.equal(events[0]?.payload.verification?.runId, "903");
     assert.equal(events[0]?.payload.verification?.headSha, "sha-903");
     assert.equal(events[0]?.payload.verification?.conclusion, "failure");
