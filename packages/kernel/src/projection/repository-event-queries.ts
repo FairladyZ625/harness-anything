@@ -1,3 +1,4 @@
+import { readCiObservationWindowRows } from "./ci-observation-window-query.ts";
 import { decodeCiObservation, type CiRunObservationEventV4 } from "../domain/ci-run-observation-v4.ts";
 import type { CiRunObservationEventV2, CiRunObservationEventV3 } from "../domain/ci-run-observation-event.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
@@ -291,13 +292,16 @@ export function repositoryEventQueries(
           (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
         );
       }),
-    readCiRunObservations: (pageLimit, beforeRevision = Number.MAX_SAFE_INTEGER) =>
+    readCiRunObservations: (pageLimit, beforeRevision = Number.MAX_SAFE_INTEGER, selection) =>
       withRead((db, cut) => {
         if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 2_000)
           throw new Error("ci run observation page requires a limit from 1 to 2000");
         return {
           status: cut.status,
-          events: queryRows(db, CI_RUN_OBSERVATIONS_SQL, beforeRevision, pageLimit).map((row) =>
+          events: (selection
+            ? readCiObservationWindowRows(db, selection.familyWindow)
+            : queryRows(db, CI_RUN_OBSERVATIONS_SQL, beforeRevision, pageLimit)
+          ).map((row) =>
             decodeCiObservation(
               JSON.parse(String(row.event_json)) as
                 | CiRunObservationEventV2

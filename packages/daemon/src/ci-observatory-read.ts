@@ -81,19 +81,8 @@ export function readCiObservatory(input: {
   const window = input.window ?? 100;
   if (!Number.isSafeInteger(window) || window < 1 || window > 100)
     throw new Error("CI observatory window must be 1..100");
-  const read = input.projection.readCiRunObservations(2000);
-  const all = [...read.events];
-  let page = read;
-  while (page.events.length === 2000) {
-    const before = Math.min(...page.events.map((event) => event.workspaceRevision));
-    page = input.projection.readCiRunObservations(2000, before);
-    if (page.sourceRevision !== read.sourceRevision || page.watermark !== read.watermark)
-      throw new Error("CI observation cut changed during pagination");
-    if (page.events.some((event) => event.workspaceRevision >= before))
-      throw new Error("CI observation page did not advance");
-    all.push(...page.events);
-  }
-  const events = ciRunWindow(all, window),
+  const read = input.projection.readCiRunObservations(window, undefined, { familyWindow: window });
+  const events = ciRunWindow(read.events, window),
     details = new Map<string, CiRunDetail>();
   for (const event of events) {
     const ref = event.payload.detailRef;

@@ -335,3 +335,33 @@ function initRepo(rootDir: string): void {
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
+
+test("opening a current projection adds CI expression indexes without rebuilding its rows", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const { projectionPath, eventStore } = tasklessFactLedger(rootDir, "ci-index-open", "F-C01DB01D");
+    const first = makeTaskProjection({ rootDir, eventStore });
+    first.catchUp();
+    first.close();
+    const db = new DatabaseSync(projectionPath);
+    const before = db.prepare("SELECT count(*) AS n FROM event_index").get();
+    db.exec("DROP INDEX ci_observation_family_members; DROP INDEX ci_observation_window_order");
+    db.close();
+    const reopened = makeTaskProjection({ rootDir, eventStore });
+    reopened.readCiRunObservations(1, undefined, { familyWindow: 1 });
+    reopened.close();
+    const inspected = new DatabaseSync(projectionPath);
+    try {
+      assert.deepEqual(inspected.prepare("SELECT count(*) AS n FROM event_index").get(), before);
+      assert.equal(
+        inspected
+          .prepare(
+            "SELECT count(*) AS n FROM sqlite_master WHERE type = 'index' AND name IN ('ci_observation_family_members', 'ci_observation_window_order')",
+          )
+          .get()!.n,
+        2,
+      );
+    } finally {
+      inspected.close();
+    }
+  });
+});

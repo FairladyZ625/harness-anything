@@ -42,17 +42,18 @@ export function ciRunWindow(events: readonly CiObservationRead[], window: number
       .sort(([, a], [, b]) => {
         const ai = a.payload.identity,
           bi = b.payload.identity;
-        if (
-          ai.provider === "github-actions" &&
-          bi.provider === "github-actions" &&
-          /^\d+$/u.test(ai.databaseRunId) &&
-          /^\d+$/u.test(bi.databaseRunId)
-        ) {
+        const an = ai.provider === "github-actions" && /^\d+$/u.test(ai.databaseRunId);
+        const bn = bi.provider === "github-actions" && /^\d+$/u.test(bi.databaseRunId);
+        if (an !== bn) return an ? -1 : 1;
+        if (an && bn) {
           const left = BigInt(ai.databaseRunId),
             right = BigInt(bi.databaseRunId);
           if (left !== right) return left > right ? -1 : 1;
+        } else {
+          const time = b.occurredAt.localeCompare(a.occurredAt);
+          if (time) return time;
         }
-        return b.occurredAt.localeCompare(a.occurredAt) || ciRunFamily(a).localeCompare(ciRunFamily(b));
+        return ciRunFamily(a) < ciRunFamily(b) ? -1 : ciRunFamily(a) > ciRunFamily(b) ? 1 : 0;
       })
       .slice(0, window)
       .map(([key]) => key),
