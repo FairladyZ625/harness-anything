@@ -596,7 +596,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // the instance's mutable current configuration. Null when the environment has no home.
     // The witness uses the module-level host platform; the local `process` is the launched
     // RuntimeProcess and carries no platform.
-    const resolvedProviderDirectory = sharedProviderDirectory(prepared.env, definition.kindId, hostPlatform);
+    const resolvedProviderDirectory = sharedProviderDirectory(prepared.env, declaredKindId, hostPlatform);
     const openStream = (): DispatchStreamWriter =>
       (stream ??= openDispatchStream(input.rootDir, {
         dispatchId: newDispatchId,
@@ -877,7 +877,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       runtimeSessionId,
       dispatchOpId,
       instanceId: definition.instanceId,
-      kindId: definition.kindId,
+      kindId: declaredKindId,
       resolvedProviderDirectory: resolvedProviderDirectory ?? null,
       permissionMode: launchedPermissionMode ?? null,
       agent,
