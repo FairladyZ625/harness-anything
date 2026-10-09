@@ -389,7 +389,7 @@ test("same generation ACK replay converges, rejects changed bytes, and a new gen
     offer("conflict", "c".repeat(64));
     assert.equal(store.ack(key, "conflict", target, "c".repeat(64), now, now, lease).outcome, "op_rejected");
     assert.equal(store.cursor(key)?.manifestDigest, digest);
-    store.clearOffer(key);
+    store.clearOffer(lease);
     offer("old-pending", "d".repeat(64));
     store.close();
     const database = new DatabaseSync(path.join(root, "replica/repos/repo-a/ack.sqlite"));
@@ -425,6 +425,78 @@ test("same generation ACK replay converges, rejects changed bytes, and a new gen
     );
     inspect.close();
   } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("expired owner release cannot clear the replacement owner's offer", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-offer-fence-"));
+  const store = openReplicaAckStore(root);
+  const key = { nodeId: "node-a", viewId: "view-a", repoId: "repo-a" };
+  const now = Date.now();
+  try {
+    const a = store.delivery.claim(key, "session-a", now, 10)!;
+    const b = store.delivery.claim(key, "session-b", now + 11, 30_000)!;
+    assert.ok(b.claimFence > a.claimFence);
+    const offer = store.offer(key, {
+      transferId: "transfer-b",
+      fromCut: null,
+      toCut: cut(8, "a"),
+      manifestDigest: "b".repeat(64),
+      kind: "snapshot",
+      issuedAt: new Date(now + 11).toISOString(),
+    });
+    store.clearOffer(a);
+    store.delivery.release(a);
+    assert.equal(
+      store.ack(
+        key,
+        offer.transferId,
+        offer.toCut,
+        offer.manifestDigest,
+        new Date(now + 12).toISOString(),
+        new Date(now).toISOString(),
+        b,
+      ).outcome,
+      "applied",
+    );
+    store.offer(key, { ...offer, transferId: "transfer-b-next" });
+    store.clearOffer(b);
+    store.delivery.release(b);
+    assert.equal(store.offerFor(key), null, "current owner still clears its own offer");
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("builder retention reads do not block lease renewal or offer release", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-ack-reader-"));
+  const store = openReplicaAckStore(root);
+  const key = { nodeId: "node-a", viewId: "view-a", repoId: "repo-a" };
+  const now = Date.now();
+  const lease = store.delivery.claim(key, "session", now, 30_000)!;
+  store.offer(key, {
+    transferId: "transfer",
+    fromCut: null,
+    toCut: cut(8, "a"),
+    manifestDigest: "b".repeat(64),
+    kind: "snapshot",
+    issuedAt: new Date(now).toISOString(),
+  });
+  const reader = new DatabaseSync(path.join(root, "replica/repos/repo-a/ack.sqlite"), { readOnly: true });
+  try {
+    reader.exec("BEGIN");
+    reader.prepare("SELECT * FROM delivery_lease").all();
+    store.delivery.record(key, { bytes: 1 });
+    assert.equal(store.delivery.renew(lease, now + 1, 30_000), true);
+    store.clearOffer(lease);
+    store.delivery.release(lease);
+    assert.equal(store.offerFor(key), null);
+  } finally {
+    reader.exec("ROLLBACK");
+    reader.close();
     store.close();
     rmSync(root, { recursive: true, force: true });
   }

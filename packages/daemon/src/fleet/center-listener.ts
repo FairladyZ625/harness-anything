@@ -665,9 +665,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         );
       }
       const release = (acknowledged = false) => {
+        ackStore.clearOffer(lease);
         ackStore.delivery.release(lease);
         if (!acknowledged) replica.releasePin(lease);
-        ackStore.clearOffer(key);
         connectionSignal?.removeEventListener("abort", disconnected);
       };
       const disconnected = () => release();
@@ -692,10 +692,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           options.replicaDiskQuotaBytes!,
           options.stateRoot,
         );
+        const prepared = await makeOffer(key, cursor, pinned, replica, now());
         guard();
-        ackStore.clearOffer(key);
-        offer = ackStore.offer(key, await makeOffer(key, cursor, pinned, replica, now()));
-        guard();
+        ackStore.clearOffer(lease);
+        offer = ackStore.offer(key, prepared);
       } catch (error) {
         release();
         throw error;
