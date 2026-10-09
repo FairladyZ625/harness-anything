@@ -1,3 +1,4 @@
+import { recordReplicaRevision } from "./replica-sequence.ts";
 import { projectArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
@@ -1066,7 +1067,10 @@ function drainDeferred(
     ).get(next + 1, allowRevisionGaps ? 1 : 0, next) as { readonly event_json: string } | undefined;
     if (row === undefined) break;
     const event = JSON.parse(row.event_json) as PersistedCanonicalEventV1;
-    applyEvent(db, normalizePersistedCanonicalEvent(event), row.event_json, readBlob);
+    runSql(db, "DELETE FROM replica_dirty");
+    const normalized = normalizePersistedCanonicalEvent(event);
+    applyEvent(db, normalized, row.event_json, readBlob);
+    recordReplicaRevision(db, normalized, row.event_json, next);
     runSql(db, "DELETE FROM event_source WHERE workspace_revision = ?", event.workspaceRevision);
     next = event.workspaceRevision;
     reduced += 1;

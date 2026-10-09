@@ -10,7 +10,7 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
+import { openReplicaCutSource } from "./replica-sequence.fixture.ts";
 import { makeOffer, offerFrames } from "../src/fleet/center-replica-offer.ts";
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";

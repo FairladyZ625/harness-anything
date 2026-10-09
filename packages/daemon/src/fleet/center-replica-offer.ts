@@ -1,10 +1,9 @@
-import { createHash } from "node:crypto";
 import { digestId, mid, wireCut } from "./center-transport.ts";
 import { FleetFault } from "./center-types.ts";
 import { FLEET_CHUNK_BYTES, type FleetCut, type FleetEntry, type FleetFrameV1 } from "./contract.ts";
 import { type ReplicaAckStore, type ReplicaDeliveryKey, type ReplicaOffer } from "./replica-ack-store.ts";
 import type { ReplicaCutSource, SnapshotCut } from "./replica-cut-store.ts";
-import { parseEdgeReadModelMeta, READ_MODEL_META_PATH, stableStringify } from "@harness-anything/kernel";
+import { parseEdgeReadModelMeta, READ_MODEL_META_PATH, updateReplicaManifestDigest } from "@harness-anything/kernel";
 
 export async function makeOffer(
   key: ReplicaDeliveryKey,
@@ -32,7 +31,7 @@ export async function makeOffer(
       (await replica.delivery.changes(cursor.revision, latest.revision)) !== null
     ) {
       fromCut = wireCut(retained);
-      // Fold the retained chain between complete checkpoints.
+      // Fold the shared canonical sequence from the independently acknowledged node cursor.
       kind = "delta";
     }
   }
@@ -96,8 +95,6 @@ export async function* offerFrames(
     };
     return;
   }
-  // Deltas also reconcile against the whole target, without materializing it in the listener.
-  for await (const page of manifestPages(replica, target)) void page;
   const changes = offer.fromCut && (await replica.delivery.changes(offer.fromCut.revision, offer.toCut.revision));
   if (!offer.fromCut || !changes)
     throw new FleetFault("snapshot_required", "Adjacent replica changelog is outside retention.", true);
@@ -140,7 +137,7 @@ export async function* offerFrames(
 
 /** Page buffers are bounded; full reconciliation completes before any snapshot blob or finish. */
 async function* manifestPages(replica: ReplicaCutSource, cut: SnapshotCut) {
-  const hash = createHash("sha256").update("[");
+  let digest = "0".repeat(64);
   let offset = 0,
     index = 0,
     totalBytes = 0;
@@ -149,15 +146,14 @@ async function* manifestPages(replica: ReplicaCutSource, cut: SnapshotCut) {
     if (!page || (!page.done && page.entries.length === 0))
       throw new FleetFault("snapshot_required", "Replica cut manifest is unavailable or corrupt.", true);
     for (const entry of page.entries) {
-      if (offset) hash.update(",");
-      hash.update(stableStringify(entry));
+      digest = updateReplicaManifestDigest(digest, entry);
       totalBytes += entry.blob.size;
       offset += 1;
     }
     if (page.entries.length) yield { index: index++, entries: page.entries };
     if (page.done) {
       if (
-        hash.update("]").digest("hex") !== cut.manifest.digest ||
+        digest !== cut.manifest.digest ||
         offset !== cut.manifest.entryCount ||
         totalBytes !== cut.manifest.totalBytes
       )

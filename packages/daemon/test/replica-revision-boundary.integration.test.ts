@@ -1,15 +1,17 @@
 // harness-test-tier: integration
+import {
+  makeTaskProjection,
+  makeTaskEventStore,
+  taskLifecycleWritePlan,
+  edgeReadModelEntries,
+  sha256Text,
+  stableStringify,
+} from "@harness-anything/kernel";
 import path from "node:path";
 import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
-import { centerEdgeReadModel } from "../src/fleet/replica-read-model.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { makeTaskProjection } from "../../kernel/src/projection/rebuildable-task-projection.ts";
-import { makeTaskEventStore } from "../../kernel/src/store/task-event-store.ts";
-import { taskLifecycleWritePlan } from "../../kernel/src/domain/task-lifecycle-publication.ts";
-import { edgeReadModelEntries } from "../../kernel/src/projection/read-model.ts";
-import { sha256Text, stableStringify } from "../../kernel/src/integrity/stable-hash.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
 
@@ -32,9 +34,9 @@ test("local reservation changes exported read-model bytes without advancing the 
         const source = openReplicaCutSource({
           repoId: "replica-boundary",
           localRoot: path.join(rootDir, `checkpoint-${checkpointNumber++}`),
-          readBasis: projection.readReplicaBasis,
+          readSequence: projection.readReplicaSequence,
+          readRevision: projection.readReplicaRevision,
           readContentBlob: eventStore.readContentBlob,
-          readEdgeReadModel: (read) => centerEdgeReadModel(projection, read),
         });
         try {
           return source.activate()!;
@@ -76,8 +78,8 @@ test("local reservation changes exported read-model bytes without advancing the 
       assert.equal(firstCheckpoint.revision, releasedCheckpoint.revision);
       assert.equal(firstCheckpoint.headDigest, reservedCheckpoint.headDigest);
       assert.equal(firstCheckpoint.headDigest, releasedCheckpoint.headDigest);
-      assert.notEqual(firstCheckpoint.manifest.digest, reservedCheckpoint.manifest.digest);
-      assert.notEqual(reservedCheckpoint.manifest.digest, releasedCheckpoint.manifest.digest);
+      assert.equal(firstCheckpoint.manifest.digest, reservedCheckpoint.manifest.digest);
+      assert.equal(reservedCheckpoint.manifest.digest, releasedCheckpoint.manifest.digest);
       t.diagnostic(
         JSON.stringify({
           canonicalRevision: head?.revision,

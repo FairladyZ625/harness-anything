@@ -1,3 +1,4 @@
+import { createReplicaSequence } from "./replica-sequence.ts";
 import { CI_OBSERVATION_WINDOW_INDEX_SQL } from "./ci-observation-window-query.ts";
 // @write-boundary-exemption rebuildable-projection
 import path from "node:path";
@@ -522,6 +523,7 @@ ${CI_OBSERVATION_WINDOW_INDEX_SQL}
   createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);
   createDecisionProjectionTables(db);
+  createReplicaSequence(db);
 }
 
 export function projectionSchemaVersion(db: DatabaseSync): number | null {

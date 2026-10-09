@@ -24,7 +24,6 @@ import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { taskShowFromProjection } from "./repo-cell-completion.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { openReplicaCutWorker } from "./fleet/replica-cut-worker.ts";
-import { centerEdgeReadModel } from "./fleet/replica-read-model.ts";
 import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
@@ -171,7 +170,8 @@ export async function openRepoCellProxy(
       {
         repoId: input.repoId,
         localRoot: path.dirname(path.dirname(reader.path)),
-        readBasis: (afterRevision) => reader.withSession((projection) => projection.readReplicaBasis(afterRevision)),
+        readSequence: (from) => reader.withSession((projection) => projection.readReplicaSequence(from)),
+        readRevision: (revision) => reader.withSession((projection) => projection.readReplicaRevision(revision)),
         // Fleet replication follows the acknowledged writer cut, including the durable
         // ledger suffix that may not have reached Git yet. This reader is immutable; the
         // RepoWriterCell remains the only accepting writer.
@@ -179,7 +179,6 @@ export async function openRepoCellProxy(
         readContentBlob: (sha256) => readCurrentLedger((store) => store.readContentBlob(sha256)),
         readEvent: (opId) => readCurrentLedger((store) => store.readEvent(opId)),
         readApplied: (opId) => reader.withSession((projection) => projection.readOperation(opId)),
-        readEdgeReadModel: (read) => reader.withSession((projection) => centerEdgeReadModel(projection, read)),
       },
       { ...ledgerOptions, localRoot: path.dirname(path.dirname(reader.path)) },
     ),

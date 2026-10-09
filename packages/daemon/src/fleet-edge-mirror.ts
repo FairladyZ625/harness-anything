@@ -428,9 +428,13 @@ export function applyFleetMirrorCut(
   };
   for (const [logical, blob] of documents) {
     fleetMirrorAssertLogical(logical);
+    const oldSha = baseOf[logical] ?? null;
+    if (oldSha === blob.sha256) {
+      nextBlobs[logical] = oldSha;
+      continue;
+    }
     const localBytes = localBytesOf(logical),
-      localSha = localBytes === null ? null : sha256Bytes(localBytes),
-      oldSha = baseOf[logical] ?? null;
+      localSha = localBytes === null ? null : sha256Bytes(localBytes);
     if (localSha === blob.sha256) {
       nextBlobs[logical] = blob.sha256;
       continue;

@@ -401,3 +401,12 @@ export type { CanonicalEventSummary } from "./domain/canonical-event-summary.ts"
 export type { EventListQuery } from "./domain/event-list.ts";
 
 export { reduceArtifactEntityState, type ArtifactEntityState } from "./domain/artifact-entity-state.ts";
+
+export {
+  replicaManifestDigest,
+  updateReplicaManifestDigest,
+  type ReplicaSequenceRead,
+  type ReplicaRevision,
+  type ReplicaEntry,
+  type ReplicaChange,
+} from "./projection/replica-sequence.ts";

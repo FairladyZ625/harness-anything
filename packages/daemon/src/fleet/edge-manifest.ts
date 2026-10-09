@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
+import { replicaManifestDigest } from "@harness-anything/kernel";
 import { readFileWindow } from "../durable-file.ts";
 import { StringDecoder } from "node:string_decoder";
-import { stableStringify } from "@harness-anything/kernel";
 import type { FleetCut, FleetEntry } from "./contract.ts";
 
 export interface EdgeManifestHeader {
@@ -23,14 +22,7 @@ export function* serializeEdgeManifest(header: EdgeManifestHeader, entries: read
 
 /** Caller owns canonical localeCompare ordering, as in fleetManifestDigest. */
 export function orderedEdgeManifestDigest(entries: Iterable<FleetEntry>): string {
-  const hash = createHash("sha256").update("[");
-  let first = true;
-  for (const entry of entries) {
-    if (!first) hash.update(",");
-    hash.update(stableStringify({ path: entry.path, blob: entry.blob }));
-    first = false;
-  }
-  return hash.update("]").digest("hex");
+  return replicaManifestDigest(entries);
 }
 
 /** Read one JSON value at a time, including manifests written by the existing JSON writer. */
