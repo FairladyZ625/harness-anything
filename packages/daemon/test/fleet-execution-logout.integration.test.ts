@@ -362,6 +362,9 @@ test(
       path.join(edgeRoot, "harness/tasks/task-fleet-fleet/closeout.md"),
       "## Summary\nEdge implementation evidence.\n## Verification\nReal CLI after logout passed.\n## Residual Risk\nFixture only.\n## Same Mechanism Elsewhere\nFleet scopes bind the canonical dispatch.\n",
     );
+    const frozenEvidencePath = "tasks/task-fleet-fleet/artifacts/full-evidence.txt",
+      frozenEvidence = `FROZEN-HEAD\n${"accepted evidence line🛰\n".repeat(9000)}FROZEN-TAIL\n`;
+    writeFileSync(path.join(edgeRoot, "harness", frozenEvidencePath), frozenEvidence);
     const doc = await cli(["doc", "sync", "--submit", "--task", taskId]);
     assert.equal(doc.outcome, "applied", JSON.stringify(doc));
     const unchanged = await cli(["doc", "sync", "--submit", "--task", taskId]);
@@ -517,6 +520,25 @@ test(
     };
     const reviewedTask = await reviewCli(["task", "show", taskId]);
     assert.equal(reviewedTask.outcome, "applied", JSON.stringify(reviewedTask));
+    // Frozen evidence is served by the center, even when the edge's workspace content differs.
+    writeFileSync(path.join(reviewRoot, "harness", frozenEvidencePath), "Changed local evidence.\n");
+    const fullEvidence = await reviewCli(["doc", "show", "--path", frozenEvidencePath]);
+    assert.equal(fullEvidence.outcome, "applied", JSON.stringify(fullEvidence));
+    assert.equal(fullEvidence.evidence, frozenEvidence);
+    t.diagnostic(`Frozen evidence read ${Buffer.byteLength(frozenEvidence)} bytes through center chunk frames.`);
+    const rawEvidence = await spawnCli(["--root", reviewRoot, "doc", "show", "--path", frozenEvidencePath, "--raw"], {
+      ...process.env,
+      ...reviewEnv,
+    });
+    assert.equal(rawEvidence.stdout, frozenEvidence);
+    const binaryEvidence = await reviewCli(["doc", "show", "--path", "tasks/task-fleet-fleet/artifacts/evidence.bin"]);
+    assert.equal(binaryEvidence.evidence, artifactBytes.toString("base64"));
+    for (const deniedPath of [
+      "tasks/task-other/artifacts/full-evidence.txt",
+      "tasks/task-fleet-fleet/artifacts/unregistered.txt",
+      "tasks/task-fleet-fleet/task_plan.md",
+    ])
+      assert.equal((await reviewCli(["doc", "show", "--path", deniedPath])).code, "execution_credential_rejected");
     for (const [nodeId, executionCredential] of [
       ["node-slow", secret],
       [config.nodeId, reviewEnv.HARNESS_EXECUTION_CREDENTIAL!],
@@ -625,6 +647,11 @@ test(
     // The stale credential still reads the local replica; the center refuses only its writes below.
     const staleRead = await reviewCli(["task", "show", taskId]);
     assert.equal(staleRead.outcome, "applied", JSON.stringify(staleRead));
+    assert.equal(
+      (await reviewCli(["doc", "show", "--path", frozenEvidencePath])).code,
+      "execution_credential_rejected",
+      "a superseded reviewer cannot read the replacement submission",
+    );
     const staleReceipt = await reviewCli([
       "task",
       "review-execution",

@@ -41,6 +41,7 @@ import {
 import { publishDocIntent } from "./doc-sync-publication.ts";
 import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
 import { runDocMaterialize } from "./doc-sync-materialize-action.ts";
+import type { RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
 import {
   noOp,
   scanDetail,
@@ -57,6 +58,7 @@ export interface Binding {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly authorizationDecision?: AuthorizationDecision;
+  readonly executionPrincipal?: RuntimeExecutionPrincipal;
 }
 
 export type Input = {

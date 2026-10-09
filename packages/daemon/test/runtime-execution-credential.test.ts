@@ -314,3 +314,22 @@ test("execution event list permits repository reads without widening task or wri
     }
   }
 });
+
+test("reviewer frozen document requests use a path without granting implementation document reads", () => {
+  const p = { ...principal(), role: "reviewer" as const };
+  const action = { kind: "doc-show", path: "tasks/task-worker/artifacts/report.md", raw: true };
+  assert.doesNotThrow(() =>
+    requireExecutionRequestScope(p, "repo.task.read", {
+      repo: { repoId: p.repoId },
+      payload: { action },
+    }),
+  );
+  for (const denied of [
+    { ...action, taskId: "task-other" },
+    { ...action, paths: [action.path] },
+    { ...action, all: true },
+    { ...action, executionId: "execution-other" },
+  ])
+    assert.throws(() => requireExecutionActionScope(p, denied), { code: "execution_credential_rejected" });
+  assert.throws(() => requireExecutionActionScope(principal(), action), { code: "execution_credential_rejected" });
+});

@@ -268,7 +268,9 @@ export function reviewDispatchPrompt(input: {
     "For artifact anchors, review the center-accepted frozen contents above against the contract; " +
       "do not substitute local files or require Git ancestry for them. " +
       "Bodies longer than the inline limit are truncated and marked bodyTruncatedFromChars; " +
-      "the anchor's path, revision and blobSha256 still identify the full frozen content.",
+      "Read each full frozen artifact with ha doc show --path <anchor.path> --raw. " +
+      "Your reviewer credential resolves only this submission's registered anchors at their frozen revisions " +
+      "through the center, including on an edge; binary artifact bodies use the anchor record's base64 encoding.",
     `Effective completion gates: ${gates.length ? gates.join(", ") : "none"}.`,
     "These are task completion requirements. Follow the repository's ordering of source review, " +
       "pre-merge checks, and post-merge verification. Distinguish observed check failures from pending " +
