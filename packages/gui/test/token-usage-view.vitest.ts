@@ -451,14 +451,17 @@ describe("TokenUsageView", () => {
     );
     // 有派工未上报时明说总量是下界。
     expect(byTestId(container, "token-usage-conclusion").textContent).toContain("3 dispatches");
-    // 折算金额:口径(公开价、非实际花费)、价格表版本与未计价占比都在大数字旁边。
+    // 折算金额在右列;口径收进两列下方一处折叠「口径」说明:可见摘要带公开价折算、
+    // 非实际花费、价格表版本与未计价占比,长说明(下界)在折叠体里。
     const cost = byTestId(container, "token-usage-cost").textContent ?? "";
     expect(cost).toContain("$0.08");
-    expect(cost).toContain("converted at public API list prices, not actual spend");
-    expect(cost).toContain("price table 2026-10-10");
-    expect(cost).toContain("0.8% of usage (120 tokens) has no public price and is excluded");
+    const methodologySummary =
+      byTestId(container, "token-usage-methodology").querySelector("summary")?.textContent ?? "";
+    expect(methodologySummary).toContain("converted at public API list prices, not actual spend");
+    expect(methodologySummary).toContain("price table 2026-10-10");
+    expect(methodologySummary).toContain("0.8% of usage (120 tokens) has no public price and is excluded");
     // 计价与用量同等分量:两个主指标同为 44px 主数字,金额侧有自己的环比
-    // (0.07598 对 0.056,显示 +36%;参照段金额 $0.06)与「哪些是下界」的口径说明。
+    // (0.07598 对 0.056,显示 +36%;参照段金额 $0.06)。
     expect(byTestId(container, "token-usage-totals").querySelector("p")?.className).toContain("text-[44px]");
     expect(byTestId(container, "token-usage-cost").querySelector("p")?.className).toContain("text-[44px]");
     const costChange = byTestId(container, "token-usage-cost-change").textContent ?? "";
@@ -474,6 +477,37 @@ describe("TokenUsageView", () => {
     expect(view).toContain("2 sessions, 2.1K tokens");
     // 每一条文案的插值都被填上。
     expect(view).not.toMatch(/\{[a-zA-Z]+\}/u);
+  });
+
+  it("renders the two headline metrics as equal columns of one grid row with identical type", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    const totals = byTestId(container, "token-usage-totals"),
+      cost = byTestId(container, "token-usage-cost");
+    // 同一网格行的两列:同一父网格;≥560px 容器下 4 列网格里各 col-span-2(各占一半),
+    // 窄容器下 2 列网格里各 col-span-2(各占整行,上下堆叠)。
+    const grid = totals.parentElement;
+    expect(grid).toBe(cost.parentElement);
+    expect(grid?.className).toContain("grid");
+    expect(grid?.className).toContain("grid-cols-2");
+    expect(grid?.className).toContain("@[560px]:grid-cols-4");
+    for (const cell of [totals, cost]) {
+      expect(cell.className).toContain("col-span-2");
+      expect(cell.className).not.toContain("col-span-4");
+      // 两列内部结构相同:主数字 + 环比行,环比徽章落在同一位置。
+      expect([...cell.children].map((node) => node.tagName)).toEqual(["P", "P"]);
+    }
+    // 同字号同排版:两个 44px 主数字的 class 完全一致(同字号、同行高 → 同基线)。
+    const totalsNumber = totals.querySelector("p")?.className;
+    expect(totalsNumber).toContain("text-[44px]");
+    expect(cost.querySelector("p")?.className).toBe(totalsNumber);
+    // 整卡同分栏:构成图例与下方四栏和主指标同 breakpoint 切四列、同列间距,分栏线对齐。
+    const legend = byTestId(container, "token-usage-composition").querySelector("dl")?.className ?? "";
+    for (const gridClass of [legend, byTestId(container, "token-usage-figures").className]) {
+      expect(gridClass).toContain("grid-cols-2");
+      expect(gridClass).toContain("gap-x-6");
+      expect(gridClass).toContain("@[560px]:grid-cols-4");
+    }
   });
 
   it("says there is nothing to compare when the previous period is empty", async () => {

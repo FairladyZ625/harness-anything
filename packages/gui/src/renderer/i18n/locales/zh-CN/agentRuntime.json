@@ -489,6 +489,7 @@
   "agentRuntime.tokenUsageEmptyRange": "该范围内还没有带归因的派工消耗记录。",
   "agentRuntime.tokenUsageProjectionPending": "投影追赶中",
   "agentRuntime.tokenUsageHeadlineTitle": "总量与构成",
+  "agentRuntime.tokenUsageMethodologyLabel": "口径",
   "agentRuntime.tokenUsagePreviousToday": "昨天同一时段",
   "agentRuntime.tokenUsagePrevious7d": "此前 7 天同一时段",
   "agentRuntime.tokenUsagePrevious30d": "此前 30 天同一时段",

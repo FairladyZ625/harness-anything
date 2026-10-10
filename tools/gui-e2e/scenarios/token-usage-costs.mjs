@@ -221,7 +221,7 @@ export default {
   feature: "token-usage",
   lane: "isolated",
   description:
-    "Seeded list-price amounts render on the real token usage read: the headline shows tokens and converted cost as parallel 44px metrics (each with its own change, plus the lower-bound precision note), ranking rows carry amount and tokens on one baseline, donut and line presentations render with both metrics at both bases, the model ranking badges no-price models and keeps sub-cent rows non-zero, the trend readout and table carry per-bucket costs, the member detail totals include the cost row, and task/work grouping rows convert the same usage.",
+    "Seeded list-price amounts render on the real token usage read: the headline shows tokens and converted cost as equal grid columns with identical 44px type on one baseline (each with its own change; methodology disclaimers collapse into one disclosure under both columns, expandable with the counted cache-write note), ranking rows carry amount and tokens on one baseline, donut and line presentations render with both metrics at both bases, the model ranking badges no-price models and keeps sub-cent rows non-zero, the trend readout and table carry per-bucket costs, the member detail totals include the cost row, and task/work grouping rows convert the same usage.",
   async run({ page, fixture, shot }) {
     assert.ok(fixture, "the token-usage-costs scenario needs the isolated lane fixture");
     // 仓先 warming 后 attached:金额读在 warming 期会被拒,先等系统读面说仓已挂载。
@@ -241,36 +241,52 @@ export default {
     }
     await seedTasks(fixture.endpoint, fixture.repoId);
     seedDispatchStreams(fixture.rootDir);
-    // fullPage 截图不会展开内部滚动容器,加高视口让排行/归集卡整卡入镜。
-    await page.setViewportSize({ width: 1440, height: 1400 });
+    // fullPage 截图不会展开内部滚动容器,加高视口让排行/归集卡整卡入镜;宽屏按业主
+    // 实际看的窗口取 ≥1600px。
+    await page.setViewportSize({ width: 1680, height: 1400 });
 
     await page.getByRole("button", { name: /^(?:Token 消耗|Token Usage)$/u }).click();
     const view = page.getByTestId("token-usage-view");
     await view.waitFor();
-    const costLine = page.getByTestId("token-usage-cost");
-    await costLine.waitFor();
+    await page.getByTestId("token-usage-cost").waitFor();
 
-    // ①a 今天全有价:金额 + 折算口径 + 版本日期,没有未计价提示;计价与用量是同高度的
-    // 并列主指标(两个 44px 主数字,金额侧自带环比与下界口径)。
-    await assertCostLine(costLine, { cost: "$260.96", unpriced: false });
+    // ①a 今天全有价:金额 + 折算口径 + 版本日期,没有未计价提示;计价与用量是同一网格行
+    // 的对称两列(两个 44px 主数字同基线、同列宽,金额侧自带环比)。
+    await assertCostLine(page, { cost: "$260.96", unpriced: false });
     const metricHeadlineClass = async (testId) =>
       (await view.getByTestId(testId).locator("p").first().getAttribute("class")) ?? "";
-    assert.match(
-      await metricHeadlineClass("token-usage-totals"),
-      /text-\[44px\]/u,
-      "the token metric must be a 44px headline number",
-    );
-    assert.match(
+    const tokensNumberClass = await metricHeadlineClass("token-usage-totals");
+    assert.match(tokensNumberClass, /text-\[44px\]/u, "the token metric must be a 44px headline number");
+    assert.equal(
       await metricHeadlineClass("token-usage-cost"),
-      /text-\[44px\]/u,
-      "the converted-cost metric must be a 44px headline number beside the token one",
+      tokensNumberClass,
+      "the converted-cost metric must use the exact same type as the token one",
+    );
+    const [tokensNumber, costNumber] = await Promise.all([
+      view.getByTestId("token-usage-totals").locator("p").first().boundingBox(),
+      view.getByTestId("token-usage-cost").locator("p").first().boundingBox(),
+    ]);
+    assert.ok(tokensNumber && costNumber, "both headline numbers must be laid out");
+    assert.ok(
+      Math.abs(tokensNumber.y - costNumber.y) < 0.5,
+      `the two 44px numbers must share one baseline: y=${tokensNumber.y} vs y=${costNumber.y}`,
+    );
+    const [tokensCell, costCell] = await Promise.all([
+      view.getByTestId("token-usage-totals").boundingBox(),
+      view.getByTestId("token-usage-cost").boundingBox(),
+    ]);
+    assert.ok(
+      tokensCell && costCell && Math.abs(tokensCell.width - costCell.width) < 0.5,
+      `the two metric columns must be equal halves of one grid row: ${JSON.stringify({ tokensCell, costCell })}`,
     );
     await view.getByTestId("token-usage-cost-change").waitFor();
     await shot("headline-today-all-priced");
 
-    // ①b 7 天含无价用量(swe2):页首出现未计价占比提示。
+    // ①b 7 天含无价用量(swe2):页首出现未计价占比提示;展开折叠的口径说明读实测计数。
     await clickOption(page, "时间范围", "7 天");
-    await assertCostLine(costLine, { cost: "$304.16", unpriced: true });
+    await assertCostLine(page, { cost: "$304.16", unpriced: true });
+    const methodology = page.getByTestId("token-usage-methodology");
+    await methodology.locator("summary").click();
     // 口径行带实测计数:5 个派工的 provider 不报缓存写字段(d2/d3/d5/d6/p1),p2 一笔未单列。
     const note7d = await view.getByTestId("token-usage-cache-write-note").innerText();
     assert.match(
@@ -283,7 +299,7 @@ export default {
       /1 个派工在独立计数前结算|1 further dispatches/u,
       `the 7d cache-write note must count the pre-counter dispatch: ${note7d}`,
     );
-    await shot("headline-7d-unpriced");
+    await shot("headline-7d-unpriced-methodology-open");
 
     // ② 模型排行:swe2 行「无价格」+ 有价模型的金额列。
     await clickOption(page, "消耗视角", "模型");
@@ -343,7 +359,7 @@ export default {
       readoutText.includes(`折算 $${expectedReadout}`) || readoutText.includes(`converted $${expectedReadout}`),
       `the readout must price the bucket at $${expectedReadout}: ${readoutText}`,
     );
-    // ①c 四段构成:缓存写有自己的色段与计数;口径说明写明独立计数起点与未上报按 0。
+    // ①c 四段构成:缓存写有自己的色段与计数;口径说明(仍展开)写明独立计数起点与未上报按 0。
     const note = view.getByTestId("token-usage-cache-write-note");
     await note.waitFor();
     assert.match(
@@ -354,6 +370,7 @@ export default {
     const compositionText = await page.getByTestId("token-usage-composition").innerText();
     assert.match(compositionText, /缓存写入|Cache write/u, "the composition must carry the cache-write segment");
     await shot("trend-hover-readout");
+    await methodology.locator("summary").click();
     // ④b 趋势表格视图:金额列逐桶。
     await clickOption(page, "呈现方式", "表格", page.getByTestId("token-usage-trend-card"));
     await page.getByTestId("token-usage-trend-table").waitFor();
@@ -418,14 +435,34 @@ export default {
     );
     await shot("spend-by-works");
 
-    // ⑥b 窄屏(900px):并列主指标折成上下两行仍然都在,环形图与排行在窄容器可用。
+    // ⑥b 窄屏:900px 下两主指标仍并排等宽;更窄(580px 视口 → 卡片容器 <560px)时折成
+    // 上下两行各占整行;环形图与排行在窄容器可用。
     await clickOption(page, "消耗视角", "模型");
     await clickOption(page, "呈现方式", "环形", page.getByTestId("token-usage-ranking-card"));
     await page.getByTestId("token-usage-share").waitFor();
     await page.setViewportSize({ width: 900, height: 1400 });
     await view.getByTestId("token-usage-cost").scrollIntoViewIfNeeded();
+    const [narrowTokens, narrowCost] = await Promise.all([
+      view.getByTestId("token-usage-totals").boundingBox(),
+      view.getByTestId("token-usage-cost").boundingBox(),
+    ]);
+    assert.ok(
+      narrowTokens && narrowCost && Math.abs(narrowTokens.y - narrowCost.y) < 0.5,
+      "at 900px the two metrics must stay side by side on one baseline",
+    );
     await shot("narrow-900-share-donut");
-    await page.setViewportSize({ width: 1440, height: 1400 });
+    await page.setViewportSize({ width: 580, height: 1400 });
+    await view.getByTestId("token-usage-cost").scrollIntoViewIfNeeded();
+    const [stackedTokens, stackedCost] = await Promise.all([
+      view.getByTestId("token-usage-totals").boundingBox(),
+      view.getByTestId("token-usage-cost").boundingBox(),
+    ]);
+    assert.ok(
+      stackedTokens && stackedCost && stackedCost.y > stackedTokens.y,
+      `below the 560px card container the two metrics must stack: ${JSON.stringify({ stackedTokens, stackedCost })}`,
+    );
+    await shot("narrow-580-stacked-headline");
+    await page.setViewportSize({ width: 1680, height: 1400 });
     await clickOption(page, "呈现方式", "图表", page.getByTestId("token-usage-ranking-card"));
 
     // ⑦ 英文页首:走真实设置页切换语言后回看(业主要求的英文页首截图)。
@@ -434,16 +471,20 @@ export default {
     await page.getByRole("button", { name: /语言|Language/u }).click();
     await page.getByRole("combobox", { name: /^(?:语言|Language)$/u }).selectOption("en-US");
     await page.getByRole("button", { name: /^Token Usage$/u }).click();
-    await assertCostLine(costLine, { cost: "$260.96", unpriced: false, english: true });
+    await assertCostLine(page, { cost: "$260.96", unpriced: false, english: true });
     await shot("headline-en");
   },
 };
 
-/** 页首金额行断言:金额、折算口径(必须明说非实际花费)、版本日期、未计价提示只在有无价用量时出现。
- * 金额后紧跟单位词(innerText 无空格),边界用「后面不是数字」而不是 \b。 */
-async function assertCostLine(costLine, { cost, unpriced, english = false }) {
+/** 页首金额断言:金额在右列;折算口径(必须明说非实际花费)与版本日期在两列下方折叠
+ * 「口径」说明的可见摘要里;未计价提示只在有无价用量时出现。金额后紧跟单位词(innerText
+ * 无空格),边界用「后面不是数字」而不是 \b。 */
+async function assertCostLine(page, { cost, unpriced, english = false }) {
+  const costLine = page.getByTestId("token-usage-cost");
   await costLine.scrollIntoViewIfNeeded();
-  const text = await costLine.innerText();
+  const methodologySummary = page.getByTestId("token-usage-methodology").locator("summary");
+  await methodologySummary.waitFor();
+  const text = `${await costLine.innerText()}\n${await methodologySummary.innerText()}`;
   assert.match(text, new RegExp(`\\${cost}(?!\\d)`, "u"), `the headline must carry ${cost}: ${text}`);
   if (english) {
     assert.match(text, /price table 2026-10-10/u, "the English headline must date the price table");

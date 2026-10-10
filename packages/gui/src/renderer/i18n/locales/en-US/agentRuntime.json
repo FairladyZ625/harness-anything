@@ -489,6 +489,7 @@
   "agentRuntime.tokenUsageEmptyRange": "No attributed dispatch consumption in this range yet.",
   "agentRuntime.tokenUsageProjectionPending": "Projection catching up",
   "agentRuntime.tokenUsageHeadlineTitle": "Total and composition",
+  "agentRuntime.tokenUsageMethodologyLabel": "Methodology",
   "agentRuntime.tokenUsagePreviousToday": "the same hours yesterday",
   "agentRuntime.tokenUsagePrevious7d": "the 7 days before, to the same hour",
   "agentRuntime.tokenUsagePrevious30d": "the 30 days before, to the same hour",
