@@ -21,10 +21,9 @@ import {
 } from "@harness-anything/kernel";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
 import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
-import { replaceGateRun } from "../../kernel/src/domain/gate-run.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { gate as validateGateWitnessWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
-import { attestGateWitness, witnessAdapters } from "../src/repo-cell-witness-adapters.ts";
+import { attestGateWitness } from "../src/repo-cell-witness-adapters.ts";
 import { strandedDelivery } from "../src/repo-cell-ci-evidence.ts";
 import { fetchCiObservations } from "../src/ci-observation-actions.ts";
 import { runProcessExitAsync } from "../src/process-port.ts";
@@ -715,7 +714,7 @@ function rerun(snapshot: TaskLifecycleSnapshot): TaskLifecycleSnapshot {
   return {
     ...snapshot,
     executions: snapshot.executions.map((value) =>
-      value.executionId === execution.executionId ? replaceGateRun(value, run) : value,
+      value.executionId === execution.executionId ? { ...value, gateRuns: [...value.gateRuns, run] } : value,
     ),
   };
 }
