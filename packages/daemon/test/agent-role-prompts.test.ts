@@ -199,3 +199,15 @@ test("reviewer and commander output contracts do not take the worker closeout ha
   for (const role of ["reviewer", "commander"] as const)
     assert.doesNotMatch(assembleUnboundPrompt("Do the mission.", role), /closeout\.md/u, role);
 });
+
+for (const role of [undefined, "worker"] as const)
+  test(`${role ?? "undeclared"} worker applies injected decision scope before stopping`, () => {
+    const prompt = assembleUnboundPrompt("Implement the assigned package.", role);
+    assert.match(
+      prompt,
+      /Before stopping at a protected surface, check the injected Decision-Derived Execution Surface/u,
+    );
+    assert.match(prompt, /preserve and complete negative cases.*cite the decision id.*changed gate files/su);
+    assert.match(prompt, /outside it or at a hard prohibition, stop and report the exact request/u);
+    assert.match(prompt, /Without that section, existing task boundaries apply/u);
+  });

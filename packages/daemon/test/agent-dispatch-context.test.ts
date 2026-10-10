@@ -515,6 +515,7 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
     await waitForFixturePublication(cell, proposed.opId, binding);
     await relate(cell, `decision/${String(evidence(proposed).decisionId)}/CH1`, "task/task_pv_leaf", "derives");
+    await acceptDecision(cell, String(evidence(proposed).decisionId));
 
     const repoId = workspaceId("dispatch-preview"),
       canonical = canonicalRoot(root),
@@ -544,7 +545,6 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
     );
 
     // The real dispatch with the same inputs injects exactly the previewed prompt.
-    await acceptDecision(cell, String(evidence(proposed).decisionId));
     const real = await cell.spawnRuntime(spawnPayload, binding);
     assert.equal(real.outcome, "applied", JSON.stringify(real));
     assert.equal(launchCalls, 1);

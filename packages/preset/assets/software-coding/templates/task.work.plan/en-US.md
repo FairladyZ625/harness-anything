@@ -51,6 +51,14 @@ List cross-task, cross-wave, and external-consumer dependencies and handoffs, in
 
 Declare the repository, worktree, branch/base, and write boundary for each wave. Each dispatch injects its concrete absolute `cwd`.
 
+### Hard Prohibitions
+
+Do not change CI workflows, thresholds and budgets, required checks, credentials or host services, delete assertions, or change allowlist counts. Stop and report an exact request on these boundaries.
+
+### Decision-Derived Authorization
+
+Dispatch injects the execution surface from current Decisions linked by active derives edges. Only chosen entries of `in_effect` Decisions grant scope; superseded or retired Decisions grant nothing on the next dispatch. Gates and test assertions encoding contracts replaced by that Decision may be updated, provided negative cases are preserved and completed, the decision id is cited, and changed gate files are listed in closeout. Proceed and report within scope; stop outside scope or at a hard prohibition. Tasks without deriving Decisions receive no such default grant. A summary is neither the full Decision nor additional ledger write permission.
+
 ## PR/merge Operations
 
 - Global merge-health operations ledger: `task_01KWYKCPG5FZA3AFVX9R8XX3B7` (Authority: `decision/dec_mrat6152`).

@@ -5,7 +5,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, makeTaskEventReader } from "@harness-anything/kernel";
+import { deriveRelationId, makeTaskEventReader, makeTaskProjectionReader } from "@harness-anything/kernel";
+import { assembleTaskCausalContext } from "../src/dispatch-causal-context.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -73,6 +74,23 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       validationAfterRelate = receiptJson(validatedAfterRelate) as {
         rows: readonly { readonly valid: boolean; readonly errors: readonly string[] }[];
       };
+    const chosenDerived = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `decision/${decisionId}/CH1`,
+        targetRef: "task/task-evidence",
+        relationType: "derives",
+        rationale: "The chosen contract authorizes the task.",
+        expectedVersion: 0,
+      },
+      proposer,
+    );
+    assert.equal(chosenDerived.outcome, "applied", JSON.stringify(chosenDerived));
+    const dispatchContext = () =>
+      makeTaskProjectionReader({ rootDir }).withSession((projection) =>
+        assembleTaskCausalContext({ projection, taskId: "task-evidence" }),
+      );
+    assert.ok(!dispatchContext()?.includes("# 本任务授权范围"), "proposed decisions do not authorize dispatch");
     assert.equal(validatedAfterRelate.outcome, "applied");
     assert.equal(validationAfterRelate.rows[0]?.valid, true);
     assert.deepEqual(validationAfterRelate.rows[0]?.errors, []);
@@ -158,6 +176,10 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
     assert.equal(receiptJson(accepted).state, "in_effect");
+    assert.match(
+      dispatchContext() ?? "",
+      new RegExp(`来源 / Source: decision/${decisionId}/CH1; state=in_effect`, "u"),
+    );
     await cell.settlePendingMaterialization("read accepted decision document");
     assert.match(
       readFileSync(path.join(rootDir, "harness", `decisions/decision-${decisionId}/decision.md`), "utf8"),
@@ -198,6 +220,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     );
     assert.equal(superseded.outcome, "applied", JSON.stringify(superseded));
     assert.equal(receiptJson(superseded).state, "superseded");
+    assert.ok(!dispatchContext()?.includes("# 本任务授权范围"), "superseding removes the grant on the next read");
     const terminalRetry = await cell.run(
       {
         kind: "decision-transition",
@@ -282,7 +305,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.equal(decisionEvents.filter((event) => event.type === "decision_amended").length, 2);
     assert.deepEqual(
       relationEvents.map((event) => event.type),
-      ["relation_created", "relation_retired", "relation_created"],
+      ["relation_created", "relation_created", "relation_retired", "relation_created"],
     );
     assert.equal(decisionEvents.filter((event) => event.type === "decision_repinned").length, 2);
   } finally {

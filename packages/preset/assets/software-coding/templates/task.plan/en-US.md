@@ -30,13 +30,21 @@ List upstream dependencies, handoff inputs, concurrent ownership, and downstream
 
 Declare the repository, worktree, branch, base, and allowed write scope. The dispatcher injects the concrete absolute `cwd`; do not copy a machine-specific path into durable prose.
 
+### Hard Prohibitions
+
+Do not change CI workflows, thresholds and budgets, required checks, credentials or host services, delete assertions, or change allowlist counts. Stop and report an exact request on these boundaries.
+
+### Decision-Derived Authorization
+
+Dispatch injects the execution surface from current Decisions linked by active derives edges. Only chosen entries of `in_effect` Decisions grant scope; superseded or retired Decisions grant nothing on the next dispatch. Gates and test assertions encoding contracts replaced by that Decision may be updated, provided negative cases are preserved and completed, the decision id is cited, and changed gate files are listed in closeout. Proceed and report within scope; stop outside scope or at a hard prohibition. Tasks without deriving Decisions receive no such default grant. A summary is neither the full Decision nor additional ledger write permission.
+
 ## Constraints
 
 List the assumptions that must not be made and the boundaries that must not be crossed: which current state must stay unchanged, and which actions are off-limits without authorization (external and destructive actions are forbidden by default).
 
 ## Checkpoint
 
-State when to stop and report or request a ruling: stop-on-hit conditions (out-of-scope changes, gate bypass, conflict with an existing ruling, blast radius beyond estimate) and planned report-back points (e.g. after breakdown, before opening a PR).
+State when to stop and report or request a ruling: stop-on-hit conditions (hard prohibitions, changes outside injected authorization, gate bypass, conflict with an existing ruling, blast radius beyond estimate) and planned report-back points (e.g. after breakdown, before opening a PR).
 
 ## Implementation Plan
 
