@@ -27,6 +27,15 @@ import { sessionDelegation, type SessionGroupBy, type SessionStatus } from "../.
 import { t } from "../../i18n/index.tsx";
 export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "session"; readonly id: string };
 const message = (value: unknown): string => (value instanceof Error ? value.message : String(value));
+/** daemon 换版/重连窗口的拒绝是可重试的,不是业主的输入错了:错误码命中这一族时,
+ * 预览失败的消息明确附上「稍后重试」,而不是只留一段 daemon 文本让人猜。 */
+const transientDaemonCodes = new Set(["daemon_stopping", "daemon_build_draining", "repo_unavailable", "repo_warming"]);
+export function previewFailureText(cause: unknown): string {
+  const code = (cause as { readonly code?: unknown } | null)?.code;
+  return typeof code === "string" && transientDaemonCodes.has(code)
+    ? `${message(cause)} — ${t("agentRuntime.daemonTransientRetry")}`
+    : message(cause);
+}
 /** Agent 页 inspector 的相关会话行。归属由 daemon 精确筛选,任务组对应的
  * task.dispatches 批量读再保留真实 agentId/squadId,不把选中者 id 盖到行上。 */
 export type RuntimeDockRow = {
@@ -383,7 +392,7 @@ export function useAgentSquadWorkspace(repoId: string) {
         );
       } catch (cause) {
         consumeKnownError(cause);
-        channel.reportError(message(cause));
+        channel.reportError(previewFailureText(cause));
         return null;
       }
     },

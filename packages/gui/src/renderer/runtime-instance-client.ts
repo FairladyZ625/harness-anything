@@ -1,6 +1,7 @@
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import type { TerminalControlReceipt } from "@harness-anything/daemon/protocol";
 import { guiHostBridge } from "./gui-transport.ts";
+import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 export interface RuntimeInstallationRow {
   readonly installationId: string;
   readonly kindId: string;
@@ -114,49 +115,37 @@ export const runtimeInstanceClient = {
 const scope = (repoId?: string) => (repoId === undefined ? {} : { repoId });
 async function runtimeInstanceReceipt(value: Promise<unknown>): Promise<Record<string, unknown>> {
   const result = await value;
-  if (!runtimeInstanceRecord(result) || result.schema !== "command-receipt/v2" || typeof result.ok !== "boolean")
-    throw new Error(runtimeInstanceHint(result, "Runtime instance operation returned an invalid receipt."));
-  if (!result.ok) throw new Error(runtimeInstanceHint(result, "Runtime instance operation was rejected."));
+  if (!isRendererRecord(result) || result.schema !== "command-receipt/v2" || typeof result.ok !== "boolean")
+    throw new Error(rendererErrorHint(result, "Runtime instance operation returned an invalid receipt."));
+  if (!result.ok) throw new Error(rendererErrorHint(result, "Runtime instance operation was rejected."));
   return result;
 }
 function runtimeInstanceCatalog(value: unknown): RuntimeInstanceCatalog {
   if (
-    !runtimeInstanceRecord(value) ||
+    !isRendererRecord(value) ||
     value.schema !== "command-receipt/v2" ||
     value.ok !== true ||
     !Array.isArray(value.instances) ||
     !Array.isArray(value.installations)
   )
-    throw new Error(runtimeInstanceHint(value, "Runtime instance list returned an invalid receipt."));
+    throw new Error(rendererErrorHint(value, "Runtime instance list returned an invalid receipt."));
   return {
     instances: value.instances as RuntimeInstanceSummary[],
     installations: value.installations as RuntimeInstallationRow[],
   };
 }
 function runtimeInstanceSummary(value: unknown): RuntimeInstanceSummary {
-  if (
-    !runtimeInstanceRecord(value) ||
-    typeof value.instanceId !== "string" ||
-    !runtimeInstanceRecord(value.authReadiness)
-  )
+  if (!isRendererRecord(value) || typeof value.instanceId !== "string" || !isRendererRecord(value.authReadiness))
     throw new Error("Runtime instance authentication probe returned an invalid instance.");
   return value as unknown as RuntimeInstanceSummary;
 }
 function runtimeInstanceTerminal(value: unknown): TerminalControlReceipt {
   if (
-    !runtimeInstanceRecord(value) ||
+    !isRendererRecord(value) ||
     value.schema !== "terminal-control-receipt/v1" ||
     value.outcome !== "applied" ||
     typeof value.sessionId !== "string"
   )
-    throw new Error(runtimeInstanceHint(value, "Provider-native authentication terminal did not start."));
+    throw new Error(rendererErrorHint(value, "Provider-native authentication terminal did not start."));
   return value as TerminalControlReceipt;
-}
-function runtimeInstanceHint(value: unknown, fallback: string): string {
-  return runtimeInstanceRecord(value) && typeof value.rejectionExplanation === "string"
-    ? value.rejectionExplanation
-    : fallback;
-}
-function runtimeInstanceRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -1,5 +1,5 @@
 import type { AdminConnectionRow, AdminReceipt, ConnectionProbeSuccess } from "../api/connection-admin-contract.ts";
-import { isRendererRecord } from "./result-validation.ts";
+import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 
 /**
@@ -53,7 +53,7 @@ export async function fetchConnectionStatus(): Promise<readonly AdminConnectionR
 
 export function readStatus(value: unknown): readonly AdminConnectionRow[] {
   if (!isRendererRecord(value) || value.ok !== true || !Array.isArray(value.connections))
-    throw new Error(daemonHint(value, "Connection status bridge returned an invalid result."));
+    throw new Error(rendererErrorHint(value, "Connection status bridge returned an invalid result."));
   return value.connections.filter(isConnectionRow);
 }
 
@@ -62,7 +62,8 @@ export async function probeConnection(endpoint: string): Promise<ConnectionProbe
 }
 
 export function readProbe(value: unknown): ConnectionProbeSuccess {
-  if (!isRendererRecord(value) || value.ok !== true) throw new Error(daemonHint(value, "Connection probe failed."));
+  if (!isRendererRecord(value) || value.ok !== true)
+    throw new Error(rendererErrorHint(value, "Connection probe failed."));
   const version = isRendererRecord(value.protocolVersion) ? value.protocolVersion : null,
     build = isRendererRecord(value.build) ? value.build : null,
     repos = Array.isArray(value.repos) ? value.repos : [];
@@ -73,7 +74,7 @@ export function readProbe(value: unknown): ConnectionProbeSuccess {
     !Number.isInteger(version.minor) ||
     !repos.every((repo) => isRendererRecord(repo) && typeof repo.repoId === "string" && typeof repo.state === "string")
   )
-    throw new Error(daemonHint(value, "Connection probe bridge returned an invalid result."));
+    throw new Error(rendererErrorHint(value, "Connection probe bridge returned an invalid result."));
   return {
     ok: true,
     endpoint: value.endpoint,
@@ -152,19 +153,13 @@ export async function inspectWorkspace(
     typeof value.hasWorkspace !== "boolean" ||
     typeof value.suggestedRepoId !== "string"
   )
-    throw new Error(daemonHint(value, "Workspace inspect bridge returned an invalid result."));
+    throw new Error(rendererErrorHint(value, "Workspace inspect bridge returned an invalid result."));
   return { hasWorkspace: value.hasWorkspace, suggestedRepoId: value.suggestedRepoId };
 }
 
 function readReceipt(value: unknown, label: string): AdminReceipt {
   if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.ok !== "boolean")
-    throw new Error(daemonHint(value, `${label} bridge returned an invalid receipt.`));
-  if (value.ok !== true) throw new Error(daemonHint(value, `${label} was rejected.`));
+    throw new Error(rendererErrorHint(value, `${label} bridge returned an invalid receipt.`));
+  if (value.ok !== true) throw new Error(rendererErrorHint(value, `${label} was rejected.`));
   return value as unknown as AdminReceipt;
-}
-
-function daemonHint(value: unknown, fallback: string): string {
-  if (isRendererRecord(value) && isRendererRecord(value.error) && typeof value.error.hint === "string")
-    return value.error.hint;
-  return fallback;
 }

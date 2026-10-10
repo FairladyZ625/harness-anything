@@ -2,29 +2,35 @@ export function isRendererRecord(value: unknown): value is Record<string, unknow
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** daemon 拒绝回执(op_rejected,如换版排空的 daemon_stopping、仓库未挂载的 repo_unavailable)
+ * 是合法答案而非坏回执:它带 code + rejectionExplanation + error.code,没有 error.hint。
+ * 提取链固定为 error.hint → rejectionExplanation → 错误码;三处全空才允许调用方的通用文案,
+ * 有说明时错误码作为前缀一并呈现,「invalid receipt」只留给形状真的不合法的值。 */
+function rejectionText(value: unknown): string | null {
+  if (!isRendererRecord(value)) return null;
+  const error = isRendererRecord(value.error) ? value.error : null,
+    code = typeof (error?.code ?? value.code) === "string" ? ((error?.code ?? value.code) as string) : null,
+    explanation =
+      typeof error?.hint === "string" && error.hint.trim() !== ""
+        ? error.hint
+        : typeof value.rejectionExplanation === "string" && value.rejectionExplanation.trim() !== ""
+          ? value.rejectionExplanation
+          : null;
+  if (explanation !== null) return code === null ? explanation : `${code}: ${explanation}`;
+  return code;
+}
+
 /** 只从明确失败的结果提取服务端说明;成功结果不消费错误字段。 */
 export function localErrorHint(value: unknown, fallback: string): string {
-  if (
-    isRendererRecord(value) &&
-    value.ok === false &&
-    typeof value.rejectionExplanation === "string" &&
-    value.rejectionExplanation.trim() !== ""
-  )
-    return value.rejectionExplanation;
-  if (
-    isRendererRecord(value) &&
-    value.ok === false &&
-    isRendererRecord(value.error) &&
-    typeof value.error.hint === "string"
-  )
-    return value.error.hint;
+  if (isRendererRecord(value) && value.ok === false) {
+    const text = rejectionText(value);
+    if (text !== null) return text;
+  }
   return fallback;
 }
 
 export function rendererErrorHint(value: unknown, fallback: string): string {
-  return isRendererRecord(value) && isRendererRecord(value.error) && typeof value.error.hint === "string"
-    ? value.error.hint
-    : fallback;
+  return rejectionText(value) ?? fallback;
 }
 
 /** Direct bridge clients retain a rejection code just like the shared invoke client. */

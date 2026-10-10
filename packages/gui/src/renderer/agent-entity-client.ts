@@ -10,6 +10,7 @@ import type {
   SquadEntityGuiRow as SquadEntityRow,
 } from "@harness-anything/daemon/protocol";
 import { containsSecretLikeKey, entityRecord } from "../api/entity-payload-hygiene.ts";
+import { rendererErrorHint } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 import { invoke } from "./api-client-invoke.ts";
 export type {
@@ -86,7 +87,7 @@ export const agentEntityClient = {
 function catalog(value: unknown, schema: string, field: string): readonly unknown[] {
   const row = entityRecord(value);
   if (row.schema !== schema || row.ok !== true || !Array.isArray(row[field]))
-    throw new Error(hint(row, "Agent entity catalog read returned an invalid payload."));
+    throw new Error(rendererErrorHint(row, "Agent entity catalog read returned an invalid payload."));
   for (const entry of row[field])
     if (containsSecretLikeKey(entry))
       throw new Error("Agent entity catalog contains a forbidden credential-shaped key.");
@@ -95,7 +96,7 @@ function catalog(value: unknown, schema: string, field: string): readonly unknow
 function detail(value: unknown, schema: string, field: string): unknown {
   const row = entityRecord(value);
   if (row.schema !== schema || row.ok !== true || !entityRecord(row[field]).id)
-    throw new Error(hint(row, "Agent entity detail read returned an invalid payload."));
+    throw new Error(rendererErrorHint(row, "Agent entity detail read returned an invalid payload."));
   if (containsSecretLikeKey(row)) throw new Error("Agent entity detail contains a forbidden credential-shaped key.");
   return row[field];
 }
@@ -105,7 +106,7 @@ function save(value: unknown): EntitySaveResult {
   const proof = entityRecord(row.proof);
   if (containsSecretLikeKey(row)) throw new Error("Agent entity save returned a forbidden credential-shaped key.");
   if (!["applied", "pending", "op_rejected"].includes(String(outcome)))
-    throw new Error(hint(row, "Agent entity save returned an invalid receipt."));
+    throw new Error(rendererErrorHint(row, "Agent entity save returned an invalid receipt."));
   const error = entityRecord(row.error);
   return {
     outcome: outcome as EntitySaveResult["outcome"],
@@ -132,8 +133,4 @@ function save(value: unknown): EntitySaveResult {
         }
       : {}),
   };
-}
-function hint(value: Record<string, unknown>, fallback: string): string {
-  const error = entityRecord(value.error);
-  return typeof error.hint === "string" && error.hint ? error.hint : fallback;
 }

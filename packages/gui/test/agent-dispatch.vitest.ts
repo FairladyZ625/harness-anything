@@ -16,6 +16,7 @@ import { SessionGroupList } from "../src/renderer/components/sessions/SessionGro
 import type { SessionGroup } from "../src/renderer/sessions-model.ts";
 import { runtimeCommandClient } from "../src/renderer/runtime-command-client.ts";
 import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
+import { previewFailureText } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
@@ -523,6 +524,74 @@ describe("agent dispatch flow", () => {
         buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [codexInstance]),
       ),
     ).rejects.toThrow();
+  });
+  // daemon 的 op_rejected 是正常回执(daemonProtocolError 形状,无 error.hint):预览失败时
+  // 业主必须看到真实错误码与 rejectionExplanation,而不是被降级成「invalid receipt」。
+  it("surfaces a daemon op_rejected preview receipt as its code and explanation", async () => {
+    const spawnAgentRuntime = vi.fn(async () => ({
+      schema: "command-receipt/v2",
+      ok: false,
+      command: "runtime-spawn",
+      outcome: "op_rejected",
+      opId: "N/A",
+      origin: "daemon",
+      code: "daemon_stopping",
+      evidence: "rejection:daemon_stopping",
+      rejectionExplanation: "The daemon is draining before it exits.",
+      error: { code: "daemon_stopping" },
+    }));
+    vi.stubGlobal("window", { harness: { spawnAgentRuntime } });
+    const failure = await runtimeCommandClient
+      .preview("repo-a", buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [codexInstance]))
+      .then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain("daemon_stopping");
+    expect((failure as Error).message).toContain("The daemon is draining before it exits.");
+    expect((failure as Error).message).not.toContain("invalid receipt");
+    expect((failure as { readonly code?: string }).code).toBe("daemon_stopping");
+  });
+  it("settles an op_rejected spawn with the daemon's rejection explanation", async () => {
+    const spawn = vi.fn(async () => ({
+        schema: "command-receipt/v2",
+        ok: false,
+        command: "runtime-spawn",
+        outcome: "op_rejected",
+        opId: "op-rejected-1",
+        code: "repo_unavailable",
+        rejectionExplanation: "RepoCell is not attached.",
+        error: { code: "repo_unavailable" },
+      })),
+      showReceipt = vi.fn(),
+      overview = vi.fn();
+    const settlement = await submitRuntimeSpawn(
+      buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [codexInstance]),
+      { spawn, showReceipt, overview },
+    );
+    expect(settlement.state).toBe("op_rejected");
+    expect(settlement.code).toBe("repo_unavailable");
+    expect(settlement.hint).toContain("RepoCell is not attached.");
+  });
+  // 换版/重连窗口的拒绝可重试:预览失败的错误行要明确说「稍后重试」;其他拒绝不加。
+  it("appends the retry note only for transient daemon rejections", () => {
+    const draining = Object.assign(new Error("daemon_stopping: The daemon is draining before it exits."), {
+      code: "daemon_stopping",
+    });
+    expect(previewFailureText(draining)).toBe(
+      "daemon_stopping: The daemon is draining before it exits. — The center is switching builds or briefly unavailable; retry shortly.",
+    );
+    expect(
+      previewFailureText(
+        Object.assign(new Error("repo_unavailable: RepoCell is not attached."), { code: "repo_unavailable" }),
+      ),
+    ).toContain("retry shortly");
+    const durable = Object.assign(new Error('invalid_manifest: field "preset" must be a string.'), {
+      code: "invalid_manifest",
+    });
+    expect(previewFailureText(durable)).not.toContain("retry shortly");
+    expect(previewFailureText(new Error("plain failure"))).toBe("plain failure");
   });
   it("offers the dispatch context preview entry beside the submit, gated on the same readiness", () => {
     const markup = renderToStaticMarkup(
