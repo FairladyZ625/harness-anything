@@ -8,7 +8,8 @@ import { daemonOption } from "./control-support.ts";
 // repo.fleet.overview.read the Collaboration page renders, so CLI and GUI share one read
 // model — this module only lays the daemon's honest three-state fields out as text.
 type FleetOverview = DaemonGuiReadResultMap["repo.fleet.overview.read"];
-type FleetFieldState = FleetOverview["nodes"][number]["owner"];
+type FleetNode = FleetOverview["nodes"][number];
+type FleetFieldState = FleetNode["owner"];
 
 export async function runDaemonFleetStatus(
   argv: readonly string[],
@@ -43,43 +44,7 @@ export function renderDaemonFleetStatus(result: JsonObject): string {
     `fleet overview repo=${overview.repoId} mode=${overview.mode} generated=${overview.generatedAt}`,
     `center daemon=${overview.center.daemonId} version=${overview.center.version} commit=${overview.center.commitSha ?? "unknown"} started=${overview.center.startedAt} revision=${overview.centerRevision ?? "unavailable"}`,
   ];
-  for (const node of overview.nodes) {
-    lines.push("", `node ${node.nodeId} role=${node.role}`);
-    lines.push(`  owner ${field(node.owner)}`);
-    lines.push(
-      `  ${node.role === "center" ? `daemon ${overview.center.daemonId} version=${overview.center.version} commit=${overview.center.commitSha ?? "unknown"}` : `build ${field(node.build)}`}`,
-    );
-    lines.push(
-      node.role === "center"
-        ? "  online running (center daemon process)"
-        : // The heartbeat schedule (N2) is the only future online source; until it exists the
-          // overview reports online as unavailable and this render says so instead of guessing.
-          `  online heartbeat-not-integrated; online is never inferred from ACK or runtime (${node.online.kind === "value" ? node.online.text : node.online.reason})`,
-    );
-    if ("redacted" in node.leases) lines.push(`  doing leases redacted (${node.leases.redacted})`);
-    else if (node.leases.length === 0) lines.push("  doing no task leases");
-    else {
-      lines.push(`  doing ${node.leases.length} lease(s)`);
-      for (const lease of node.leases)
-        lines.push(
-          `    task ${lease.taskId} "${lease.title ?? "untitled"}" status=${lease.coordinationStatus}` +
-            ` phase=${lease.phase ?? "unavailable"} person=${lease.personId ?? "unavailable"}` +
-            `${lease.agentId === null ? "" : ` agent=${lease.agentLabel ?? lease.agentId}`}` +
-            `${lease.runtimeSessionId === null ? "" : ` session=${lease.runtimeSessionId}`}` +
-            `${lease.startedAt === null ? "" : ` started=${lease.startedAt}`}` +
-            `${lease.dispatchStatus === null ? "" : ` dispatch=${lease.dispatchStatus}`}`,
-        );
-    }
-    if (node.replica === null)
-      lines.push(`  sync no replica row (${node.replicaNote ?? "center-replica-ledger-has-no-row-for-node"})`);
-    else
-      lines.push(
-        `  sync view=${node.replica.viewId} ack=${node.replica.ackRevision ?? "never-acked"} center=${node.replica.centerRevision} lag=${node.replica.lagRevisions}rev` +
-          ` ackedAt=${node.replica.ackedAt ?? "never"} delivery=${node.replica.delivery}`,
-      );
-    lines.push(`  watch ${field(node.watch)}`);
-    lines.push(`  lastFailure ${field(node.lastFailure)}`);
-  }
+  for (const node of overview.nodes) lines.push(...renderNodeLines(node, overview.center));
   lines.push("", `links ${overview.links.length}`);
   for (const link of overview.links)
     lines.push(
@@ -94,6 +59,52 @@ export function renderDaemonFleetStatus(result: JsonObject): string {
   if (overview.notes.length > 0) lines.push("", `notes ${overview.notes.join(" | ")}`);
   if (overview.warnings.length > 0) lines.push("", `warnings ${overview.warnings.join(" | ")}`);
   return lines.join("\n");
+}
+
+// One node block: identity, build, online, what it holds now, sync progress, watch, last failure.
+function renderNodeLines(node: FleetNode, center: FleetOverview["center"]): string[] {
+  return [
+    "",
+    `node ${node.nodeId} role=${node.role}`,
+    `  owner ${field(node.owner)}`,
+    `  ${node.role === "center" ? `daemon ${center.daemonId} version=${center.version} commit=${center.commitSha ?? "unknown"}` : `build ${field(node.build)}`}`,
+    node.role === "center"
+      ? "  online running (center daemon process)"
+      : // The heartbeat schedule (N2) is the only future online source; until it exists the
+        // overview reports online as unavailable and this render says so instead of guessing.
+        `  online heartbeat-not-integrated; online is never inferred from ACK or runtime (${node.online.kind === "value" ? node.online.text : node.online.reason})`,
+    ...renderLeaseLines(node.leases),
+    renderSyncLine(node),
+    `  watch ${field(node.watch)}`,
+    `  lastFailure ${field(node.lastFailure)}`,
+  ];
+}
+
+// What the node is doing now: every held lease, or the honest reason the list cannot be shown.
+function renderLeaseLines(leases: FleetNode["leases"]): string[] {
+  if ("redacted" in leases) return [`  doing leases redacted (${leases.redacted})`];
+  if (leases.length === 0) return ["  doing no task leases"];
+  const lines = [`  doing ${leases.length} lease(s)`];
+  for (const lease of leases)
+    lines.push(
+      `    task ${lease.taskId} "${lease.title ?? "untitled"}" status=${lease.coordinationStatus}` +
+        ` phase=${lease.phase ?? "unavailable"} person=${lease.personId ?? "unavailable"}` +
+        `${lease.agentId === null ? "" : ` agent=${lease.agentLabel ?? lease.agentId}`}` +
+        `${lease.runtimeSessionId === null ? "" : ` session=${lease.runtimeSessionId}`}` +
+        `${lease.startedAt === null ? "" : ` started=${lease.startedAt}`}` +
+        `${lease.dispatchStatus === null ? "" : ` dispatch=${lease.dispatchStatus}`}`,
+    );
+  return lines;
+}
+
+// Sync progress against the center's current revision; a missing replica row is stated, not hidden.
+function renderSyncLine(node: FleetNode): string {
+  if (node.replica === null)
+    return `  sync no replica row (${node.replicaNote ?? "center-replica-ledger-has-no-row-for-node"})`;
+  return (
+    `  sync view=${node.replica.viewId} ack=${node.replica.ackRevision ?? "never-acked"} center=${node.replica.centerRevision} lag=${node.replica.lagRevisions}rev` +
+    ` ackedAt=${node.replica.ackedAt ?? "never"} delivery=${node.replica.delivery}`
+  );
 }
 
 function field(state: FleetFieldState): string {
