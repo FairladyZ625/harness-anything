@@ -22,6 +22,9 @@ function run(command, args, { cwd, allowFailure = false } = {}) {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    // A long-lived task's `ha task show --json` receipt grows past spawnSync's 1 MiB default
+    // (PR #3502's was 2.2 MiB). maxBuffer only caps collection, it does not preallocate.
+    maxBuffer: 256 * 1024 * 1024,
     windowsHide: true,
     ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   });

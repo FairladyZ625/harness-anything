@@ -160,6 +160,8 @@ function invoke(fixture, argv, { timing = true } = {}) {
   const startedAt = performance.now(),
     result = spawnSync(process.execPath, [fixture.cli, "--root", fixture.repo, ...argv], {
       encoding: "utf8",
+      // Task-show receipts can exceed spawnSync's 1 MiB default; maxBuffer caps collection only.
+      maxBuffer: 256 * 1024 * 1024,
       env: {
         ...baseEnv,
         HOME: fixture.home,

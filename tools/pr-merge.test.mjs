@@ -467,6 +467,22 @@ test("merges a consented task PR whose completion blocker is a merge-only gate (
   assert.equal(existsSync(setup.prWorktree), false);
 });
 
+test("merges a task PR whose receipt exceeds the spawnSync default maxBuffer", (t) => {
+  // PR #3502's failure: a long-lived task's task-show receipt grew to 2.2 MiB, past spawnSync's
+  // 1 MiB default maxBuffer, so reading it died with ENOBUFS and the merge failed closed. The
+  // lifecycle progress log is what grows with task age, so pad it past the old default on top of
+  // an otherwise consented receipt and require the judgment to still be read and the merge to run.
+  const haState = reviewChainMaskedByCiHaState();
+  haState.receipt.progress = [{ schema: "task-progress/v1", statement: "p".repeat(3 * 1024 * 1024) }];
+  const setup = fixture(t, { branch: TASK_BRANCH, haState });
+
+  const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+  assert.match(result.stdout, new RegExp(`Task ${TASK_BRANCH} passed the review-consent check`, "u"));
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
+});
+
 test("refuses a task PR whose missing consent is masked by a merge-only gate", async (t) => {
   const cases = [
     {
