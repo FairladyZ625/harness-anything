@@ -69,12 +69,12 @@ async function stack() {
       authContext: { transportKind: "unix-socket" },
       emit: async () => undefined,
     });
+  fixtureCleanups.push(userCleanup);
   await new KeycloakPolicyAdapter(
     { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
     keycloak.fetch,
   ).syncBasePolicy("center-token");
   keycloak.writes.length = 0;
-  fixtureCleanups.push(userCleanup);
   let requestId = 1;
   await server.handle({
     jsonrpc: "2.0",

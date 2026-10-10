@@ -17,7 +17,7 @@ const sessionLifetimeSeconds = 21_600,
   accessTokenSeconds = 60;
 
 /** A Keycloak token endpoint whose refresh tokens slide with use and lapse after `lifetimeSeconds` idle. */
-function fixture(start = 1_000, ports: Partial<OidcSessionPorts> = {}, t?: TestContext) {
+function fixture(start: number, ports: Partial<OidcSessionPorts>, t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-session-")),
     requests: Request[] = [],
     clock = { now: start },
@@ -35,8 +35,8 @@ function fixture(start = 1_000, ports: Partial<OidcSessionPorts> = {}, t?: TestC
         refresh_expires_in: keycloak.lifetimeSeconds,
       });
     };
-  // node:test suspends a timed-out body and never resumes it, so cleanup rides t.after, not try/finally.
-  t?.after(() => rmSync(root, { recursive: true, force: true }));
+  // Register cleanup with the test lifecycle so cancellation releases the directory too.
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, "rbac"), { recursive: true });
   writeFileSync(
     path.join(root, "rbac", "config.json"),

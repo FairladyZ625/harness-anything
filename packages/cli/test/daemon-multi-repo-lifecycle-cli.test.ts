@@ -853,7 +853,7 @@ test("existing c606 pair upgrades additively and explicit name is the only confi
 });
 
 test("an existing config without a legacy people file initializes through Keycloak", async (t) => {
-  const fixture = await setupEmpty("partial");
+  const fixture = await setupEmpty(t, "partial");
   t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     mkdirSync(path.join(fixture.repo, "harness"));

@@ -19,9 +19,9 @@ async function fixture(t: TestContext) {
     oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: keycloak.fetch }),
     config = { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" };
+  t.after(user.cleanup);
   await new KeycloakPolicyAdapter(config, keycloak.fetch).syncBasePolicy("center-token");
   keycloak.writes.length = 0;
-  t.after(user.cleanup);
   return {
     keycloak,
     admin,

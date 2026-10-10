@@ -44,8 +44,11 @@ export async function startGuiResidentDaemonFixture({
     // 场景自备的额外账号/节点(如协作种子的指派对象)在 daemon 起来前登记。
     if (keycloakSetup) keycloakSetup(realm.keycloak);
   } catch (error) {
-    await realm?.close().catch(() => undefined);
-    rmSync(parent, { recursive: true, force: true });
+    try {
+      await realm?.close();
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
     throw error;
   }
   // 夹具是封闭的抛弃型 daemon:外层运行时注入的任务执行凭据与本夹具无关,留着会被
@@ -56,8 +59,13 @@ export async function startGuiResidentDaemonFixture({
   try {
     daemon = await startDaemon({ daemonId, userRoot, runtimeDiscover });
   } catch (error) {
-    await realm.close().catch(() => undefined);
-    rmSync(parent, { recursive: true, force: true });
+    try {
+      await realm.close();
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+      if (ambientExecutionCredential !== undefined)
+        process.env.HARNESS_EXECUTION_CREDENTIAL = ambientExecutionCredential;
+    }
     throw error;
   }
   let stopped = false;
@@ -78,10 +86,17 @@ export async function startGuiResidentDaemonFixture({
   const stop = async () => {
     if (stopped) return;
     stopped = true;
-    await daemon.stop();
-    await realm.close();
-    rmSync(parent, { recursive: true, force: true });
-    if (ambientExecutionCredential !== undefined) process.env.HARNESS_EXECUTION_CREDENTIAL = ambientExecutionCredential;
+    try {
+      await daemon.stop();
+    } finally {
+      try {
+        await realm.close();
+      } finally {
+        rmSync(parent, { recursive: true, force: true });
+        if (ambientExecutionCredential !== undefined)
+          process.env.HARNESS_EXECUTION_CREDENTIAL = ambientExecutionCredential;
+      }
+    }
   };
   try {
     const bootstrapped = await requestDaemonJsonRpcAt(

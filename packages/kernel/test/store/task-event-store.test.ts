@@ -613,6 +613,7 @@ test("a path-scoped materialization refuses a path the canonical cut cannot rest
 
 test("a decision write on a still-unclaimed path uses the durable document-head index", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-replacement-authorization-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const store = openSqliteEventStore({ repoId: replacementRepoId, rootInput: rootDir });
   try {

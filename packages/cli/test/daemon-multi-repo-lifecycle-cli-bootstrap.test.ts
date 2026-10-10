@@ -31,7 +31,7 @@ import {
   waitForRun,
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
 test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", async (t) => {
-  const fixture = await setupEmpty();
+  const fixture = await setupEmpty(t);
   t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     assert.equal(existsSync(path.join(fixture.repo, "harness")), false);
@@ -337,7 +337,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
 });
 
 test("local init isolates the ledger from later project commits and removes tracked runtime paths", async (t) => {
-  const fixture = await setupEmpty("local");
+  const fixture = await setupEmpty(t, "local");
   t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     git(fixture.repo, "init", "--quiet");
@@ -516,7 +516,7 @@ test("REQ-CLI-016 adds only missing npm script keys while preserving existing pa
 });
 
 test("init at a configured authored root writes the machine documents where every reader resolves them", async (t) => {
-  const fixture = await setupEmpty("configured"),
+  const fixture = await setupEmpty(t, "configured"),
     // The declaration has to sit at the fixed discovery anchor: `layout.authoredRoot` cannot be
     // read from a file whose own path depends on it. It names the authored root and nothing else.
     declarationPath = path.join(fixture.repo, "harness/harness.yaml"),

@@ -360,7 +360,7 @@ export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot
     assert.equal(started.ok, true, `fleet center start failed: ${JSON.stringify(started)}`);
   } finally {
     // The center reads the key and certificate into memory at startup; the directory itself is
-    // throwaway material and is removed here so neither a failed nor a killed scenario leaves it.
+    // throwaway material and is removed here even when startup fails.
     rmSync(tlsDir, { recursive: true, force: true });
   }
   return { latestRevision: latest, lagRevision: lagFrom, lagRevisions: latest - lagFrom };
