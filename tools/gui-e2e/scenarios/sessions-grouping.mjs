@@ -27,10 +27,11 @@ import { assertUnscrolledLayout, nav } from "./helpers.mjs";
  *   runtime_e2e_free     只有 started(live)→ `unattributed:no-dispatch`,状态 running。
  *   runtime_e2e_bound    task_bound 到夹具任务 + 退出 + 成功 → task 组,状态 succeeded。
  *
- * 层次 fixture 的 agent 名与轮次排序来自任务包里的派工归档 JSON
- * (artifacts/dispatches/<dispatchId>.json,readTaskDispatches 的 settled archive 路径);
- * 事件流只承载 liveness/状态。派工行(readSessionGroupDispatches)要求 dispatchId 形如
- * dispatch_[a-f0-9]{24},否则读面抛「dispatch id is invalid」——id 全部用合法形状。
+ * 层次 fixture 的 agent 名与轮次排序随事件走:派工行读面(18e2e1d9f 起)只认
+ * canonical 事件 payload(taskId/agentId/agentName/startedAt,生产 runtime-spawner 同形);
+ * 任务包里的派工归档 JSON(artifacts/dispatches/<dispatchId>.json)仍按生产同路发布成
+ * 投影文档,承载 outcome/exitCode 等回填。派工行(readSessionGroupDispatches)要求
+ * dispatchId 形如 dispatch_[a-f0-9]{24},否则读面抛「dispatch id is invalid」——id 全部用合法形状。
  * outcome 事件带 result claim + 内容 blob:SessionsPanel 的精确读会取 result 文本,
  * 缺 blob 会让那条读红。
  */
@@ -230,11 +231,14 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
         append("runtime_dispatch_requested", {
           dispatchId,
           runtimeSessionId,
-          ...(row.key === "round-4"
-            ? { agentId: "glm", agentName: "GLM-5.3" }
-            : row.key === "single-1"
-              ? { agentId: "astra", agentName: "Astra" }
-              : {}),
+          // 派工行读面(18e2e1d9f 起)只认 canonical 事件:taskId/agent/startedAt 都在
+          // payload 上(生产 runtime-spawner 同形),归档 JSON 只是发布出的文档。
+          taskId: task,
+          // 任务派工行契约(validTaskDispatchRow):taskId/executionId 都必须非空。
+          executionId: `exe-${row.key}`,
+          agentId: row.agent === "Astra" ? "astra" : "glm",
+          agentName: row.agent,
+          startedAt: row.startedAt,
           instanceId,
           installationId,
           kindId: "codex",

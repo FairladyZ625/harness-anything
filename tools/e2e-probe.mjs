@@ -202,25 +202,23 @@ export async function recordE2EProbeFailure({
   bundlePath,
   env = process.env,
   now = () => new Date().toISOString(),
+  runCli = runCliJson,
 } = {}) {
   const journey = readFailureBundle(bundlePath),
     updatedAfter = new Date(Date.parse(now()) - 24 * 60 * 60 * 1_000).toISOString(),
     title = `E2E probe failure [${journey.failureSignature}]`,
     existing = cliRows(
-      await runCliJson(
-        workspaceRoot,
-        rootDir,
-        ["task", "list", "--search", title, "--updated-after", updatedAfter],
-        env,
-      ),
+      await runCli(workspaceRoot, rootDir, ["task", "list", "--search", title, "--updated-after", updatedAfter], env),
     )[0];
   // The closure runs as agent:e2e-probe — the task creator — so it can attach the probe's own
   // first-triage evidence to the task it opened. The schedule-bound runtime doing the deeper
   // diagnosis stays bound to its dispatch and cannot write here; its findings live in the
-  // schedule receipt. A failed fact write must never mask the task-closure result.
+  // schedule receipt. A failed evidence step (artifact attach, fact write) must never mask the
+  // task-closure result: the task already exists, and the daemon can reject the attach while
+  // its projection is still catching up with the just-created task.
   const recordFailureFact = async (taskId) => {
     try {
-      await runCliJson(
+      await runCli(
         workspaceRoot,
         rootDir,
         [
@@ -244,6 +242,19 @@ export async function recordE2EProbeFailure({
       return { factRecorded: false, factError: error instanceof Error ? error.message : String(error) };
     }
   };
+  const attachFailureArtifact = async (taskId, destination) => {
+    try {
+      await runCli(
+        workspaceRoot,
+        rootDir,
+        ["task", "artifact", "add", taskId, "--source", bundlePath, "--destination", destination],
+        env,
+      );
+      return { artifactAttached: true, artifactError: null };
+    } catch (error) {
+      return { artifactAttached: false, artifactError: error instanceof Error ? error.message : String(error) };
+    }
+  };
   if (existing)
     return {
       schema: "e2e-probe-result/v1",
@@ -254,7 +265,7 @@ export async function recordE2EProbeFailure({
       deduplicated: true,
       ...(await recordFailureFact(String(existing.taskId))),
     };
-  const created = await runCliJson(
+  const created = await runCli(
       workspaceRoot,
       rootDir,
       [
@@ -279,12 +290,6 @@ export async function recordE2EProbeFailure({
     ),
     taskId = requiredText(created.taskId, "taskId"),
     destination = `artifacts/e2e-probe/${path.basename(bundlePath)}`;
-  await runCliJson(
-    workspaceRoot,
-    rootDir,
-    ["task", "artifact", "add", taskId, "--source", bundlePath, "--destination", destination],
-    env,
-  );
   return {
     schema: "e2e-probe-result/v1",
     outcome: "failed",
@@ -292,6 +297,7 @@ export async function recordE2EProbeFailure({
     failureSignature: journey.failureSignature,
     taskId,
     deduplicated: false,
+    ...(await attachFailureArtifact(taskId, destination)),
     ...(await recordFailureFact(taskId)),
   };
 }
@@ -367,13 +373,20 @@ async function runCliJson(workspaceRoot, rootDir, args, env) {
       `CLI produced no JSON receipt. stderr=${stderr.trim() || "<empty>"}`,
     );
   }
-  if (status !== 0 || receipt.ok !== true || receipt.outcome !== "applied")
-    throw probeError(
-      "probe_closure_rejected",
-      String(receipt.nextAction ?? receipt.error?.hint ?? stderr.trim() ?? "Probe closure was rejected."),
-    );
+  if (status !== 0 || receipt.ok !== true || receipt.outcome !== "applied") {
+    // Daemon rejections (command-receipt/v2, ok:false) carry a code but no nextAction/hint and
+    // an empty stderr; `??` alone would hand back that empty string (observed 2026-10-09: a
+    // rejected artifact attach surfaced as `message:""`), so every part must be non-empty text.
+    const hint = [receipt.nextAction, receipt.error?.hint].find((part) => typeof part === "string" && part) ?? null,
+      detail = [typeof receipt.code === "string" ? receipt.code : null, hint, stderr.trim() || null, `exit ${status}`]
+        .filter((part) => part !== null)
+        .join(" · ");
+    throw probeError("probe_closure_rejected", detail);
+  }
   return receipt;
 }
+
+export const runCliJsonForTest = runCliJson;
 
 function cliRows(receipt) {
   try {
