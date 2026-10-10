@@ -235,6 +235,9 @@ for (const phase of ["prepare", "checkpoint"] as const) {
       });
     }
     const center = await f.center(undefined, { replicaPreparationTimeoutMs: 100, replicaWatchProgressMs: 10 });
+    const startedAt = Date.now();
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: startedAt });
+    t.after(() => t.mock.timers.reset());
     let progress = 0;
     await assert.rejects(
       runFleetReplicaPullClient({
@@ -247,15 +250,21 @@ for (const phase of ["prepare", "checkpoint"] as const) {
         diskQuotaBytes: 64 * 1024 * 1024,
         timeoutMs: 1000,
         onFrame: (frame) => {
-          if (frame.schema === "fleet.replica.preparing/v1") progress++;
+          if (frame.schema !== "fleet.replica.preparing/v1") return;
+          progress++;
+          assert.equal(center.status().replicas.length, 0, "preparing must not claim a delivery lease");
+          // Real TLS receipt drives time: repeated progress at 0, 10 and 99ms cannot renew the 100ms budget.
+          t.mock.timers.tick(progress === 1 ? 10 : progress === 2 ? 89 : 1);
         },
       }),
       { code: "replica_pending", message: "replica_pending: Checkpoint preparation deadline exceeded." },
     );
-    assert.ok(progress >= 2, "preparing continues but is not completion");
+    assert.equal(progress, 3, "preparing continues but is not completion");
+    assert.equal(Date.now() - startedAt, 100, "progress does not extend the original deadline");
+    t.mock.timers.reset();
     if (phase === "checkpoint") assert.equal(waitingSignal?.aborted, true);
     assert.equal(center.status().replicas.length, 0, "no delivery lease or registration before readiness");
-    t.diagnostic(`${phase}: ${progress} preparing frames, overall deadline 100ms, no delivery claimed`);
+    t.diagnostic(`${phase}: ${progress} preparing frames, overall deadline 100ms virtual time, no delivery claimed`);
   });
 }
 
