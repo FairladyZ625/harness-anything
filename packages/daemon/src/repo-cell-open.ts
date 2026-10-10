@@ -454,8 +454,12 @@ export async function openRepoWriterCell(
     projection: () => projection,
     readSettings: () => readSettings(),
     initializeAllowedInstances: async (binding, runtimeInstances) => {
-      if (readSettings().runtime?.allowedInstances !== undefined) return null;
+      if (readSettings().runtime?.allowedInstances !== undefined) return;
+      // Runtime executors cannot author repository settings. They use this dispatch's enabled
+      // machine snapshot until a principal dispatch persists the project allowlist.
+      if (binding.actor.executor !== null) return;
       const instanceIds = [...new Set(runtimeInstances.filter((row) => row.enabled).map((row) => row.instanceId))];
+      if (instanceIds.length === 0) return;
       const settingsRow = projection.getEntity("settings", SETTINGS_ID),
         expectedVersion = settingsRow?.workspaceRevision ?? 0,
         settingsAction = {
@@ -474,18 +478,6 @@ export async function openRepoWriterCell(
             code: receipt.code ?? "settings_initialization_failed",
           },
         );
-      return {
-        source: "automatic" as const,
-        instanceIds,
-        settingsReceipt: {
-          opId: receipt.opId,
-          outcome: receipt.outcome,
-          ...(receipt.revision === undefined ? {} : { revision: receipt.revision }),
-          ...((receipt as { readonly summary?: string }).summary === undefined
-            ? {}
-            : { summary: (receipt as { readonly summary?: string }).summary }),
-        },
-      };
     },
     stream: runtimeStream,
     now,

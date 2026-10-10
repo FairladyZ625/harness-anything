@@ -1613,7 +1613,7 @@
   "views.settingsView.fleetClaimScopeEffect": "Node selects named nodes; reserved includes people and teams; startable also includes unassigned tasks.",
   "views.settingsView.runtimeAllowedInstancesLabel": "Allowed runtime instances",
   "views.settingsView.runtimeAllowedInstancesDescription": "Runtime instance ids this repository may use from the machine-level instance catalog.",
-  "views.settingsView.runtimeAllowedInstancesEffect": "When set, only enabled machine instances in this list can receive dispatches; an explicit empty list blocks every instance.",
+  "views.settingsView.runtimeAllowedInstancesEffect": "Only enabled instances in this list can receive dispatches; an explicit empty list blocks all instances.",
   "views.settingsView.enum.fleetClaimScope.node": "Only tasks assigned to this node",
   "views.settingsView.enum.fleetClaimScope.reserved": "Also tasks assigned to the owner or their teams",
   "views.settingsView.enum.fleetClaimScope.startable": "Also eligible unassigned tasks",

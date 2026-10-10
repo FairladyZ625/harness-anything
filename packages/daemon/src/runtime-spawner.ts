@@ -74,7 +74,7 @@ import {
   publishExit as publishExitImpl,
   runtimeResultText as runtimeResultTextImpl,
 } from "./runtime-spawn-settlement.ts";
-import { runtimeAllowlistReceipt, runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
+import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import { conventionalWorkerGitEnvironment } from "./runtime-worker-push.ts";
 import type {
   ActiveRuntime,
@@ -103,6 +103,7 @@ import {
   assertNativeResumeNotExported,
   assertRuntimeHandoffLaunch,
   assertResumeAgent,
+  readOnlyAttachDispatch,
   prepareDispatchWorktree,
   projectedWorktreeBinding,
   resolveDispatchCwd,
@@ -116,21 +117,6 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   exitNotificationTimeoutMs = 30_000;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
-/** A read-only attach reads the frozen round from the repository root — the reviewer dispatch's
- *  working-directory discipline — so its dispatch never checks out or advances the round's worktree.
- *  Resolution failures surface here exactly as they would in spawn: an Agent identity that does not
- *  resolve is a dispatch error, never a quiet read-only classification. */
-function readOnlyAttachDispatch(input: RuntimeSpawnerInput, payload: JsonObject): boolean {
-  const taskId = typeof payload.taskId === "string" ? payload.taskId : null;
-  if (taskId === null || payload.role === "reviewer" || payload.dryRun === true) return false;
-  const status = requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
-    ?.status;
-  if (status !== "submitted" && status !== "in_review") return false;
-  const agentId = typeof payload.agentId === "string" ? payload.agentId : undefined;
-  return agentId !== undefined && input.resolveAgent !== undefined
-    ? input.resolveAgent(agentId)?.permissionMode === "read-only"
-    : false;
-}
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
@@ -382,8 +368,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         squadId,
         targetAgentId,
       ),
-      [localRuntimeSessions, runtimeInstances, allowlistInitialization, allowedInstanceIds] =
-        await resolveRuntimeDispatchResources(input, input.remote, projection!, processes, dryRun, binding),
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds] = await resolveRuntimeDispatchResources(
+        input,
+        input.remote,
+        projection!,
+        processes,
+        dryRun,
+        binding,
+      ),
       initialFallback =
         inheritedFallback ??
         initialFallbackAttempt(
@@ -830,7 +822,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...requested.receipt,
         runtimeSessionId,
         dispatchId: newDispatchId,
-        ...runtimeAllowlistReceipt(allowlistInitialization),
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
     }
@@ -931,13 +922,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ...requested.receipt,
           runtimeSessionId,
           dispatchId: newDispatchId,
-          ...runtimeAllowlistReceipt(allowlistInitialization),
           ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         }
       : {
           ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
-          ...runtimeAllowlistReceipt(allowlistInitialization),
           ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         };

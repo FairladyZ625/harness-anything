@@ -39,7 +39,7 @@ export function initialFallbackAttempt(
   mission: string,
   instances: readonly RuntimeInstanceSummary[] = [],
   sessions: readonly RuntimeSessionSelection[] = [],
-  allowedInstanceIds: readonly string[] = [],
+  allowedInstanceIds?: readonly string[],
 ): RuntimeFallbackAttempt | undefined {
   if (providerSessionId) return undefined;
   const pin = requestedInstance ?? agent?.instance;
