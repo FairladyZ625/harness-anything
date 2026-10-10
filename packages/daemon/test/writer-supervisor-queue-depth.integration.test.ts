@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,9 +16,15 @@ test("writer supervisor observes internal runtime work draining to zero", async 
   const parent = mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-")),
     repoId = workspaceId("writer-queue-depth"),
     stateRoot = path.join(parent, "writer-epochs"),
+    releasePath = path.join(parent, "release-provider"),
     executablePath = writeProviderExecutable(
       path.join(parent, "provider.mjs"),
-      'console.log(JSON.stringify({ type: "thread.started", thread_id: "queue-depth-session" }));\n' +
+      `import fs from "node:fs";
+      await new Promise(resolve => { const watcher = fs.watch(${JSON.stringify(parent)}, () => {
+        if (fs.existsSync(${JSON.stringify(releasePath)})) { watcher.close(); resolve(); }
+      }); if (fs.existsSync(${JSON.stringify(releasePath)})) { watcher.close(); resolve(); } });
+` +
+        'console.log(JSON.stringify({ type: "thread.started", thread_id: "queue-depth-session" }));\n' +
         'console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));\n',
     ),
     definition = {
@@ -83,12 +89,21 @@ test("writer supervisor observes internal runtime work draining to zero", async 
     ).close();
     const runtimeExited = deferred<void>(),
       publishedQueueDepths: (number | null)[] = [];
+    const binding = withPolicyGroup(
+      { actor, source: "local" as const, writerEpoch: fence.epoch, writerEpochFence: fence },
+      "contributor",
+    );
+    let runtimeSessionLookups = 0;
     supervisor = await openWriterSupervisor(
       {
         repoId,
         rootDir,
         ownerId: "writer-queue-depth",
         defaultWriterEpochFence: fence,
+        keycloakSession: async () => {
+          runtimeSessionLookups += 1;
+          return binding.keycloakAuthorization.session;
+        },
         runtimeInstances: () => [instance],
         prepareRuntimeLaunch: async (_instanceId, request) => ({
           definition,
@@ -105,22 +120,20 @@ test("writer supervisor observes internal runtime work draining to zero", async 
       },
       { onPublishedStatus: (status) => publishedQueueDepths.push(status.queueDepth) },
     );
-    const binding = withPolicyGroup(
-        { actor, source: "local" as const, writerEpoch: fence.epoch, writerEpochFence: fence },
-        "contributor",
-      ),
-      spawned = await supervisor.request<{ readonly runtimeSessionId: string }>(
-        "spawnRuntime",
-        {
-          runtimeInstanceId: instance.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: "Finish immediately",
-          taskId: null,
-          idempotencyKey: "writer-queue-depth",
-        },
-        binding,
-      );
+    const spawned = await supervisor.request<{ readonly runtimeSessionId: string }>(
+      "spawnRuntime",
+      {
+        runtimeInstanceId: instance.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Finish immediately",
+        taskId: null,
+        idempotencyKey: "writer-queue-depth",
+      },
+      binding,
+    );
     assert.equal(typeof spawned.runtimeSessionId, "string");
+    const lookupsBeforeExit = runtimeSessionLookups;
+    writeFileSync(releasePath, "release");
     await Promise.race([
       runtimeExited.promise,
       new Promise<never>((_resolve, reject) =>
@@ -129,6 +142,10 @@ test("writer supervisor observes internal runtime work draining to zero", async 
     ]);
     await waitUntil(() => supervisor!.status().queueDepth === 0);
     assert.equal(supervisor.status().queueDepth, 0);
+    assert.ok(
+      runtimeSessionLookups > lookupsBeforeExit,
+      "post-RPC runtime publication resolves the current user session through the host capability",
+    );
     assert.ok(publishedQueueDepths.some((depth) => depth !== null && depth > 0));
     assert.equal(publishedQueueDepths.at(-1), 0, "the status callback witnesses the drained writer cut");
   } finally {

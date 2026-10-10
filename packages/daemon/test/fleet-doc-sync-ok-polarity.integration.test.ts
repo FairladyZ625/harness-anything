@@ -93,6 +93,7 @@ async function pushRejectionFixture() {
     cert,
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+    verifyHuman: owners.verifyHuman,
     nodeOwner: async (nodeId) => {
       // Compare pull reads owner twice; the next metadata lookup precedes its cut capture.
       if (race !== null && nodeId === "node-one" && ++raceOwnerReads === 3) {
@@ -100,6 +101,7 @@ async function pushRejectionFixture() {
         race = null;
         if (center === null) throw new Error("fleet center is not ready");
         const moved = await runFleetWriteClient({
+          readAccessToken: async () => `device-token-${"node-two"}`,
           hostname: "127.0.0.1",
           port: center.port,
           ca: cert,
@@ -144,6 +146,7 @@ async function pushRejectionFixture() {
   ) =>
     runFleetWriteClient({
       ...channel(nodeId),
+      readAccessToken: owners.readAccessToken(nodeId),
       ca: cert,
       hostname: "127.0.0.1",
       timeoutMs: 30_000,
@@ -151,7 +154,7 @@ async function pushRejectionFixture() {
       changes,
     });
   const edgeDocSync = (nodeId: NodeId, options: { readonly all?: true; readonly paths?: readonly string[] } = {}) =>
-    runFleetEdgeDocSync({ payload: { ...channel(nodeId), ...options } });
+    runFleetEdgeDocSync({ payload: { ...channel(nodeId), ...options } }, owners.readAccessToken(nodeId));
   const writeWorktree = (nodeId: NodeId, logicalPath: string, body: string): void => {
     const view = locateFleetMirrorView(edgeRoot(nodeId), "fleet-doc-sync-repo");
     assert.ok(view, "mirror view must exist before its registered harness is changed");

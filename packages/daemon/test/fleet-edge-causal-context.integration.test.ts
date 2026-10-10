@@ -35,6 +35,7 @@ test(
         transportKind: "unix-socket",
         unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" },
       } as const;
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
     writeFileSync(
@@ -48,6 +49,7 @@ test(
     // any edge-local copy. If the provider prompt still carries them, the block
     // provably came from the center's canonical cut on this dispatch.
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -374,6 +376,7 @@ for (const probe of [
       "schema: harness-anything/v1\nname: counterexample-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
     );
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -397,6 +400,7 @@ for (const probe of [
     // An absent mission is requested under a different name, preserving the
     // current manifest and every readable local file before that guard.
     const runtime = openFleetEdgeRuntime({
+      readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       request: {
         host: "127.0.0.1",
         port: center.port,

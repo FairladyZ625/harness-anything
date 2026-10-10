@@ -99,7 +99,7 @@ export async function fleetNodeClaimFixture(
       replicaDiskQuotaBytes: replicaQuota,
       authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
       nodeOwner: owners.nodeOwner,
-      ...(verifyHuman ? { verifyHuman } : {}),
+      verifyHuman: verifyHuman ?? owners.verifyHuman,
       ...(loginAuthority ? { loginAuthority } : {}),
     });
     centers.push(center);
@@ -150,6 +150,7 @@ export async function fleetNodeClaimFixture(
       servername: "localhost",
       nodeId,
       credential: `secret-${nodeId}`,
+      readAccessToken: async () => accessToken ?? (await owners.readAccessToken(nodeId)()),
       opId: randomUUID(),
       repoId: "lease-repo",
       taskId,
@@ -175,6 +176,7 @@ export async function fleetNodeClaimFixture(
       servername: "localhost",
       nodeId,
       credential: `secret-${nodeId}`,
+      readAccessToken: owners.readAccessToken(nodeId),
       opId: randomUUID(),
       repoId: "lease-repo",
       taskId: typeof action.taskId === "string" ? action.taskId : null,
@@ -196,6 +198,7 @@ export async function fleetNodeClaimFixture(
       servername: "localhost",
       nodeId,
       credential: `secret-${nodeId}`,
+      readAccessToken: owners.readAccessToken(nodeId),
       repoId: "lease-repo",
     }),
     command,

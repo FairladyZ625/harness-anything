@@ -128,11 +128,13 @@ test(
         replicaDiskQuotaBytes: 64 * 1024 * 1024,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
         nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
       });
       const workspaceRoot = path.join(root, "edge-workspace"),
         viewRoot = path.join(root, "edge-view");
       initHarnessRepo(workspaceRoot, "schedule-fleet-agent-edge");
       edge = openFleetEdgeRuntime({
+        readBinding: () => owners.binding(subject.nodeId),
         request: {
           host: "127.0.0.1",
           port: center.port,

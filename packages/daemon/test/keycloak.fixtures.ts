@@ -95,6 +95,14 @@ export function fakeKeycloak() {
     if (url.pathname.endsWith("/protocol/openid-connect/revoke")) return new Response(null, { status: 204 });
     if (method === "GET" && url.pathname === `/realms/${keycloakRealm}`) return json({ realm: keycloakRealm });
     if (url.pathname.endsWith("/protocol/openid-connect/token/introspect")) {
+      const form = init?.body as URLSearchParams;
+      const clientId = form.get("client_id") ?? "";
+      if (clientId.startsWith("harness-node-")) {
+        const client = nodeClients.get(clientId),
+          ok = client?.secret === form.get("client_secret") && client?.enabled !== false;
+        nodeLogins.push({ clientId, ok });
+        return json({ active: false }, ok ? 200 : 401);
+      }
       const token = (init?.body as URLSearchParams).get("token") ?? "",
         session = interactiveSessions.get(token);
       return json(
@@ -398,6 +406,9 @@ export function fakeKeycloak() {
       tokens.set(token, tokens.get(`token-${personId}`)!);
       interactiveSessions.set(token, { personId, nodeId, issuer });
     },
+    endInteractiveSession(token: string): void {
+      interactiveSessions.delete(token);
+    },
     /** Registers an account the way an administrator would and returns its bearer token. */
     account(personId: string): string {
       const user = { id: id("user"), username: personId, attributes: { harness_person_id: [personId] } };
@@ -409,11 +420,16 @@ export function fakeKeycloak() {
 }
 
 /** Stores a signed-in session holding `roles` in a daemon user root that is bound to the fake realm. */
-export function signInAt(userRoot: string, personId: string, roles: readonly string[] = ["access-admin"]): void {
+export function signInAt(
+  userRoot: string,
+  personId: string,
+  roles: readonly string[] = ["access-admin"],
+  accessToken = `token-${personId}`,
+): void {
   managedRbacSessionStore(userRoot).write(
     JSON.stringify({
       schema: "harness-oidc-session/v2",
-      accessToken: `token-${personId}`,
+      accessToken,
       subject: personId,
       personId,
       expiresAt: Date.now() + 3_600_000,

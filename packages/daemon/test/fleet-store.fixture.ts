@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import path from "node:path";
+import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
 import { openSqliteEventStore } from "@harness-anything/kernel";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
-import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
+import { serveKeycloak, signInAt, OidcSessionService } from "./keycloak.fixtures.ts";
 import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 
 export function fleetHostWriterOptions(userRoot: string, repoIds: readonly string[]) {
@@ -79,6 +80,7 @@ export async function fleetNodeOwners(input: {
           for (const repoId of input.repoIds) served.keycloak.permit(personId, repoId, everyAction);
       }
       served.keycloak.node(nodeId, personId);
+      served.keycloak.interactiveSession(personId, nodeId, served.url, `device-token-${nodeId}`);
     };
   for (const [nodeId, personId] of Object.entries(input.owners)) register(nodeId, personId);
   if (input.localPersonId !== undefined) {
@@ -94,9 +96,26 @@ export async function fleetNodeOwners(input: {
   return {
     keycloak: served.keycloak,
     bind: served.bind,
+    signIn: (userRoot: string, nodeId: string) => {
+      served.bind(userRoot);
+      signInAt(userRoot, ownerOf(nodeId)!, [], `device-token-${nodeId}`);
+    },
     url: served.url,
     close: served.close,
     nodeOwner: ownerOf,
+    binding: async (nodeId: string) =>
+      deriveBinding(
+        "/unused",
+        await new OidcSessionService(input.userRoot).bind({
+          transportKind: "fleet-tls",
+          nodePrincipal: { nodeId, personId: ownerOf(nodeId)! },
+          humanAccessToken: `device-token-${nodeId}`,
+        }),
+      ),
+    verifyHuman: (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) =>
+      new OidcSessionService(input.userRoot).bind(auth),
+    readAccessToken: (nodeId: string) => async () => `device-token-${nodeId}`,
+
     /** Re-registers a node to another person, the way an administrator moves a machine between owners. */
     reassign: register,
     /** The authentication context the center derives for one authenticated node frame. */
@@ -105,6 +124,7 @@ export async function fleetNodeOwners(input: {
       assert.ok(personId, `fixture node ${node.nodeId} has no registered owner`);
       return {
         transportKind: "fleet-tls" as const,
+        humanAccessToken: `device-token-${node.nodeId}`,
         nodePrincipal: { nodeId: node.nodeId, personId },
       };
     },

@@ -328,9 +328,10 @@ export function createDaemonHostRuntimeApi(
           );
         // The edge only relays its machine credential; the center decides whether the node's owner may sync.
         context.localOnly(auth);
-        const receipt = await syncFleetEdgeMirror({
-          payload: request,
-        });
+        const receipt = await syncFleetEdgeMirror(
+          { payload: request },
+          async () => (await context.oidc.bind(auth)).oidcPrincipal?.accessToken,
+        );
         await context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile();
         await context.scheduleScheduler.refresh();
         return receipt;

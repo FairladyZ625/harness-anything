@@ -69,7 +69,10 @@ export async function fleetEdgeHostFixture(
     managedRbacSessionStore(edgeUser).write(
       JSON.stringify({
         schema: "harness-oidc-session/v2",
-        accessToken: `token-${personId}`,
+        accessToken:
+          personId === (options.personId ?? "person-one")
+            ? `device-token-${options.nodeId ?? "node-one"}`
+            : `token-${personId}`,
         refreshToken: `refresh-${personId}`,
         subject: personId,
         personId,
@@ -112,6 +115,7 @@ export async function fleetEdgeHostFixture(
     host,
     build: { commit: null },
     authContext: auth,
+    sessionPrincipal: () => host.sessionPrincipal(auth),
     emit: async () => undefined,
   });
   t.after(() => rpc.close());

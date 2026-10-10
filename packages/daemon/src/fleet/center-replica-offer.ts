@@ -65,7 +65,10 @@ export async function makeOffer(
 export async function* offerFrames(
   offer: ReplicaOffer,
   replica: ReplicaCutSource,
-  authorization: { readonly owner: string; readonly digest: string },
+  authorization: {
+    readonly readerProfile: import("@harness-anything/kernel").EdgeReaderProfile;
+    readonly digest: string;
+  },
 ): AsyncGenerator<FleetFrameV1> {
   const target = replica.cut(offer.toCut.revision);
   if (!target || target.manifest.digest !== offer.manifestDigest)
@@ -78,7 +81,7 @@ export async function* offerFrames(
       repoId: offer.repoId,
       viewId: offer.viewId,
       cut: offer.toCut,
-      authorizationOwner: authorization.owner,
+      readerProfile: authorization.readerProfile,
       authorizationShapeDigest: authorization.digest,
       manifest: target.manifest,
     };
@@ -114,7 +117,7 @@ export async function* offerFrames(
     toCut: offer.toCut,
     changeCount: changes.count,
     resultManifestDigest: offer.manifestDigest,
-    authorizationOwner: authorization.owner,
+    readerProfile: authorization.readerProfile,
     authorizationShapeDigest: authorization.digest,
   };
   for (const page of changePages(changes))
@@ -213,7 +216,7 @@ export async function deliverReplicaOffer(input: {
   quotaBytes: number;
   stateRoot: string;
   issuedAt: string;
-  authorization: { owner: string; digest: string };
+  authorization: { readerProfile: import("@harness-anything/kernel").EdgeReaderProfile; digest: string };
 }): Promise<Delivery> {
   const { key, replica, ackStore, window, lifecycle } = input;
   const ttlMs = 30_000;

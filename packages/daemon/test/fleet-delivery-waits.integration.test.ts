@@ -58,7 +58,12 @@ test(
       timeoutMs: 55_000,
     };
     const pulls = [f.subject, f.peerSubject].map(({ nodeId }) =>
-      runFleetReplicaPullClient({ ...options, nodeId, viewRoot: path.join(f.root, nodeId) }).then(
+      runFleetReplicaPullClient({
+        readAccessToken: async () => `device-token-${nodeId}`,
+        ...options,
+        nodeId,
+        viewRoot: path.join(f.root, nodeId),
+      }).then(
         (value) => ({ value }),
         (error: unknown) => ({ error }),
       ),
@@ -200,6 +205,7 @@ for (const cause of ["replacement", "read-error"] as const)
       });
       const pending = assert.rejects(
         runFleetReplicaPullClient({
+          readAccessToken: async () => `device-token-${f.subject.nodeId}`,
           port: center.port,
           ca: f.cert,
           credential: "machine-secret",

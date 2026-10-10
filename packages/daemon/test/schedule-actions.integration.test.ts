@@ -650,6 +650,7 @@ test(
         replicaDiskQuotaBytes: 64 * 1024 * 1024,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
         nodeOwner,
+        verifyHuman: owners.verifyHuman,
       });
       const terminalCallbacks: Array<(() => void) | undefined> = [],
         settlementErrors = t.mock.method(Object, "assign"),
@@ -659,6 +660,7 @@ test(
             viewRoot = path.join(root, `view-${index + 1}`);
           initHarnessRepo(workspaceRoot, `schedule-edge-${index + 1}`);
           const runtime = openFleetEdgeRuntime({
+            readBinding: () => owners!.binding(subject.nodeId),
             request: {
               host: "127.0.0.1",
               port: center!.port,

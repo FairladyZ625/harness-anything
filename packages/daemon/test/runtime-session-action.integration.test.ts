@@ -36,12 +36,16 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       actor: { principal: { personId: "person-edge" }, executor: null },
       source,
       keycloakAuthorization: {
-        center: async () => ({
+        session: {
+          personId: "person-edge",
+          accessToken: served.keycloak.account("person-edge"),
           url: served.url,
           realm: keycloakRealm,
           clientId: "harness-center",
-          accessToken: "center-token",
-        }),
+        },
+        center: async () => {
+          throw new Error("runtime must retain the user's device session");
+        },
       },
       writerEpoch: 7,
     },
@@ -61,7 +65,6 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       baseUrl: null,
       authMode: "subscription",
     } as const;
-  served.keycloak.account("person-edge");
   served.keycloak.permit(
     "person-edge",
     repoId,
@@ -133,7 +136,7 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
         explain: "The authenticated node and owner own the canonical dispatch that created this RuntimeSession.",
       },
     ]);
-    served.keycloak.account("person-new-owner");
+    const newOwnerToken = served.keycloak.account("person-new-owner");
     served.keycloak.permit(
       "person-new-owner",
       repoId,
@@ -142,6 +145,13 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
     const changedOwner = await start("runtime-start-new-owner", {
       ...binding,
       actor: { principal: { personId: "person-new-owner" }, executor: null },
+      keycloakAuthorization: {
+        session: {
+          ...binding.keycloakAuthorization!.session!,
+          personId: "person-new-owner",
+          accessToken: newOwnerToken,
+        },
+      },
     });
     assert.equal(changedOwner.code, "execution_scope_mismatch");
     const stale = await start("runtime-start-stale-generation", binding);

@@ -148,8 +148,11 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
       )),
     };
     for await (const frame of offerFrames(offer, source, {
-      owner: "person-one",
-      digest: edgeReadAuthorizationShapeDigest({ repoId: options.repoId, owner: "person-one" }),
+      readerProfile: { personId: "person-one", nodeId },
+      digest: edgeReadAuthorizationShapeDigest({
+        repoId: options.repoId,
+        readerProfile: { personId: "person-one", nodeId },
+      }),
     }))
       edge.receive(frame);
   };
@@ -172,8 +175,11 @@ test("schema upgrade republishes the current cut and two edges rebuild without a
       issuedAt: "2026-10-08T00:00:00Z",
     };
     for await (const frame of offerFrames(offer, stale, {
-      owner: "person-one",
-      digest: edgeReadAuthorizationShapeDigest({ repoId: options.repoId, owner: "person-one" }),
+      readerProfile: { personId: "person-one", nodeId },
+      digest: edgeReadAuthorizationShapeDigest({
+        repoId: options.repoId,
+        readerProfile: { personId: "person-one", nodeId },
+      }),
     }))
       edge.receive(frame);
     const view = locateFleetMirrorView(edgeRoot, options.repoId, nodeId)!;
@@ -409,7 +415,7 @@ test("generation-bearing wire retires legacy center state before snapshot then r
       JSON.stringify({
         cut: { revision: 414, headDigest: fixture.cut1.headDigest },
         manifestDigest: fixture.cut1.manifest.digest,
-        authorizationOwner: "person-one",
+        readerProfile: { personId: "person-one", nodeId: "node-one" },
         authorizationShapeDigest: "a".repeat(64),
       }),
     );
@@ -433,7 +439,7 @@ test("generation-bearing wire retires legacy center state before snapshot then r
       },
       changeCount: 2,
       resultManifestDigest: fixture.cut2.manifest.digest,
-      authorizationOwner: "person-one",
+      readerProfile: { personId: "person-one", nodeId: "node-one" },
       authorizationShapeDigest: "a".repeat(64),
     } as const;
     assert.throws(() => fixture.edge.receive(deltaBegin), /snapshot_required: delta base cut is not current/u);

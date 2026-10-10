@@ -385,7 +385,7 @@ test(
         viewRoot: config.viewRoot,
         diskQuotaBytes: config.quotaBytes,
       }),
-      { code: "authorization_denied" },
+      { code: "human_confirmation_required" },
     );
     f.owners.keycloak.node("node-two", "person-one");
     f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);

@@ -185,7 +185,7 @@ const frames = [
     cut,
     knownHead: cut,
     manifestDigest: "d".repeat(64),
-    authorizationOwner: "person-owner",
+    readerProfile: { personId: "person-owner", nodeId: "node-one" },
     authorizationShapeDigest: "d".repeat(64),
   },
   {
@@ -197,7 +197,7 @@ const frames = [
     cut,
     knownHead: { ...cut, revision: 72 },
     manifestDigest: "d".repeat(64),
-    authorizationOwner: "person-owner",
+    readerProfile: { personId: "person-owner", nodeId: "node-one" },
     authorizationShapeDigest: "d".repeat(64),
   },
   {
@@ -208,7 +208,7 @@ const frames = [
     viewId: "v1",
     cut,
     manifest: { digest: "d".repeat(64), entryCount: 1, totalBytes: 3 },
-    authorizationOwner: "person-owner",
+    readerProfile: { personId: "person-owner", nodeId: "node-one" },
     authorizationShapeDigest: "d".repeat(64),
   },
   {
@@ -237,7 +237,7 @@ const frames = [
     toCut: cut,
     changeCount: 2,
     resultManifestDigest: "d".repeat(64),
-    authorizationOwner: "person-owner",
+    readerProfile: { personId: "person-owner", nodeId: "node-one" },
     authorizationShapeDigest: "d".repeat(64),
   },
   {
@@ -594,4 +594,18 @@ test("checkpoint receipts require a known ledger head independently of their del
     assert.throws(() => parseFleetFrame(missing), FleetContractError);
     assert.deepEqual(parseFleetFrame(frame), frame);
   }
+});
+
+// dec_F01770FD0DCF72683B7C4C7A47: user credentials are transport metadata on every business request.
+test("Fleet reader credentials retain closed-frame validation", () => {
+  const frame = {
+    schema: "fleet.repo.metadata.get/v1",
+    messageId: "reader",
+    repoId: "repo",
+    accessToken: "owner-session",
+  };
+  assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame);
+  for (const accessToken of [null, 42, {}, "", "a".repeat(16 * 1024 + 1)])
+    assert.throws(() => parseFleetFrame({ ...frame, accessToken }), FleetContractError);
+  assert.throws(() => parseFleetFrame({ ...frame, unknownCredential: "no" }), FleetContractError);
 });
