@@ -224,6 +224,7 @@ export function fakeKeycloak() {
       if (method === "PUT") profile.attributes = (body as typeof profile).attributes;
       return json(profile);
     }
+    if (/^\/users\/[^/]+\/consents$/u.test(route) && method === "GET") return json([]);
     if (/^\/users\/[^/]+$/u.test(route) && method === "GET") {
       const user = users.get(tail);
       return user ? json({ ...user, enabled: true }) : json({}, 404);
