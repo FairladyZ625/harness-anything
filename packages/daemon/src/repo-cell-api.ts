@@ -18,11 +18,8 @@ import {
 import { assertWriterEpochFenceDescriptor } from "./writer-epoch.ts";
 import { reconcileCiOccurrence } from "./ci-observe-importer.ts";
 import { preparedCiObservation } from "./ci-observation-actions.ts";
-import {
-  builtinCiObserveScheduleId,
-  executeBuiltinScheduleOccurrence,
-  type BuiltinExecutorCell,
-} from "./schedule-builtin-executor.ts";
+import { makeCiRefreshQueue } from "./repo-cell-ci-refresh.ts";
+import { executeBuiltinScheduleOccurrence, type BuiltinExecutorCell } from "./schedule-builtin-executor.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
@@ -187,7 +184,16 @@ export interface RepoCellSynchronousRead {
 }
 
 export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & RepoCellSynchronousRead {
-  const context = Object.assign(apiContext, { refreshCi });
+  // Backup lifetimes serialize independently of ledger writes: retention cannot remove
+  // another builtin's in-progress snapshot. A replay shares the same claim's execution.
+  const builtinRuns = new Map<string, Promise<WriteReceipt>>();
+  const ciRefreshQueue = makeCiRefreshQueue({
+    context: apiContext,
+    builtinRuns: () => builtinRuns,
+    run: (action, binding) => run(action, binding),
+    runCommand: (action, binding) => runCommand(action, binding),
+  });
+  const context = Object.assign(apiContext, { refreshCi: ciRefreshQueue.refreshCi });
   const bindExecutorClaimAtWriterCut = (action: RepoTaskAction, binding: RepoCellBinding) => {
     if (action.executor == null || !(durablePolicyActions as readonly string[]).includes(action.kind))
       return {
@@ -205,68 +211,6 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     );
     return { queued: true as const, result: pending };
   };
-  const ciRequests: RepoTaskAction[] = [];
-  let ciRefresh: Promise<WriteReceipt> | null = null;
-  async function refreshCi(action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> {
-    const schedule = context.projection.getEntity("schedule", builtinCiObserveScheduleId)?.value as
-      | ScheduleV1
-      | undefined;
-    if (!schedule)
-      throw context.cellCodedError(
-        "schedule_target_unconfigured",
-        "Run authenticated ha init --configure-only to seed the center CI Schedule.",
-      );
-    // A forwarded edge refresh never claims a builtin. The center cadence is its collection owner.
-    if (typeof binding.source === "object" && binding.source.kind === "node")
-      return context.withHumanSummary({
-        outcome: "pending",
-        opId: `ci-refresh:${schedule.scheduleId}`,
-        revision: context.store.readHead()?.revision ?? 0,
-        evidence: `Center CI Schedule ${schedule.scheduleId} will reconcile the requested witness.`,
-      }) as WriteReceipt;
-    ciRequests.push(action);
-    const queued = () =>
-      context.withHumanSummary({
-        outcome: "pending",
-        opId: `ci-refresh:${schedule.scheduleId}`,
-        revision: context.store.readHead()?.revision ?? 0,
-        evidence:
-          "CI request queued for center reconciliation; arrivals after the active drain wait for the next occurrence.",
-      }) as WriteReceipt;
-    if (ciRefresh) return queued();
-    if (schedule.status.activeRun) {
-      const running = builtinRuns.get(schedule.status.activeRun.claimFence);
-      if (running) return queued();
-      // In-process executors cannot survive reopening this RepoCell. Settle only its current fence.
-      const recovered = await run(
-        {
-          kind: "schedule-settle",
-          scheduleId: schedule.scheduleId,
-          claimFence: schedule.status.activeRun.claimFence,
-          outcome: "unknown",
-          endedAt: context.now(),
-          detail: "CI executor absent after center restart; resume durable reconciliation.",
-          idempotencyKey: `ci-recover:${schedule.status.activeRun.claimFence}`,
-        },
-        binding,
-      );
-      if (isSquadControlResult(recovered) || recovered.outcome !== "applied")
-        throw context.cellCodedError("schedule_claim_stale", "The orphan CI claim could not be settled.");
-    }
-    ciRefresh = runCommand(
-      { kind: "schedule-run-now", scheduleId: schedule.scheduleId, idempotencyKey: `ci-refresh:${randomUUID()}` },
-      binding,
-    )
-      .then((receipt) => {
-        if (isSquadControlResult(receipt))
-          throw context.cellCodedError("invalid_command", "CI refresh requires a write receipt.");
-        return receipt;
-      })
-      .finally(() => {
-        ciRefresh = null;
-      });
-    return ciRefresh;
-  }
   const run = makeRepoCellCommandRunner(context);
   const presetRun: RepoCell["presetRun"] = async (action, binding, onSettled) => {
     const bound = bindExecutorClaimAtWriterCut(action, binding);
@@ -879,9 +823,6 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         : context.appendAuxiliaryRuntimeIngress(action, authorizedBinding);
     });
   };
-  // Backup lifetimes serialize independently of ledger writes: retention cannot remove
-  // another builtin's in-progress snapshot. A replay shares the same claim's execution.
-  const builtinRuns = new Map<string, Promise<WriteReceipt>>();
   let builtinTail: Promise<void> = Promise.resolve();
   const continueBuiltin = (action: RepoTaskAction, binding: RepoCellBinding, receipt: WriteReceipt) => {
     if (action.kind !== "schedule-run-now" || receipt.outcome !== "applied") return Promise.resolve(receipt);
@@ -899,7 +840,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         const result = await reconcileCiOccurrence({
           cell: context.extracted,
           schedule,
-          requests: () => ciRequests.splice(0),
+          requests: ciRefreshQueue.requests,
           accept: async (fetched) => {
             const receipt = await run(
               {
@@ -916,6 +857,8 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
             );
             if (isSquadControlResult(receipt))
               throw context.cellCodedError("invalid_command", "CI acceptance requires a write receipt.");
+            // Publishing the requested witness answers the pull that started this occurrence.
+            if (fetched.witness) ciRefreshQueue.answer(fetched.witness.taskId, receipt);
             return receipt;
           },
         });
