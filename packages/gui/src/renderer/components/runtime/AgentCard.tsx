@@ -458,13 +458,22 @@ export function AgentCard({
                   {sessions.length === 0 ? (
                     <Empty>{t("agentRuntime.noSessions")}</Empty>
                   ) : (
-                    sessions.map((row) => (
-                      <DispatchSessionRow
-                        key={row.runtimeSessionId}
-                        row={row}
-                        onOpenSession={onOpenSession ?? (() => undefined)}
-                      />
-                    ))
+                    /* 卡内滚动(业主 2026-10-10:714 条会话平铺把详情页撑到数万像素,
+                       Prompts/Runtime 约束/操作被挤出首屏):会话行进共享 bounded-content
+                       契约(同技能/预设搜索结果),封顶 --long-content-cap 后卡内滚动;
+                       空列表保持 Empty,不造空滚动面板。 */
+                    <div
+                      data-testid="agent-recent-sessions"
+                      className="bounded-content overflow-y-auto rounded border border-border bg-surface p-1"
+                    >
+                      {sessions.map((row) => (
+                        <DispatchSessionRow
+                          key={row.runtimeSessionId}
+                          row={row}
+                          onOpenSession={onOpenSession ?? (() => undefined)}
+                        />
+                      ))}
+                    </div>
                   )}
                 </Sect>
               )}
