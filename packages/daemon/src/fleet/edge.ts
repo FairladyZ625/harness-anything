@@ -38,6 +38,7 @@ import {
   currentFleetProtocolVersion,
   parseFleetFrame,
   serializeFleetFrame,
+  type FleetDeviceLoginNotice,
   type FleetCut,
   type FleetDeltaChange,
   type FleetDescriptor,
@@ -905,6 +906,20 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
     throw error;
   }
 }
+export async function reportFleetDeviceLogin(
+  options: Omit<FleetPeerOptions, "repoId">,
+  notice: FleetDeviceLoginNotice,
+): Promise<void> {
+  const peer = await openPeer(options);
+  try {
+    const reply = await peer.request({ schema: "fleet.device.login/v1", messageId: peer.messageId(), ...notice });
+    if (reply.schema !== "fleet.device.login.result/v1")
+      throw new Error("Device login notice acknowledgement expected.");
+  } finally {
+    peer.close();
+  }
+}
+
 export async function readFleetLoginAuthorityClient(options: Omit<FleetPeerOptions, "repoId">) {
   const peer = await openPeer(options);
   try {

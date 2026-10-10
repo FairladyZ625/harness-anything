@@ -38,7 +38,10 @@ export interface FleetCenterAdmissionRequest {
   readonly buildDraining?: FleetCenterOptions["buildDraining"];
   readonly onDeliverySettled?: FleetCenterOptions["onDeliverySettled"];
   readonly userRoot: string;
-  readonly nodes: Pick<FleetCenterOptions, "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman">;
+  readonly nodes: Pick<
+    FleetCenterOptions,
+    "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice"
+  >;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {
     readonly port: number;

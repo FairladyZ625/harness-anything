@@ -137,6 +137,7 @@ test("a session in use outlives its access token without signing in again", asyn
     assert.deepEqual(await active.service.status(), {
       ok: true,
       authenticated: true,
+      deviceLoginRequests: [],
       personId: "person-zeyu",
       expiresAt: active.clock.now + sessionLifetimeSeconds * 1_000,
     });

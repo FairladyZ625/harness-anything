@@ -110,11 +110,11 @@ const exposedHarnessApi = {
     inspectWorkspace: (input) => invoke(WORKSPACE_INSPECT_CHANNEL, input),
   } satisfies RepoAdminApi,
   auth: {
-    login: async (repoId, openBrowser) => {
+    login: async (repoId, openBrowser, userCode) => {
       const listener = (_event: Electron.IpcRendererEvent, page: EmbeddedLoginPage) => openBrowser(page);
       ipcRenderer.on(OIDC_LOGIN_URL_CHANNEL, listener);
       try {
-        return await invoke(OIDC_LOGIN_CHANNEL, repoId ? { repoId } : null);
+        return await invoke(OIDC_LOGIN_CHANNEL, { ...(repoId ? { repoId } : {}), ...(userCode ? { userCode } : {}) });
       } finally {
         ipcRenderer.removeListener(OIDC_LOGIN_URL_CHANNEL, listener);
       }

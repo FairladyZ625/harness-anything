@@ -571,17 +571,14 @@ test("runtime claim rejects a retired Agent through the spawn entry", async () =
     );
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
     onExit?.(0);
-    let settled = false;
-    for (let attempt = 0; attempt < 20 && !settled; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-      settled = makeTaskEventReader({ repoId: "runtime-retired-agent", rootDir: root })
-        .read()
-        .events.some(
-          (event) =>
-            event.type === "runtime_session_outcome_observed" &&
-            event.payload.runtimeSessionId === claimedBeforeRetire.runtimeSessionId,
-        );
-    }
+    await cell.awaitRuntimeOutcome(String(claimedBeforeRetire.runtimeSessionId));
+    const settled = makeTaskEventReader({ repoId: "runtime-retired-agent", rootDir: root })
+      .read()
+      .events.some(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" &&
+          event.payload.runtimeSessionId === claimedBeforeRetire.runtimeSessionId,
+      );
     assert.equal(settled, true);
     await assert.rejects(
       cell.spawnRuntime(

@@ -245,3 +245,29 @@ it("leaving the account surface cancels its active login", async () => {
   await act(async () => root.render(null));
   expect(api.cancelLogin).toHaveBeenCalledOnce();
 });
+
+describe("device login requests", () => {
+  it("shows two nodes separately and opens approval for the selected code", async () => {
+    const requests = ["node-one", "node-two"].map((nodeId, index) => ({
+      nodeId,
+      userCode: index ? "CCCC-DDDD" : "AAAA-BBBB",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    }));
+    const login = vi.fn(async () => ({ ok: true }));
+    await render(
+      auth({
+        status: vi.fn(async () => ({ authenticated: true, personId: "owner", deviceLoginRequests: requests })),
+        login,
+      }),
+    );
+    expect(container.querySelector('[data-testid="device-login-node-one"]')?.textContent).toContain("node-one");
+    expect(container.querySelector('[data-testid="device-login-node-two"]')?.textContent).toContain("node-two");
+    expect(container.textContent).toContain("AAAA-BBBB");
+    expect(container.textContent).toContain("CCCC-DDDD");
+    await act(async () =>
+      (container.querySelector('[data-testid="device-approve-node-two"]') as HTMLButtonElement).click(),
+    );
+    expect(login).toHaveBeenCalledWith(undefined, expect.any(Function), "CCCC-DDDD");
+  });
+});

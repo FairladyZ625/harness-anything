@@ -115,6 +115,7 @@ export const daemonProtocolMethods = Object.freeze([
         "login-complete",
         "login",
         "login-poll",
+        "device-approval",
         "session",
         "logout",
         "bootstrap-status",

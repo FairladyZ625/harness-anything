@@ -568,3 +568,34 @@ test("cancelling a listener-backed sign-in releases its login webview grant", as
   assert.equal(trace.released, 1, "cancelling releases the grant");
   assert.equal(sender.listenerCount("destroyed"), 0);
 });
+
+test("device approval resolves the current person's request and releases its embedded page on close", async () => {
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
+  const trace: LoginWebviewPortTrace = { inputs: [], partitionToken: "device-grant", released: 0 };
+  const opened = Promise.withResolvers<unknown>();
+  const sender = Object.assign(new EventEmitter(), {
+    id: 7,
+    send: (_channel: string, page: unknown) => opened.resolve(page),
+  });
+  const event = { sender, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent;
+  const url = "https://center.example/realms/harness/device?user_code=AAAA-BBBB";
+  registerOidcAuthIpc(
+    { handle: (channel, handler) => handlers.set(channel, handler) },
+    { isTrustedWebContentsId: (id) => id === 7, rendererUrl: { packagedRendererUrl: "file:///renderer/index.html" } },
+    {
+      daemonRequest: async (params) => {
+        assert.deepEqual(params, { operation: "device-approval", code: "AAAA-BBBB" });
+        return { ok: true, authorizationUrl: url, listener: null };
+      },
+      openExternal: async () => assert.fail("device approval must remain embedded"),
+      openLoginWebview: loginWebviewPort(trace),
+    },
+  );
+  const result = handlers.get(OIDC_LOGIN_CHANNEL)!(event, { userCode: "AAAA-BBBB" });
+  assert.deepEqual(await opened.promise, { url, partitionToken: "device-grant" });
+  assert.equal(trace.inputs[0]?.callbackOrigin, "https://center.example");
+  await handlers.get(OIDC_CANCEL_LOGIN_CHANNEL)!(event);
+  assert.deepEqual(await result, { ok: true });
+  assert.equal(trace.released, 1);
+  assert.equal(sender.listenerCount("destroyed"), 0);
+});

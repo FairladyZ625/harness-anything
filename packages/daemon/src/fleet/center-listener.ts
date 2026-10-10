@@ -246,6 +246,18 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     connectionSignal: AbortSignal,
     progress: (frame: FleetFrameV1) => Promise<void>,
   ): Promise<Delivery> => {
+    if (frame.schema === "fleet.device.login/v1") {
+      const personId = await options.nodeOwner(nodeId);
+      if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
+      if (!options.deviceLoginNotice)
+        throw new FleetFault("device_login_unavailable", "Device login notices are unavailable.");
+      options.deviceLoginNotice(nodeId, personId, frame);
+      return immediate({
+        schema: "fleet.device.login.result/v1",
+        messageId: mid(frame.messageId, "device"),
+        inReplyTo: frame.messageId,
+      });
+    }
     if (frame.schema === "fleet.repo.metadata.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId),
         baseLedgerSha = options.host.replica(a.repoId).ledgerCut(),

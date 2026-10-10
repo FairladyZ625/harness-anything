@@ -1,5 +1,6 @@
 import ciObservations from "./scenarios/ci-observations.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
+import deviceLoginApproval from "./scenarios/device-login-approval.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
 import taskAssignment from "./scenarios/task-assignment.mjs";
 import workTeams from "./scenarios/work-teams.mjs";
@@ -44,6 +45,7 @@ export const catalog = [
   edgeReadFreshness,
   runtimeHandoff,
   accountLogin,
+  deviceLoginApproval,
   taskAssignment,
   workTeams,
   externalKeycloak,
