@@ -2,6 +2,7 @@ import {
   completionEvidenceBasis,
   completionEvidenceResults,
   consumeKnownError,
+  inferLegacyGateRequirements,
   localGitObjectRefStore,
   resolveHarnessLayout,
   type CiObservationRead,
@@ -35,6 +36,26 @@ export function strandedDelivery(rootDir: string, submission: SubmissionV1 | nul
   const cherry = git.run(rootDir, ["cherry", target, commitSha]),
     lines = cherry.stdout.split("\n").filter(Boolean);
   return cherry.ok && lines.length > 0 && lines.every((line) => line.startsWith("- "));
+}
+
+/**
+ * The submitted execution of the task's current iteration and the github-actions requirement its
+ * frozen contract judges, if the cut froze one. Callers that only need "is a passing witness
+ * already recorded" pair this with githubActionsWitnessEvidence and stop before any provider IO.
+ */
+export function submittedGithubActionsRequirement(
+  snapshot: Snapshot,
+  workflows: readonly string[],
+): { readonly requirement: FrozenGateRequirement; readonly execution: Snapshot["executions"][number] } | null {
+  const execution = snapshot.executions.find(
+      (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
+    ),
+    submission = execution?.submission,
+    requirement = (
+      submission?.completionContract?.gates ??
+      inferLegacyGateRequirements(snapshot.task?.completionGateIds ?? [], workflows)
+    ).find((gate) => gate.witness.adapterId === "github-actions");
+  return execution && submission && requirement ? { requirement, execution } : null;
 }
 
 /**
