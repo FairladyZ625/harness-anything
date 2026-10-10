@@ -169,7 +169,12 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
   return [
     `status: ${String(payload.task.status)}`,
     `graph cursor: ${String(payload.task.currentNode)}`,
-    `expected-version: ${String(receipt.expectedVersion)} (pass as --expected-version to assign/unassign/transition)`,
+    // Optional on the write-receipt schema: legacy receipts predate the field and render no line.
+    ...(typeof receipt.expectedVersion === "number"
+      ? [
+          `expected-version: ${String(receipt.expectedVersion)} (pass as --expected-version to assign/unassign/transition)`,
+        ]
+      : []),
     `completion gates: ${
       [...gates, ...(typeof blocker?.gate === "string" ? [`${blocker.gate} (${String(blocker.code)})`] : [])].join(
         ", ",

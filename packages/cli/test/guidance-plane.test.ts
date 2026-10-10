@@ -707,6 +707,7 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   const rendered = renderCliReceipt({
     ok: true,
     command: "task-show",
+    expectedVersion: 161530,
     evidence: JSON.stringify({
       task: { status: "done", currentNode: "review", completionGateIds: [], packageDisposition: "archived" },
       returnBudget: 2,
@@ -718,11 +719,13 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   assert.deepEqual(rendered.text.split("\n"), [
     "status: done",
     "graph cursor: review",
+    "expected-version: 161530 (pass as --expected-version to assign/unassign/transition)",
     "completion gates: none",
     "packageDisposition: archived",
     "returnBudget=2 (task)",
   ]);
-  // Legacy snapshots without the field still render a line, defaulted to active.
+  // Legacy snapshots without the fields still render a line, defaulted to active, and the
+  // optional expectedVersion absence renders no version line at all.
   const legacy = renderCliReceipt({
     ok: true,
     command: "task-show",
@@ -730,6 +733,7 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
     summary: "task: status=active",
   });
   assert.match(legacy.text, /\npackageDisposition: active$/u);
+  assert.doesNotMatch(legacy.text, /expected-version/u);
 });
 
 test("task show renders the current fact prerequisite as a completion gate", () => {
