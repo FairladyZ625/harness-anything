@@ -1,5 +1,5 @@
 // harness-test-tier: contract
-// Frozen input update authorized by dec_4190D5EA63D9DD208CE946F133 and dec_5EC2631352B17EE2BF4979E37E; judgment assertions unchanged.
+// Target generation 3 authorized by dec_5EC2631352B17EE2BF4979E37E; exact paths and all negative judgments retained.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -228,7 +228,7 @@ function SQLITE_DATABASE_FOOTPRINT(mainFile) {
 
 /** Every accepted command appends to the canonical store; its physical files are not plan targets. */
 const STORE_FOOTPRINT = [
-  ...SQLITE_DATABASE_FOOTPRINT(".harness/store/generations/2/ledger.sqlite"),
+  ...SQLITE_DATABASE_FOOTPRINT(".harness/store/generations/3/ledger.sqlite"),
   "harness/events/segments/manifest.json",
 ];
 
@@ -244,7 +244,7 @@ function declaredMatchers(plan) {
       const { sha256 } = target;
       return [
         exact(`harness/${contentObjectRelativePath(sha256)}`),
-        exact(`.harness/store/generations/2/objects/sha256/${sha256.slice(0, 2)}/${sha256.slice(2)}`),
+        exact(`.harness/store/generations/3/objects/sha256/${sha256.slice(0, 2)}/${sha256.slice(2)}`),
       ];
     }),
   ];
