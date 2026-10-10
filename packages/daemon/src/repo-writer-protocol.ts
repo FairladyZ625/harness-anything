@@ -31,7 +31,6 @@ export interface RepoWriterBootstrapV1 {
     readonly shouldStop: boolean;
     readonly runtimeInstances: boolean;
     readonly keycloakCenter: boolean;
-    readonly keycloakSession: boolean;
     readonly prepareRuntimeLaunch: boolean;
     readonly prepareWorkerGitEnvironment: boolean;
     readonly runtimeLaunch: boolean;
@@ -144,7 +143,6 @@ export type RepoWriterCapabilityName =
   | "shouldStop"
   | "runtimeInstances"
   | "keycloakCenter"
-  | "keycloakSession"
   | "currentAccessToken"
   | "releaseCurrentAccessToken"
   | "prepareRuntimeLaunch"

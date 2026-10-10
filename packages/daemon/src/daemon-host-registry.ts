@@ -162,7 +162,6 @@ export async function performOpenRegistered(
       ...(context.input.now ? { now: context.input.now } : {}),
       runtimeDaemonRoute: context.runtimeDaemonRoute,
       keycloakCenter: context.keycloakCenter,
-      keycloakSession: context.keycloakSession,
       authoredBranch: repo.authoredBranch,
       ...(context.input.shutdownRequested ? { shouldStop: context.input.shutdownRequested } : {}),
       ...(context.input.recordLifecycle ? { recordLifecycle: context.input.recordLifecycle } : {}),

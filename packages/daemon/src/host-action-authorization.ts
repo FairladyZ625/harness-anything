@@ -36,19 +36,14 @@ export async function evaluateFleetAction(input: {
       actor: input.binding.actor,
     }),
     credential = input.binding.keycloakAuthorization;
+  const declaration = actionDeclarations.find((candidate) => candidate.kind === input.kind);
+  if (input.binding.source === "local" && input.binding.daemonSocketOwner === true && declaration)
+    return {
+      ...keycloakDecision(envelope, input.evaluatedAtCut, "allowed", "daemon_socket_owner"),
+      policyRef: "daemon-socket-owner@1",
+      bindingsUsed: [{ proof: "unix-socket-owner-boundary", scope: input.kind }],
+    };
   if (!credential) {
-    const declaration = actionDeclarations.find((candidate) => candidate.kind === input.kind);
-    if (
-      input.binding.source === "local" &&
-      input.binding.daemonSocketOwner === true &&
-      declaration &&
-      declaration.residency.scope !== "canonical"
-    )
-      return {
-        ...keycloakDecision(envelope, input.evaluatedAtCut, "allowed", "daemon_socket_owner"),
-        policyRef: "daemon-socket-owner@1",
-        bindingsUsed: [{ proof: "unix-socket-owner-boundary", scope: input.kind }],
-      };
     return keycloakDecision(envelope, input.evaluatedAtCut, "denied", "authentication_required");
   }
   const result = await evaluateKeycloakPerson({
