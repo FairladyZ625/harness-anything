@@ -36,7 +36,7 @@ import { bridgeReady, nav } from "./helpers.mjs";
  *                      absent 态的载体,台账无副本行)。
  *
  * 第 2 轮(CEO 检查点)补真实副本通道三态:场景开始时(daemon 空闲、fleet center
- * 尚未启动)向中心自己的副本账本种行——只读打开 checkpoints.sqlite 取最新修订 N 与连续
+ * 尚未启动)向中心自己的副本账本种行——只读打开 cuts.sqlite 取最新修订 N 与连续
  * cut 区间,经 openReplicaAckStore 把 ALPHA 的 ack cursor 落在 N(fresh)、BETA 落在
  * 最大连续 N-k(lag≥1),GAMMA 不种(absent=账本无行);再用 openssl 自签证书经
  * daemon.fleet.center.start 启动真实 TLS center,center.status() 从磁盘账本读出
@@ -268,7 +268,7 @@ export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot
     "repos",
     repoId,
     `g${READ_MODEL_SCHEMA_GENERATION}`,
-    "checkpoints.sqlite",
+    "cuts.sqlite",
   );
   assert.ok(existsSync(cutsPath), `replica cut store missing at ${cutsPath}`);
   const cuts = new DatabaseSync(cutsPath, { readOnly: true });
@@ -277,7 +277,7 @@ export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot
     // 只读窗口取最近 12 个 cut 行(WAL 允许与运行中的 daemon 并发读)。
     window = cuts
       .prepare(
-        "SELECT revision, head_digest, manifest_digest, occurred_at FROM cut " +
+        "SELECT revision, head_digest, manifest_digest, event_occurred_at FROM cut " +
           "WHERE revision > (SELECT MAX(revision) - 12 FROM cut) ORDER BY revision",
       )
       .all();
@@ -313,7 +313,7 @@ export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot
         { revision, headDigest: String(cut.head_digest) },
         String(cut.manifest_digest),
         new Date().toISOString(),
-        String(cut.occurred_at),
+        String(cut.event_occurred_at),
       );
       assert.equal(acked.outcome, "applied", `seeding ${nodeId} cursor at revision ${revision}`);
     };
