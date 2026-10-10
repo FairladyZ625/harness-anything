@@ -306,6 +306,7 @@ export function execution(value: unknown): boolean {
       "submittedAt",
       "closedAt",
       "submission",
+      "gateRuns",
     ],
     executionV1Optional = ["deliveryBaseline", "amendedBy", "annotations"];
   if (
@@ -321,6 +322,7 @@ export function execution(value: unknown): boolean {
       actor(value.actor) &&
       (value.submittedAt === null || nonEmpty(value.submittedAt)) &&
       (value.closedAt === null || nonEmpty(value.closedAt)) &&
+      Array.isArray(value.gateRuns) &&
       (value.submission === null || validateGuiSubmission(value.submission).length === 0)
     );
   const fields = [

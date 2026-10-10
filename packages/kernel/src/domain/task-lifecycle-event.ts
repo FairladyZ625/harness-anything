@@ -431,7 +431,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       !allowUnknownFields ||
       value.type !== "task_completed" ||
       !isRecord(accepted) ||
-      !hasOnlyFields(accepted, ["sourceGeneration", "sourceRevision"]) ||
+      !hasRequiredFields(accepted, ["sourceGeneration", "sourceRevision"]) ||
       (accepted.sourceGeneration !== 1 && accepted.sourceGeneration !== 2) ||
       accepted.sourceRevision !== value.workspaceRevision
     )

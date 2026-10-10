@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
+  activateEmptyCanonicalGeneration,
   createEntityStore,
   makeTaskEventStore,
   openEntityStore,
@@ -132,7 +133,7 @@ export function initRepo(rootDir: string): void {
   git(rootDir, "config", "gc.auto", "0");
   git(rootDir, "commit", "--allow-empty", "-qm", "base");
   // Production reads run against an initialized accepting ledger, even when it is empty.
-  openSqliteEventStore({ repoId: "agent-entities", rootInput: rootDir }).close();
+  activateEmptyCanonicalGeneration({ repoId: "agent-entities", rootInput: rootDir });
 }
 
 function git(rootDir: string, ...args: string[]): string {
@@ -158,6 +159,7 @@ export function writeEntity(
  * the "direct-store" fence holder the fixtures' task event store also uses — the exact way the
  * old daemon wrote it, bypassing the bundle validation that now refuses that shape. */
 export function appendLegacyAgentDeclaration(rootDir: string): void {
+  initRepo(rootDir);
   const contract = requireEntityStoreKindContract("agent"),
     value = {
       schema: "agent-declaration/v1",

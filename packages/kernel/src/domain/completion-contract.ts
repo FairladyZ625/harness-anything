@@ -87,10 +87,10 @@ export interface GateWitnessMappingV1 {
   readonly mandatorySignoff?: boolean;
   readonly allowOverride?: boolean;
 }
-function validGithubOptions(value: unknown): value is GithubWitnessOptions {
+function validGithubOptions(value: unknown, fields = hasOnlyFields): value is GithubWitnessOptions {
   return (
     isRecord(value) &&
-    hasOnlyFields(value, ["workflows", "branch", "event", "coverage", "selection"]) &&
+    fields(value, ["workflows", "branch", "event", "coverage", "selection"]) &&
     Array.isArray(value.workflows) &&
     value.workflows.length > 0 &&
     value.workflows.every(isNonEmptyString) &&
@@ -101,18 +101,18 @@ function validGithubOptions(value: unknown): value is GithubWitnessOptions {
     value.selection === "newest"
   );
 }
-function validSource(value: Record<string, unknown>): boolean {
+function validSource(value: Record<string, unknown>, fields = hasOnlyFields): boolean {
   const common = ["kind", "predicateType", "resultSchema"];
   if (!isNonEmptyString(value.predicateType) || !isRecord(value.resultSchema)) return false;
   switch (value.kind) {
     case "github-actions":
     case "manual":
-      return hasOnlyFields(value, common);
+      return fields(value, common);
     case "command":
-      return hasOnlyFields(value, [...common, "entrypoint"]) && isNonEmptyString(value.entrypoint);
+      return fields(value, [...common, "entrypoint"]) && isNonEmptyString(value.entrypoint);
     case "external":
       return (
-        hasOnlyFields(value, [
+        fields(value, [
           ...common,
           "runnerRole",
           ...(Object.hasOwn(value, "outputBindings") ? ["outputBindings"] : []),
@@ -183,9 +183,9 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields, histori
       historical &&
       adapterId === null &&
       isRecord(adapterOptions) &&
-      Object.keys(adapterOptions).length === 0 &&
+      fields(adapterOptions, []) &&
       (definition.acceptedDefinition === null || isRecord(definition.acceptedDefinition)) &&
-      hasOnlyFields(definition, ["kind", "acceptedDefinition"])
+      fields(definition, ["kind", "acceptedDefinition"])
     );
   if (!isNonEmptyString(adapterId) || !isRecord(adapterOptions)) return false;
   if (definition.kind === "internal")
@@ -195,13 +195,11 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields, histori
       value.appliesTo === "code" &&
       optional.length === 0 &&
       fields(definition, ["kind"]) &&
-      Object.keys(adapterOptions).length === 0
+      fields(adapterOptions, [])
     );
-  if (value.gateId === CODE_DOC_GATE_ID || !validSource(definition)) return false;
+  if (value.gateId === CODE_DOC_GATE_ID || !validSource(definition, fields)) return false;
   if (definition.kind === "manual" && (value.mandatorySignoff || value.allowOverride)) return false;
-  if (
-    definition.kind === "github-actions" ? !validGithubOptions(adapterOptions) : Object.keys(adapterOptions).length > 0
-  )
+  if (definition.kind === "github-actions" ? !validGithubOptions(adapterOptions, fields) : !fields(adapterOptions, []))
     return false;
   if (
     value.subjects !== undefined &&

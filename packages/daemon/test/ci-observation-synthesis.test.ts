@@ -1,13 +1,14 @@
 // harness-test-tier: contract
 import { decodeCiObservation } from "../../kernel/test/fixtures/ci-observation.ts";
 import assert from "node:assert/strict";
+import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { FrozenGateRequirement } from "@harness-anything/kernel";
+import { claimGateRun, type ExecutionV1, type FrozenGateRequirement } from "@harness-anything/kernel";
 import type { CiRunObservationEventV3 } from "../../kernel/test/fixtures/ci-observation.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import {
@@ -24,6 +25,7 @@ const ciRequirement: FrozenGateRequirement = {
   gateId: "ci",
   appliesTo: "code",
   witness: {
+    ...completionSnapshot.completion.sources["github-actions"],
     adapterId: "github-actions",
     adapterOptions: {
       workflows: ["ci"],
@@ -34,6 +36,47 @@ const ciRequirement: FrozenGateRequirement = {
     },
   },
 };
+
+function claimedExecution(commitSha: string): ExecutionV1 {
+  const execution: ExecutionV1 = {
+    schema: "execution/v1",
+    executionId: "execution",
+    taskId: "task",
+    nodeId: "implementation",
+    iteration: 0,
+    state: "submitted",
+    actor,
+    claimedAt: "2026-09-12T00:00:00.000Z",
+    submittedAt: "2026-09-12T00:01:00.000Z",
+    closedAt: null,
+    gateRuns: [],
+    submission: {
+      completionClaim: "Delivered",
+      commitSha,
+      deliverables: [],
+      outputs: [],
+      verificationNotes: [],
+      knownGaps: [],
+      residualRisks: [],
+      completionContract: { ...emptyCompletionContract, gates: [ciRequirement] },
+    },
+  };
+  return {
+    ...execution,
+    gateRuns: [
+      claimGateRun({
+        execution,
+        requirement: ciRequirement,
+        repoId: "repo",
+        runId: "ci-run",
+        claimFence: 1,
+        actor,
+        occurredAt: execution.submittedAt!,
+        expiresAt: "2026-09-13T00:00:00.000Z",
+      }),
+    ],
+  };
+}
 
 function git(root: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", root, "-c", "user.name=test", "-c", "user.email=test@example.com", ...args], {
@@ -113,12 +156,7 @@ test("an artifact-less green main run synthesizes a passing observation from its
       conclusion: "success",
       event: "push",
     });
-    const submitted = {
-      schema: "execution/v1",
-      executionId: "execution",
-      iteration: 0,
-      submission: { commitSha: delivered, deliverables: [], outputs: [], verificationNotes: [], knownGaps: [] },
-    } as never;
+    const submitted = claimedExecution(delivered);
     const evidence = githubActionsWitnessEvidence(
       {
         rootDir,
@@ -138,7 +176,7 @@ test("an artifact-less green main run synthesizes a passing observation from its
       submitted,
     );
     assert.equal(evidence?.result, "pass");
-    assert.equal(evidence?.provenance.runId, "900.1");
+    assert.equal(evidence?.provenance.runId, "ci-run");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -217,10 +255,10 @@ test("reimport authenticates an unconfigured run without letting it shadow confi
         },
       } as unknown as RepoCellOperationalContext,
       ciRequirement,
-      { submission: { commitSha: delivered }, iteration: 0, executionId: "execution" } as never,
+      claimedExecution(delivered),
     );
     assert.equal(evidence?.result, "pass");
-    assert.equal(evidence?.provenance.runId, "900.1");
+    assert.equal(evidence?.provenance.runId, "ci-run");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -12,7 +12,11 @@ import {
 import { requireEntityStoreKindContract } from "../../src/domain/entity-kind-registry.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
-import { openSqliteEventStore, type SqliteEventStore } from "../../src/store/sqlite-event-store.ts";
+import {
+  activateEmptyCanonicalGeneration,
+  openSqliteEventStore,
+  type SqliteEventStore,
+} from "../../src/store/sqlite-event-store.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 import { initRepo } from "./task-event-store.fixtures.ts";
@@ -84,6 +88,7 @@ function appendCurrentShapeAgent(writer: SqliteEventStore, input: Parameters<typ
 }
 
 function openWindowLedger(rootDir: string, legacyWorker: boolean): SqliteEventStore {
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const writer = openSqliteEventStore({ repoId, rootInput: rootDir });
   writer.claimWriter(fence);
   if (legacyWorker) writer.appendCommand({ fence, ...legacyAgentCommand("op-legacy-agent", "legacy-worker", 1) });

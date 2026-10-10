@@ -609,6 +609,7 @@ function declaredSettingsActionValues(
       continue;
     }
     const stored = valueAtPath(settings, declaration.path);
+    if (stored === undefined && declaration.optional && !action.project) continue;
     values[action.field] =
       action.project === "effective-closeout-gate"
         ? (stored ?? valueAtPath(settings, ["closeout", "profile"]) === "strict")

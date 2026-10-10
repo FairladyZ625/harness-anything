@@ -87,15 +87,16 @@ test("task create dry-run validates the exact package without event, revision, c
 });
 // prettier-ignore
 
-test("RepoCell completion migrates snapshot drift with the canonical preset upgrade event", async () => {
+test("RepoCell completion preserves the frozen snapshot until explicit preset upgrade", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-upgrade-cell-")), source = path.join(rootDir, "source/upgrade-task"), taskId = "task-upgrade-cell", binding = repoWriteBinding; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const packageBody = (version: string) => JSON.stringify({ schema: "preset-manifest/v3", id: "upgrade-task", title: "Upgrade Task", vertical: "software/coding", version, kind: "template-content", outputShape: "repository-diff", kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" }, capabilityImports: [], profiles: [{ id: "baseline", title: "Baseline", completionGates: ["ci", "code-doc-reconciliation"], templateSelections: [] }], defaultProfile: "baseline" });
   try {
     initRepo(rootDir); mkdirSync(source, { recursive: true }); writeFileSync(path.join(source, "preset.json"), packageBody("3.1.0")); writeFileSync(path.join(source, "PRESET.md"), "---\nschema: preset-document/v1\ndescription: Upgrade fixture.\nwhenToUse: Test upgrade.\n---\n# Upgrade\n"); cell = await openRepoCell({ repoId: workspaceId("preset-upgrade-cell"), rootDir: canonicalRoot(rootDir), ownerId: "preset-upgrade-daemon" }); const installed = await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, binding); assert.equal(installed.outcome, "applied"); assert.equal(installed.acceptance, null); const created = await cell.run({ kind: "task-create", taskId, title: "Upgrade Cell", presetId: "upgrade-task" }, binding) as Record<string, unknown>, previousDigest = String(created.presetDigest); const createdVisible = await waitForAcceptedReceipt(cell, created as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); writeFileSync(path.join(source, "preset.json"), packageBody("3.2.0")); const reinstalled = await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, binding); assert.equal(reinstalled.outcome, "applied"); assert.equal(reinstalled.acceptance, null);
     const blocked = await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, binding);
-    // Completion runs the same atomic preset upgrade itself instead of bouncing on the drift;
-    // the canonical upgrade event proves a real migration happened, not a forged digest.
+    // dec_4190D5EA63D9DD208CE946F133 freezes the contract; drift changes only on explicit upgrade.
     assert.equal(blocked.code, "not_in_review", JSON.stringify(blocked));
+    assert.equal(makeTaskEventReader({ repoId: "preset-upgrade-cell", rootDir }).read().events.filter((event) => event.type === "preset_snapshot_upgraded").length, 0);
+    assert.equal((await cell.run({ kind: "preset-upgrade", taskId }, binding)).outcome, "applied");
     const upgrades = makeTaskEventReader({ repoId: "preset-upgrade-cell", rootDir }).read().events.filter((event) => event.type === "preset_snapshot_upgraded"); assert.equal(upgrades.length, 1, JSON.stringify(upgrades)); assert.equal(upgrades[0]?.schema, "preset-snapshot-upgrade-event/v1"); assert.equal(upgrades[0]?.payload.previousDigest, previousDigest);
     const redundant = await cell.run({ kind: "preset-upgrade", taskId }, binding); assert.equal(redundant.code, "snapshot_current", JSON.stringify(redundant)); assert.equal((await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, binding)).code, "not_in_review");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }

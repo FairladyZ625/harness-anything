@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { emptyCompletionContract } from "../domain/completion.fixtures.ts";
 import { validExecutionDeliveryBaseline } from "../../src/domain/execution.ts";
 import { test } from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
@@ -97,7 +98,7 @@ function submitted(): TaskLifecycleSnapshot {
         knownGaps: [],
         residualRisks: [],
         commitSha: "a".repeat(40),
-        completionContract: { gates: [] },
+        completionContract: emptyCompletionContract,
       },
     }) as TaskLifecycleCommand,
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
@@ -124,7 +125,7 @@ function amendment(
         knownGaps: [],
         residualRisks: [],
         commitSha: "b".repeat(40),
-        completionContract: { gates: [] },
+        completionContract: emptyCompletionContract,
       },
     },
     actor,
@@ -255,7 +256,7 @@ test("a review node with no submitted execution recovers exclusively through Sta
           knownGaps: [],
           residualRisks: [],
           commitSha: "a".repeat(40),
-          completionContract: { gates: [] },
+          completionContract: emptyCompletionContract,
         },
       } as const,
       reviewIntent = {

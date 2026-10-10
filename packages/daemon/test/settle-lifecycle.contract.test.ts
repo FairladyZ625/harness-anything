@@ -289,7 +289,7 @@ test("settle refuses to resume another holder's submitted cut", async (t) => {
   }
 });
 
-test("settle submits then migrates a drifted preset snapshot with a real upgrade event", async (t) => {
+test("settle submits against its frozen snapshot after an installed preset changes", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-preset-")),
     repoId = workspaceId("settle-preset"),
     taskId = "task_settle_preset",
@@ -383,9 +383,8 @@ test("settle submits then migrates a drifted preset snapshot with a real upgrade
       (await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, workerBinding)).outcome,
       "applied",
     );
-    // The recorded snapshot is still the 3.1.0 package; reinstalling 3.2.0 moves the
-    // compiled digest, so settle runs the same atomic preset upgrade itself instead of
-    // bouncing the agent on preset_snapshot_mismatch.
+    // dec_4190D5EA63D9DD208CE946F133: installing 3.2.0 cannot replace this task
+    // snapshot or the source bytes it freezes into the submission.
     writeFileSync(path.join(source, "preset.json"), packageBody("3.2.0"));
     assert.equal(
       (await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, workerBinding)).outcome,
@@ -399,8 +398,8 @@ test("settle submits then migrates a drifted preset snapshot with a real upgrade
     assert.equal(events.filter((event) => event.type === "execution_submitted").length, 1);
     assert.equal(
       events.filter((event) => event.type === "preset_snapshot_upgraded").length,
-      1,
-      "settle migrates the drifted snapshot with a real upgrade event, not a forged digest",
+      0,
+      "settle retains the accepted snapshot instead of upgrading its frozen input",
     );
     await reader.drain();
   } finally {

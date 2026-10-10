@@ -71,7 +71,8 @@ export function createImmutableLegacyGenerationSnapshot(input: {
   readonly snapshotPath: string;
 }): { readonly sourceDigest: `sha256:${string}`; readonly eventCount: number; readonly objectCount: number } {
   const events = input.source.read().events,
-    eventBytes = events.map(serializePersistedCanonicalEvent),
+    // The offline snapshot preserves accepted source shapes; conversion validates its output.
+    eventBytes = events.map(serializeCanonicalEventUnchecked),
     claims = new Map(events.flatMap((event) => contentClaims(event).map((claim) => [claim.sha256, claim] as const))),
     objects = [...claims.values()]
       .sort((left, right) => left.sha256.localeCompare(right.sha256))

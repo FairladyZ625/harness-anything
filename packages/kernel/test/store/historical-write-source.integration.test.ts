@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { activateEmptyCanonicalGeneration } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskEventReader, makeTaskEventStore } from "../../src/store/task-event-store-factory.ts";
 import { openSqliteEventStore, sqliteLedgerPath, sqliteContentObjectPath } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
@@ -20,7 +21,7 @@ function fixture(schema: string, name = "accepted.json") {
   );
 }
 
-test("cold generation2 replay preserves historical bootstrap, execution, documents and relation bytes", async () => {
+test("cold generation3 replay preserves historical bootstrap, execution, documents and relation bytes", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-historical-source-"));
   const source = { kind: "assignment", assignmentId: "fixture-assignment", nodeId: "fixture-node" };
   const bootstrap = fixture("task-bootstrap-event-v1");
@@ -51,6 +52,7 @@ test("cold generation2 replay preserves historical bootstrap, execution, documen
   started.taskId = bootstrap.taskId;
   started.payload.task = { ...bootstrap.payload.task, status: "active" };
   started.payload.execution.taskId = bootstrap.taskId;
+  started.payload.execution.gateRuns = [];
   started.payload.lease.taskId = bootstrap.taskId;
   started.payload.lease.source = source;
   started.payload.previousHolder.taskId = bootstrap.taskId;
@@ -73,9 +75,10 @@ test("cold generation2 replay preserves historical bootstrap, execution, documen
   let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
-    const databasePath = sqliteLedgerPath(rootDir, 2);
+    activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId: "historical-fixture" });
+    const databasePath = sqliteLedgerPath(rootDir, 3);
     // Build a stopped, sanitized historical fixture. No live writer or production ledger is used.
-    const empty = openSqliteEventStore({ rootInput: rootDir, repoId: "historical-fixture", generation: 2 });
+    const empty = openSqliteEventStore({ rootInput: rootDir, repoId: "historical-fixture", generation: 3 });
     empty.close();
     const db = new DatabaseSync(databasePath);
     try {
@@ -98,13 +101,13 @@ test("cold generation2 replay preserves historical bootstrap, execution, documen
       db.close();
     }
     for (const body of [snapshotBody, documentBody]) {
-      const objectPath = sqliteContentObjectPath(rootDir, sha256Text(body), 2);
+      const objectPath = sqliteContentObjectPath(rootDir, sha256Text(body), 3);
       mkdirSync(path.dirname(objectPath), { recursive: true });
       writeFileSync(objectPath, body);
     }
     const before = readFileSync(databasePath);
     const bodies = events.map(serializeCanonicalEventUnchecked);
-    reader = makeTaskEventReader({ rootDir, repoId: "historical-fixture", generation: 2 });
+    reader = makeTaskEventReader({ rootDir, repoId: "historical-fixture", generation: 3 });
     assert.equal(reader.read().revision, 3);
     for (const event of reader.read().events)
       assert.deepEqual(parseCanonicalEvent(bodies[event.workspaceRevision - 1]!), event);
@@ -131,7 +134,7 @@ test("cold generation2 replay preserves historical bootstrap, execution, documen
     const writer = makeTaskEventStore({
       rootDir,
       repoId: "historical-fixture",
-      generation: 2,
+      generation: 3,
       activationPreflight: () => {},
     });
     try {
@@ -145,7 +148,7 @@ test("cold generation2 replay preserves historical bootstrap, execution, documen
     const reopened = openSqliteEventStore({
       databasePath,
       repoId: "historical-fixture",
-      generation: 2,
+      generation: 3,
       readOnly: true,
     });
     try {

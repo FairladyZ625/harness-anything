@@ -92,7 +92,7 @@ function fixture() {
 test("real offline CLI converts, verifies and restores generation 1 bytes, command outcomes and acceptance times", () => {
   const f = fixture();
   try {
-    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    createLedgerBackup({ generation: 1, rootInput: f.root, backupDir: f.backupDir });
     const before = readFileSync(sqliteLedgerPath(f.root, 1)),
       dry = invoke(["--source", f.backupDir, "--mode", "dry-run"]);
     assert.equal(dry.status, 0, JSON.stringify(dry.receipt));
@@ -107,7 +107,7 @@ test("real offline CLI converts, verifies and restores generation 1 bytes, comma
     assert.deepEqual(readFileSync(sqliteLedgerPath(f.root, 1)), before);
     // Recovery cannot consult the original database, materialization or its object store.
     rmSync(f.root, { recursive: true });
-    const restored = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
+    const restored = openSqliteEventStore({ rootInput: f.destination, generation: 3, readOnly: true });
     try {
       assert.deepEqual(restored.eventRows(), f.rows);
       assert.deepEqual(restored.outcomes(), f.outcomes);
@@ -118,7 +118,7 @@ test("real offline CLI converts, verifies and restores generation 1 bytes, comma
     }
     assert.equal(invoke(["--source", f.backupDir, "--mode", "verify", "--destination", f.destination]).status, 0);
     assert.equal(invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]).status, 1);
-    const db = new DatabaseSync(sqliteLedgerPath(f.destination, 2));
+    const db = new DatabaseSync(sqliteLedgerPath(f.destination, 3));
     db.prepare("UPDATE event SET recorded_at=? WHERE revision=1").run("2000-01-01T00:00:00.000Z");
     db.close();
     const failed = invoke(["--source", f.backupDir, "--mode", "verify", "--destination", f.destination]);
@@ -150,14 +150,14 @@ for (const historicalFixture of [
         row.occurredAt,
       );
       db.close();
-      createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+      createLedgerBackup({ generation: 1, rootInput: f.root, backupDir: f.backupDir });
       const result = invoke(["--source", f.backupDir, "--mode", "dry-run"]);
       assert.equal(result.status, 0, JSON.stringify(result.receipt));
       assert.equal(result.receipt.plan.mappings[0].disposition, "retained-read-only");
       assert.equal(result.receipt.plan.mappings.length, 2);
       const converted = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
       assert.equal(converted.status, 0, JSON.stringify(converted.receipt));
-      const witness = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
+      const witness = openSqliteEventStore({ rootInput: f.destination, generation: 3, readOnly: true });
       try {
         const event = witness.eventAtRevision(1)! as any;
         assert.equal(event.schema, "migration-import-event/v1");
@@ -197,11 +197,11 @@ test("existing migrated repository documents preserve their own content instead 
       event.occurredAt,
     );
     db.close();
-    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    createLedgerBackup({ generation: 1, rootInput: f.root, backupDir: f.backupDir });
     const result = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
     assert.equal(result.status, 0, JSON.stringify(result.receipt));
     assert.equal(result.receipt.plan.mappings[0].disposition, "converted");
-    const target = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
+    const target = openSqliteEventStore({ rootInput: f.destination, generation: 3, readOnly: true });
     try {
       assert.deepEqual(Buffer.from(target.readContentObject(f.hash)!), f.body);
     } finally {
@@ -224,7 +224,7 @@ test("an accepted content size mismatch is corruption, not a historical witness"
       `sha256:${sha256Bytes(Buffer.from(raw))}`,
     );
     db.close();
-    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    createLedgerBackup({ generation: 1, rootInput: f.root, backupDir: f.backupDir });
     const result = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
     assert.equal(result.status, 1, JSON.stringify(result.receipt));
     assert.match(result.receipt.hint, /corrupt accepted content/);
@@ -247,7 +247,7 @@ test("offline conversion preserves draft edits and deletion intent before settli
     writeFileSync(path.join(authored, "context/raw-1.bin"), draft);
     rmSync(path.join(authored, "context/raw-2.bin"));
     writeFileSync(path.join(authored, "untracked-note.txt"), "keep this draft");
-    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    createLedgerBackup({ generation: 1, rootInput: f.root, backupDir: f.backupDir });
     const result = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
     assert.equal(result.status, 0, JSON.stringify(result.receipt));
     const destinationAuthored = path.join(f.destination, "harness");
@@ -263,7 +263,7 @@ test("offline conversion preserves draft edits and deletion intent before settli
     assert.equal(removed.preservedPath, null);
     assert.equal(removed.mode, null);
     const migratedBackup = path.join(f.parent, "migrated-backup");
-    const manifest = createLedgerBackup({ rootInput: f.destination, backupDir: migratedBackup, generation: 2 });
+    const manifest = createLedgerBackup({ rootInput: f.destination, backupDir: migratedBackup, generation: 3 });
     assert.ok(manifest.files.some((entry) => entry.path.endsWith("conversion-drafts/" + parent + "/manifest.json")));
     assert.deepEqual(readFileSync(path.join(migratedBackup, "payload", changed.preservedPath)), draft);
 
@@ -298,7 +298,7 @@ test("valid historical decision relations retain their document transition inste
       event.occurredAt,
     );
     db.close();
-    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    createLedgerBackup({ generation: 1, rootInput: f.root, backupDir: f.backupDir });
     const result = invoke(["--source", f.backupDir, "--mode", "dry-run"]);
     assert.equal(result.status, 0, JSON.stringify(result.receipt));
     assert.equal(result.receipt.plan.mappings[0].disposition, "converted");
@@ -334,11 +334,11 @@ test("source witnesses carry available legacy declaration bytes into generation 
       event.occurredAt,
     );
     db.close();
-    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    createLedgerBackup({ generation: 1, rootInput: f.root, backupDir: f.backupDir });
     const result = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
     assert.equal(result.status, 0, JSON.stringify(result.receipt));
     rmSync(path.dirname(sqliteLedgerPath(f.destination, 1)), { recursive: true });
-    const target = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
+    const target = openSqliteEventStore({ rootInput: f.destination, generation: 3, readOnly: true });
     try {
       const witness = target.eventAtRevision(1)! as any;
       assert.ok(witness.payload.entity.referencedContentClaims.some((c: any) => c.sha256 === legacyHash));
@@ -406,7 +406,7 @@ test("conversion preserves a repeated observation one-to-one so no later revisio
       events,
     });
     store.close();
-    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    createLedgerBackup({ generation: 1, rootInput: f.root, backupDir: f.backupDir });
     const converted = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
     assert.equal(converted.status, 0, JSON.stringify(converted.receipt));
     // Root's ruling: the repeated observation really happened, so it is preserved read-only rather
@@ -436,7 +436,7 @@ test("conversion preserves a repeated observation one-to-one so no later revisio
     );
     console.log("GEN2_ACCOUNTING_EVIDENCE=" + JSON.stringify(converted.receipt));
     const retained = openSqliteEventStore({ rootInput: f.destination, generation: 1, readOnly: true }),
-      target = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
+      target = openSqliteEventStore({ rootInput: f.destination, generation: 3, readOnly: true });
     try {
       assert.equal(retained.eventRows().length, 4);
       assert.equal(target.eventRows().length, 4);
@@ -476,13 +476,13 @@ test("gen2 reuses the evidence conversion without promoting historical CI measur
     ).run(event.opId, digest);
     db.prepare("UPDATE ledger_meta SET revision=3 WHERE singleton=1").run();
     db.close();
-    createLedgerBackup({ rootInput: f.root, backupDir: f.backupDir });
+    createLedgerBackup({ generation: 1, rootInput: f.root, backupDir: f.backupDir });
     const converted = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
     assert.equal(converted.status, 0, JSON.stringify(converted.receipt));
     const mapping = converted.receipt.plan.mappings[2];
     assert.equal(mapping.sourceDigest, digest);
     assert.notEqual(mapping.destinationDigest, digest);
-    const target = openSqliteEventStore({ rootInput: f.destination, generation: 2, readOnly: true });
+    const target = openSqliteEventStore({ rootInput: f.destination, generation: 3, readOnly: true });
     try {
       const current = target.events()[2]!;
       assert.equal(current.schema, "ci-run-observation/v3");

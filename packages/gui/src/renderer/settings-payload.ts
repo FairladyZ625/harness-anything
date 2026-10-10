@@ -23,7 +23,7 @@ export function isSettingsSuccess(value: unknown): value is SettingsRead {
       (field) => typeof field === "string" && field.length > 0,
     ) &&
     isRendererRecord(settings.closeout) &&
-    ["standard", "strict"].includes(String(settings.closeout.profile)) &&
+    (settings.closeout.profile === undefined || ["standard", "strict"].includes(String(settings.closeout.profile))) &&
     ["en-US", "zh-CN"].includes(String(settings.locale)) &&
     isRendererRecord(settings.scaffolds) &&
     [settings.scaffolds.task, settings.scaffolds.repository].every(

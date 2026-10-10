@@ -56,7 +56,7 @@ export async function runMixedHistoryScenario(root) {
   assert.equal(second.migratedEvents, 0);
   assert.deepEqual(seeded.events.map(JSON.stringify), sourceBytesBefore);
 
-  const sqlite = openSqliteEventStore({ repoId, databasePath }),
+  const sqlite = openSqliteEventStore({ repoId, databasePath, generation: 1 }),
     events = sqlite.events(),
     convertedSource = arrayStore(
       events,

@@ -10,6 +10,7 @@ import {
   compileTaskLifecycleWrite,
   makeTaskEventStore,
   makeTaskEventReader,
+  activateEmptyCanonicalGeneration,
   openSqliteEventStore,
   reduceTaskEvent,
   REPLAY_TASK_GRAPH,
@@ -485,6 +486,7 @@ test("remote-center takeover preserves the committed SQLite outcome without prep
 test("a lease taken before registration floors at the restored ledger's recorded writer epoch", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-restore-floor-")),
     repo = probeRepo(root),
+    _initialized = activateEmptyCanonicalGeneration({ repoId: "probe-repo", rootInput: repo }),
     store = openSqliteEventStore({ rootInput: repo, repoId: "probe-repo" }),
     authority = openPersistentWriterEpoch({ stateRoot: path.join(root, "epochs"), holderId: "restored-daemon" });
   try {
@@ -510,6 +512,7 @@ test("a lease taken before registration floors at the restored ledger's recorded
 test("cold-import writer epoch is a floor and never permits an equal-epoch holder or stale writer", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-import-writer-floor-")),
     repo = probeRepo(root),
+    _initialized = activateEmptyCanonicalGeneration({ repoId: "probe-repo", rootInput: repo }),
     store = openSqliteEventStore({ rootInput: repo, repoId: "probe-repo" }),
     authority = openPersistentWriterEpoch({ stateRoot: path.join(root, "epochs"), holderId: "daemon" });
   try {

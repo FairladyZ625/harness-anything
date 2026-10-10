@@ -2,7 +2,13 @@ import { validTaskAssignment, type TaskAssignment } from "./task-assignment.ts";
 import type { LifecycleBinding } from "./lifecycle-binding.js";
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
-import { hasOnlyFields, isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
+import {
+  hasRequiredFields,
+  hasOnlyFields,
+  isNonEmptyString,
+  isRecord,
+  validateActorIdentity,
+} from "./write-chain.contract.ts";
 import { validateSessionProvenance, type SessionProvenanceV1 } from "./agent-runtime.ts";
 import type { BaseEntityPinState } from "./base-entity.ts";
 import { isValidCloseoutOverrides, type CloseoutOverridesV1 } from "./settings-closeout.ts";
@@ -153,7 +159,11 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     const gap = value.presetSnapshotGap;
     if (
       !isRecord(gap) ||
-      !hasOnlyFields(gap, ["reason", "sourceGeneration", "sourceRevision"]) ||
+      !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(gap, [
+        "reason",
+        "sourceGeneration",
+        "sourceRevision",
+      ]) ||
       gap.reason !== "snapshot-bytes-unavailable" ||
       (gap.sourceGeneration !== 1 && gap.sourceGeneration !== 2) ||
       !Number.isSafeInteger(gap.sourceRevision) ||

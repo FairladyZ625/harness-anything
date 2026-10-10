@@ -191,6 +191,9 @@ test("vertical validation reports builtin success and missing custom sources", a
         id: "software/coding",
         title: "Software Coding",
         version: "1.4.0",
+        completion: JSON.parse(
+          readFileSync(new URL("../assets/software-coding/vertical.json", import.meta.url), "utf8"),
+        ).completion,
       },
       issues: [],
     });

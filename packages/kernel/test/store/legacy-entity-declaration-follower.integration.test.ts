@@ -8,7 +8,8 @@ import { compileEntityUpsert } from "../../src/domain/entity-event-compile.ts";
 import { ownedContentForDeclarationEvent } from "../../src/domain/entity-event.ts";
 import type { CanonicalEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
-import { makeTaskEventStore, readCertifiedGitFollower } from "../../src/store/task-event-store-factory.ts";
+import { readCertifiedGitFollower } from "../../src/store/task-event-store-factory.ts";
+import { makeSqliteTaskEventStore } from "../../src/store/sqlite-task-event-store.ts";
 import { git, initRepo } from "./task-event-store.fixtures.ts";
 
 const repoId = "legacy-entity-declaration",
@@ -33,7 +34,7 @@ function agentUpsert() {
   });
 }
 
-test("a generation-1 ledger holding a pre-manifest entity declaration still certifies its Git follower", async (t) => {
+test("an offline generation-1 conversion holding a pre-manifest entity declaration still certifies its Git follower", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-legacy-entity-")),
     databasePath = sqliteLedgerPath(rootDir, 1),
     current = agentUpsert(),
@@ -48,7 +49,7 @@ test("a generation-1 ledger holding a pre-manifest entity declaration still cert
   // The recovered manifest is the one the writer of that same claim recorded, not a fresh reading of today's
   // registry: a derived manifest that differed here would be describing a different event.
   assert.deepEqual(ownedContentForDeclarationEvent(legacyEvent as never), ownedContent);
-  const imported = openSqliteEventStore({ repoId, databasePath });
+  const imported = openSqliteEventStore({ repoId, generation: 1, databasePath });
   imported.claimWriter(fence);
   imported.appendCommand({
     fence,
@@ -58,7 +59,7 @@ test("a generation-1 ledger holding a pre-manifest entity declaration still cert
   });
   imported.close();
 
-  const store = makeTaskEventStore({ repoId, rootDir });
+  const store = makeSqliteTaskEventStore({ repoId, rootDir, generation: 1 });
   try {
     await store.settlePendingMaterialization?.("legacy entity declaration");
     assert.equal(store.followerStatus().git.status, "verified");
@@ -66,7 +67,7 @@ test("a generation-1 ledger holding a pre-manifest entity declaration still cert
   } finally {
     await store.drain();
   }
-  const reader = openSqliteEventStore({ repoId, databasePath, readOnly: true });
+  const reader = openSqliteEventStore({ repoId, generation: 1, databasePath, readOnly: true });
   try {
     const follower = readCertifiedGitFollower({ rootInput: rootDir, repoId, store: reader });
     assert.equal(follower.cut.revision, 1);

@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   INITIAL_SETTINGS_V1,
   openSqliteEventStore,
+  activateEmptyCanonicalGeneration,
   makeTaskEventStore,
   makeTaskProjection,
   type TaskEventV1,
@@ -76,7 +77,8 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
           documentClaims: [],
         },
       },
-      ledger = openSqliteEventStore({ repoId: "preset-upgrade", rootInput: rootDir, generation: 1 });
+      _initialized = activateEmptyCanonicalGeneration({ repoId: "preset-upgrade", rootInput: rootDir }),
+      ledger = openSqliteEventStore({ repoId: "preset-upgrade", rootInput: rootDir, generation: 3 });
     try {
       assert.deepEqual(
         migrateEventsToSqlite({

@@ -83,7 +83,8 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
       new Set(fiveHundred.subjects.flatMap(({ actions }) => actions.map(({ evaluatedAtCut }) => evaluatedAtCut))).size,
       1,
     );
-    assert.equal(one.subjects[0]!.actions.length, 19);
+    // dec_4190D5EA63D9DD208CE946F133 adds Task-owned claim, publish, revoke and re-run.
+    assert.equal(one.subjects[0]!.actions.length, 23);
     assert.deepEqual(one.subjects[0]!.actions[0]!.authorizationDecision?.actor, actor);
     assert.doesNotThrow(() => parseDaemonGuiReadResult(method, fiveHundred));
 

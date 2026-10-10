@@ -303,6 +303,7 @@ function runText(
     env: { ...environment(root, userRoot), ...(actor ? { HARNESS_ACTOR: actor } : {}) },
     maxBuffer: 32 * 1024 * 1024,
   });
+  assert.ifError(result.error);
   return { status: result.status, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 

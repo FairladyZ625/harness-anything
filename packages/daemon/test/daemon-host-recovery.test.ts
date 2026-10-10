@@ -697,7 +697,7 @@ test("an unactivated repository is unavailable while an activated peer attaches 
     await host.attachmentsSettled();
     const inactiveStatus = host.status().repos.find((repo) => repo.repoId === "inactive")!;
     assert.equal(inactiveStatus.state, "unavailable");
-    assert.match(String(inactiveStatus.lastError), /run operator conversion before attaching this repository/u);
+    assert.match(String(inactiveStatus.lastError), /run offline conversion before attaching this repository/u);
     assert.equal((await host.run("inactive", { kind: "task-list" }, auth)).code, "repo_unavailable");
     assert.equal((await host.run("active", { kind: "task-list" }, auth)).outcome, "applied");
   } finally {

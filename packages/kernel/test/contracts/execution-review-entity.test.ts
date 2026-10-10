@@ -135,6 +135,7 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
           "code_doc_repointed",
           "completion_gate_verified",
           "gate_run_changed",
+          "task_completion_generation_retired",
           "task_completed",
           "lease_released",
         ],

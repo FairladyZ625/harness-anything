@@ -85,7 +85,7 @@ test("inactive generation preserves upsert content and materializes task disposi
     createImmutableLegacyGenerationSnapshot({ repoId: "history-shapes", source, snapshotPath });
     const original = readFileSync(snapshotPath, "utf8");
     assert.equal(convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }).active, false);
-    const store = openSqliteEventStore({ repoId: "history-shapes", databasePath });
+    const store = openSqliteEventStore({ repoId: "history-shapes", databasePath, generation: 1 });
     try {
       const converted = store.events();
       assert.deepEqual(converted[0]!.payload.declarationDocumentClaim, claim);

@@ -26,3 +26,5 @@ export { sha256Bytes } from "../../src/integrity/stable-hash.ts";
 export type { DocEventV1 } from "../../src/domain/doc-sync-types.ts";
 
 export type { AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
+
+export { makeSqliteTaskEventStore } from "../../src/store/sqlite-task-event-store.ts";

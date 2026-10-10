@@ -1,5 +1,9 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import {
+  completionGenerationFixtures,
+  convertFrozenCompletionSample,
+} from "../../../../tools/gates/completion-generation-fixtures.mjs";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -138,7 +142,16 @@ test("every canonical reader ignores an unknown field at every frozen object bou
   for (const entry of canonicalEventSchemas) {
     const directory = path.join(fixtureRoot, entry.schema.replaceAll("/", "-"));
     for (const name of readdirSync(directory).filter((candidate) => candidate.endsWith(".json"))) {
-      const original: unknown = JSON.parse(readFileSync(path.join(directory, name), "utf8"));
+      const file = path.join(directory, name),
+        body = readFileSync(file, "utf8");
+      const relative = path
+        .relative(path.resolve(import.meta.dirname, "../../../.."), file)
+        .split(path.sep)
+        .join("/");
+      // dec_5EC2631352B17EE2BF4979E37E: old completion samples enter the current reader only after offline conversion.
+      const original: unknown = completionGenerationFixtures.has(relative)
+        ? convertFrozenCompletionSample(body, relative)
+        : JSON.parse(body);
       for (const objectPath of objectPaths(original)) {
         const candidate = structuredClone(original);
         objectAt(candidate, objectPath).__fixtureFutureField = true;

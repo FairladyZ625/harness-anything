@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import { runProcessTextAsync } from "../src/process-port.ts";
 import { readCiObservatory } from "../src/ci-observatory-read.ts";
 import {
@@ -753,11 +754,11 @@ test("CI observation pull --task imports the run the frozen contract judges: the
       readCiRunObservations: () => ({ watermark: events.length }),
       read: () => ({
         snapshot: {
-          // A cut frozen before the contract: its ci gate is inferred as github-actions on main push runs.
+          // The current cut freezes its source and coverage options.
           task: { iteration: 2, completionGateIds: ["ci"] },
           executions: [
             { iteration: 1, submission: { commitSha: "a".repeat(40) } },
-            { iteration: 2, submission: { commitSha: delivery } },
+            { iteration: 2, submission: { commitSha: delivery, completionContract: taskCiContract } },
           ],
         },
       }),
@@ -888,7 +889,7 @@ test("CI observation pull --task fails closed when no completed run covers the d
       read: () => ({
         snapshot: {
           task: { iteration: 1, completionGateIds: ["ci"] },
-          executions: [{ iteration: 1, submission: { commitSha: delivery } }],
+          executions: [{ iteration: 1, submission: { commitSha: delivery, completionContract: taskCiContract } }],
         },
       }),
     },
@@ -978,7 +979,7 @@ test("CI observation pull reports rate_limited with the reset hint instead of a 
       read: () => ({
         snapshot: {
           task: { iteration: 1, completionGateIds: ["ci"] },
-          executions: [{ iteration: 1, submission: { commitSha: delivery } }],
+          executions: [{ iteration: 1, submission: { commitSha: delivery, completionContract: taskCiContract } }],
         },
       }),
     },
@@ -1098,3 +1099,24 @@ async function fetchCiObservations(
     });
   });
 }
+
+const taskCiContract = {
+  ...emptyCompletionContract,
+  gates: [
+    {
+      gateId: "ci",
+      appliesTo: "code",
+      witness: {
+        ...completionSnapshot.completion.sources["github-actions"],
+        adapterId: "github-actions",
+        adapterOptions: {
+          workflows: ["rewrite-ci"],
+          branch: "main",
+          event: "push",
+          coverage: "descendant",
+          selection: "newest",
+        },
+      },
+    },
+  ],
+};

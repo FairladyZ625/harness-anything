@@ -214,7 +214,7 @@ test("Git follower preserves unrelated index and worktree bytes while leaving ca
     for (const [relative, bytes] of beforeBytes)
       assert.deepEqual(readFileSync(path.join(rootDir, relative)), bytes, `${relative} bytes changed`);
     assert.equal(statSync(path.join(rootDir, "notes/prose.md")).mode & 0o777, beforeMode);
-    const sqlite = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 2, readOnly: true });
+    const sqlite = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3, readOnly: true });
     try {
       const certified = readCertifiedGitFollower({ rootInput: rootDir, repoId, store: sqlite }),
         document = certified.documents.find((candidate) => candidate.path.endsWith("context/contract.md"));

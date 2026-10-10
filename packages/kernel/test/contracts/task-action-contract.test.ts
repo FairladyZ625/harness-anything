@@ -339,7 +339,13 @@ test("nested vocabularies retain identity and guarded lifecycle actions omit sta
     if (action.id !== "create" && lifecycleActionIds.has(action.id))
       assert.equal(action.stateTransition, null, action.id);
   for (const transition of TASK_LIFECYCLE_TRANSITIONS)
-    assert.deepEqual(Object.keys(transition).sort(), ["actionId", "matches", "reduce", "validate"]);
+    assert.deepEqual(Object.keys(transition).sort(), [
+      "actionId",
+      "matches",
+      ...(transition.offline ? ["offline"] : []),
+      "reduce",
+      "validate",
+    ]);
   assert.equal(new Set(actions.flatMap(({ returns }) => returns.guidance.map(({ kind }) => kind))).size, 8);
 });
 

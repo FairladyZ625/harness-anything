@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  effectiveCloseoutGates,
   reduceTaskEvent,
   taskCompletionNext,
   type CloseoutSettingsV1,
@@ -12,7 +13,7 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
 import { repoCellTaskQueryJudgmentsFor } from "../src/repo-cell.ts";
 import { readCompletionContext } from "../src/task-completion-read.ts";
 
-const submitted: TaskLifecycleSnapshot = lifecycleFixture().events.slice(0, 3).reduce(reduceTaskEvent, {
+const strictSubmitted: TaskLifecycleSnapshot = lifecycleFixture().events.slice(0, 3).reduce(reduceTaskEvent, {
   revision: 0,
   task: null,
   executions: [],
@@ -23,6 +24,23 @@ const submitted: TaskLifecycleSnapshot = lifecycleFixture().events.slice(0, 3).r
   edgesTaken: [],
   lease: null,
 });
+
+function frozenCut(closeout: CloseoutSettingsV1, overrides = {}) {
+  return {
+    ...strictSubmitted,
+    executions: strictSubmitted.executions.map((execution) => ({
+      ...execution,
+      submission: {
+        ...execution.submission!,
+        completionContract: {
+          ...execution.submission!.completionContract,
+          closeoutGates: effectiveCloseoutGates(closeout, [], overrides),
+        },
+      },
+    })),
+  } as TaskLifecycleSnapshot;
+}
+const submitted = frozenCut({ profile: "standard" });
 
 /** Settings-facet-aware read projection stub: one submitted unreviewed cut and a valid closeout. */
 function projection(closeout: CloseoutSettingsV1 | null, factRows = 1, childCount = 0): TaskProjectionQueries {
@@ -60,6 +78,7 @@ function projection(closeout: CloseoutSettingsV1 | null, factRows = 1, childCoun
       rows: factRows ? [{ targetRef: "fact/f-read-side", state: "active" }] : [],
       status: "ready",
     }),
+    readPresetSnapshot: () => ({ snapshot: null, status: "ready" }),
     readTaskChildCounts: (ids: readonly string[]) => (childCount ? { [ids[0]!]: childCount } : {}),
     getEntity: (kind: string, id: string) =>
       kind === "settings" && id === "repository" && closeout ? { value: { closeout } } : null,
@@ -79,7 +98,7 @@ test("standard profile read side reports no closed-gate completion blockers", ()
 });
 
 test("strict profile read side keeps demanding review and consent", () => {
-  const context = readCompletionContext(projection({ profile: "strict" }), "task-1", submitted, "ready");
+  const context = readCompletionContext(projection({ profile: "strict" }), "task-1", strictSubmitted, "ready");
   assert.deepEqual(context.closeoutGates, {
     review: true,
     consent: true,
@@ -98,7 +117,7 @@ test("a repository without a settings entity reads the standard default gates", 
 
 test("a task-bound fact lift completes factless; the repository default still demands one", () => {
   const lightweight = {
-      ...submitted,
+      ...frozenCut({ profile: "standard" }, { review: false, consent: false, fact: false }),
       task: { ...submitted.task!, closeoutOverrides: { review: false, consent: false, fact: false } },
     },
     context = readCompletionContext(projection({ profile: "standard" }, 0), "task-1", lightweight, "ready");
@@ -119,7 +138,7 @@ test("a task-bound fact lift completes factless; the repository default still de
 test("the task query closeout judgment follows the effective gate set", () => {
   const availability = { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" } as const,
     standard = repoCellTaskQueryJudgmentsFor(projection({ profile: "standard" })).closeout(submitted, availability),
-    strict = repoCellTaskQueryJudgmentsFor(projection({ profile: "strict" })).closeout(submitted, availability);
+    strict = repoCellTaskQueryJudgmentsFor(projection({ profile: "strict" })).closeout(strictSubmitted, availability);
   assert.equal(standard.readiness, "ready");
   assert.equal(strict.readiness, "incomplete");
   assert.equal(strict.blocker, "review");
@@ -136,4 +155,11 @@ test("a planned top-level task with children is a derived work root and completi
   // Negative control: the same planned task without children is an ordinary task and still starts.
   const leaf = readCompletionContext(projection({ profile: "standard" }), "task-1", planned, "ready");
   assert.equal(taskCompletionNext(planned, leaf).blocker?.next.action, "ha task start task-1");
+});
+
+// dec_4190D5EA63D9DD208CE946F133: mutable settings do not recompute an accepted cut.
+test("changing repository closeout settings leaves the submitted contract frozen", () => {
+  const context = readCompletionContext(projection({ profile: "strict" }), "task-1", submitted, "ready");
+  assert.deepEqual(context.closeoutGates, submitted.executions[0]!.submission!.completionContract.closeoutGates);
+  assert.equal(taskCompletionNext(submitted, context).blocker, null);
 });

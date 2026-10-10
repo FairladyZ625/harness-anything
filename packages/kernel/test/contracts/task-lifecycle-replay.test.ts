@@ -1,6 +1,9 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { completionSnapshot, emptyCompletionContract } from "../domain/completion.fixtures.ts";
 import test from "node:test";
+import { makeOfflineCompletionChain } from "../../src/store/offline-completion-chain.ts";
+import { claimGateRun } from "../../src/domain/gate-run.ts";
 import {
   REPLAY_TASK_GRAPH,
   compileCompletionGateWitness,
@@ -9,7 +12,6 @@ import {
   currentTaskForWrite,
   lifecycleDocumentPaths,
   reduceTaskEvent,
-  reviewDigest,
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
@@ -46,6 +48,7 @@ function executionReceipt(gateIds: readonly ("ci" | "code-doc-reconciliation")[]
             gateId,
             appliesTo: "code" as const,
             witness: {
+              ...completionSnapshot.completion.sources["github-actions"],
               adapterId: "github-actions" as const,
               adapterOptions: {
                 workflows: ["rewrite-ci"],
@@ -56,7 +59,11 @@ function executionReceipt(gateIds: readonly ("ci" | "code-doc-reconciliation")[]
               },
             },
           }
-        : { gateId, appliesTo: "code" as const, witness: { adapterId: gateId, adapterOptions: {} } },
+        : {
+            gateId,
+            appliesTo: "code" as const,
+            witness: { kind: "internal" as const, adapterId: gateId, adapterOptions: {} },
+          },
     ),
     fixture = lifecycleFixture({ gates, complete: false }),
     event = fixture.events.at(-1)!,
@@ -203,7 +210,7 @@ test("the owner may return a consented cut for a fresh iteration", () => {
             knownGaps: [],
             residualRisks: [],
             commitSha: "b".repeat(40),
-            completionContract: { gates: [] },
+            completionContract: { ...emptyCompletionContract, gates: [] },
           },
         },
       ),
@@ -269,6 +276,7 @@ test("lease release replay ignores only the retired longRunning task metadata", 
       submittedAt: null,
       closedAt: null,
       submission: null,
+      gateRuns: [],
     } as const,
     lease = {
       schema: "lease/v1",
@@ -326,6 +334,7 @@ function legacyCompletion() {
         gateId: "ci",
         appliesTo: "code" as const,
         witness: {
+          ...completionSnapshot.completion.sources["github-actions"],
           adapterId: "github-actions" as const,
           adapterOptions: {
             workflows: ["rewrite-ci"],
@@ -341,17 +350,10 @@ function legacyCompletion() {
   });
   let snapshot = fixture.events.reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
   const current = snapshot.executions[0]!;
-  const historicalReviews = snapshot.reviews.map((review) => ({
-    ...review,
-    submissionDigest: `sha256:${"9".repeat(64)}` as const,
-  }));
+  const historicalReviews = snapshot.reviews;
   snapshot = {
     ...snapshot,
     reviews: historicalReviews,
-    consents: snapshot.consents.map((consent) => ({
-      ...consent,
-      reviewDigest: reviewDigest(historicalReviews.find((review) => review.reviewId === consent.reviewId)!),
-    })),
     gateWitnesses: [
       {
         schema: "completion-gate-witness/v1",
@@ -391,7 +393,28 @@ function legacyCompletion() {
       documentClaims: [],
     },
   };
-  return { snapshot, completed, current };
+  const converter = makeOfflineCompletionChain({
+    generation: 2,
+    snapshots: new Map(),
+    missingSnapshots: new Set([snapshot.task!.presetSnapshotDigest!]),
+    readContent: () => null,
+  });
+  const converted = fixture.events
+    .map((event) => converter.convert(event).event as TaskEventV1)
+    .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+  const witnessEvent = converter.convert({
+    ...completed,
+    opId: "op-legacy-ci",
+    occurredAt: "2026-08-11T00:04:30.000Z",
+    type: "completion_gate_verified",
+    payload: { task: snapshot.task!, execution: current, witness: snapshot.gateWitnesses[0]!, documentClaims: [] },
+  } as TaskEventV1).event as TaskEventV1;
+  return {
+    snapshot: reduceTaskEvent(converted, witnessEvent),
+    completed: converter.convert({ ...completed, workspaceRevision: completed.workspaceRevision + 1 })
+      .event as TaskEventV1,
+    current: witnessEvent.payload.execution,
+  };
 }
 
 test("accepted completion keeps legacy receipts without admitting a new unbound completion", () => {
@@ -401,8 +424,7 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
   assert.equal(replayed.executions[0]?.state, "accepted");
   assert.deepEqual(replayed.gateWitnesses, snapshot.gateWitnesses);
   assert.equal(replayed.gateWitnesses[0]?.basis, undefined);
-  // dec_D23B9787: an accepted historical verdict stays accepted on read — it reports its preserved
-  // result with the original evidence gap disclosed, instead of reading back as a missing gate.
+  // dec_5EC2631352B17EE2BF4979E37E: only explicit offline acceptance preserves history.
   assert.equal(closeoutReadiness(snapshot).readiness, "incomplete");
   const command = normalizeTaskLifecycleCommand(
     { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
@@ -422,7 +444,7 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
   );
 });
 
-test("accepted history still rejects missing approval and mismatched gate bindings", () => {
+test("historical acceptance cannot authorize a new completion with missing approval or mismatched bindings", () => {
   const { snapshot, completed } = legacyCompletion();
   for (const invalid of [
     { ...snapshot, task: { ...snapshot.task!, iteration: snapshot.task!.iteration + 1 } },
@@ -432,19 +454,25 @@ test("accepted history still rejects missing approval and mismatched gate bindin
     { ...snapshot, gateWitnesses: snapshot.gateWitnesses.map((w) => ({ ...w, commitSha: "b".repeat(40) })) },
     { ...snapshot, gateWitnesses: snapshot.gateWitnesses.map((w) => ({ ...w, executionId: "other-execution" })) },
   ])
-    assert.throws(() => reduceTaskEvent(invalid, completed), /accepted task and execution state/);
+    assert.throws(
+      () =>
+        reduceTaskEvent(invalid, {
+          ...completed,
+          payload: { ...completed.payload, historicalAcceptance: undefined },
+        } as TaskEventV1),
+      /accepted task and execution state|invalid/,
+    );
 });
 
-test("pre-freeze submissions replay declared-gate witnesses without a frozen contract", () => {
-  // dec_D23B9787: gen1/gen2 submissions carry no completionContract, so replay cannot look the
-  // gate requirement up in the contract. It infers the requirement from the declared gate ids
-  // and still enforces the witness-to-execution binding fields.
+test("offline conversion freezes pre-freeze submissions before replaying historical witnesses", () => {
+  // dec_5EC2631352B17EE2BF4979E37E: ordinary replay rejects pre-freeze carriers; offline conversion owns them.
   const fixture = lifecycleFixture({
       gates: [
         {
           gateId: "ci",
           appliesTo: "code" as const,
           witness: {
+            ...completionSnapshot.completion.sources["github-actions"],
             adapterId: "github-actions" as const,
             adapterOptions: {
               workflows: ["rewrite-ci"],
@@ -496,16 +524,41 @@ test("pre-freeze submissions replay declared-gate witnesses without a frozen con
       },
     });
 
-  const bound = reduceTaskEvent(snapshot, verify({}));
+  assert.throws(() => reduceTaskEvent(snapshot, verify({})), /completionContract|Submission/);
+  const converter = makeOfflineCompletionChain({
+    generation: 2,
+    snapshots: new Map(),
+    missingSnapshots: new Set([snapshot.task!.presetSnapshotDigest!]),
+    readContent: () => null,
+  });
+  const carrier = converter.convert({
+    ...verify({}),
+    type: "execution_submitted",
+    payload: { task: snapshot.task!, execution: legacyExecution, documentClaims: [] },
+  } as TaskEventV1).event as TaskEventV1;
+  const convertedSnapshot = {
+    ...snapshot,
+    task: carrier.payload.task,
+    executions: [carrier.payload.execution],
+  } as TaskLifecycleSnapshot;
+  const convertedWitness = converter.convert(verify({})).event as TaskEventV1;
+  const bound = reduceTaskEvent(convertedSnapshot, convertedWitness);
   assert.equal(bound.gateWitnesses.length, 1);
   assert.equal(bound.gateWitnesses[0]?.gateId, "ci");
   for (const unbound of [
-    { gateId: "undeclared-gate" },
+    { taskId: "other-task" },
     { commitSha: "b".repeat(40) },
     { executionId: "other-execution" },
     { iteration: legacyExecution.iteration + 1 },
   ])
-    assert.throws(() => reduceTaskEvent(snapshot, verify(unbound)), /not bound to the execution cut/u);
+    assert.throws(
+      () =>
+        reduceTaskEvent(convertedSnapshot, {
+          ...convertedWitness,
+          payload: { ...convertedWitness.payload, witness: { ...convertedWitness.payload.witness, ...unbound } },
+        } as TaskEventV1),
+      /not bound to the execution cut|pinned to its canonical event receipt/u,
+    );
 });
 
 test("a graph stored with the retired maxIterations field still validates strictly", () => {
@@ -600,6 +653,7 @@ test("admitted frozen gate witnesses replay outside the task declaration", () =>
       gateId: "ci",
       appliesTo: "code" as const,
       witness: {
+        ...completionSnapshot.completion.sources["github-actions"],
         adapterId: "github-actions" as const,
         adapterOptions: {
           workflows: ["rewrite-ci"],
@@ -613,7 +667,23 @@ test("admitted frozen gate witnesses replay outside the task declaration", () =>
   ];
   const fixture = lifecycleFixture({ gates, complete: false });
   const snapshot = { ...fixture.snapshot, task: { ...fixture.snapshot.task!, completionGateIds: [] } };
-  const execution = snapshot.executions[0]!;
+  const original = snapshot.executions[0]!;
+  const execution = {
+    ...original,
+    gateRuns: [
+      claimGateRun({
+        repoId: "repo",
+        execution: original,
+        requirement: gates[0]!,
+        runId: "run-frozen",
+        claimFence: 1,
+        actor: implementer,
+        occurredAt: "2026-08-11T00:04:00.000Z",
+        expiresAt: "2026-08-11T01:00:00.000Z",
+      }),
+    ],
+  };
+  snapshot.executions = [execution];
   const event = compileCompletionGateWitness({
     snapshot,
     taskId: snapshot.task.taskId,
@@ -640,7 +710,17 @@ test("admitted frozen gate witnesses replay outside the task declaration", () =>
       result: "pass",
       observed: true,
       basis: completionEvidenceBasis(execution),
-      provenance: { source: "runner", adapterId: "github-actions", runId: "run-frozen", rawResult: "success" },
+      subjects: [],
+      predicateType: gates[0]!.witness.predicateType,
+      predicate: {},
+      diagnostic: "CI passed",
+      provenance: {
+        source: "runner",
+        adapterId: "github-actions",
+        runId: "run-frozen",
+        claimFence: 1,
+        rawResult: "success",
+      },
     },
   }).event;
   assert.equal(reduceTaskEvent(snapshot, event).gateWitnesses.length, 1);
@@ -664,6 +744,7 @@ test("admitted frozen gate witnesses replay outside the task declaration", () =>
     submission: {
       ...execution.submission!,
       completionContract: {
+        ...execution.submission!.completionContract,
         gates: gates.map((gate) => ({ ...gate, appliesTo: "artifacts" as const })),
       },
     },
@@ -680,6 +761,6 @@ test("admitted frozen gate witnesses replay outside the task declaration", () =>
           },
         },
       ),
-    /not bound to the execution cut/u,
+    /Only the holder of the current submission run and fence may publish/u,
   );
 });
