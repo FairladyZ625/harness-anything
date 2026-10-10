@@ -119,6 +119,29 @@ test(
       assert.equal(related.outcome, "applied", JSON.stringify(related));
       await waitForFleetPublication(fixture.host, fixture.subject.repoId, related.opId, localAuthFixture());
     }
+    const proposedContext = await fixture.host.read(
+      fixture.subject.repoId,
+      "repo.tasks.runtimeContext.read",
+      { taskId: fixture.subject.taskId },
+      fixture.auth,
+    );
+    assert.ok(!proposedContext.causalContext?.includes("# 本任务授权范围"));
+    const accepted = await fixture.host.run(
+      fixture.subject.repoId,
+      {
+        kind: "decision-accept",
+        decisionId,
+        rationale: "Adopt the current center dispatch contract.",
+        judgmentOnlyRationale: "Human approval of the fixture contract.",
+        consentBy: "person-owner",
+        consentAt: "2026-10-10T00:00:00.000Z",
+        consentChannel: "chat",
+      },
+      localAuthFixture(),
+    );
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, accepted.opId, localAuthFixture());
+
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId: fixture.subject.repoId,
@@ -228,6 +251,8 @@ test(
     const explicitBlock = causalBlock(explicitPrompt);
     assert.ok(explicitBlock !== null, `no causal block in remote-edge prompt:\n${explicitPrompt}`);
     assert.match(explicitBlock, /CENTERFRESH-ZQ decision/u);
+    assert.match(explicitPrompt, /# 本任务授权范围/u);
+    assert.ok(explicitPrompt.includes(`decision/${decisionId}/CH1; state=in_effect`));
     assert.match(explicitBlock, /CENTERFRESH-ZQ evidence recorded post-pull\./u);
     assert.match(explicitBlock, /<refs>[^<]/u);
     assert.doesNotMatch(explicitBlock, /ha graph/u, "the bare graph command word left the refs tail");
@@ -285,8 +310,30 @@ test(
     const taskBoundBlock = causalBlock(taskBoundPrompt);
     assert.ok(taskBoundBlock !== null, "task-bound remote-edge dispatch lost the causal block");
     assert.match(taskBoundBlock, /CENTERFRESH-ZQ decision/u);
+    assert.match(taskBoundPrompt, /# 本任务授权范围/u);
+    assert.ok(taskBoundPrompt.includes(`decision/${decisionId}/CH1; state=in_effect`));
     // The second dispatch settles against the center too: teardown must not close the center under it.
     assert.equal(await eventually(async () => (await outcomeOf(taskBound.runtimeSessionId)) !== null), true);
+    const superseded = await fixture.host.run(
+      fixture.subject.repoId,
+      {
+        kind: "decision-transition",
+        decisionId,
+        targetState: "superseded",
+      },
+      localAuthFixture(),
+    );
+    assert.equal(superseded.outcome, "applied", JSON.stringify(superseded));
+    const nextContext = await fixture.host.read(
+      fixture.subject.repoId,
+      "repo.tasks.runtimeContext.read",
+      { taskId: fixture.subject.taskId },
+      fixture.auth,
+    );
+    assert.ok(
+      !nextContext.causalContext?.includes("# 本任务授权范围"),
+      "supersede removes the grant from the next center serving cut",
+    );
   },
 );
 // Each damaged local mirror retains the preceding admission conditions. These are

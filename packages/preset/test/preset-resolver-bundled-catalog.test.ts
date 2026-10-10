@@ -177,6 +177,11 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
           template = resolved.snapshot.templates.find(({ slot }) => slot === "task.plan"),
           plan = resolved.documents.find(({ slot }) => slot === "task.plan")?.body ?? "";
         assert.doesNotMatch(plan, /ha decision relate/u, `${presetId}:${locale}:retired-command`);
+        assert.match(plan, locale === "zh-CN" ? /### 硬红线/u : /### Hard Prohibitions/u);
+        assert.match(plan, locale === "zh-CN" ? /### 决策授权范围/u : /### Decision-Derived Authorization/u);
+        assert.match(plan, /in_effect/u);
+        assert.match(plan, /supersede/u);
+        assert.match(plan, /allowlist/u);
         for (const anchor of skeletonAnchors) {
           assert.equal(template?.requiredAnchors.includes(anchor), true, `${presetId}:${locale}:${anchor}:contract`);
           assert.match(plan, new RegExp(anchor, "u"), `${presetId}:${locale}:${anchor}:body`);

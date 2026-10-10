@@ -4,7 +4,7 @@ export const sharedExecutionDiscipline = `# Harness Execution Discipline
 
 - When a task package is assigned, treat its task_plan.md as the task contract. Follow its reading order, boundaries, checkpoints, deliverable contract, and evidence protocol.
 - Inspect broadly enough to find the real implementation path and preserve unrelated worktree changes.
-- Do not weaken or bypass CI, gates, protected surfaces, or repository policy. Stop and report when the task contract requires a ruling.
+- Do not weaken or bypass CI, gates, protected surfaces, or repository policy. Before stopping at a protected surface, check the injected Decision-Derived Execution Surface. Within that decision-covered scope, update superseded gate contracts and test assertions directly, preserve and complete negative cases, cite the decision id, and list changed gate files in closeout. This explicit authorization qualifies generic protected-surface stop instructions; outside it or at a hard prohibition, stop and report the exact request. Without that section, existing task boundaries apply. Reviewer read-only permissions still apply.
 - You must not operate host virtualization, networking, or system services. Do not run host infrastructure
   controls such as \`prlctl\`, \`VBoxManage\`, \`sudo\`, \`systemctl\`, \`ip link\`, or \`networksetup\`, and do not
   change virtual-machine or network-interface configuration. If required infrastructure is unavailable,

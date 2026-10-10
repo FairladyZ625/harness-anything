@@ -51,6 +51,14 @@ Task Contract: harness-task v1
 
 声明各波次使用的仓库、worktree、分支/base 与写入边界。具体绝对 `cwd` 由每次派工参数注入。
 
+### 硬红线
+
+CI workflow、阈值与预算、required checks、凭据与宿主服务、删除断言、allowlist 计数变化不得修改；命中即停并列出精确请求。
+
+### 决策授权范围
+
+派工按 active derives 边来源 Decision 的当前状态自动注入「本任务授权范围」。仅 `in_effect` 的 chosen 条款生效；被 supersede 或退场后下一次派工不再授权。允许把编码被该决策取代的旧契约的门禁 / 测试断言更新为新契约，条件是保留并补齐负例、引用决策 id、closeout 列出改动的门禁文件。范围内直接执行并报备，范围外或硬红线才停；没有派生决策时不产生此默认授权。不得把摘要当成完整决策或额外台账写权。
+
 ## PR/merge Operations
 
 - 全局 merge-health 运维台账：`task_01KWYKCPG5FZA3AFVX9R8XX3B7`（Authority: `decision/dec_mrat6152`）。

@@ -1,4 +1,4 @@
-import type { TaskIndexProjectionRow, TaskProjection } from "@harness-anything/kernel";
+import type { DecisionProjectionRow, TaskIndexProjectionRow, TaskProjectionQueries } from "@harness-anything/kernel";
 import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.ts";
 
 /**
@@ -13,7 +13,10 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
  * Text and attribute values are XML-escaped; the canonical ids ride `ref`
  * attributes and the final `<refs>` line. Every field is read from the canonical
  * projection at one verified cut; the block is task data for the worker, never
- * an override of its role or safety instructions. Fleet-edge dispatch fetches
+ * an override of its role or safety instructions. An execution-surface section follows
+ * the XML for active derives edges from in-effect chosen decisions; it is outside
+ * the background byte budget so truncation cannot shed authorization conditions.
+ * Fleet-edge dispatch fetches
  * the same block from the center's canonical read — a stale mirrored markdown
  * is never summarized as fact.
  *
@@ -38,7 +41,7 @@ const MAX_DECISIONS = 2,
   ROOT_CLOSE = "</task-context>";
 
 export function assembleTaskCausalContext(input: {
-  readonly projection: TaskProjection;
+  readonly projection: TaskProjectionQueries;
   readonly taskId: string;
 }): string | null {
   const { projection, taskId } = input,
@@ -71,12 +74,11 @@ export function assembleTaskCausalContext(input: {
     derivingAnchor.set(anchor[1]!, anchor[2]!);
     if (!decisionIds.includes(anchor[1]!)) decisionIds.push(anchor[1]!);
   }
-  decisionIds.length = Math.min(decisionIds.length, MAX_DECISIONS);
   const decisionRead = decisionIds.length === 0 ? null : projection.readDecisions(decisionIds);
   if (decisionRead !== null) reads.push(decisionRead);
   const decisions = new Map((decisionRead?.decisions ?? []).map((row) => [row.decisionId, row] as const)),
     factRefs: string[] = [];
-  for (const decisionId of decisionIds) {
+  for (const decisionId of decisionIds.slice(0, MAX_DECISIONS)) {
     const decision = decisions.get(decisionId);
     if (decision === undefined) continue;
     const anchors = [
@@ -122,7 +124,7 @@ export function assembleTaskCausalContext(input: {
   if (parent !== null && parent.taskId !== work?.taskId)
     details.push(`<parent ref="task/${parent.taskId}">${xmlField(parent.title, 48)}</parent>`);
   const decisionBlocks: string[][] = [];
-  for (const decisionId of decisionIds) {
+  for (const decisionId of decisionIds.slice(0, MAX_DECISIONS)) {
     const decision = decisions.get(decisionId);
     if (decision === undefined) continue;
     const block = [`<decision ref="decision/${decisionId}" title="${xmlField(decision.title, 48)}"/>`],
@@ -157,10 +159,61 @@ export function assembleTaskCausalContext(input: {
   const refs = [
     ...(work === null ? [] : [`task/${work.taskId}`]),
     ...(parent === null || parent.taskId === work?.taskId ? [] : [`task/${parent.taskId}`]),
-    ...decisionIds.map((decisionId) => `decision/${decisionId}`),
+    ...decisionIds.slice(0, MAX_DECISIONS).map((decisionId) => `decision/${decisionId}`),
     ...servedFactRefs,
   ];
-  return renderWithinBudget(details, refs);
+  const authorization = decisionExecutionSurface(decisionRead?.decisions ?? [], derives.rows);
+  return [renderWithinBudget(details, refs), ...(authorization === null ? [] : [authorization])].join("\n\n");
+}
+
+/** The center's current chosen decision grants only replacement of its superseded contract. */
+function decisionExecutionSurface(
+  decisions: readonly DecisionProjectionRow[],
+  derives: ReturnType<TaskProjectionQueries["readTaskRelationsByTargets"]>["rows"],
+): string | null {
+  const sources: string[] = [];
+  for (const decision of decisions) {
+    if (decision.state !== "in_effect") continue;
+    const chosen = decision.chosen.filter((entry) =>
+      derives.some(
+        (edge) =>
+          edge.state === "active" &&
+          edge.direction === "directed" &&
+          edge.sourceRef === `decision/${decision.decisionId}/${entry.id}`,
+      ),
+    );
+    if (chosen.length === 0) continue;
+    sources.push(
+      ...chosen.map(
+        (entry) =>
+          `来源 / Source: decision/${decision.decisionId}/${entry.id}; state=${decision.state}\n` +
+          `标题 / Title: ${plainField(decision.title, 240)}\n` +
+          `Chosen: ${plainField(entry.rationale ? `${entry.text} — ${entry.rationale}` : entry.text, 600)}`,
+      ),
+      `Claims: ${plainField(
+        decision.claims
+          .filter((claim) => claim.loadBearing)
+          .map((claim) => `${claim.id} ${claim.text}`)
+          .join("; "),
+        600,
+      )}`,
+    );
+  }
+  if (sources.length === 0) return null;
+  return [
+    "# 本任务授权范围 / Decision-Derived Execution Surface",
+    ...sources,
+    "决策授权范围 / Authorized surface: 可把编码被上述决策取代的旧契约的门禁 / 测试断言更新为新契约；" +
+      "仅限该决策覆盖的本任务执行面，摘要不是完整范围，具体边界以源决策为准。 " +
+      "Update gates and test assertions encoding contracts replaced by these decisions, within this task's decision-covered surface.",
+    "条件 / Conditions: 保留并补齐负例、引用决策 id、closeout 列出改动的门禁文件。 " +
+      "Preserve and complete negative cases, cite the decision id, and list changed gate files in closeout.",
+    "硬红线 / Hard prohibitions: CI workflow、阈值与预算、required checks、凭据与宿主服务、删除断言、allowlist 计数变化。 " +
+      "CI workflows, thresholds and budgets, required checks, credentials and host services, assertion deletion, and allowlist count changes remain prohibited.",
+    "范围内直接执行并报备；范围外或硬红线停手，列出精确请求。 " +
+      "Proceed and report within scope; stop with an exact request outside scope or at a hard prohibition. " +
+      "This section grants no additional daemon command or ledger permissions.",
+  ].join("\n\n");
 }
 
 /**
