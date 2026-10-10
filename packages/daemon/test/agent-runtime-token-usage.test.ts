@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { TaskProjection } from "@harness-anything/kernel";
+import { runtimeSessionOutcomeFromEvidence } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
 import {
   agentRuntimeTokenUsageRanges,
@@ -277,9 +278,11 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         usageUnavailableDispatches: 0,
         succeededSessions: 0,
         failedSessions: 0,
-        abortedSessions: 0,
+        cancelledSessions: 0,
         costUsd: 0,
         unpricedTokens: 210,
+        cacheWriteUnreportedDispatches: 2,
+        cacheWriteUnitemizedDispatches: 0,
       },
       {
         agentId: "luna",
@@ -295,9 +298,11 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         usageUnavailableDispatches: 0,
         succeededSessions: 0,
         failedSessions: 0,
-        abortedSessions: 0,
+        cancelledSessions: 0,
         costUsd: 0,
         unpricedTokens: 0,
+        cacheWriteUnreportedDispatches: 0,
+        cacheWriteUnitemizedDispatches: 0,
       },
       {
         agentId: "sol",
@@ -313,9 +318,11 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         usageReportedDispatches: 0,
         succeededSessions: 0,
         failedSessions: 0,
-        abortedSessions: 0,
+        cancelledSessions: 0,
         costUsd: 0,
         unpricedTokens: 0,
+        cacheWriteUnreportedDispatches: 0,
+        cacheWriteUnitemizedDispatches: 0,
       },
     ]);
     assert.deepEqual(result.squads, [
@@ -333,9 +340,11 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         usageUnavailableDispatches: 0,
         succeededSessions: 0,
         failedSessions: 0,
-        abortedSessions: 0,
+        cancelledSessions: 0,
         costUsd: 0,
         unpricedTokens: 165,
+        cacheWriteUnreportedDispatches: 2,
+        cacheWriteUnitemizedDispatches: 0,
       },
     ]);
     assert.equal(result.status, "ready");
@@ -351,6 +360,8 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
       toolCallCount: 8,
       usageReportedDispatches: 3,
       usageUnavailableDispatches: 1,
+      cacheWriteUnreportedDispatches: 3,
+      cacheWriteUnitemizedDispatches: 0,
       costUsd: 0,
       unpricedTokens: 225,
     });
@@ -646,7 +657,7 @@ test("repo.agentRuntime.tokenUsage and tokenUsageDetail are registered through t
   }
 });
 
-/** 一条带完整生命周期的派工:归因、用量、进程退出与归类都在流里,和 production 写入同构。 */
+/** 一条带完整生命周期的派工:归因、用量、进程退出与已接受终局都在流里,和 production 写入同构。 */
 function seedDispatch(
   rootDir: string,
   index: number,
@@ -662,6 +673,8 @@ function seedDispatch(
     readonly tokens?: readonly [input: number, output: number, tools: number];
     readonly usageUnavailable?: boolean;
     readonly exit?: { readonly code: number | null; readonly afterMs: number };
+    /** Settled 通过 runtime-spawn-settlement 写入的已接受终局;省略 = 该流没有终局记录。 */
+    readonly terminal?: "succeeded" | "failed" | "unknown" | "cancelled";
     readonly classification?: "provider_fault" | "provider_quota" | "worker_stop" | "gate_red";
   },
 ): void {
@@ -695,6 +708,24 @@ function seedDispatch(
       exitCode: options.exit.code,
       signal: options.exit.code === null ? "SIGTERM" : null,
     });
+    if (options.terminal) {
+      const endedAt = new Date(Date.parse(startedAt) + options.exit.afterMs).toISOString();
+      appendRuntimeWorkerRecord(rootDir, dispatchId, {
+        kind: "terminal_outcome",
+        occurredAt: endedAt,
+        payload: {
+          runtimeSessionId: options.session ?? `runtime-${index}`,
+          outcome: options.terminal,
+          exitCode: options.exit.code,
+          resultRef: `artifact:runtime-result/sha256/${"a".repeat(64)}`,
+          result: { sha256: "a".repeat(64), size: 0, mediaType: "text/plain" },
+          dispatchId,
+          endedAt,
+        },
+        body: "fixture terminal body",
+        reason: "fixture",
+      });
+    }
   }
   if (options.tokens) {
     const [input, output, tools] = options.tokens;
@@ -731,6 +762,7 @@ function seedAnalysis(rootDir: string): void {
     tokens: [5_000, 1_000, 4],
     exit: { code: 1, afterMs: 60_000 },
     classification: "provider_fault",
+    terminal: "failed",
   });
   seedDispatch(rootDir, 2, {
     session: "s-terra-1",
@@ -741,6 +773,7 @@ function seedAnalysis(rootDir: string): void {
     taskId: "task-a",
     tokens: [2_000, 2_000, 2],
     exit: { code: 0, afterMs: 120_000 },
+    terminal: "succeeded",
   });
   seedDispatch(rootDir, 3, {
     session: "s-terra-2",
@@ -750,6 +783,7 @@ function seedAnalysis(rootDir: string): void {
     taskId: "task-b",
     tokens: [400_000, 100_000, 30],
     exit: { code: 0, afterMs: 600_000 },
+    terminal: "succeeded",
   });
   seedDispatch(rootDir, 4, {
     session: "s-terra-3",
@@ -760,8 +794,9 @@ function seedAnalysis(rootDir: string): void {
     tokens: [50_000, 0, 1],
     exit: { code: 1, afterMs: 30_000 },
     classification: "provider_quota",
+    terminal: "failed",
   });
-  // sol:一个被信号终止的会话(有用量),一个 provider 不上报用量的成功会话。
+  // sol:一个被外部取消的会话(有用量,信号退出),一个 provider 不上报用量的成功会话。
   seedDispatch(rootDir, 5, {
     session: "s-sol-1",
     agentId: "sol",
@@ -770,6 +805,7 @@ function seedAnalysis(rootDir: string): void {
     taskId: "task-solo",
     tokens: [20_000_000, 5_000_000, 90],
     exit: { code: null, afterMs: 3_600_000 },
+    terminal: "cancelled",
   });
   seedDispatch(rootDir, 6, {
     session: "s-sol-2",
@@ -782,6 +818,7 @@ function seedAnalysis(rootDir: string): void {
     tokens: [0, 0, 3],
     usageUnavailable: true,
     exit: { code: 0, afterMs: 10_000 },
+    terminal: "succeeded",
   });
   // 无 agent、无任务、仍在跑的派工:进总量与会话统计,不进任务与成员视图。
   seedDispatch(rootDir, 7, { session: "s-direct", taskId: null, tokens: [300, 0, 0] });
@@ -805,27 +842,32 @@ test("the aggregate answers who spent, on what, how sessions ended and what the 
     assert.equal(Date.parse(result.since) - Date.parse(result.previous.since), 86_400_000);
     // 按模型:同一组计数加会话结果。
     assert.deepEqual(
-      result.models.map(({ model, totalTokens, sessionCount, succeededSessions, failedSessions, abortedSessions }) => [
-        model,
-        totalTokens,
-        sessionCount,
-        succeededSessions,
-        failedSessions,
-        abortedSessions,
-      ]),
+      result.models.map(
+        ({ model, totalTokens, sessionCount, succeededSessions, failedSessions, cancelledSessions }) => [
+          model,
+          totalTokens,
+          sessionCount,
+          succeededSessions,
+          failedSessions,
+          cancelledSessions,
+        ],
+      ),
       [
         ["opus-test", 25_000_000, 2, 1, 0, 1],
         ["gpt-test", 560_000, 3, 2, 1, 0],
       ],
     );
-    // 每个 worker 的成功/失败/中止会话数:跨两次派工的会话只算一个,结果取最后一次派工。
+    // 每个 worker 的成功/失败/取消会话数:跨两次派工的会话只算一个,结果取最后一次派工。
     const terra = result.agents.find(({ agentId }) => agentId === "terra")!,
       sol = result.agents.find(({ agentId }) => agentId === "sol")!;
     assert.deepEqual(
-      [terra.sessionCount, terra.succeededSessions, terra.failedSessions, terra.abortedSessions],
+      [terra.sessionCount, terra.succeededSessions, terra.failedSessions, terra.cancelledSessions],
       [3, 2, 1, 0],
     );
-    assert.deepEqual([sol.sessionCount, sol.succeededSessions, sol.failedSessions, sol.abortedSessions], [2, 1, 0, 1]);
+    assert.deepEqual(
+      [sol.sessionCount, sol.succeededSessions, sol.failedSessions, sol.cancelledSessions],
+      [2, 1, 0, 1],
+    );
     // 花在什么事上:任务带标题与所属工作;不在索引里的任务不会出现在工作行。
     assert.deepEqual(result.tasks, [
       {
@@ -860,11 +902,11 @@ test("the aggregate answers who spent, on what, how sessions ended and what the 
       { workId: "task-solo", title: "独立小改", taskCount: 1, sessionCount: 2, totalTokens: 25_000_000, costUsd: 0 },
       { workId: "work-root", title: "发布线", taskCount: 2, sessionCount: 3, totalTokens: 560_000, costUsd: 0 },
     ]);
-    // 按结果分的用量:失败与中止的会话花掉的就是「白花」的部分。
+    // 按结果分的用量:失败与取消的会话花掉的就是「白花」的部分。
     assert.deepEqual(result.outcomes, [
       { outcome: "succeeded", sessionCount: 3, totalTokens: 510_000 },
       { outcome: "failed", sessionCount: 1, totalTokens: 50_000 },
-      { outcome: "aborted", sessionCount: 1, totalTokens: 25_000_000 },
+      { outcome: "cancelled", sessionCount: 1, totalTokens: 25_000_000 },
       { outcome: "running", sessionCount: 0, totalTokens: 0 },
       { outcome: "unknown", sessionCount: 1, totalTokens: 300 },
     ]);
@@ -901,7 +943,7 @@ test("the aggregate answers who spent, on what, how sessions ended and what the 
       model: "opus-test",
       startedAt: NOW,
       durationMs: 3_600_000,
-      outcome: "aborted",
+      outcome: "cancelled",
       totalTokens: 25_000_000,
       toolCallCount: 90,
     });
@@ -1047,7 +1089,10 @@ test("validateAgentRuntimeTokenUsage rejects analysis groups outside their shape
         ["a task row without a title", { tasks: [{ ...result.tasks[0]!, title: "" }] }],
         ["a work row with a negative count", { works: [{ ...result.works[0]!, taskCount: -1 }] }],
         ["outcome rows out of the declared order", { outcomes: [...result.outcomes].reverse() }],
-        ["an unknown outcome word", { outcomes: result.outcomes.map((row) => ({ ...row, outcome: "cancelled" })) }],
+        [
+          "an outcome word outside the domain vocabulary",
+          { outcomes: result.outcomes.map((row) => ({ ...row, outcome: "aborted" })) },
+        ],
         [
           "a distribution with a missing bin",
           { sessions: { ...result.sessions, distribution: result.sessions.distribution.slice(1) } },
@@ -1084,8 +1129,8 @@ test("validateAgentRuntimeTokenUsage rejects analysis groups outside their shape
   }
 });
 
-test("a signal-terminated dispatch is reported as aborted in the member detail", () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-aborted-"));
+test("an externally cancelled dispatch keeps the domain word in the member detail", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-cancelled-"));
   try {
     seedAnalysis(rootDir);
     const detail = readAgentRuntimeTokenUsageDetail({
@@ -1097,8 +1142,204 @@ test("a signal-terminated dispatch is reported as aborted in the member detail",
       cut: CUT,
       projection: EMPTY_PROJECTION,
     });
+
+    test("session outcomes keep the kernel verdict of the accepted terminal outcome (DDD-01 regression)", () => {
+      // 评审 DDD-01 的四个对照例(unknown/failed/cancelled/succeeded,前三个带会误导性的退出码)
+      // 走真实读接口:已保存的 terminalOutcome 是唯一业务终局,用量读面不得按进程退出码重判,
+      // 结果必须与 kernel 的 runtimeSessionOutcomeFromEvidence 逐例一致。
+      const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-ddd01-"));
+      try {
+        const cases = [
+          { canonical: "unknown", code: 0 },
+          { canonical: "failed", code: 0 },
+          { canonical: "cancelled", code: null },
+          { canonical: "succeeded", code: 0 },
+        ] as const;
+        for (const [index, row] of cases.entries()) {
+          seedDispatch(rootDir, 0xddd0 + index, {
+            session: `runtime-ddd-${index}`,
+            agentId: "witness",
+            agentName: "Witness",
+            tokens: [1_000, 100, 1],
+            exit: { code: row.code, afterMs: 1_000 },
+            terminal: row.canonical,
+          });
+        }
+        // 没有已接受终局的流:零退出与信号退出都不构成业务结果,一律 unknown。
+        seedDispatch(rootDir, 0xdde0, {
+          session: "runtime-ddd-zero-exit",
+          agentId: "witness",
+          tokens: [1_000, 100, 1],
+          exit: { code: 0, afterMs: 1_000 },
+        });
+        seedDispatch(rootDir, 0xdde1, {
+          session: "runtime-ddd-signal-exit",
+          agentId: "witness",
+          tokens: [1_000, 100, 1],
+          exit: { code: null, afterMs: 1_000 },
+        });
+        const input = {
+          rootDir,
+          now: NOW,
+          range: "today" as const,
+          entityLabel: () => null,
+          cut: CUT,
+          projection: EMPTY_PROJECTION,
+        };
+        const detail = readAgentRuntimeTokenUsageDetail({ ...input, member: { kind: "agent", agentId: "witness" } });
+        const bySession = new Map(detail.sessions.map((row) => [row.runtimeSessionId, row.outcome]));
+        for (const [index, row] of cases.entries()) {
+          const expected = runtimeSessionOutcomeFromEvidence({
+            outcome: row.canonical,
+            exitCode: row.code,
+            resultRef: "artifact:runtime-result/sha256/fixture",
+          });
+          assert.equal(bySession.get(`runtime-ddd-${index}`), expected, `case ${row.canonical}/${String(row.code)}`);
+          assert.equal(bySession.get(`runtime-ddd-${index}`), row.canonical === "unknown" ? "unknown" : row.canonical);
+        }
+        assert.equal(bySession.get("runtime-ddd-zero-exit"), "unknown", "a zero exit is not success evidence");
+        assert.equal(
+          bySession.get("runtime-ddd-signal-exit"),
+          "unknown",
+          "a signal exit has no accepted outcome either",
+        );
+        const summary = readAgentRuntimeTokenUsage({ ...input, taskOf: () => undefined });
+        assert.deepEqual(
+          summary.outcomes.map(({ outcome, sessionCount }) => [outcome, sessionCount]),
+          [
+            ["succeeded", 1],
+            ["failed", 1],
+            ["cancelled", 1],
+            ["running", 0],
+            ["unknown", 3],
+          ],
+          "the aggregate counts the four canonical cases plus two exit-code-only unknowns",
+        );
+        assert.ok(!summary.outcomes.some(({ outcome }) => outcome === "aborted"), "aborted is not a registered word");
+      } finally {
+        rmSync(rootDir, { recursive: true, force: true });
+      }
+    });
+
+    test("cache-write provenance separates real zeros from unreported and pre-counter records", () => {
+      // 生产实测的三种形状(见任务 explainer):zcode 式 raw 带字段且计数已单列(真实 0);
+      // claude 旧记录式 raw 带字段但独立计数落地前结算(未单列,写入并在新输入);
+      // devin 式用量里根本没有缓存写字段(不报)。未上报用量的派工两种口径都不计。
+      const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-cachewrite-"));
+      try {
+        const seed = (index: number, model: string, metrics: Record<string, unknown>): void => {
+          const dispatchId = `dispatch_${(0xe000 + index).toString(16).padStart(24, "0")}`;
+          openDispatchStream(rootDir, {
+            dispatchId,
+            taskId: null,
+            executionId: null,
+            runtimeSessionId: `runtime-cw-${index}`,
+            instanceId: "instance-fixture",
+            startedAt: NOW,
+            agentId: "cw",
+            model,
+          });
+          appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "runtime_metrics", ...metrics });
+        };
+        seed(1, "glm-itemized", {
+          inputTokens: 1_000,
+          cacheReadTokens: 400,
+          cacheWriteTokens: 0,
+          outputTokens: 100,
+          totalTokens: 1_100,
+          toolCallCount: 1,
+          compacted: false,
+          raw: { inputTokens: 1_000, cacheReadTokens: 400, cacheWriteTokens: 0, outputTokens: 100 },
+        });
+        seed(2, "claude-legacy", {
+          inputTokens: 2_000,
+          cacheReadTokens: 500,
+          outputTokens: 200,
+          totalTokens: 2_200,
+          toolCallCount: 1,
+          compacted: false,
+          raw: {
+            input_tokens: 2_000,
+            cache_creation_input_tokens: 4096,
+            cache_read_input_tokens: 500,
+            output_tokens: 200,
+          },
+        });
+        seed(3, "devin-neutral", {
+          inputTokens: 3_000,
+          cacheReadTokens: 0,
+          outputTokens: 300,
+          totalTokens: 3_300,
+          toolCallCount: 1,
+          compacted: false,
+          raw: { used: 3_300, input: 3_000, output: 300, total: 3_300 },
+        });
+        seed(4, "glm-nodata", {
+          inputTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          toolCallCount: 0,
+          compacted: false,
+          usageUnavailable: true,
+          raw: {},
+        });
+        const result = readAgentRuntimeTokenUsage({
+          rootDir,
+          now: NOW,
+          range: "today",
+          entityLabel: () => null,
+          taskOf: () => undefined,
+          cut: CUT,
+          projection: EMPTY_PROJECTION,
+        });
+        assert.deepEqual(validateAgentRuntimeTokenUsage(result), []);
+        assert.deepEqual(
+          [result.totals.cacheWriteUnreportedDispatches, result.totals.cacheWriteUnitemizedDispatches],
+          [1, 1],
+          "neutral usage without a cache-write field is unreported; a reported-but-pre-counter record is unitemized",
+        );
+        const rowOf = (model: string) => result.models.find((row) => row.model === model)!;
+        assert.equal(rowOf("glm-itemized").cacheWriteTokens, 0);
+        assert.deepEqual(
+          [rowOf("glm-itemized").cacheWriteUnreportedDispatches, rowOf("glm-itemized").cacheWriteUnitemizedDispatches],
+          [0, 0],
+          "an itemized zero is a real zero, no caveat",
+        );
+        assert.deepEqual(
+          [rowOf("claude-legacy").cacheWriteTokens, rowOf("claude-legacy").cacheWriteUnitemizedDispatches],
+          [0, 1],
+        );
+        assert.deepEqual(
+          [rowOf("devin-neutral").cacheWriteTokens, rowOf("devin-neutral").cacheWriteUnreportedDispatches],
+          [0, 1],
+        );
+        assert.deepEqual(
+          [rowOf("glm-nodata").cacheWriteUnreportedDispatches, rowOf("glm-nodata").cacheWriteUnitemizedDispatches],
+          [0, 0],
+          "usage-unavailable dispatches are absent data, not cache-write claims",
+        );
+        const detail = readAgentRuntimeTokenUsageDetail({
+          rootDir,
+          now: NOW,
+          range: "today",
+          member: { kind: "agent", agentId: "cw" },
+          entityLabel: () => null,
+          cut: CUT,
+          projection: EMPTY_PROJECTION,
+        });
+        assert.deepEqual(
+          [detail.totals.cacheWriteUnreportedDispatches, detail.totals.cacheWriteUnitemizedDispatches],
+          [1, 1],
+          "the member detail totals carry the same provenance",
+        );
+      } finally {
+        rmSync(rootDir, { recursive: true, force: true });
+      }
+    });
+
     assert.deepEqual(validateAgentRuntimeTokenUsageDetail(detail), []);
-    assert.deepEqual(detail.sessions.map(({ outcome }) => outcome).sort(), ["aborted", "succeeded"]);
+    assert.deepEqual(detail.sessions.map(({ outcome }) => outcome).sort(), ["cancelled", "succeeded"]);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

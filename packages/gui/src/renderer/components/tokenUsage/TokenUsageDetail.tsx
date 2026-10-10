@@ -12,7 +12,7 @@ import type { SnapshotStatus } from "../../model/types";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { compactTokens, exactTokens, preciseTokens, usdText } from "../../token-format.ts";
 import { formatDuration, formatTime } from "../../model/time.ts";
-import { usageIsUnreported, usageOutcomeKey, usageStateKey } from "../../token-usage-model.ts";
+import { cacheWriteCaveat, usageIsUnreported, usageOutcomeKey, usageStateKey } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { QUERY_PACING_MS } from "../../query-pacing.ts";
 import { Card, CardBody, CardHead, CardTitle, Right } from "../runtime/parts.tsx";
@@ -25,7 +25,7 @@ import { tokenKindLayers, UsageTrendChart, UsageTrendTable } from "./UsageTrendC
 const OUTCOME_TONE: Readonly<Record<AgentRuntimeTokenUsageSessionRow["outcome"], SnapshotStatus>> = {
   succeeded: "done",
   failed: "blocked",
-  aborted: "cancelled",
+  cancelled: "cancelled",
   running: "active",
   unknown: "unknown",
 };
@@ -118,7 +118,9 @@ export function TokenUsageDetail({
                     {exactTokens(data.totals.cacheReadTokens ?? 0)}
                   </KVRow>
                   <KVRow name={t("agentRuntime.tokenUsageKindCacheWrite")}>
-                    {exactTokens(data.totals.cacheWriteTokens ?? 0)}
+                    {cacheWriteCaveat(data.totals) === null
+                      ? exactTokens(data.totals.cacheWriteTokens ?? 0)
+                      : t(cacheWriteCaveat(data.totals)!)}
                   </KVRow>
                   <KVRow name={t("agentRuntime.tokenUsageColOutput")}>
                     {exactTokens(data.totals.outputTokens ?? 0)}

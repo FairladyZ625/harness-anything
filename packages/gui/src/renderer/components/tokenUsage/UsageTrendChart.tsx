@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import type {
   AgentRuntimeTokenUsageBucket,
   AgentRuntimeTokenUsageTrendSeries,
@@ -17,10 +17,10 @@ import {
 import { t } from "../../i18n/index.tsx";
 
 /**
- * 消耗趋势图(手写 SVG,仓库没有图表库):按 daemon 的时间桶堆叠成柱,铺满容器宽度。
- * 堆叠的层可切:三类 token(缓存读取 / 新输入 / 输出,三段之和 = 该桶总量),或读面给的
- * 分系列(按 agent、按模型,各自与桶一一对齐)。纵轴取整步长刻度,最高柱不会超出最上一条
- * 刻度线;只有最高柱直接标值,其余的值在悬停明细与表格视图里。
+ * 消耗趋势的两种图(手写 SVG,仓库没有图表库):柱状按 daemon 的时间桶堆叠,折线每层一条
+ * 线,都铺满容器宽度。层可切:四类 token(缓存读取 / 缓存写入 / 新输入 / 输出),或读面给的
+ * 分系列(按 agent、按模型,各自与桶一一对齐)。纵轴取整步长刻度,最高点不会超出最上一条
+ * 刻度线;柱状只有最高柱直接标值,其余的值在悬停明细与表格视图里。
  * 悬停或键盘左右键选中一个桶,给出该桶每一层的数值与占比。
  */
 
@@ -59,6 +59,22 @@ const PLOT_HEIGHT = 208,
   // 没量到宽度(首帧、无布局的测试环境)时的图宽;量到之后以容器为准。
   FALLBACK_WIDTH = 720;
 
+/** 容器宽度测量:两种图共用,宽度没变就不触发更新(观察器在首次观察时总会回调一次)。 */
+function useMeasuredWidth(): readonly [RefObject<HTMLDivElement | null>, number] {
+  const host = useRef<HTMLDivElement | null>(null),
+    [measured, setMeasured] = useState(0);
+  useLayoutEffect(() => {
+    const element = host.current;
+    if (element === null) return;
+    const measure = () => setMeasured((current) => (current === element.clientWidth ? current : element.clientWidth));
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+  return [host, measured];
+}
+
 export function UsageTrendChart({
   buckets,
   bucketMs,
@@ -68,19 +84,8 @@ export function UsageTrendChart({
   readonly bucketMs: number;
   readonly layers: readonly TrendLayer[];
 }) {
-  const host = useRef<HTMLDivElement | null>(null),
-    [measured, setMeasured] = useState(0),
+  const [host, measured] = useMeasuredWidth(),
     [active, setActive] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const element = host.current;
-    if (element === null) return;
-    // 宽度没变就不触发更新:观察器在首次观察时总会回调一次。
-    const measure = () => setMeasured((current) => (current === element.clientWidth ? current : element.clientWidth));
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    measure();
-    return () => observer.disconnect();
-  }, []);
   if (buckets.length === 0)
     return (
       <p data-testid="token-usage-trend-empty" className="py-1 ui-meta text-text-faint">
@@ -218,6 +223,165 @@ export function UsageTrendChart({
           layers={layers}
           index={active}
           // 明细框跟着选中的带走,靠右半边时翻到带的左侧,不出图。
+          style={
+            GUTTER + band * active + band / 2 > width / 2
+              ? { right: width - (GUTTER + band * active) + 6 }
+              : { left: GUTTER + band * (active + 1) + 6 }
+          }
+        />
+      ) : null}
+      <TrendLegend layers={layers} total={totals.reduce((sum, value) => sum + value, 0)} />
+    </div>
+  );
+}
+
+/**
+ * 趋势的折线呈现:每个层一条线(多天窗口即按天折线,今天为按小时),看重的是走势形状而
+ * 不是构成占比 —— 构成看柱状。纵轴以最高的单层值为峰;全零的层不画线。悬停/键盘与
+ * 柱状同一条路:选中一个桶,明细给出该桶每一层的数值与占比。
+ */
+export function UsageTrendLine({
+  buckets,
+  bucketMs,
+  layers,
+}: {
+  readonly buckets: readonly AgentRuntimeTokenUsageBucket[];
+  readonly bucketMs: number;
+  readonly layers: readonly TrendLayer[];
+}) {
+  const [host, measured] = useMeasuredWidth(),
+    [active, setActive] = useState<number | null>(null);
+  if (buckets.length === 0)
+    return (
+      <p data-testid="token-usage-trend-empty" className="py-1 ui-meta text-text-faint">
+        {t("agentRuntime.tokenUsageTrendEmpty")}
+      </p>
+    );
+  const width = measured > 0 ? measured : FALLBACK_WIDTH,
+    plotWidth = width - GUTTER,
+    band = plotWidth / buckets.length,
+    drawn = layers.filter((layer) => layer.values.some((value) => value > 0)),
+    peak = Math.max(...drawn.flatMap((layer) => layer.values), 0),
+    { max, ticks } = axisScale(peak),
+    baseline = TOP + PLOT_HEIGHT,
+    scale = (value: number): number => (value / max) * PLOT_HEIGHT,
+    labelEvery = Math.max(1, Math.ceil(48 / band)),
+    labelOf = (index: number): string => bucketAxisLabel(buckets[index]!.bucketStart, bucketMs),
+    totals = buckets.map(({ totalTokens }) => totalTokens),
+    peakIndex = totals.indexOf(Math.max(...totals)),
+    activeBucket = active === null ? undefined : buckets[active],
+    onKeyDown = (event: KeyboardEvent<SVGSVGElement>) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const step = event.key === "ArrowLeft" ? -1 : 1;
+      setActive((current) => Math.max(0, Math.min(buckets.length - 1, (current ?? peakIndex) + step)));
+    };
+  return (
+    <div ref={host} data-testid="token-usage-trend-line" className="relative min-w-0">
+      <svg
+        width={width}
+        height={baseline + AXIS}
+        className="block outline-none focus-visible:ring-1 focus-visible:ring-accent"
+        role="img"
+        aria-label={t("agentRuntime.tokenUsageTrendLineLabel")}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        onFocus={() => setActive((current) => current ?? peakIndex)}
+        onBlur={() => setActive(null)}
+        onPointerLeave={() => setActive(null)}
+      >
+        {ticks.map((tick) => {
+          const y = baseline - scale(tick);
+          return (
+            <g key={tick}>
+              <line x1={GUTTER} x2={width} y1={y} y2={y} stroke="var(--color-border)" opacity={tick === 0 ? 1 : 0.55} />
+              <text
+                x={GUTTER - 8}
+                y={y + 3.5}
+                textAnchor="end"
+                className="font-mono tabular-nums"
+                fontSize={11}
+                fill="var(--color-text-faint)"
+              >
+                {preciseTokens(tick)}
+              </text>
+            </g>
+          );
+        })}
+        {drawn.map((layer) => (
+          <g key={layer.key} data-testid={`token-usage-trend-line-${layer.key}`} opacity={active === null ? 1 : 0.85}>
+            <polyline
+              points={buckets
+                .map(
+                  (_bucket, index) =>
+                    `${GUTTER + band * index + band / 2},${baseline - scale(layer.values[index] ?? 0)}`,
+                )
+                .join(" ")}
+              fill="none"
+              stroke={layer.color}
+              strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+            {buckets.map((_bucket, index) => (
+              <circle
+                key={index}
+                cx={GUTTER + band * index + band / 2}
+                cy={baseline - scale(layer.values[index] ?? 0)}
+                r={active === index ? 3 : 2}
+                fill={active === index ? "var(--color-surface)" : layer.color}
+                stroke={layer.color}
+                strokeWidth={active === index ? 2 : 0}
+              />
+            ))}
+          </g>
+        ))}
+        {buckets.map((bucket, index) => {
+          const label = labelOf(index);
+          return (
+            <g key={bucket.bucketStart}>
+              {active === index ? (
+                <line
+                  x1={GUTTER + band * index + band / 2}
+                  x2={GUTTER + band * index + band / 2}
+                  y1={TOP - 6}
+                  y2={baseline}
+                  stroke="var(--color-text)"
+                  opacity={0.25}
+                />
+              ) : null}
+              {index % labelEvery === 0 ? (
+                <text
+                  x={GUTTER + band * index + band / 2}
+                  y={baseline + 16}
+                  textAnchor="middle"
+                  className="font-mono tabular-nums"
+                  fontSize={11}
+                  fill={active === index ? "var(--color-text)" : "var(--color-text-faint)"}
+                >
+                  {label}
+                </text>
+              ) : null}
+              {/* 命中区是整条带,不是画出来的点:零量的桶也能选中。 */}
+              <rect
+                x={GUTTER + band * index}
+                y={0}
+                width={band}
+                height={baseline + AXIS}
+                fill="transparent"
+                onPointerEnter={() => setActive(index)}
+                onPointerMove={() => setActive(index)}
+              />
+            </g>
+          );
+        })}
+      </svg>
+      {activeBucket !== undefined && active !== null ? (
+        <TrendReadout
+          bucket={activeBucket}
+          label={labelOf(active)}
+          layers={layers}
+          index={active}
           style={
             GUTTER + band * active + band / 2 > width / 2
               ? { right: width - (GUTTER + band * active) + 6 }

@@ -30,16 +30,24 @@ export const tokenUsageSessionBinCeilings: readonly (number | null)[] = Object.f
   100_000_000,
   null,
 ]);
-/** `aborted` is a process that exited without an exit code (terminated by a signal); `unknown`
- * is a dispatch with no process record on this daemon. */
-export const tokenUsageOutcomeWords = Object.freeze(["succeeded", "failed", "aborted", "running", "unknown"] as const);
+/** Session business outcomes reuse the kernel's domain words (succeeded / failed / cancelled /
+ * unknown, decided by `runtimeSessionOutcomeFromEvidence` over the accepted terminal outcome);
+ * `running` is the one addition — a process-liveness fact for dispatches that have not exited,
+ * not an outcome judgment. There is no second vocabulary. */
+export const tokenUsageOutcomeWords = Object.freeze([
+  "succeeded",
+  "failed",
+  "cancelled",
+  "running",
+  "unknown",
+] as const);
 export type AgentRuntimeTokenUsageOutcome = (typeof tokenUsageOutcomeWords)[number];
 
 /** How the sessions a row covers ended. A session's outcome is that of its latest dispatch. */
 export interface AgentRuntimeTokenUsageSessionOutcomes {
   readonly succeededSessions: number;
   readonly failedSessions: number;
-  readonly abortedSessions: number;
+  readonly cancelledSessions: number;
 }
 export interface AgentRuntimeTokenUsageTaskRow {
   readonly taskId: string;
@@ -401,7 +409,7 @@ const shaped = (value: unknown, keys: number): value is Record<string, unknown> 
 const rows = (value: unknown, limit: number, valid: (row: unknown) => boolean): boolean =>
   Array.isArray(value) && value.length <= limit && value.every(valid);
 
-export const sessionOutcomeFields = ["succeededSessions", "failedSessions", "abortedSessions"];
+export const sessionOutcomeFields = ["succeededSessions", "failedSessions", "cancelledSessions"];
 
 function validSessionStats(value: unknown): boolean {
   return (

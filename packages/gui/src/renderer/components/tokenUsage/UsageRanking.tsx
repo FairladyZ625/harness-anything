@@ -5,6 +5,7 @@ import type {
 } from "@harness-anything/daemon/protocol";
 import { preciseTokens, exactTokens, percentText, usdText } from "../../token-format.ts";
 import {
+  cacheWriteCaveat,
   rankBarShare,
   rankLogFloor,
   successRate,
@@ -21,10 +22,11 @@ import { Empty } from "../primitives/Empty.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 
 /**
- * 「谁花的」排行(单 Worker / 小队 / 模型):每行名称完整一行,数值与占比并排在右,下面一根
- * 条。条按三类 token 分段(与全页同色);条长可切对数刻度 —— 量级差上百倍时线性条会把小的
- * 全压成一根线,对数条只表示量级,准确的数在右侧。Worker 与小队的行可点进成员详情;
- * 模型没有详情读面,行不可点。「未上报」成员显示徽标而不是 0。
+ * 「谁花的」排行(单 Worker / 小队 / 模型):每行名称完整一行,折算金额与 token 量在同一
+ * 基线并排(与「花在什么事上」同序:金额、量、占比),下面一根条。条按四类 token 分段(与
+ * 全页同色);条长可切对数刻度 —— 量级差上百倍时线性条会把小的全压成一根线,对数条只表示
+ * 量级,准确的数在右侧。Worker 与小队的行可点进成员详情;模型没有详情读面,行不可点。
+ * 「未上报」成员显示徽标而不是 0。
  */
 
 export type RankingRow = (
@@ -71,6 +73,16 @@ export function UsageRanking({
                   />
                 ) : (
                   <>
+                    {usageIsUnpriced(row) ? (
+                      <span className="text-status-submitted">{t("agentRuntime.tokenUsageCostNoPrice")}</span>
+                    ) : (
+                      <span
+                        className="font-mono tabular-nums ui-meta text-text-faint"
+                        title={t("agentRuntime.tokenUsageColCost")}
+                      >
+                        {usdText(row.costUsd)}
+                      </span>
+                    )}
                     <span className="font-mono tabular-nums ui-body text-text" title={exactTokens(row.totalTokens)}>
                       {preciseTokens(row.totalTokens)}
                     </span>
@@ -101,11 +113,6 @@ export function UsageRanking({
                   sessions: String(row.sessionCount),
                   tools: String(row.toolCallCount),
                 })}
-                {usageIsUnpriced(row) ? (
-                  <span className="ml-1.5 text-status-submitted">{t("agentRuntime.tokenUsageCostNoPrice")}</span>
-                ) : (
-                  <span className="ml-1.5 font-mono tabular-nums">{usdText(row.costUsd)}</span>
-                )}
               </span>
             </>
           ),
@@ -171,7 +178,8 @@ export function UsageRankingTable({
         <tbody>
           {rows.map((row) => {
             const rate = successRate(row),
-              perSuccess = tokensPerSuccess(row);
+              perSuccess = tokensPerSuccess(row),
+              cacheWrite = cacheWriteCaveat(row);
             return (
               <tr
                 key={row.id}
@@ -190,8 +198,17 @@ export function UsageRankingTable({
                 <td className={cell} title={exactTokens(row.cacheReadTokens)}>
                   {preciseTokens(row.cacheReadTokens)}
                 </td>
-                <td className={cell} title={exactTokens(row.cacheWriteTokens)}>
-                  {preciseTokens(row.cacheWriteTokens)}
+                <td className={cell}>
+                  {cacheWrite === null ? (
+                    <span title={exactTokens(row.cacheWriteTokens)}>{preciseTokens(row.cacheWriteTokens)}</span>
+                  ) : (
+                    <StatusTag
+                      mono
+                      status="cancelled"
+                      tip={t("agentRuntime.tokenUsageCacheWriteNote")}
+                      label={t(cacheWrite)}
+                    />
+                  )}
                 </td>
                 <td className={cell} title={exactTokens(row.outputTokens)}>
                   {preciseTokens(row.outputTokens)}

@@ -21,24 +21,28 @@ import {
   seriesLayers,
   tokenKindLayers,
   UsageTrendChart,
+  UsageTrendLine,
   UsageTrendTable,
 } from "../components/tokenUsage/UsageTrendChart.tsx";
 import { UsageRanking, UsageRankingTable, type RankingRow } from "../components/tokenUsage/UsageRanking.tsx";
+import { UsageShareDonut, type ShareBasis } from "../components/tokenUsage/UsageShareDonut.tsx";
 import { UsageHeadline } from "../components/tokenUsage/UsageHeadline.tsx";
 import { UsageSessions, UsageSpend, UsageUnreported, UsageWorth } from "../components/tokenUsage/UsageBreakdowns.tsx";
 import { TokenUsageDetail } from "../components/tokenUsage/TokenUsageDetail.tsx";
 
 /**
  * 系统 Tab 的「Token 消耗」页:所选时间范围(今天 / 7 天 / 30 天)内的消耗分析。按问题顺序
- * 排:一共花了多少、比上一段多还是少 → 花在哪类 token 上 → 随时间怎么变、高峰是谁造成的 →
- * 谁花的 → 花在什么事上 → 单个会话的情况 → 值不值 → 哪些派工没上报用量。
+ * 排:一共花了多少(token 量与 API 折算计价两个并列主指标,各自环比)→ 花在哪类 token 上 →
+ * 随时间怎么变、高峰是谁造成的(柱状 / 折线 / 表格)→ 谁花的(清单 / 环形占比 / 表格,金额
+ * 与 token 同层级)→ 花在什么事上 → 单个会话的情况 → 值不值 → 哪些派工没上报用量。
  * 数据全部来自 daemon 的一次聚合读(repo.agentRuntime.tokenUsage),renderer 只做展示;成员
  * 详情另走 tokenUsageDetail,经 focusedEntityRef(tokenAgent/<id> · tokenSquad/<id>)推栈。
  * 区域用 Region 框,栏数只看内容区自己的宽度(容器查询):宽时两栏,窄时单列。
  */
 type Segment = "agents" | "squads" | "models";
 type Stack = "kinds" | "agents" | "models";
-type Presentation = "chart" | "table";
+type TrendPresentation = "chart" | "line" | "table";
+type RankingPresentation = "chart" | "donut" | "table";
 
 const REPO_ID = /^[a-z][a-z0-9-]{0,62}$/u;
 
@@ -127,12 +131,13 @@ function UsageAnalysis({
   readonly onOpenTask: (taskId: string) => void;
 }) {
   const [stack, setStack] = useState<Stack>("kinds"),
-    [trendAs, setTrendAs] = useState<Presentation>("chart"),
+    [trendAs, setTrendAs] = useState<TrendPresentation>("chart"),
     [segment, setSegment] = useState<Segment>("agents"),
-    [rankingAs, setRankingAs] = useState<Presentation>("chart"),
+    [rankingAs, setRankingAs] = useState<RankingPresentation>("chart"),
     // 条长刻度默认跟数据走(量级悬殊用对数),用户点过之后以用户的选择为准。
     [chosenScale, setChosenScale] = useState<RankScale | null>(null),
-    [spendScope, setSpendScope] = useState<"tasks" | "works">("tasks");
+    [spendScope, setSpendScope] = useState<"tasks" | "works">("tasks"),
+    [shareBasis, setShareBasis] = useState<ShareBasis>("tokens");
   const rows: readonly RankingRow[] =
       segment === "agents"
         ? data.agents.map((row) => ({ ...row, id: row.agentId, name: row.agentName }))
@@ -148,8 +153,14 @@ function UsageAnalysis({
       stack === "kinds"
         ? tokenKindLayers(data.buckets)
         : seriesLayers(stack === "agents" ? data.trend.agents : data.trend.models),
-    viewOptions = [
+    trendOptions = [
       { value: "chart" as const, label: t("agentRuntime.tokenUsageViewChart") },
+      { value: "line" as const, label: t("agentRuntime.tokenUsageViewLine") },
+      { value: "table" as const, label: t("agentRuntime.tokenUsageViewTable") },
+    ],
+    rankingOptions = [
+      { value: "chart" as const, label: t("agentRuntime.tokenUsageViewChart") },
+      { value: "donut" as const, label: t("agentRuntime.tokenUsageViewDonut") },
       { value: "table" as const, label: t("agentRuntime.tokenUsageViewTable") },
     ];
   return (
@@ -176,12 +187,14 @@ function UsageAnalysis({
               label={t("agentRuntime.tokenUsageViewLabel")}
               value={trendAs}
               onChange={setTrendAs}
-              options={viewOptions}
+              options={trendOptions}
             />
           </Controls>
           <div className="px-3.5 pb-3">
             {trendAs === "table" ? (
               <UsageTrendTable buckets={data.buckets} bucketMs={data.bucketMs} layers={layers} />
+            ) : trendAs === "line" ? (
+              <UsageTrendLine buckets={data.buckets} bucketMs={data.bucketMs} layers={layers} />
             ) : (
               <UsageTrendChart buckets={data.buckets} bucketMs={data.bucketMs} layers={layers} />
             )}
@@ -216,15 +229,28 @@ function UsageAnalysis({
                 ]}
               />
             ) : null}
+            {rankingAs === "donut" ? (
+              <SegCtl
+                label={t("agentRuntime.tokenUsageShareBasisLabel")}
+                value={shareBasis}
+                onChange={setShareBasis}
+                options={[
+                  { value: "tokens", label: t("agentRuntime.tokenUsageShareBasisTokens") },
+                  { value: "cost", label: t("agentRuntime.tokenUsageShareBasisCost") },
+                ]}
+              />
+            ) : null}
             <SegCtl
               label={t("agentRuntime.tokenUsageViewLabel")}
               value={rankingAs}
               onChange={setRankingAs}
-              options={viewOptions}
+              options={rankingOptions}
             />
           </Controls>
           {rankingAs === "table" ? (
             <UsageRankingTable rows={rows} onSelect={openMember} testId={`token-usage-${segment}-table`} />
+          ) : rankingAs === "donut" ? (
+            <UsageShareDonut rows={rows} totals={data.totals} basis={shareBasis} onSelect={openMember} />
           ) : (
             <UsageRanking rows={rows} total={data.totals.totalTokens} scale={scale} onSelect={openMember} />
           )}

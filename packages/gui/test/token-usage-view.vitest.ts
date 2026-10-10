@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { execFileSync } from "node:child_process";
 import { TokenUsageView } from "../src/renderer/views/TokenUsageView.tsx";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import type {
@@ -19,6 +20,7 @@ import {
   rankBarShare,
   rankLogFloor,
   rankScaleFor,
+  cacheWriteCaveat,
   sessionBinLabel,
   successRate,
   tokenComposition,
@@ -33,7 +35,7 @@ import { percentText, preciseTokens } from "../src/renderer/token-format.ts";
  * 成员详情经 focusedEntityRef 推栈并能跳会话/任务。
  */
 
-const noOutcomes = { succeededSessions: 0, failedSessions: 0, abortedSessions: 0 };
+const noOutcomes = { succeededSessions: 0, failedSessions: 0, cancelledSessions: 0 };
 
 const usage: AgentRuntimeTokenUsageResult = {
   ok: true,
@@ -51,6 +53,8 @@ const usage: AgentRuntimeTokenUsageResult = {
     toolCallCount: 57,
     usageReportedDispatches: 2,
     usageUnavailableDispatches: 3,
+    cacheWriteUnreportedDispatches: 0,
+    cacheWriteUnitemizedDispatches: 0,
     // 新输入 13,156×$4 + 缓存读 340×$0.4 + 缓存写 4×$5 + 输出 1,160×$20(每 1M,gpt-5.6-sol 价,
     // 写价 = 输入价 1.25 倍)。
     costUsd: 0.075_98,
@@ -99,9 +103,11 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 17,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       succeededSessions: 1,
       failedSessions: 1,
-      abortedSessions: 0,
+      cancelledSessions: 0,
       costUsd: 0.009_98,
       unpricedTokens: 0,
     },
@@ -117,6 +123,8 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 3,
       usageReportedDispatches: 0,
       usageUnavailableDispatches: 2,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       ...noOutcomes,
       costUsd: 0,
       unpricedTokens: 0,
@@ -135,6 +143,8 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 40,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 1,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       ...noOutcomes,
       costUsd: 0.066,
       unpricedTokens: 0,
@@ -152,9 +162,11 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 40,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       succeededSessions: 1,
       failedSessions: 0,
-      abortedSessions: 0,
+      cancelledSessions: 0,
       costUsd: 0.066,
       unpricedTokens: 0,
     },
@@ -169,9 +181,11 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 17,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       succeededSessions: 1,
       failedSessions: 1,
-      abortedSessions: 0,
+      cancelledSessions: 0,
       costUsd: 0,
       unpricedTokens: 120,
     },
@@ -189,6 +203,8 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 20,
       usageReportedDispatches: 2,
       usageUnavailableDispatches: 0,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       costUsd: 0.056,
       unpricedTokens: 0,
     },
@@ -265,7 +281,7 @@ const usage: AgentRuntimeTokenUsageResult = {
   outcomes: [
     { outcome: "succeeded", sessionCount: 1, totalTokens: 12_900 },
     { outcome: "failed", sessionCount: 1, totalTokens: 1_500 },
-    { outcome: "aborted", sessionCount: 1, totalTokens: 600 },
+    { outcome: "cancelled", sessionCount: 1, totalTokens: 600 },
     { outcome: "running", sessionCount: 0, totalTokens: 0 },
     { outcome: "unknown", sessionCount: 0, totalTokens: 0 },
   ],
@@ -301,6 +317,8 @@ const detail: AgentRuntimeTokenUsageDetailResult = {
     toolCallCount: 17,
     usageReportedDispatches: 2,
     usageUnavailableDispatches: 0,
+    cacheWriteUnreportedDispatches: 0,
+    cacheWriteUnitemizedDispatches: 0,
     costUsd: 0.009_98,
     unpricedTokens: 0,
   },
@@ -439,10 +457,20 @@ describe("TokenUsageView", () => {
     expect(cost).toContain("converted at public API list prices, not actual spend");
     expect(cost).toContain("price table 2026-10-10");
     expect(cost).toContain("0.8% of usage (120 tokens) has no public price and is excluded");
+    // 计价与用量同等分量:两个主指标同为 44px 主数字,金额侧有自己的环比
+    // (0.07598 对 0.056,显示 +36%;参照段金额 $0.06)与「哪些是下界」的口径说明。
+    expect(byTestId(container, "token-usage-totals").querySelector("p")?.className).toContain("text-[44px]");
+    expect(byTestId(container, "token-usage-cost").querySelector("p")?.className).toContain("text-[44px]");
+    const costChange = byTestId(container, "token-usage-cost-change").textContent ?? "";
+    expect(costChange).toContain("36%");
+    expect(costChange).toContain("more than the same hours yesterday ($0.06 then)");
+    expect(byTestId(container, "token-usage-cost-precision").textContent).toContain(
+      "long-context, peak-hour and cache-storage surcharges are not applied",
+    );
     // 四个关键数字:会话、缓存命中率(340/13,500)、白花(2,100/15,000)、未上报。
     const view = byTestId(container, "token-usage-view").textContent ?? "";
     expect(view).toContain("Cache hit rate2.5%");
-    expect(view).toContain("Spent on failed or aborted14%");
+    expect(view).toContain("Spent on failed or cancelled14%");
     expect(view).toContain("2 sessions, 2.1K tokens");
     // 每一条文案的插值都被填上。
     expect(view).not.toMatch(/\{[a-zA-Z]+\}/u);
@@ -456,6 +484,17 @@ describe("TokenUsageView", () => {
     const container = await renderView();
     expect(byTestId(container, "token-usage-change").textContent).toBe(
       "No consumption in the same hours yesterday to compare against",
+    );
+  });
+
+  it("says the cost has no base when the previous period has no priced amount", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue({
+      ...usage,
+      previous: { ...usage.previous, totals: { ...usage.previous.totals, costUsd: 0 } },
+    });
+    const container = await renderView();
+    expect(byTestId(container, "token-usage-cost-change").textContent).toBe(
+      "No converted amount in the same hours yesterday to compare against",
     );
   });
 
@@ -529,8 +568,11 @@ describe("TokenUsageView", () => {
     expect(rankRow.textContent).toContain("2.1K");
     expect(rankRow.textContent).toContain("14%");
     expect(rankRow.textContent).toContain("2 sessions · 17 tool calls");
-    // 行 meta 带按 API 公开价折算的金额(不足一分钱写 <$0.01)。
-    expect(rankRow.textContent).toContain("<$0.01");
+    // 金额与 token 量同一层级:同一行的兄弟格(与「花在什么事上」同序:金额、量、占比)。
+    const line = rankRow.querySelector("span")!;
+    const cells = [...line.children].map((cell) => cell.textContent);
+    expect(cells).toContain("<$0.01");
+    expect(cells.indexOf("<$0.01")).toBeLessThan(cells.indexOf("2.1K"));
     // 未上报成员显示徽标而不是 0。
     expect(byTestId(container, "token-usage-rank-sol").textContent).toContain("Not reported");
     // 模型排行:量级差 100 倍以上默认对数刻度,小的那条仍然看得出长度;模型行不可点。
@@ -548,6 +590,65 @@ describe("TokenUsageView", () => {
     act(() => findButton(container, "Linear").click());
     expect(barWidth(byTestId(container, "token-usage-rank-swe2"))).toBeCloseTo((120 / 12_900) * 100, 3);
     expect(byTestId(container, "token-usage-rank-swe2").textContent).toContain("0.8%");
+  });
+
+  it("presents the ranking as a donut with tokens and cost side by side on both bases", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    act(() => findButton(container, "Donut").click());
+    // 环心同时给窗口总量与总金额:两个数同层级。
+    const center = byTestId(container, "token-usage-share-center").textContent ?? "";
+    expect(center).toContain("15K");
+    expect(center).toContain("$0.08");
+    // 图例行金额、token、占比并排;未上报成员显示徽标而不是 0。
+    const terra = byTestId(container, "token-usage-share-row-terra").textContent ?? "";
+    expect(terra).toContain("<$0.01");
+    expect(terra).toContain("2.1K");
+    expect(terra).toContain("14%");
+    expect(byTestId(container, "token-usage-share-row-sol").textContent).toContain("Not reported");
+    // token 口径下零值成员无弧:Worker 视角只有 terra 一条弧。
+    expect(container.querySelectorAll('[data-testid^="token-usage-share-arc-"]').length).toBe(1);
+    // 模型维度:两个有值模型两条弧;无价格模型的金额格写「无价格」。
+    act(() => findButton(container, "Model").click());
+    expect(container.querySelectorAll('[data-testid^="token-usage-share-arc-"]').length).toBe(2);
+    expect(byTestId(container, "token-usage-share-row-swe2").textContent).toContain("no price");
+    // 金额口径:无价模型金额为 0、无弧,只剩有价模型一条弧;环心口径不变。
+    act(() => findButton(container, "Cost").click());
+    expect(container.querySelectorAll('[data-testid^="token-usage-share-arc-"]').length).toBe(1);
+    expect(byTestId(container, "token-usage-share-center").textContent).toContain("$0.08");
+    // 点图例行打开成员详情,与清单同一条路。
+    act(() => findButton(container, "Tokens").click());
+    act(() => findButton(container, "Worker").click());
+    act(() => byTestId(container, "token-usage-share-row-terra").click());
+    expect(focusedMemberRef).toBe("tokenAgent/terra");
+  });
+
+  it("draws one line per series for the trend and reads a bucket out on hover and arrow keys", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    act(() => findButton(byTestId(container, "token-usage-trend-card"), "Line").click());
+    const chart = byTestId(container, "token-usage-trend-line"),
+      svg = chart.querySelector("svg")!;
+    // 四类 token 各一条线;纵轴最高刻度不低于最高单层值(新输入 13,156)。
+    expect(chart.querySelectorAll("polyline").length).toBe(4);
+    expect([...svg.querySelectorAll("text")].some((text) => text.textContent === "15K")).toBe(true);
+    expect(container.querySelector('[data-testid="token-usage-trend-readout"]')).toBeNull();
+    // 悬停第一桶:明细复用柱状的同一条路,给出每层数值与占比。
+    const hit = svg.querySelector("rect[fill='transparent']")!;
+    act(() => {
+      hit.dispatchEvent(new Event("pointermove", { bubbles: true }));
+    });
+    const readout = byTestId(container, "token-usage-trend-readout").textContent ?? "";
+    expect(readout).toContain("2.1K");
+    expect(readout).toContain("Cache read340");
+    expect(readout).toContain("converted <$0.01");
+    // 键盘右键移到下一桶(总量峰值桶)。
+    act(() => {
+      svg.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    expect(byTestId(container, "token-usage-trend-readout").textContent).toContain("12.9K");
+    // 图例带窗口合计与占比,与柱状共用。
+    expect(byTestId(container, "token-usage-trend-legend").textContent).toContain("Cache read");
   });
 
   it("opens the member detail by ref, with session/task jumps and back", async () => {
@@ -587,6 +688,92 @@ describe("TokenUsageView", () => {
     expect(terra).toContain("<$0.01");
     // 还没有会话结束的成员没有成功率,不写成 0%。
     expect(byTestId(container, "token-usage-row-sol").textContent).toContain("—");
+  });
+
+  it("renders settled devin usage without a cache-write field as Not reported, preserving explicit zero", async () => {
+    const result = JSON.parse(
+      execFileSync(process.execPath, ["test/fixtures/token-usage-settlement.ts"], { encoding: "utf8" }),
+    ) as AgentRuntimeTokenUsageResult;
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(result);
+    const container = await renderView();
+    act(() => findButton(container, "Model").click());
+    act(() => findButton(byTestId(container, "token-usage-ranking-card"), "Table").click());
+    expect(byTestId(container, "token-usage-row-devin-neutral").textContent).toContain("Not reported");
+    expect(byTestId(container, "token-usage-row-codex-real-zero").textContent).not.toContain("Not reported");
+  });
+
+  it("labels cache-write cells that are not real zeros: not reported, not itemized", async () => {
+    // 三种生产形状(任务 explainer 05 节):provider 不报该字段 → 「不报」;独立计数落地前
+    // 结算的记录 → 「未单列」(写入并在新输入);已单列的真实 0 仍显示 0。
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue({
+      ...usage,
+      totals: { ...usage.totals, cacheWriteUnreportedDispatches: 2, cacheWriteUnitemizedDispatches: 1 },
+      models: [
+        {
+          model: "glm-real-zero",
+          sessionCount: 1,
+          inputTokens: 1_000,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 10,
+          totalTokens: 1_010,
+          toolCallCount: 1,
+          usageReportedDispatches: 2,
+          usageUnavailableDispatches: 0,
+          cacheWriteUnreportedDispatches: 0,
+          cacheWriteUnitemizedDispatches: 0,
+          succeededSessions: 1,
+          failedSessions: 0,
+          cancelledSessions: 0,
+          costUsd: 0,
+          unpricedTokens: 1_010,
+        },
+        {
+          model: "devin-neutral",
+          sessionCount: 1,
+          inputTokens: 900,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 9,
+          totalTokens: 909,
+          toolCallCount: 1,
+          usageReportedDispatches: 2,
+          usageUnavailableDispatches: 0,
+          cacheWriteUnreportedDispatches: 2,
+          cacheWriteUnitemizedDispatches: 0,
+          ...noOutcomes,
+          costUsd: 0,
+          unpricedTokens: 909,
+        },
+        {
+          model: "claude-legacy",
+          sessionCount: 1,
+          inputTokens: 800,
+          cacheReadTokens: 100,
+          cacheWriteTokens: 0,
+          outputTokens: 8,
+          totalTokens: 808,
+          toolCallCount: 1,
+          usageReportedDispatches: 1,
+          usageUnavailableDispatches: 0,
+          cacheWriteUnreportedDispatches: 0,
+          cacheWriteUnitemizedDispatches: 1,
+          ...noOutcomes,
+          costUsd: 0,
+          unpricedTokens: 808,
+        },
+      ],
+    });
+    const container = await renderView();
+    // 页首口径行带两个实测计数,不再只有静态说明。
+    const note = byTestId(container, "token-usage-cache-write-note").textContent ?? "";
+    expect(note).toContain("2 dispatches in this window came from providers whose usage reports no cache-write field");
+    expect(note).toContain("1 further dispatches settled before separate counting began");
+    act(() => findButton(container, "Model").click());
+    act(() => findButton(byTestId(container, "token-usage-ranking-card"), "Table").click());
+    expect(byTestId(container, "token-usage-row-glm-real-zero").textContent).toContain("0");
+    expect(byTestId(container, "token-usage-row-devin-neutral").textContent).toContain("Not reported");
+    expect(byTestId(container, "token-usage-row-claude-legacy").textContent).toContain("Not itemized");
   });
 
   it("lists what the tokens were spent on by task title and opens the task", async () => {
@@ -636,7 +823,7 @@ describe("TokenUsageView", () => {
     expect(onSelectEntity).toHaveBeenCalledWith("session/runtime-big");
   });
 
-  it("shows what failed or aborted sessions cost and each worker's success rate", async () => {
+  it("shows what failed or cancelled sessions cost and each worker's success rate", async () => {
     vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
     const container = await renderView();
     const worth = byTestId(container, "token-usage-worth").textContent ?? "";
@@ -645,7 +832,7 @@ describe("TokenUsageView", () => {
     // 结果图例只列出现过的结果。
     const outcomes = byTestId(container, "token-usage-outcomes").textContent ?? "";
     expect(outcomes).toContain("Succeeded112.9K");
-    expect(outcomes).toContain("Aborted1600");
+    expect(outcomes).toContain("Cancelled1600");
     expect(outcomes).not.toContain("Running");
     const terra = byTestId(container, "token-usage-efficiency-terra").textContent ?? "";
     expect(terra).toContain("50%");
@@ -767,10 +954,30 @@ describe("token usage display model", () => {
     expect(periodChange(150, 100)).toBe(0.5);
     expect(periodChange(50, 100)).toBe(-0.5);
     expect(periodChange(50, 0)).toBeNull();
-    expect(successRate({ succeededSessions: 3, failedSessions: 1, abortedSessions: 0 })).toBe(0.75);
+    expect(successRate({ succeededSessions: 3, failedSessions: 1, cancelledSessions: 0 })).toBe(0.75);
     expect(successRate(noOutcomes)).toBeNull();
     expect(tokensPerSuccess({ totalTokens: 900, succeededSessions: 3 })).toBe(300);
     expect(tokensPerSuccess({ totalTokens: 900, succeededSessions: 0 })).toBeNull();
+  });
+
+  it("derives the cache-write caveat only when every reported dispatch lacks the field or the counter", () => {
+    const row = (patch: Partial<Parameters<typeof cacheWriteCaveat>[0]>) => ({
+      cacheWriteTokens: 0,
+      usageReportedDispatches: 2,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
+      ...patch,
+    });
+    expect(cacheWriteCaveat(row({ cacheWriteUnreportedDispatches: 2 }))).toBe(
+      "agentRuntime.tokenUsageCacheWriteUnreported",
+    );
+    expect(cacheWriteCaveat(row({ usageReportedDispatches: 1, cacheWriteUnitemizedDispatches: 1 }))).toBe(
+      "agentRuntime.tokenUsageCacheWriteUnitemized",
+    );
+    // 真实 0、混合口径、没有已上报派工:都显示数字,没有徽标。
+    expect(cacheWriteCaveat(row({ cacheWriteUnreportedDispatches: 1 }))).toBeNull();
+    expect(cacheWriteCaveat(row({ cacheWriteTokens: 4 }))).toBeNull();
+    expect(cacheWriteCaveat(row({ usageReportedDispatches: 0, cacheWriteUnreportedDispatches: 0 }))).toBeNull();
   });
 
   it("formats shares, precise token counts and bin labels", () => {

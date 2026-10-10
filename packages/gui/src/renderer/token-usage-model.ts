@@ -57,6 +57,23 @@ export function usageIsUnpriced(row: { readonly totalTokens: number; readonly un
   return row.totalTokens > 0 && row.unpricedTokens >= row.totalTokens;
 }
 
+/** 缓存写入列的口径徽标:该口径全部已上报派工的 provider 都不报缓存写字段 →「不报」;
+ * 全部是独立计数落地(2026-10-10)前结算的记录 →「未单列」(写入量并在新输入里,按输入价);
+ * 其余显示真实数——包括 provider 上报的真实 0。没有已上报派工时也没有这个徽标。 */
+export function cacheWriteCaveat(row: {
+  readonly cacheWriteTokens: number;
+  readonly usageReportedDispatches: number;
+  readonly cacheWriteUnreportedDispatches: number;
+  readonly cacheWriteUnitemizedDispatches: number;
+}): MessageKey | null {
+  if (row.usageReportedDispatches <= 0) return null;
+  if (row.cacheWriteUnreportedDispatches === row.usageReportedDispatches)
+    return "agentRuntime.tokenUsageCacheWriteUnreported";
+  if (row.cacheWriteTokens === 0 && row.cacheWriteUnitemizedDispatches === row.usageReportedDispatches)
+    return "agentRuntime.tokenUsageCacheWriteUnitemized";
+  return null;
+}
+
 /** 未计价用量占总量的比例;总量为 0 时没有这个数。 */
 export function unpricedShare(totals: {
   readonly totalTokens: number;
@@ -77,20 +94,20 @@ export function usageStateKey(usage: "reported" | "unavailable" | "pending"): Me
 export const usageOutcomeKey: Readonly<Record<AgentRuntimeTokenUsageOutcome, MessageKey>> = {
   succeeded: "agentRuntime.sessionStatusSucceeded",
   failed: "agentRuntime.sessionStatusFailed",
-  aborted: "agentRuntime.tokenUsageOutcomeAborted",
+  cancelled: "agentRuntime.sessionStatusCancelled",
   running: "agentRuntime.sessionStatusRunning",
   unknown: "agentRuntime.sessionStatusUnknown",
 };
-/** 结果 → 状态色 token(标准 §3):成功绿、失败红、中止暗灰、在跑青、未知中性。 */
+/** 结果 → 状态色 token(标准 §3):成功绿、失败红、取消暗灰、在跑青、未知中性。 */
 export const usageOutcomeColor: Readonly<Record<AgentRuntimeTokenUsageOutcome, string>> = {
   succeeded: "var(--color-status-done)",
   failed: "var(--color-status-blocked)",
-  aborted: "var(--color-status-cancelled)",
+  cancelled: "var(--color-status-cancelled)",
   running: "var(--color-status-active)",
   unknown: "var(--color-status-planned)",
 };
 
-/** 「白花」的部分:以失败或中止收场的会话花掉的 token。 */
+/** 「白花」的部分:以失败或取消收场的会话花掉的 token。 */
 export function wastedSpend(
   outcomes: readonly {
     readonly outcome: AgentRuntimeTokenUsageOutcome;
@@ -98,7 +115,7 @@ export function wastedSpend(
     readonly totalTokens: number;
   }[],
 ): { readonly sessionCount: number; readonly totalTokens: number } {
-  const wasted = outcomes.filter(({ outcome }) => outcome === "failed" || outcome === "aborted");
+  const wasted = outcomes.filter(({ outcome }) => outcome === "failed" || outcome === "cancelled");
   return {
     sessionCount: wasted.reduce((sum, row) => sum + row.sessionCount, 0),
     totalTokens: wasted.reduce((sum, row) => sum + row.totalTokens, 0),
@@ -109,7 +126,8 @@ export function wastedSpend(
  * 四类 token 的全页唯一配色与顺序。daemon 的 inputTokens 含缓存读取与缓存写入
  * (totalTokens = 输入 + 输出),所以构成拆成互不重叠的四段:缓存读取、缓存写入、未命中
  * 缓存的新输入、输出 —— 四段之和等于总量。缓存写入自价格表 2026-10-10 起独立计数;
- * 更早记录与未上报缓存写入的 provider 里,该部分留在新输入段(按 0 计),不估算。
+ * 更早记录(未单列)与不报该字段的 provider 里,该部分留在新输入段(按 0 计),不估算
+ * ——页面用 cacheWriteCaveat 把这两种 0 与真实 0 区分开。
  */
 export const tokenKinds = ["cacheRead", "cacheWrite", "freshInput", "output"] as const;
 export type TokenKind = (typeof tokenKinds)[number];
@@ -199,16 +217,16 @@ export function rankScaleFor(values: readonly number[]): RankScale {
   return positive.length > 1 && Math.max(...positive) / Math.min(...positive) >= 100 ? "log" : "linear";
 }
 
-/** 会话成功率:成功 /(成功 + 失败 + 中止);还没有会话结束时没有这个数。 */
+/** 会话成功率:成功 /(成功 + 失败 + 取消);还没有会话结束时没有这个数。 */
 export function successRate(row: {
   readonly succeededSessions: number;
   readonly failedSessions: number;
-  readonly abortedSessions: number;
+  readonly cancelledSessions: number;
 }): number | null {
-  const ended = row.succeededSessions + row.failedSessions + row.abortedSessions;
+  const ended = row.succeededSessions + row.failedSessions + row.cancelledSessions;
   return ended > 0 ? row.succeededSessions / ended : null;
 }
-/** 单位产出:每换来一个成功会话,这一行总共花了多少 token(失败与中止的花费也摊进来)。 */
+/** 单位产出:每换来一个成功会话,这一行总共花了多少 token(失败与取消的花费也摊进来)。 */
 export function tokensPerSuccess(row: {
   readonly totalTokens: number;
   readonly succeededSessions: number;

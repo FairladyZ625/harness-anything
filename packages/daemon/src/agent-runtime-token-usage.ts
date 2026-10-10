@@ -1,4 +1,5 @@
 import type { TaskProjection } from "@harness-anything/kernel";
+import { runtimeSessionOutcomeFromEvidence } from "@harness-anything/kernel";
 import { agentRuntimeTokenUsageRangeWords } from "./protocol/daemon-protocol-schema-ids.ts";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { DispatchStreamHeader, DispatchStreamSummary } from "./dispatch-stream.ts";
@@ -15,6 +16,7 @@ import type {
   AgentRuntimeTokenUsageSessionOutcomes,
   TokenUsageDispatchFact,
 } from "./agent-runtime-token-usage-insights.ts";
+import { cacheWriteTokensOfUsage } from "./runtime-spawn-provider-stream.ts";
 import { workRootWalk } from "./workspace-scope-read.ts";
 import type { WorkRuleTask } from "./workspace-scope-read.ts";
 import { modelPriceOf, modelPricingVersion, usageCostUsd } from "./agent-runtime-model-pricing.ts";
@@ -62,9 +64,19 @@ export interface AgentRuntimeTokenUsageCost {
   readonly costUsd: number;
   readonly unpricedTokens: number;
 }
+/** Cache-write provenance over the dispatches a row aggregates. "Unreported" dispatches come
+ * from providers whose usage carries no cache-write field at all — their zero is absence, and
+ * the renderer labels it instead of showing a misleading 0. "Unitemized" dispatches settled
+ * before the separate counter existed (2026-10-10): their provider did report writes, which
+ * stay inside the input remainder at the input rate. */
+export interface AgentRuntimeTokenUsageCacheWriteProvenance {
+  readonly cacheWriteUnreportedDispatches: number;
+  readonly cacheWriteUnitemizedDispatches: number;
+}
 export type AgentRuntimeTokenUsageTotals = AgentRuntimeTokenUsageCounters &
   AgentRuntimeTokenUsageReporting &
-  AgentRuntimeTokenUsageCost;
+  AgentRuntimeTokenUsageCost &
+  AgentRuntimeTokenUsageCacheWriteProvenance;
 export interface AgentRuntimeTokenUsageAgentRow
   extends AgentRuntimeTokenUsageTotals,
     AgentRuntimeTokenUsageSessionOutcomes {
@@ -180,6 +192,8 @@ type UsageAccumulator = {
   sessions: Set<string>;
   usageReportedDispatches: number;
   usageUnavailableDispatches: number;
+  cacheWriteUnreportedDispatches: number;
+  cacheWriteUnitemizedDispatches: number;
   counters: {
     inputTokens: number;
     cacheReadTokens: number;
@@ -427,9 +441,13 @@ export function readAgentRuntimeTokenUsageDetail(input: {
         ? (header: DispatchStreamHeader) => header.agentId === member.agentId
         : (header: DispatchStreamHeader) => header.squadId === member.squadId;
   let memberName: string | null = null;
+  const provenance = { unreported: 0, unitemized: 0 };
   for (const { header, summary } of windowDispatches(input.rootDir, input.projection, sinceMs, pickMember)) {
     if (memberName === null && member.kind === "agent") memberName = header.agentName ?? member.agentId;
     sessions.push(sessionRowOf(header, summary));
+    const cacheWrite = cacheWriteProvenanceOf(summary);
+    if (cacheWrite === "unreported") provenance.unreported += 1;
+    else if (cacheWrite === "unitemized") provenance.unitemized += 1;
     accumulateBucket(buckets, header.startedAt, header.model ?? null, summary, sinceMs, bucketMs);
   }
   sessions.sort(
@@ -450,7 +468,7 @@ export function readAgentRuntimeTokenUsageDetail(input: {
             squadId: input.member.squadId,
             squadName: input.entityLabel(input.member.squadId) ?? input.member.squadId,
           },
-    totals: detailTotals(sessions),
+    totals: detailTotals(sessions, provenance),
     buckets,
     sessions,
     pricing: { version: modelPricingVersion },
@@ -665,6 +683,9 @@ function accumulate(
   const usage = usageOf(summary);
   if (usage === "unavailable") accumulator.usageUnavailableDispatches += 1;
   else if (usage === "reported") accumulator.usageReportedDispatches += 1;
+  const provenance = cacheWriteProvenanceOf(summary);
+  if (provenance === "unreported") accumulator.cacheWriteUnreportedDispatches += 1;
+  else if (provenance === "unitemized") accumulator.cacheWriteUnitemizedDispatches += 1;
   map.set(key, accumulator);
 }
 
@@ -703,15 +724,32 @@ function sessionRowOf(
     usage: usageOf(summary),
   };
 }
-/** Coarse outcome from the stream's own lifecycle records: the process record says whether the
- * dispatch settled, the attempt classification keeps provider faults from posing as success. */
-function dispatchOutcomeWord(summary: DispatchStreamSummary | null): AgentRuntimeTokenUsageSessionRow["outcome"] {
+/** The dispatch's session outcome is the accepted terminal verdict on the stream — the same
+ * `runtime_session_outcome_observed` payload the kernel holds — narrowed by the kernel's own
+ * evidence function, never re-judged here from exit codes: a zero exit is not success evidence
+ * and a signal exit is not a cancellation. `running` is process liveness (not yet exited);
+ * everything without an accepted terminal outcome stays `unknown`. */
+function dispatchOutcomeWord(summary: DispatchStreamSummary | null): AgentRuntimeTokenUsageOutcome {
+  const terminal = summary?.terminalOutcome ?? null;
+  if (terminal !== null) {
+    const outcome = runtimeSessionOutcomeFromEvidence({
+      outcome: terminal.payload.outcome,
+      exitCode: terminal.payload.exitCode,
+      resultRef: terminal.payload.resultRef,
+      ...(terminal.payload.reasonCode ? { reasonCode: terminal.payload.reasonCode } : {}),
+    });
+    return outcome ?? "unknown";
+  }
   const process = summary?.process ?? null;
-  if (process === null || !process.exited) return process === null ? "unknown" : "running";
-  const classification = summary?.attemptOutcome?.classification;
-  if (classification === "provider_fault" || classification === "provider_quota" || classification === "gate_red")
-    return "failed";
-  return process.exitCode === 0 ? "succeeded" : process.exitCode === null ? "aborted" : "failed";
+  return process !== null && !process.exited ? "running" : "unknown";
+}
+/** Cache-write provenance of one dispatch, or null when its usage carries nothing to classify
+ * (no metrics record, or a provider that reported no usage numbers at all). */
+function cacheWriteProvenanceOf(summary: DispatchStreamSummary | null): "unreported" | "unitemized" | null {
+  const metrics = summary?.runtimeMetrics ?? null;
+  if (metrics === null || metrics.usageUnavailable === true) return null;
+  if (metrics.cacheWriteTokens !== undefined) return null;
+  return cacheWriteTokensOfUsage(metrics.raw) !== null ? "unitemized" : "unreported";
 }
 function exitOccurredAt(summary: DispatchStreamSummary): string | null {
   let endedAt: string | null = null;
@@ -720,7 +758,10 @@ function exitOccurredAt(summary: DispatchStreamSummary): string | null {
   return endedAt;
 }
 
-function detailTotals(sessions: readonly AgentRuntimeTokenUsageSessionRow[]): AgentRuntimeTokenUsageTotals {
+function detailTotals(
+  sessions: readonly AgentRuntimeTokenUsageSessionRow[],
+  provenance: { unreported: number; unitemized: number },
+): AgentRuntimeTokenUsageTotals {
   const unique = new Set(sessions.map(({ runtimeSessionId }) => runtimeSessionId));
   return {
     sessionCount: unique.size,
@@ -732,6 +773,8 @@ function detailTotals(sessions: readonly AgentRuntimeTokenUsageSessionRow[]): Ag
     toolCallCount: sum(sessions, ({ toolCallCount }) => toolCallCount),
     usageReportedDispatches: sessions.filter(({ usage }) => usage === "reported").length,
     usageUnavailableDispatches: sessions.filter(({ usage }) => usage === "unavailable").length,
+    cacheWriteUnreportedDispatches: provenance.unreported,
+    cacheWriteUnitemizedDispatches: provenance.unitemized,
     costUsd: sum(sessions, (row) => {
       const price = modelPriceOf(row.model);
       return price === null ? 0 : usageCostUsd(price, row);
@@ -749,6 +792,8 @@ function countersOf(accumulator: UsageAccumulator): AgentRuntimeTokenUsageTotals
     ...accumulator.counters,
     usageReportedDispatches: accumulator.usageReportedDispatches,
     usageUnavailableDispatches: accumulator.usageUnavailableDispatches,
+    cacheWriteUnreportedDispatches: accumulator.cacheWriteUnreportedDispatches,
+    cacheWriteUnitemizedDispatches: accumulator.cacheWriteUnitemizedDispatches,
   };
 }
 function emptyAccumulator(): UsageAccumulator {
@@ -767,6 +812,8 @@ function emptyAccumulator(): UsageAccumulator {
     },
     usageReportedDispatches: 0,
     usageUnavailableDispatches: 0,
+    cacheWriteUnreportedDispatches: 0,
+    cacheWriteUnitemizedDispatches: 0,
   };
 }
 function sessionOutcomesOf(
@@ -778,7 +825,7 @@ function sessionOutcomesOf(
   return {
     succeededSessions: ended("succeeded"),
     failedSessions: ended("failed"),
-    abortedSessions: ended("aborted"),
+    cancelledSessions: ended("cancelled"),
   };
 }
 
@@ -810,6 +857,8 @@ const totalsFields = [
   "toolCallCount",
   "usageReportedDispatches",
   "usageUnavailableDispatches",
+  "cacheWriteUnreportedDispatches",
+  "cacheWriteUnitemizedDispatches",
   "unpricedTokens",
 ];
 /** Counter fields without the exact-key-count rule — member rows carry id/name on top. */
@@ -817,7 +866,7 @@ function hasTotalsFields(value: Record<string, unknown>): boolean {
   return totalsFields.every((field) => nonNegativeInteger(value[field])) && nonNegativeNumber(value.costUsd);
 }
 function validTotals(value: unknown): boolean {
-  return isRecord(value) && Object.keys(value).length === 11 && hasTotalsFields(value);
+  return isRecord(value) && Object.keys(value).length === 13 && hasTotalsFields(value);
 }
 function validBucket(value: unknown): boolean {
   return (
@@ -897,12 +946,12 @@ export function validateAgentRuntimeTokenUsage(value: unknown): readonly string[
     isoTimestamp(value.previous.until) &&
     validTotals(value.previous.totals) &&
     Array.isArray(value.agents) &&
-    value.agents.every((row) => validRow(row, 16, "agentId", "agentName")) &&
+    value.agents.every((row) => validRow(row, 18, "agentId", "agentName")) &&
     Array.isArray(value.squads) &&
-    value.squads.every((row) => validRow(row, 16, "squadId", "squadName")) &&
+    value.squads.every((row) => validRow(row, 18, "squadId", "squadName")) &&
     Array.isArray(value.models) &&
     value.models.length <= tokenUsageInsightLimits.models &&
-    value.models.every((row) => validRow(row, 15, "model")) &&
+    value.models.every((row) => validRow(row, 17, "model")) &&
     validTokenUsageInsights(value, (value.buckets as readonly unknown[]).length)
     ? []
     : ["agent runtime token usage is invalid"];

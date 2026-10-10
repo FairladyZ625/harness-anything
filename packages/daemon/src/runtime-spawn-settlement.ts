@@ -10,6 +10,7 @@ import {
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import { pushWorkerBranch, squadWorkerBranchHasDelivery, workerBranchHasDelivery } from "./runtime-worker-push.ts";
+import { cacheWriteTokensOfUsage } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
@@ -81,7 +82,7 @@ export async function publishExit(
     const runtimeMetrics = {
       inputTokens: active.inputTokens,
       cacheReadTokens: active.cacheReadTokens,
-      cacheWriteTokens: active.cacheWriteTokens,
+      ...(cacheWriteTokensOfUsage(active.rawUsage) === null ? {} : { cacheWriteTokens: active.cacheWriteTokens }),
       outputTokens: active.outputTokens,
       totalTokens: active.inputTokens + active.outputTokens,
       toolCallCount: active.toolCallCount,

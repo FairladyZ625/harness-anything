@@ -621,6 +621,14 @@ test("runtime usage extracts protocol cache fields and normalizes inclusive inpu
       write: 5,
     },
     {
+      // codex 平铺字段名(生产 rollout 记录实测形状):同样进缓存写计数。
+      kind: "codex",
+      usage: { input_tokens: 90, cached_input_tokens: 60, cache_write_input_tokens: 7, output_tokens: 2 },
+      input: 90,
+      cache: 60,
+      write: 7,
+    },
+    {
       kind: "opencode",
       usage: { promptTokens: 50, input_tokens_details: { cached_tokens: 30 }, outputTokens: 2 },
       input: 50,

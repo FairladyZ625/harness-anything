@@ -13,9 +13,10 @@ import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/loca
  *
  * 种子覆盖验收要的每种状态:今天全有价(页首无未计价提示)/ 7 天含 swe2 无价用量(页首
  * 占比提示 + 模型行「无价格」)/ 一次 <$0.01 的小额派工 / 跨小时的趋势桶 / 缓存写独立计价
- * (d1 gpt 与 d4 opus 带 cacheWriteTokens,写价 = 输入价 1.25 倍;p2 是缺字段的历史记录形状,
- * 读侧按写入 0 计)。断言用实算金额(价格表 agent-runtime-model-pricing.ts 的单价 × 种子
- * 计数),改价或改显示格式都会红。
+ * (d1 gpt 与 d4 opus 带 cacheWriteTokens,写价 = 输入价 1.25 倍;raw 都不带缓存写字段的
+ * 派工按「不报」口径显示,p2 是独立计数落地前的历史形状:raw 带 cache_creation_input_tokens
+ * 但记录缺计数,读侧按「未单列」显示)。断言用实算金额(价格表 agent-runtime-model-pricing.ts
+ * 的单价 × 种子计数),改价或改显示格式都会红。
  */
 const REPO_ATTACHMENT_TIMEOUT_MS = 20_000,
   HOUR = 3_600_000,
@@ -135,6 +136,13 @@ const now = Date.now(),
       model: "gpt-5.6-sol",
       taskId: "task-cost-impl",
       metrics: { inputTokens: 40_000_000, cacheReadTokens: 38_000_000, outputTokens: 1_000_000, toolCallCount: 120 },
+      // 独立计数落地前的 claude 式历史形状:raw 报了缓存写,记录里没有单独计数。
+      raw: {
+        input_tokens: 40_000_000,
+        cache_read_input_tokens: 38_000_000,
+        cache_creation_input_tokens: 900_000,
+        output_tokens: 1_000_000,
+      },
       cost: 43.2,
     },
   ],
@@ -195,7 +203,7 @@ function seedDispatchStreams(rootDir) {
           ...spec.metrics,
           totalTokens: totalTokensOf(spec.metrics),
           compacted: false,
-          raw: {},
+          raw: spec.raw ?? {},
           usageUnavailable: false,
         },
         { schema: streamSchema, kind: "process_exit", occurredAt: endedAt, exitCode: 0, signal: null },
@@ -213,7 +221,7 @@ export default {
   feature: "token-usage",
   lane: "isolated",
   description:
-    "Seeded list-price amounts render on the real token usage read: headline carries the converted cost with the price-table version and the unpriced share only when one exists, the model ranking badges no-price models and keeps sub-cent rows non-zero, the trend readout and table carry per-bucket costs, the member detail totals include the cost row, and task/work grouping rows convert the same usage.",
+    "Seeded list-price amounts render on the real token usage read: the headline shows tokens and converted cost as parallel 44px metrics (each with its own change, plus the lower-bound precision note), ranking rows carry amount and tokens on one baseline, donut and line presentations render with both metrics at both bases, the model ranking badges no-price models and keeps sub-cent rows non-zero, the trend readout and table carry per-bucket costs, the member detail totals include the cost row, and task/work grouping rows convert the same usage.",
   async run({ page, fixture, shot }) {
     assert.ok(fixture, "the token-usage-costs scenario needs the isolated lane fixture");
     // 仓先 warming 后 attached:金额读在 warming 期会被拒,先等系统读面说仓已挂载。
@@ -242,13 +250,39 @@ export default {
     const costLine = page.getByTestId("token-usage-cost");
     await costLine.waitFor();
 
-    // ①a 今天全有价:金额 + 折算口径 + 版本日期,没有未计价提示。
+    // ①a 今天全有价:金额 + 折算口径 + 版本日期,没有未计价提示;计价与用量是同高度的
+    // 并列主指标(两个 44px 主数字,金额侧自带环比与下界口径)。
     await assertCostLine(costLine, { cost: "$260.96", unpriced: false });
+    const metricHeadlineClass = async (testId) =>
+      (await view.getByTestId(testId).locator("p").first().getAttribute("class")) ?? "";
+    assert.match(
+      await metricHeadlineClass("token-usage-totals"),
+      /text-\[44px\]/u,
+      "the token metric must be a 44px headline number",
+    );
+    assert.match(
+      await metricHeadlineClass("token-usage-cost"),
+      /text-\[44px\]/u,
+      "the converted-cost metric must be a 44px headline number beside the token one",
+    );
+    await view.getByTestId("token-usage-cost-change").waitFor();
     await shot("headline-today-all-priced");
 
     // ①b 7 天含无价用量(swe2):页首出现未计价占比提示。
     await clickOption(page, "时间范围", "7 天");
     await assertCostLine(costLine, { cost: "$304.16", unpriced: true });
+    // 口径行带实测计数:5 个派工的 provider 不报缓存写字段(d2/d3/d5/d6/p1),p2 一笔未单列。
+    const note7d = await view.getByTestId("token-usage-cache-write-note").innerText();
+    assert.match(
+      note7d,
+      /5 个派工|5 dispatches/u,
+      `the 7d cache-write note must count the unreported dispatches: ${note7d}`,
+    );
+    assert.match(
+      note7d,
+      /1 个派工在独立计数前结算|1 further dispatches/u,
+      `the 7d cache-write note must count the pre-counter dispatch: ${note7d}`,
+    );
     await shot("headline-7d-unpriced");
 
     // ② 模型排行:swe2 行「无价格」+ 有价模型的金额列。
@@ -270,6 +304,19 @@ export default {
     const geminiRow = page.getByTestId("token-usage-row-gemini-3.8-flash-high");
     await geminiRow.waitFor();
     assert.match(await geminiRow.innerText(), /<\$0\.01/u, "the sub-cent row must stay non-zero");
+    // 缓存写列的三种口径:GLM-5.3 的 raw 用量不带该字段 →「不报」;gpt 已单列 → 真实 6M。
+    const glmRow = page.getByTestId("token-usage-row-GLM-5.3");
+    await glmRow.waitFor();
+    assert.match(
+      await glmRow.innerText(),
+      /不报|Not reported/u,
+      "a model whose provider usage has no cache-write field must be labeled, not zero",
+    );
+    assert.match(
+      await page.getByTestId("token-usage-row-gpt-5.6-sol").innerText(),
+      /6M/u,
+      "the itemized cache-write counter must render its real amount",
+    );
     await geminiRow.scrollIntoViewIfNeeded();
     await shot("model-table-small-cost");
     await clickOption(page, "呈现方式", "图表", page.getByTestId("token-usage-ranking-card"));
@@ -313,6 +360,35 @@ export default {
     await shot("trend-table");
     await clickOption(page, "呈现方式", "图表", page.getByTestId("token-usage-trend-card"));
 
+    // ④c 折线呈现:每个系列一条线,悬停/键盘明细与柱状同一条路。
+    await clickOption(page, "呈现方式", "折线", page.getByTestId("token-usage-trend-card"));
+    const trendLine = page.getByTestId("token-usage-trend-line");
+    await trendLine.waitFor();
+    assert.ok(
+      (await trendLine.locator("polyline").count()) >= 1,
+      "the line presentation must draw one line per series",
+    );
+    await shot("trend-line");
+    await clickOption(page, "呈现方式", "图表", page.getByTestId("token-usage-trend-card"));
+
+    // ④d 环形占比:弧长按所选口径,环心同给总量与总金额;图例行金额、token、占比并排。
+    await clickOption(page, "呈现方式", "环形", page.getByTestId("token-usage-ranking-card"));
+    const share = page.getByTestId("token-usage-share");
+    await share.waitFor();
+    const shareCenter = await page.getByTestId("token-usage-share-center").innerText();
+    assert.match(shareCenter, /\$260\.96/u, "the donut center must carry the window cost beside the token total");
+    // 此时窗口是「今天」:gpt-5.6-sol = d1 $186.80 + d3 $18.00(7 天口径的 $248 在 ② 已验)。
+    assert.match(
+      await page.getByTestId("token-usage-share-row-gpt-5.6-sol").innerText(),
+      /\$204\.80/u,
+      "the donut legend row must carry the model's converted amount next to its tokens",
+    );
+    await shot("share-donut-model");
+    await clickOption(page, "环形占比", "金额");
+    await shot("share-donut-cost-basis");
+    await clickOption(page, "环形占比", "token 量");
+    await clickOption(page, "呈现方式", "图表", page.getByTestId("token-usage-ranking-card"));
+
     // ⑤ 成员详情:单 Worker 视角点 Astra,详情总量卡带金额行($204.80 = d1+d3+d5)。
     await clickOption(page, "消耗视角", "单 Worker");
     await page.getByTestId("token-usage-rank-astra").waitFor();
@@ -342,6 +418,16 @@ export default {
     );
     await shot("spend-by-works");
 
+    // ⑥b 窄屏(900px):并列主指标折成上下两行仍然都在,环形图与排行在窄容器可用。
+    await clickOption(page, "消耗视角", "模型");
+    await clickOption(page, "呈现方式", "环形", page.getByTestId("token-usage-ranking-card"));
+    await page.getByTestId("token-usage-share").waitFor();
+    await page.setViewportSize({ width: 900, height: 1400 });
+    await view.getByTestId("token-usage-cost").scrollIntoViewIfNeeded();
+    await shot("narrow-900-share-donut");
+    await page.setViewportSize({ width: 1440, height: 1400 });
+    await clickOption(page, "呈现方式", "图表", page.getByTestId("token-usage-ranking-card"));
+
     // ⑦ 英文页首:走真实设置页切换语言后回看(业主要求的英文页首截图)。
     await page.getByRole("button", { name: /^(?:设置|Settings)$/u }).click();
     await page.getByTestId("settings-content").waitFor();
@@ -353,11 +439,12 @@ export default {
   },
 };
 
-/** 页首金额行断言:金额、折算口径(必须明说非实际花费)、版本日期、未计价提示只在有无价用量时出现。 */
+/** 页首金额行断言:金额、折算口径(必须明说非实际花费)、版本日期、未计价提示只在有无价用量时出现。
+ * 金额后紧跟单位词(innerText 无空格),边界用「后面不是数字」而不是 \b。 */
 async function assertCostLine(costLine, { cost, unpriced, english = false }) {
   await costLine.scrollIntoViewIfNeeded();
   const text = await costLine.innerText();
-  assert.match(text, new RegExp(`\\${cost}\\b`, "u"), `the headline must carry ${cost}: ${text}`);
+  assert.match(text, new RegExp(`\\${cost}(?!\\d)`, "u"), `the headline must carry ${cost}: ${text}`);
   if (english) {
     assert.match(text, /price table 2026-10-10/u, "the English headline must date the price table");
     assert.match(text, /not actual spend/u, "the English headline must disclaim actual spend");

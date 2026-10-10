@@ -27,7 +27,7 @@ import { Empty } from "../primitives/Empty.tsx";
 const OUTCOME_TONE: Readonly<Record<AgentRuntimeTokenUsageResult["outcomes"][number]["outcome"], StatusTone>> = {
   succeeded: "done",
   failed: "bad",
-  aborted: "cancel",
+  cancelled: "cancel",
   running: "active",
   unknown: "neutral",
 };
@@ -387,7 +387,7 @@ function WorkerEfficiency({ workers }: { readonly workers: readonly AgentRuntime
           {workers.map((row) => {
             const rate = successRate(row) ?? 0,
               perSuccess = tokensPerSuccess(row),
-              ended = row.succeededSessions + row.failedSessions + row.abortedSessions;
+              ended = row.succeededSessions + row.failedSessions + row.cancelledSessions;
             return (
               <tr key={row.agentId} data-testid={`token-usage-efficiency-${row.agentId}`}>
                 <td className="max-w-0 w-[46%] border-t border-border py-2 pr-2 pl-3.5">
@@ -405,7 +405,7 @@ function WorkerEfficiency({ workers }: { readonly workers: readonly AgentRuntime
                       title={t("agentRuntime.tokenUsageSuccessTip", {
                         succeeded: String(row.succeededSessions),
                         failed: String(row.failedSessions),
-                        aborted: String(row.abortedSessions),
+                        cancelled: String(row.cancelledSessions),
                       })}
                     >
                       {percentText(rate)}
