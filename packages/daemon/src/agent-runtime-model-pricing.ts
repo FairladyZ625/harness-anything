@@ -55,10 +55,12 @@ export interface ModelPrice {
  *   normal input; the relay's GLM-5.3[1m] has no separate Z.ai list price and
  *   prices at the base rates
  * - Google: https://ai.google.dev/gemini-api/docs/pricing — gemini-3.8-flash
- *   and gemini-3.7-flash; the -high/-low suffixes are thinking-effort variants
- *   of the same model at the same rate; cache storage is billed per token-hour
- *   ($0.50/1M/h through 2026), which no per-dispatch counter can reconstruct —
- *   writes bill as normal input
+ *   and gemini-3.7-flash; the page lists the flash family (3.6/3.8 checked
+ *   2026-10-10) at one shared rate, so 3.7 prices at that family rate even
+ *   where the page does not list it separately; the -high/-low suffixes are
+ *   thinking-effort variants of the same model at the same rate; cache storage
+ *   is billed per token-hour ($0.50/1M/h through 2026), which no per-dispatch
+ *   counter can reconstruct — writes bill as normal input
  * - xAI: https://docs.x.ai/docs/models — grok-4.6[1m] is the relay's
  *   1M-context annotation of grok-4.6; xAI publishes no [1m] variant (grok-4.6
  *   is 500k context) and no cache-write rate, so it prices at the base <200K

@@ -439,6 +439,16 @@ describe("TokenUsageView", () => {
     expect(cost).toContain("converted at public API list prices, not actual spend");
     expect(cost).toContain("price table 2026-10-10");
     expect(cost).toContain("0.8% of usage (120 tokens) has no public price and is excluded");
+    // 计价与用量同等分量:两个主指标同为 44px 主数字,金额侧有自己的环比
+    // (0.07598 对 0.056,显示 +36%;参照段金额 $0.06)与「哪些是下界」的口径说明。
+    expect(byTestId(container, "token-usage-totals").querySelector("p")?.className).toContain("text-[44px]");
+    expect(byTestId(container, "token-usage-cost").querySelector("p")?.className).toContain("text-[44px]");
+    const costChange = byTestId(container, "token-usage-cost-change").textContent ?? "";
+    expect(costChange).toContain("36%");
+    expect(costChange).toContain("more than the same hours yesterday ($0.06 then)");
+    expect(byTestId(container, "token-usage-cost-precision").textContent).toContain(
+      "long-context, peak-hour and cache-storage surcharges are not applied",
+    );
     // 四个关键数字:会话、缓存命中率(340/13,500)、白花(2,100/15,000)、未上报。
     const view = byTestId(container, "token-usage-view").textContent ?? "";
     expect(view).toContain("Cache hit rate2.5%");
@@ -456,6 +466,17 @@ describe("TokenUsageView", () => {
     const container = await renderView();
     expect(byTestId(container, "token-usage-change").textContent).toBe(
       "No consumption in the same hours yesterday to compare against",
+    );
+  });
+
+  it("says the cost has no base when the previous period has no priced amount", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue({
+      ...usage,
+      previous: { ...usage.previous, totals: { ...usage.previous.totals, costUsd: 0 } },
+    });
+    const container = await renderView();
+    expect(byTestId(container, "token-usage-cost-change").textContent).toBe(
+      "No converted amount in the same hours yesterday to compare against",
     );
   });
 
@@ -529,8 +550,11 @@ describe("TokenUsageView", () => {
     expect(rankRow.textContent).toContain("2.1K");
     expect(rankRow.textContent).toContain("14%");
     expect(rankRow.textContent).toContain("2 sessions · 17 tool calls");
-    // 行 meta 带按 API 公开价折算的金额(不足一分钱写 <$0.01)。
-    expect(rankRow.textContent).toContain("<$0.01");
+    // 金额与 token 量同一层级:同一行的兄弟格(与「花在什么事上」同序:金额、量、占比)。
+    const line = rankRow.querySelector("span")!;
+    const cells = [...line.children].map((cell) => cell.textContent);
+    expect(cells).toContain("<$0.01");
+    expect(cells.indexOf("<$0.01")).toBeLessThan(cells.indexOf("2.1K"));
     // 未上报成员显示徽标而不是 0。
     expect(byTestId(container, "token-usage-rank-sol").textContent).toContain("Not reported");
     // 模型排行:量级差 100 倍以上默认对数刻度,小的那条仍然看得出长度;模型行不可点。
@@ -548,6 +572,65 @@ describe("TokenUsageView", () => {
     act(() => findButton(container, "Linear").click());
     expect(barWidth(byTestId(container, "token-usage-rank-swe2"))).toBeCloseTo((120 / 12_900) * 100, 3);
     expect(byTestId(container, "token-usage-rank-swe2").textContent).toContain("0.8%");
+  });
+
+  it("presents the ranking as a donut with tokens and cost side by side on both bases", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    act(() => findButton(container, "Donut").click());
+    // 环心同时给窗口总量与总金额:两个数同层级。
+    const center = byTestId(container, "token-usage-share-center").textContent ?? "";
+    expect(center).toContain("15K");
+    expect(center).toContain("$0.08");
+    // 图例行金额、token、占比并排;未上报成员显示徽标而不是 0。
+    const terra = byTestId(container, "token-usage-share-row-terra").textContent ?? "";
+    expect(terra).toContain("<$0.01");
+    expect(terra).toContain("2.1K");
+    expect(terra).toContain("14%");
+    expect(byTestId(container, "token-usage-share-row-sol").textContent).toContain("Not reported");
+    // token 口径下零值成员无弧:Worker 视角只有 terra 一条弧。
+    expect(container.querySelectorAll('[data-testid^="token-usage-share-arc-"]').length).toBe(1);
+    // 模型维度:两个有值模型两条弧;无价格模型的金额格写「无价格」。
+    act(() => findButton(container, "Model").click());
+    expect(container.querySelectorAll('[data-testid^="token-usage-share-arc-"]').length).toBe(2);
+    expect(byTestId(container, "token-usage-share-row-swe2").textContent).toContain("no price");
+    // 金额口径:无价模型金额为 0、无弧,只剩有价模型一条弧;环心口径不变。
+    act(() => findButton(container, "Cost").click());
+    expect(container.querySelectorAll('[data-testid^="token-usage-share-arc-"]').length).toBe(1);
+    expect(byTestId(container, "token-usage-share-center").textContent).toContain("$0.08");
+    // 点图例行打开成员详情,与清单同一条路。
+    act(() => findButton(container, "Tokens").click());
+    act(() => findButton(container, "Worker").click());
+    act(() => byTestId(container, "token-usage-share-row-terra").click());
+    expect(focusedMemberRef).toBe("tokenAgent/terra");
+  });
+
+  it("draws one line per series for the trend and reads a bucket out on hover and arrow keys", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    act(() => findButton(byTestId(container, "token-usage-trend-card"), "Line").click());
+    const chart = byTestId(container, "token-usage-trend-line"),
+      svg = chart.querySelector("svg")!;
+    // 四类 token 各一条线;纵轴最高刻度不低于最高单层值(新输入 13,156)。
+    expect(chart.querySelectorAll("polyline").length).toBe(4);
+    expect([...svg.querySelectorAll("text")].some((text) => text.textContent === "15K")).toBe(true);
+    expect(container.querySelector('[data-testid="token-usage-trend-readout"]')).toBeNull();
+    // 悬停第一桶:明细复用柱状的同一条路,给出每层数值与占比。
+    const hit = svg.querySelector("rect[fill='transparent']")!;
+    act(() => {
+      hit.dispatchEvent(new Event("pointermove", { bubbles: true }));
+    });
+    const readout = byTestId(container, "token-usage-trend-readout").textContent ?? "";
+    expect(readout).toContain("2.1K");
+    expect(readout).toContain("Cache read340");
+    expect(readout).toContain("converted <$0.01");
+    // 键盘右键移到下一桶(总量峰值桶)。
+    act(() => {
+      svg.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    expect(byTestId(container, "token-usage-trend-readout").textContent).toContain("12.9K");
+    // 图例带窗口合计与占比,与柱状共用。
+    expect(byTestId(container, "token-usage-trend-legend").textContent).toContain("Cache read");
   });
 
   it("opens the member detail by ref, with session/task jumps and back", async () => {

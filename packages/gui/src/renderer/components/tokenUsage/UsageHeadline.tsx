@@ -11,6 +11,7 @@ import {
   tokenKinds,
   tokenUsagePreviousKey,
   unpricedShare,
+  usageIsUnpriced,
   usageIsUnreported,
   wastedSpend,
 } from "../../token-usage-model.ts";
@@ -18,22 +19,24 @@ import { t } from "../../i18n/index.tsx";
 import { Region } from "../primitives/Region.tsx";
 
 /**
- * 页首结论区:一个大数字(这段时间一共花了多少)加环比,旁边是三类 token 的构成条,下面四个
- * 关键数字(会话、缓存命中率、白花、未上报)。金额一行紧跟大数字:按 API 公开价折算,不是
- * 实际花费;价格表版本随行,未计价用量占比注明。有派工未上报用量时明说总量是下界。
+ * 页首结论区:两个并列主指标(左 token 量、右 API 折算计价,同为 44px 主数字,各自带环比),
+ * 下面是四类 token 的构成条,再下四个关键数字(会话、缓存命中率、白花、未上报)。金额侧写明
+ * 口径:按 API 公开价折算、非实际花费、价格表版本随行、未计价用量占比注明,以及哪些场景是
+ * 下界(基础档单价、阶梯加价未计入)。有派工未上报用量时明说总量是下界。
  */
 export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageResult }) {
   const { totals, previous } = data,
     parts = tokenComposition(totals),
     change = periodChange(totals.totalTokens, previous.totals.totalTokens),
+    costChange = periodChange(totals.costUsd, previous.totals.costUsd),
     hitRate = cacheHitRate(totals),
     wasted = wastedSpend(data.outcomes),
     previousLabel = t(tokenUsagePreviousKey[data.range]),
     unpriced = unpricedShare(totals);
   return (
     <Region title={t("agentRuntime.tokenUsageHeadlineTitle")} padded>
-      <div data-testid="token-usage-totals" className="flex flex-wrap items-end gap-x-10 gap-y-4 pt-1">
-        <div className="min-w-0">
+      <div className="flex flex-wrap items-end gap-x-10 gap-y-4 pt-1">
+        <div className="min-w-0" data-testid="token-usage-totals">
           <p
             className="font-mono text-[44px] font-semibold leading-none tracking-[-0.01em] tabular-nums text-text"
             title={exactTokens(totals.totalTokens)}
@@ -61,8 +64,47 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
               </>
             )}
           </p>
-          <p data-testid="token-usage-cost" className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5 ui-meta">
-            <span className="font-mono font-semibold tabular-nums text-text">{usdText(totals.costUsd)}</span>
+        </div>
+        <div className="min-w-0" data-testid="token-usage-cost">
+          <p
+            className="font-mono text-[44px] font-semibold leading-none tracking-[-0.01em] tabular-nums text-text"
+            title={usageIsUnpriced(totals) ? undefined : `$${totals.costUsd.toFixed(4)}`}
+          >
+            {usageIsUnpriced(totals) ? (
+              <span className="font-sans text-[28px] font-semibold leading-none text-status-submitted">
+                {t("agentRuntime.tokenUsageCostNoPrice")}
+              </span>
+            ) : (
+              usdText(totals.costUsd)
+            )}
+            <span className="ml-2 font-sans ui-body font-normal tracking-normal text-text-faint">
+              {t("agentRuntime.tokenUsageCostMetricUnit")}
+            </span>
+          </p>
+          <p data-testid="token-usage-cost-change" className="mt-2.5 flex flex-wrap items-center gap-x-2 ui-meta">
+            {costChange === null ? (
+              <span className="text-text-faint">
+                {t("agentRuntime.tokenUsageCostChangeNoBase", { previous: previousLabel })}
+              </span>
+            ) : (
+              <>
+                <span className="inline-flex items-center gap-0.5 rounded-xs bg-text/8 px-1.5 py-px font-mono font-semibold tabular-nums text-text">
+                  {costChange >= 0 ? <ArrowUp aria-hidden="true" /> : <ArrowDown aria-hidden="true" />}
+                  {percentText(Math.abs(costChange))}
+                </span>
+                <span className="text-text-muted">
+                  {t(
+                    costChange >= 0 ? "agentRuntime.tokenUsageCostChangeUp" : "agentRuntime.tokenUsageCostChangeDown",
+                    {
+                      previous: previousLabel,
+                      cost: usdText(previous.totals.costUsd),
+                    },
+                  )}
+                </span>
+              </>
+            )}
+          </p>
+          <p className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5 ui-meta">
             <span className="text-text-muted">{t("agentRuntime.tokenUsageCostConverted")}</span>
             <span className="text-text-faint">
               {t("agentRuntime.tokenUsageCostVersion", { version: data.pricing.version })}
@@ -76,8 +118,11 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
               </span>
             ) : null}
           </p>
+          <p data-testid="token-usage-cost-precision" className="mt-1 ui-meta text-text-faint">
+            {t("agentRuntime.tokenUsageCostPrecision")}
+          </p>
         </div>
-        <div className="min-w-[280px] flex-1" data-testid="token-usage-composition">
+        <div className="w-full min-w-[280px]" data-testid="token-usage-composition">
           <div className="flex h-3 gap-0.5 overflow-hidden rounded-xs bg-text/8" aria-hidden="true">
             {tokenKinds.map((kind) =>
               parts[kind] > 0 ? (
