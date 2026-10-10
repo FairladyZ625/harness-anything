@@ -13,9 +13,10 @@ import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/loca
  *
  * 种子覆盖验收要的每种状态:今天全有价(页首无未计价提示)/ 7 天含 swe2 无价用量(页首
  * 占比提示 + 模型行「无价格」)/ 一次 <$0.01 的小额派工 / 跨小时的趋势桶 / 缓存写独立计价
- * (d1 gpt 与 d4 opus 带 cacheWriteTokens,写价 = 输入价 1.25 倍;p2 是缺字段的历史记录形状,
- * 读侧按写入 0 计)。断言用实算金额(价格表 agent-runtime-model-pricing.ts 的单价 × 种子
- * 计数),改价或改显示格式都会红。
+ * (d1 gpt 与 d4 opus 带 cacheWriteTokens,写价 = 输入价 1.25 倍;raw 都不带缓存写字段的
+ * 派工按「不报」口径显示,p2 是独立计数落地前的历史形状:raw 带 cache_creation_input_tokens
+ * 但记录缺计数,读侧按「未单列」显示)。断言用实算金额(价格表 agent-runtime-model-pricing.ts
+ * 的单价 × 种子计数),改价或改显示格式都会红。
  */
 const REPO_ATTACHMENT_TIMEOUT_MS = 20_000,
   HOUR = 3_600_000,
@@ -135,6 +136,13 @@ const now = Date.now(),
       model: "gpt-5.6-sol",
       taskId: "task-cost-impl",
       metrics: { inputTokens: 40_000_000, cacheReadTokens: 38_000_000, outputTokens: 1_000_000, toolCallCount: 120 },
+      // 独立计数落地前的 claude 式历史形状:raw 报了缓存写,记录里没有单独计数。
+      raw: {
+        input_tokens: 40_000_000,
+        cache_read_input_tokens: 38_000_000,
+        cache_creation_input_tokens: 900_000,
+        output_tokens: 1_000_000,
+      },
       cost: 43.2,
     },
   ],
@@ -195,7 +203,7 @@ function seedDispatchStreams(rootDir) {
           ...spec.metrics,
           totalTokens: totalTokensOf(spec.metrics),
           compacted: false,
-          raw: {},
+          raw: spec.raw ?? {},
           usageUnavailable: false,
         },
         { schema: streamSchema, kind: "process_exit", occurredAt: endedAt, exitCode: 0, signal: null },
@@ -263,6 +271,18 @@ export default {
     // ①b 7 天含无价用量(swe2):页首出现未计价占比提示。
     await clickOption(page, "时间范围", "7 天");
     await assertCostLine(costLine, { cost: "$304.16", unpriced: true });
+    // 口径行带实测计数:5 个派工的 provider 不报缓存写字段(d2/d3/d5/d6/p1),p2 一笔未单列。
+    const note7d = await view.getByTestId("token-usage-cache-write-note").innerText();
+    assert.match(
+      note7d,
+      /5 个派工|5 dispatches/u,
+      `the 7d cache-write note must count the unreported dispatches: ${note7d}`,
+    );
+    assert.match(
+      note7d,
+      /1 个派工在独立计数前结算|1 further dispatches/u,
+      `the 7d cache-write note must count the pre-counter dispatch: ${note7d}`,
+    );
     await shot("headline-7d-unpriced");
 
     // ② 模型排行:swe2 行「无价格」+ 有价模型的金额列。
@@ -284,6 +304,19 @@ export default {
     const geminiRow = page.getByTestId("token-usage-row-gemini-3.8-flash-high");
     await geminiRow.waitFor();
     assert.match(await geminiRow.innerText(), /<\$0\.01/u, "the sub-cent row must stay non-zero");
+    // 缓存写列的三种口径:GLM-5.3 的 raw 用量不带该字段 →「不报」;gpt 已单列 → 真实 6M。
+    const glmRow = page.getByTestId("token-usage-row-GLM-5.3");
+    await glmRow.waitFor();
+    assert.match(
+      await glmRow.innerText(),
+      /不报|Not reported/u,
+      "a model whose provider usage has no cache-write field must be labeled, not zero",
+    );
+    assert.match(
+      await page.getByTestId("token-usage-row-gpt-5.6-sol").innerText(),
+      /6M/u,
+      "the itemized cache-write counter must render its real amount",
+    );
     await geminiRow.scrollIntoViewIfNeeded();
     await shot("model-table-small-cost");
     await clickOption(page, "呈现方式", "图表", page.getByTestId("token-usage-ranking-card"));

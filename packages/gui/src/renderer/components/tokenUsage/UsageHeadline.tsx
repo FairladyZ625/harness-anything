@@ -158,6 +158,20 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
           </dl>
           <p data-testid="token-usage-cache-write-note" className="mt-2 ui-meta text-text-faint">
             {t("agentRuntime.tokenUsageCacheWriteNote")}
+            {totals.cacheWriteUnreportedDispatches > 0 ? (
+              <span className="ml-1">
+                {t("agentRuntime.tokenUsageCacheWriteUnreportedCount", {
+                  count: String(totals.cacheWriteUnreportedDispatches),
+                })}
+              </span>
+            ) : null}
+            {totals.cacheWriteUnitemizedDispatches > 0 ? (
+              <span className="ml-1">
+                {t("agentRuntime.tokenUsageCacheWriteUnitemizedCount", {
+                  count: String(totals.cacheWriteUnitemizedDispatches),
+                })}
+              </span>
+            ) : null}
           </p>
         </div>
       </div>

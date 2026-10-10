@@ -19,6 +19,7 @@ import {
   rankBarShare,
   rankLogFloor,
   rankScaleFor,
+  cacheWriteCaveat,
   sessionBinLabel,
   successRate,
   tokenComposition,
@@ -33,7 +34,7 @@ import { percentText, preciseTokens } from "../src/renderer/token-format.ts";
  * 成员详情经 focusedEntityRef 推栈并能跳会话/任务。
  */
 
-const noOutcomes = { succeededSessions: 0, failedSessions: 0, abortedSessions: 0 };
+const noOutcomes = { succeededSessions: 0, failedSessions: 0, cancelledSessions: 0 };
 
 const usage: AgentRuntimeTokenUsageResult = {
   ok: true,
@@ -51,6 +52,8 @@ const usage: AgentRuntimeTokenUsageResult = {
     toolCallCount: 57,
     usageReportedDispatches: 2,
     usageUnavailableDispatches: 3,
+    cacheWriteUnreportedDispatches: 0,
+    cacheWriteUnitemizedDispatches: 0,
     // 新输入 13,156×$4 + 缓存读 340×$0.4 + 缓存写 4×$5 + 输出 1,160×$20(每 1M,gpt-5.6-sol 价,
     // 写价 = 输入价 1.25 倍)。
     costUsd: 0.075_98,
@@ -99,9 +102,11 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 17,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       succeededSessions: 1,
       failedSessions: 1,
-      abortedSessions: 0,
+      cancelledSessions: 0,
       costUsd: 0.009_98,
       unpricedTokens: 0,
     },
@@ -117,6 +122,8 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 3,
       usageReportedDispatches: 0,
       usageUnavailableDispatches: 2,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       ...noOutcomes,
       costUsd: 0,
       unpricedTokens: 0,
@@ -135,6 +142,8 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 40,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 1,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       ...noOutcomes,
       costUsd: 0.066,
       unpricedTokens: 0,
@@ -152,9 +161,11 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 40,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       succeededSessions: 1,
       failedSessions: 0,
-      abortedSessions: 0,
+      cancelledSessions: 0,
       costUsd: 0.066,
       unpricedTokens: 0,
     },
@@ -169,9 +180,11 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 17,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       succeededSessions: 1,
       failedSessions: 1,
-      abortedSessions: 0,
+      cancelledSessions: 0,
       costUsd: 0,
       unpricedTokens: 120,
     },
@@ -189,6 +202,8 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 20,
       usageReportedDispatches: 2,
       usageUnavailableDispatches: 0,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       costUsd: 0.056,
       unpricedTokens: 0,
     },
@@ -265,7 +280,7 @@ const usage: AgentRuntimeTokenUsageResult = {
   outcomes: [
     { outcome: "succeeded", sessionCount: 1, totalTokens: 12_900 },
     { outcome: "failed", sessionCount: 1, totalTokens: 1_500 },
-    { outcome: "aborted", sessionCount: 1, totalTokens: 600 },
+    { outcome: "cancelled", sessionCount: 1, totalTokens: 600 },
     { outcome: "running", sessionCount: 0, totalTokens: 0 },
     { outcome: "unknown", sessionCount: 0, totalTokens: 0 },
   ],
@@ -301,6 +316,8 @@ const detail: AgentRuntimeTokenUsageDetailResult = {
     toolCallCount: 17,
     usageReportedDispatches: 2,
     usageUnavailableDispatches: 0,
+    cacheWriteUnreportedDispatches: 0,
+    cacheWriteUnitemizedDispatches: 0,
     costUsd: 0.009_98,
     unpricedTokens: 0,
   },
@@ -452,7 +469,7 @@ describe("TokenUsageView", () => {
     // 四个关键数字:会话、缓存命中率(340/13,500)、白花(2,100/15,000)、未上报。
     const view = byTestId(container, "token-usage-view").textContent ?? "";
     expect(view).toContain("Cache hit rate2.5%");
-    expect(view).toContain("Spent on failed or aborted14%");
+    expect(view).toContain("Spent on failed or cancelled14%");
     expect(view).toContain("2 sessions, 2.1K tokens");
     // 每一条文案的插值都被填上。
     expect(view).not.toMatch(/\{[a-zA-Z]+\}/u);
@@ -672,6 +689,80 @@ describe("TokenUsageView", () => {
     expect(byTestId(container, "token-usage-row-sol").textContent).toContain("—");
   });
 
+  it("labels cache-write cells that are not real zeros: not reported, not itemized", async () => {
+    // 三种生产形状(任务 explainer 05 节):provider 不报该字段 → 「不报」;独立计数落地前
+    // 结算的记录 → 「未单列」(写入并在新输入);已单列的真实 0 仍显示 0。
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue({
+      ...usage,
+      totals: { ...usage.totals, cacheWriteUnreportedDispatches: 2, cacheWriteUnitemizedDispatches: 1 },
+      models: [
+        {
+          model: "glm-real-zero",
+          sessionCount: 1,
+          inputTokens: 1_000,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 10,
+          totalTokens: 1_010,
+          toolCallCount: 1,
+          usageReportedDispatches: 2,
+          usageUnavailableDispatches: 0,
+          cacheWriteUnreportedDispatches: 0,
+          cacheWriteUnitemizedDispatches: 0,
+          succeededSessions: 1,
+          failedSessions: 0,
+          cancelledSessions: 0,
+          costUsd: 0,
+          unpricedTokens: 1_010,
+        },
+        {
+          model: "devin-neutral",
+          sessionCount: 1,
+          inputTokens: 900,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 9,
+          totalTokens: 909,
+          toolCallCount: 1,
+          usageReportedDispatches: 2,
+          usageUnavailableDispatches: 0,
+          cacheWriteUnreportedDispatches: 2,
+          cacheWriteUnitemizedDispatches: 0,
+          ...noOutcomes,
+          costUsd: 0,
+          unpricedTokens: 909,
+        },
+        {
+          model: "claude-legacy",
+          sessionCount: 1,
+          inputTokens: 800,
+          cacheReadTokens: 100,
+          cacheWriteTokens: 0,
+          outputTokens: 8,
+          totalTokens: 808,
+          toolCallCount: 1,
+          usageReportedDispatches: 1,
+          usageUnavailableDispatches: 0,
+          cacheWriteUnreportedDispatches: 0,
+          cacheWriteUnitemizedDispatches: 1,
+          ...noOutcomes,
+          costUsd: 0,
+          unpricedTokens: 808,
+        },
+      ],
+    });
+    const container = await renderView();
+    // 页首口径行带两个实测计数,不再只有静态说明。
+    const note = byTestId(container, "token-usage-cache-write-note").textContent ?? "";
+    expect(note).toContain("2 dispatches in this window came from providers whose usage reports no cache-write field");
+    expect(note).toContain("1 further dispatches settled before separate counting began");
+    act(() => findButton(container, "Model").click());
+    act(() => findButton(byTestId(container, "token-usage-ranking-card"), "Table").click());
+    expect(byTestId(container, "token-usage-row-glm-real-zero").textContent).toContain("0");
+    expect(byTestId(container, "token-usage-row-devin-neutral").textContent).toContain("Not reported");
+    expect(byTestId(container, "token-usage-row-claude-legacy").textContent).toContain("Not itemized");
+  });
+
   it("lists what the tokens were spent on by task title and opens the task", async () => {
     vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
     const container = await renderView();
@@ -719,7 +810,7 @@ describe("TokenUsageView", () => {
     expect(onSelectEntity).toHaveBeenCalledWith("session/runtime-big");
   });
 
-  it("shows what failed or aborted sessions cost and each worker's success rate", async () => {
+  it("shows what failed or cancelled sessions cost and each worker's success rate", async () => {
     vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
     const container = await renderView();
     const worth = byTestId(container, "token-usage-worth").textContent ?? "";
@@ -728,7 +819,7 @@ describe("TokenUsageView", () => {
     // 结果图例只列出现过的结果。
     const outcomes = byTestId(container, "token-usage-outcomes").textContent ?? "";
     expect(outcomes).toContain("Succeeded112.9K");
-    expect(outcomes).toContain("Aborted1600");
+    expect(outcomes).toContain("Cancelled1600");
     expect(outcomes).not.toContain("Running");
     const terra = byTestId(container, "token-usage-efficiency-terra").textContent ?? "";
     expect(terra).toContain("50%");
@@ -850,10 +941,30 @@ describe("token usage display model", () => {
     expect(periodChange(150, 100)).toBe(0.5);
     expect(periodChange(50, 100)).toBe(-0.5);
     expect(periodChange(50, 0)).toBeNull();
-    expect(successRate({ succeededSessions: 3, failedSessions: 1, abortedSessions: 0 })).toBe(0.75);
+    expect(successRate({ succeededSessions: 3, failedSessions: 1, cancelledSessions: 0 })).toBe(0.75);
     expect(successRate(noOutcomes)).toBeNull();
     expect(tokensPerSuccess({ totalTokens: 900, succeededSessions: 3 })).toBe(300);
     expect(tokensPerSuccess({ totalTokens: 900, succeededSessions: 0 })).toBeNull();
+  });
+
+  it("derives the cache-write caveat only when every reported dispatch lacks the field or the counter", () => {
+    const row = (patch: Partial<Parameters<typeof cacheWriteCaveat>[0]>) => ({
+      cacheWriteTokens: 0,
+      usageReportedDispatches: 2,
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
+      ...patch,
+    });
+    expect(cacheWriteCaveat(row({ cacheWriteUnreportedDispatches: 2 }))).toBe(
+      "agentRuntime.tokenUsageCacheWriteUnreported",
+    );
+    expect(cacheWriteCaveat(row({ usageReportedDispatches: 1, cacheWriteUnitemizedDispatches: 1 }))).toBe(
+      "agentRuntime.tokenUsageCacheWriteUnitemized",
+    );
+    // 真实 0、混合口径、没有已上报派工:都显示数字,没有徽标。
+    expect(cacheWriteCaveat(row({ cacheWriteUnreportedDispatches: 1 }))).toBeNull();
+    expect(cacheWriteCaveat(row({ cacheWriteTokens: 4 }))).toBeNull();
+    expect(cacheWriteCaveat(row({ usageReportedDispatches: 0, cacheWriteUnreportedDispatches: 0 }))).toBeNull();
   });
 
   it("formats shares, precise token counts and bin labels", () => {

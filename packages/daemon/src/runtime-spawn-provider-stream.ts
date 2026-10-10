@@ -220,11 +220,7 @@ function observeRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknow
       numberValue(usage.prompt_cache_hit_tokens) ??
       numberValue(usage.cachedContentTokenCount) ??
       numberValue(metadata?.cachedContentTokenCount),
-    cacheCreation =
-      numberValue(usage.cache_creation_input_tokens) ??
-      numberValue(usage.cacheWriteTokens) ??
-      numberValue(promptDetails?.cache_write_tokens) ??
-      numberValue(inputDetails?.cache_write_tokens),
+    cacheCreation = cacheWriteTokensOfUsage(usage),
     output =
       numberValue(usage.output_tokens) ??
       numberValue(usage.outputTokens) ??
@@ -247,6 +243,22 @@ function observeRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknow
   // cache-write field accumulate zero here, never an estimate.
   active.cacheWriteTokens += cacheCreation ?? 0;
   active.outputTokens += output ?? 0;
+}
+
+/** Cache-write tokens as the provider reported them, or null when its usage dialect carries no
+ * cache-write field. Single definition for both ends: the spawn counters accumulate it here,
+ * and the token-usage read calls it on the persisted raw usage to tell "provider reported
+ * zero writes" from "provider reports no write field" (the renderer labels the latter). */
+export function cacheWriteTokensOfUsage(usage: Record<string, unknown>): number | null {
+  const promptDetails = providerRecord(usage.prompt_tokens_details) ? usage.prompt_tokens_details : null,
+    inputDetails = providerRecord(usage.input_tokens_details) ? usage.input_tokens_details : null;
+  return (
+    numberValue(usage.cache_creation_input_tokens) ??
+    numberValue(usage.cacheWriteTokens) ??
+    numberValue(usage.cache_write_input_tokens) ??
+    numberValue(promptDetails?.cache_write_tokens) ??
+    numberValue(inputDetails?.cache_write_tokens)
+  );
 }
 
 function numberValue(value: unknown): number | null {
