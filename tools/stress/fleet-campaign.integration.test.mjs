@@ -2,7 +2,7 @@
 import { readEdgeManifestEntries } from "../../packages/daemon/src/fleet/replica-read-model.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,9 +25,10 @@ test("S4 consolidation reports missing scale artifacts as unverified instead of 
   assert.equal(evidence.measured.coldRebuilds, 0);
 });
 
-test("S4 consolidation derives three-seed totals only from validated current-run reports", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-scale-reports-")),
-    files = [1, 2, 3].map((seedNumber) => {
+test("S4 consolidation derives three-seed totals only from validated current-run reports", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-scale-reports-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const files = [1, 2, 3].map((seedNumber) => {
       const file = path.join(root, `seed-${seedNumber}.json`);
       writeFileSync(file, JSON.stringify(scaleReportFixture(seedNumber)));
       return file;

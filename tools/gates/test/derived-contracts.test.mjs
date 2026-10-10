@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -51,8 +51,9 @@ test("G11 validates workflow projections from the authoritative contract", async
   );
 });
 
-test("a gate may project into a secondary workflow; the primary workflow inventory ignores it and the secondary must carry its job and command", () => {
+test("a gate may project into a secondary workflow; the primary workflow inventory ignores it and the secondary must carry its job and command", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "derived-contracts-secondary-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   mkdirSync(path.join(rootDir, ".github/workflows"), { recursive: true });
   writeFileSync(
     path.join(rootDir, ".github/workflows/primary.yml"),

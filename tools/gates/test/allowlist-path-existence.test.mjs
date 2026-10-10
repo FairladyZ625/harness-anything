@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,7 +9,7 @@ import { captureGate, writeRepoFile } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
-test("B13 ratchet accepts live paths and rejects an allowlist row for a missing file", () => {
+test("B13 ratchet accepts live paths and rejects an allowlist row for a missing file", (t) => {
   const repository = captureGate(() => main(["--root", repoRoot, "--mode", "ratchet"]));
   assert.equal(repository.code, 0, repository.stderr || repository.stdout);
   assert.match(repository.stdout, /checked path-accounting entries \([1-9]\d*\)/u);
@@ -24,6 +24,7 @@ test("B13 ratchet accepts live paths and rejects an allowlist row for a missing 
   assert.doesNotMatch(positive.stdout, /packages does not exist/u);
 
   const unclassifiedRoot = mkdtempSync(path.join(tmpdir(), "allowlist-path-unclassified-"));
+  t.after(() => rmSync(unclassifiedRoot, { recursive: true, force: true }));
   writeRepoFile(
     unclassifiedRoot,
     "tools/gate-allowlists/new-governance-list.json",

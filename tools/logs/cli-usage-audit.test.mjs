@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -171,8 +171,9 @@ test("successful slow requests remain in the independent slow-call summary", () 
   assert.equal(report.slowCalls.successfulRequestCount, 1);
 });
 
-test("request log loader handles rotation files and reports long retention gaps", () => {
+test("request log loader handles rotation files and reports long retention gaps", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "cli-audit-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const first = path.join(root, "requests.jsonl.1"),
     second = path.join(root, "requests.jsonl");
   writeFileSync(
@@ -194,8 +195,9 @@ test("request log loader handles rotation files and reports long retention gaps"
   assert.equal(report.observation.rotationGaps[0].kind, "possible-retention-or-no-usage-gap");
 });
 
-test("denominator does not infer test coverage from unrelated source text", () => {
+test("denominator does not infer test coverage from unrelated source text", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "cli-audit-evidence-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const testFile = path.join(root, "command.test.ts"),
     sourceFile = path.join(root, "command.ts");
   writeFileSync(testFile, "task-show");
@@ -206,8 +208,9 @@ test("denominator does not infer test coverage from unrelated source text", () =
   assert.equal("productionReferences" in result[0], false);
 });
 
-test("loader records malformed lines and explicit unreadable files", () => {
+test("loader records malformed lines and explicit unreadable files", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "cli-audit-integrity-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const file = path.join(root, "requests.jsonl");
   writeFileSync(file, '{"schema":"daemon-request-log/v1","at":"2026-09-08T00:00:00.000Z","command":"read"}\n{bad}\n');
   const records = loadJsonl([file, path.join(root, "missing.jsonl")], "daemon-request-log/v1");
