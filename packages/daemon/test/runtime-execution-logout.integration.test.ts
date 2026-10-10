@@ -11,6 +11,7 @@ import {
   makeTaskEventReader,
   makeTaskProjection,
 } from "@harness-anything/kernel";
+import { openRepoCell } from "../src/repo-cell-open.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { dispatchStreamPath, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
@@ -74,10 +75,16 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
     finish();
   `,
   );
+  const opened = Promise.withResolvers<Awaited<ReturnType<typeof openRepoCell>>>();
   const daemon = await startDaemon({
     daemonId,
     userRoot,
     buildSupersessionEnabled: false,
+    openCell: (input) => {
+      const opening = openRepoCell(input);
+      opened.resolve(opening);
+      return opening;
+    },
     runtimeDiscover: () => [
       {
         installationId: "codex-fixture",
@@ -107,10 +114,10 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
       await rpc("repo.agentRuntime.cancel", { repo: { repoId }, payload: { runtimeSessionId } });
     }
   };
-  await eventuallyValue(async () => {
-    const status = await rpc("daemon.status", {});
-    return (status.repos as JsonObject[])?.some((repo) => repo.state === "attached") ? true : null;
-  });
+  // Observe the actual writer open; cold startup is not a provider-event polling budget.
+  await opened.promise;
+  const status = await rpc("daemon.status", {});
+  assert.ok((status.repos as JsonObject[]).some((repo) => repo.repoId === repoId && repo.state === "attached"));
   const instance = await rpc("daemon.runtimeInstance.create", {
     payload: {
       instanceId: "codex-worker",
