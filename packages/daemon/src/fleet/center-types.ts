@@ -5,7 +5,7 @@ import type { WriterEpochLease } from "../writer-epoch.ts";
 import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./contract.ts";
 import { type ReplicaDeliveryKey } from "./replica-ack-store.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import type { FleetLoginAuthority } from "./contract.ts";
+import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./contract.ts";
 
 export interface FleetCenterOptions {
   readonly host: Pick<
@@ -36,6 +36,7 @@ export interface FleetCenterOptions {
   /** The person a node acts for, re-read for every frame so a re-registration applies to the next one. */
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;
+  readonly deviceLoginNotice?: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) => void;
   readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
   readonly buildDraining?: () => boolean;
   readonly onDeliverySettled?: () => void;

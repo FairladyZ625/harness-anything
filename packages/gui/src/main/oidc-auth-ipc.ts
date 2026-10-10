@@ -64,6 +64,32 @@ export function registerOidcAuthIpc(
     logins.set(event.sender.id, controller);
     event.sender.once("destroyed", cancel);
     try {
+      const userCode = input && typeof input === "object" ? (input as Record<string, unknown>).userCode : undefined;
+      if (userCode !== undefined) {
+        if (typeof userCode !== "string" || !userCode) throw new Error("A device user code is required.");
+        const closed = new Promise<null>((resolve) =>
+          controller.signal.addEventListener("abort", () => resolve(null), { once: true }),
+        );
+        const begun = await Promise.race([daemonRequest({ operation: "device-approval", code: userCode }), closed]);
+        if (begun === null) return { ok: true };
+        const url = String(begun.authorizationUrl),
+          grant = ports.openLoginWebview?.({
+            authorizationUrl: url,
+            callbackOrigin: new URL(url).origin,
+            listenerReply: begun,
+          });
+        try {
+          controller.signal.throwIfAborted();
+          event.sender.send(OIDC_LOGIN_URL_CHANNEL, {
+            url,
+            ...(grant ? { partitionToken: grant.partitionToken } : {}),
+          });
+          await closed;
+          return { ok: true };
+        } finally {
+          grant?.release();
+        }
+      }
       return await embeddedBrowserLogin({
         daemonRequest: (params) => daemonRequest({ ...params, ...target }),
         openBrowser: (page) => event.sender.send(OIDC_LOGIN_URL_CHANNEL, page),

@@ -38,7 +38,11 @@ export interface EmbeddedLoginPage {
 }
 
 export interface OidcAuthApi {
-  readonly login: (repoId: string | undefined, openBrowser: (page: EmbeddedLoginPage) => void) => Promise<unknown>;
+  readonly login: (
+    repoId: string | undefined,
+    openBrowser: (page: EmbeddedLoginPage) => void,
+    userCode?: string,
+  ) => Promise<unknown>;
   readonly cancelLogin: () => Promise<unknown>;
   readonly logout: (repoId?: string) => Promise<unknown>;
   readonly status: (repoId?: string) => Promise<unknown>;

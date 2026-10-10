@@ -8,6 +8,7 @@ import type { OidcAuthApi } from "../../../api/oidc-auth-contract.ts";
 import { isRejection } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { BrowserView } from "../../views/BrowserView.tsx";
+import { formatTime } from "../../model/time.ts";
 import { DenseRow } from "../primitives/DenseRow.tsx";
 import type { RepoMode } from "../RepoModeBadge.tsx";
 import { Region } from "../primitives/Region.tsx";
@@ -17,6 +18,12 @@ import { Button } from "../primitives/Button.tsx";
 import { AccessNotice, INPUT, asRejection, useAccessRead } from "./AccessParts.tsx";
 
 type RecordValue = Record<string, unknown>;
+interface DeviceRequest {
+  readonly nodeId: string;
+  readonly userCode: string;
+  readonly createdAt: number;
+  readonly expiresAt: number;
+}
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -43,6 +50,7 @@ export function AccessServiceTab({
     [busy, setBusy] = useState(false),
     [feedback, setFeedback] = useState("");
   const [login, setLogin] = useState<{
+    readonly userCode?: string;
     readonly url?: string;
     readonly partitionToken?: string;
     readonly loadError?: string;
@@ -90,12 +98,26 @@ export function AccessServiceTab({
       );
   };
 
-  const signIn = () =>
+  useEffect(() => {
+    const refreshRequests = () =>
+      void auth.status(repoId).then(
+        (reply) => setSession(reply as RecordValue),
+        (error: unknown) => setFeedback(message(error)),
+      );
+    const interval = setInterval(refreshRequests, 3_000);
+    return () => clearInterval(interval);
+  }, [auth, repoId]);
+
+  const signIn = (userCode?: string) =>
     run(async () => {
       loggingIn.current = true;
-      setLogin({});
+      setLogin({ userCode });
       try {
-        await auth.login(repoId, (page) => setLogin({ url: page.url, partitionToken: page.partitionToken }));
+        await auth.login(
+          userCode ? undefined : repoId,
+          (page) => setLogin({ userCode, url: page.url, partitionToken: page.partitionToken }),
+          userCode,
+        );
       } finally {
         loggingIn.current = false;
         setLogin(null);
@@ -106,9 +128,9 @@ export function AccessServiceTab({
     return (
       <section className="flex min-h-0 flex-1 flex-col" data-testid="account-login">
         <header className="flex items-center justify-between gap-2 px-2 py-1">
-          <span>{t("identityAccess.signIn")}</span>
+          <span>{t(login.userCode ? "identityAccess.deviceApproval" : "identityAccess.signIn")}</span>
           <Button testId="account-login-cancel" onClick={() => void auth.cancelLogin()}>
-            {t("identityAccess.cancelLogin")}
+            {t(login.userCode ? "identityAccess.closeDeviceApproval" : "identityAccess.cancelLogin")}
           </Button>
         </header>
         {/* A failed page load keeps the panel: the reason stays visible and the sign-in itself runs
@@ -152,6 +174,37 @@ export function AccessServiceTab({
             <p role="alert" className="border-l-2 border-status-blocked px-3 py-2 text-status-blocked ui-meta">
               {feedback}
             </p>
+          ) : null}
+          {((session?.deviceLoginRequests as readonly DeviceRequest[] | undefined) ?? []).length > 0 ? (
+            <BoardRegion region="device-login" data-testid="device-login-requests">
+              <Region title={t("identityAccess.deviceRequests")}>
+                {(session!.deviceLoginRequests as readonly DeviceRequest[]).map((request) => (
+                  <DenseRow
+                    key={`${request.nodeId}:${request.userCode}`}
+                    relaxed
+                    title={
+                      <span data-testid={`device-login-${request.nodeId}`}>
+                        {t("identityAccess.deviceRequest", { node: request.nodeId })}
+                      </span>
+                    }
+                    reason={<span className="font-mono">{request.userCode}</span>}
+                    time={t("identityAccess.deviceTimes", {
+                      created: formatTime(new Date(request.createdAt).toISOString(), { style: "date-time-seconds" }),
+                      expires: formatTime(new Date(request.expiresAt).toISOString(), { style: "date-time-seconds" }),
+                    })}
+                    action={
+                      <Button
+                        testId={`device-approve-${request.nodeId}`}
+                        disabled={busy}
+                        onClick={() => void signIn(request.userCode)}
+                      >
+                        {t("identityAccess.approveDevice")}
+                      </Button>
+                    }
+                  />
+                ))}
+              </Region>
+            </BoardRegion>
           ) : null}
           {bootstrapRequired ? (
             <BoardRegion region="bootstrap">

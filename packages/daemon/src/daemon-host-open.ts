@@ -737,6 +737,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           throw hostCodedError("oidc_callback_invalid", "Login completion requires code and state.");
         return oidc.complete(request.code, request.state);
       }
+      if (request.operation === "device-approval") return oidc.deviceApproval(request.code ?? "");
       if (request.operation === "session") return oidc.status();
       if (request.operation === "logout") return oidc.logout();
       if (request.operation === "bootstrap-status") return oidc.bootstrapStatus();
@@ -850,6 +851,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           nodes: {
             ...keycloakNodeRegistry(hostContext.keycloakCenter),
             loginAuthority: (nodeId) => oidc.discovery(nodeId),
+            deviceLoginNotice: (nodeId, personId, notice) => oidc.receiveDeviceNotice(nodeId, personId, notice),
             verifyHuman: (auth) => oidc.bind(auth),
           },
         }),

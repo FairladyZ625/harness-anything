@@ -6,7 +6,8 @@ import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { managedRbacListenerUrl, managedRbacSessionStore, type ManagedRbacListener } from "./managed-rbac-service.ts";
 import { verifyFleetHuman } from "./oidc-fleet-principal.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { readFleetLoginAuthorityClient } from "./fleet/edge.ts";
+import type { FleetDeviceLoginNotice } from "./fleet/contract.ts";
+import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/edge.ts";
 
 interface RbacConfig {
   readonly url: string;
@@ -32,7 +33,17 @@ export interface OidcLoginAuthority {
   readonly browserUrl?: string;
 }
 
+export interface DeviceLoginRequest {
+  readonly nodeId: string;
+  readonly personId: string;
+  readonly userCode: string;
+  readonly createdAt: number;
+  readonly expiresAt: number;
+  readonly verificationUriComplete: string;
+}
+
 interface PendingDeviceLogin {
+  readonly notice: FleetDeviceLoginNotice;
   readonly authority: OidcLoginAuthority;
   readonly loginTarget?: string;
   readonly deviceCode: string;
@@ -72,6 +83,7 @@ export interface OidcSessionPorts {
   readonly now: () => number;
   readonly randomBytes: typeof randomBytes;
   readonly sessionStore: ReturnType<typeof managedRbacSessionStore>;
+  readonly reportDevice?: (target: string, notice: FleetDeviceLoginNotice) => Promise<void>;
   readonly loginAuthority?: (target: string) => Promise<OidcLoginAuthority>;
 }
 
@@ -87,6 +99,7 @@ export class OidcSessionService {
   #pending: PendingLogin | undefined;
   #loginGeneration = 0;
   #device: PendingDeviceLogin | undefined;
+  readonly #deviceRequests = new Map<string, DeviceLoginRequest>();
   #writes: Promise<unknown> = Promise.resolve();
 
   constructor(userRoot: string, ports: Partial<OidcSessionPorts> = {}) {
@@ -183,8 +196,14 @@ export class OidcSessionService {
       throw coded("oidc_device_rejected", `Keycloak device authorization returned HTTP ${response.status}.`);
     const device = (await response.json()) as Record<string, unknown>,
       interval = requiredNumber(device.interval, "interval"),
-      expiresAt = this.#ports.now() + requiredNumber(device.expires_in, "expires_in") * 1_000;
+      createdAt = this.#ports.now(),
+      expiresAt = createdAt + requiredNumber(device.expires_in, "expires_in") * 1_000,
+      userCode = requiredString(device.user_code, "user_code"),
+      verificationUriComplete = requiredString(device.verification_uri_complete, "verification_uri_complete"),
+      verificationUri = requiredString(device.verification_uri, "verification_uri"),
+      notice = { userCode, createdAt, expiresAt, pending: true };
     this.#device = {
+      notice,
       authority,
       deviceCode: requiredString(device.device_code, "device_code"),
       verifier,
@@ -193,14 +212,64 @@ export class OidcSessionService {
       nextPollAt: this.#ports.now() + interval * 1_000,
       ...(loginTarget ? { loginTarget } : {}),
     };
+    await this.#reportDevice(this.#device, true);
     return {
       ok: true,
       pending: true,
-      verificationUri: requiredString(device.verification_uri, "verification_uri"),
-      userCode: requiredString(device.user_code, "user_code"),
+      verificationUriComplete,
+      verificationUri,
+      userCode,
       interval,
       expiresAt,
     };
+  }
+
+  receiveDeviceNotice(nodeId: string, personId: string, notice: FleetDeviceLoginNotice): void {
+    const key = `${nodeId}:${notice.userCode}`;
+    if (!notice.pending || notice.expiresAt <= this.#ports.now()) {
+      this.#deviceRequests.delete(key);
+      return;
+    }
+    const config = this.#config(),
+      url = new URL(
+        `${config.listener ? managedRbacListenerUrl(config.listener) : config.url}/realms/${encodeURIComponent(config.realm)}/device`,
+      );
+    url.searchParams.set("user_code", notice.userCode);
+    this.#deviceRequests.set(key, {
+      nodeId,
+      personId,
+      userCode: notice.userCode,
+      createdAt: notice.createdAt,
+      expiresAt: notice.expiresAt,
+      verificationUriComplete: url.toString(),
+    });
+  }
+
+  async deviceApproval(userCode: string): Promise<Record<string, unknown>> {
+    const session = await this.status(),
+      requests = session.deviceLoginRequests as readonly DeviceLoginRequest[] | undefined,
+      request = requests?.find((item) => item.userCode === userCode);
+    if (!request) throw coded("oidc_device_missing", "The device login request is no longer pending for this person.");
+    return { ok: true, authorizationUrl: request.verificationUriComplete, listener: this.#config().listener ?? null };
+  }
+
+  async #reportDevice(pending: PendingDeviceLogin, active: boolean): Promise<void> {
+    if (!pending.loginTarget) return;
+    const notice = { ...pending.notice, pending: active };
+    if (this.#ports.reportDevice) return this.#ports.reportDevice(pending.loginTarget, notice);
+    const edge = readFleetEdgeConfig(pending.loginTarget);
+    if (!edge) return;
+    await reportFleetDeviceLogin(
+      {
+        hostname: edge.host,
+        port: edge.port,
+        ca: readFileSync(edge.caPath),
+        servername: edge.servername,
+        nodeId: edge.nodeId,
+        credential: edge.credential,
+      },
+      notice,
+    );
   }
 
   pollDevice(): Promise<Record<string, unknown>> {
@@ -232,10 +301,13 @@ export class OidcSessionService {
           return { ok: true, pending: true, interval: pending.interval };
         }
         this.#device = undefined;
+        await this.#reportDevice(pending, false);
         throw coded("oidc_device_rejected", `Device authorization ended: ${String(result.error)}.`);
       }
       this.#device = undefined;
-      return this.#acceptTokens(result, pending.authority, pending.loginTarget);
+      const accepted = await this.#acceptTokens(result, pending.authority, pending.loginTarget);
+      await this.#reportDevice(pending, false);
+      return accepted;
     });
   }
 
@@ -270,7 +342,17 @@ export class OidcSessionService {
   async status(): Promise<Record<string, unknown>> {
     const session = await this.#live();
     if (!session) return { ok: true, authenticated: false };
-    return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
+    for (const [key, request] of this.#deviceRequests)
+      if (request.expiresAt <= this.#ports.now()) this.#deviceRequests.delete(key);
+    return {
+      ok: true,
+      authenticated: true,
+      personId: session.personId,
+      expiresAt: session.sessionExpiresAt,
+      deviceLoginRequests: [...this.#deviceRequests.values()].filter(
+        (request) => request.personId === session.personId,
+      ),
+    };
   }
 
   /** Read the selected edge's public authority, independently of this daemon's signed-in session. */
@@ -293,6 +375,7 @@ export class OidcSessionService {
   logout(): Promise<Record<string, unknown>> {
     ++this.#loginGeneration;
     this.#pending = undefined;
+    const device = this.#device;
     this.#device = undefined;
     return this.serialize(async () => {
       const session = this.#session();
@@ -316,6 +399,7 @@ export class OidcSessionService {
             `Local session cleared; Keycloak revocation returned HTTP ${response.status}.`,
           );
       }
+      if (device) await this.#reportDevice(device, false);
       return { ok: true, authenticated: false };
     });
   }
