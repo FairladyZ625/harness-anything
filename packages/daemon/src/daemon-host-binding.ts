@@ -26,13 +26,9 @@ export async function localSystemActionBinding(
   const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
   if (!declaration || declaration.residency.scope === "canonical")
     throw hostCodedError("authentication_required", `Action ${kind} requires an authenticated repository principal.`);
-  const daemonUid = process.getuid?.(),
-    ownerUid = auth.unixSocketOwnerBoundary?.ownerUid,
-    isDaemonSocketOwner =
-      auth.transportKind === "unix-socket" &&
-      typeof ownerUid === "number" &&
-      (typeof daemonUid === "number" ? ownerUid === daemonUid : process.platform === "win32" && ownerUid === 0);
-  return isDaemonSocketOwner ? defaultLocalBinding(ownerUid!, null) : principalBinding();
+  return isLocalSocketOwner(auth)
+    ? defaultLocalBinding(auth.unixSocketOwnerBoundary!.ownerUid, null)
+    : principalBinding();
 }
 
 export function withDaemonWriterEpochFence(
@@ -56,12 +52,31 @@ function defaultLocalBinding(ownerUid: number, executor: RepoCellBinding["actor"
   };
 }
 
+export function isLocalSocketOwner(auth: DaemonAuthenticationContext): boolean {
+  const daemonUid = process.getuid?.(),
+    ownerUid = auth.unixSocketOwnerBoundary?.ownerUid;
+  return (
+    auth.transportKind === "unix-socket" &&
+    typeof ownerUid === "number" &&
+    (typeof daemonUid === "number" ? ownerUid === daemonUid : process.platform === "win32" && ownerUid === 0)
+  );
+}
+
 /** Bind daemon-global local actions when no repository exists to provide an authored RBAC projection. */
 export function localDefaultBinding(
   auth: DaemonAuthenticationContext,
   executor: RepoCellBinding["actor"]["executor"] = null,
   replicaRead = false,
 ): RepoCellBinding {
+  if (!replicaRead && isLocalSocketOwner(auth)) {
+    const binding = defaultLocalBinding(auth.unixSocketOwnerBoundary!.ownerUid, executor),
+      principal = auth.oidcPrincipal && auth.oidcPrincipal.expiresAt > Date.now() ? auth.oidcPrincipal : undefined;
+    return {
+      ...binding,
+      ...(principal ? { actor: { principal: { personId: principal.personId }, executor } } : {}),
+      ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
+    };
+  }
   const replicaPrincipal =
     replicaRead &&
     auth.replicaReadPrincipal &&
@@ -71,7 +86,7 @@ export function localDefaultBinding(
   if (replicaPrincipal) auth = { ...auth, oidcPrincipal: undefined };
   else if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now())
     throw hostCodedError("authentication_required", "Sign in with Keycloak before performing this action.");
-  return withSessionEnvironment(
+  const binding = withSessionEnvironment(
     {
       ...(auth.oidcPrincipal
         ? { actor: { principal: { personId: auth.oidcPrincipal.personId }, executor } }
@@ -80,6 +95,7 @@ export function localDefaultBinding(
     },
     auth,
   );
+  return binding;
 }
 
 function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthenticationContext): RepoCellBinding {

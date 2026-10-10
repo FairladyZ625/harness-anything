@@ -48,6 +48,11 @@ export async function evaluateRepoCellAction(input: {
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     });
   const credential = input.binding.keycloakAuthorization;
+  if (input.binding.source === "local" && input.binding.daemonSocketOwner === true)
+    return {
+      ...keycloakDecision(envelope, `canonical:${input.revision}`, "allowed", "daemon_socket_owner"),
+      bindingsUsed: [{ proof: "unix-socket-owner-boundary", scope: input.action.kind }],
+    };
   if (!credential)
     return authorizeDurableRepoCellAction({
       ...input,

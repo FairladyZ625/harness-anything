@@ -113,14 +113,6 @@ async function startRepoWriterWorker(): Promise<void> {
         ...(bootstrap.capabilities.runtimeInstances
           ? { runtimeInstances: () => syncCapability("runtimeInstances", null) }
           : {}),
-        ...(bootstrap.capabilities.keycloakSession
-          ? {
-              keycloakSession: () =>
-                asyncCapability("keycloakSession", null) as ReturnType<
-                  NonNullable<RepoCellOpenInput["keycloakSession"]>
-                >,
-            }
-          : {}),
         ...(bootstrap.capabilities.keycloakCenter
           ? {
               keycloakCenter: () =>

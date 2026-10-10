@@ -142,9 +142,10 @@ test("writer supervisor observes internal runtime work draining to zero", async 
     ]);
     await waitUntil(() => supervisor!.status().queueDepth === 0);
     assert.equal(supervisor.status().queueDepth, 0);
-    assert.ok(
-      runtimeSessionLookups > lookupsBeforeExit,
-      "post-RPC runtime publication resolves the current user session through the host capability",
+    assert.equal(
+      runtimeSessionLookups,
+      lookupsBeforeExit,
+      "local runtime publication does not resolve a Keycloak session through the host capability",
     );
     assert.ok(publishedQueueDepths.some((depth) => depth !== null && depth > 0));
     assert.equal(publishedQueueDepths.at(-1), 0, "the status callback witnesses the drained writer cut");

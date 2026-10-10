@@ -142,3 +142,50 @@ test("a retained user-device binding uses its current session after token rotati
     assert.equal(causeClassOf(rejection), "infrastructure");
   });
 });
+
+test("a verified local socket owner authorizes local work without borrowing Keycloak", async () => {
+  const ownerUid = process.getuid?.() ?? 0,
+    local = await bindDaemonPrincipal("/unused", {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" },
+    }),
+    repoDecision = await evaluateRepoCellAction({
+      action: { kind: "task-create", taskId: "task-local", title: "Local" },
+      binding: local,
+      actionId: "local-task-create",
+      repoId: "repo-local",
+      revision: 1,
+      now: "2026-10-11T00:00:00.000Z",
+    }),
+    hostDecision = await evaluateFleetAction({
+      kind: "daemon-control-request",
+      binding: local,
+      actionId: "local-control",
+      evaluatedAtCut: "daemon-control:current",
+    });
+
+  assert.equal(local.actor.principal.personId, `local-user-${ownerUid}`);
+  assert.equal(local.daemonSocketOwner, true);
+  assert.equal(local.keycloakAuthorization, undefined);
+  assert.equal(repoDecision.outcome, "allowed");
+  assert.deepEqual(repoDecision.bindingsUsed, [{ proof: "unix-socket-owner-boundary", scope: "task-create" }]);
+  assert.equal(hostDecision.outcome, "allowed");
+  assert.equal(hostDecision.policyRef, "daemon-socket-owner@1");
+  await assert.rejects(
+    bindDaemonPrincipal("/unused", {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: { ownerUid: ownerUid + 1, source: "unix-socket-filesystem-owner-boundary" },
+    }),
+    { code: "authentication_required" },
+  );
+  await assert.rejects(
+    bindDaemonPrincipal("/unused", {
+      transportKind: "fleet-tls",
+      nodePrincipal: { nodeId: "node-no-session", personId: "person-owner" },
+      keycloakCenter: async () => {
+        throw new Error("fleet transport must not borrow center authorization");
+      },
+    }),
+    { code: "authentication_required" },
+  );
+});

@@ -79,7 +79,6 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly runtimePorts: DaemonRuntimePorts;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
-  readonly keycloakSession: NonNullable<import("./repo-cell-open.ts").RepoCellOpenInput["keycloakSession"]>;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
   readonly edgeRuntimeFor: (request: FleetEdgeRuntimeRequest["payload"]) => ReturnType<typeof openFleetEdgeRuntime>;
   readonly invalidRepoId: (repo: InvalidDaemonRegistryRepo) => string;
@@ -138,7 +137,6 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
     mode?: DaemonRepoMode,
   ) => Promise<ReturnType<typeof registerDaemonRepo>>;
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
-  readonly keycloakSession: NonNullable<import("./repo-cell-open.ts").RepoCellOpenInput["keycloakSession"]>;
   readonly oidc: import("./oidc-session-service.ts").OidcSessionService;
   readonly localOnly: typeof import("./daemon-host-status.ts").localOnly;
   readonly settleWarming: (repoId: string) => void;
