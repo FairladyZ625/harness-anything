@@ -1,6 +1,6 @@
 ---
 name: task-explainer-html
-description: 产出与增量维护任务包中的活解释页 artifacts/explainer.html；按物化模板中的唯一权威注释编写，并消费派工注入的 <task-context> 因果上下文。Use when a task-bound dispatch requires creating, updating, or freezing the task's living explainer page, or when parsing the injected <task-context> XML.
+description: 产出与增量维护任务包中的活解释页 artifacts/explainer.html；按物化模板中的唯一权威注释编写，并消费派工注入的 task-context 因果上下文。Use when a task-bound dispatch requires creating, updating, or freezing the task's living explainer page, or when parsing the injected task-context XML.
 ---
 
 # 任务活解释页（task-explainer-html）
@@ -11,7 +11,7 @@ description: 产出与增量维护任务包中的活解释页 artifacts/explaine
 
 ## 页面编写
 
-以物化页面的 HTML 注释为准。正文固定只有两节：`#now`「现在在发生什么」（每轮覆盖重写）与 `#timeline`「过程记录」（只追加、最新在上）；其余章节按任务需要自加，数量与标题不限。多用带真实名字和数字的图（结构、流程、时序、前后对比、数据）说明问题，画不出真实内容的图不要画。不要在本技能、mission 或其他副本维护第二套模板指引；模板规则变化时只改 preset 模板与它的测试。
+以物化页面的 HTML 注释为准。正文必须包含两个 id：`#now`「现在在发生什么」（每轮覆盖重写）与 `#timeline`「过程记录」（只追加、最新在上）；其余章节按任务需要自加，数量与标题不限。多用带真实名字和数字的图（结构、流程、时序、前后对比、数据）说明问题，画不出真实内容的图不要画。不要在本技能、mission 或其他副本维护第二套模板指引；模板规则变化时只改 preset 模板与它的测试。
 
 ## `<task-context>` 注入规约
 
@@ -36,7 +36,7 @@ description: 产出与增量维护任务包中的活解释页 artifacts/explaine
 - **行导向**：除首尾 `<task-context>` / `</task-context>` 外，每个元素是完整的一行，独立出现或缺失都合法——预算裁剪按整行丢弃，任何行子集拼出的片段仍可逐行解析。
 - **转义**：文本与属性值经 XML 转义（`&amp;` `&lt;` `&gt;` `&quot;`），解析时按标准实体还原。
 - **归属**：`chosen` / `claims` / `question` 用 `ref` 属性绑定所属 decision，不靠嵌套缩进。
-- **截断标记**：根元素带 `truncated="yes"` 时表示有整行被预算裁掉；`<refs>` 永远保留可回查的 canonical id，缺的细节用 `ha task read-set` / `ha task show` 补，不要凭空补写。
+- **截断标记**：根元素带 `truncated="yes"` 时表示有整行被预算裁掉；`<refs>` 永远保留可回查的 canonical id，缺的细节只在派工授权范围内用本任务的 `ha task read-set` / `ha task show` 补；受限执行不得据此查询跨任务背景或全仓图。资料不足时报告具体缺项，由 owner 提供，不凭空补写。
 - **层级缺失**：`work` / `parent` / `decision` / `fact` / `goal` 任一行可以不存在（该任务没有那层关系）；空块不存在（无因果邻域的任务不注入）。
 
 解析规约只说明如何理解因果上下文；如何把它呈现到页面，遵循物化模板中的 HTML 注释，不在这里另设身份区或场景骨架。

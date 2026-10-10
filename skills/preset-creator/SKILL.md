@@ -46,7 +46,13 @@ top-level key is accepted. `kind` is `template-content` or `process-action`.
 `outputShape` is a required non-empty string.
 
 Each profile requires `id`, `title`, `completionGates`, and
-`templateSelections`; it may add `checkerProfile` and `capabilityImports`.
+`templateSelections`; it may add `checkerProfile`, `capabilityImports`, `closeoutOverrides`, and
+`archiveOnComplete`. `closeoutOverrides` accepts boolean values for `review`,
+`consent`, `fact`, `factDisposition`, and `codeDoc`; `archiveOnComplete` is a
+boolean that archives the package after successful completion. These are
+creation-time declarations, not a way to change an existing task’s frozen
+profile. `checkerProfile` is still accepted by the current contract; do not
+remove it based on a planned completion-gate redesign.
 `completionGates` is an array of gate-id strings, including an explicit empty
 array when the profile has no gates. `defaultProfile` must name one declared
 profile.

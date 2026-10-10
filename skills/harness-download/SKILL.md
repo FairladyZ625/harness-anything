@@ -45,9 +45,12 @@ git clone --depth 1 --branch main https://github.com/FairladyZ625/harness-anythi
 
 ```bash
 npm ci --no-audit --no-fund
+npm run build --workspace @harness-anything/daemon
 node packages/cli/src/index.ts --version
 node packages/cli/src/index.ts --help
 ```
+
+源码 CLI 的 daemon 自动启动入口来自 daemon 包的 bin（`dist/index.js`），因此必须先构建 daemon；`--version` / `--help` 成功不能证明该入口存在。当前 Git 钩子不会替你构建。构建失败时保留错误，不把下载阶段报成已就绪。
 
 本阶段以 TypeScript 源入口运行 CLI，避免把陈旧 PATH 中的 `ha` 当作本次安装。不要现在尝试安装一个尚未作为本流程发布方式的 npm 包。将来正式提供 npm 分发时，应替换本阶段，不能长期保留两套相互漂移的下载配方。
 
@@ -77,7 +80,9 @@ Windows 若无法创建目录符号链接，报告具体权限条件，引导用
 
 从同一源码安装读取 `skills/harness-install/SKILL.md`，向它传递目标仓库、绝对 CLI 源入口、已发现环境和用户已给的信息。不要再下载一份源码，不要求用户另开任务。
 
-没有台账时执行仓库初始化。已有台账时先辨别是当前可用工作区还是明确需要迁移的旧代；不能见到 `harness/` 就重新初始化或迁移。旧代迁移会改变已有数据，沿迁移技能的明确范围与审批办理，不把下载授权当成迁移授权。
+接入已有 Fleet 中心时，直接走 [harness-install 的边缘节点路线](../harness-install/SKILL.md#接入已有-fleet-中心的边缘节点)，不因 clone 中没有台账而重新 init。全新本地中心先满足该技能写明的身份前提；下载成功不代表初始化已经可用。
+
+没有台账且确实是新中心时执行仓库初始化。已有台账时先辨别是当前可用工作区还是明确需要迁移的旧代；不能见到 `harness/` 就重新初始化或迁移。旧代迁移会改变已有数据，沿迁移技能的明确范围与审批办理，不把下载授权当成迁移授权。
 
 下载、链接是节点本地动作；项目初始化属于中心权威写入。同一目标仓库多个节点同时引导时，先核实中心注册与 owner，只有已授权协调者初始化；其他节点连接已有工作区，不各自产生一份“权威”台账。
 

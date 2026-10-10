@@ -33,7 +33,7 @@ description: 在目标仓库 harness.yaml 的 settings.gates 里声明与定制�
 
 ## settings.gates 语法
 
-写在 `harness.yaml` 的 `settings:` 下。缩进敏感：`gates:` 两空格、gate id 四空格、字段六空格；字段行顺序任意；值后可跟注释。
+写在 `harness.yaml` 的 `settings:` 下，使用合法 YAML 映射；下面示例采用两空格缩进。字段顺序任意。当前解析器使用 YAML 文档模型，不再按固定六空格行匹配。
 
 ```yaml
 settings:
@@ -54,13 +54,13 @@ settings:
     signoff:
       appliesTo: submission
       adapter: manual-attest
-    code-doc-reconciliation: none  # none 只能内联，后面不许再跟字段
+    code-doc-reconciliation: none  # none 不带适配器字段
 ```
 
-解析规则（`settings.ts` readGateSettings/gateSettingsSchema/gateWitnessMappingIssues）：
+解析与契约规则（`settings.ts` 的 `readGateSettings`，以及完成契约的 `gateWitnessMappingIssues`）：
 
 - gate id 模式 `^[A-Za-z0-9][A-Za-z0-9/_.@-]*$`：不含空格和冒号。合并门写 `merged-to.main`，不写 `merged-to:main`。
-- 行内值只允许 `none`；`ci: github-actions` 这种行内写法直接报 `settings.gates cannot read line`。
+- gate 值为字符串时只允许 `none`；其他适配器使用包含 `adapter` 的 YAML 映射，不能写 `ci: github-actions`。
 - 每个适配器的字段集是**精确**的，多一个少一个都报 `must declare exactly`：
 
 | adapter | 必填字段（恰好这些） | 可选治理字段 |
@@ -68,16 +68,15 @@ settings:
 | `github-actions` | `appliesTo` `branch` `event` `coverage` `selection` | `mandatorySignoff` `allowOverride` |
 | `local-command` | `appliesTo` `command` | `mandatorySignoff` `allowOverride` |
 | `manual-attest` | `appliesTo` | 无（见下） |
-| `none` | 无（只能内联） | 无 |
+| `none` | 无（字符串 none） | 无 |
 
 - `mandatorySignoff` / `allowOverride` 是治理修饰字段，不计入上面的精确集：只许写在 `github-actions` 与 `local-command` 上，写在 `manual-attest` 或 `none` 上会报 `cannot declare mandatorySignoff or allowOverride`（人工见证的门不再需要这两个修饰）。值必须是 YAML 布尔 `true`/`false`，其他写法（如 `yes`）被 schema 拒；只有 `true` 会进入冻结契约，写 `false` 等价于不写。
 
 - `github-actions` 的 workflow 清单不写在 gate 映射里，统一来自 `settings.ci.workflows`（内联数组 `[a, b]`，名字不带 `.yml`）；映射了 github-actions 而 workflows 为空 → 解析报错。
 - `branch`/`event` 值受 `^[A-Za-z0-9][A-Za-z0-9/_.@-]*$` 限制；`coverage` 只认 `exact`（run 的 head SHA 必须就是提交 SHA）或 `descendant`（run 的 head SHA 以提交 SHA 为祖先）；`selection` 只认 `newest`。
-- 同一 gate 内字段重复、六空格字段出现在 gate 行之前、未知行 → `cannot read line`。
-- `#` 在任何行内都起注释作用并被剥离——命令值里不能出现 `#`（`command: echo a#b` 会变成 `echo a`）。
+- 重复键或无效 YAML 在解析时拒绝；适配器字段由完成契约校验。含 YAML 特殊字符的命令使用引号，不按旧行解析器的规则推断截断。
 - `code-doc-reconciliation` 是 Harness 内部检查器，只能映射 `none`，映射任何适配器都报错。
-- `gates` 是 repository-owned 设置；`ha settings update` 的输入字段不含 gates，手工编辑 `harness.yaml` 是正式通道，重写其他设置不会动 gates 段。改完用 `ha settings show` 回读校验。
+- `gates` 是 repository-owned 设置。先编辑 `harness.yaml` 中的声明，再由有权 principal 执行 `ha settings update --gates-from-document` 接受该 facet，最后用 `ha settings read` 回读投影。仅编辑或 `settings show` 不等于已经接受；runtime executor 不能修改仓库级约束，拒绝码为 `settings_write_requires_principal`，应交派工 principal 办理。
 
 ## appliesTo 选择
 
@@ -250,7 +249,7 @@ GUI 对应入口：daemon 注册了 `task.attest` GUI action（`repo.task.attest
 | --- | --- | --- |
 | `Task declares completion gate X, but harness.yaml settings.gates maps no witness for it` | 任务声明了 gate、仓库没映射 | 补映射或写 `X: none` |
 | `settings.gates.X with adapter Y must declare exactly: …` | 字段集不精确 | 按字段表补齐/删多余字段 |
-| `settings.gates cannot read line: …` | 缩进错、行内值非 none、字段重复 | 对照语法节修 YAML |
+| `settings.gates cannot read line: …` | 无效 YAML、值既非 none 也非映射 | 对照 YAML 与适配器字段契约修声明 |
 | `Gate X is witnessed by github-actions, but settings.ci.workflows is empty` | workflows 注册表为空 | 填 `settings.ci.workflows` 或换适配器 |
 | `witness_unavailable`（local-command） | 提交不可达 / artifact-only cut / 命令超时或启动失败 | 确认 commit 在 daemon 可读的仓库里；artifact 交付改 manual-attest；检查命令是否卡死；`allowOverride` 门下可按提示特批 |
 | `Gate X receipt … reported fail`（invalid_proof，complete 时） | 命令非零退出或见证观测为 fail（门未声明 allowOverride） | 修到退出码 0（或合并/attest 后）重跑 `task complete` |
@@ -265,6 +264,6 @@ GUI 对应入口：daemon 注册了 `task.attest` GUI action（`repo.task.attest
 
 ## 边界与注意
 
-- 契约随提交冻结：改 `harness.yaml` 只影响之后的 submit；在审 cut 按冻结契约判定。cut 被 amend 后 `commitSha + submissionDigest` 变化，旧观测（含人工签注与特批）作废重取。
+- 契约随提交冻结：接受新的 `settings.gates` 声明只影响之后的 submit；在审 cut 按冻结契约判定。cut 被 amend 后 `commitSha + submissionDigest` 变化，旧观测（含人工签注与特批）作废重取。
 - 迁移保留的历史结论（preserved verdict：无绑定证据的旧「已接受」）只在生命周期 replay 中被承认，**永远不能充当当前 cut 的门通过**——新 cut 必须重新取证或重新签注。
 - 四形态一览：纯自动见证（默认）、`manual-attest` 纯人工、`mandatorySignoff` 自动+签注双控、`allowOverride` 自动失败可特批。两个治理字段可同挂一门（双控+特批）；被特批的门记 `waived` 满足态。
