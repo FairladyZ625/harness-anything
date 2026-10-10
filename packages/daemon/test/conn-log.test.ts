@@ -25,7 +25,7 @@ function recordsOf(userRoot: string, daemonId = "test-daemon"): Record<string, u
 }
 const at = (iso: string) => () => new Date(iso);
 
-test("request failure detail records the structured diagnostic instead of prose fallback", (t) => {
+test("request failure detail records the structured diagnostic instead of prose fallback", () => {
   assert.equal(
     resultErrorDetail({
       ok: false,
@@ -43,7 +43,7 @@ test("request failure detail records the structured diagnostic instead of prose 
   assert.equal(resultErrorDetail({ ok: true }), null);
 });
 
-test("request failure detail records native SQLite result details", (t) => {
+test("request failure detail records native SQLite result details", () => {
   assert.equal(
     resultErrorDetail({
       ok: false,
@@ -53,7 +53,7 @@ test("request failure detail records native SQLite result details", (t) => {
   );
 });
 
-test("request failure detail carries the daemon's rejection message over the code-only placeholder", (t) => {
+test("request failure detail carries the daemon's rejection message over the code-only placeholder", () => {
   const message = "CI receipt cannot support completion: evidence executionId is not the current execution.";
   assert.equal(
     resultErrorDetail({
