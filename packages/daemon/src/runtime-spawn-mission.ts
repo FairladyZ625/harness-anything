@@ -97,14 +97,14 @@ export function resolveRuntimeInstanceCandidates(input: {
   /** The concrete kind selected for an unbound runtime dispatch. */
   readonly runtimeKind?: string;
   /** Repository-scoped allowlist; machine instances remain the source of credentials and readiness. */
-  readonly allowedInstanceIds?: readonly string[];
+  readonly allowedInstanceIds: readonly string[];
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
 }): string[] {
   const allowed = input.allowedInstanceIds,
-    allowedNames = allowed?.length ? allowed.join(", ") : "none";
+    allowedNames = allowed.length ? allowed.join(", ") : "none";
   const assertAllowed = (instanceId: string): void => {
-    if (allowed === undefined || allowed.includes(instanceId)) return;
+    if (allowed.includes(instanceId)) return;
     throw runtimeSpawnError(
       "runtime_instance_not_allowed",
       `Runtime instance ${instanceId} is not allowed for this repository. ` +
@@ -128,16 +128,12 @@ export function resolveRuntimeInstanceCandidates(input: {
     declaredType = input.runtimeKind,
     declaredTargets = input.agent?.runtimes;
   const unavailable = input.unavailableReasons ?? [],
-    instances =
-      allowed === undefined
-        ? input.instances
-        : input.instances.filter((instance) => allowed.includes(instance.instanceId));
-  if (allowed !== undefined)
-    for (const instance of input.instances)
-      if (!allowed.includes(instance.instanceId))
-        unavailable.push(
-          `${instance.kindId}/${instance.instanceId}: runtime_instance_not_allowed (enable with ha settings update --runtime-allowed-instance ${instance.instanceId})`,
-        );
+    instances = input.instances.filter((instance) => allowed.includes(instance.instanceId));
+  for (const instance of input.instances)
+    if (!allowed.includes(instance.instanceId))
+      unavailable.push(
+        `${instance.kindId}/${instance.instanceId}: runtime_instance_not_allowed (enable with ha settings update --runtime-allowed-instance ${instance.instanceId})`,
+      );
   for (const target of declaredTargets ?? (declaredType ? [{ type: declaredType }] : []))
     if (!instances.some((instance) => instance.kindId === target.type))
       unavailable.push(`${target.type}: runtime_instance_not_found (no local instance)`);
@@ -174,7 +170,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     declaredTargets === undefined ? (declaredType ?? "any") : agentRuntimeTargetSummary(declaredTargets);
   if (declared.length === 0) {
     const typeCandidates = typed.length > 0;
-    if (allowed !== undefined && instances.length === 0)
+    if (instances.length === 0)
       throw runtimeSpawnError(
         "runtime_instance_not_allowed",
         `No runtime instance is allowed for this repository. Allowed instances: ${allowedNames}. ` +

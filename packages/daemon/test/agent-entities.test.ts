@@ -933,25 +933,40 @@ test("runtimes rows gate each runtime kind, select per-kind models, and an empty
       instance("claude-one", "claude", ["GLM-5.3[1m]"]),
       instance("codex-one", "codex", ["gpt-5.6"]),
     ],
-    declaration = { id: "glm", runtimes } as RuntimeAgent;
-  assert.deepEqual(resolveRuntimeInstanceCandidates({ agent: declaration, instances, sessions: [] }).sort(), [
-    "claude-one",
-    "zcode-one",
-  ]);
+    declaration = { id: "glm", runtimes } as RuntimeAgent,
+    allowedInstanceIds = instances.map((row) => row.instanceId);
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({ agent: declaration, instances, sessions: [], allowedInstanceIds }).sort(),
+    ["claude-one", "zcode-one"],
+  );
   assert.deepEqual(
     resolveRuntimeInstanceCandidates({
       agent: { id: "open", runtimes: [] } as RuntimeAgent,
       instances,
       sessions: [],
+      allowedInstanceIds,
     }).sort(),
     ["claude-one", "codex-one", "zcode-one"],
   );
   assert.deepEqual(
-    resolveRuntimeInstanceCandidates({ agent: declaration, model: "GLM-5.3", instances, sessions: [] }),
+    resolveRuntimeInstanceCandidates({
+      agent: declaration,
+      model: "GLM-5.3",
+      instances,
+      sessions: [],
+      allowedInstanceIds,
+    }),
     ["zcode-one"],
   );
   assert.throws(
-    () => resolveRuntimeInstanceCandidates({ agent: declaration, model: "missing-model", instances, sessions: [] }),
+    () =>
+      resolveRuntimeInstanceCandidates({
+        agent: declaration,
+        model: "missing-model",
+        instances,
+        sessions: [],
+        allowedInstanceIds,
+      }),
     (error: unknown) => (error as { code?: string }).code === "agent_model_unavailable",
   );
 });

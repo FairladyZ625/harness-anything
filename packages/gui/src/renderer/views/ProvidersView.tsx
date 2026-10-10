@@ -101,6 +101,19 @@ export function ProvidersWorkspace({
   const allowedInstances = Array.isArray(settings.data?.settings.runtime?.allowedInstances)
     ? settings.data.settings.runtime.allowedInstances
     : [];
+  const settingsExpectedVersion =
+    settings.data?.lastChanged === "initial" || settings.data === undefined ? 0 : settings.data.lastChanged.revision;
+  const updateProjectAllowedInstances = (instanceId: string, allowed: boolean) => {
+    const current =
+      settings.data?.settings.runtime?.allowedInstances ??
+      instances.filter((row) => row.enabled).map((row) => row.instanceId);
+    return settingsMutation.mutate({
+      runtimeAllowedInstances: allowed
+        ? [...new Set([...current, instanceId])]
+        : current.filter((id) => id !== instanceId),
+      expectedVersion: settingsExpectedVersion,
+    });
+  };
   const liveSessions = selectedId === null ? 0 : (workspace.liveByInstance.get(selectedId) ?? 0);
   const carrierSessions =
     workspace.overview.data?.sessions.filter((session) => session.instanceId === selectedId) ?? [];
@@ -183,15 +196,13 @@ export function ProvidersWorkspace({
                 onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
                 onAuth={(action) => void workspace.authInstance(instance.instanceId, action)}
                 onValidate={() => void workspace.validateInstance(instance.instanceId)}
-                onSetEnabled={(enabled) => void workspace.setInstanceEnabled(instance.instanceId, enabled)}
+                onSetEnabled={(enabled) => {
+                  void workspace.setInstanceEnabled(instance.instanceId, enabled).then((result) => {
+                    if (enabled && result) updateProjectAllowedInstances(instance.instanceId, true);
+                  });
+                }}
                 projectAllowed={allowedInstances.includes(instance.instanceId)}
-                onSetProjectAllowed={(allowed) =>
-                  settingsMutation.mutate({
-                    runtimeAllowedInstances: allowed
-                      ? [...new Set([...allowedInstances, instance.instanceId])]
-                      : allowedInstances.filter((id) => id !== instance.instanceId),
-                  })
-                }
+                onSetProjectAllowed={(allowed) => updateProjectAllowedInstances(instance.instanceId, allowed)}
                 onUpdate={workspace.updateInstance}
                 onDelete={() => {
                   void workspace.deleteInstance(instance.instanceId);
@@ -221,6 +232,7 @@ export function ProvidersWorkspace({
             void workspace.createInstance(input).then((created) => {
               if (created) {
                 setDialog(false);
+                updateProjectAllowedInstances(input.instanceId, true);
                 onSelectEntity(`provider/${input.instanceId}`);
               }
             });

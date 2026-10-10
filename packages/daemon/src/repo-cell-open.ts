@@ -10,6 +10,7 @@ import {
   isSamePerson,
   makeTaskEventStore,
   runtimeSessionActionIds,
+  SETTINGS_ID,
   type AgentRuntimeEventV1,
   type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
@@ -452,6 +453,40 @@ export async function openRepoWriterCell(
     store: () => store,
     projection: () => projection,
     readSettings: () => readSettings(),
+    initializeAllowedInstances: async (binding, runtimeInstances) => {
+      if (readSettings().runtime?.allowedInstances !== undefined) return null;
+      const instanceIds = [...new Set(runtimeInstances.filter((row) => row.enabled).map((row) => row.instanceId))];
+      const settingsRow = projection.getEntity("settings", SETTINGS_ID),
+        expectedVersion = settingsRow?.workspaceRevision ?? 0,
+        settingsAction = {
+          kind: "settings-update",
+          runtimeAllowedInstances: instanceIds,
+          expectedVersion,
+          idempotencyKey: `runtime-allowlist-auto-init-${input.repoId}`,
+        } satisfies RepoTaskAction,
+        actionId = operationId(settingsAction, binding, input.repoId, 0),
+        authorizedBinding = await authorizeRuntimeAction(settingsAction, binding, actionId),
+        receipt = await extracted.executeAction(settingsAction, authorizedBinding);
+      if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
+        throw Object.assign(
+          new Error(receipt.rejectionExplanation ?? "Settings allowlist initialization was rejected."),
+          {
+            code: receipt.code ?? "settings_initialization_failed",
+          },
+        );
+      return {
+        source: "automatic" as const,
+        instanceIds,
+        settingsReceipt: {
+          opId: receipt.opId,
+          outcome: receipt.outcome,
+          ...(receipt.revision === undefined ? {} : { revision: receipt.revision }),
+          ...((receipt as { readonly summary?: string }).summary === undefined
+            ? {}
+            : { summary: (receipt as { readonly summary?: string }).summary }),
+        },
+      };
+    },
     stream: runtimeStream,
     now,
     schedule,
