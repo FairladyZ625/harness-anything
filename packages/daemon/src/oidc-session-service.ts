@@ -406,6 +406,11 @@ export class OidcSessionService {
     return { ok: true, required: await this.#bootstrapRequired(await this.#centerToken()) };
   }
 
+  /** Whether a Keycloak authority exists at all; without one no request can ever authorize, so callers guide to ha bootstrap. */
+  configured(): boolean {
+    return existsSync(path.join(this.#rbacRoot, "config.json"));
+  }
+
   /**
    * Binds the signed-in person to a request. While Keycloak cannot be reached to renew the session
    * only a server-selected edge replica read may retain its unexpired session identity.

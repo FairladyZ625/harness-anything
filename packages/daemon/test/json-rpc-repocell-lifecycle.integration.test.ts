@@ -415,8 +415,11 @@ test("bootstrap binds the ledger repository branch independently of the project 
 // prettier-ignore
 
 test("bootstrap validates local identity before repository initialization", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-identity-")), rootDir = path.join(parent, "repo"), host = await openDaemonHost({ daemonId: "bootstrap-identity", userRoot: path.join(parent, "user") });
-  try { await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, { transportKind: "unix-socket" }), hasCode("bootstrap_identity_unavailable")); assert.equal(existsSync(path.join(rootDir, ".git")), false); }
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-identity-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"), host = await openDaemonHost({ daemonId: "bootstrap-identity", userRoot });
+  try { await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, { transportKind: "unix-socket" }), hasCode("rbac_not_configured")); assert.equal(existsSync(path.join(rootDir, ".git")), false);
+    // With the authority installed the same request proceeds to the local-identity gate: no socket owner boundary still refuses before any write.
+    mkdirSync(path.join(userRoot, "rbac"), { recursive: true }); writeFileSync(path.join(userRoot, "rbac", "config.json"), JSON.stringify({ url: "https://rbac.invalid", realm: "harness" }));
+    await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, { transportKind: "unix-socket" }), hasCode("bootstrap_identity_unavailable")); assert.equal(existsSync(path.join(rootDir, ".git")), false); }
   finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 // prettier-ignore

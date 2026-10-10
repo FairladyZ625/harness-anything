@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -36,8 +36,10 @@ test("first-run identity is required, then the complete real CLI smoke succeeds"
   try {
     const unsigned = cli(["init", "--repo-id", "unsigned", "--person-id", "owner", "--display-name", "Owner"]);
     assert.notEqual(unsigned.status, 0, unsigned.stdout);
-    assert.equal(lastReceipt(unsigned.stdout).configureVerify.causeCode, "authorization_denied");
-    console.log("without identity: init configure_verify_failed / authorization_denied");
+    assert.equal(lastReceipt(unsigned.stdout).code, "rbac_not_configured");
+    assert.match(String(lastReceipt(unsigned.stdout).rejectionExplanation), /ha bootstrap/u);
+    assert.equal(existsSync(path.join(root, "harness")), false, "init must not scaffold before the authority exists");
+    console.log("without a bootstrapped authority: init stops at rbac_not_configured and guides to ha bootstrap");
     identity.prepare((args, input) => {
       const result = cli(args, input);
       return { ...result, receipt: lastReceipt(result.stdout) };
