@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -111,11 +111,12 @@ async function reachDeliverable(
   );
 }
 
-test("settle rejoins the owner executor-less and preserves the worker's executor attribution", async () => {
+test("settle rejoins the owner executor-less and preserves the worker's executor attribution", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-rejoin-")),
     repoId = workspaceId("settle-rejoin"),
     taskId = "task_settle_rejoin",
     executionId = "exe_settle_rejoin";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -171,11 +172,12 @@ test("settle rejoins the owner executor-less and preserves the worker's executor
   }
 });
 
-test("first submit with --as-owner rejoins a released worker execution before submitting", async () => {
+test("first submit with --as-owner rejoins a released worker execution before submitting", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-submit-owner-rejoin-")),
     repoId = workspaceId("submit-owner-rejoin"),
     taskId = "task_submit_owner_rejoin",
     executionId = "exe_submit_owner_rejoin";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -198,11 +200,12 @@ test("first submit with --as-owner rejoins a released worker execution before su
   }
 });
 
-test("settle replaces executor attribution on declared-executor handoff and foreign takeover", async () => {
+test("settle replaces executor attribution on declared-executor handoff and foreign takeover", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-handoff-")),
     repoId = workspaceId("settle-handoff"),
     taskId = "task_settle_handoff",
     executionId = "exe_settle_handoff";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -227,11 +230,12 @@ test("settle replaces executor attribution on declared-executor handoff and fore
   }
 });
 
-test("a different-person takeover rejoin does not inherit the recorded executor", async () => {
+test("a different-person takeover rejoin does not inherit the recorded executor", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-takeover-")),
     repoId = workspaceId("settle-takeover"),
     taskId = "task_settle_takeover",
     executionId = "exe_settle_takeover";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -259,11 +263,12 @@ test("a different-person takeover rejoin does not inherit the recorded executor"
   }
 });
 
-test("settle refuses to resume another holder's submitted cut", async () => {
+test("settle refuses to resume another holder's submitted cut", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-foreign-")),
     repoId = workspaceId("settle-foreign"),
     taskId = "task_settle_foreign",
     executionId = "exe_settle_foreign";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -284,7 +289,7 @@ test("settle refuses to resume another holder's submitted cut", async () => {
   }
 });
 
-test("settle submits then migrates a drifted preset snapshot with a real upgrade event", async () => {
+test("settle submits then migrates a drifted preset snapshot with a real upgrade event", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-preset-")),
     repoId = workspaceId("settle-preset"),
     taskId = "task_settle_preset",
@@ -311,6 +316,7 @@ test("settle submits then migrates a drifted preset snapshot with a real upgrade
         ],
         defaultProfile: "baseline",
       });
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -403,11 +409,12 @@ test("settle submits then migrates a drifted preset snapshot with a real upgrade
   }
 });
 
-test("settle stops on the closeout gate instead of fabricating a draft", async () => {
+test("settle stops on the closeout gate instead of fabricating a draft", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-closeout-")),
     repoId = workspaceId("settle-closeout"),
     taskId = "task_settle_closeout",
     executionId = "exe_settle_closeout";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -460,11 +467,12 @@ test("settle stops on the closeout gate instead of fabricating a draft", async (
   }
 });
 
-test("owner retries preparation failure on the same submitted cut without a second submit event", async () => {
+test("owner retries preparation failure on the same submitted cut without a second submit event", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-prepare-")),
     repoId = workspaceId("settle-prepare"),
     taskId = "task_settle_prepare",
     executionId = "exe_settle_prepare";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   let armed = false,
     interrupted = false;
@@ -514,12 +522,13 @@ test("owner retries preparation failure on the same submitted cut without a seco
   }
 });
 
-test("settle preserves the submitted file manifest after main merges the delivery", async () => {
+test("settle preserves the submitted file manifest after main merges the delivery", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-merged-")),
     repoId = workspaceId("settle-merged"),
     taskId = "task_settle_merged",
     executionId = "exe_settle_merged",
     git = (...args: string[]) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -574,11 +583,12 @@ test("settle preserves the submitted file manifest after main merges the deliver
 });
 
 for (const explicit of [false, true])
-  test(`${explicit ? "explicit" : "implicit"} artifact delivery freezes accepted bytes while Git publication is blocked`, async () => {
+  test(`${explicit ? "explicit" : "implicit"} artifact delivery freezes accepted bytes while Git publication is blocked`, async (t) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-stale-anchor-")),
       repoId = workspaceId("settle-stale-anchor"),
       taskId = "task_settle_stale_anchor",
       executionId = "exe_settle_stale_anchor";
+    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
     initRepo(rootDir);
     let blocked = false,
       blockedPublications = 0;

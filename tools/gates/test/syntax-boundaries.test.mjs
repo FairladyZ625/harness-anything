@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,8 +11,9 @@ import noSwallowedFailure from "../eslint-rules/no-swallowed-failure.js";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
-function fixture() {
+function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), "syntax-boundary-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, "packages/example/src"), { recursive: true });
   mkdirSync(path.join(root, "tools/gate-allowlists"), { recursive: true });
   return root;
@@ -22,8 +23,8 @@ function run(script, root, ...args) {
   return spawnSync(process.execPath, [path.join(repoRoot, script), ...args, root], { cwd: repoRoot, encoding: "utf8" });
 }
 
-test("G4 exact-sync rejects new consumeKnownError and online history scan functions", () => {
-  const root = fixture();
+test("G4 exact-sync rejects new consumeKnownError and online history scan functions", (t) => {
+  const root = fixture(t);
   writeFileSync(path.join(root, "packages/example/src/clean.ts"), "export const clean = true;\n");
   assert.equal(run("tools/check-fallback-boundaries.mjs", root, "--update").status, 0);
   writeFileSync(

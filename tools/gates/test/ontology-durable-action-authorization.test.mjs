@@ -9,9 +9,10 @@ import { captureGate, writeRepoFile } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
-test("G0-2 reports the base advisory and names an action whose AuthorizationPort call is removed", () => {
+test("G0-2 reports the base advisory and names an action whose AuthorizationPort call is removed", (t) => {
   assert.equal(captureGate(() => main(["--root", repoRoot])).code, 0);
   const rootDir = mkdtempSync(path.join(tmpdir(), "ontology-action-authorization-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   const actionFixture = path.join(rootDir, "durable-actions.json");
   writeRepoFile(rootDir, "durable-actions.json", '["durable-write"]\n');
   writeRepoFile(

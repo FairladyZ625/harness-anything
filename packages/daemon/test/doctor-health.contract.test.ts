@@ -2,7 +2,7 @@
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -31,9 +31,10 @@ function initRepo(rootDir: string): void {
   git("commit", "--quiet", "-m", "fixture base");
 }
 
-test("doctor health reports the six checks and degrades to indeterminate without origin/main", async () => {
+test("doctor health reports the six checks and degrades to indeterminate without origin/main", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-health-")),
     repoId = workspaceId("doctor-health");
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -60,13 +61,14 @@ test("doctor health reports the six checks and degrades to indeterminate without
   }
 });
 
-test("doctor host composes loaded/disk identities and remote edge never reports local data as center health", async () => {
+test("doctor host composes loaded/disk identities and remote edge never reports local data as center health", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-doctor-host-")),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     runtimeFile = path.join(parent, "dist/daemon/src/runtime.js"),
     marker = path.join(parent, "dist/build-id.txt"),
     edge = path.join(parent, "edge");
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
   rosterRepo(rootDir, "doctor-host");
   mkdirSync(path.dirname(runtimeFile), { recursive: true });
   writeFileSync(runtimeFile, "fixture");
@@ -127,12 +129,13 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
   }
 });
 
-test("doctor reads beyond 500 tasks and deduplicates ancestry against the captured tip", async () => {
+test("doctor reads beyond 500 tasks and deduplicates ancestry against the captured tip", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-cut-")),
     bin = path.join(rootDir, "bin"),
     logPath = path.join(rootDir, "git-calls.jsonl"),
     originalPath = process.env.PATH,
     realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const git = (...args: string[]) => execFileSync(realGit, ["-C", rootDir, ...args], { encoding: "utf8" }).trim(),
     tip = git("rev-parse", "HEAD");

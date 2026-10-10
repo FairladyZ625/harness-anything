@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,10 +23,11 @@ const actor = { principal: { personId: "person-owner" }, executor: null },
     ["relation-triples", { kind: "relation-triples" }],
   ]);
 
-test("every query-only declaration completes through the synchronous fixture reader", async () => {
+test("every query-only declaration completes through the synchronous fixture reader", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-query-only-contract-")),
     repoId = workspaceId("query-only-contract"),
     declared = daemonProtocolCommands.filter((command) => command.repoCellExecution === "query-only");
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initIngressRepo(rootDir, process.getuid?.() ?? 0);

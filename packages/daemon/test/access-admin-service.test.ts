@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { actionDeclarations } from "@harness-anything/kernel";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { requireAuthorizedFleetAction } from "../src/host-action-authorization.ts";
@@ -13,12 +13,13 @@ import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
 
-async function fixture() {
+async function fixture(t: TestContext) {
   const keycloak = fakeKeycloak(),
     user = keycloakUserRoot(),
     oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: keycloak.fetch }),
     config = { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" };
+  t.after(user.cleanup);
   await new KeycloakPolicyAdapter(config, keycloak.fetch).syncBasePolicy("center-token");
   keycloak.writes.length = 0;
   return {
@@ -59,8 +60,8 @@ async function fixture() {
   };
 }
 
-test("a group granted on repository A allows there and denies on repository B", async () => {
-  const { keycloak, run, evaluate } = await fixture();
+test("a group granted on repository A allows there and denies on repository B", async (t) => {
+  const { keycloak, run, evaluate } = await fixture(t);
   keycloak.account("alice");
   keycloak.account("bob");
   assert.equal(await evaluate("alice", "repo-a", { kind: "task-create" }), "denied");
@@ -98,8 +99,8 @@ test("a group granted on repository A allows there and denies on repository B", 
   assert.equal(await evaluate("alice", "repo-a", { kind: "task-create" }), "denied");
 });
 
-test("an EntityRef grant does not widen to the repository or its other objects", async () => {
-  const { keycloak, run, evaluate } = await fixture();
+test("an EntityRef grant does not widen to the repository or its other objects", async (t) => {
+  const { keycloak, run, evaluate } = await fixture(t);
   keycloak.account("bob");
   await run({ operation: "grant", personId: "bob", groupId: "maintainer", resource: "repo-b:task/task_123" });
   assert.equal(await evaluate("bob", "repo-b", { kind: "task-complete", taskId: "task_123" }), "allowed");
@@ -116,8 +117,8 @@ test("an EntityRef grant does not widen to the repository or its other objects",
   });
 });
 
-test("custom groups compose Base groups, re-expand their grants, and trace every action to its source", async () => {
-  const { keycloak, admin, run, evaluate } = await fixture(),
+test("custom groups compose Base groups, re-expand their grants, and trace every action to its source", async (t) => {
+  const { keycloak, admin, run, evaluate } = await fixture(t),
     version = async (id: string) =>
       ((await admin.run({ operation: "group-list" })).groups as { id: string; version: string }[]).find(
         (group) => group.id === id,
@@ -188,8 +189,8 @@ test("custom groups compose Base groups, re-expand their grants, and trace every
   assert.deepEqual([keycloak.roles.has("audit"), keycloak.roles.has("release")], [false, false]);
 });
 
-test("two administrators editing one group from the same version: one applied, one version_conflict", async () => {
-  const { admin, run, signIn } = await fixture(),
+test("two administrators editing one group from the same version: one applied, one version_conflict", async (t) => {
+  const { admin, run, signIn } = await fixture(t),
     read = async () =>
       (
         (await admin.run({ operation: "group-list" })).groups as { id: string; version: string; scopes: string[] }[]
@@ -231,8 +232,8 @@ test("two administrators editing one group from the same version: one applied, o
   assert.deepEqual((await read()).scopes, ["decision-reject", "decision-review"]);
 });
 
-test("the journal holds receipts only, and a lost receipt is reconciled without repeating the write", async () => {
-  const { keycloak, oidc, root, journal, run, evaluate } = await fixture(),
+test("the journal holds receipts only, and a lost receipt is reconciled without repeating the write", async (t) => {
+  const { keycloak, oidc, root, journal, run, evaluate } = await fixture(t),
     file = managedRbacReceiptJournal(root);
   keycloak.account("alice");
   let failSettlement = true;
@@ -283,8 +284,8 @@ test("the journal holds receipts only, and a lost receipt is reconciled without 
   );
 });
 
-test("the read side lists every action facet, every held grant by person, and the receipts behind an answer", async () => {
-  const { keycloak, admin, run, journal, root } = await fixture();
+test("the read side lists every action facet, every held grant by person, and the receipts behind an answer", async (t) => {
+  const { keycloak, admin, run, journal, root } = await fixture(t);
   keycloak.account("alice");
   keycloak.account("bob");
   // An account without a Harness person id cannot be named by a grant, so it is not offered.
@@ -347,8 +348,8 @@ test("the read side lists every action facet, every held grant by person, and th
   assert.deepEqual([newest!.operationId, newest!.phase, settled], ["lost", "intent", 4]);
 });
 
-test("access administration requires the access-admin role before anything reaches Keycloak", async () => {
-  const { keycloak, run, signIn } = await fixture();
+test("access administration requires the access-admin role before anything reaches Keycloak", async (t) => {
+  const { keycloak, run, signIn } = await fixture(t);
   keycloak.account("alice");
   signIn("person-member", ["offline_access"]);
   for (const operation of [
@@ -376,8 +377,8 @@ test("access administration requires the access-admin role before anything reach
   assert.equal(keycloak.realm.ssoSessionIdleTimeout, 1_800);
 });
 
-test("the session lifetime is read from and written to the realm, within bounds, against the value read", async () => {
-  const { keycloak, admin, run, journal } = await fixture(),
+test("the session lifetime is read from and written to the realm, within bounds, against the value read", async (t) => {
+  const { keycloak, admin, run, journal } = await fixture(t),
     realmAdmin = { url: keycloakUrl, realm: keycloakRealm, accessToken: "center-token" };
   // A realm that predates the session lifetime runs Keycloak's defaults until the daemon aligns it.
   await alignSessionLifetime(realmAdmin, keycloak.fetch);
@@ -435,8 +436,8 @@ test("the session lifetime is read from and written to the realm, within bounds,
   );
 });
 
-test("first-administrator bootstrap with two different usernames creates exactly one administrator", async () => {
-  const { keycloak, oidc } = await fixture(),
+test("first-administrator bootstrap with two different usernames creates exactly one administrator", async (t) => {
+  const { keycloak, oidc } = await fixture(t),
     person = (name: string) => ({
       username: name,
       email: `${name}@example.invalid`,
@@ -456,8 +457,8 @@ test("first-administrator bootstrap with two different usernames creates exactly
   );
 });
 
-test("host-level actions answer to the fleet grant of the signed-in person, never to a repository", async () => {
-  const { keycloak, root, run } = await fixture(),
+test("host-level actions answer to the fleet grant of the signed-in person, never to a repository", async (t) => {
+  const { keycloak, root, run } = await fixture(t),
     requests: string[] = [],
     fetchPort = (async (input, init) => {
       requests.push(String((init?.body as URLSearchParams).get("permission")));

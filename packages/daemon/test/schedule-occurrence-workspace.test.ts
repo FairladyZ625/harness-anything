@@ -15,7 +15,7 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { createScheduleV1, type ScheduleV1 } from "@harness-anything/kernel";
 import { dispatchClaimedSchedule } from "../src/schedule-action-runtime.ts";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
@@ -129,8 +129,8 @@ test("scheduled dispatch spawns from the occurrence workspace without extra writ
   assert.equal(argv.includes("--add-dir"), false);
 });
 
-test("remediate occurrences start from the default branch and clean empty worktrees", async () => {
-  const fixture = repositoryFixture();
+test("remediate occurrences start from the default branch and clean empty worktrees", async (t) => {
+  const fixture = repositoryFixture({}, t);
   try {
     const workspace = await prepareScheduleOccurrenceWorkspace(
       fixture.root,
@@ -147,8 +147,8 @@ test("remediate occurrences start from the default branch and clean empty worktr
   }
 });
 
-test("remediate occurrences retain a dirty worktree and name its path", async () => {
-  const fixture = repositoryFixture();
+test("remediate occurrences retain a dirty worktree and name its path", async (t) => {
+  const fixture = repositoryFixture({}, t);
   try {
     const workspace = await prepareScheduleOccurrenceWorkspace(
       fixture.root,
@@ -164,8 +164,8 @@ test("remediate occurrences retain a dirty worktree and name its path", async ()
   }
 });
 
-test("remediate occurrences keep unmerged commits at an archive tag before removing the worktree", async () => {
-  const fixture = repositoryFixture();
+test("remediate occurrences keep unmerged commits at an archive tag before removing the worktree", async (t) => {
+  const fixture = repositoryFixture({}, t);
   try {
     const workspace = await prepareScheduleOccurrenceWorkspace(
       fixture.root,
@@ -189,8 +189,8 @@ test("remediate occurrences keep unmerged commits at an archive tag before remov
   }
 });
 
-test("the node-modules setup resolves workspace packages in the worktree and shares the rest of the store", async () => {
-  const fixture = repositoryFixture();
+test("the node-modules setup resolves workspace packages in the worktree and shares the rest of the store", async (t) => {
+  const fixture = repositoryFixture({}, t);
   try {
     const store = storeFixture(fixture.root),
       workspace = await prepareScheduleOccurrenceWorkspace(
@@ -212,8 +212,8 @@ test("the node-modules setup resolves workspace packages in the worktree and sha
   }
 });
 
-test("the mirrored store is removed at reclaim even where node_modules is not ignored", async () => {
-  const fixture = repositoryFixture({ ignoreNodeModules: false });
+test("the mirrored store is removed at reclaim even where node_modules is not ignored", async (t) => {
+  const fixture = repositoryFixture({ ignoreNodeModules: false }, t);
   try {
     const store = storeFixture(fixture.root),
       workspace = await prepareScheduleOccurrenceWorkspace(
@@ -230,8 +230,8 @@ test("the mirrored store is removed at reclaim even where node_modules is not ig
   }
 });
 
-test("a repository that declares no setup gets a bare worktree, even with a root node_modules", async () => {
-  const fixture = repositoryFixture();
+test("a repository that declares no setup gets a bare worktree, even with a root node_modules", async (t) => {
+  const fixture = repositoryFixture({}, t);
   try {
     storeFixture(fixture.root);
     const workspace = await prepareScheduleOccurrenceWorkspace(
@@ -246,8 +246,8 @@ test("a repository that declares no setup gets a bare worktree, even with a root
   }
 });
 
-test("a failing setup step fails the occurrence workspace and names the step and its log", async () => {
-  const fixture = repositoryFixture();
+test("a failing setup step fails the occurrence workspace and names the step and its log", async (t) => {
+  const fixture = repositoryFixture({}, t);
   try {
     await assert.rejects(
       prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-failed"), () => [
@@ -263,8 +263,8 @@ test("a failing setup step fails the occurrence workspace and names the step and
 test(
   "a node_modules mirror that cannot be written fails the adapter and leaves no half-made store",
   { skip: process.platform === "win32" },
-  () => {
-    const fixture = repositoryFixture(),
+  (t) => {
+    const fixture = repositoryFixture({}, t),
       worktree = mkdtempSync(path.join(fixture.base, "wt-"));
     try {
       mkdirSync(path.join(fixture.root, "node_modules"));
@@ -289,10 +289,14 @@ function schedule(mode: "detect" | "remediate", occurrenceId: string): ScheduleV
   } as ScheduleV1;
 }
 
-function repositoryFixture({ ignoreNodeModules = true } = {}): { readonly base: string; readonly root: string } {
+function repositoryFixture(
+  { ignoreNodeModules = true } = {},
+  t: TestContext,
+): { readonly base: string; readonly root: string } {
   const base = mkdtempSync(path.join(tmpdir(), "ha-schedule-workspace-")),
     remote = path.join(base, "remote.git"),
     root = path.join(base, "canonical");
+  t.after(() => rmSync(base, { recursive: true, force: true }));
   git(base, "init", "--bare", "-q", remote);
   git(base, "init", "-q", "-b", "main", root);
   git(root, "config", "user.name", "Schedule Test");

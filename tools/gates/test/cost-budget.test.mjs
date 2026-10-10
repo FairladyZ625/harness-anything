@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,8 +21,9 @@ function fixture() {
   );
 }
 
-function setup() {
+function setup(t) {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-cost-budget-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   mkdirSync(path.join(rootDir, "tools/gates/receipts"), { recursive: true });
   writeFileSync(path.join(rootDir, "fixture.json"), `${JSON.stringify(fixture())}\n`);
   writeFileSync(
@@ -37,20 +38,20 @@ function setup() {
   return rootDir;
 }
 
-test("G38 measures the production rebuild counter", async () => {
-  assert.deepEqual(await measureCosts(readCostFixture(path.join(setup(), "fixture.json"))), {
+test("G38 measures the production rebuild counter", async (t) => {
+  assert.deepEqual(await measureCosts(readCostFixture(path.join(setup(t), "fixture.json"))), {
     // Rebuild reads the accepting SQLite ledger; it no longer spawns Git.
     projectionRebuildGitProcesses: 0,
   });
 });
 
-test("G38 passes at the committed ceiling", async () => {
-  const rootDir = setup();
+test("G38 passes at the committed ceiling", async (t) => {
+  const rootDir = setup(t);
   assert.equal((await evaluateCostBudget({ rootDir })).ok, true);
 });
 
-test("G38 requires a signed receipt for a budget increase", async () => {
-  const rootDir = setup();
+test("G38 requires a signed receipt for a budget increase", async (t) => {
+  const rootDir = setup(t);
   const budgetPath = path.join(rootDir, "tools/gates/cost-budget.json");
   const budget = JSON.parse(readFileSync(budgetPath, "utf8"));
   budget.budgets.projectionRebuildGitProcesses = 5;
@@ -75,8 +76,9 @@ test("G38 requires a signed receipt for a budget increase", async () => {
 const G1_OPS = Object.freeze(["op-a"]);
 const G1_TEST_METRICS = Object.freeze(["sqlRowsRead", "gitProcesses"]);
 
-function g1Setup({ baseline = { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } }, knownScaling = [] } = {}) {
+function g1Setup(t, { baseline = { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } }, knownScaling = [] } = {}) {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-g1-cost-budget-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   mkdirSync(path.join(rootDir, "tools/gates/receipts"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "tools/gates/cost-budget.json"),
@@ -97,8 +99,8 @@ function g1Measured(small, large, { operations = G1_OPS, metrics = G1_TEST_METRI
   return { small: { counts: small }, large: { counts: large }, operations, metrics };
 }
 
-test("G1 passes when the 2000-scale count stays within the fixed margin of the 200-scale count", async () => {
-  const rootDir = g1Setup();
+test("G1 passes when the 2000-scale count stays within the fixed margin of the 200-scale count", async (t) => {
+  const rootDir = g1Setup(t);
   const measured = g1Measured(
     { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
     { "op-a": { sqlRowsRead: 105, gitProcesses: 4 } },
@@ -107,8 +109,8 @@ test("G1 passes when the 2000-scale count stays within the fixed margin of the 2
   assert.equal(result.ok, true, JSON.stringify(result.errors));
 });
 
-test("G1 rejects an unexempted operation whose count grows with ledger scale", async () => {
-  const rootDir = g1Setup();
+test("G1 rejects an unexempted operation whose count grows with ledger scale", async (t) => {
+  const rootDir = g1Setup(t);
   const measured = g1Measured(
     { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
     { "op-a": { sqlRowsRead: 900, gitProcesses: 4 } },
@@ -121,8 +123,8 @@ test("G1 rejects an unexempted operation whose count grows with ledger scale", a
   );
 });
 
-test("G1 tolerates a growing count when a live knownScaling exemption names the exact pair", async () => {
-  const rootDir = g1Setup({
+test("G1 tolerates a growing count when a live knownScaling exemption names the exact pair", async (t) => {
+  const rootDir = g1Setup(t, {
     baseline: { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
     knownScaling: [
       {
@@ -142,8 +144,8 @@ test("G1 tolerates a growing count when a live knownScaling exemption names the 
   assert.equal(result.ok, true, JSON.stringify(result.errors));
 });
 
-test("G1 fails a growing count guarded by an expired knownScaling exemption", async () => {
-  const rootDir = g1Setup({
+test("G1 fails a growing count guarded by an expired knownScaling exemption", async (t) => {
+  const rootDir = g1Setup(t, {
     baseline: { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
     knownScaling: [
       {
@@ -164,8 +166,8 @@ test("G1 fails a growing count guarded by an expired knownScaling exemption", as
   assert.match(result.errors.join("\n"), /op-a\.sqlRowsRead: knownScaling exemption expired/u);
 });
 
-test("G1 fails a stale knownScaling exemption whose pair no longer grows", async () => {
-  const rootDir = g1Setup({
+test("G1 fails a stale knownScaling exemption whose pair no longer grows", async (t) => {
+  const rootDir = g1Setup(t, {
     baseline: { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
     knownScaling: [
       {
@@ -186,8 +188,8 @@ test("G1 fails a stale knownScaling exemption whose pair no longer grows", async
   assert.match(result.errors.join("\n"), /op-a\.sqlRowsRead: knownScaling exemption is stale/u);
 });
 
-test("G1 rejects a 200-scale measurement that exceeds the committed budget", async () => {
-  const rootDir = g1Setup();
+test("G1 rejects a 200-scale measurement that exceeds the committed budget", async (t) => {
+  const rootDir = g1Setup(t);
   const measured = g1Measured(
     { "op-a": { sqlRowsRead: 150, gitProcesses: 4 } },
     { "op-a": { sqlRowsRead: 155, gitProcesses: 4 } },
@@ -197,8 +199,8 @@ test("G1 rejects a 200-scale measurement that exceeds the committed budget", asy
   assert.match(result.errors.join("\n"), /op-a\.sqlRowsRead: measured 150 at 200 events exceeds budget 100/u);
 });
 
-test("G1 requires a signed receipt to raise a committed budget above baseline", async () => {
-  const rootDir = g1Setup();
+test("G1 requires a signed receipt to raise a committed budget above baseline", async (t) => {
+  const rootDir = g1Setup(t);
   const budgetPath = path.join(rootDir, "tools/gates/cost-budget.json");
   const budget = JSON.parse(readFileSync(budgetPath, "utf8"));
   budget.writeCostScaling.budgets["op-a"].sqlRowsRead = 150;
@@ -225,9 +227,10 @@ test("G1 requires a signed receipt to raise a committed budget above baseline", 
   assert.equal(withReceipt.ok, true, JSON.stringify(withReceipt.errors));
 });
 
-test("G1 measures the two ledger scales one after the other", async () => {
+test("G1 measures the two ledger scales one after the other", async (t) => {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-g1-sequential-")),
     fixtureDir = path.join(rootDir, "packages/daemon/test/fixtures");
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   mkdirSync(fixtureDir, { recursive: true });
   // Each fake measurement yields mid-flight; overlapping scales would record a second start first.
   writeFileSync(
@@ -251,8 +254,8 @@ test("G1 measures the two ledger scales one after the other", async () => {
   assert.deepEqual([measured.small.eventCount, measured.large.eventCount], [200, 2000]);
 });
 
-test("G1 rejects a budget file missing an operation the measurement covers", async () => {
-  const rootDir = g1Setup();
+test("G1 rejects a budget file missing an operation the measurement covers", async (t) => {
+  const rootDir = g1Setup(t);
   const measured = g1Measured(
     { "op-a": { sqlRowsRead: 100, gitProcesses: 4 }, "op-b": { sqlRowsRead: 10, gitProcesses: 0 } },
     { "op-a": { sqlRowsRead: 105, gitProcesses: 4 }, "op-b": { sqlRowsRead: 10, gitProcesses: 0 } },

@@ -152,8 +152,11 @@ test("RepoCell serializes identical lifecycle intents into one accepted SQLite o
 });
 // prettier-ignore
 
-test("GUI and CLI submit derive the same canonical event from closeout", async () => {
+test("GUI and CLI submit derive the same canonical event from closeout", async (t) => {
   const roots = ["packet", "structured"].map((name) => mkdtempSync(path.join(tmpdir(), `ha-submit-ab-${name}-`)));
+  t.after(() => {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  });
   const cells: Awaited<ReturnType<typeof openRepoCell>>[] = [];
   const now = () => "2026-08-14T01:02:03.000Z", taskId = "task-submit-ab", executionId = "execution-submit-ab", binding = repoWriteBinding;
   try {

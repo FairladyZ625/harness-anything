@@ -1,6 +1,6 @@
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -433,6 +433,7 @@ export function keycloakUserRoot(
 ): {
   readonly root: string;
   readonly signIn: (personId: string, roles?: readonly string[]) => void;
+  readonly cleanup: () => void;
 } {
   const root = mkdtempSync(path.join(tmpdir(), "ha-access-admin-")),
     signIn = (who: string, held?: readonly string[]) => signInAt(root, who, held);
@@ -440,7 +441,8 @@ export function keycloakUserRoot(
   writeFileSync(path.join(root, "rbac", "config.json"), JSON.stringify({ url: keycloakUrl, realm: keycloakRealm }));
   writeFileSync(path.join(root, "rbac", "center-client-secret"), "fixture-secret");
   signIn(personId, roles);
-  return { root, signIn };
+  // Callers hand this to their test lifecycle hook; t.after keeps cleanup running after a timeout.
+  return { root, signIn, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 /**

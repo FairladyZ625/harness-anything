@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -94,8 +94,9 @@ test("S2 阴性对照:ID 文本在带点击处理的交互元素内部时放行"
   assert.deepEqual(auditLinkPrimitive(GOOD_PRIMITIVE), []);
 });
 
-test("S3 阳性对照:行为半边缺失时被拒绝,存在即被执行", () => {
+test("S3 阳性对照:行为半边缺失时被拒绝,存在即被执行", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "g37-wiring-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   mkdirSync(path.join(rootDir, path.dirname(BEHAVIORAL_TEST_PATH)), { recursive: true });
   const noTest = auditBehavioralWiring(rootDir);
   assert.equal(noTest.length, 1);

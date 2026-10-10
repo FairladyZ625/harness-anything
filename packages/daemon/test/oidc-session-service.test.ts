@@ -1,9 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { OidcSessionService, type OidcSessionPorts, type OidcLoginAuthority } from "../src/oidc-session-service.ts";
 import { evaluateKeycloakPerson } from "../src/repo-cell-authorization.ts";
@@ -17,7 +17,7 @@ const sessionLifetimeSeconds = 21_600,
   accessTokenSeconds = 60;
 
 /** A Keycloak token endpoint whose refresh tokens slide with use and lapse after `lifetimeSeconds` idle. */
-function fixture(start = 1_000, ports: Partial<OidcSessionPorts> = {}) {
+function fixture(start: number, ports: Partial<OidcSessionPorts>, t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-session-")),
     requests: Request[] = [],
     clock = { now: start },
@@ -35,6 +35,8 @@ function fixture(start = 1_000, ports: Partial<OidcSessionPorts> = {}) {
         refresh_expires_in: keycloak.lifetimeSeconds,
       });
     };
+  // Register cleanup with the test lifecycle so cancellation releases the directory too.
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, "rbac"), { recursive: true });
   writeFileSync(
     path.join(root, "rbac", "config.json"),
@@ -74,8 +76,8 @@ async function signIn(active: ReturnType<typeof fixture>): Promise<Record<string
 const serialOf = (accessToken: string | undefined): unknown =>
   JSON.parse(Buffer.from(accessToken!.split(".")[1]!, "base64url").toString("utf8")).serial;
 
-test("PKCE login validates state, keeps tokens daemon-side, and binds the Keycloak person", async () => {
-  const { service, requests, root } = fixture(),
+test("PKCE login validates state, keeps tokens daemon-side, and binds the Keycloak person", async (t) => {
+  const { service, requests, root } = fixture(1_000, {}, t),
     redirectUri = "http://127.0.0.1:43123/callback",
     begun = await service.begin(redirectUri),
     authorizationUrl = new URL(String(begun.authorizationUrl));
@@ -105,8 +107,8 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
   assert.equal(statSync(path.join(root, "rbac", "oidc-session.json")).mode & 0o777, 0o600);
 });
 
-test("under a listener the browser signs in at its hostname while the daemon keeps to loopback", async () => {
-  const { service, requests, root } = fixture();
+test("under a listener the browser signs in at its hostname while the daemon keeps to loopback", async (t) => {
+  const { service, requests, root } = fixture(1_000, {}, t);
   writeFileSync(
     path.join(root, "rbac", "config.json"),
     JSON.stringify({
@@ -124,8 +126,8 @@ test("under a listener the browser signs in at its hostname while the daemon kee
   assert.deepEqual([...new Set(requests.map((request) => new URL(request.url).origin))], ["http://127.0.0.1:8080"]);
 });
 
-test("a session in use outlives its access token without signing in again", async () => {
-  const active = fixture();
+test("a session in use outlives its access token without signing in again", async (t) => {
+  const active = fixture(1_000, {}, t);
   await signIn(active);
   const first = (await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal;
   assert.equal(serialOf(first?.accessToken), 1);
@@ -146,8 +148,8 @@ test("a session in use outlives its access token without signing in again", asyn
   assert.equal(active.keycloak.refreshes, 3);
 });
 
-test("concurrent uses of a session whose access token lapsed renew it once", async () => {
-  const active = fixture();
+test("concurrent uses of a session whose access token lapsed renew it once", async (t) => {
+  const active = fixture(1_000, {}, t);
   await signIn(active);
   active.clock.now += (accessTokenSeconds + 5) * 1_000;
   const [status, bound, session] = await Promise.all([
@@ -161,8 +163,8 @@ test("concurrent uses of a session whose access token lapsed renew it once", asy
   assert.equal(active.keycloak.refreshes, 1);
 });
 
-test("a session idle past the session lifetime is signed out, and not retried", async () => {
-  const active = fixture();
+test("a session idle past the session lifetime is signed out, and not retried", async (t) => {
+  const active = fixture(1_000, {}, t);
   await signIn(active);
   // Just inside the lifetime the session still renews; the renewal slides the lifetime forward.
   active.clock.now += sessionLifetimeSeconds * 1_000 - 1;
@@ -175,8 +177,8 @@ test("a session idle past the session lifetime is signed out, and not retried", 
   assert.equal(active.keycloak.refreshes, 2);
 });
 
-test("a session whose refresh token Keycloak revoked is signed out instead of let through", async () => {
-  const active = fixture();
+test("a session whose refresh token Keycloak revoked is signed out instead of let through", async (t) => {
+  const active = fixture(1_000, {}, t);
   await signIn(active);
   active.keycloak.revoked = true;
   // The access token it already holds stays usable until it lapses; the renewal is what Keycloak refuses.
@@ -187,8 +189,8 @@ test("a session whose refresh token Keycloak revoked is signed out instead of le
   assert.equal(active.keycloak.refreshes, 1);
 });
 
-test("an unreachable Keycloak fails the renewal without ending the session", async () => {
-  const active = fixture();
+test("an unreachable Keycloak fails the renewal without ending the session", async (t) => {
+  const active = fixture(1_000, {}, t);
   await signIn(active);
   active.clock.now += (accessTokenSeconds + 5) * 1_000;
   active.keycloak.reachable = false;
@@ -200,16 +202,16 @@ test("an unreachable Keycloak fails the renewal without ending the session", asy
   assert.equal((await active.service.status()).authenticated, true);
 });
 
-test("a lowered session lifetime applies to a signed-in session at its next renewal", async () => {
-  const active = fixture();
+test("a lowered session lifetime applies to a signed-in session at its next renewal", async (t) => {
+  const active = fixture(1_000, {}, t);
   await signIn(active);
   active.keycloak.lifetimeSeconds = 300;
   active.clock.now += (accessTokenSeconds + 5) * 1_000;
   assert.equal((await active.service.status()).expiresAt, active.clock.now + 300_000);
 });
 
-test("a connection that outlives the access token carries the session as it is on each request", async () => {
-  const active = fixture(),
+test("a connection that outlives the access token carries the session as it is on each request", async (t) => {
+  const active = fixture(1_000, {}, t),
     server = createJsonRpcProtocolServer({
       host: {
         manageRbac: async (_request: unknown, auth: DaemonAuthenticationContext) => ({
@@ -249,20 +251,20 @@ test("a connection that outlives the access token carries the session as it is o
   assert.equal(await serial(), null);
 });
 
-test("mismatched callback state is rejected and logout ends the session", async () => {
-  const active = fixture();
+test("mismatched callback state is rejected and logout ends the session", async (t) => {
+  const active = fixture(1_000, {}, t);
   await active.service.begin("http://localhost:1234/callback");
   await assert.rejects(active.service.complete("code", "wrong-state"), { code: "oidc_state_invalid" });
 
-  const signedIn = fixture(100_000);
+  const signedIn = fixture(100_000, {}, t);
   await signIn(signedIn);
   assert.equal((await signedIn.service.status()).authenticated, true);
   assert.deepEqual(await signedIn.service.logout(), { ok: true, authenticated: false });
   assert.equal((await signedIn.service.bind({ transportKind: "unix-socket" })).oidcPrincipal, undefined);
 });
 
-test("login rejects non-loopback callbacks", async () => {
-  const { service } = fixture();
+test("login rejects non-loopback callbacks", async (t) => {
+  const { service } = fixture(1_000, {}, t);
   await assert.rejects(() => service.begin("https://example.com/callback"), { code: "oidc_redirect_invalid" });
 });
 
@@ -284,10 +286,11 @@ test("repository actions fail closed without a live OIDC principal", () => {
   );
 });
 
-test("first administrator closes after one success and access-admin can invite", async () => {
+test("first administrator closes after one success and access-admin can invite", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-admin-")),
     rbac = path.join(root, "rbac"),
     users: string[] = [];
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(rbac, { recursive: true });
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
@@ -350,12 +353,16 @@ const remoteAuthority: OidcLoginAuthority = {
 };
 
 for (const late of ["success", "failure"] as const) {
-  test(`late authority ${late} cannot replace a newer PKCE attempt`, async () => {
+  test(`late authority ${late} cannot replace a newer PKCE attempt`, async (t) => {
     const authority = Promise.withResolvers<OidcLoginAuthority>();
     let calls = 0;
-    const active = fixture(1_000, {
-      loginAuthority: async () => (++calls === 1 ? authority.promise : remoteAuthority),
-    });
+    const active = fixture(
+      1_000,
+      {
+        loginAuthority: async () => (++calls === 1 ? authority.promise : remoteAuthority),
+      },
+      t,
+    );
     const first = active.service.begin("http://127.0.0.1:1111/callback", "old-target");
     const rejected = assert.rejects(
       first,
@@ -373,8 +380,8 @@ for (const late of ["success", "failure"] as const) {
   });
 }
 
-test("an old or unknown callback does not consume the current attempt", async () => {
-  const { service, requests } = fixture();
+test("an old or unknown callback does not consume the current attempt", async (t) => {
+  const { service, requests } = fixture(1_000, {}, t);
   const old = await service.begin("http://localhost:1111/callback");
   const fresh = await service.begin("http://localhost:2222/callback");
   for (const state of [String(old.state), "unknown-state"]) {
@@ -386,33 +393,37 @@ test("an old or unknown callback does not consume the current attempt", async ()
 });
 
 for (const stage of ["token", "userinfo"] as const) {
-  test(`an old complete delayed at ${stage} cannot overwrite a newer identity`, async () => {
+  test(`an old complete delayed at ${stage} cannot overwrite a newer identity`, async (t) => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-    const active = fixture(1_000, {
-      fetch: (async (input, init) => {
-        const token = String(input).endsWith("/token");
-        const code = token
-          ? (init!.body as URLSearchParams).get("code")
-          : JSON.parse(
-              Buffer.from(new Headers(init?.headers).get("authorization")!.split(".")[1]!, "base64url").toString(),
-            ).person;
-        if (code === "old" && (stage === "token") === token) {
-          entered.resolve();
-          await release.promise;
-        }
-        return Response.json(
-          token
-            ? {
-                access_token: `x.${Buffer.from(JSON.stringify({ person: code })).toString("base64url")}.x`,
-                refresh_token: "fixture-refresh",
-                expires_in: 300,
-                refresh_expires_in: 1800,
-              }
-            : { sub: code, harness_person_id: code },
-        );
-      }) as typeof fetch,
-    });
+    const active = fixture(
+      1_000,
+      {
+        fetch: (async (input, init) => {
+          const token = String(input).endsWith("/token");
+          const code = token
+            ? (init!.body as URLSearchParams).get("code")
+            : JSON.parse(
+                Buffer.from(new Headers(init?.headers).get("authorization")!.split(".")[1]!, "base64url").toString(),
+              ).person;
+          if (code === "old" && (stage === "token") === token) {
+            entered.resolve();
+            await release.promise;
+          }
+          return Response.json(
+            token
+              ? {
+                  access_token: `x.${Buffer.from(JSON.stringify({ person: code })).toString("base64url")}.x`,
+                  refresh_token: "fixture-refresh",
+                  expires_in: 300,
+                  refresh_expires_in: 1800,
+                }
+              : { sub: code, harness_person_id: code },
+          );
+        }) as typeof fetch,
+      },
+      t,
+    );
     const first = await active.service.begin("http://localhost:1111/callback");
     const completed = active.service.complete("old", String(first.state));
     const rejected = assert.rejects(completed, { code: "oidc_login_superseded" });
@@ -425,9 +436,9 @@ for (const stage of ["token", "userinfo"] as const) {
   });
 }
 
-test("logout invalidates authority discovery before it can publish a pending login", async () => {
+test("logout invalidates authority discovery before it can publish a pending login", async (t) => {
   const authority = Promise.withResolvers<OidcLoginAuthority>();
-  const { service } = fixture(1_000, { loginAuthority: () => authority.promise });
+  const { service } = fixture(1_000, { loginAuthority: () => authority.promise }, t);
   const begun = service.begin("http://localhost:1111/callback", "remote-target");
   const rejected = assert.rejects(begun, { code: "oidc_login_superseded" });
   await service.logout();
@@ -436,13 +447,21 @@ test("logout invalidates authority discovery before it can publish a pending log
   assert.equal((await service.status()).authenticated, false);
 });
 
-test("independent daemons reject each other's state without consuming their own login", async () => {
-  const first = fixture(1_000, {
-    randomBytes: ((size: number) => Buffer.alloc(size, 10)) as OidcSessionPorts["randomBytes"],
-  });
-  const second = fixture(1_000, {
-    randomBytes: ((size: number) => Buffer.alloc(size, 20)) as OidcSessionPorts["randomBytes"],
-  });
+test("independent daemons reject each other's state without consuming their own login", async (t) => {
+  const first = fixture(
+    1_000,
+    {
+      randomBytes: ((size: number) => Buffer.alloc(size, 10)) as OidcSessionPorts["randomBytes"],
+    },
+    t,
+  );
+  const second = fixture(
+    1_000,
+    {
+      randomBytes: ((size: number) => Buffer.alloc(size, 20)) as OidcSessionPorts["randomBytes"],
+    },
+    t,
+  );
   const a = await first.service.begin("http://localhost:1111/callback");
   const b = await second.service.begin("http://localhost:2222/callback");
   await assert.rejects(first.service.complete("wrong-node", String(b.state)), { code: "oidc_state_invalid" });
@@ -452,8 +471,8 @@ test("independent daemons reject each other's state without consuming their own 
   assert.equal((await second.service.complete("b", String(b.state))).authenticated, true);
 });
 
-test("offline identity is confined to replica reads and expires independently of the token", async () => {
-  const active = fixture(Date.now());
+test("offline identity is confined to replica reads and expires independently of the token", async (t) => {
+  const active = fixture(Date.now(), {}, t);
   await signIn(active);
   active.clock.now += 65_000;
   active.keycloak.reachable = false;
@@ -499,7 +518,7 @@ test("offline identity is confined to replica reads and expires independently of
 
 for (const end of ["expiry", "logout"] as const)
   for (const response of ["unreachable", "success"] as const) {
-    test(`a session ending by ${end} while renewal waits for ${response} cannot bind a replica read`, async () => {
+    test(`a session ending by ${end} while renewal waits for ${response} cannot bind a replica read`, async (t) => {
       let started!: () => void, finish!: () => void;
       const entered = new Promise<void>((resolve) => {
         started = resolve;
@@ -507,30 +526,34 @@ for (const end of ["expiry", "logout"] as const)
       const waiting = new Promise<void>((resolve) => {
         finish = resolve;
       });
-      const active = fixture(Date.now(), {
-        fetch: (async (input, init) => {
-          const grant = (init?.body as URLSearchParams | undefined)?.get("grant_type");
-          if (grant === "refresh_token") {
-            started();
-            await waiting;
-            if (response === "unreachable") throw new TypeError("unreachable");
-            return Response.json({
-              access_token: "x.e30.x",
-              refresh_token: "new",
-              expires_in: 60,
-              refresh_expires_in: 120,
-            });
-          }
-          if (String(input).endsWith("/token"))
-            return Response.json({
-              access_token: "x.e30.x",
-              refresh_token: "refresh",
-              expires_in: 60,
-              refresh_expires_in: 120,
-            });
-          return Response.json({ sub: "subject", harness_person_id: "person-zeyu" });
-        }) as typeof fetch,
-      });
+      const active = fixture(
+        Date.now(),
+        {
+          fetch: (async (input, init) => {
+            const grant = (init?.body as URLSearchParams | undefined)?.get("grant_type");
+            if (grant === "refresh_token") {
+              started();
+              await waiting;
+              if (response === "unreachable") throw new TypeError("unreachable");
+              return Response.json({
+                access_token: "x.e30.x",
+                refresh_token: "new",
+                expires_in: 60,
+                refresh_expires_in: 120,
+              });
+            }
+            if (String(input).endsWith("/token"))
+              return Response.json({
+                access_token: "x.e30.x",
+                refresh_token: "refresh",
+                expires_in: 60,
+                refresh_expires_in: 120,
+              });
+            return Response.json({ sub: "subject", harness_person_id: "person-zeyu" });
+          }) as typeof fetch,
+        },
+        t,
+      );
       await signIn(active);
       active.clock.now += 65_000;
       const bound = active.service.bind({ transportKind: "unix-socket" }, true);
@@ -548,8 +571,8 @@ for (const end of ["expiry", "logout"] as const)
     });
   }
 
-test("HTTP 400 clears the session for offline reads and subsequent online uses", async () => {
-  const active = fixture(Date.now());
+test("HTTP 400 clears the session for offline reads and subsequent online uses", async (t) => {
+  const active = fixture(Date.now(), {}, t);
   await signIn(active);
   active.clock.now += 65_000;
   active.keycloak.revoked = true;
@@ -561,8 +584,8 @@ test("HTTP 400 clears the session for offline reads and subsequent online uses",
   assert.equal(active.keycloak.refreshes, 1);
 });
 
-test("a reachable token endpoint error does not grant an offline identity", async () => {
-  const active = fixture(Date.now());
+test("a reachable token endpoint error does not grant an offline identity", async (t) => {
+  const active = fixture(Date.now(), {}, t);
   await signIn(active);
   const store = managedRbacSessionStore(active.root);
   store.write(JSON.stringify({ ...JSON.parse(store.read()!), expiresAt: Date.now() - 1 }));
@@ -572,8 +595,8 @@ test("a reachable token endpoint error does not grant an offline identity", asyn
   assert.equal((await service.bind({ transportKind: "unix-socket" }, true)).replicaReadPrincipal, undefined);
 });
 
-test("replica reads reject an ended session even when its access token has time remaining", async () => {
-  const active = fixture(Date.now());
+test("replica reads reject an ended session even when its access token has time remaining", async (t) => {
+  const active = fixture(Date.now(), {}, t);
   await signIn(active);
   const store = managedRbacSessionStore(active.root);
   store.write(JSON.stringify({ ...JSON.parse(store.read()!), sessionExpiresAt: active.clock.now - 1 }));
@@ -583,9 +606,9 @@ test("replica reads reject an ended session even when its access token has time 
   assert.equal(active.keycloak.refreshes, 0);
 });
 
-test("authorization after delayed preparation renews the originally bound local session before UMA", async () => {
+test("authorization after delayed preparation renews the originally bound local session before UMA", async (t) => {
   const startedAt = Date.now(),
-    active = fixture(startedAt);
+    active = fixture(startedAt, {}, t);
   await signIn(active);
   const auth = await active.service.bind({ transportKind: "unix-socket" }),
     binding = localDefaultBinding(auth),
@@ -613,8 +636,8 @@ test("authorization after delayed preparation renews the originally bound local 
 });
 
 for (const endedBy of ["revoked", "expired", "logout", "new-login", "unreachable"] as const) {
-  test(`delayed authorization refuses a session ended by ${endedBy} before sending UMA`, async () => {
-    const active = fixture(Date.now());
+  test(`delayed authorization refuses a session ended by ${endedBy} before sending UMA`, async (t) => {
+    const active = fixture(Date.now(), {}, t);
     await signIn(active);
     const binding = localDefaultBinding(await active.service.bind({ transportKind: "unix-socket" }));
     active.clock.now += 65_000;
@@ -642,15 +665,19 @@ for (const endedBy of ["revoked", "expired", "logout", "new-login", "unreachable
 }
 
 for (const transportCode of [undefined, "ECONNREFUSED"] as const) {
-  test(`center token transport failure stays daemon_error (${transportCode ?? "fetch failed"})`, async () => {
+  test(`center token transport failure stays daemon_error (${transportCode ?? "fetch failed"})`, async (t) => {
     const cause = new TypeError("fetch failed", {
       cause: transportCode ? Object.assign(new Error("connection refused"), { code: transportCode }) : undefined,
     });
-    const active = fixture(Date.now(), {
-      fetch: async () => {
-        throw cause;
+    const active = fixture(
+      Date.now(),
+      {
+        fetch: async () => {
+          throw cause;
+        },
       },
-    });
+      t,
+    );
     writeFileSync(path.join(active.root, "rbac", "center-client-secret"), "fixture-secret");
     await assert.rejects(active.service.center(), (error: unknown) => {
       assert.ok(error instanceof Error && "code" in error);
@@ -661,8 +688,8 @@ for (const transportCode of [undefined, "ECONNREFUSED"] as const) {
   });
 }
 
-test("center token HTTP rejection retains its service authentication code", async () => {
-  const active = fixture(Date.now(), { fetch: async () => new Response(null, { status: 401 }) });
+test("center token HTTP rejection retains its service authentication code", async (t) => {
+  const active = fixture(Date.now(), { fetch: async () => new Response(null, { status: 401 }) }, t);
   writeFileSync(path.join(active.root, "rbac", "center-client-secret"), "fixture-secret");
   await assert.rejects(active.service.center(), { code: "rbac_admin_unavailable" });
 });

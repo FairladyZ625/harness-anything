@@ -2,12 +2,12 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import fs, { mkdirSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import {
   docSyncWritePlan,
   serializePersistedCanonicalEvent,
@@ -55,9 +55,9 @@ import { freezeDeclaredWritePlan } from "../../src/domain/write-chain.contract.t
 const repoId = "sqlite-generation-test";
 const fence: SqliteWriterFence = { repoId, holder: "writer-a", epoch: 1 };
 
-test("mutable SQLite ledger opening requires an explicit repository identity", () => {
+test("mutable SQLite ledger opening requires an explicit repository identity", (t) => {
   assert.throws(
-    () => openSqliteEventStore({ databasePath: scratch("missing-repo") }),
+    () => openSqliteEventStore({ databasePath: scratch("missing-repo", t) }),
     (error: unknown) =>
       error instanceof Error &&
       "code" in error &&
@@ -66,8 +66,8 @@ test("mutable SQLite ledger opening requires an explicit repository identity", (
   );
 });
 
-test("SQLite ledger opening rejects another repository or generation", () => {
-  const databasePath = scratch("metadata-identity"),
+test("SQLite ledger opening rejects another repository or generation", (t) => {
+  const databasePath = scratch("metadata-identity", t),
     store = openSqliteEventStore({ repoId, databasePath, generation: 1 });
   store.close();
 
@@ -81,8 +81,9 @@ test("SQLite ledger opening rejects another repository or generation", () => {
   );
 });
 
-test("canonical adapter accepts in SQLite before independently verifying the Git follower", async () => {
+test("canonical adapter accepts in SQLite before independently verifying the Git follower", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-canonical-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const event = eventAt(1),
     store = makeTaskEventStore({
@@ -114,8 +115,9 @@ test("canonical adapter accepts in SQLite before independently verifying the Git
   }
 });
 
-test("canonical killpoint between events and outcome rolls back the accepting transaction", async () => {
+test("canonical killpoint between events and outcome rolls back the accepting transaction", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-atomic-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const event = eventAt(1),
     store = makeTaskEventStore({
@@ -136,8 +138,9 @@ test("canonical killpoint between events and outcome rolls back the accepting tr
   }
 });
 
-test("Git can verify an accepted document while a concurrently edited worktree remains pending", async () => {
+test("Git can verify an accepted document while a concurrently edited worktree remains pending", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/context/published.md"), "local edit\n");
@@ -166,8 +169,9 @@ test("Git can verify an accepted document while a concurrently edited worktree r
   }
 });
 
-test("certified reopen resumes from the worktree's own manifest without overwriting later user edits", async () => {
+test("certified reopen resumes from the worktree's own manifest without overwriting later user edits", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-reopen-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const collision = path.join(rootDir, "harness/context/collision.md"),
     later = path.join(rootDir, "harness/context/later.md");
@@ -224,8 +228,9 @@ test("certified reopen resumes from the worktree's own manifest without overwrit
   }
 });
 
-test("certified reopen settles machine-owned snapshots from multiple accepted cuts without new events", async () => {
+test("certified reopen settles machine-owned snapshots from multiple accepted cuts without new events", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-partial-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const packagePath = "tasks/task-partial-generated",
     indexPath = path.join(rootDir, "harness", packagePath, "INDEX.md"),
@@ -271,6 +276,7 @@ test("reopen generated-file reads remain bounded as accepted task history grows"
   const counts: number[] = [];
   for (const amendments of [2, 12]) {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-history-reads-"));
+    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
     initRepo(rootDir);
     const packagePath = "tasks/task-history-reads",
       indexPath = path.join(rootDir, "harness", packagePath, "INDEX.md"),
@@ -348,11 +354,12 @@ function generatedTaskAmendment(
   return compileTaskLifecycleWrite({ event, snapshot, packagePath, currentDocuments });
 }
 
-test("SQLite content admission reuses exact objects after reopen and rejects missing objects atomically", async () => {
+test("SQLite content admission reuses exact objects after reopen and rejects missing objects atomically", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-content-admission-")),
     body = "# Shared content\n",
     hash = sha256Text(body),
     options = { repoId, rootDir, writerFence: () => ({ repoId, holderId: fence.holder, epoch: fence.epoch }) };
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const first = makeTaskEventStore(options);
   try {
@@ -387,8 +394,9 @@ test("SQLite content admission reuses exact objects after reopen and rejects mis
   }
 });
 
-test("certified Git follower rejects document tampering even when its manifest is intact", async () => {
+test("certified Git follower rejects document tampering even when its manifest is intact", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-git-tamper-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const store = makeTaskEventStore({
     repoId,
@@ -416,8 +424,9 @@ test("certified Git follower rejects document tampering even when its manifest i
   }
 });
 
-test("SQLite Decision append refuses a stale canonical document base before recording an outcome", async () => {
+test("SQLite Decision append refuses a stale canonical document base before recording an outcome", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-decision-base-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir }),
     proposal = decisionProposal(),
@@ -502,8 +511,9 @@ test("SQLite Decision append refuses a stale canonical document base before reco
   }
 });
 
-test("SQLite migration replacement refuses a destination edited after classification", async () => {
+test("SQLite migration replacement refuses a destination edited after classification", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-preimage-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const target = path.join(rootDir, "harness/context/notes.md"),
     expected = "# Initialized\n",
@@ -526,8 +536,9 @@ test("SQLite migration replacement refuses a destination edited after classifica
   }
 });
 
-test("SQLite retirement keeps a concurrent local edit while Git verifies the canonical deletion", async () => {
+test("SQLite retirement keeps a concurrent local edit while Git verifies the canonical deletion", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-retirement-race-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir }),
     logical = "context/temporary.md",
@@ -574,8 +585,9 @@ test("SQLite retirement keeps a concurrent local edit while Git verifies the can
   }
 });
 
-test("SQLite document admission rejects extra and missing frozen plan targets before acceptance", async () => {
+test("SQLite document admission rejects extra and missing frozen plan targets before acceptance", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-document-plan-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir }),
     candidate = docBundle(store, "# Plan\n", 1, "document-plan", "context/plan.md"),
@@ -618,8 +630,8 @@ test("SQLite document admission rejects extra and missing frozen plan targets be
   }
 });
 
-test("single writer serializes revision allocation and rejects a competing revision", () => {
-  const databasePath = scratch("concurrent"),
+test("single writer serializes revision allocation and rejects a competing revision", (t) => {
+  const databasePath = scratch("concurrent", t),
     first = openSqliteEventStore({ repoId, databasePath }),
     second = openSqliteEventStore({ repoId, databasePath });
   try {
@@ -637,8 +649,8 @@ test("single writer serializes revision allocation and rejects a competing revis
   }
 });
 
-test("a stale holder rolls back before SQLite records an event or outcome", () => {
-  const databasePath = scratch("stale-holder"),
+test("a stale holder rolls back before SQLite records an event or outcome", (t) => {
+  const databasePath = scratch("stale-holder", t),
     stale = openSqliteEventStore({ repoId, databasePath }),
     successor = openSqliteEventStore({ repoId, databasePath });
   try {
@@ -658,8 +670,8 @@ test("a stale holder rolls back before SQLite records an event or outcome", () =
   }
 });
 
-test("opening waits for a concurrent writer lock instead of failing with database is locked", async () => {
-  const databasePath = scratch("open-under-lock"),
+test("opening waits for a concurrent writer lock instead of failing with database is locked", async (t) => {
+  const databasePath = scratch("open-under-lock", t),
     holdMs = 400,
     holder = spawn(process.execPath, [
       "--input-type=module",
@@ -692,8 +704,8 @@ test("opening waits for a concurrent writer lock instead of failing with databas
   }
 });
 
-test("SIGKILL after acceptance preserves exact event bytes and the same op_id outcome", () => {
-  const databasePath = scratch("reopen"),
+test("SIGKILL after acceptance preserves exact event bytes and the same op_id outcome", (t) => {
+  const databasePath = scratch("reopen", t),
     fixture = fileURLToPath(new URL("./sqlite-event-store-kill.fixture.mjs", import.meta.url)),
     killed = spawnSync(process.execPath, [fixture, databasePath, repoId, "after-commit"], { encoding: "utf8" });
   assert.equal(killed.signal, "SIGKILL", killed.stderr);
@@ -718,8 +730,8 @@ test("SIGKILL after acceptance preserves exact event bytes and the same op_id ou
   }
 });
 
-test("event, writer takeover, ledger head, and outcome roll back atomically", () => {
-  const databasePath = scratch("rollback"),
+test("event, writer takeover, ledger head, and outcome roll back atomically", (t) => {
+  const databasePath = scratch("rollback", t),
     store = openSqliteEventStore({ repoId, databasePath });
   try {
     store.claimWriter(fence);
@@ -742,8 +754,8 @@ test("event, writer takeover, ledger head, and outcome roll back atomically", ()
   }
 });
 
-test("one canonical bundle appends preceding events and its terminal event in one command", () => {
-  const databasePath = scratch("bundle"),
+test("one canonical bundle appends preceding events and its terminal event in one command", (t) => {
+  const databasePath = scratch("bundle", t),
     store = openSqliteEventStore({ repoId, databasePath }),
     events = [eventAt(1), eventAt(2), eventAt(3)],
     eventBytes = events.map(serializePersistedCanonicalEvent),
@@ -783,8 +795,8 @@ test("one canonical bundle appends preceding events and its terminal event in on
   }
 });
 
-test("SIGKILL recovery discards an uncommitted event and writer takeover", () => {
-  const databasePath = scratch("sigkill"),
+test("SIGKILL recovery discards an uncommitted event and writer takeover", (t) => {
+  const databasePath = scratch("sigkill", t),
     store = openSqliteEventStore({ repoId, databasePath });
   store.claimWriter(fence);
   store.close();
@@ -800,8 +812,8 @@ test("SIGKILL recovery discards an uncommitted event and writer takeover", () =>
   }
 });
 
-test("generation migration is byte-exact, idempotent, and reports a bounded throughput sample", (context) => {
-  const databasePath = scratch("migration"),
+test("generation migration is byte-exact, idempotent, and reports a bounded throughput sample", (t) => {
+  const databasePath = scratch("migration", t),
     store = openSqliteEventStore({ repoId, databasePath }),
     events = Array.from({ length: 1_000 }, (_, index) => eventAt(index + 1)),
     started = performance.now();
@@ -811,7 +823,7 @@ test("generation migration is byte-exact, idempotent, and reports a bounded thro
       second = migrateEventsToSqlite({ store, repoId, events, holder: fence.holder, epoch: fence.epoch });
     assert.deepEqual(first, { migrated: 1_000, revision: 1_000 });
     assert.deepEqual(second, { migrated: 0, revision: 1_000 });
-    context.diagnostic(
+    t.diagnostic(
       JSON.stringify({
         events: events.length,
         elapsedMs,
@@ -823,14 +835,16 @@ test("generation migration is byte-exact, idempotent, and reports a bounded thro
   }
 });
 
-test("generation paths coexist beneath the local store root", () => {
+test("generation paths coexist beneath the local store root", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-path-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   assert.equal(sqliteLedgerPath(rootDir, 1), path.join(rootDir, ".harness/store/generations/1/ledger.sqlite"));
   assert.equal(sqliteLedgerPath(rootDir, 2), path.join(rootDir, ".harness/store/generations/2/ledger.sqlite"));
 });
 
-test("reconciliation uses immutable source, import evidence, row digests, outcomes and real Git read-back", async () => {
+test("reconciliation uses immutable source, import evidence, row digests, outcomes and real Git read-back", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-reconcile-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness/events"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/events/legacy.json"), "legacy event\n");
@@ -879,8 +893,9 @@ test("reconciliation uses immutable source, import evidence, row digests, outcom
   assert.equal(reconcile().matches, true);
 });
 
-test("certified reopen retires stale legacy index entries without changing unrelated staged or worktree bytes", async () => {
+test("certified reopen retires stale legacy index entries without changing unrelated staged or worktree bytes", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-stale-index-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness/events"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/events/legacy.json"), "legacy event\n");
@@ -948,8 +963,8 @@ test("certified reopen retires stale legacy index entries without changing unrel
   }
 });
 
-test("50k bootstrap is incremental and subsequent canonical bundles append one command each", (context) => {
-  const store = openSqliteEventStore({ repoId, databasePath: scratch("canonical-cost") }),
+test("50k bootstrap is incremental and subsequent canonical bundles append one command each", (t) => {
+  const store = openSqliteEventStore({ repoId, databasePath: scratch("canonical-cost", t) }),
     sourceEvents = Array.from({ length: 50_000 }, (_, index) => eventAt(index + 1)),
     bootstrapStarted = performance.now();
   try {
@@ -1005,14 +1020,14 @@ test("50k bootstrap is incremental and subsequent canonical bundles append one c
     // history; the timings are reported, not asserted (CI runners have no wall-clock budget).
     assert.equal(store.revision(), 50_100);
     assert.deepEqual(afterAppends, { migrated: 0, revision: 50_100 });
-    context.diagnostic(JSON.stringify({ sourceEvents: sourceEvents.length, bootstrapMs, p50Ms, p99Ms }));
+    t.diagnostic(JSON.stringify({ sourceEvents: sourceEvents.length, bootstrapMs, p50Ms, p99Ms }));
   } finally {
     store.close();
   }
 });
 
-test("duplicate historical event ids remain readable with earliest-revision semantics", () => {
-  const databasePath = scratch("duplicate-event-id"),
+test("duplicate historical event ids remain readable with earliest-revision semantics", (t) => {
+  const databasePath = scratch("duplicate-event-id", t),
     first = eventAt(1),
     second = { ...eventAt(2), eventId: first.eventId };
   let store = openSqliteEventStore({ repoId, databasePath });
@@ -1027,8 +1042,8 @@ test("duplicate historical event ids remain readable with earliest-revision sema
   }
 });
 
-test("document head backfill rejects a ledger whose declared tail event is missing", () => {
-  const databasePath = scratch("missing-tail"),
+test("document head backfill rejects a ledger whose declared tail event is missing", (t) => {
+  const databasePath = scratch("missing-tail", t),
     store = openSqliteEventStore({ repoId, databasePath });
   store.appendCommand({ fence, intent: intent(1), events: [eventAt(1)] });
   store.close();
@@ -1042,8 +1057,8 @@ test("document head backfill rejects a ledger whose declared tail event is missi
   );
 });
 
-test("indexed event queries find sparse matches without decoding unrelated rows", () => {
-  const store = openSqliteEventStore({ repoId, databasePath: scratch("event-query") });
+test("indexed event queries find sparse matches without decoding unrelated rows", (t) => {
+  const store = openSqliteEventStore({ repoId, databasePath: scratch("event-query", t) });
   try {
     for (let revision = 1; revision <= 20; revision += 1) {
       const event = eventAt(revision);
@@ -1076,8 +1091,10 @@ function intentFor(event: ReturnType<typeof eventAt>): SqliteCommandIntent {
   };
 }
 
-function scratch(name: string): string {
-  return path.join(mkdtempSync(path.join(tmpdir(), `ha-sqlite-${name}-`)), "ledger.sqlite");
+function scratch(name: string, t?: TestContext): string {
+  const root = mkdtempSync(path.join(tmpdir(), `ha-sqlite-${name}-`));
+  t?.after(() => rmSync(root, { recursive: true, force: true }));
+  return path.join(root, "ledger.sqlite");
 }
 
 function percentile(sorted: readonly number[], quantile: number): number {

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,9 +9,10 @@ import { captureGate, writeRepoFile } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
-test("G0-1 reports the base advisory and names an injected registry-external kind", () => {
+test("G0-1 reports the base advisory and names an injected registry-external kind", (t) => {
   assert.equal(captureGate(() => main(["--root", repoRoot])).code, 0);
   const rootDir = mkdtempSync(path.join(tmpdir(), "ontology-kind-authority-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   writeRepoFile(
     rootDir,
     "packages/kernel/src/domain/entity-kind-registry.ts",

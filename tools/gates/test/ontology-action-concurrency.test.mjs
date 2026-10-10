@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,9 +9,11 @@ import { captureGate } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
-test("G0-6 ratchet accepts the repository and names every concurrency field missing from an action", () => {
+test("G0-6 ratchet accepts the repository and names every concurrency field missing from an action", (t) => {
   assert.equal(captureGate(() => main(["--root", repoRoot, "--mode", "ratchet"])).code, 0);
-  const fixture = path.join(mkdtempSync(path.join(tmpdir(), "ontology-concurrency-")), "catalog.json");
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ontology-concurrency-"));
+  t.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+  const fixture = path.join(fixtureRoot, "catalog.json");
   const catalog = [{ kind: "task", available: ["start"], actions: [{ id: "start", execution: null }] }];
   writeFileSync(fixture, `${JSON.stringify(catalog)}\n`);
   const result = auditActionConcurrency(catalog);

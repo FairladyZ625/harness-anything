@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
 import { keycloakNodeRegistry } from "../src/fleet-center-admission.ts";
@@ -20,11 +20,12 @@ import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./ke
 const center = { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" },
   centerAuthority = async () => center;
 
-async function fixture() {
+async function fixture(t: TestContext) {
   const keycloak = fakeKeycloak(),
     user = keycloakUserRoot(),
     oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: keycloak.fetch });
+  t.after(user.cleanup);
   await new KeycloakPolicyAdapter(
     { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
     keycloak.fetch,
@@ -86,7 +87,7 @@ const entries = (personId: string): Readonly<Record<string, RepoCellBinding>> =>
 };
 
 test("registering a node issues its machine credential once and records who it acts for", async (t) => {
-  const { keycloak, run, nodes, journal, registry } = await fixture(),
+  const { keycloak, run, nodes, journal, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -123,8 +124,8 @@ test("registering a node issues its machine credential once and records who it a
 
 // A minted credential never travels in a receipt, so a first registration with no file to hold it
 // is refused before anything is reserved, journaled, or written.
-test("a first registration without a credential file is refused with nothing done", async () => {
-  const { keycloak, run, nodes, journal } = await fixture();
+test("a first registration without a credential file is refused with nothing done", async (t) => {
+  const { keycloak, run, nodes, journal } = await fixture(t);
   keycloak.account("alice");
   await assert.rejects(run({ operation: "node-register", nodeId: "edge-a", personId: "alice" }), {
     code: "credential_file_required",
@@ -135,7 +136,7 @@ test("a first registration without a credential file is refused with nothing don
 // Whoever runs the registration is often an agent whose output is kept, so the credential goes into a
 // file the caller names and the receipt only says where.
 test("a first registration puts the credential in the caller's file and keeps it out of the receipt", async (t) => {
-  const { keycloak, run, nodes, journal, registry, root } = await fixture(),
+  const { keycloak, run, nodes, journal, registry, root } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential"),
     register = { operation: "node-register", nodeId: "edge-a", personId: "alice" };
@@ -197,7 +198,7 @@ test("a first registration puts the credential in the caller's file and keeps it
 // The whole fallible local half — minting the credential and writing it into the reserved file —
 // precedes the one external write, so the client never exists without the operator holding it.
 test("the credential is on disk before Keycloak is asked to store it", async (t) => {
-  const { keycloak, root, registry } = await fixture(),
+  const { keycloak, root, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -226,7 +227,7 @@ test("the credential is on disk before Keycloak is asked to store it", async (t)
 // A POST that lands but whose answer never arrives is not a non-creation: the credential stays in
 // its file, the intent stays unsettled, and reconcile settles the operation by what Keycloak shows.
 test("a registration whose answer is lost recovers through its file and a reconcile", async (t) => {
-  const { keycloak, journal, registry, root } = await fixture(),
+  const { keycloak, journal, registry, root } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -265,7 +266,7 @@ test("a registration whose answer is lost recovers through its file and a reconc
 // When the intent cannot be journaled the write never starts, so the reserved file must not
 // outlive the attempt: nothing reached Keycloak, and nothing holds the path.
 test("a registration whose intent cannot be journaled releases its reserved file", async (t) => {
-  const { keycloak, root } = await fixture(),
+  const { keycloak, root } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -295,7 +296,7 @@ test("a registration whose intent cannot be journaled releases its reserved file
 // Creating a node is one POST: nothing reads the client back, so a Keycloak that fails every read
 // after the write cannot strand a client its operator holds no credential for.
 test("creating a node reads nothing back after the write", async (t) => {
-  const { keycloak, root, registry } = await fixture(),
+  const { keycloak, root, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -342,7 +343,7 @@ test("a credential reservation discards cleanly however keep ended", () => {
 });
 
 test("moving a node to another person applies to the next read and issues no second credential", async (t) => {
-  const { keycloak, run, nodes, registry } = await fixture(),
+  const { keycloak, run, nodes, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -361,7 +362,7 @@ test("moving a node to another person applies to the next read and issues no sec
 });
 
 test("two registrations of one node from the same version: one applied, one version_conflict", async (t) => {
-  const { keycloak, run, nodes, signIn } = await fixture(),
+  const { keycloak, run, nodes, signIn } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   keycloak.account("alice");
@@ -414,7 +415,7 @@ test("two registrations of one node from the same version: one applied, one vers
 });
 
 test("unregistering a node removes it from Keycloak, so its credential and its owner are gone", async (t) => {
-  const { keycloak, run, nodes, journal, registry } = await fixture(),
+  const { keycloak, run, nodes, journal, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     fileFor = (name: string) => path.join(directory, `${name}.credential`);
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -496,6 +497,7 @@ test("a removal that settles applied reports the removed node, and nothing else 
     }),
     run = (request: AccessAdminRequest) => admin.run({ operationId: randomUUID(), ...request });
   t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(user.cleanup);
   keycloak.account("alice");
   keycloak.account("bob");
   await run({
@@ -528,8 +530,8 @@ test("a removal that settles applied reports the removed node, and nothing else 
   assert.deepEqual(removed, ["edge-a"]);
 });
 
-test("node registration needs an administrator, a known person, and a well-formed node id", async () => {
-  const { keycloak, run, signIn } = await fixture();
+test("node registration needs an administrator, a known person, and a well-formed node id", async (t) => {
+  const { keycloak, run, signIn } = await fixture(t);
   keycloak.account("alice");
   await assert.rejects(run({ operation: "node-register", nodeId: "edge-a", personId: "nobody" }), {
     code: "access_person_unknown",
@@ -547,8 +549,8 @@ test("node registration needs an administrator, a known person, and a well-forme
   assert.deepEqual(keycloak.writes, []);
 });
 
-test("one person gets one answer for one action on one object, through a local session or either node", async () => {
-  const { keycloak, run, evaluate } = await fixture();
+test("one person gets one answer for one action on one object, through a local session or either node", async (t) => {
+  const { keycloak, run, evaluate } = await fixture(t);
   keycloak.account("alice");
   await run({ operation: "grant", personId: "alice", groupId: "contributor", resource: "repo-a" });
   await run({ operation: "grant", personId: "alice", groupId: "maintainer", resource: "repo-a:task/task-owned" });
@@ -569,7 +571,7 @@ test("one person gets one answer for one action on one object, through a local s
 });
 
 test("the answer follows the person a node is registered to, not the node", async (t) => {
-  const { keycloak, run, evaluate, nodes, registry } = await fixture(),
+  const { keycloak, run, evaluate, nodes, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   keycloak.account("alice");
@@ -598,8 +600,8 @@ test("the answer follows the person a node is registered to, not the node", asyn
   assert.deepEqual(await through(), ["bob", "allowed"]);
 });
 
-test("an actor reported by the frame never reaches the decision", async () => {
-  const { keycloak, run, evaluate, root } = await fixture();
+test("an actor reported by the frame never reaches the decision", async (t) => {
+  const { keycloak, run, evaluate, root } = await fixture(t);
   keycloak.account("alice");
   keycloak.account("root-admin");
   await run({ operation: "grant", personId: "root-admin", groupId: "admin", resource: "repo-a" });
@@ -629,8 +631,8 @@ test("an actor reported by the frame never reaches the decision", async () => {
   );
 });
 
-test("a person evaluated through the center needs a center credential and a Keycloak account", async () => {
-  const { keycloak, run, evaluate } = await fixture();
+test("a person evaluated through the center needs a center credential and a Keycloak account", async (t) => {
+  const { keycloak, run, evaluate } = await fixture(t);
   keycloak.account("alice");
   await run({ operation: "grant", personId: "alice", groupId: "contributor", resource: "repo-a" });
   const edge = entries("alice")["edge-a"]!;

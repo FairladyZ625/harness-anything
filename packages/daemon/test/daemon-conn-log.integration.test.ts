@@ -4,7 +4,7 @@ import net from "node:net";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { daemonConnLogFileStem } from "../src/conn-log.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
@@ -20,8 +20,10 @@ interface ConnRecord {
   readonly requests?: number;
 }
 
-function tempRoot(): string {
-  return mkdtempSync(path.join(os.tmpdir(), "harness-daemon-conn-"));
+function tempRoot(t: TestContext): string {
+  const root = mkdtempSync(path.join(os.tmpdir(), "harness-daemon-conn-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
 }
 
 // One socket, several frames, half-closed as soon as every response arrived — the same shape a
@@ -47,8 +49,8 @@ async function session(endpoint: string, frames: readonly string[]): Promise<rea
   });
 }
 
-test("a live daemon logs hello, dispatched requests, rejections, and connection open/close per socket", async () => {
-  const userRoot = tempRoot(),
+test("a live daemon logs hello, dispatched requests, rejections, and connection open/close per socket", async (t) => {
+  const userRoot = tempRoot(t),
     daemon = await startDaemon({ daemonId: "connlog", userRoot });
   assert.ok(!("pid" in daemon), "no incumbent daemon can hold a claim over a fresh temp user root");
   try {
@@ -105,6 +107,5 @@ test("a live daemon logs hello, dispatched requests, rejections, and connection 
     assert.equal((closes[1] as ConnRecord).active, 0);
   } finally {
     await daemon.stop();
-    rmSync(userRoot, { recursive: true, force: true });
   }
 });

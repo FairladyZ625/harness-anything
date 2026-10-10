@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { attachReceiptAcceptance } from "../../src/composition/receipt-acceptance.ts";
 import { compileDecisionWrite } from "../../src/domain/decision-event-document.ts";
 import { serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
@@ -39,8 +39,8 @@ const replacementFence: SqliteWriterFence = { repoId: replacementRepoId, holder:
 test(
   "Git baseline preserves symlink mode and reports an absent target as missing",
   { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false },
-  () => {
-    const rootDir = fixture("baseline-symlink");
+  (t) => {
+    const rootDir = fixture("baseline-symlink", t);
     initRepo(rootDir);
     symlinkSync("destination.md", path.join(rootDir, "linked.md"));
     git(rootDir, "add", "linked.md");
@@ -54,8 +54,8 @@ test(
   },
 );
 
-test("ten thousand tree targets use one Git process", () => {
-  const rootDir = fixture("baseline-process-count");
+test("ten thousand tree targets use one Git process", (t) => {
+  const rootDir = fixture("baseline-process-count", t);
   initRepo(rootDir);
   const targets = Array.from({ length: 10_000 }, (_, index) => `missing/${index}.json`),
     before = localGitObjectRefStore.processCount();
@@ -63,8 +63,8 @@ test("ten thousand tree targets use one Git process", () => {
   assert.equal(localGitObjectRefStore.processCount() - before, 1);
 });
 
-test("before_event_write and after_event_write bound one atomic SQLite acceptance", async () => {
-  const rootDir = fixture("atomic");
+test("before_event_write and after_event_write bound one atomic SQLite acceptance", async (t) => {
+  const rootDir = fixture("atomic", t);
   initRepo(rootDir);
   const observed: string[] = [],
     event = eventAt(1),
@@ -79,8 +79,8 @@ test("before_event_write and after_event_write bound one atomic SQLite acceptanc
   }
 });
 
-test("same canonical event values replay despite a different object key order", async () => {
-  const rootDir = fixture("canonical-replay");
+test("same canonical event values replay despite a different object key order", async (t) => {
+  const rootDir = fixture("canonical-replay", t);
   initRepo(rootDir);
   const event = eventAt(1),
     store = makeTaskEventStore({ repoId, rootDir, writerFence });
@@ -107,8 +107,8 @@ test("same canonical event values replay despite a different object key order", 
   }
 });
 
-test("after_head_write and after_git_commit are absent from the SQLite accept transaction", async () => {
-  const rootDir = fixture("retired-killpoints");
+test("after_head_write and after_git_commit are absent from the SQLite accept transaction", async (t) => {
+  const rootDir = fixture("retired-killpoints", t);
   initRepo(rootDir);
   const observed: string[] = [],
     event = eventAt(1),
@@ -124,8 +124,8 @@ test("after_head_write and after_git_commit are absent from the SQLite accept tr
 });
 
 // harness-contract: store.git-follower-preserves-unrelated-worktree
-test("Git follower preserves unrelated index and worktree bytes while leaving canonical ref unchanged", async () => {
-  const rootDir = fixture("separate-facets");
+test("Git follower preserves unrelated index and worktree bytes while leaving canonical ref unchanged", async (t) => {
+  const rootDir = fixture("separate-facets", t);
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "notes"));
   writeFileSync(path.join(rootDir, "notes/prose.md"), "committed prose\n");
@@ -184,8 +184,8 @@ test("Git follower preserves unrelated index and worktree bytes while leaving ca
 });
 
 // harness-contract: store.history-independent-subprocess-cost
-test("acceptance subprocess cost is independent of 100 versus 10,000-event history", async () => {
-  const rootDir = fixture("history-independent");
+test("acceptance subprocess cost is independent of 100 versus 10,000-event history", async (t) => {
+  const rootDir = fixture("history-independent", t);
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir, writerFence }),
     before = localGitObjectRefStore.processCount();
@@ -203,7 +203,7 @@ test("acceptance subprocess cost is independent of 100 versus 10,000-event histo
 });
 
 test("each settlement renders and settles only its own events while a concurrent edit keeps its bytes", async (t) => {
-  const rootDir = fixture("incremental-follower"),
+  const rootDir = fixture("incremental-follower", t),
     edited = path.join(rootDir, "harness/context/edited.md");
   initRepo(rootDir);
   mkdirSync(path.dirname(edited), { recursive: true });
@@ -262,8 +262,8 @@ test("each settlement renders and settles only its own events while a concurrent
   }
 });
 
-test("repeated settlement preserves concurrent edits to a claimed document until materialization restores it", async () => {
-  const rootDir = fixture("claimed-edit"),
+test("repeated settlement preserves concurrent edits to a claimed document until materialization restores it", async (t) => {
+  const rootDir = fixture("claimed-edit", t),
     target = path.join(rootDir, "harness/context/owned.md");
   initRepo(rootDir);
   mkdirSync(path.dirname(target), { recursive: true });
@@ -288,8 +288,8 @@ test("repeated settlement preserves concurrent edits to a claimed document until
   await store.drain();
 });
 
-test("a caller edit at the rename boundary is preserved as a pending worktree conflict", async () => {
-  const rootDir = fixture("rename-boundary-edit"),
+test("a caller edit at the rename boundary is preserved as a pending worktree conflict", async (t) => {
+  const rootDir = fixture("rename-boundary-edit", t),
     target = path.join(rootDir, "harness/context/boundary.md");
   initRepo(rootDir);
   mkdirSync(path.dirname(target), { recursive: true });
@@ -323,8 +323,8 @@ test("a caller edit at the rename boundary is preserved as a pending worktree co
   }
 });
 
-test("an authored ref moved after the follower's atomic update is followed, not fought, by the next run", async () => {
-  const rootDir = fixture("authored-ref-readback");
+test("an authored ref moved after the follower's atomic update is followed, not fought, by the next run", async (t) => {
+  const rootDir = fixture("authored-ref-readback", t);
   initRepo(rootDir);
   const branch = git(rootDir, "symbolic-ref", "--short", "HEAD"),
     parent = git(rootDir, "rev-parse", "HEAD");
@@ -356,8 +356,8 @@ test("an authored ref moved after the follower's atomic update is followed, not 
   }
 });
 
-test("worktree failure preserves an independently verified Git facet", async () => {
-  const rootDir = fixture("worktree-failure");
+test("worktree failure preserves an independently verified Git facet", async (t) => {
+  const rootDir = fixture("worktree-failure", t);
   initRepo(rootDir);
   let fail = true;
   const store = makeTaskEventStore({
@@ -383,8 +383,8 @@ test("worktree failure preserves an independently verified Git facet", async () 
   }
 });
 
-test("successive Git cuts settle managed files while leaving the caller index untouched", async () => {
-  const rootDir = fixture("successive-cuts");
+test("successive Git cuts settle managed files while leaving the caller index untouched", async (t) => {
+  const rootDir = fixture("successive-cuts", t);
   initRepo(rootDir);
   const beforeUnrelatedIndex = git(rootDir, "ls-files", "--stage", "--", "harness/.gitattributes"),
     store = makeTaskEventStore({ repoId, rootDir, writerFence });
@@ -407,8 +407,8 @@ test("successive Git cuts settle managed files while leaving the caller index un
   }
 });
 
-test("materializing the whole closure again leaves an already-settled file untouched", async () => {
-  const rootDir = fixture("materialize-no-rewrite");
+test("materializing the whole closure again leaves an already-settled file untouched", async (t) => {
+  const rootDir = fixture("materialize-no-rewrite", t);
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir, writerFence }),
     target = path.join(rootDir, "harness/context/steady.md");
@@ -430,8 +430,8 @@ test("materializing the whole closure again leaves an already-settled file untou
   }
 });
 
-test("new cuts cannot certify worktree visibility over an older unresolved document conflict", async () => {
-  const rootDir = fixture("older-conflict");
+test("new cuts cannot certify worktree visibility over an older unresolved document conflict", async (t) => {
+  const rootDir = fixture("older-conflict", t);
   initRepo(rootDir);
   const target = path.join(rootDir, "harness/context/conflicted.md");
   mkdirSync(path.dirname(target), { recursive: true });
@@ -458,8 +458,8 @@ test("new cuts cannot certify worktree visibility over an older unresolved docum
   }
 });
 
-test("corrupt accepted content cannot be certified by publishing the same corrupt bytes to Git", async () => {
-  const rootDir = fixture("corrupt-content");
+test("corrupt accepted content cannot be certified by publishing the same corrupt bytes to Git", async (t) => {
+  const rootDir = fixture("corrupt-content", t);
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir, writerFence });
   try {
@@ -478,12 +478,14 @@ test("corrupt accepted content cannot be certified by publishing the same corrup
   }
 });
 
-function fixture(name: string): string {
-  return mkdtempSync(path.join(tmpdir(), `ha-sqlite-${name}-`));
+function fixture(name: string, t?: TestContext): string {
+  const root = mkdtempSync(path.join(tmpdir(), `ha-sqlite-${name}-`));
+  t?.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
 }
 
-test("later acceptance retains the verified prefix without certifying the newer receipt", async () => {
-  const rootDir = fixture("verified-prefix");
+test("later acceptance retains the verified prefix without certifying the newer receipt", async (t) => {
+  const rootDir = fixture("verified-prefix", t);
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir, writerFence });
   const first = eventAt(1),
@@ -512,8 +514,8 @@ test("later acceptance retains the verified prefix without certifying the newer 
   }
 });
 
-test("a preview materialization reports the whole-closure plan without changing any file", async () => {
-  const rootDir = fixture("materialize-preview");
+test("a preview materialization reports the whole-closure plan without changing any file", async (t) => {
+  const rootDir = fixture("materialize-preview", t);
   initRepo(rootDir);
   const older = path.join(rootDir, "harness/context/older.md"),
     missing = path.join(rootDir, "harness/context/missing.md");
@@ -561,8 +563,8 @@ test("a preview materialization reports the whole-closure plan without changing 
   }
 });
 
-test("a path-scoped materialization restores the named document and keeps its local bytes as a copy", async () => {
-  const rootDir = fixture("materialize-paths");
+test("a path-scoped materialization restores the named document and keeps its local bytes as a copy", async (t) => {
+  const rootDir = fixture("materialize-paths", t);
   initRepo(rootDir);
   const named = path.join(rootDir, "harness/context/named.md"),
     untouched = path.join(rootDir, "harness/context/untouched.md");
@@ -595,8 +597,8 @@ test("a path-scoped materialization restores the named document and keeps its lo
   }
 });
 
-test("a path-scoped materialization refuses a path the canonical cut cannot restore", async () => {
-  const rootDir = fixture("materialize-paths-unknown");
+test("a path-scoped materialization refuses a path the canonical cut cannot restore", async (t) => {
+  const rootDir = fixture("materialize-paths-unknown", t);
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir, writerFence });
   try {
@@ -611,6 +613,7 @@ test("a path-scoped materialization refuses a path the canonical cut cannot rest
 
 test("a decision write on a still-unclaimed path uses the durable document-head index", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-replacement-authorization-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const store = openSqliteEventStore({ repoId: replacementRepoId, rootInput: rootDir });
   try {

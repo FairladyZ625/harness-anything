@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -328,35 +328,41 @@ export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot
   const tlsDir = mkdtempSync(path.join(tmpdir(), "ha-fleet-e2e-tls-")),
     keyPath = path.join(tlsDir, "tls.key"),
     certPath = path.join(tlsDir, "tls.crt");
-  execFileSync(
-    "openssl",
-    [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-nodes",
-      "-keyout",
-      keyPath,
-      "-out",
-      certPath,
-      "-subj",
-      "/CN=localhost",
-      "-days",
-      "1",
-      "-addext",
-      "subjectAltName=DNS:localhost",
-    ],
-    { stdio: "ignore" },
-  );
-  const started = await requestDaemonJsonRpcAt(
-    endpoint,
-    "daemon.fleet.center.start",
-    { payload: { port: 0, keyPath, certPath, repoId, quotaBytes: 64 * 1024 * 1024 } },
-    5_000,
-    60_000,
-  );
-  assert.equal(started.ok, true, `fleet center start failed: ${JSON.stringify(started)}`);
+  try {
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        keyPath,
+        "-out",
+        certPath,
+        "-subj",
+        "/CN=localhost",
+        "-days",
+        "1",
+        "-addext",
+        "subjectAltName=DNS:localhost",
+      ],
+      { stdio: "ignore" },
+    );
+    const started = await requestDaemonJsonRpcAt(
+      endpoint,
+      "daemon.fleet.center.start",
+      { payload: { port: 0, keyPath, certPath, repoId, quotaBytes: 64 * 1024 * 1024 } },
+      5_000,
+      60_000,
+    );
+    assert.equal(started.ok, true, `fleet center start failed: ${JSON.stringify(started)}`);
+  } finally {
+    // The center reads the key and certificate into memory at startup; the directory itself is
+    // throwaway material and is removed here even when startup fails.
+    rmSync(tlsDir, { recursive: true, force: true });
+  }
   return { latestRevision: latest, lagRevision: lagFrom, lagRevisions: latest - lagFrom };
 }
 

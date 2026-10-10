@@ -4,7 +4,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { credentialPort, type CredentialPort } from "../src/agent-runtime-credential-port.ts";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instance-store.ts";
 import { runtimeInstanceCredentialService } from "../src/runtime-instance-credentials.ts";
@@ -39,9 +39,10 @@ function vault() {
   };
   return { port, secrets, removed };
 }
-function fixture() {
+function fixture(t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-credential-replacement-")),
     userRoot = path.join(root, "user");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const executablePath = writeProviderExecutable(
     path.join(root, "provider.mjs"),
     `
@@ -99,8 +100,8 @@ async function consume(f: ReturnType<typeof fixture>, instanceId: string) {
 }
 
 for (const kindId of ["claude", "codex"])
-  test(`${kindId} replacement preserves metadata, removes the retired item and reaches a real fake-provider process`, async () => {
-    const f = fixture();
+  test(`${kindId} replacement preserves metadata, removes the retired item and reaches a real fake-provider process`, async (t) => {
+    const f = fixture(t);
     try {
       await f.service.command(create(kindId));
       assert.equal(await consume(f, kindId), "a");
@@ -130,8 +131,8 @@ for (const kindId of ["claude", "codex"])
     }
   });
 
-test("invalid keys, subscription mode, failed vault and rejected metadata preserve the prior credential", async () => {
-  const f = fixture();
+test("invalid keys, subscription mode, failed vault and rejected metadata preserve the prior credential", async (t) => {
+  const f = fixture(t);
   try {
     await f.service.command(create("claude"));
     const before = f.store.read("claude"),
@@ -174,8 +175,8 @@ test("invalid keys, subscription mode, failed vault and rejected metadata preser
   }
 });
 
-test("daemon FIFO orders simultaneous replacements and metadata updates; shared references remain usable", async () => {
-  const f = fixture();
+test("daemon FIFO orders simultaneous replacements and metadata updates; shared references remain usable", async (t) => {
+  const f = fixture(t);
   try {
     await f.service.command(create("claude"));
     const original = f.store.read("claude")!;
@@ -236,8 +237,8 @@ test("native remove commands stay reference-scoped and bare remote credential en
     assert.throws(() => assertRuntimeCredentialEndpoint(endpoint), { code: "runtime_credential_transport_unsafe" });
 });
 
-test("a launch already resolving the old item finishes before replacement cleanup", async () => {
-  const f = fixture();
+test("a launch already resolving the old item finishes before replacement cleanup", async (t) => {
+  const f = fixture(t);
   let entered!: () => void, release!: () => void;
   const resolving = new Promise<void>((resolve) => {
       entered = resolve;
@@ -275,8 +276,8 @@ test("a launch already resolving the old item finishes before replacement cleanu
   }
 });
 
-test("readback failure rolls back and retired-item cleanup failure reports successful replacement", async () => {
-  const f = fixture();
+test("readback failure rolls back and retired-item cleanup failure reports successful replacement", async (t) => {
+  const f = fixture(t);
   try {
     await f.service.command(create("claude"));
     const current = f.store.read("claude")!,
@@ -306,8 +307,8 @@ test("readback failure rolls back and retired-item cleanup failure reports succe
   }
 });
 
-test("real CLI stdin and GUI registry IPC bridge replace through the same isolated daemon", async () => {
-  const f = fixture(),
+test("real CLI stdin and GUI registry IPC bridge replace through the same isolated daemon", async (t) => {
+  const f = fixture(t),
     daemonId = "credential-cli-gui",
     endpoint = localUserDaemonEndpoint(f.userRoot, daemonId);
   const host = await openDaemonHost({

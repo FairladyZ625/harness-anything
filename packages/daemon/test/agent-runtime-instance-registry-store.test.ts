@@ -572,7 +572,7 @@ test("runtime catalog reads and auth probes reuse one installation discovery sna
   }
 });
 
-test("runtime instance create filters auto-resolution by kind and rejects same-kind ambiguity", async () => {
+test("runtime instance create filters auto-resolution by kind and rejects same-kind ambiguity", async (t) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-installation-resolution-")),
     ambiguousRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-installation-ambiguous-")),
     claude = {
@@ -584,6 +584,8 @@ test("runtime instance create filters auto-resolution by kind and rejects same-k
     },
     codex = { ...observed, installationId: "codex-first", version: "codex 1.0.0" },
     secondClaude = { ...claude, installationId: "claude-second", version: "claude 2.0.0" };
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => rmSync(ambiguousRoot, { recursive: true, force: true }));
   try {
     const automatic = openRuntimeInstanceStore({ userRoot, discover: () => [claude, codex] }),
       created = automatic.command({

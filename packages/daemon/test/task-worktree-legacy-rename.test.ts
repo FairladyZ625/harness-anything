@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import type { TaskV2 } from "@harness-anything/kernel";
 import { dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import { renameLegacyTaskWorktrees } from "../src/task-worktree-legacy-rename.ts";
@@ -12,8 +12,8 @@ import { checkoutTaskWorktree } from "../src/task-worktree.ts";
 
 const repositoryDiff = () => ({ profile: { outputShape: "repository-diff" } });
 
-test("migrate renames an old-name worktree and its branch to the task id, and the task starts there", async () => {
-  const fixture = repositoryFixture();
+test("migrate renames an old-name worktree and its branch to the task id, and the task starts there", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     const task = legacyTask("task_0a1b2c3d4e5f60718293a4b5c6"),
       legacy = path.join(fixture.root, ".worktrees", "renamed-0a1b2c3d");
@@ -49,8 +49,8 @@ test("migrate renames an old-name worktree and its branch to the task id, and th
   }
 });
 
-test("migrate leaves an old-name worktree with uncommitted work or a live worker in place and says why", () => {
-  const fixture = repositoryFixture();
+test("migrate leaves an old-name worktree with uncommitted work or a live worker in place and says why", (t) => {
+  const fixture = repositoryFixture(t);
   try {
     const dirty = legacyTask("task_1111111122222222333333334a", "dirty"),
       busy = legacyTask("task_5555555566666666777777778b", "busy"),
@@ -136,9 +136,10 @@ function commit(cwd: string, file: string): void {
   git(cwd, "commit", "-qm", file);
 }
 
-function repositoryFixture(): { readonly base: string; readonly root: string } {
+function repositoryFixture(t: TestContext): { readonly base: string; readonly root: string } {
   const base = mkdtempSync(path.join(tmpdir(), "ha-legacy-worktree-")),
     root = path.join(base, "canonical");
+  t.after(() => rmSync(base, { recursive: true, force: true }));
   git(base, "init", "-q", "-b", "main", root);
   git(root, "config", "user.name", "Legacy Test");
   git(root, "config", "user.email", "legacy@example.invalid");

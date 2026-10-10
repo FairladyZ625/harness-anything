@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { daemonConnLogFileStem, DAEMON_CONN_LOG_SCHEMA, openDaemonConnLog } from "../src/conn-log.ts";
 import { resultErrorDetail } from "../src/protocol/json-rpc-dispatch-support.ts";
 
-function tempRoot(): string {
-  return mkdtempSync(path.join(os.tmpdir(), "harness-conn-log-"));
+function tempRoot(t: TestContext): string {
+  const root = mkdtempSync(path.join(os.tmpdir(), "harness-conn-log-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
 }
 function recordsOf(userRoot: string, daemonId = "test-daemon"): Record<string, unknown>[] {
   const dir = path.join(userRoot, "logs");
@@ -74,8 +76,8 @@ test("request failure detail carries the daemon's rejection message over the cod
   );
 });
 
-test("conn log records open/request/close with monotonic ids, active counts, and per-connection request totals", async () => {
-  const userRoot = tempRoot(),
+test("conn log records open/request/close with monotonic ids, active counts, and per-connection request totals", async (t) => {
+  const userRoot = tempRoot(t),
     log = openDaemonConnLog({ userRoot, daemonId: "test-daemon", now: at("2026-08-20T13:00:00Z") });
   const first = log.connectionOpened("uuid-1", "unix-socket"),
     second = log.connectionOpened("uuid-2", "unix-socket");
@@ -171,8 +173,8 @@ test("conn log records open/request/close with monotonic ids, active counts, and
   rmSync(userRoot, { recursive: true, force: true });
 });
 
-test("conn log rolls over at a UTC day boundary and keeps both day files", async () => {
-  const userRoot = tempRoot();
+test("conn log rolls over at a UTC day boundary and keeps both day files", async (t) => {
+  const userRoot = tempRoot(t);
   let iso = "2026-08-20T23:59:58Z";
   const log = openDaemonConnLog({ userRoot, daemonId: "day", now: () => new Date(iso) });
   // The write picks its day file asynchronously, so each day's write is flushed before the clock
@@ -187,8 +189,8 @@ test("conn log rolls over at a UTC day boundary and keeps both day files", async
   rmSync(userRoot, { recursive: true, force: true });
 });
 
-test("conn log prunes day files beyond the kept-days horizon", async () => {
-  const userRoot = tempRoot(),
+test("conn log prunes day files beyond the kept-days horizon", async (t) => {
+  const userRoot = tempRoot(t),
     dir = path.join(userRoot, "logs");
   mkdirSync(dir, { recursive: true });
   for (let day = 1; day <= 12; day += 1)
@@ -210,8 +212,8 @@ test("conn log prunes day files beyond the kept-days horizon", async () => {
   rmSync(userRoot, { recursive: true, force: true });
 });
 
-test("conn log rotates the day file by size into generation suffixes", async () => {
-  const userRoot = tempRoot(),
+test("conn log rotates the day file by size into generation suffixes", async (t) => {
+  const userRoot = tempRoot(t),
     log = openDaemonConnLog({ userRoot, daemonId: "size", maxBytes: 220, now: at("2026-08-20T10:00:00Z") });
   log.connectionOpened("a", "unix-socket");
   log.connectionOpened("b", "unix-socket");
@@ -222,8 +224,8 @@ test("conn log rotates the day file by size into generation suffixes", async () 
   rmSync(userRoot, { recursive: true, force: true });
 });
 
-test("a failing conn log reports once and never throws into the request path", async () => {
-  const userRoot = tempRoot(),
+test("a failing conn log reports once and never throws into the request path", async (t) => {
+  const userRoot = tempRoot(t),
     blocker = path.join(userRoot, "logs");
   writeFileSync(blocker, "not a directory", "utf8");
   const failures: unknown[] = [];
@@ -251,8 +253,8 @@ test("a failing conn log reports once and never throws into the request path", a
   rmSync(userRoot, { recursive: true, force: true });
 });
 
-test("a close for a connection this sink never saw is ignored instead of corrupting the active count", async () => {
-  const userRoot = tempRoot(),
+test("a close for a connection this sink never saw is ignored instead of corrupting the active count", async (t) => {
+  const userRoot = tempRoot(t),
     log = openDaemonConnLog({ userRoot, daemonId: "ghost", now: at("2026-08-20T10:00:00Z") });
   log.connectionOpened("a", "unix-socket");
   log.connectionClosed("never-opened");

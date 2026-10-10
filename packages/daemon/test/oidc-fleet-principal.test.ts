@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -57,8 +57,9 @@ test("center online introspection binds only the current owner's interactive nod
   await assert.rejects(verify({}, {}, true), /Keycloak unavailable/u);
 });
 
-test("the center's local session never supplies a missing edge human credential", async () => {
+test("the center's local session never supplies a missing edge human credential", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-center-session-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, "rbac"));
   writeFileSync(
     path.join(root, "rbac/config.json"),

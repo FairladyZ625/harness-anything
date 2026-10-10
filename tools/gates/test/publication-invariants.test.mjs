@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -106,8 +106,9 @@ test("G29 treats a declared SQLite database as its main file plus -wal and -shm,
   );
 });
 
-test("G29 doc publication rejects extra, missing, and late targets before Git or SQLite mutation", async () => {
+test("G29 doc publication rejects extra, missing, and late targets before Git or SQLite mutation", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g29-doc-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let store, projection;
   try {
     git(rootDir, "init", "-q");

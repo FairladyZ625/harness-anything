@@ -25,6 +25,7 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
     binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     paths = Array.from({ length: 24 }, (_, i) => `context/cache/document-${String(i).padStart(2, "0")}.md`),
     corpus = new Set(paths.map((logical) => path.join(rootDir, "harness", logical)));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   let cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "doc-cache" });
   let store = makeTaskEventReader({ repoId, rootDir }),
@@ -165,6 +166,9 @@ test("discovery preserves unknown files and owners and isolates repositories and
     stores: ReturnType<typeof makeTaskEventReader>[] = [],
     projections: ReturnType<typeof makeTaskProjection>[] = [],
     cells: Awaited<ReturnType<typeof openBootstrappedRepoCell>>[] = [];
+  t.after(() => {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  });
   try {
     for (const [i, rootDir] of roots.entries()) {
       initRepo(rootDir);

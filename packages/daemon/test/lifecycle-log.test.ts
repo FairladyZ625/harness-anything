@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,7 +8,7 @@ import { daemonLifecycleLogPath, openDaemonLifecycleLog, readDaemonLifecycleReco
 
 // The daemon holds one recorder for its whole life (runtime.ts), so a recorder that only rotates on
 // its first record never checks the size again: the retention policy is dead for a long-lived daemon.
-test("one long-lived recorder rechecks the size cap before every append", () => {
+test("one long-lived recorder rechecks the size cap before every append", (t) => {
   const userRoot = mkdtempSync(path.join(os.tmpdir(), "harness-lifecycle-log-")),
     daemonId = "long-lived",
     logDir = path.dirname(daemonLifecycleLogPath(userRoot, daemonId)),
@@ -19,6 +19,7 @@ test("one long-lived recorder rechecks the size cap before every append", () => 
       keptFiles: 2,
       now: () => new Date("2026-09-13T00:00:00.000Z"),
     });
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
   for (let index = 0; index < 200; index += 1)
     log.record({ event: "runtime_spawn", runtimeSessionId: `session-${index}` });
 

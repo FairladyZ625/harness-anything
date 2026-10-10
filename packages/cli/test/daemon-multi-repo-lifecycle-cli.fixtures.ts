@@ -1,9 +1,10 @@
+import type { TestContext } from "node:test";
 import { after } from "node:test";
 import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
@@ -25,13 +26,14 @@ async function authorize(userRoot: string, repoIds: readonly string[]): Promise<
   for (const resource of repoIds) await realm.control({ op: "permit", personId: "owner", resource, actions: scopes });
 }
 
-export async function setup(): Promise<{
+export async function setup(t: TestContext): Promise<{
   root: string;
   userRoot: string;
   alpha: string;
   beta: string;
 }> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const alpha = path.join(root, "alpha"),
     beta = path.join(root, "beta"),
     userRoot = path.join(root, "user");
@@ -39,8 +41,12 @@ export async function setup(): Promise<{
   await authorize(userRoot, ["alpha", "beta"]);
   return { root, userRoot, alpha, beta };
 }
-export async function setupEmpty(repoId = "fresh"): Promise<{ root: string; userRoot: string; repo: string }> {
+export async function setupEmpty(
+  t: TestContext,
+  repoId = "fresh",
+): Promise<{ root: string; userRoot: string; repo: string }> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-init-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const repo = path.join(root, "repo"),
     userRoot = path.join(root, "user");
   mkdirSync(repo);
